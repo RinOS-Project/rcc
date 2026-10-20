@@ -4953,7 +4953,8 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
 static bool debug_inline_parameter_frame_address(
     const Module* mod, const Decl* callee,
     const ModuleDebugInlineParameterValue* value,
-    const ExprList* argument, int64_t* frame_offset) {
+    const ExprList* argument, int64_t* frame_offset,
+    int64_t* pointer_adjustment) {
     const Expr* expression;
     const Expr* address_expression;
     const Expr* operand;
@@ -4962,14 +4963,34 @@ static bool debug_inline_parameter_frame_address(
     const Type* argument_type;
     uint8_t address_size;
     if (!mod || !callee || !value || !value->declaration || !argument ||
-        !argument->expr || argument->cxx_temporary_owner || !frame_offset) {
+        !argument->expr || argument->cxx_temporary_owner || !frame_offset ||
+        !pointer_adjustment) {
         return false;
     }
     expression = argument->expr;
     address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     address_expression = expression;
-    while (address_expression && address_expression->kind == EXPR_CAST &&
-           address_expression->cast_expr) {
+    *pointer_adjustment = 0;
+    while (address_expression) {
+        if (address_expression->cxx_virtual_base_adjustment ||
+            address_expression->cxx_member_pointer_adjustment_valid) {
+            return false;
+        }
+        if (address_expression->cxx_pointer_adjustment_valid) {
+            int64_t adjustment =
+                address_expression->cxx_pointer_adjustment;
+            if ((adjustment > 0 &&
+                 *pointer_adjustment > INT64_MAX - adjustment) ||
+                (adjustment < 0 &&
+                 *pointer_adjustment < INT64_MIN - adjustment)) {
+                return false;
+            }
+            *pointer_adjustment += adjustment;
+        }
+        if (address_expression->kind != EXPR_CAST ||
+            !address_expression->cast_expr) {
+            break;
+        }
         const Type* cast_target = address_expression->type;
         const Type* cast_source = address_expression->cast_expr->type;
         if (!cast_target || cast_target->kind != TYPE_PTR ||
@@ -4977,13 +4998,16 @@ static bool debug_inline_parameter_frame_address(
             cast_target->size != address_size || !cast_source ||
             cast_source->kind != TYPE_PTR ||
             cast_source->cxx_is_member_pointer ||
-            cast_source->size != address_size ||
-            address_expression->cxx_pointer_adjustment_valid ||
-            address_expression->cxx_virtual_base_adjustment ||
-            address_expression->cxx_member_pointer_adjustment_valid) {
+            cast_source->size != address_size) {
             return false;
         }
         address_expression = address_expression->cast_expr;
+    }
+    if (!address_expression || !address_expression->type ||
+        address_expression->type->kind != TYPE_PTR ||
+        address_expression->type->cxx_is_member_pointer ||
+        address_expression->type->size != address_size) {
+        return false;
     }
     operand = address_expression && address_expression->kind == EXPR_ADDR
         ? address_expression->unary_operand : NULL;
@@ -5009,13 +5033,42 @@ static bool debug_inline_parameter_frame_address(
          argument_type->base->kind != TYPE_VOID &&
          !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
              parameter_type->base, argument_type->base, 0u)) ||
-        expression->cxx_pointer_adjustment_valid ||
-        expression->cxx_virtual_base_adjustment ||
-        expression->cxx_member_pointer_adjustment_valid ||
         !debug_inline_parameter_body_is_read_only(callee)) {
         return false;
     }
     return debug_inline_parameter_frame_offset(mod, source, frame_offset);
+}
+
+static size_t debug_build_inline_pointer_value_expression(
+    uint8_t expression[32], int architecture, int64_t frame_offset,
+    int64_t pointer_adjustment) {
+    size_t size = debug_build_expr_breg(
+        expression, architecture, frame_offset, 0u, false);
+    if (pointer_adjustment > 0) {
+        uint64_t value = (uint64_t)pointer_adjustment;
+        expression[size++] = 0x23u; /* DW_OP_plus_uconst */
+        do {
+            uint8_t byte = (uint8_t)(value & 0x7fu);
+            value >>= 7u;
+            if (value != 0u) byte |= 0x80u;
+            expression[size++] = byte;
+        } while (value != 0u);
+    } else if (pointer_adjustment < 0) {
+        int64_t value = pointer_adjustment;
+        bool more;
+        expression[size++] = 0x11u; /* DW_OP_consts */
+        do {
+            uint8_t byte = (uint8_t)((uint64_t)value & 0x7fu);
+            value >>= 7;
+            more = !((value == 0 && (byte & 0x40u) == 0u) ||
+                     (value == -1 && (byte & 0x40u) != 0u));
+            if (more) byte |= 0x80u;
+            expression[size++] = byte;
+        } while (more);
+        expression[size++] = 0x22u; /* DW_OP_plus */
+    }
+    expression[size++] = 0x9fu; /* DW_OP_stack_value */
+    return size;
 }
 
 static void debug_emit_inline_parameter_instances(
@@ -5035,6 +5088,7 @@ static void debug_emit_inline_parameter_instances(
         bool source_frame_based = false;
         int64_t source_frame_offset = 0;
         int64_t source_frame_address_offset = 0;
+        int64_t source_pointer_adjustment = 0;
         int64_t address_addend = 0;
         if (value->has_signed_integer_constant && value->declaration &&
             (origin = debug_inline_parameter_origin_find(
@@ -5096,12 +5150,13 @@ static void debug_emit_inline_parameter_instances(
                        origins, call->callee, value->declaration)) != NULL &&
                    debug_inline_parameter_frame_address(
                        mod, call->callee, value, argument,
-                       &source_frame_address_offset)) {
+                       &source_frame_address_offset,
+                       &source_pointer_adjustment)) {
             uint8_t expression[32];
-            size_t expression_size = debug_build_expr_breg(
-                expression, architecture, source_frame_address_offset,
-                0u, false);
-            expression[expression_size++] = 0x9fu; /* DW_OP_stack_value */
+            size_t expression_size =
+                debug_build_inline_pointer_value_expression(
+                    expression, architecture, source_frame_address_offset,
+                    source_pointer_adjustment);
             section_add_byte(info, 67u);
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);

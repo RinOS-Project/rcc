@@ -146,6 +146,7 @@ constexpr DebugInlineConstexprEnum debug_inline_constexpr_enum_value =
 
 extern "C" {
 DebugInlineAdjustedDerived debug_inline_adjusted_pointer_source;
+DebugInlineAdjustedDerived* debug_inline_adjusted_automatic_escape;
 
 inline int debug_inline_adjusted_base_parameter_inline(
     DebugInlineAdjustedBase* value) {
@@ -156,6 +157,16 @@ int debug_inline_adjusted_base_entry() {
     return debug_inline_adjusted_base_parameter_inline(
         static_cast<DebugInlineAdjustedBase*>(
             &debug_inline_adjusted_pointer_source));
+}
+
+int debug_inline_adjusted_base_automatic_entry() {
+    DebugInlineAdjustedDerived debug_inline_adjusted_automatic_source;
+    int result = debug_inline_adjusted_base_parameter_inline(
+        static_cast<DebugInlineAdjustedBase*>(
+            &debug_inline_adjusted_automatic_source));
+    debug_inline_adjusted_automatic_escape =
+        &debug_inline_adjusted_automatic_source;
+    return result;
 }
 
 constexpr int debug_inline_constexpr_seed = 20;

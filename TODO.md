@@ -7186,8 +7186,13 @@ remains a separate open item.
       qualification and an explicit object-pointer-to-`const void*` cast.
       Verify both forms against the source frame slot in legacy and verified
       optimized i686/AMD64 DWARF.
-- [ ] Register-only or optimized-away sources, pointer conversions that adjust
-      the address, subobject/member addresses, compound dynamic expressions,
+- [x] Preserve a fixed non-virtual derived-to-base pointer adjustment rooted
+      at an addressable automatic object. Accumulate the semantic cast
+      adjustment and encode it in the frame-relative value expression; the
+      regression checks the nonzero base offset (`+4`) in legacy and verified
+      optimized i686/AMD64 DWARF.
+- [ ] Register-only or optimized-away sources, virtual-base/member-pointer
+      adjustments, subobject/member addresses, compound dynamic expressions,
       mutable-parameter tracking, and optimized register/piece tracking remain
       open; this does not implement general variable-location tracking.
 

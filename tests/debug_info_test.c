@@ -3447,7 +3447,8 @@ static void verify_inline_parameter_address_constant(
 static void verify_inline_parameter_frame_address(
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, uint64_t call_die,
-    uint16_t architecture, const char* variable_name) {
+    uint16_t architecture, const char* variable_name,
+    int64_t expected_adjustment) {
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint64_t concrete_parameter;
     uint32_t origin_parameter;
@@ -3464,6 +3465,13 @@ static void verify_inline_parameter_frame_address(
     expression_offset = concrete_parameter + 5u;
     expression_size = read_uleb(
         info->data, info->size, &expression_offset);
+    if (info->data[concrete_parameter] != 67u) {
+        fprintf(stderr,
+                "DWARF inline parameter %s has abbreviation %u; "
+                "expected frame-value location 67 (adjustment %lld)\n",
+                variable_name, (unsigned)info->data[concrete_parameter],
+                (long long)expected_adjustment);
+    }
     assert(info->data[concrete_parameter] == 67u);
     assert(read_u32(info->data, concrete_parameter + 1u) == origin_parameter);
     assert(expression_size >= 3u);
@@ -3473,6 +3481,23 @@ static void verify_inline_parameter_frame_address(
     ++expression_offset;
     expression_frame_offset = read_sleb(
         info->data, info->size, &expression_offset);
+    if (expected_adjustment > 0) {
+        uint64_t encoded_adjustment;
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x23u);
+        encoded_adjustment = read_uleb(
+            info->data, expression_end, &expression_offset);
+        assert(encoded_adjustment == (uint64_t)expected_adjustment);
+    } else if (expected_adjustment < 0) {
+        int64_t encoded_adjustment;
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x11u);
+        encoded_adjustment = read_sleb(
+            info->data, expression_end, &expression_offset);
+        assert(encoded_adjustment == expected_adjustment);
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x22u);
+    }
     assert(expression_offset + 1u == expression_end);
     assert(info->data[expression_offset] == 0x9fu); /* DW_OP_stack_value */
     assert(find_variable_location(
@@ -4908,13 +4933,13 @@ static void verify_inline_debug_object(const char* path,
     }
     verify_inline_parameter_frame_address(
         info, strings, locations, automatic_address_inline_call,
-        architecture, "debug_inline_automatic_address_source");
+        architecture, "debug_inline_automatic_address_source", 0);
     verify_inline_parameter_frame_address(
         info, strings, locations, automatic_const_address_inline_call,
-        architecture, "debug_inline_automatic_const_address_source");
+        architecture, "debug_inline_automatic_const_address_source", 0);
     verify_inline_parameter_frame_address(
         info, strings, locations, automatic_void_address_inline_call,
-        architecture, "debug_inline_automatic_void_address_source");
+        architecture, "debug_inline_automatic_void_address_source", 0);
     verify_inline_parameter_address_constant(
         info, array_plus_constant_inline_call, architecture,
         "debug_inline_addressed_array_source", 12);
@@ -5084,13 +5109,16 @@ static void verify_cxx_inline_adjusted_base_parameter(
     ObjSection* info;
     ObjSection* strings;
     ObjSection* line;
+    ObjSection* locations;
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
-    uint64_t call_die = UINT64_MAX;
+    uint64_t static_call_die = UINT64_MAX;
+    uint64_t automatic_call_die = UINT64_MAX;
 
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     line = objfile_get_section(object, ".debug_line");
+    locations = objfile_get_section(object, ".debug_loc");
     assert(info != NULL && strings != NULL && line != NULL);
     for (uint64_t die = 11u;
          die + 1u + 4u + address_size + 16u <= info->size; ++die) {
@@ -5098,7 +5126,6 @@ static void verify_cxx_inline_adjusted_base_parameter(
         uint32_t name;
         uint32_t call_file;
         uint64_t low_pc_offset;
-        bool has_entry_relocation = false;
         if (info->data[die] != 41u) continue;
         origin = read_u32(info->data, die + 1u);
         if ((uint64_t)origin + 25u > info->size ||
@@ -5116,21 +5143,30 @@ static void verify_cxx_inline_adjusted_base_parameter(
             line, call_file, "tests/debug_info_cxx_member.cpp"));
         for (const ObjReloc* relocation = info->relocs;
              relocation; relocation = relocation->next) {
-            if (relocation->offset != low_pc_offset) continue;
-            assert(relocation->symbol_name != NULL &&
-                   strcmp(relocation->symbol_name,
-                          "debug_inline_adjusted_base_entry") == 0);
-            has_entry_relocation = true;
-            break;
+            if (relocation->offset != low_pc_offset ||
+                !relocation->symbol_name) continue;
+            if (strcmp(relocation->symbol_name,
+                       "debug_inline_adjusted_base_entry") == 0) {
+                static_call_die = die;
+                break;
+            }
+            if (strcmp(relocation->symbol_name,
+                       "debug_inline_adjusted_base_automatic_entry") == 0) {
+                automatic_call_die = die;
+                break;
+            }
         }
-        assert(has_entry_relocation);
-        call_die = die;
-        break;
+        if (static_call_die != UINT64_MAX &&
+            automatic_call_die != UINT64_MAX) break;
     }
-    assert(call_die != UINT64_MAX);
+    assert(static_call_die != UINT64_MAX &&
+           automatic_call_die != UINT64_MAX);
     verify_inline_parameter_address_constant(
-        info, call_die, architecture,
+        info, static_call_die, architecture,
         "debug_inline_adjusted_pointer_source", 4);
+    verify_inline_parameter_frame_address(
+        info, strings, locations, automatic_call_die, architecture,
+        "debug_inline_adjusted_automatic_source", 4);
     objfile_free(object);
 }
 
