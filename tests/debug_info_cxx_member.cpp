@@ -404,6 +404,33 @@ int debug_inline_automatic_pointer_signed_to_unsigned_index_entry(
             debug_inline_automatic_signed_to_unsigned_index));
 }
 
+int debug_inline_automatic_pointer_signed_narrow_index_entry(
+    int* seed, int index_seed) {
+    int* debug_inline_automatic_pointer_signed_narrow_source = seed;
+    int debug_inline_automatic_signed_narrow_index = index_seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_signed_narrow_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_signed_narrow_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_signed_narrow_source +
+        static_cast<short>(debug_inline_automatic_signed_narrow_index));
+}
+
+int debug_inline_automatic_pointer_unsigned_narrow_index_entry(
+    int* seed, int index_seed) {
+    int* debug_inline_automatic_pointer_unsigned_narrow_source = seed;
+    int debug_inline_automatic_unsigned_narrow_index = index_seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_unsigned_narrow_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_unsigned_narrow_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_unsigned_narrow_source +
+        static_cast<unsigned short>(
+            debug_inline_automatic_unsigned_narrow_index));
+}
+
 int debug_inline_automatic_pointer_large_unsigned_constant_index_entry(
     int* seed) {
     int* debug_inline_automatic_pointer_large_unsigned_constant_source = seed;

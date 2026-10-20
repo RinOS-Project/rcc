@@ -7366,7 +7366,13 @@ remains a separate open item.
       so signed-to-unsigned conversion zero-extends the stored bits on AMD64.
       Verify i686/AMD64 legacy and verified optimized DWARF; native-Windows
       `make SHELL=cmd.exe test-debug-info` passes.
-- [ ] Value-changing narrowing casts and cast chains that require intermediate
+- [x] Preserve frame-backed narrowing casts when the final index width is no
+      wider than the narrowest cast in its chain. On little-endian x86, load
+      the final low bytes directly and sign- or zero-extend according to the
+      final type. Verify signed and unsigned `int`-to-`short` indexes in legacy
+      and verified optimized i686/AMD64 DWARF; native-Windows
+      `make SHELL=cmd.exe test-debug-info` passes.
+- [ ] Narrow-then-widen cast chains whose final width exceeds an intermediate
       truncation; mixed-width subexpressions that cannot be safely flattened;
       non-frame-backed operands; constants wider than the target address;
       multiplication beyond same-width unsigned or signed compile-time

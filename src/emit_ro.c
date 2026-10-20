@@ -4954,6 +4954,7 @@ static bool debug_inline_frame_integer_index_source(
     const Expr* index = expression;
     const Type* converted_type;
     const Decl* source;
+    uint8_t narrowest_width = 0u;
     if (!index || !declaration || !value_type || !index->type) {
         return false;
     }
@@ -4969,13 +4970,18 @@ static bool debug_inline_frame_integer_index_source(
         if (!cast_source ||
             !debug_inline_integer_constant_type(cast_source) ||
             cast_source->size <= 0 ||
-            cast_source->size > converted_type->size ||
-            (cast_source->is_unsigned != converted_type->is_unsigned &&
-             cast_source->size != converted_type->size &&
+            cast_source->size > 8 ||
+            (cast_source->size < converted_type->size &&
+             cast_source->is_unsigned != converted_type->is_unsigned &&
              (!cast_source->is_unsigned || converted_type->is_unsigned)) ||
             cast_source->is_volatile || cast_source->is_reference ||
             cast_source->is_atomic) {
             return false;
+        }
+        if (cast_source->size > converted_type->size &&
+            (narrowest_width == 0u ||
+             converted_type->size < (int)narrowest_width)) {
+            narrowest_width = (uint8_t)converted_type->size;
         }
         converted_type = cast_source;
         index = index->cast_expr;
@@ -4992,6 +4998,16 @@ static bool debug_inline_frame_integer_index_source(
         return false;
     }
     *declaration = source;
+    if (narrowest_width != 0u) {
+        /* All supported targets are little-endian x86.  If the final result
+         * is no wider than the narrowest cast, its bits are the low bytes of
+         * the original slot regardless of intervening integer promotions.
+         * A later widening after truncation needs explicit conversion
+         * operations and is intentionally not attributed by this path. */
+        if (expression->type->size > (int)narrowest_width) return false;
+        *value_type = expression->type;
+        return true;
+    }
     /* Equal-width signed/unsigned conversions preserve the stored bits; use
      * the final expression type to choose extension when moving to the
      * target-address width.  For widening conversions, retain the source
