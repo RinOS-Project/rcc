@@ -572,6 +572,8 @@ static bool x86_legal_copy_selected_metadata(
     }
     destination->immediate = source->immediate;
     destination->auxiliary = source->auxiliary;
+    destination->seq_cst_atomic_store =
+        source->seq_cst_atomic_store;
     destination->predicate = source->predicate;
     destination->cycle_break = source->cycle_break;
     destination->symbol_is_code = source->symbol_is_code;
@@ -1591,6 +1593,9 @@ static bool x86_legal_selected_shape(
 
 static bool x86_legal_instruction_shape(
     const RccX86LegalInstruction* instruction) {
+    if (instruction->seq_cst_atomic_store &&
+        (instruction->opcode != RCC_X86_LEGAL_SELECTED ||
+         instruction->selected_opcode != RCC_X86_STORE)) return false;
     switch (instruction->opcode) {
         case RCC_X86_LEGAL_SELECTED:
             return x86_legal_selected_shape(instruction);
@@ -2013,6 +2018,19 @@ bool rcc_x86_verify_legal_function(
                 (instruction->target_count != 0u &&
                  !instruction->targets) ||
                 !x86_legal_instruction_shape(instruction) ||
+                (instruction->seq_cst_atomic_store &&
+                 (instruction->operand_count != 2u ||
+                  (instruction->operand_types[0].kind !=
+                       RCC_MIR_TYPE_INTEGER &&
+                   instruction->operand_types[0].kind !=
+                       RCC_MIR_TYPE_POINTER) ||
+                  (instruction->operand_types[0].kind ==
+                       RCC_MIR_TYPE_INTEGER &&
+                   instruction->operand_types[0].bit_width != 8u &&
+                   instruction->operand_types[0].bit_width != 16u &&
+                   instruction->operand_types[0].bit_width != 32u &&
+                   (instruction->operand_types[0].bit_width != 64u ||
+                    function->target != RCC_X86_TARGET_X86_64)))) ||
                 (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
                  instruction->selected_opcode == RCC_X86_FLOAT_EXTEND &&
                  ((function->target != RCC_X86_TARGET_I686 &&

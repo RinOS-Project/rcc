@@ -331,6 +331,7 @@ RccIrInstruction* rcc_ir_append(RccIrBlock* block, RccIrOpcode opcode,
     instruction->symbol_is_code = false;
     instruction->symbol_is_tls = false;
     instruction->volatile_access = false;
+    instruction->seq_cst_atomic_store = false;
     instruction->callee_value = RCC_IR_VALUE_NONE;
     instruction->block = block;
     if (operand_count != 0u) {
@@ -384,6 +385,11 @@ void rcc_ir_set_predicate(RccIrInstruction* instruction,
 void rcc_ir_set_volatile_access(RccIrInstruction* instruction,
                                 bool volatile_access) {
     if (instruction) instruction->volatile_access = volatile_access;
+}
+
+void rcc_ir_set_seq_cst_atomic_store(RccIrInstruction* instruction,
+                                     bool atomic_store) {
+    if (instruction) instruction->seq_cst_atomic_store = atomic_store;
 }
 
 void rcc_ir_set_callee(RccIrInstruction* instruction, const char* callee) {
@@ -522,6 +528,13 @@ static bool ir_verify_instruction_types(
         instruction->opcode != RCC_IR_STORE) {
         return ir_verify_error(verifier,
                                "volatile access flag requires load or store");
+    }
+    if (instruction->seq_cst_atomic_store &&
+        (instruction->opcode != RCC_IR_STORE ||
+         !instruction->volatile_access)) {
+        return ir_verify_error(
+            verifier,
+            "seq_cst atomic-store metadata requires an observable store");
     }
     if (instruction->sysv_variadic_call &&
         instruction->opcode != RCC_IR_CALL) {
@@ -829,6 +842,16 @@ static bool ir_verify_instruction_types(
                 second.kind != RCC_IR_TYPE_POINTER) {
                 return ir_verify_error(verifier,
                                        "store has incompatible operands");
+            }
+            if (instruction->seq_cst_atomic_store &&
+                ((first.kind != RCC_IR_TYPE_INTEGER &&
+                  first.kind != RCC_IR_TYPE_POINTER) ||
+                 (first.kind == RCC_IR_TYPE_INTEGER &&
+                  first.bit_width != 8u && first.bit_width != 16u &&
+                  first.bit_width != 32u && first.bit_width != 64u))) {
+                return ir_verify_error(
+                    verifier,
+                    "seq_cst atomic store has an unsupported scalar width");
             }
             return true;
         case RCC_IR_GEP:

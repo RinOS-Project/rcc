@@ -59,6 +59,15 @@ static bool x86_type_supported_for_target(RccMirType type,
         type.bit_width <= maximum_width;
 }
 
+static bool x86_atomic_store_operand_supported(
+    RccMirType type, RccX86Target target) {
+    if (type.kind == RCC_MIR_TYPE_POINTER) return true;
+    if (type.kind != RCC_MIR_TYPE_INTEGER) return false;
+    return type.bit_width == 8u || type.bit_width == 16u ||
+        type.bit_width == 32u ||
+        (type.bit_width == 64u && target == RCC_X86_TARGET_X86_64);
+}
+
 static bool x86_function_return_supported(RccMirType type,
                                           RccX86Target target) {
     return (target == RCC_X86_TARGET_I686 &&
@@ -467,6 +476,8 @@ static bool x86_select_instruction(
     }
     machine->immediate = instruction->immediate;
     machine->predicate = instruction->predicate;
+    machine->seq_cst_atomic_store =
+        instruction->seq_cst_atomic_store;
     machine->sysv_variadic_call = instruction->sysv_variadic_call;
     machine->sysv_memory_argument_count =
         instruction->sysv_memory_argument_count;
@@ -536,6 +547,8 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
         (instruction->target_count != 0u && !instruction->targets)) {
         return false;
     }
+    if (instruction->seq_cst_atomic_store &&
+        instruction->opcode != RCC_X86_STORE) return false;
     switch (instruction->opcode) {
         case RCC_X86_COPY:
             return instruction->has_destination &&
@@ -711,6 +724,10 @@ bool rcc_x86_verify_function(
             if (!x86_instruction_shape(instruction) ||
                 !x86_type_supported_for_target(
                     instruction->type, function->target) ||
+                (instruction->seq_cst_atomic_store &&
+                 (instruction->operand_count != 2u ||
+                  !x86_atomic_store_operand_supported(
+                      instruction->operand_types[0], function->target))) ||
                 (instruction->sysv_variadic_call &&
                  (instruction->opcode != RCC_X86_CALL ||
                   function->target != RCC_X86_TARGET_X86_64)) ||

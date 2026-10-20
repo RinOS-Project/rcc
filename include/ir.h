@@ -149,6 +149,8 @@ struct RccIrInstruction {
     RccIrIntPredicate predicate;
     /* Preserve observable C/C++ volatile memory accesses through lowering. */
     bool volatile_access;
+    /* Implement a C seq_cst atomic lvalue store with an x86 memory XCHG. */
+    bool seq_cst_atomic_store;
     /* Mark the base of an x86-64 SysV variadic callee's register-save area. */
     bool sysv_varargs_gpr_save_area;
     /* Emit the x86-64 SysV %al vector-register count before this call. */
@@ -254,6 +256,8 @@ void rcc_ir_set_predicate(RccIrInstruction* instruction,
                           RccIrIntPredicate predicate);
 void rcc_ir_set_volatile_access(RccIrInstruction* instruction,
                                 bool volatile_access);
+void rcc_ir_set_seq_cst_atomic_store(RccIrInstruction* instruction,
+                                     bool atomic_store);
 void rcc_ir_set_callee(RccIrInstruction* instruction, const char* callee);
 
 bool rcc_ir_verify_function(const RccIrFunction* function, char* error,

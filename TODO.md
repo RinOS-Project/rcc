@@ -7684,15 +7684,17 @@ remains a separate open item.
       C++ class lifetime, and cleanup/unwind/control-flow interactions remain
       open.
 
-## RCC continuation (2026-10-20, atomic VLA typed-SSA gap audit)
+## RCC continuation (2026-10-20, seq_cst atomic integer VLA access)
 
-- [ ] Atomic scalar VLA elements are currently excluded by
-      `lower_vla_object_type_supported_internal` on `Type.is_atomic`. A focused
-      `_Atomic int values[count]` load/store/RMW probe reports the whole
-      function outside the typed-SSA subset. Existing `test-atomic-builtins`
-      and `test-atomic-language` exercise legacy code generation, not verified
-      SSA. The IR/MIR has only ordinary load/store plus a volatile-access bit;
-      it has no atomic ordering or read-modify-write operation. Implement
-      atomic load/store/RMW semantics through IR, optimization, MIR, and x86
-      selection/encoding before admitting atomic VLA elements; then require
-      zero fallback and dual-architecture runtime/oracle coverage.
+- [x] Admit `_Atomic int` VLA elements through typed SSA for direct C lvalue
+      loads and stores. Preserve each access through optimization, and encode
+      sequentially consistent stores as memory `XCHG`; do not route this case
+      through legacy code generation. `test-verified-goto` emits all 32
+      functions with zero fallback for i686/AMD64 at `-O0`/`-O2`, executes both
+      AMD64 objects, and agrees with the GCC C17 oracle. `test-ir` verifies an
+      actual memory-XCHG encoding for both x86 targets and executes the x64
+      store. No push.
+- [ ] Atomic RMW, explicit-order `__atomic_*` builtins, other scalar widths,
+      pointer/floating/aggregate atomics, and general C++ atomic operations
+      remain open. The current IR/MIR metadata models only the C lvalue
+      seq_cst store; it is not a general atomic-order/RMW representation.

@@ -1043,6 +1043,8 @@ bool rcc_mir_lower_ir(const RccIrFunction* ir_function,
             instruction->predicate = ir_instruction->predicate;
             instruction->volatile_access =
                 ir_instruction->volatile_access;
+            instruction->seq_cst_atomic_store =
+                ir_instruction->seq_cst_atomic_store;
             instruction->sysv_varargs_gpr_save_area =
                 ir_instruction->sysv_varargs_gpr_save_area;
             instruction->sysv_variadic_call =

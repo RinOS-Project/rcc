@@ -20,6 +20,7 @@ typedef struct {
     RccIrType type;
     bool is_unsigned;
     bool volatile_access;
+    bool atomic_access;
     bool valid;
 } RccIrLowerValue;
 
@@ -457,6 +458,7 @@ static RccIrLowerValue lower_invalid_value(void) {
     value.type = rcc_ir_type_void();
     value.is_unsigned = false;
     value.volatile_access = false;
+    value.atomic_access = false;
     value.valid = false;
     return value;
 }
@@ -468,6 +470,7 @@ static RccIrLowerValue lower_value(RccIrValue id, RccIrType type,
     value.type = type;
     value.is_unsigned = is_unsigned;
     value.volatile_access = false;
+    value.atomic_access = false;
     value.valid = id != RCC_IR_VALUE_NONE;
     return value;
 }
@@ -2657,6 +2660,8 @@ static RccIrLowerValue lower_lvalue_address(
     }
     if (object_type && object_type->is_volatile) volatile_access = true;
     address.volatile_access = volatile_access;
+    address.atomic_access = expression->type &&
+        expression->type->is_atomic;
     return address;
 }
 
@@ -2674,7 +2679,8 @@ static RccIrLowerValue lower_load_address(RccIrLowerContext* context,
                         NULL, 0u);
     if (!load) return lower_invalid_value();
     rcc_ir_set_volatile_access(
-        load, address.volatile_access || ast_type->is_volatile);
+        load, address.volatile_access || ast_type->is_volatile ||
+            address.atomic_access || ast_type->is_atomic);
     return lower_value(load->result, type, ast_type->is_unsigned);
 }
 
@@ -2825,7 +2831,10 @@ static bool lower_store_address(RccIrLowerContext* context,
             context, RCC_IR_STORE, rcc_ir_type_void(),
             operands, 2u, NULL, 0u);
         if (!store) return false;
-        rcc_ir_set_volatile_access(store, address.volatile_access);
+        rcc_ir_set_volatile_access(
+            store, address.volatile_access || address.atomic_access);
+        rcc_ir_set_seq_cst_atomic_store(
+            store, address.atomic_access);
         return true;
     }
 }
@@ -18806,8 +18815,15 @@ static bool lower_vla_object_type_supported_internal(
     const Type* type, unsigned depth) {
     RccIrType lower_type_result;
     const TypeField* field;
+    bool atomic_scalar_supported;
+    atomic_scalar_supported = type && type->is_atomic &&
+        type_is_integer((Type*)type) &&
+        (type->size == 1 || type->size == 2 ||
+         type->size == 4 ||
+         (type->size == 8 && g_opts.target_arch == ARCH_X64));
     if (!type || depth >= 32u || type->align <= 0 || type->align > 4096 ||
-        (type->align & (type->align - 1)) != 0 || type->is_atomic) {
+        (type->align & (type->align - 1)) != 0 ||
+        (type->is_atomic && !atomic_scalar_supported)) {
         return false;
     }
     if (type->kind == TYPE_ARRAY) {

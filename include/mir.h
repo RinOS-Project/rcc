@@ -92,6 +92,7 @@ struct RccMirInstruction {
     uint32_t alignment;
     RccIrIntPredicate predicate;
     bool volatile_access;
+    bool seq_cst_atomic_store;
     bool sysv_varargs_gpr_save_area;
     bool sysv_variadic_call;
     RccSysvMemoryArgument* sysv_memory_arguments;

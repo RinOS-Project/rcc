@@ -57,6 +57,7 @@ struct RccX86LegalInstruction {
     bool symbol_is_code;
     bool symbol_is_tls;
     bool has_callee;
+    bool seq_cst_atomic_store;
     bool sysv_variadic_call;
     uint8_t sysv_vector_argument_count;
     uint32_t sysv_stack_alignment;

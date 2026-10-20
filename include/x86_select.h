@@ -76,6 +76,7 @@ struct RccX86Instruction {
     bool symbol_is_code;
     bool symbol_is_tls;
     bool has_callee;
+    bool seq_cst_atomic_store;
     bool sysv_variadic_call;
     RccSysvMemoryArgument* sysv_memory_arguments;
     size_t sysv_memory_argument_count;

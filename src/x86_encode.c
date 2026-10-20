@@ -1644,6 +1644,14 @@ static bool x86_emit_indirect_store(
     return x86_emit_indirect_modrm(encoder, source, address);
 }
 
+static bool x86_emit_indirect_exchange(
+    RccX86Encoder* encoder, RccX86HardwareGpr address,
+    RccX86HardwareGpr value, uint16_t size) {
+    if (!x86_emit_prefix(encoder, size, value, address, size == 1u) ||
+        !x86_emit_u8(encoder, size == 1u ? 0x86u : 0x87u)) return false;
+    return x86_emit_indirect_modrm(encoder, value, address);
+}
+
 static bool x86_emit_indirect_store_displacement(
     RccX86Encoder* encoder, RccX86HardwareGpr address,
     int32_t displacement, RccX86HardwareGpr source,
@@ -2042,6 +2050,8 @@ static bool x86_emit_pointer_store(
         return true;
     }
     bool preserve_value = value.kind != RCC_X86_VALUE_GPR;
+    bool preserve_atomic_value =
+        instruction->seq_cst_atomic_store && !preserve_value;
     address_register = preserve_address
         ? x86_choose_scratch(address, value) : address.gpr;
     value_register = preserve_value
@@ -2057,8 +2067,15 @@ static bool x86_emit_pointer_store(
              encoder->function->pointer_size)) ||
         (preserve_value && !x86_emit_load(
              encoder, value_register, value, value.size)) ||
-        !x86_emit_indirect_store(
-            encoder, address_register, value_register, value.size) ||
+        (preserve_atomic_value &&
+         !x86_emit_push(encoder, value_register)) ||
+        !(instruction->seq_cst_atomic_store
+              ? x86_emit_indirect_exchange(
+                    encoder, address_register, value_register, value.size)
+              : x86_emit_indirect_store(
+                    encoder, address_register, value_register, value.size)) ||
+        (preserve_atomic_value &&
+         !x86_emit_pop(encoder, value_register)) ||
         (preserve_value && !x86_emit_pop(
              encoder, value_register)) ||
         (preserve_address && !x86_emit_pop(
