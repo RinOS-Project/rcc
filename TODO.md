@@ -472,8 +472,14 @@
         for loop、switchのcase/default/breakを検証済み。
         `test-verified-cxx-reference-local` はi686/AMD64の`-O0`/`-O2`で各25関数・
         fallback 0、4 verified object実行、PE-i386生成とlegacy AMD64実行を通過。
-  - [ ] より一般的なconstructor bodyのnested/fallthrough switch、virtualまたはthrowing base
-        construction、nontrivial/deleted target copy constructor、call引数以外の
+  - [x] Base constructor callsが明示的に`noexcept`で、derived constructorのbodyが空、
+        field initializerがなく、own data memberがscalarのみの場合、constructor自身に
+        `noexcept`指定がなくてもtyped SSAでlowerする。`VerifiedDerived`から`noexcept`を
+        外し、i686/AMD64の`-O0`/`-O2`で25関数・fallback 0、object実行とlegacy AMD64
+        executionを`test-verified-cxx-reference-local`で検証。
+        `test-verified-cxx-throwing-temporary`も成功。
+  - [ ] より一般的なconstructor bodyのnested/fallthrough switch、potentially-throwing base
+        constructor、virtual base construction、nontrivial/deleted target copy constructor、call引数以外の
         full-expression cleanupと未検証の例外経路が残る。標準conversion subsequenceと
         pointer-to-memberを含む全rank/partial orderingも未完了
   - [x] Namespace extension compatibility: verify reopened named and
@@ -7263,6 +7269,11 @@ remains a separate open item.
       survives to scope exit and is destroyed exactly once. The focused target
       emits twenty-one functions with zero fallback on i686/AMD64 at `-O0`/
       `-O2` and runs the AMD64 generated and legacy paths (`65707`).
+- [x] Keep the same-type conditional class prvalue passed to
+      `read_conditional_lifetime_argument(const T&)` in typed SSA. The x64
+      translation-unit gate reports only the expected fallback for
+      `LifetimeExtendedDerived(int*, int)`, whose direct base constructor may
+      throw; the conditional reader itself is no longer the fallback.
 
 ## RCC continuation (2026-10-20, conditional local reference temporaries)
 
@@ -7279,8 +7290,9 @@ remains a separate open item.
       `58231`, and `2231`.
       Implementation/test commits: `a52eac6`, `319cc2d`, `d14b5d0`,
       `2a7fb2e`.
-- [ ] Other conditional arm forms, converted reference bindings, static/TLS
-      lifetime, and other full-expression cleanup remain open.
+- [ ] Other conditional arm forms beyond the verified same-type call-argument
+      prvalue, converted reference bindings, static/TLS lifetime, and other
+      full-expression cleanup remain open.
 
 ## RCC continuation (2026-10-20, automatic temporary subobject references)
 

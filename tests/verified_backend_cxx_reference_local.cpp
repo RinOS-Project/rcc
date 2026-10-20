@@ -23,7 +23,7 @@ struct VerifiedBase {
 };
 
 struct VerifiedDerived : VerifiedBase {
-    VerifiedDerived(int* order, int initial) noexcept
+    VerifiedDerived(int* order, int initial)
         : VerifiedBase(order, initial) {}
 
     ~VerifiedDerived() noexcept {

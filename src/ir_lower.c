@@ -1410,6 +1410,26 @@ static RccIrLowerValue lower_cast(RccIrLowerContext* context,
                                    &operand, 1u, NULL, 0u);
     } else if (source.type.kind == RCC_IR_TYPE_INTEGER &&
                target.kind == RCC_IR_TYPE_POINTER) {
+        RccIrType pointer_integer = rcc_ir_type_integer(
+            g_opts.target_arch == ARCH_X64 ? 64u : 32u);
+        if (source.type.bit_width == 0u ||
+            pointer_integer.bit_width == 0u) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        if (source.type.bit_width < pointer_integer.bit_width) {
+            instruction = lower_append(
+                context, source.is_unsigned ? RCC_IR_ZEXT : RCC_IR_SEXT,
+                pointer_integer, &operand, 1u, NULL, 0u);
+            if (!instruction) return lower_invalid_value();
+            operand = instruction->result;
+        } else if (source.type.bit_width > pointer_integer.bit_width) {
+            instruction = lower_append(
+                context, RCC_IR_TRUNC, pointer_integer,
+                &operand, 1u, NULL, 0u);
+            if (!instruction) return lower_invalid_value();
+            operand = instruction->result;
+        }
         instruction = lower_append(context, RCC_IR_INT_TO_PTR, target,
                                    &operand, 1u, NULL, 0u);
     } else if (source.type.kind == RCC_IR_TYPE_INTEGER &&
@@ -15578,6 +15598,34 @@ static bool lower_cxx_constructor_initializer_expression_supported(
     }
 }
 
+static bool lower_cxx_constructor_body_is_empty(const Decl* declaration) {
+    const Stmt* body = declaration ? declaration->func_body : NULL;
+    return body && body->kind == STMT_BLOCK && body->block_stmts == NULL;
+}
+
+/* A potentially-throwing exception specification does not itself add a
+ * throwing operation. When a constructor has an empty body, no field
+ * initializers, and only scalar data members, the validated base/member
+ * initializers below are the complete operation set. Base constructor calls
+ * are independently required to be noexcept, so this shape needs no partial
+ * construction cleanup edge. */
+static bool lower_cxx_empty_body_constructor_with_bases_supported(
+    const CxxClass* cls, const Decl* declaration) {
+    if (!cls || !declaration || declaration->func_is_noexcept) return true;
+    if (!lower_cxx_constructor_body_is_empty(declaration) ||
+        cls->has_field_initializer || cls->virtual_base_count != 0) {
+        return false;
+    }
+    for (const TypeParam* member = cls->fields; member;
+         member = member->next) {
+        if (!member->is_static &&
+            (!member->type || !type_is_scalar(member->type))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool lower_cxx_initialize_constructor_members(
     RccIrLowerContext* context, const Decl* declaration) {
     const CxxClass* cls;
@@ -15602,7 +15650,8 @@ static bool lower_cxx_initialize_constructor_members(
         cls->vtable_size != 0 ||
         (cls->base_count != 0 &&
          (!cls->bases || !cls->base_offsets ||
-          !declaration->func_is_noexcept)) ||
+          !lower_cxx_empty_body_constructor_with_bases_supported(
+              cls, declaration))) ||
         cls->has_field_initializer || !declaration->func_this_param ||
         !(this_local = lower_find_local(
               context, declaration->func_this_param))) {
@@ -16444,7 +16493,7 @@ static RccIrLowerValue lower_cxx_delete_array_expression(
         return lower_invalid_value();
     }
     if (!lower_cxx_emit_destructor_call(context, destructor, element) ||
-        (!destructor->func_is_noexcept &&
+        ((!destructor->func_is_noexcept || cls->virtual_base_count != 0) &&
          !lower_cxx_emit_destructor_subobjects_impl(
              context, cls, element, 0u, true, true))) {
         return lower_invalid_value();
@@ -17581,7 +17630,7 @@ static RccIrLowerValue lower_cxx_delete_expression(
 
     if (destructor) {
         const CxxClass* cls = object_type ? object_type->cxx_class : NULL;
-        bool complete_destruction = cls &&
+        bool complete_destruction = cls && cls->virtual_base_count == 0 &&
             lower_cxx_destructor_subobjects_supported(cls, 0u);
         if (!cls || !destructor->func_is_cxx_destructor ||
             !destructor->func_body || !destructor->link_name ||
