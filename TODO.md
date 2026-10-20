@@ -7469,3 +7469,15 @@ remains a separate open item.
       target builds, generated x86/AMD64 execution, and the GCC host oracle.
 - [ ] Other nested member types, member-pointer owner adjustments, and general
       C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-20, array-to-pointer qualification ranking)
+
+- [x] Rank array-to-pointer decay with added pointee cv-qualification as an
+      Exact Match sequence, ahead of decay followed by pointer-to-void
+      conversion. An `int[N]` argument now selects `const int*` over
+      `const void*`, matching GCC C++20; mutable and const arrays are covered.
+      `make SHELL=cmd.exe test-cxx-conversion-operator` and the complete
+      `make SHELL=cmd.exe test-cxx` aggregate pass, including i686/AMD64 output,
+      generated AMD64 execution, and GCC host execution.
+- [ ] General standard-conversion subsequences, reference bindings, other
+      pointer-to-member ranks, and user-defined conversion ties remain open.

@@ -9228,7 +9228,11 @@ static int cxx_conversion_rank_detail_at_context(
         }
         if ((target_base && target_base->kind == TYPE_VOID) ||
             type_is_compatible(source_base, target_base)) {
-            return cxx_same_parameter_type(source_base, target_base, false)
+            /* Array-to-pointer decay is an Exact Match sequence even when
+             * the destination pointee adds cv-qualification. Keep that
+             * sequence ahead of array decay followed by a pointer
+             * conversion (for example `int[N]` to `const void*`). */
+            return cxx_same_parameter_type(source_base, target_base, true)
                 ? 1 : 2;
         }
         return -1;

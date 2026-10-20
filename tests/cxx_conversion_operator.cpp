@@ -738,6 +738,14 @@ int choose_pointer_void_qualification(const void*) {
     return 277;
 }
 
+int choose_array_pointer_or_void(const int*) {
+    return 293;
+}
+
+long choose_array_pointer_or_void(const void*) {
+    return 307;
+}
+
 int take_pointer_conversion_bool(bool value) {
     return value ? 109 : 113;
 }
@@ -942,6 +950,8 @@ int main() {
     ConversionDerivedPointerTarget derived_pointer_target{67};
     ConversionPointerSource pointer_source{&derived_pointer_target};
     int conversion_array_values[2] = {29, 31};
+    int array_pointer_values[2] = {31, 37};
+    const int const_array_pointer_values[2] = {41, 43};
     ArrayReferenceConversionSource array_reference_source{
         &conversion_array_values};
     int pointer_bool_value = 1;
@@ -1064,6 +1074,8 @@ int main() {
         choose_pointer_conversion(pointer_source) != 71 ||
         choose_cv_base_pointer_or_void(pointer_source.value) != 281 ||
         choose_cv_base_pointer_or_void(pointer_source) != 281 ||
+        choose_array_pointer_or_void(array_pointer_values) != 293 ||
+        choose_array_pointer_or_void(const_array_pointer_values) != 293 ||
         choose_pointer_to_bool_or_void(pointer_source) != 229 ||
         choose_pointer_void_qualification(pointer_source) != 271 ||
         static_cast<void*>(pointer_void_result_source) !=
