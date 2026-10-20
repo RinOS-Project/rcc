@@ -7320,11 +7320,17 @@ remains a separate open item.
       `&array[((unsigned long long)0 - 1ULL) + 1ULL]` produces addend `0`, and
       out-of-bounds `&array[2 + 3]` is not attributed on i686/AMD64 legacy and
       verified optimized DWARF; native-Windows `test-debug-info` passes.
-- [ ] Unsigned computed arithmetic narrower than the target address that
-      requires source-width wrap, large unsigned constants outside signed
-      displacement range, multiplication and other unhandled index operators,
-      casts around computed expressions, pointer chains with more than eight
-      dynamic terms, virtual-base/member-
+- [x] Compose same-width unsigned `+`/`-` trees over at least two direct,
+      frame-backed locals when their width is narrower than the target address.
+      Mask the computed index to its source width before element scaling. The
+      `first - second` regression verifies subtraction, the wrap mask, scaling,
+      and both source locations on i686/AMD64 in legacy and verified optimized
+      DWARF.
+- [ ] Unsigned computed indexes containing constants, casts, mixed-width
+      subexpressions, or non-frame-backed operands; large unsigned constants
+      outside signed displacement range; multiplication and other unhandled
+      index operators; pointer chains with more than eight dynamic terms;
+      virtual-base/member-
       pointer adjustments, negative displacements not rooted at a statically
       indexed element, nested/VLA/pointer-based dynamic subobject paths,
       non-frame-backed indexes, and optimized register/piece location tracking

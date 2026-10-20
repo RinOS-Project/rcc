@@ -4905,6 +4905,14 @@ typedef struct DebugInlineDynamicPointerIndexTerm {
     bool subtract;
 } DebugInlineDynamicPointerIndexTerm;
 
+typedef struct DebugInlineDynamicPointerIndexGroup {
+    uint8_t first_term;
+    uint8_t term_count;
+    uint8_t value_size;
+    int element_size;
+    bool subtract;
+} DebugInlineDynamicPointerIndexGroup;
+
 enum {
     DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT = 8,
     DEBUG_INLINE_POINTER_VALUE_EXPRESSION_CAPACITY = 512
@@ -4913,7 +4921,10 @@ enum {
 typedef struct DebugInlineDynamicPointerIndex {
     DebugInlineDynamicPointerIndexTerm
         terms[DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT];
+    DebugInlineDynamicPointerIndexGroup
+        groups[DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT];
     uint8_t term_count;
+    uint8_t group_count;
     bool is_dynamic;
 } DebugInlineDynamicPointerIndex;
 
@@ -4962,6 +4973,63 @@ static bool debug_inline_frame_integer_index_source(
     }
     *declaration = source;
     *value_type = source->type;
+    return true;
+}
+
+static bool debug_inline_collect_unsigned_computed_index_terms(
+    const Module* mod, const Expr* expression, int polarity,
+    uint8_t value_size, int element_size,
+    DebugInlineDynamicPointerIndexTerm terms[
+        DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT], uint8_t* term_count,
+    unsigned int depth) {
+    const Type* expression_type;
+    const Decl* declaration;
+    DebugInlineDynamicPointerIndexTerm* term;
+    if (!mod || !expression || !expression->type ||
+        (polarity != 1 && polarity != -1) || value_size == 0u ||
+        element_size <= 0 || !terms || !term_count || depth >= 32u) {
+        return false;
+    }
+    expression_type = expression->type;
+    if (!debug_inline_integer_constant_type(expression_type) ||
+        expression_type->size != value_size ||
+        !expression_type->is_unsigned || expression_type->is_volatile ||
+        expression_type->is_reference || expression_type->is_atomic) {
+        return false;
+    }
+    if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB) {
+        if (!expression->binary_lhs || !expression->binary_rhs) return false;
+        return debug_inline_collect_unsigned_computed_index_terms(
+                   mod, expression->binary_lhs, polarity, value_size,
+                   element_size, terms, term_count, depth + 1u) &&
+               debug_inline_collect_unsigned_computed_index_terms(
+                   mod, expression->binary_rhs,
+                   expression->kind == EXPR_SUB ? -polarity : polarity,
+                   value_size, element_size, terms, term_count, depth + 1u);
+    }
+    if (expression->kind != EXPR_IDENT || !expression->ident_decl ||
+        *term_count >= DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT) {
+        return false;
+    }
+    declaration = expression->ident_decl;
+    if ((declaration->kind != DECL_VAR &&
+         declaration->kind != DECL_PARAM) || !declaration->type ||
+        !debug_inline_integer_constant_type(declaration->type) ||
+        declaration->type->size != value_size ||
+        !declaration->type->is_unsigned || declaration->type->is_volatile ||
+        declaration->type->is_reference || declaration->type->is_atomic) {
+        return false;
+    }
+    term = &terms[*term_count];
+    if (!debug_inline_parameter_frame_offset(
+            mod, declaration, &term->frame_offset)) {
+        return false;
+    }
+    term->element_size = element_size;
+    term->value_size = value_size;
+    term->is_unsigned = true;
+    term->subtract = polarity < 0;
+    ++*term_count;
     return true;
 }
 
@@ -5030,6 +5098,36 @@ static bool debug_inline_append_dynamic_integer_index(
         term->is_unsigned = value_type->is_unsigned;
         term->subtract = polarity < 0;
         ++dynamic_index->term_count;
+        dynamic_index->is_dynamic = true;
+        return true;
+    }
+    if (expression_type->is_unsigned &&
+        expression_type->size < (int)address_size &&
+        (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB)) {
+        DebugInlineDynamicPointerIndexTerm collected_terms[
+            DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT];
+        uint8_t collected_count = 0u;
+        DebugInlineDynamicPointerIndexGroup* group;
+        if (!debug_inline_collect_unsigned_computed_index_terms(
+                mod, expression, 1, (uint8_t)expression_type->size,
+                element_size, collected_terms, &collected_count, 0u) ||
+            collected_count < 2u ||
+            dynamic_index->term_count + collected_count >
+                DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT ||
+            dynamic_index->group_count >=
+                DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT) {
+            return false;
+        }
+        group = &dynamic_index->groups[dynamic_index->group_count++];
+        group->first_term = dynamic_index->term_count;
+        group->term_count = collected_count;
+        group->value_size = (uint8_t)expression_type->size;
+        group->element_size = element_size;
+        group->subtract = polarity < 0;
+        memcpy(&dynamic_index->terms[dynamic_index->term_count],
+               collected_terms,
+               collected_count * sizeof(collected_terms[0]));
+        dynamic_index->term_count += collected_count;
         dynamic_index->is_dynamic = true;
         return true;
     }
@@ -5424,12 +5522,63 @@ static size_t debug_build_inline_pointer_value_expression(
     }
     if (dynamic_index && dynamic_index->is_dynamic) {
         uint8_t address_size = architecture == ARCH_X64 ? 8u : 4u;
-        for (size_t index = 0u;
-             index < DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT;
-             ++index) {
-            if (index >= dynamic_index->term_count) break;
+        size_t index = 0u;
+        size_t group_index = 0u;
+        while (index < dynamic_index->term_count) {
             const DebugInlineDynamicPointerIndexTerm* term =
                 &dynamic_index->terms[index];
+            const DebugInlineDynamicPointerIndexGroup* group =
+                group_index < dynamic_index->group_count &&
+                dynamic_index->groups[group_index].first_term == index
+                    ? &dynamic_index->groups[group_index] : NULL;
+            if (group) {
+                for (size_t group_term_index = 0u;
+                     group_term_index < group->term_count;
+                     ++group_term_index) {
+                    const DebugInlineDynamicPointerIndexTerm* group_term =
+                        &dynamic_index->terms[index + group_term_index];
+                    expression[size++] = architecture == ARCH_X64
+                        ? 0x76u : 0x75u;
+                    debug_expr_append_sleb(
+                        expression, &size, group_term->frame_offset);
+                    expression[size++] = 0x94u; /* DW_OP_deref_size */
+                    expression[size++] = group_term->value_size;
+                    if (group_term_index != 0u) {
+                        expression[size++] = group_term->subtract
+                            ? 0x1cu /* DW_OP_minus */
+                            : 0x22u /* DW_OP_plus */;
+                    }
+                }
+                if (group->value_size < address_size) {
+                    uint64_t shift = (uint64_t)group->value_size * 8u;
+                    uint64_t mask = (UINT64_C(1) << shift) - 1u;
+                    expression[size++] = 0x10u; /* DW_OP_constu */
+                    if (!debug_expression_uleb(
+                            expression,
+                            DEBUG_INLINE_POINTER_VALUE_EXPRESSION_CAPACITY -
+                                16u,
+                            &size, mask)) {
+                        rcc_fatal(
+                            "inline pointer DWARF expression is too large");
+                        return 0u;
+                    }
+                    expression[size++] = 0x1au; /* DW_OP_and */
+                }
+                expression[size++] = 0x10u; /* DW_OP_constu */
+                if (!debug_expression_uleb(
+                        expression,
+                        DEBUG_INLINE_POINTER_VALUE_EXPRESSION_CAPACITY - 16u,
+                        &size, (uint64_t)group->element_size)) {
+                    rcc_fatal("inline pointer DWARF expression is too large");
+                    return 0u;
+                }
+                expression[size++] = 0x1eu; /* DW_OP_mul */
+                expression[size++] = group->subtract
+                    ? 0x1cu /* DW_OP_minus */ : 0x22u /* DW_OP_plus */;
+                index += group->term_count;
+                ++group_index;
+                continue;
+            }
             expression[size++] = architecture == ARCH_X64 ? 0x76u : 0x75u;
             debug_expr_append_sleb(
                 expression, &size, term->frame_offset);
@@ -5468,6 +5617,7 @@ static size_t debug_build_inline_pointer_value_expression(
             expression[size++] = 0x1eu; /* DW_OP_mul */
             expression[size++] = term->subtract
                 ? 0x1cu /* DW_OP_minus */ : 0x22u /* DW_OP_plus */;
+            ++index;
         }
     }
     if (pointer_adjustment > 0) {

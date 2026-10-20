@@ -3521,6 +3521,9 @@ typedef struct VerifyInlinePointerIndexTerm {
     bool is_unsigned;
     uint64_t element_size;
     bool subtract;
+    uint8_t group_count;
+    uint8_t group_width;
+    bool group_subtract;
 } VerifyInlinePointerIndexTerm;
 
 static void verify_inline_parameter_frame_pointer_indices(
@@ -3564,13 +3567,69 @@ static void verify_inline_parameter_frame_pointer_indices(
                info->data[expression_offset++] == 0x06u); /* DW_OP_deref */
     }
     assert(expression_offset < expression_end);
-    for (size_t index = 0u; index < index_count; ++index) {
+    for (size_t index = 0u; index < index_count;) {
         const VerifyInlinePointerIndexTerm* term = &index_terms[index];
         uint64_t shift;
         int64_t index_expression_offset;
         int64_t index_variable_offset;
         bool index_has_location;
         bool index_is_location_list;
+        if (term->group_count != 0u) {
+            assert(term->group_count >= 2u &&
+                   index + term->group_count <= index_count &&
+                   term->group_width > 0u &&
+                   term->group_width < address_size &&
+                   term->element_size > 0u);
+            for (size_t group_index = 0u;
+                 group_index < term->group_count; ++group_index) {
+                const VerifyInlinePointerIndexTerm* group_term =
+                    &index_terms[index + group_index];
+                assert(group_term->name && group_term->size > 0u &&
+                       group_term->size <= address_size &&
+                       group_term->is_unsigned &&
+                       group_term->size == term->group_width);
+                assert(expression_offset < expression_end &&
+                       info->data[expression_offset++] ==
+                           (architecture == ARCH_X64 ? 0x76u : 0x75u));
+                index_expression_offset = read_sleb(
+                    info->data, expression_end, &expression_offset);
+                assert(expression_offset + 2u <= expression_end &&
+                       info->data[expression_offset++] == 0x94u &&
+                       info->data[expression_offset++] == group_term->size);
+                if (group_index != 0u) {
+                    assert(expression_offset < expression_end &&
+                           info->data[expression_offset++] ==
+                               (group_term->subtract ? 0x1cu : 0x22u));
+                }
+                assert(find_variable_location(
+                    info, strings, locations, group_term->name, architecture,
+                    &index_has_location, &index_is_location_list,
+                    &index_variable_offset));
+                assert(index_has_location &&
+                       index_variable_offset == index_expression_offset);
+            }
+            {
+                uint64_t mask =
+                    (UINT64_C(1) << (term->group_width * 8u)) - 1u;
+                assert(expression_offset < expression_end &&
+                       info->data[expression_offset++] == 0x10u &&
+                       read_uleb(
+                           info->data, expression_end, &expression_offset) ==
+                           mask);
+                assert(expression_offset < expression_end &&
+                       info->data[expression_offset++] == 0x1au);
+            }
+            assert(expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x10u &&
+                   read_uleb(info->data, expression_end, &expression_offset) ==
+                       term->element_size);
+            assert(expression_offset + 2u <= expression_end &&
+                   info->data[expression_offset++] == 0x1eu &&
+                   info->data[expression_offset++] ==
+                       (term->group_subtract ? 0x1cu : 0x22u));
+            index += term->group_count;
+            continue;
+        }
         assert(term->name && term->size > 0u && term->size <= address_size);
         shift = address_size * 8u - term->size * 8u;
         assert(expression_offset < expression_end &&
@@ -3610,6 +3669,7 @@ static void verify_inline_parameter_frame_pointer_indices(
             &index_variable_offset));
         assert(index_has_location &&
                index_variable_offset == index_expression_offset);
+        ++index;
     }
     assert(expression_offset + 1u == expression_end &&
            info->data[expression_offset] == 0x9fu);
@@ -5422,7 +5482,8 @@ static void verify_cxx_inline_automatic_pointer_index(
     bool index_unsigned, uint64_t element_size, bool subtract_index)
 {
     const VerifyInlinePointerIndexTerm term = {
-        index_name, index_size, index_unsigned, element_size, subtract_index
+        index_name, index_size, index_unsigned, element_size, subtract_index,
+        0u, 0u, false
     };
     verify_cxx_inline_automatic_pointer_indices(
         path, architecture, entry_name, pointer_name, &term, 1u,
@@ -7946,27 +8007,39 @@ int main(int argc, char** argv)
 {
     const VerifyInlinePointerIndexTerm compound_pointer_indices[] = {
         {"debug_inline_automatic_compound_signed_index", 1u, false, 4u,
-         false},
+         false, 0u, 0u, false},
         {"debug_inline_automatic_compound_unsigned_index", 4u, true, 4u,
-         true}
+         true, 0u, 0u, false}
     };
     const VerifyInlinePointerIndexTerm computed_pointer_indices[] = {
         {"debug_inline_automatic_computed_signed_index", 1u, false, 4u,
-         false},
+         false, 0u, 0u, false},
         {"debug_inline_automatic_computed_int_index", 4u, false, 4u,
-         false}
+         false, 0u, 0u, false}
     };
     const VerifyInlinePointerIndexTerm unsigned_computed_x86_indices[] = {
         {"debug_inline_automatic_unsigned_first_index", 4u, true, 4u,
-         false},
+         false, 0u, 0u, false},
         {"debug_inline_automatic_unsigned_second_index", 4u, true, 4u,
-         true}
+         true, 0u, 0u, false}
     };
     const VerifyInlinePointerIndexTerm unsigned_computed_x64_indices[] = {
         {"debug_inline_automatic_unsigned_first_index", 8u, true, 4u,
-         false},
+         false, 0u, 0u, false},
         {"debug_inline_automatic_unsigned_second_index", 8u, true, 4u,
-         true}
+         true, 0u, 0u, false}
+    };
+    const VerifyInlinePointerIndexTerm narrow_unsigned_computed_x86_indices[] = {
+        {"debug_inline_automatic_narrow_unsigned_first_index", 4u, true, 4u,
+         false, 0u, 0u, false},
+        {"debug_inline_automatic_narrow_unsigned_second_index", 4u, true, 4u,
+         true, 0u, 0u, false}
+    };
+    const VerifyInlinePointerIndexTerm narrow_unsigned_computed_x64_indices[] = {
+        {"debug_inline_automatic_narrow_unsigned_first_index", 4u, true, 4u,
+         false, 2u, 4u, false},
+        {"debug_inline_automatic_narrow_unsigned_second_index", 4u, true, 4u,
+         true, 0u, 0u, false}
     };
     assert(argc == 44);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
@@ -8330,6 +8403,26 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_unsigned_computed_index_entry",
         "debug_inline_automatic_pointer_unsigned_computed_source",
         unsigned_computed_x64_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_narrow_unsigned_computed_index_entry",
+        "debug_inline_automatic_pointer_narrow_unsigned_computed_source",
+        narrow_unsigned_computed_x86_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_narrow_unsigned_computed_index_entry",
+        "debug_inline_automatic_pointer_narrow_unsigned_computed_source",
+        narrow_unsigned_computed_x64_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_narrow_unsigned_computed_index_entry",
+        "debug_inline_automatic_pointer_narrow_unsigned_computed_source",
+        narrow_unsigned_computed_x86_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_narrow_unsigned_computed_index_entry",
+        "debug_inline_automatic_pointer_narrow_unsigned_computed_source",
+        narrow_unsigned_computed_x64_indices, 2u, 0, true);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86, "debug_inline_automatic_array_index_entry",
         "debug_inline_automatic_array_index_source",
