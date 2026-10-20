@@ -7339,9 +7339,18 @@ remains a separate open item.
       do not destroy the existing referent (`7630`). The focused verified
       target emits twenty-four functions with zero fallback on i686/AMD64 at
       `-O0`/`-O2`; generated AMD64 SSA and legacy host execution pass.
-- [ ] Virtual-base converted subobjects, static/TLS lifetime extension,
-      additional conditional/projection forms, and remaining full-expression
-      cleanup paths remain open.
+- [x] Preserve the complete nontrivial class-prvalue returned by a user-defined
+      conversion when an automatic reference binds to its public virtual-base
+      subobject. Project from the fully initialized complete-object owner with
+      validated virtual-base/referent bounds, and destroy the derived object
+      before its virtual base exactly once (`21`). The thirty-eight-function
+      `test-verified-cxx-throwing-temporary` gate passes without fallback on
+      i686/AMD64 at `-O0`/`-O2`, with typed-SSA and legacy-host AMD64 execution.
+      The legacy-host recipe now defines `RINOS_HOST_RUNTIME`, avoiding a
+      conflicting `_start` when linked with the host CRT.
+- [ ] Additional conditional/projection combinations, broader static/TLS
+      lifetime extension, and remaining full-expression cleanup paths remain
+      open.
 
 ## RCC continuation (2026-10-20, converted-result base-reference lifetime)
 
@@ -7355,5 +7364,5 @@ remains a separate open item.
 - [x] `test-verified-cxx-throwing-temporary` emits all thirty-four functions
       with zero fallback on i686/AMD64 at `-O0`/`-O2`; the typed-SSA AMD64
       objects and the AMD64 legacy-host object pass. The change remains limited
-      to non-virtual converted-base bindings; virtual-base temporary owners and
-      other converted-reference shapes remain open.
+      to non-virtual converted-base bindings; the separate virtual-base
+      converted-reference continuation below covers that additional shape.

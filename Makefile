@@ -17654,7 +17654,7 @@ test-verified-cxx-throwing-temporary: $(RCXX_TARGET) test-verified-cxx-reference
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-legacy-x64.s \
 		tests/verified_backend_cxx_throwing_temporary.cpp
-	$(CC) -x assembler-with-cpp -c \
+	$(CC) -DRINOS_HOST_RUNTIME -x assembler-with-cpp -c \
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-runtime-x64.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -c -o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-legacy-x64.o \
