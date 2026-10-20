@@ -7299,6 +7299,11 @@ remains a separate open item.
       from its frame slot. Verify the parameter location and emitted pointer
       expression after regenerating the legacy and verified optimized i686 /
       AMD64 objects; the integrated DWARF verifier passes.
+- [x] Compose signed index expressions using frame-backed integer locals and
+      integer constants through `+` and `-`, flattening the result into at most
+      eight scaled terms with checked fixed-displacement accumulation. Verify
+      `pointer + (signed_char_index + int_index)` and both frame locations in
+      all four target/backend variants with the integrated DWARF verifier.
 - [x] Preserve `&automatic_aggregate.array[index]` for a one-dimensional,
       fixed-size automatic array or array member with a frame-backed signed
       index. Add the fixed member displacement before the scaled runtime index;
@@ -7311,11 +7316,13 @@ remains a separate open item.
       `&array[((unsigned long long)0 - 1ULL) + 1ULL]` produces addend `0`, and
       out-of-bounds `&array[2 + 3]` is not attributed on i686/AMD64 legacy and
       verified optimized DWARF; native-Windows `test-debug-info` passes.
-- [ ] Computed integer-index operands, pointer chains with more than eight
-      dynamic terms, virtual-base/member-pointer adjustments, negative
-      displacements not rooted at a statically indexed element, nested/VLA/
-      pointer-based dynamic subobject paths, non-frame-backed indexes, and
-      optimized register/piece location tracking remain open.
+- [ ] Unsigned computed arithmetic requiring source-width wrap, multiplication
+      and other unhandled index operators, casts around computed expressions,
+      pointer chains with more than eight dynamic terms, virtual-base/member-
+      pointer adjustments, negative displacements not rooted at a statically
+      indexed element, nested/VLA/pointer-based dynamic subobject paths,
+      non-frame-backed indexes, and optimized register/piece location tracking
+      remain open.
 
 ## RCC continuation (2026-10-20, typed-SSA reference temporary unwind)
 

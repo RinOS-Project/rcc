@@ -4965,6 +4965,86 @@ static bool debug_inline_frame_integer_index_source(
     return true;
 }
 
+static bool debug_inline_append_dynamic_integer_index(
+    const Module* mod, const Expr* expression, int polarity,
+    int element_size, uint8_t address_size,
+    DebugInlineDynamicPointerIndex* dynamic_index,
+    int64_t* byte_displacement, unsigned int depth) {
+    const Type* expression_type;
+    const Type* value_type;
+    const Decl* declaration;
+    int64_t element_count;
+    int64_t local_displacement;
+    if (!mod || !expression || !expression->type ||
+        (polarity != 1 && polarity != -1) || element_size <= 0 ||
+        !dynamic_index || !byte_displacement || depth >= 32u) {
+        return false;
+    }
+    expression_type = expression->type;
+    if (!debug_inline_integer_constant_type(expression_type) ||
+        expression_type->size <= 0 ||
+        expression_type->size > (int)address_size ||
+        expression_type->is_volatile || expression_type->is_reference ||
+        expression_type->is_atomic) {
+        return false;
+    }
+    if (debug_inline_integer_constant_value(
+            expression, &element_count, 0u)) {
+        if (polarity < 0) {
+            if (element_count == INT64_MIN) return false;
+            element_count = -element_count;
+        }
+        if ((element_count > 0 &&
+             element_count > INT64_MAX / element_size) ||
+            (element_count < 0 &&
+             element_count < INT64_MIN / element_size)) {
+            return false;
+        }
+        local_displacement = element_count * element_size;
+        if ((local_displacement > 0 &&
+             *byte_displacement > INT64_MAX - local_displacement) ||
+            (local_displacement < 0 &&
+             *byte_displacement < INT64_MIN - local_displacement)) {
+            return false;
+        }
+        *byte_displacement += local_displacement;
+        return true;
+    }
+    if (debug_inline_frame_integer_index_source(
+            expression, &declaration, &value_type)) {
+        DebugInlineDynamicPointerIndexTerm* term;
+        if (dynamic_index->term_count >=
+            DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT) {
+            return false;
+        }
+        term = &dynamic_index->terms[dynamic_index->term_count];
+        if (!debug_inline_parameter_frame_offset(
+                mod, declaration, &term->frame_offset)) {
+            return false;
+        }
+        term->element_size = element_size;
+        term->value_size = (uint8_t)value_type->size;
+        term->is_unsigned = value_type->is_unsigned;
+        term->subtract = polarity < 0;
+        ++dynamic_index->term_count;
+        dynamic_index->is_dynamic = true;
+        return true;
+    }
+    if ((expression->kind != EXPR_ADD &&
+         expression->kind != EXPR_SUB) ||
+        expression_type->is_unsigned) {
+        return false;
+    }
+    return debug_inline_append_dynamic_integer_index(
+               mod, expression->binary_lhs, polarity, element_size,
+               address_size, dynamic_index, byte_displacement, depth + 1u) &&
+           debug_inline_append_dynamic_integer_index(
+               mod, expression->binary_rhs,
+               expression->kind == EXPR_SUB ? -polarity : polarity,
+               element_size, address_size, dynamic_index,
+               byte_displacement, depth + 1u);
+}
+
 static bool debug_inline_pointer_dynamic_index_chain(
     const Module* mod, const Expr* expression,
     const Expr** pointer_expression, int64_t* byte_displacement,
@@ -4973,11 +5053,8 @@ static bool debug_inline_pointer_dynamic_index_chain(
     const Expr* pointer;
     const Expr* index;
     const Type* pointer_type;
-    const Type* value_type;
-    const Decl* declaration;
-    int64_t element_count;
-    int64_t local_displacement;
     int64_t nested_displacement = 0;
+    int64_t index_displacement = 0;
     bool subtract;
     if (!mod || !expression || !pointer_expression ||
         !byte_displacement || !dynamic_index || depth >= 32u) {
@@ -5012,47 +5089,16 @@ static bool debug_inline_pointer_dynamic_index_chain(
             dynamic_index, address_size, depth + 1u)) {
         return false;
     }
-    if (debug_inline_integer_constant_value(index, &element_count, 0u)) {
-        if (subtract) {
-            if (element_count == INT64_MIN) return false;
-            element_count = -element_count;
-        }
-        if ((element_count > 0 &&
-             element_count > INT64_MAX / pointer_type->base->size) ||
-            (element_count < 0 &&
-             element_count < INT64_MIN / pointer_type->base->size)) {
-            return false;
-        }
-        local_displacement = element_count * pointer_type->base->size;
-        if ((local_displacement > 0 &&
-             nested_displacement > INT64_MAX - local_displacement) ||
-            (local_displacement < 0 &&
-             nested_displacement < INT64_MIN - local_displacement)) {
-            return false;
-        }
-        nested_displacement += local_displacement;
-    } else {
-        DebugInlineDynamicPointerIndexTerm* term;
-        if (!debug_inline_frame_integer_index_source(
-                index, &declaration, &value_type) ||
-            value_type->size > (int)address_size ||
-            dynamic_index->term_count >=
-                DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT) {
-            return false;
-        }
-        term = &dynamic_index->terms[dynamic_index->term_count];
-        if (!debug_inline_parameter_frame_offset(
-                mod, declaration, &term->frame_offset)) {
-            return false;
-        }
-        term->element_size = pointer_type->base->size;
-        term->value_size = (uint8_t)value_type->size;
-        term->is_unsigned = value_type->is_unsigned;
-        term->subtract = subtract;
-        ++dynamic_index->term_count;
-        dynamic_index->is_dynamic = true;
+    if (!debug_inline_append_dynamic_integer_index(
+            mod, index, subtract ? -1 : 1, pointer_type->base->size,
+            address_size, dynamic_index, &index_displacement, 0u) ||
+        (index_displacement > 0 &&
+         nested_displacement > INT64_MAX - index_displacement) ||
+        (index_displacement < 0 &&
+         nested_displacement < INT64_MIN - index_displacement)) {
+        return false;
     }
-    *byte_displacement = nested_displacement;
+    *byte_displacement = nested_displacement + index_displacement;
     return true;
 }
 

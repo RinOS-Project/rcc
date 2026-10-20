@@ -7950,6 +7950,12 @@ int main(int argc, char** argv)
         {"debug_inline_automatic_compound_unsigned_index", 4u, true, 4u,
          true}
     };
+    const VerifyInlinePointerIndexTerm computed_pointer_indices[] = {
+        {"debug_inline_automatic_computed_signed_index", 1u, false, 4u,
+         false},
+        {"debug_inline_automatic_computed_int_index", 4u, false, 4u,
+         false}
+    };
     assert(argc == 44);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
@@ -8272,6 +8278,26 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_parameter_source",
         "debug_inline_automatic_parameter_index_source", 0, true, 4u,
         false, 4u, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_computed_index_entry",
+        "debug_inline_automatic_pointer_computed_source",
+        computed_pointer_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_computed_index_entry",
+        "debug_inline_automatic_pointer_computed_source",
+        computed_pointer_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_computed_index_entry",
+        "debug_inline_automatic_pointer_computed_source",
+        computed_pointer_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_computed_index_entry",
+        "debug_inline_automatic_pointer_computed_source",
+        computed_pointer_indices, 2u, 0, true);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86, "debug_inline_automatic_array_index_entry",
         "debug_inline_automatic_array_index_source",
