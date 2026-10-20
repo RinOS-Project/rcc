@@ -253,6 +253,7 @@ struct ConversionMemberPointerRoot {
 
 struct ConversionNestedMemberPointerOwner {
     int* pointer;
+    int** nested_pointer;
 };
 
 struct ConversionMemberPointerMiddle : ConversionMemberPointerRoot {};
@@ -2940,7 +2941,7 @@ int choose_nested_member_pointer_qualification(
 
 template<typename T>
 int choose_nested_member_pointer_qualification(
-    T, const int* ConversionNestedMemberPointerOwner::*) {
+    T, int* const ConversionNestedMemberPointerOwner::*) {
     return 246;
 }
 
@@ -2950,8 +2951,40 @@ int choose_nested_member_pointer_qualification_non_template(
 }
 
 int choose_nested_member_pointer_qualification_non_template(
-    const int* ConversionNestedMemberPointerOwner::*) {
+    int* const ConversionNestedMemberPointerOwner::*) {
     return 248;
+}
+
+int accept_nested_member_pointer_qualification(
+    int* const ConversionNestedMemberPointerOwner::*) {
+    return 253;
+}
+
+template<typename T>
+int choose_nested_member_pointer_top_cv(
+    T, int** ConversionNestedMemberPointerOwner::*) {
+    return 249;
+}
+
+template<typename T>
+int choose_nested_member_pointer_top_cv(
+    T, int** const ConversionNestedMemberPointerOwner::*) {
+    return 250;
+}
+
+int choose_nested_member_pointer_top_cv_non_template(
+    int** ConversionNestedMemberPointerOwner::*) {
+    return 251;
+}
+
+int choose_nested_member_pointer_top_cv_non_template(
+    int** const ConversionNestedMemberPointerOwner::*) {
+    return 252;
+}
+
+int accept_nested_member_pointer_top_cv(
+    int** const ConversionNestedMemberPointerOwner::*) {
+    return 254;
 }
 
 template<typename T>
@@ -3204,6 +3237,24 @@ int main(void) {
             FunctionTemplateTemplatePackBox<
                 FunctionTemplateTemplatePackItem,
                 FunctionTemplateTemplatePackFixed>{}) != 277) return 206;
+    if (choose_nested_member_pointer_qualification(
+            0, &ConversionNestedMemberPointerOwner::pointer) != 245) return 207;
+    if (choose_nested_member_pointer_qualification_non_template(
+            &ConversionNestedMemberPointerOwner::pointer) != 247) return 208;
+    if (accept_nested_member_pointer_qualification(
+            &ConversionNestedMemberPointerOwner::pointer) != 253) return 209;
+    if (choose_nested_member_pointer_top_cv(
+            0, &ConversionNestedMemberPointerOwner::nested_pointer) != 249) {
+        return 210;
+    }
+    if (choose_nested_member_pointer_top_cv_non_template(
+            &ConversionNestedMemberPointerOwner::nested_pointer) != 251) {
+        return 211;
+    }
+    if (accept_nested_member_pointer_top_cv(
+            &ConversionNestedMemberPointerOwner::nested_pointer) != 254) {
+        return 212;
+    }
     CxxFunctionTemplateAdl::Payload adl_payload{2};
     if (select_better_template(&adl_payload, 5) != 607) {
         return 164;
@@ -4308,6 +4359,18 @@ int main(void) {
                        245 &&
                    choose_nested_member_pointer_qualification_non_template(
                        &ConversionNestedMemberPointerOwner::pointer) == 247 &&
+                   accept_nested_member_pointer_qualification(
+                       &ConversionNestedMemberPointerOwner::pointer) == 253 &&
+                   choose_nested_member_pointer_top_cv(
+                       0,
+                       &ConversionNestedMemberPointerOwner::nested_pointer) ==
+                       249 &&
+                   choose_nested_member_pointer_top_cv_non_template(
+                       &ConversionNestedMemberPointerOwner::nested_pointer) ==
+                       251 &&
+                   accept_nested_member_pointer_top_cv(
+                       &ConversionNestedMemberPointerOwner::nested_pointer) ==
+                       254 &&
                    choose_member_function_pointer_noexcept(
                        0, root_noexcept_member_function) == 205 &&
                    choose_member_function_pointer_noexcept(

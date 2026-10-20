@@ -700,6 +700,12 @@ static void cxx_mangle_type_char(char* buf, size_t* pos, char value) {
     buf[(*pos)++] = value;
 }
 
+static void cxx_mangle_type_qualifiers_append(
+    char* buf, size_t* pos, const Type* type) {
+    if (type->is_volatile) cxx_mangle_type_char(buf, pos, 'V');
+    if (type->is_const) cxx_mangle_type_char(buf, pos, 'K');
+}
+
 static unsigned cxx_structural_type_value_bits(const Type* type);
 static unsigned cxx_structural_field_value_bits(const TypeParam* field);
 static Type* cxx_structural_field_mangled_type(
@@ -1907,11 +1913,39 @@ static bool cxx_mangle_template_value_args_match(Type* left, Type* right) {
     return type_is_same_template_argument(left, right);
 }
 
+static bool cxx_mangle_substitution_type_matches(Type* recorded,
+                                                Type* requested) {
+    Type unqualified_recorded;
+    Type unqualified_requested;
+    if (!recorded || !requested || recorded->kind != requested->kind) {
+        return false;
+    }
+    if (recorded->kind == TYPE_FUNC) {
+        return type_is_compatible_qualified(recorded, requested);
+    }
+    /* A substitution can carry top-level cv as a prefix (for example
+     * `K S_` for `const T`), but nested cv changes the substituted type and
+     * must remain part of the comparison (`P K i` versus `P i`). */
+    unqualified_recorded = *recorded;
+    unqualified_requested = *requested;
+    unqualified_recorded.is_const = false;
+    unqualified_recorded.is_volatile = false;
+    unqualified_recorded.is_atomic = false;
+    unqualified_recorded.is_restrict = false;
+    unqualified_requested.is_const = false;
+    unqualified_requested.is_volatile = false;
+    unqualified_requested.is_atomic = false;
+    unqualified_requested.is_restrict = false;
+    return type_is_compatible_qualified(&unqualified_recorded,
+                                        &unqualified_requested);
+}
+
 static size_t cxx_mangle_find_class_substitution(
     const CxxMangleContext* context, Type* type) {
     if (!context || !type) return (size_t)-1;
     for (size_t index = 0; index < context->class_type_count; ++index) {
-        if (type_is_compatible(context->class_types[index], type)) {
+        if (cxx_mangle_substitution_type_matches(
+                context->class_types[index], type)) {
             return context->class_type_indices
                 ? context->class_type_indices[index]
                 : index + context->class_type_index_base;
@@ -2164,12 +2198,14 @@ static void cxx_mangle_type_append_context(
         size_t substitution = cxx_mangle_find_class_substitution(
             context, original_type);
         if (substitution != (size_t)-1) {
+            cxx_mangle_type_qualifiers_append(buf, pos, original_type);
             cxx_mangle_append_substitution(buf, pos, substitution);
             return;
         }
     }
 
     while (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
+        cxx_mangle_type_qualifiers_append(buf, pos, type);
         cxx_mangle_type_char(buf, pos,
                              type->is_reference
                                  ? (type->is_rvalue_reference ? 'O' : 'R')
@@ -2182,6 +2218,7 @@ static void cxx_mangle_type_append_context(
             context, type);
         size_t owner_substitution = cxx_mangle_find_class_substitution(
             context, type->cxx_member_pointer_owner);
+        cxx_mangle_type_qualifiers_append(buf, pos, type);
         if (pointer_substitution != (size_t)-1) {
             cxx_mangle_append_substitution(buf, pos, pointer_substitution);
             return;
@@ -2206,8 +2243,7 @@ static void cxx_mangle_type_append_context(
             cxx_mangle_type_char(buf, pos, 'o');
         }
     } else {
-        if (type->is_volatile) cxx_mangle_type_char(buf, pos, 'V');
-        if (type->is_const) cxx_mangle_type_char(buf, pos, 'K');
+        cxx_mangle_type_qualifiers_append(buf, pos, type);
     }
 
     switch (type->kind) {
@@ -2501,8 +2537,20 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
         for (DeclList* p = func->func_params; p; p = p->next) {
             char type_mangled[CXX_MANGLE_BUFFER_SIZE];
             size_t type_length = 0u;
+            Type adjusted_parameter_type;
+            Type* parameter_type = p->decl->type;
+            if (parameter_type &&
+                (parameter_type->is_const || parameter_type->is_volatile)) {
+                /* Top-level cv on a by-value parameter does not distinguish
+                 * function types. Keep qualifiers below pointer/member-
+                 * pointer layers for both overload identity and mangling. */
+                adjusted_parameter_type = *parameter_type;
+                adjusted_parameter_type.is_const = false;
+                adjusted_parameter_type.is_volatile = false;
+                parameter_type = &adjusted_parameter_type;
+            }
             cxx_mangle_type_append_context(
-                type_mangled, &type_length, p->decl->type,
+                type_mangled, &type_length, parameter_type,
                 &mangle_context);
             if (type_length >= sizeof(type_mangled) ||
                 pos + type_length >= sizeof(buf)) {

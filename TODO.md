@@ -7462,10 +7462,10 @@ remains a separate open item.
 
 - [x] Parse data-member pointer declarators whose member type includes pointer
       layers, distinguishing `int* Owner::*` from pointers to the completed
-      member-pointer type. Verify overload ranking against
-      `const int* Owner::*`: ordinary and function-template overloads select
-      the identity target, matching GCC C++20. The focused
-      `test-cxx-function-template-overloads` gate passes both target builds and
-      generated AMD64 execution.
+      member-pointer type. Preserve nested cv in Itanium names for
+      `int* const Owner::*` and `int** const Owner::*`, so ordinary overloads
+      retain distinct symbols and exact-match selection agrees with GCC C++20.
+      The focused `test-cxx-function-template-overloads` gate passes both
+      target builds, generated x86/AMD64 execution, and the GCC host oracle.
 - [ ] Other nested member types, member-pointer owner adjustments, and general
       C++20 conversion-sequence ordering remain open.
