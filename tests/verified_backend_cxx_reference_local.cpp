@@ -54,6 +54,26 @@ int verified_body_constructor_result() {
     return object.value;
 }
 
+struct VerifiedBranchConstructor {
+    int value;
+
+    explicit VerifiedBranchConstructor(int initial) noexcept
+        : value(initial) {
+        int adjusted = initial + 1;
+        if (adjusted > 10) {
+            value = adjusted * 2;
+        } else {
+            value = adjusted + 3;
+        }
+    }
+};
+
+int verified_branch_constructor_result() {
+    VerifiedBranchConstructor high(10);
+    VerifiedBranchConstructor low(4);
+    return high.value * 100 + low.value;
+}
+
 struct VerifiedBaseConstructor {
     int base_value;
 
@@ -179,14 +199,17 @@ int main() {
     if (verified_body_constructor_result() != 41) {
         return 3;
     }
-    if (verified_nontrivial_base_constructor_result() != 132132) {
+    if (verified_branch_constructor_result() != 2208) {
         return 4;
     }
-    if (verified_trivial_copy_result() != 571721281) {
+    if (verified_nontrivial_base_constructor_result() != 132132) {
         return 5;
     }
-    if (verified_expression_constructor_result() != 1317) {
+    if (verified_trivial_copy_result() != 571721281) {
         return 6;
+    }
+    if (verified_expression_constructor_result() != 1317) {
+        return 7;
     }
     return value != 43;
 }
