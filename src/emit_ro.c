@@ -4201,80 +4201,155 @@ static bool debug_inline_integer_constant_type(const Type* type) {
          type->kind == TYPE_ENUM);
 }
 
-static bool debug_inline_convert_integer_constant(
-    int64_t input, const Type* type, int64_t* output) {
-    uint64_t bits;
-    uint64_t mask;
+static bool debug_inline_integer_constant_mask(const Type* type,
+                                               uint64_t* mask) {
     unsigned int width;
-    uint64_t sign_bit;
-    if (!output || !debug_inline_integer_constant_type(type) ||
+    if (!mask || !debug_inline_integer_constant_type(type) ||
         type->size <= 0 || type->size > 8) {
         return false;
     }
-    if (type->kind == TYPE_BOOL) {
-        *output = input != 0;
-        return true;
+    width = (unsigned int)type->size * 8u;
+    *mask = width == 64u ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
+    return true;
+}
+
+static int64_t debug_inline_integer_constant_signed_minimum(
+    const Type* type) {
+    unsigned int width = (unsigned int)type->size * 8u;
+    return width == 64u ? INT64_MIN
+        : -(INT64_C(1) << (width - 1u));
+}
+
+static bool debug_inline_integer_constant_signed_value(
+    uint64_t bits, const Type* type, int64_t* value) {
+    uint64_t mask;
+    uint64_t sign_bit;
+    unsigned int width;
+    if (!value || !debug_inline_integer_constant_mask(type, &mask) ||
+        type->is_unsigned || type->kind == TYPE_BOOL) {
+        return false;
     }
     width = (unsigned int)type->size * 8u;
-    mask = width == 64u ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
-    bits = (uint64_t)input & mask;
-    if (type->is_unsigned) {
-        if (bits > (uint64_t)INT64_MAX) return false;
-        *output = (int64_t)bits;
-        return true;
-    }
+    bits &= mask;
     sign_bit = UINT64_C(1) << (width - 1u);
     if ((bits & sign_bit) == 0u) {
-        *output = (int64_t)bits;
+        *value = (int64_t)bits;
     } else if (width == 64u) {
         uint64_t magnitude = (~bits) + 1u;
-        if (magnitude == sign_bit) {
-            *output = INT64_MIN;
-        } else {
-            *output = -(int64_t)magnitude;
-        }
+        *value = magnitude == sign_bit
+            ? INT64_MIN : -(int64_t)magnitude;
     } else {
-        *output = -(int64_t)((UINT64_C(1) << width) - bits);
+        *value = -(int64_t)((UINT64_C(1) << width) - bits);
     }
     return true;
 }
 
-static bool debug_inline_integer_constant_value(
-    const Expr* expression, int64_t* value, unsigned int depth) {
+static bool debug_inline_integer_constant_signed_fits(
+    int64_t value, const Type* type) {
+    unsigned int width;
+    int64_t minimum;
+    int64_t maximum;
+    if (!debug_inline_integer_constant_type(type) || type->size <= 0 ||
+        type->size > 8 ||
+        type->is_unsigned || type->kind == TYPE_BOOL) {
+        return false;
+    }
+    width = (unsigned int)type->size * 8u;
+    if (width == 64u) return true;
+    minimum = debug_inline_integer_constant_signed_minimum(type);
+    maximum = (INT64_C(1) << (width - 1u)) - 1;
+    return value >= minimum && value <= maximum;
+}
+
+static bool debug_inline_integer_constant_bits(
+    const Expr* expression, uint64_t* value, unsigned int depth);
+
+static bool debug_inline_integer_constant_convert_bits(
+    uint64_t input, const Type* source_type, const Type* target_type,
+    uint64_t* output) {
+    uint64_t source_mask;
+    uint64_t target_mask;
+    unsigned int source_width;
+    if (!output || !debug_inline_integer_constant_mask(source_type,
+                                                        &source_mask) ||
+        !debug_inline_integer_constant_mask(target_type, &target_mask)) {
+        return false;
+    }
+    input &= source_mask;
+    if (target_type->kind == TYPE_BOOL) {
+        *output = input != 0u;
+        return true;
+    }
+    source_width = (unsigned int)source_type->size * 8u;
+    if (source_type->kind != TYPE_BOOL && !source_type->is_unsigned &&
+        source_width < 64u &&
+        (input & (UINT64_C(1) << (source_width - 1u))) != 0u) {
+        input |= ~source_mask;
+    }
+    *output = input & target_mask;
+    return true;
+}
+
+static bool debug_inline_integer_constant_bits(
+    const Expr* expression, uint64_t* value, unsigned int depth) {
+    uint64_t left_bits;
+    uint64_t right_bits;
+    uint64_t result_bits;
+    uint64_t mask;
     int64_t left;
     int64_t right;
     int64_t result;
+    const Type* result_type;
     if (!expression || !value || depth >= 32u ||
-        !debug_inline_integer_constant_type(expression->type)) {
+        !debug_inline_integer_constant_mask(expression->type, &mask)) {
         return false;
     }
-    if (expression->kind == EXPR_INT_LIT) {
-        return debug_inline_convert_integer_constant(
-            expression->int_val, expression->type, value);
-    }
-    if (expression->kind == EXPR_CHAR_LIT) {
-        return debug_inline_convert_integer_constant(
-            expression->char_val, expression->type, value);
+    result_type = expression->type;
+    if (expression->kind == EXPR_INT_LIT ||
+        expression->kind == EXPR_CHAR_LIT) {
+        int64_t literal = expression->kind == EXPR_INT_LIT
+            ? expression->int_val : expression->char_val;
+        result_bits = (uint64_t)literal & mask;
+        if (result_type->kind == TYPE_BOOL) result_bits = literal != 0;
+        *value = result_bits;
+        return true;
     }
     if (expression->kind == EXPR_CAST) {
         if (!expression->cast_expr ||
-            !debug_inline_integer_constant_type(expression->cast_type) ||
-            !debug_inline_integer_constant_value(
-                expression->cast_expr, &left, depth + 1u)) {
+            !debug_inline_integer_constant_bits(
+                expression->cast_expr, &left_bits, depth + 1u) ||
+            !debug_inline_integer_constant_convert_bits(
+                left_bits, expression->cast_expr->type,
+                expression->cast_type, &result_bits)) {
             return false;
         }
-        return debug_inline_convert_integer_constant(
-            left, expression->cast_type, value);
+        return debug_inline_integer_constant_convert_bits(
+            result_bits, expression->cast_type, result_type, value);
     }
     if (expression->kind == EXPR_NEG) {
         if (!expression->unary_operand ||
-            !debug_inline_integer_constant_value(
-                expression->unary_operand, &left, depth + 1u) ||
-            left == INT64_MIN) {
+            !debug_inline_integer_constant_bits(
+                expression->unary_operand, &left_bits, depth + 1u) ||
+            !debug_inline_integer_constant_convert_bits(
+                left_bits, expression->unary_operand->type, result_type,
+                &left_bits)) {
             return false;
         }
-        return debug_inline_convert_integer_constant(
-            -left, expression->type, value);
+        if (result_type->is_unsigned) {
+            *value = (UINT64_C(0) - left_bits) & mask;
+            return true;
+        }
+        if (!debug_inline_integer_constant_signed_value(
+                left_bits, result_type, &left) || left == INT64_MIN) {
+            return false;
+        }
+        result = -left;
+        if (!debug_inline_integer_constant_signed_fits(
+                result, result_type)) {
+            return false;
+        }
+        *value = (uint64_t)result & mask;
+        return true;
     }
     if (expression->kind != EXPR_ADD && expression->kind != EXPR_SUB &&
         expression->kind != EXPR_MUL && expression->kind != EXPR_DIV &&
@@ -4282,16 +4357,40 @@ static bool debug_inline_integer_constant_value(
         return false;
     }
     if (!expression->binary_lhs || !expression->binary_rhs ||
-        !debug_inline_integer_constant_value(
-            expression->binary_lhs, &left, depth + 1u) ||
-        !debug_inline_integer_constant_value(
-            expression->binary_rhs, &right, depth + 1u)) {
+        !debug_inline_integer_constant_bits(
+            expression->binary_lhs, &left_bits, depth + 1u) ||
+        !debug_inline_integer_constant_bits(
+            expression->binary_rhs, &right_bits, depth + 1u) ||
+        !debug_inline_integer_constant_convert_bits(
+            left_bits, expression->binary_lhs->type, result_type,
+            &left_bits) ||
+        !debug_inline_integer_constant_convert_bits(
+            right_bits, expression->binary_rhs->type, result_type,
+            &right_bits)) {
         return false;
     }
-    if (!debug_inline_convert_integer_constant(
-            left, expression->type, &left) ||
-        !debug_inline_convert_integer_constant(
-            right, expression->type, &right)) {
+    if (result_type->is_unsigned) {
+        switch (expression->kind) {
+            case EXPR_ADD: result_bits = left_bits + right_bits; break;
+            case EXPR_SUB: result_bits = left_bits - right_bits; break;
+            case EXPR_MUL: result_bits = left_bits * right_bits; break;
+            case EXPR_DIV:
+                if (right_bits == 0u) return false;
+                result_bits = left_bits / right_bits;
+                break;
+            case EXPR_MOD:
+                if (right_bits == 0u) return false;
+                result_bits = left_bits % right_bits;
+                break;
+            default: return false;
+        }
+        *value = result_bits & mask;
+        return true;
+    }
+    if (!debug_inline_integer_constant_signed_value(
+            left_bits, result_type, &left) ||
+        !debug_inline_integer_constant_signed_value(
+            right_bits, result_type, &right)) {
         return false;
     }
     switch (expression->kind) {
@@ -4316,22 +4415,53 @@ static bool debug_inline_integer_constant_value(
             result = left * right;
             break;
         case EXPR_DIV:
-            if (right == 0 || (left == INT64_MIN && right == -1)) {
+            if (right == 0 ||
+                (right == -1 && left ==
+                    debug_inline_integer_constant_signed_minimum(
+                        result_type))) {
                 return false;
             }
             result = left / right;
             break;
         case EXPR_MOD:
-            if (right == 0 || (left == INT64_MIN && right == -1)) {
+            if (right == 0 ||
+                (right == -1 && left ==
+                    debug_inline_integer_constant_signed_minimum(
+                        result_type))) {
                 return false;
             }
             result = left % right;
             break;
-        default:
-            return false;
+        default: return false;
     }
-    return debug_inline_convert_integer_constant(
-        result, expression->type, value);
+    if (!debug_inline_integer_constant_signed_fits(result, result_type)) {
+        return false;
+    }
+    *value = (uint64_t)result & mask;
+    return true;
+}
+
+static bool debug_inline_integer_constant_value(
+    const Expr* expression, int64_t* value, unsigned int depth) {
+    uint64_t bits;
+    uint64_t mask;
+    if (!value || !debug_inline_integer_constant_bits(
+            expression, &bits, depth) ||
+        !debug_inline_integer_constant_mask(expression->type, &mask)) {
+        return false;
+    }
+    bits &= mask;
+    if (expression->type->kind == TYPE_BOOL) {
+        *value = bits != 0u;
+        return true;
+    }
+    if (expression->type->is_unsigned) {
+        if (bits > (uint64_t)INT64_MAX) return false;
+        *value = (int64_t)bits;
+        return true;
+    }
+    return debug_inline_integer_constant_signed_value(
+        bits, expression->type, value);
 }
 
 static bool debug_inline_static_pointer_addition(

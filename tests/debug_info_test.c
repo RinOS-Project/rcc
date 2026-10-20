@@ -3532,6 +3532,7 @@ static void verify_inline_debug_object(const char* path,
     uint64_t cast_address_constant_inline_call = UINT64_MAX;
     uint64_t array_element_address_constant_inline_call = UINT64_MAX;
     uint64_t array_computed_index_inline_call = UINT64_MAX;
+    uint64_t array_unsigned_wrap_index_inline_call = UINT64_MAX;
     uint64_t array_computed_index_out_of_bounds_inline_call = UINT64_MAX;
     uint64_t array_plus_constant_inline_call = UINT64_MAX;
     uint64_t constant_plus_array_inline_call = UINT64_MAX;
@@ -3855,6 +3856,9 @@ static void verify_inline_debug_object(const char* path,
                        "debug_inline_array_computed_index_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
+                       "debug_inline_array_unsigned_wrap_index_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
                        "debug_inline_array_computed_index_out_of_bounds_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
@@ -4082,6 +4086,13 @@ static void verify_inline_debug_object(const char* path,
                        strcmp(inline_name,
                               "debug_global_pointer_parameter_inline") == 0 &&
                        strcmp(relocation->symbol_name,
+                              "debug_inline_array_unsigned_wrap_index_entry") == 0 &&
+                       array_unsigned_wrap_index_inline_call == UINT64_MAX) {
+                array_unsigned_wrap_index_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
                               "debug_inline_array_computed_index_out_of_bounds_entry") == 0 &&
                        array_computed_index_out_of_bounds_inline_call == UINT64_MAX) {
                 array_computed_index_out_of_bounds_inline_call = die;
@@ -4262,6 +4273,7 @@ static void verify_inline_debug_object(const char* path,
     assert(cast_address_constant_inline_call != UINT64_MAX);
     assert(array_element_address_constant_inline_call != UINT64_MAX);
     assert(array_computed_index_inline_call != UINT64_MAX);
+    assert(array_unsigned_wrap_index_inline_call != UINT64_MAX);
     assert(array_computed_index_out_of_bounds_inline_call != UINT64_MAX);
     assert(array_plus_constant_inline_call != UINT64_MAX);
     assert(constant_plus_array_inline_call != UINT64_MAX);
@@ -4825,6 +4837,9 @@ static void verify_inline_debug_object(const char* path,
     verify_inline_parameter_address_constant(
         info, array_computed_index_inline_call, architecture,
         "debug_inline_addressed_array_source", 8);
+    verify_inline_parameter_address_constant(
+        info, array_unsigned_wrap_index_inline_call, architecture,
+        "debug_inline_addressed_array_source", 0);
     verify_inline_parameter_address_constant(
         info, constant_plus_array_inline_call, architecture,
         "debug_inline_addressed_array_source", 4);
