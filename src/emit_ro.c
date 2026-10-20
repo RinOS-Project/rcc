@@ -5143,6 +5143,20 @@ static bool debug_inline_append_dynamic_integer_index(
         dynamic_index->is_dynamic = true;
         return true;
     }
+    if (expression->kind == EXPR_CAST && expression->cast_expr &&
+        expression->cast_expr->type && expression_type->is_unsigned &&
+        expression_type->size > 0 &&
+        debug_inline_integer_constant_type(expression->cast_expr->type) &&
+        expression->cast_expr->type->is_unsigned &&
+        expression->cast_expr->type->size > 0 &&
+        expression->cast_expr->type->size <= expression_type->size &&
+        !expression->cast_expr->type->is_volatile &&
+        !expression->cast_expr->type->is_reference &&
+        !expression->cast_expr->type->is_atomic) {
+        return debug_inline_append_dynamic_integer_index(
+            mod, expression->cast_expr, polarity, element_size,
+            address_size, dynamic_index, byte_displacement, depth + 1u);
+    }
     if (expression_type->is_unsigned &&
         expression_type->size < (int)address_size &&
         (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB)) {
