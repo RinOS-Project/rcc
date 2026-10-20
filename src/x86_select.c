@@ -71,7 +71,8 @@ static bool x86_atomic_store_operand_supported(
 static bool x86_atomic_fetch_add_supported(
     RccMirType type, RccX86Target target) {
     return type.kind == RCC_MIR_TYPE_INTEGER &&
-        (type.bit_width == 32u ||
+        (type.bit_width == 8u || type.bit_width == 16u ||
+         type.bit_width == 32u ||
          (type.bit_width == 64u && target == RCC_X86_TARGET_X86_64));
 }
 

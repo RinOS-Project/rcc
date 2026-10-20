@@ -2036,7 +2036,9 @@ bool rcc_x86_verify_legal_function(
                  instruction->selected_opcode ==
                      RCC_X86_ATOMIC_FETCH_ADD &&
                  (instruction->type.kind != RCC_MIR_TYPE_INTEGER ||
-                  (instruction->type.bit_width != 32u &&
+                  (instruction->type.bit_width != 8u &&
+                   instruction->type.bit_width != 16u &&
+                   instruction->type.bit_width != 32u &&
                    (instruction->type.bit_width != 64u ||
                     function->target != RCC_X86_TARGET_X86_64)) ||
                   instruction->operand_types[0].kind !=

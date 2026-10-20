@@ -1658,7 +1658,7 @@ static bool x86_emit_indirect_fetch_add(
     if (!x86_emit_u8(encoder, 0xf0u) ||
         !x86_emit_prefix(encoder, size, value, address, false) ||
         !x86_emit_u8(encoder, 0x0fu) ||
-        !x86_emit_u8(encoder, 0xc1u)) return false;
+        !x86_emit_u8(encoder, size == 1u ? 0xc0u : 0xc1u)) return false;
     return x86_emit_indirect_modrm(encoder, value, address);
 }
 
@@ -2103,7 +2103,7 @@ static bool x86_emit_atomic_fetch_add(
         ? address.gpr : RCC_X86_GPR_CX;
     uint16_t size = instruction->type.bit_width / 8u;
     if (instruction->type.kind != RCC_MIR_TYPE_INTEGER ||
-        (size != 4u &&
+        (size != 1u && size != 2u && size != 4u &&
          (size != 8u ||
           encoder->function->target != RCC_X86_TARGET_X86_64)) ||
         instruction->operand_types[0].kind != RCC_MIR_TYPE_POINTER ||

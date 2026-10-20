@@ -6779,7 +6779,9 @@ static RccIrLowerValue lower_compound_assignment(
             expression->binary_lhs->type->kind == TYPE_PTR ||
             !lower_type(expression->binary_lhs->type, &atomic_type) ||
             atomic_type.kind != RCC_IR_TYPE_INTEGER ||
-            (atomic_type.bit_width != 32u &&
+            (atomic_type.bit_width != 8u &&
+             atomic_type.bit_width != 16u &&
+             atomic_type.bit_width != 32u &&
              (atomic_type.bit_width != 64u ||
               g_opts.target_arch != ARCH_X64))) {
             /* Keep unsupported atomic RMW forms on the complete legacy
@@ -6947,7 +6949,9 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
         if (expression->unary_operand->type->kind == TYPE_PTR ||
             !lower_type(expression->unary_operand->type, &atomic_type) ||
             atomic_type.kind != RCC_IR_TYPE_INTEGER ||
-            (atomic_type.bit_width != 32u &&
+            (atomic_type.bit_width != 8u &&
+             atomic_type.bit_width != 16u &&
+             atomic_type.bit_width != 32u &&
              (atomic_type.bit_width != 64u ||
               g_opts.target_arch != ARCH_X64))) {
             context->unsupported = true;

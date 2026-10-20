@@ -427,7 +427,9 @@ static bool mir_verify_instruction_type(
         case RCC_MIR_ATOMIC_FETCH_ADD:
             return mir_shape(verifier, instruction, 2u, 0u) &&
                 instruction->type.kind == RCC_MIR_TYPE_INTEGER &&
-                (instruction->type.bit_width == 32u ||
+                (instruction->type.bit_width == 8u ||
+                 instruction->type.bit_width == 16u ||
+                 instruction->type.bit_width == 32u ||
                  instruction->type.bit_width == 64u) &&
                 mir_operand_type(verifier, instruction, 0u,
                                  rcc_mir_type_pointer()) &&

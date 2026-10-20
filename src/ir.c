@@ -858,7 +858,9 @@ static bool ir_verify_instruction_types(
         case RCC_IR_ATOMIC_FETCH_ADD:
             if (!ir_require_shape(verifier, instruction, 2u, 0u) ||
                 instruction->type.kind != RCC_IR_TYPE_INTEGER ||
-                (instruction->type.bit_width != 32u &&
+                (instruction->type.bit_width != 8u &&
+                 instruction->type.bit_width != 16u &&
+                 instruction->type.bit_width != 32u &&
                  instruction->type.bit_width != 64u) ||
                 !ir_value_type(verifier, instruction->operands[0], &first) ||
                 !ir_value_type(verifier, instruction->operands[1], &second)) {

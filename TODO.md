@@ -7703,22 +7703,23 @@ remains a separate open item.
       store. No push.
 - [x] Add a typed-SSA atomic integer fetch-add operation returning the old
       value, and encode it as `LOCK XADD`. Lower atomic integer `+=`, `-=`, and
-      prefix/postfix `++`/`--` for 32-bit objects on i686/AMD64 and 64-bit
-      objects on AMD64. The allocator reserves the XADD/address scratch
-      registers, and optimization preserves the memory side effect. `test-ir`
-      checks memory-XADD encodings for both targets and executes the AMD64
-      result; `test-verified-goto` compiles the VLA cases with zero fallback at
-      `-O0`/`-O2`, executes both AMD64 objects, and agrees with GCC C17.
+      prefix/postfix `++`/`--` for 8/16/32-bit objects on i686/AMD64 and 64-bit
+      objects on AMD64. The encoder uses the byte-specific opcode and the
+      16-bit operand-size prefix; the allocator reserves the XADD/address
+      scratch registers, and optimization preserves the memory side effect.
+      `test-ir` validates and executes 8/16/32/64-bit encodings, including
+      i686 selection; `test-verified-atomic-fetch-add` compiles and executes
+      narrow atomic compound assignments and increments at `-O0`/`-O2` with
+      zero fallback on both architectures (runtime execution on AMD64).
 - [x] Preserve unsupported atomic RMW operations such as `*=` through the
       existing atomic-capable legacy lowering. `test-verified-atomic-vla-rmw`
       checks exactly one fallback for i686/AMD64 at `-O0`/`-O2` and executes
       both AMD64 objects; it remains part of `test-verified-backend` and
       production `test-ci`.
-- [ ] Extend typed-SSA atomic RMW to other scalar widths, pointer operations,
-      explicit-order `__atomic_*` builtins, floating/aggregate atomics, and
-      general C++ atomic operations. The current fetch-add representation is
-      intentionally limited to the tested integer widths and seq_cst language
-      operations.
+- [ ] Extend typed-SSA atomic RMW beyond integer fetch-add: pointer arithmetic,
+      explicit-order `__atomic_*` builtins and memory-order semantics,
+      additional integer RMW operators, floating/aggregate atomics, and
+      general C++ atomic operations remain open.
 - [x] Fix optimized VLA-bound dead-store elimination: runtime array
       declarator bounds and variably-modified types in `sizeof` are now reads
       (including nested pointer/array types), so an initializer such as
