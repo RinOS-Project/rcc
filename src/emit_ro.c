@@ -5035,19 +5035,40 @@ static bool debug_inline_frame_integer_index_source(
         /* All supported targets are little-endian x86.  If the final result
          * is no wider than the narrowest cast, its bits are the low bytes of
          * the original slot regardless of intervening integer promotions.
-         * One same-signedness widening after truncation can use that narrowed
-         * type as the source; more complex chains need explicit operations. */
+         * One widening after truncation can use the narrowed type as the
+         * source when the final conversion is a well-defined extension. */
         if (expression->type->size <= (int)narrowest_width) {
             *value_type = expression->type;
             return true;
         }
         if (!narrowest_type || outer_cast_count != 1u ||
-            conversion_width != 0u || !outer_cast_source_type ||
+            !outer_cast_source_type ||
             outer_cast_source_type->size != narrowest_type->size ||
             outer_cast_source_type->is_unsigned !=
-                narrowest_type->is_unsigned ||
-            expression->type->is_unsigned != narrowest_type->is_unsigned) {
+                narrowest_type->is_unsigned) {
             return false;
+        }
+        if (conversion_width != 0u) {
+            if (narrowest_type->is_unsigned ||
+                !expression->type->is_unsigned ||
+                expression->type->size != (int)conversion_width ||
+                conversion_width >= address_size) {
+                return false;
+            }
+            *unsigned_conversion_width = conversion_width;
+        } else {
+            bool compatible_extension =
+                (narrowest_type->is_unsigned &&
+                 !expression->type->is_unsigned &&
+                 expression->type->size > narrowest_type->size) ||
+                (!narrowest_type->is_unsigned &&
+                 expression->type->is_unsigned &&
+                 expression->type->size == (int)address_size);
+            if (expression->type->is_unsigned !=
+                    narrowest_type->is_unsigned &&
+                !compatible_extension) {
+                return false;
+            }
         }
         *value_type = narrowest_type;
         return true;
