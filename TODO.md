@@ -7492,6 +7492,7 @@ remains a separate open item.
       sequences so the better pointer conversion wins, matching GCC C++20.
       `make SHELL=cmd.exe test-cxx-conversion-operator` passes GCC checks,
       i686/AMD64 generation, AMD64 execution, and invalid mutable-reference
-      diagnostics on both targets.
+      diagnostics on both targets. The complete native-Windows
+      `make SHELL=cmd.exe test-cxx` aggregate also passes.
 - [ ] Other standard-conversion subsequences, reference-binding categories,
       pointer-to-member ranks, and user-defined conversion ties remain open.
