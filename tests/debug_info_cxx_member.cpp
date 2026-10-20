@@ -159,6 +159,7 @@ int** debug_inline_automatic_pointer_slot_escape;
 int* debug_inline_automatic_pointer_value_escape;
 void* debug_inline_automatic_index_slot_escape;
 void* debug_inline_automatic_second_index_slot_escape;
+void* debug_inline_automatic_many_index_slot_escape[9];
 
 inline int debug_inline_adjusted_base_parameter_inline(
     DebugInlineAdjustedBase* value) {
@@ -397,6 +398,54 @@ int debug_inline_automatic_pointer_large_unsigned_constant_index_entry(
     return debug_inline_automatic_subobject_parameter_inline(
         debug_inline_automatic_pointer_large_unsigned_constant_source +
         0x8000000000000000ULL);
+}
+
+int debug_inline_automatic_pointer_many_unsigned_index_entry(
+    int* seed, unsigned int seed0, unsigned int seed1,
+    unsigned int seed2, unsigned int seed3, unsigned int seed4,
+    unsigned int seed5, unsigned int seed6, unsigned int seed7,
+    unsigned int seed8) {
+    int* debug_inline_automatic_pointer_many_unsigned_source = seed;
+    unsigned int debug_inline_automatic_many_unsigned_index_0 = seed0;
+    unsigned int debug_inline_automatic_many_unsigned_index_1 = seed1;
+    unsigned int debug_inline_automatic_many_unsigned_index_2 = seed2;
+    unsigned int debug_inline_automatic_many_unsigned_index_3 = seed3;
+    unsigned int debug_inline_automatic_many_unsigned_index_4 = seed4;
+    unsigned int debug_inline_automatic_many_unsigned_index_5 = seed5;
+    unsigned int debug_inline_automatic_many_unsigned_index_6 = seed6;
+    unsigned int debug_inline_automatic_many_unsigned_index_7 = seed7;
+    unsigned int debug_inline_automatic_many_unsigned_index_8 = seed8;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_many_unsigned_source;
+    debug_inline_automatic_many_index_slot_escape[0] =
+        &debug_inline_automatic_many_unsigned_index_0;
+    debug_inline_automatic_many_index_slot_escape[1] =
+        &debug_inline_automatic_many_unsigned_index_1;
+    debug_inline_automatic_many_index_slot_escape[2] =
+        &debug_inline_automatic_many_unsigned_index_2;
+    debug_inline_automatic_many_index_slot_escape[3] =
+        &debug_inline_automatic_many_unsigned_index_3;
+    debug_inline_automatic_many_index_slot_escape[4] =
+        &debug_inline_automatic_many_unsigned_index_4;
+    debug_inline_automatic_many_index_slot_escape[5] =
+        &debug_inline_automatic_many_unsigned_index_5;
+    debug_inline_automatic_many_index_slot_escape[6] =
+        &debug_inline_automatic_many_unsigned_index_6;
+    debug_inline_automatic_many_index_slot_escape[7] =
+        &debug_inline_automatic_many_unsigned_index_7;
+    debug_inline_automatic_many_index_slot_escape[8] =
+        &debug_inline_automatic_many_unsigned_index_8;
+    return debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_many_unsigned_source +
+        (debug_inline_automatic_many_unsigned_index_0 +
+         debug_inline_automatic_many_unsigned_index_1 +
+         debug_inline_automatic_many_unsigned_index_2 +
+         debug_inline_automatic_many_unsigned_index_3 +
+         debug_inline_automatic_many_unsigned_index_4 +
+         debug_inline_automatic_many_unsigned_index_5 +
+         debug_inline_automatic_many_unsigned_index_6 +
+         debug_inline_automatic_many_unsigned_index_7 +
+         debug_inline_automatic_many_unsigned_index_8));
 }
 
 int debug_inline_automatic_array_index_entry(int index_seed) {

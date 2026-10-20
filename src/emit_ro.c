@@ -4932,7 +4932,7 @@ typedef struct DebugInlineDynamicPointerIndexGroup {
 } DebugInlineDynamicPointerIndexGroup;
 
 enum {
-    DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT = 8,
+    DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT = 16,
     DEBUG_INLINE_POINTER_VALUE_EXPRESSION_CAPACITY = 512
 };
 

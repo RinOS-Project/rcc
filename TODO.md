@@ -7289,7 +7289,7 @@ remains a separate open item.
       cannot be represented without changing the value; verify the one-byte
       signed load, sign extension, and scaled expression in all four target /
       backend configurations.
-- [x] Compose up to eight frame-backed integer terms in a pointer arithmetic
+- [x] Compose up to sixteen frame-backed integer terms in a pointer arithmetic
       chain, retaining left-to-right add/subtract order, each term's signedness
       and width, and its pointer-element scale. Verify
       `(pointer + signed_char_index) - unsigned_int_index`, both frame
@@ -7301,7 +7301,7 @@ remains a separate open item.
       AMD64 objects; the integrated DWARF verifier passes.
 - [x] Compose signed index expressions using frame-backed integer locals and
       integer constants through `+` and `-`, flattening the result into at most
-      eight scaled terms with checked fixed-displacement accumulation. Verify
+      sixteen scaled terms with checked fixed-displacement accumulation. Verify
       `pointer + (signed_char_index + int_index)` and both frame locations in
       all four target/backend variants with the integrated DWARF verifier.
 - [x] Compose unsigned `+` and `-` index expressions when the computed width
@@ -7338,10 +7338,13 @@ remains a separate open item.
       `DW_OP_constu` instead of signed fixed displacement. The AMD64
       `0x8000000000000000ULL` regression verifies target-width scaling and the
       final pointer expression in legacy and verified optimized DWARF.
+- [x] Compose nine same-width unsigned frame-backed terms in one computed
+      pointer index. Verify every source slot, width-correct arithmetic, and
+      element scaling in legacy and verified optimized i686/AMD64 DWARF.
 - [ ] Unsigned computed indexes with narrowing/signed casts, mixed-width
       subexpressions, or non-frame-backed operands; constants wider than the
       target address; multiplication and other unhandled index operators;
-      pointer chains with more than eight dynamic terms;
+      pointer chains with more than sixteen dynamic terms;
       virtual-base/member-
       pointer adjustments, negative displacements not rooted at a statically
       indexed element, nested/VLA/pointer-based dynamic subobject paths,
