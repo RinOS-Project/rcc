@@ -782,9 +782,18 @@ int consume_void_pointer_reference(const void* const& value) {
     return value ? 157 : 163;
 }
 
+int consume_void_pointer_rvalue_reference(const void* const&& value) {
+    return value ? 173 : 179;
+}
+
 int consume_base_pointer_reference(
     const ConversionBasePointerTarget* const& value) {
     return value ? value->value + 100 : 167;
+}
+
+int consume_base_pointer_rvalue_reference(
+    const ConversionBasePointerTarget* const&& value) {
+    return value ? value->value + 100 : 181;
 }
 
 int choose_pointer_reference_conversion(
@@ -793,6 +802,15 @@ int choose_pointer_reference_conversion(
 }
 
 int choose_pointer_reference_conversion(const void* const&) {
+    return 199;
+}
+
+int choose_pointer_rvalue_reference_conversion(
+    const ConversionBasePointerTarget* const&&) {
+    return 197;
+}
+
+int choose_pointer_rvalue_reference_conversion(const void* const&&) {
     return 199;
 }
 
@@ -1088,10 +1106,16 @@ int main() {
         choose_array_pointer_or_void(array_pointer_values) != 293 ||
         choose_array_pointer_or_void(const_array_pointer_values) != 293 ||
         choose_pointer_reference_conversion(raw_derived_pointer) != 197 ||
+        choose_pointer_rvalue_reference_conversion(raw_derived_pointer) !=
+            197 ||
         choose_standard_pointer_reference_sequence(
             raw_pointer_reference_value) != 307 ||
         consume_void_pointer_reference(raw_pointer_reference_value) != 157 ||
         consume_void_pointer_reference(array_pointer_values) != 157 ||
+        consume_void_pointer_rvalue_reference(raw_pointer_reference_value) !=
+            173 ||
+        consume_void_pointer_rvalue_reference(array_pointer_values) != 173 ||
+        consume_base_pointer_rvalue_reference(raw_derived_pointer) != 167 ||
         choose_pointer_to_bool_or_void(pointer_source) != 229 ||
         choose_pointer_void_qualification(pointer_source) != 271 ||
         static_cast<void*>(pointer_void_result_source) !=

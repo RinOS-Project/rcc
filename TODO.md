@@ -7494,5 +7494,10 @@ remains a separate open item.
       i686/AMD64 generation, AMD64 execution, and invalid mutable-reference
       diagnostics on both targets. The complete native-Windows
       `make SHELL=cmd.exe test-cxx` aggregate also passes.
+- [x] Cover const rvalue-reference materialization for `int*` to
+      `const void*`, array decay to `const void*`, and derived-to-base pointer
+      adjustment. The `const Base* const&&` overload wins over
+      `const void* const&&`, matching GCC C++20; the focused target passes
+      generation and AMD64 host execution.
 - [ ] Other standard-conversion subsequences, reference-binding categories,
       pointer-to-member ranks, and user-defined conversion ties remain open.
