@@ -4922,6 +4922,7 @@ typedef struct DebugInlineDynamicPointerIndexTerm {
     bool is_constant;
     uint64_t constant_value;
     uint64_t index_multiplier;
+    int64_t signed_index_multiplier;
 } DebugInlineDynamicPointerIndexTerm;
 
 typedef struct DebugInlineDynamicPointerIndexGroup {
@@ -5071,7 +5072,7 @@ static bool debug_inline_unsigned_index_multiplier(
 
 static bool debug_inline_signed_index_multiplier(
     const Expr* expression, uint8_t value_size,
-    const Expr** indexed_expression, uint64_t* multiplier) {
+    const Expr** indexed_expression, int64_t* multiplier) {
     const Type* expression_type;
     const Type* lhs_type;
     const Type* rhs_type;
@@ -5110,8 +5111,7 @@ static bool debug_inline_signed_index_multiplier(
     } else {
         return false;
     }
-    if (constant_multiplier < 0) return false;
-    *multiplier = (uint64_t)constant_multiplier;
+    *multiplier = constant_multiplier;
     return true;
 }
 
@@ -5169,6 +5169,7 @@ static bool debug_inline_collect_unsigned_computed_index_terms(
                     (UINT64_C(1) << (value_size * 8u)) - 1u;
             }
             term->index_multiplier = 1u;
+            term->signed_index_multiplier = 1;
             ++*term_count;
             return true;
         }
@@ -5213,6 +5214,7 @@ static bool debug_inline_collect_unsigned_computed_index_terms(
     term->is_constant = false;
     term->constant_value = 0u;
     term->index_multiplier = multiplier;
+    term->signed_index_multiplier = 1;
     ++*term_count;
     return true;
 }
@@ -5284,20 +5286,22 @@ static bool debug_inline_append_dynamic_integer_index(
         term->is_constant = false;
         term->constant_value = 0u;
         term->index_multiplier = 1u;
+        term->signed_index_multiplier = 1;
         ++dynamic_index->term_count;
         dynamic_index->is_dynamic = true;
         return true;
     }
     {
         const Expr* indexed_expression;
-        uint64_t multiplier;
+        uint64_t multiplier = 1u;
+        int64_t signed_multiplier = 1;
         bool has_constant_multiplier = expression_type->is_unsigned
             ? debug_inline_unsigned_index_multiplier(
                   expression, (uint8_t)expression_type->size,
                   &indexed_expression, &multiplier)
             : debug_inline_signed_index_multiplier(
                   expression, (uint8_t)expression_type->size,
-                  &indexed_expression, &multiplier);
+                  &indexed_expression, &signed_multiplier);
         if (has_constant_multiplier &&
             debug_inline_frame_integer_index_source(
                 indexed_expression, &declaration, &value_type) &&
@@ -5325,6 +5329,7 @@ static bool debug_inline_append_dynamic_integer_index(
             term->is_constant = false;
             term->constant_value = 0u;
             term->index_multiplier = multiplier;
+            term->signed_index_multiplier = signed_multiplier;
             if (value_type->is_unsigned &&
                 value_type->size < (int)address_size) {
                 group = &dynamic_index->groups[dynamic_index->group_count++];
@@ -5378,6 +5383,7 @@ static bool debug_inline_append_dynamic_integer_index(
             term->is_constant = true;
             term->constant_value = constant_bits;
             term->index_multiplier = 1u;
+            term->signed_index_multiplier = 1;
             group = &dynamic_index->groups[dynamic_index->group_count++];
             group->first_term = dynamic_index->term_count;
             group->term_count = 1u;
@@ -5531,6 +5537,7 @@ static bool debug_inline_dynamic_array_element_address(
     dynamic_index->terms[0].is_constant = false;
     dynamic_index->terms[0].constant_value = 0u;
     dynamic_index->terms[0].index_multiplier = 1u;
+    dynamic_index->terms[0].signed_index_multiplier = 1;
     dynamic_index->term_count = 1u;
     dynamic_index->is_dynamic = true;
     *address_addend = base_addend;
@@ -5927,9 +5934,14 @@ static size_t debug_build_inline_pointer_value_expression(
                 INLINE_EXPR_APPEND_ULEB(shift);
                 INLINE_EXPR_APPEND_BYTE(0x26u); /* DW_OP_shra */
             }
-            if (term->index_multiplier != 1u) {
+            if (term->is_unsigned && term->index_multiplier != 1u) {
                 INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */
                 INLINE_EXPR_APPEND_ULEB(term->index_multiplier);
+                INLINE_EXPR_APPEND_BYTE(0x1eu); /* DW_OP_mul */
+            } else if (!term->is_unsigned &&
+                       term->signed_index_multiplier != 1) {
+                INLINE_EXPR_APPEND_BYTE(0x11u); /* DW_OP_consts */
+                INLINE_EXPR_APPEND_SLEB(term->signed_index_multiplier);
                 INLINE_EXPR_APPEND_BYTE(0x1eu); /* DW_OP_mul */
             }
             INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */

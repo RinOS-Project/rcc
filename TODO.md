@@ -7348,14 +7348,15 @@ remains a separate open item.
       `index * 3u` becomes `(index << 1) + index`). Verify every term and its
       `DW_OP_mul` sequence in legacy and verified optimized i686/AMD64 DWARF.
 - [x] Preserve same-width signed frame-backed indexes multiplied by a
-      nonnegative compile-time signed constant. Sign-extend a narrow source
-      before multiplying, then scale by the pointee size. Verify the multiplier
-      and both frame slots in legacy and verified optimized i686/AMD64 DWARF;
-      native-Windows `test-debug-info` passes.
+      compile-time signed constant, including negative coefficients. Sign-extend
+      a narrow source before multiplying and encode the coefficient with
+      `DW_OP_consts`; verify positive and negative multipliers and both frame
+      slots in legacy and verified optimized i686/AMD64 DWARF. Native-Windows
+      `test-debug-info` passes.
 - [ ] Computed indexes with narrowing/signed casts, mixed-width subexpressions,
       or non-frame-backed operands; constants wider than the target address;
-      multiplication beyond same-width unsigned or nonnegative signed
-      compile-time coefficients, and other unhandled index operators; pointer
+      multiplication beyond same-width unsigned or signed compile-time
+      coefficients, and other unhandled index operators; pointer
       chains with more than sixteen dynamic terms;
       virtual-base/member-
       pointer adjustments, negative displacements not rooted at a statically

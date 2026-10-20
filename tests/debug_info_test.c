@@ -3524,7 +3524,7 @@ typedef struct VerifyInlinePointerIndexTerm {
     uint8_t group_count;
     uint8_t group_width;
     bool group_subtract;
-    uint64_t constant_value;
+    int64_t constant_value;
 } VerifyInlinePointerIndexTerm;
 
 static void verify_inline_parameter_frame_pointer_indices(
@@ -3605,12 +3605,12 @@ static void verify_inline_parameter_frame_pointer_indices(
                         &index_is_location_list, &index_variable_offset));
                     assert(index_has_location &&
                            index_variable_offset == index_expression_offset);
-                    if (group_term->constant_value > 1u) {
+                    if (group_term->constant_value > 1) {
                         assert(expression_offset < expression_end &&
                                info->data[expression_offset++] == 0x10u &&
                                read_uleb(info->data, expression_end,
                                          &expression_offset) ==
-                                   group_term->constant_value);
+                                   (uint64_t)group_term->constant_value);
                         assert(expression_offset < expression_end &&
                                info->data[expression_offset++] == 0x1eu);
                     }
@@ -3622,7 +3622,7 @@ static void verify_inline_parameter_frame_pointer_indices(
                            read_uleb(
                                info->data, expression_end,
                                &expression_offset) ==
-                               group_term->constant_value);
+                               (uint64_t)group_term->constant_value);
                 }
                 if (group_index != 0u) {
                     assert(expression_offset < expression_end &&
@@ -3676,11 +3676,21 @@ static void verify_inline_parameter_frame_pointer_indices(
             assert(expression_offset < expression_end &&
                    info->data[expression_offset++] == 0x26u);
         }
-        if (term->constant_value > 1u) {
+        if ((term->is_unsigned && term->constant_value > 1) ||
+            (!term->is_unsigned &&
+             (term->constant_value < 0 || term->constant_value > 1))) {
             assert(expression_offset < expression_end &&
-                   info->data[expression_offset++] == 0x10u &&
-                   read_uleb(info->data, expression_end,
-                             &expression_offset) == term->constant_value);
+                   info->data[expression_offset++] ==
+                       (term->is_unsigned ? 0x10u : 0x11u));
+            if (term->is_unsigned) {
+                assert(read_uleb(info->data, expression_end,
+                                 &expression_offset) ==
+                       (uint64_t)term->constant_value);
+            } else {
+                assert(read_sleb(info->data, expression_end,
+                                 &expression_offset) ==
+                       term->constant_value);
+            }
             assert(expression_offset < expression_end &&
                    info->data[expression_offset++] == 0x1eu);
         }
@@ -8144,6 +8154,12 @@ int main(int argc, char** argv)
         {"debug_inline_automatic_add_signed_index", 4u, false, 4u,
          false, 0u, 0u, false, 0u}
     };
+    const VerifyInlinePointerIndexTerm neg_scaled_signed_index_terms[] = {
+        {"debug_inline_automatic_neg_scaled_signed_index", 4u, false, 4u,
+         false, 0u, 0u, false, -3},
+        {"debug_inline_automatic_neg_add_signed_index", 4u, false, 4u,
+         false, 0u, 0u, false, 0u}
+    };
     assert(argc == 44);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
@@ -8606,6 +8622,26 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_scaled_signed_index_entry",
         "debug_inline_automatic_pointer_scaled_signed_source",
         scaled_signed_index_terms, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_neg_scaled_signed_index_entry",
+        "debug_inline_automatic_pointer_neg_scaled_signed_source",
+        neg_scaled_signed_index_terms, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_neg_scaled_signed_index_entry",
+        "debug_inline_automatic_pointer_neg_scaled_signed_source",
+        neg_scaled_signed_index_terms, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_neg_scaled_signed_index_entry",
+        "debug_inline_automatic_pointer_neg_scaled_signed_source",
+        neg_scaled_signed_index_terms, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_neg_scaled_signed_index_entry",
+        "debug_inline_automatic_pointer_neg_scaled_signed_source",
+        neg_scaled_signed_index_terms, 2u, 0, true);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86, "debug_inline_automatic_array_index_entry",
         "debug_inline_automatic_array_index_source",
