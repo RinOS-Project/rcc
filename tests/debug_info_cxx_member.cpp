@@ -385,7 +385,8 @@ int debug_inline_automatic_pointer_narrow_unsigned_constant_index_entry(
         &debug_inline_automatic_narrow_unsigned_constant_index;
     return debug_inline_automatic_subobject_parameter_inline(
         debug_inline_automatic_pointer_narrow_unsigned_constant_source +
-        (debug_inline_automatic_narrow_unsigned_constant_index + 1u));
+        static_cast<unsigned long>(
+            debug_inline_automatic_narrow_unsigned_constant_index + 1u));
 }
 
 int debug_inline_automatic_array_index_entry(int index_seed) {
