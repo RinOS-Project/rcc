@@ -124,7 +124,7 @@ int main(int argc, char** argv)
         assert(munmap(memory, mapping_size) == 0);
 #endif
         objfile_free(object);
-        puts("Verified atomic VLA legacy RMW execution passed");
+        puts("RCC object entry execution passed");
         return 0;
     }
     entry_address = (uint8_t*)memory + wide_loop_symbol->value;

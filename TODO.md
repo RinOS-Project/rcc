@@ -7719,10 +7719,12 @@ remains a separate open item.
       general C++ atomic operations. The current fetch-add representation is
       intentionally limited to the tested integer widths and seq_cst language
       operations.
-- [ ] Fix an optimized typed-SSA VLA-bound miscompile found while adding the
-      AMD64 64-bit atomic regression: with `int count = 3;` followed by
-      `_Atomic long long values[count];`, `-O0` executes correctly but `-O2`
-      loads the bound from an uninitialized stack slot and crashes. The atomic
-      RMW regression now uses a parameter bound so its gates test RMW rather
-      than masking or conflating this separate optimizer defect; add a focused
-      regression when the responsible lowering/pass is identified.
+- [x] Fix optimized VLA-bound dead-store elimination: runtime array
+      declarator bounds and variably-modified types in `sizeof` are now reads
+      (including nested pointer/array types), so an initializer such as
+      `int count = 3;` is retained when a VLA declaration or `sizeof(int[count])`
+      uses it. Escape analysis also traverses evaluated VLA type bounds. The
+      focused verified-backend regression executes at AMD64 `-O0`/`-O1`/`-O2`
+      with zero fallback; the legacy `sizeof` regression executes at `-O1` and
+      `-O2`. `test-verified-vla-local-bound`, `test-verified-atomic-vla-rmw`,
+      `test-optimize`, and `test-ir` pass on native Windows.

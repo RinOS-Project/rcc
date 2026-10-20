@@ -5958,6 +5958,16 @@ static DeadStoreLocal* collect_dead_store_locals(const Stmt* block) {
 static void mark_address_escapes_expr(const Expr* expression,
                                       DeadStoreLocal* locals);
 
+static void mark_address_escapes_type_bounds(const Type* type,
+                                             DeadStoreLocal* locals) {
+    while (type && (type->kind == TYPE_ARRAY || type->kind == TYPE_PTR)) {
+        if (type->kind == TYPE_ARRAY) {
+            mark_address_escapes_expr(type->array_bound, locals);
+        }
+        type = type->base;
+    }
+}
+
 static void mark_address_escapes_expr_list(const ExprList* list,
                                            DeadStoreLocal* locals) {
     for (; list; list = list->next) {
@@ -6130,8 +6140,16 @@ static void mark_address_escapes_expr(const Expr* expression,
         case EXPR_FLOAT_LIT:
         case EXPR_CHAR_LIT:
         case EXPR_STRING_LIT:
-        case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
+            return;
+        case EXPR_SIZEOF:
+            if (expression->sizeof_type) {
+                mark_address_escapes_type_bounds(
+                    expression->sizeof_type, locals);
+            } else if (expression->unary_operand) {
+                mark_address_escapes_type_bounds(
+                    expression->unary_operand->type, locals);
+            }
             return;
     }
 }
@@ -6202,6 +6220,8 @@ static void mark_address_escapes_stmt(const Stmt* statement,
             return;
         case STMT_DECL:
             if (statement->decl && statement->decl->kind == DECL_VAR) {
+                mark_address_escapes_type_bounds(
+                    statement->decl->type, locals);
                 if (statement->decl->type &&
                     statement->decl->type->is_reference) {
                     mark_reference_escape(statement->decl->var_init, locals);
@@ -6233,6 +6253,16 @@ static void mark_address_escapes_stmt(const Stmt* statement,
 
 static void mark_dead_store_reads(const Expr* expression,
                                   DeadStoreLocal* locals);
+
+static void mark_dead_store_type_bound_reads(const Type* type,
+                                             DeadStoreLocal* locals) {
+    while (type && (type->kind == TYPE_ARRAY || type->kind == TYPE_PTR)) {
+        if (type->kind == TYPE_ARRAY) {
+            mark_dead_store_reads(type->array_bound, locals);
+        }
+        type = type->base;
+    }
+}
 
 static void mark_dead_store_lvalue_reads(const Expr* expression,
                                          DeadStoreLocal* locals) {
@@ -6397,8 +6427,16 @@ static void mark_dead_store_reads(const Expr* expression,
         case EXPR_FLOAT_LIT:
         case EXPR_CHAR_LIT:
         case EXPR_STRING_LIT:
-        case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
+            return;
+        case EXPR_SIZEOF:
+            if (expression->sizeof_type) {
+                mark_dead_store_type_bound_reads(
+                    expression->sizeof_type, locals);
+            } else if (expression->unary_operand) {
+                mark_dead_store_type_bound_reads(
+                    expression->unary_operand->type, locals);
+            }
             return;
     }
 }
@@ -6614,6 +6652,10 @@ static void eliminate_block_dead_stores(Stmt* statement) {
                 break;
             case STMT_DECL:
                 preserve_debug_const_value(current->decl);
+                if (current->decl) {
+                    mark_dead_store_type_bound_reads(
+                        current->decl->type, locals);
+                }
                 local = current->decl
                     ? find_dead_store_local(locals, current->decl) : NULL;
                 if (local) {
