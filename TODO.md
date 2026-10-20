@@ -6741,9 +6741,13 @@ remains a separate open item.
       bound. Verify `int values[count][2][3]` indexing/stride and dynamic
       allocation on i686/AMD64 at `-O0`/`-O2`, with x64 execution in
       `test-verified-goto`.
+- [x] Verify and gate copying plain C aggregates between a fixed local and
+      dynamically indexed VLA elements, then mutate one copy independently.
+      `test-verified-goto` checks zero-fallback i686/AMD64 objects at `-O0`/`-O2`,
+      x64 execution, and a GCC C17 host oracle.
 - [ ] General typed-SSA VLA lowering remains incomplete for aggregate
-      initialization/copy forms, atomic objects, C++ class lifetime hooks,
-      and broader cleanup/unwind plus goto/loop-edge combinations.
+      initialization and other copy forms, atomic objects, C++ class lifetime
+      hooks, and broader cleanup/unwind plus goto/loop-edge combinations.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
 
@@ -6805,7 +6809,8 @@ remains a separate open item.
       execution, IR, IR-lowering, and classic VLA-runtime tests pass.
 - [x] Pass the full native-Windows `test-ci` gate, including dual-architecture
       bootstrap reproducibility. RCC `main` commit: `685868d`. No push.
-- [ ] Aggregate initialization/copy, atomic VLA forms, plus broader
+- [ ] Aggregate initialization and copy forms beyond the fixed-local/element
+      assignments verified below, atomic VLA forms, plus broader
       cleanup/unwind and control-flow interactions, remain open.
 
 ## RCC continuation (2026-10-20, volatile scalar typed-SSA VLA elements)
@@ -6818,8 +6823,19 @@ remains a separate open item.
       28 functions with zero fallbacks and x64 execution passes. IR/lowering,
       classic VLA-runtime, and dual-architecture stage0-to-stage2 bootstrap
       gates pass. RCC `main` implementation commit: `8f67474`. No push.
-- [ ] VLA aggregate initialization/copy, atomic objects, C++ class lifetime,
-      and cleanup/unwind/control-flow interactions remain open.
+- [ ] Remaining VLA aggregate initialization/copy forms, atomic objects, C++
+      class lifetime, and cleanup/unwind/control-flow interactions remain open.
+
+## RCC continuation (2026-10-20, typed-SSA VLA aggregate copies)
+
+- [x] Verify copying between a fixed-local C aggregate and dynamically indexed
+      VLA elements, then mutate the destination and check that the source and
+      other element are unchanged. `test-verified-goto` checks zero-fallback
+      i686/AMD64 objects at `-O0`/`-O2`, executes both x64 objects, and runs the
+      C17 fixture with GCC as an independent host oracle.
+- [ ] Aggregate initialization and other VLA copy forms, atomic elements,
+      C++ class lifetime, and cleanup/unwind/control-flow interactions remain
+      open.
 
 ## RCC continuation (2026-10-19, nested virtual-base class-array initialization)
 

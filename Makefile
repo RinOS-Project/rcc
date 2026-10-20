@@ -17212,7 +17212,8 @@ test-verified-goto: $(RCC_TARGET)
 		-o $(TEST_OUT)/verified-backend/goto-x86.ro \
 		tests/verified_backend_goto.c \
 		>$(TEST_OUT)/verified-backend/goto-x86.log
-	$(GREP) -F -q 'Verified backend: 28 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x86.log
+	$(GREP) -F -q 'Verified backend: 29 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/goto-x86.log,0)
 	$(GREP) -F -q 'Typed SSA wide-scalar label phi: function=verified_goto_wide_forward label=selected local=value predecessors=2' $(TEST_OUT)/verified-backend/goto-x86.log
 	$(GREP) -F -q 'Typed SSA wide-scalar label phi: function=verified_goto_wide_multiple_predecessors label=joined local=value predecessors=3' $(TEST_OUT)/verified-backend/goto-x86.log
 	$(GREP) -F -q 'Typed SSA wide-scalar label phi: function=verified_goto_wide_backward label=again local=value predecessors=2' $(TEST_OUT)/verified-backend/goto-x86.log
@@ -17231,17 +17232,20 @@ test-verified-goto: $(RCC_TARGET)
 		-o $(TEST_OUT)/verified-backend/goto-x86-o2.ro \
 		tests/verified_backend_goto.c \
 		>$(TEST_OUT)/verified-backend/goto-x86-o2.log
-	$(GREP) -F -q 'Verified backend: 28 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 29 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/goto-x86-o2.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/goto-x64.ro \
 		tests/verified_backend_goto.c \
 		>$(TEST_OUT)/verified-backend/goto-x64.log
-	$(GREP) -F -q 'Verified backend: 28 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x64.log
+	$(GREP) -F -q 'Verified backend: 29 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/goto-x64.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/goto-x64-o2.ro \
 		tests/verified_backend_goto.c \
 		>$(TEST_OUT)/verified-backend/goto-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 28 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 29 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/goto-x64-o2.log,0)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/goto-run \
 		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
@@ -17250,6 +17254,11 @@ test-verified-goto: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/goto-x64.ro
 	$(TEST_OUT)/verified-backend/goto-run \
 		$(TEST_OUT)/verified-backend/goto-x64-o2.ro
+	$(CC) -std=c17 -Wall -Wextra -Werror \
+		-Wno-unused-but-set-variable -O2 \
+		-o $(TEST_OUT)/verified-backend/goto-gcc \
+		tests/verified_backend_goto.c
+	$(TEST_OUT)/verified-backend/goto-gcc
 	@echo "Verified backend goto/label tests completed"
 
 test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
