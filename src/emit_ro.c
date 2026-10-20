@@ -4971,8 +4971,8 @@ static bool debug_inline_frame_integer_index_source(
             cast_source->size <= 0 ||
             cast_source->size > converted_type->size ||
             (cast_source->is_unsigned != converted_type->is_unsigned &&
-             (!cast_source->is_unsigned || converted_type->is_unsigned ||
-              cast_source->size >= converted_type->size)) ||
+             cast_source->size != converted_type->size &&
+             (!cast_source->is_unsigned || converted_type->is_unsigned)) ||
             cast_source->is_volatile || cast_source->is_reference ||
             cast_source->is_atomic) {
             return false;
@@ -4992,7 +4992,12 @@ static bool debug_inline_frame_integer_index_source(
         return false;
     }
     *declaration = source;
-    *value_type = source->type;
+    /* Equal-width signed/unsigned conversions preserve the stored bits; use
+     * the final expression type to choose extension when moving to the
+     * target-address width.  For widening conversions, retain the source
+     * type so its value is sign- or zero-extended before pointer scaling. */
+    *value_type = source->type->size == expression->type->size
+        ? expression->type : source->type;
     return true;
 }
 

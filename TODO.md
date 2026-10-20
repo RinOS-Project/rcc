@@ -7361,8 +7361,14 @@ remains a separate open item.
       `DW_OP_consts`; verify positive and negative multipliers and both frame
       slots in legacy and verified optimized i686/AMD64 DWARF. Native-Windows
       `test-debug-info` passes.
-- [ ] Computed indexes with narrowing/signed casts, mixed-width subexpressions,
-      or non-frame-backed operands; constants wider than the target address;
+- [x] Preserve same-width signed/unsigned casts of frame-backed index locals.
+      Read the original frame slot but use the final cast type for extension,
+      so signed-to-unsigned conversion zero-extends the stored bits on AMD64.
+      Verify i686/AMD64 legacy and verified optimized DWARF; native-Windows
+      `make SHELL=cmd.exe test-debug-info` passes.
+- [ ] Value-changing narrowing casts and cast chains that require intermediate
+      truncation; mixed-width subexpressions that cannot be safely flattened;
+      non-frame-backed operands; constants wider than the target address;
       multiplication beyond same-width unsigned or signed compile-time
       coefficients, and other unhandled index operators; pointer
       chains with more than thirty-two dynamic terms;
