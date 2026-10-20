@@ -7683,3 +7683,16 @@ remains a separate open item.
 - [ ] Broader VLA aggregate initialization/copy semantics, atomic elements,
       C++ class lifetime, and cleanup/unwind/control-flow interactions remain
       open.
+
+## RCC continuation (2026-10-20, atomic VLA typed-SSA gap audit)
+
+- [ ] Atomic scalar VLA elements are currently excluded by
+      `lower_vla_object_type_supported_internal` on `Type.is_atomic`. A focused
+      `_Atomic int values[count]` load/store/RMW probe reports the whole
+      function outside the typed-SSA subset. Existing `test-atomic-builtins`
+      and `test-atomic-language` exercise legacy code generation, not verified
+      SSA. The IR/MIR has only ordinary load/store plus a volatile-access bit;
+      it has no atomic ordering or read-modify-write operation. Implement
+      atomic load/store/RMW semantics through IR, optimization, MIR, and x86
+      selection/encoding before admitting atomic VLA elements; then require
+      zero fallback and dual-architecture runtime/oracle coverage.
