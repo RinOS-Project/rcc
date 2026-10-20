@@ -479,6 +479,22 @@ int debug_inline_automatic_pointer_signed_narrow_unsigned_signedwide_entry(
                 debug_inline_automatic_signed_narrow_unsigned_signedwide_index))));
 }
 
+int debug_inline_automatic_pointer_multiple_mask_index_entry(
+    int* seed, int index_seed) {
+    int* debug_inline_automatic_pointer_multiple_mask_source = seed;
+    signed char debug_inline_automatic_multiple_mask_index =
+        static_cast<signed char>(index_seed);
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_multiple_mask_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_multiple_mask_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_multiple_mask_source +
+        static_cast<unsigned long long>(static_cast<unsigned short>(
+            static_cast<unsigned int>(
+                debug_inline_automatic_multiple_mask_index))));
+}
+
 int debug_inline_automatic_pointer_unsigned_narrow_signed_index_entry(
     int* seed, int index_seed) {
     int* debug_inline_automatic_pointer_unsigned_narrow_signed_source = seed;

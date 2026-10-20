@@ -3533,7 +3533,8 @@ static void verify_inline_parameter_frame_pointer_indices(
     const ObjSection* locations, uint64_t call_die,
     uint16_t architecture, const char* pointer_name,
     const VerifyInlinePointerIndexTerm* index_terms, size_t index_count,
-    int64_t address_addend, bool dereference_source) {
+    int64_t address_addend, bool dereference_source,
+    const uint8_t* cast_steps, size_t cast_step_count) {
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint64_t concrete_parameter;
     uint64_t expression_offset;
@@ -3545,7 +3546,8 @@ static void verify_inline_parameter_frame_pointer_indices(
     bool pointer_is_location_list;
     assert(info && info->data && call_die < info->size && pointer_name &&
            index_terms && index_count > 0u && index_count <= 32u &&
-           address_addend >= 0);
+           address_addend >= 0 &&
+           (cast_step_count == 0u || cast_steps != NULL));
     concrete_parameter = call_die + 1u + 4u + address_size + 4u + 12u;
     assert(info->data[concrete_parameter] == 67u);
     assert(read_u32(info->data, concrete_parameter + 1u) ==
@@ -3676,6 +3678,39 @@ static void verify_inline_parameter_frame_pointer_indices(
                 info->data, expression_end, &expression_offset) == shift);
             assert(expression_offset < expression_end &&
                    info->data[expression_offset++] == 0x26u);
+        }
+        if (index == 0u) {
+            for (size_t step = 0u; step < cast_step_count; ++step) {
+                uint8_t encoded_width = cast_steps[step];
+                bool sign_extend = (encoded_width & 0x80u) != 0u;
+                uint8_t cast_width = encoded_width & 0x7fu;
+                assert(cast_width > 0u && cast_width < address_size);
+                if (sign_extend) {
+                    uint64_t cast_shift =
+                        (address_size - cast_width) * 8u;
+                    assert(expression_offset < expression_end &&
+                           info->data[expression_offset++] == 0x10u &&
+                           read_uleb(info->data, expression_end,
+                                     &expression_offset) == cast_shift &&
+                           expression_offset < expression_end &&
+                           info->data[expression_offset++] == 0x24u &&
+                           expression_offset < expression_end &&
+                           info->data[expression_offset++] == 0x10u &&
+                           read_uleb(info->data, expression_end,
+                                     &expression_offset) == cast_shift &&
+                           expression_offset < expression_end &&
+                           info->data[expression_offset++] == 0x26u);
+                } else {
+                    uint64_t cast_mask =
+                        (UINT64_C(1) << (cast_width * 8u)) - 1u;
+                    assert(expression_offset < expression_end &&
+                           info->data[expression_offset++] == 0x10u &&
+                           read_uleb(info->data, expression_end,
+                                     &expression_offset) == cast_mask &&
+                           expression_offset < expression_end &&
+                           info->data[expression_offset++] == 0x1au);
+                }
+            }
         }
         if (term->group_width != 0u) {
             assert(term->group_width <= address_size);
@@ -5464,11 +5499,12 @@ static void verify_cxx_inline_automatic_pointer_value(
     objfile_free(object);
 }
 
-static void verify_cxx_inline_automatic_pointer_indices(
+static void verify_cxx_inline_automatic_pointer_indices_impl(
     const char* path, uint16_t architecture, const char* entry_name,
     const char* pointer_name,
     const VerifyInlinePointerIndexTerm* index_terms, size_t index_count,
-    int64_t address_addend, bool dereference_source)
+    int64_t address_addend, bool dereference_source,
+    const uint8_t* cast_steps, size_t cast_step_count)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
@@ -5526,8 +5562,19 @@ static void verify_cxx_inline_automatic_pointer_indices(
     verify_inline_parameter_frame_pointer_indices(
         info, strings, locations, call_die, architecture,
         pointer_name, index_terms, index_count, address_addend,
-        dereference_source);
+        dereference_source, cast_steps, cast_step_count);
     objfile_free(object);
+}
+
+static void verify_cxx_inline_automatic_pointer_indices(
+    const char* path, uint16_t architecture, const char* entry_name,
+    const char* pointer_name,
+    const VerifyInlinePointerIndexTerm* index_terms, size_t index_count,
+    int64_t address_addend, bool dereference_source)
+{
+    verify_cxx_inline_automatic_pointer_indices_impl(
+        path, architecture, entry_name, pointer_name, index_terms,
+        index_count, address_addend, dereference_source, NULL, 0u);
 }
 
 static void verify_cxx_inline_automatic_pointer_index(
@@ -8098,6 +8145,11 @@ int main(int argc, char** argv)
             {"debug_inline_automatic_signed_narrow_unsigned_signedwide_index",
              2u, false, 4u, false, 0u, 4u, false, 0u}
         };
+    const VerifyInlinePointerIndexTerm multiple_mask_x64_index[] = {
+        {"debug_inline_automatic_multiple_mask_index", 1u, false, 4u,
+         false, 0u, 0u, false, 0u}
+    };
+    const uint8_t multiple_mask_x64_steps[] = {4u, 2u};
     const VerifyInlinePointerIndexTerm unsigned_computed_x86_indices[] = {
         {"debug_inline_automatic_unsigned_first_index", 4u, true, 4u,
          false, 0u, 0u, false, 0u},
@@ -8639,6 +8691,22 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_signed_narrow_unsigned_signedwide_entry",
         "debug_inline_automatic_pointer_signed_narrow_unsigned_signedwide_source",
         signed_narrow_unsigned_signedwide_index, 1u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices_impl(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_multiple_mask_index_entry",
+        "debug_inline_automatic_pointer_multiple_mask_source",
+        multiple_mask_x64_index, 1u, 0, true,
+        multiple_mask_x64_steps,
+        sizeof(multiple_mask_x64_steps) /
+            sizeof(multiple_mask_x64_steps[0]));
+    verify_cxx_inline_automatic_pointer_indices_impl(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_multiple_mask_index_entry",
+        "debug_inline_automatic_pointer_multiple_mask_source",
+        multiple_mask_x64_index, 1u, 0, true,
+        multiple_mask_x64_steps,
+        sizeof(multiple_mask_x64_steps) /
+            sizeof(multiple_mask_x64_steps[0]));
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_unsigned_narrow_signed_index_entry",

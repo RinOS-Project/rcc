@@ -7403,8 +7403,13 @@ remains a separate open item.
       wider signed conversion chain. Verify the 32-bit mask before the
       representable signed 64-bit extension, with the original frame slot and
       scaled expression in legacy and verified DWARF.
-- [ ] Multi-stage signedness-changing conversions requiring multiple masks, or
-      signed results too narrow to represent the masked unsigned range; other
+- [x] Preserve an AMD64 frame-backed `signed char` index through
+      `unsigned int` -> `unsigned short` -> `unsigned long long`, emitting the
+      required 32-bit and 16-bit masks in order. Also reject the prior
+      narrowest-cast shortcut when it would read beyond the original frame
+      slot. Legacy and verified DWARF regressions pass in native-Windows
+      `test-debug-info`.
+- [ ] Signed results too narrow to represent a masked unsigned range; other
       non-value-preserving conversion sequences;
       mixed-width subexpressions that cannot be safely flattened;
       non-frame-backed operands; constants wider than the target address;

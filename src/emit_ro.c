@@ -4919,6 +4919,8 @@ typedef struct DebugInlineDynamicPointerIndexTerm {
     uint8_t value_size;
     uint8_t unsigned_conversion_width; /* Modulo width for signed-to-unsigned
                                           conversions. */
+    uint8_t cast_step_count;
+    uint8_t cast_steps[16]; /* Width in bytes; bit 7 means sign-extend. */
     bool is_unsigned;
     bool subtract;
     bool is_constant;
@@ -4926,6 +4928,8 @@ typedef struct DebugInlineDynamicPointerIndexTerm {
     uint64_t index_multiplier;
     int64_t signed_index_multiplier;
 } DebugInlineDynamicPointerIndexTerm;
+
+enum { DEBUG_INLINE_INTEGER_INDEX_CAST_LIMIT = 16 };
 
 typedef struct DebugInlineDynamicPointerIndexGroup {
     uint8_t first_term;
@@ -5049,7 +5053,9 @@ static bool debug_inline_frame_integer_index_source(
             *value_type = expression->type;
             return true;
         }
-        if (!narrowest_type || outer_cast_count == 0u ||
+        if (!narrowest_type ||
+            source->type->size < narrowest_type->size ||
+            outer_cast_count == 0u ||
             !outer_cast_chain_compatible) {
             return false;
         }
@@ -5096,6 +5102,92 @@ static bool debug_inline_frame_integer_index_source(
      * type so its value is sign- or zero-extended before pointer scaling. */
     *value_type = source->type->size == expression->type->size
         ? expression->type : source->type;
+    return true;
+}
+
+static bool debug_inline_frame_integer_index_cast_chain(
+    const Expr* expression, const Decl** declaration,
+    const Type** source_type, uint8_t address_size,
+    uint8_t cast_steps[DEBUG_INLINE_INTEGER_INDEX_CAST_LIMIT],
+    uint8_t* cast_step_count) {
+    const Expr* index = expression;
+    const Type* cast_targets[DEBUG_INLINE_INTEGER_INDEX_CAST_LIMIT];
+    const Type* current_type;
+    const Decl* source;
+    uint8_t cast_count = 0u;
+    uint8_t step_count = 0u;
+    if (!index || !declaration || !source_type || !cast_steps ||
+        !cast_step_count || address_size == 0u || address_size > 8u ||
+        !expression->type ||
+        !debug_inline_integer_constant_type(expression->type) ||
+        expression->type->size <= 0 ||
+        expression->type->size > (int)address_size ||
+        expression->type->is_volatile || expression->type->is_reference ||
+        expression->type->is_atomic) {
+        return false;
+    }
+    *cast_step_count = 0u;
+    while (index->kind == EXPR_CAST && index->cast_expr) {
+        if (cast_count >= DEBUG_INLINE_INTEGER_INDEX_CAST_LIMIT ||
+            !index->type ||
+            !debug_inline_integer_constant_type(index->type) ||
+            index->type->size <= 0 ||
+            index->type->size > (int)address_size ||
+            index->type->is_volatile || index->type->is_reference ||
+            index->type->is_atomic) {
+            return false;
+        }
+        cast_targets[cast_count++] = index->type;
+        index = index->cast_expr;
+    }
+    if (cast_count == 0u || index->kind != EXPR_IDENT ||
+        !index->ident_decl) {
+        return false;
+    }
+    source = index->ident_decl;
+    current_type = index->type;
+    if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+        !current_type ||
+        !debug_inline_integer_constant_type(current_type) ||
+        current_type->size <= 0 ||
+        current_type->size > (int)address_size ||
+        current_type->is_volatile || current_type->is_reference ||
+        current_type->is_atomic || !source->type ||
+        !debug_inline_integer_constant_type(source->type) ||
+        source->type->size != current_type->size ||
+        source->type->is_unsigned != current_type->is_unsigned ||
+        source->type->is_volatile || source->type->is_reference ||
+        source->type->is_atomic) {
+        return false;
+    }
+    for (uint8_t target_index = cast_count; target_index > 0u;
+         --target_index) {
+        const Type* target = cast_targets[target_index - 1u];
+        if (target->size < current_type->size ||
+            (target->size == current_type->size &&
+             target->is_unsigned != current_type->is_unsigned)) {
+            if (target->size < (int)address_size) {
+                if (step_count >= DEBUG_INLINE_INTEGER_INDEX_CAST_LIMIT) {
+                    return false;
+                }
+                cast_steps[step_count++] = target->is_unsigned
+                    ? (uint8_t)target->size
+                    : (uint8_t)(0x80u | (uint8_t)target->size);
+            }
+        } else if (target->size > current_type->size &&
+                   !current_type->is_unsigned && target->is_unsigned &&
+                   target->size < (int)address_size) {
+            if (step_count >= DEBUG_INLINE_INTEGER_INDEX_CAST_LIMIT) {
+                return false;
+            }
+            cast_steps[step_count++] = (uint8_t)target->size;
+        }
+        current_type = target;
+    }
+    if (current_type != expression->type) return false;
+    *declaration = source;
+    *source_type = source->type;
+    *cast_step_count = step_count;
     return true;
 }
 
@@ -5264,6 +5356,7 @@ static bool debug_inline_collect_unsigned_computed_index_terms(
             term->element_size = element_size;
             term->value_size = value_size;
             term->unsigned_conversion_width = 0u;
+            term->cast_step_count = 0u;
             term->is_unsigned = true;
             term->subtract = polarity < 0;
             term->is_constant = true;
@@ -5314,6 +5407,7 @@ static bool debug_inline_collect_unsigned_computed_index_terms(
     term->element_size = element_size;
     term->value_size = value_size;
     term->unsigned_conversion_width = 0u;
+    term->cast_step_count = 0u;
     term->is_unsigned = true;
     term->subtract = polarity < 0;
     term->is_constant = false;
@@ -5388,6 +5482,7 @@ static bool debug_inline_append_dynamic_integer_index(
             term->element_size = element_size;
             term->value_size = (uint8_t)value_type->size;
             term->unsigned_conversion_width = unsigned_conversion_width;
+            term->cast_step_count = 0u;
             term->is_unsigned = value_type->is_unsigned;
             term->subtract = polarity < 0;
             term->is_constant = false;
@@ -5397,6 +5492,38 @@ static bool debug_inline_append_dynamic_integer_index(
             ++dynamic_index->term_count;
             dynamic_index->is_dynamic = true;
             return true;
+        }
+        {
+            uint8_t cast_steps[DEBUG_INLINE_INTEGER_INDEX_CAST_LIMIT];
+            uint8_t cast_step_count = 0u;
+            if (dynamic_index->term_count <
+                    DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT &&
+                debug_inline_frame_integer_index_cast_chain(
+                    expression, &declaration, &value_type, address_size,
+                    cast_steps, &cast_step_count)) {
+                DebugInlineDynamicPointerIndexTerm* term =
+                    &dynamic_index->terms[dynamic_index->term_count];
+                if (!debug_inline_parameter_frame_offset(
+                        mod, declaration, &term->frame_offset)) {
+                    return false;
+                }
+                term->element_size = element_size;
+                term->value_size = (uint8_t)value_type->size;
+                term->unsigned_conversion_width = 0u;
+                term->cast_step_count = cast_step_count;
+                for (uint8_t step = 0u; step < cast_step_count; ++step) {
+                    term->cast_steps[step] = cast_steps[step];
+                }
+                term->is_unsigned = value_type->is_unsigned;
+                term->subtract = polarity < 0;
+                term->is_constant = false;
+                term->constant_value = 0u;
+                term->index_multiplier = 1u;
+                term->signed_index_multiplier = 1;
+                ++dynamic_index->term_count;
+                dynamic_index->is_dynamic = true;
+                return true;
+            }
         }
     }
     {
@@ -5436,6 +5563,7 @@ static bool debug_inline_append_dynamic_integer_index(
             term->element_size = element_size;
             term->value_size = (uint8_t)value_type->size;
             term->unsigned_conversion_width = 0u;
+            term->cast_step_count = 0u;
             term->is_unsigned = value_type->is_unsigned;
             term->subtract = false;
             term->is_constant = false;
@@ -5491,6 +5619,7 @@ static bool debug_inline_append_dynamic_integer_index(
             term->element_size = element_size;
             term->value_size = (uint8_t)address_size;
             term->unsigned_conversion_width = 0u;
+            term->cast_step_count = 0u;
             term->is_unsigned = true;
             term->subtract = false;
             term->is_constant = true;
@@ -5649,6 +5778,7 @@ static bool debug_inline_dynamic_array_element_address(
     dynamic_index->terms[0].value_size = (uint8_t)index_type->size;
     dynamic_index->terms[0].unsigned_conversion_width =
         unsigned_conversion_width;
+    dynamic_index->terms[0].cast_step_count = 0u;
     dynamic_index->terms[0].is_unsigned = index_type->is_unsigned;
     dynamic_index->terms[0].subtract = false;
     dynamic_index->terms[0].is_constant = false;
@@ -6038,7 +6168,9 @@ static size_t debug_build_inline_pointer_value_expression(
             }
             if (term->value_size == 0u ||
                 term->value_size > address_size || term->element_size <= 0 ||
-                term->unsigned_conversion_width > address_size) {
+                term->unsigned_conversion_width > address_size ||
+                term->cast_step_count >
+                    DEBUG_INLINE_INTEGER_INDEX_CAST_LIMIT) {
                 goto expression_too_large;
             }
             INLINE_EXPR_APPEND_BYTE(architecture == ARCH_X64
@@ -6055,6 +6187,31 @@ static size_t debug_build_inline_pointer_value_expression(
                 INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */
                 INLINE_EXPR_APPEND_ULEB(shift);
                 INLINE_EXPR_APPEND_BYTE(0x26u); /* DW_OP_shra */
+            }
+            for (uint8_t step = 0u;
+                 step < term->cast_step_count; ++step) {
+                uint8_t encoded_width = term->cast_steps[step];
+                bool sign_extend = (encoded_width & 0x80u) != 0u;
+                uint8_t cast_width = encoded_width & 0x7fu;
+                uint64_t shift;
+                if (cast_width == 0u || cast_width >= address_size) {
+                    goto expression_too_large;
+                }
+                if (sign_extend) {
+                    shift = (uint64_t)(address_size - cast_width) * 8u;
+                    INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */
+                    INLINE_EXPR_APPEND_ULEB(shift);
+                    INLINE_EXPR_APPEND_BYTE(0x24u); /* DW_OP_shl */
+                    INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */
+                    INLINE_EXPR_APPEND_ULEB(shift);
+                    INLINE_EXPR_APPEND_BYTE(0x26u); /* DW_OP_shra */
+                } else {
+                    uint64_t mask =
+                        (UINT64_C(1) << (cast_width * 8u)) - 1u;
+                    INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */
+                    INLINE_EXPR_APPEND_ULEB(mask);
+                    INLINE_EXPR_APPEND_BYTE(0x1au); /* DW_OP_and */
+                }
             }
             if (term->unsigned_conversion_width != 0u) {
                 uint8_t conversion_width =
