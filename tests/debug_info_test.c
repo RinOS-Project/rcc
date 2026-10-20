@@ -7956,6 +7956,18 @@ int main(int argc, char** argv)
         {"debug_inline_automatic_computed_int_index", 4u, false, 4u,
          false}
     };
+    const VerifyInlinePointerIndexTerm unsigned_computed_x86_indices[] = {
+        {"debug_inline_automatic_unsigned_first_index", 4u, true, 4u,
+         false},
+        {"debug_inline_automatic_unsigned_second_index", 4u, true, 4u,
+         true}
+    };
+    const VerifyInlinePointerIndexTerm unsigned_computed_x64_indices[] = {
+        {"debug_inline_automatic_unsigned_first_index", 8u, true, 4u,
+         false},
+        {"debug_inline_automatic_unsigned_second_index", 8u, true, 4u,
+         true}
+    };
     assert(argc == 44);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
@@ -8298,6 +8310,26 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_computed_index_entry",
         "debug_inline_automatic_pointer_computed_source",
         computed_pointer_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_unsigned_computed_index_entry",
+        "debug_inline_automatic_pointer_unsigned_computed_source",
+        unsigned_computed_x86_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_unsigned_computed_index_entry",
+        "debug_inline_automatic_pointer_unsigned_computed_source",
+        unsigned_computed_x64_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_unsigned_computed_index_entry",
+        "debug_inline_automatic_pointer_unsigned_computed_source",
+        unsigned_computed_x86_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_unsigned_computed_index_entry",
+        "debug_inline_automatic_pointer_unsigned_computed_source",
+        unsigned_computed_x64_indices, 2u, 0, true);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86, "debug_inline_automatic_array_index_entry",
         "debug_inline_automatic_array_index_source",

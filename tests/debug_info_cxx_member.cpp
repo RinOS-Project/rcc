@@ -332,6 +332,26 @@ int debug_inline_automatic_pointer_computed_index_entry(
          debug_inline_automatic_computed_int_index));
 }
 
+int debug_inline_automatic_pointer_unsigned_computed_index_entry(
+    int* seed, unsigned long first_index_seed,
+    unsigned long second_index_seed) {
+    int* debug_inline_automatic_pointer_unsigned_computed_source = seed;
+    unsigned long debug_inline_automatic_unsigned_first_index =
+        first_index_seed;
+    unsigned long debug_inline_automatic_unsigned_second_index =
+        second_index_seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_unsigned_computed_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_unsigned_first_index;
+    debug_inline_automatic_second_index_slot_escape =
+        &debug_inline_automatic_unsigned_second_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_unsigned_computed_source +
+        (debug_inline_automatic_unsigned_first_index -
+         debug_inline_automatic_unsigned_second_index));
+}
+
 int debug_inline_automatic_array_index_entry(int index_seed) {
     DebugInlineAutomaticAddressAggregate
         debug_inline_automatic_array_index_source;

@@ -4990,6 +4990,9 @@ static bool debug_inline_append_dynamic_integer_index(
     }
     if (debug_inline_integer_constant_value(
             expression, &element_count, 0u)) {
+        if (expression_type->is_unsigned && element_count < 0) {
+            return false;
+        }
         if (polarity < 0) {
             if (element_count == INT64_MIN) return false;
             element_count = -element_count;
@@ -5032,7 +5035,8 @@ static bool debug_inline_append_dynamic_integer_index(
     }
     if ((expression->kind != EXPR_ADD &&
          expression->kind != EXPR_SUB) ||
-        expression_type->is_unsigned) {
+        (expression_type->is_unsigned &&
+         expression_type->size != (int)address_size)) {
         return false;
     }
     return debug_inline_append_dynamic_integer_index(
