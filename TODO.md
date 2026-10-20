@@ -7341,10 +7341,17 @@ remains a separate open item.
 - [x] Compose nine same-width unsigned frame-backed terms in one computed
       pointer index. Verify every source slot, width-correct arithmetic, and
       element scaling in legacy and verified optimized i686/AMD64 DWARF.
+- [x] Preserve same-width unsigned frame-backed indexes multiplied by a
+      compile-time unsigned constant. Apply the coefficient with source-width
+      modular arithmetic before pointee scaling; recognize both multiplication
+      nodes and the frontend's shift/add normalization (for example,
+      `index * 3u` becomes `(index << 1) + index`). Verify every term and its
+      `DW_OP_mul` sequence in legacy and verified optimized i686/AMD64 DWARF.
 - [ ] Unsigned computed indexes with narrowing/signed casts, mixed-width
       subexpressions, or non-frame-backed operands; constants wider than the
-      target address; multiplication and other unhandled index operators;
-      pointer chains with more than sixteen dynamic terms;
+      target address; multiplication beyond same-width unsigned compile-time
+      coefficients and other unhandled index operators; pointer chains with
+      more than sixteen dynamic terms;
       virtual-base/member-
       pointer adjustments, negative displacements not rooted at a statically
       indexed element, nested/VLA/pointer-based dynamic subobject paths,
