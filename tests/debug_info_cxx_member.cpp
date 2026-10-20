@@ -473,6 +473,21 @@ int debug_inline_automatic_pointer_multistage_signed_widen_index_entry(
             debug_inline_automatic_multistage_signed_widen_index))));
 }
 
+int debug_inline_automatic_pointer_multistage_narrow_index_entry(
+    int* seed, int index_seed) {
+    int* debug_inline_automatic_pointer_multistage_narrow_source = seed;
+    int debug_inline_automatic_multistage_narrow_index = index_seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_multistage_narrow_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_multistage_narrow_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_multistage_narrow_source +
+        static_cast<int>(static_cast<short>(static_cast<signed char>(
+            static_cast<short>(
+                debug_inline_automatic_multistage_narrow_index)))));
+}
+
 int debug_inline_automatic_pointer_unsigned_narrow_index_entry(
     int* seed, int index_seed) {
     int* debug_inline_automatic_pointer_unsigned_narrow_source = seed;

@@ -7389,13 +7389,14 @@ remains a separate open item.
       zero extension. Verify frame locations and exact scaled pointer
       expressions in legacy and verified optimized i686/AMD64 DWARF; the
       native-Windows integrated debug-info test passes.
-- [x] Preserve one narrowing followed by multiple value-preserving widening
-      casts, including same-signedness extension and unsigned-to-wider-signed
-      zero extension. Verify `int` -> `short` -> `int` -> `long` using the
-      original frame slot and scaled pointer expression in all four target/
+- [x] Preserve one or more narrowing casts followed by multiple
+      value-preserving widening casts, including same-signedness extension and
+      unsigned-to-wider-signed zero extension. Verify `int` -> `short` -> `int`
+      -> `long` and `int` -> `short` -> `signed char` -> `short` -> `int` using
+      the original frame slot and scaled pointer expression in all four target/
       backend variants; the integrated DWARF verifier passes.
-- [ ] Multi-stage narrow-then-widen cast chains and conversion sequences beyond
-      the supported extensions above;
+- [ ] Multi-stage signedness-changing conversions that require intermediate
+      masks, and other non-value-preserving conversion sequences;
       mixed-width subexpressions that cannot be safely flattened;
       non-frame-backed operands; constants wider than the target address;
       multiplication beyond same-width unsigned or signed compile-time

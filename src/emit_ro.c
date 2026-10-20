@@ -4961,7 +4961,6 @@ static bool debug_inline_frame_integer_index_source(
     uint8_t narrowest_width = 0u;
     uint8_t conversion_width = 0u;
     unsigned int outer_cast_count = 0u;
-    unsigned int narrowing_cast_count = 0u;
     bool outer_cast_chain_compatible = true;
     if (!index || !declaration || !value_type || !index->type ||
         !unsigned_conversion_width || address_size == 0u ||
@@ -5005,7 +5004,6 @@ static bool debug_inline_frame_integer_index_source(
             conversion_width = (uint8_t)converted_type->size;
         }
         if (cast_source->size > converted_type->size) {
-            ++narrowing_cast_count;
             if (narrowest_width == 0u ||
                 converted_type->size < (int)narrowest_width) {
                 narrowest_width = (uint8_t)converted_type->size;
@@ -5044,15 +5042,15 @@ static bool debug_inline_frame_integer_index_source(
     if (narrowest_width != 0u) {
         /* All supported targets are little-endian x86.  If the final result
          * is no wider than the narrowest cast, its bits are the low bytes of
-         * the original slot regardless of intervening integer promotions.
-         * One widening after truncation can use the narrowed type as the
-         * source when the final conversion is a well-defined extension. */
+         * the original slot regardless of earlier integer conversions. For
+         * wider results, use that narrowest type when every outer cast is a
+         * supported value-preserving extension. */
         if (expression->type->size <= (int)narrowest_width) {
             *value_type = expression->type;
             return true;
         }
-        if (!narrowest_type || narrowing_cast_count != 1u ||
-            outer_cast_count == 0u || !outer_cast_chain_compatible) {
+        if (!narrowest_type || outer_cast_count == 0u ||
+            !outer_cast_chain_compatible) {
             return false;
         }
         if (conversion_width != 0u) {
