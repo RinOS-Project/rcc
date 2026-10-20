@@ -4917,6 +4917,8 @@ typedef struct DebugInlineDynamicPointerIndexTerm {
     int64_t frame_offset;
     int element_size;
     uint8_t value_size;
+    uint8_t unsigned_conversion_width; /* Modulo width for signed-to-unsigned
+                                          conversions. */
     bool is_unsigned;
     bool subtract;
     bool is_constant;
@@ -4950,15 +4952,19 @@ typedef struct DebugInlineDynamicPointerIndex {
 
 static bool debug_inline_frame_integer_index_source(
     const Expr* expression, const Decl** declaration,
-    const Type** value_type, uint8_t address_size) {
+    const Type** value_type, uint8_t address_size,
+    uint8_t* unsigned_conversion_width) {
     const Expr* index = expression;
     const Type* converted_type;
     const Decl* source;
     uint8_t narrowest_width = 0u;
+    uint8_t conversion_width = 0u;
     if (!index || !declaration || !value_type || !index->type ||
-        address_size == 0u || address_size > 8u) {
+        !unsigned_conversion_width || address_size == 0u ||
+        address_size > 8u) {
         return false;
     }
+    *unsigned_conversion_width = 0u;
     converted_type = index->type;
     if (!debug_inline_integer_constant_type(converted_type) ||
         converted_type->size <= 0 || converted_type->size > 8 ||
@@ -4968,6 +4974,9 @@ static bool debug_inline_frame_integer_index_source(
     }
     while (index->kind == EXPR_CAST && index->cast_expr) {
         const Type* cast_source = index->cast_expr->type;
+        /* A signed source widened to unsigned needs a destination-width mask
+         * below address width; at address width, sign extension is already
+         * the required modulo conversion. */
         if (!cast_source ||
             !debug_inline_integer_constant_type(cast_source) ||
             cast_source->size <= 0 ||
@@ -4977,10 +4986,19 @@ static bool debug_inline_frame_integer_index_source(
              !((cast_source->is_unsigned &&
                 !converted_type->is_unsigned) ||
                (!cast_source->is_unsigned && converted_type->is_unsigned &&
-                converted_type->size == (int)address_size))) ||
+                converted_type->size <= (int)address_size))) ||
             cast_source->is_volatile || cast_source->is_reference ||
             cast_source->is_atomic) {
             return false;
+        }
+        if (!cast_source->is_unsigned && converted_type->is_unsigned &&
+            cast_source->size < converted_type->size &&
+            converted_type->size < (int)address_size) {
+            if (conversion_width != 0u &&
+                conversion_width != (uint8_t)converted_type->size) {
+                return false;
+            }
+            conversion_width = (uint8_t)converted_type->size;
         }
         if (cast_source->size > converted_type->size &&
             (narrowest_width == 0u ||
@@ -5010,6 +5028,15 @@ static bool debug_inline_frame_integer_index_source(
          * operations and is intentionally not attributed by this path. */
         if (expression->type->size > (int)narrowest_width) return false;
         *value_type = expression->type;
+        return true;
+    }
+    if (conversion_width != 0u) {
+        if (!expression->type->is_unsigned ||
+            expression->type->size != (int)conversion_width) {
+            return false;
+        }
+        *value_type = source->type;
+        *unsigned_conversion_width = conversion_width;
         return true;
     }
     /* Equal-width signed/unsigned conversions preserve the stored bits; use
@@ -5185,6 +5212,7 @@ static bool debug_inline_collect_unsigned_computed_index_terms(
             term->frame_offset = 0;
             term->element_size = element_size;
             term->value_size = value_size;
+            term->unsigned_conversion_width = 0u;
             term->is_unsigned = true;
             term->subtract = polarity < 0;
             term->is_constant = true;
@@ -5234,6 +5262,7 @@ static bool debug_inline_collect_unsigned_computed_index_terms(
     }
     term->element_size = element_size;
     term->value_size = value_size;
+    term->unsigned_conversion_width = 0u;
     term->is_unsigned = true;
     term->subtract = polarity < 0;
     term->is_constant = false;
@@ -5292,32 +5321,36 @@ static bool debug_inline_append_dynamic_integer_index(
         *byte_displacement += local_displacement;
         return true;
     }
-    if (debug_inline_frame_integer_index_source(
-            expression, &declaration, &value_type, address_size)) {
-        DebugInlineDynamicPointerIndexTerm* term;
-        if (dynamic_index->term_count >=
-            DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT) {
-            return false;
+    {
+        uint8_t unsigned_conversion_width = 0u;
+        if (dynamic_index->term_count <
+                DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT &&
+            debug_inline_frame_integer_index_source(
+                expression, &declaration, &value_type, address_size,
+                &unsigned_conversion_width)) {
+            DebugInlineDynamicPointerIndexTerm* term =
+                &dynamic_index->terms[dynamic_index->term_count];
+            if (!debug_inline_parameter_frame_offset(
+                    mod, declaration, &term->frame_offset)) {
+                return false;
+            }
+            term->element_size = element_size;
+            term->value_size = (uint8_t)value_type->size;
+            term->unsigned_conversion_width = unsigned_conversion_width;
+            term->is_unsigned = value_type->is_unsigned;
+            term->subtract = polarity < 0;
+            term->is_constant = false;
+            term->constant_value = 0u;
+            term->index_multiplier = 1u;
+            term->signed_index_multiplier = 1;
+            ++dynamic_index->term_count;
+            dynamic_index->is_dynamic = true;
+            return true;
         }
-        term = &dynamic_index->terms[dynamic_index->term_count];
-        if (!debug_inline_parameter_frame_offset(
-                mod, declaration, &term->frame_offset)) {
-            return false;
-        }
-        term->element_size = element_size;
-        term->value_size = (uint8_t)value_type->size;
-        term->is_unsigned = value_type->is_unsigned;
-        term->subtract = polarity < 0;
-        term->is_constant = false;
-        term->constant_value = 0u;
-        term->index_multiplier = 1u;
-        term->signed_index_multiplier = 1;
-        ++dynamic_index->term_count;
-        dynamic_index->is_dynamic = true;
-        return true;
     }
     {
         const Expr* indexed_expression;
+        uint8_t unsigned_conversion_width = 0u;
         uint64_t multiplier = 1u;
         int64_t signed_multiplier = 1;
         bool has_constant_multiplier = expression_type->is_unsigned
@@ -5330,7 +5363,8 @@ static bool debug_inline_append_dynamic_integer_index(
         if (has_constant_multiplier &&
             debug_inline_frame_integer_index_source(
                 indexed_expression, &declaration, &value_type,
-                address_size) &&
+                address_size, &unsigned_conversion_width) &&
+            unsigned_conversion_width == 0u &&
             value_type->is_unsigned == expression_type->is_unsigned &&
             value_type->size == expression_type->size) {
             DebugInlineDynamicPointerIndexTerm* term;
@@ -5350,6 +5384,7 @@ static bool debug_inline_append_dynamic_integer_index(
             }
             term->element_size = element_size;
             term->value_size = (uint8_t)value_type->size;
+            term->unsigned_conversion_width = 0u;
             term->is_unsigned = value_type->is_unsigned;
             term->subtract = false;
             term->is_constant = false;
@@ -5404,6 +5439,7 @@ static bool debug_inline_append_dynamic_integer_index(
             term->frame_offset = 0;
             term->element_size = element_size;
             term->value_size = (uint8_t)address_size;
+            term->unsigned_conversion_width = 0u;
             term->is_unsigned = true;
             term->subtract = false;
             term->is_constant = true;
@@ -5533,6 +5569,7 @@ static bool debug_inline_dynamic_array_element_address(
     const Decl* index_declaration;
     const Expr* array_designator;
     int64_t base_addend;
+    uint8_t unsigned_conversion_width = 0u;
     if (!mod || !expression || expression->kind != EXPR_INDEX ||
         !expression->index_base || !expression->index_expr || !source ||
         !address_addend || !dynamic_index) {
@@ -5549,7 +5586,7 @@ static bool debug_inline_dynamic_array_element_address(
         !array_type->base || array_type->base->size <= 0 ||
         !debug_inline_frame_integer_index_source(
             expression->index_expr, &index_declaration, &index_type,
-            address_size) ||
+            address_size, &unsigned_conversion_width) ||
         index_type->size > (int)address_size ||
         !debug_inline_address_path(
             expression->index_base, source, &base_addend, false, true, 0u) ||
@@ -5559,6 +5596,8 @@ static bool debug_inline_dynamic_array_element_address(
     }
     dynamic_index->terms[0].element_size = array_type->base->size;
     dynamic_index->terms[0].value_size = (uint8_t)index_type->size;
+    dynamic_index->terms[0].unsigned_conversion_width =
+        unsigned_conversion_width;
     dynamic_index->terms[0].is_unsigned = index_type->is_unsigned;
     dynamic_index->terms[0].subtract = false;
     dynamic_index->terms[0].is_constant = false;
@@ -5901,11 +5940,15 @@ static size_t debug_build_inline_pointer_value_expression(
                     const DebugInlineDynamicPointerIndexTerm* group_term =
                         &dynamic_index->terms[index + group_term_index];
                     if (group_term->is_constant) {
+                        if (group_term->unsigned_conversion_width != 0u) {
+                            goto expression_too_large;
+                        }
                         INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */
                         INLINE_EXPR_APPEND_ULEB(group_term->constant_value);
                     } else {
                         if (group_term->value_size == 0u ||
-                            group_term->value_size > address_size) {
+                            group_term->value_size > address_size ||
+                            group_term->unsigned_conversion_width != 0u) {
                             goto expression_too_large;
                         }
                         INLINE_EXPR_APPEND_BYTE(architecture == ARCH_X64
@@ -5943,7 +5986,8 @@ static size_t debug_build_inline_pointer_value_expression(
                 continue;
             }
             if (term->value_size == 0u ||
-                term->value_size > address_size || term->element_size <= 0) {
+                term->value_size > address_size || term->element_size <= 0 ||
+                term->unsigned_conversion_width > address_size) {
                 goto expression_too_large;
             }
             INLINE_EXPR_APPEND_BYTE(architecture == ARCH_X64
@@ -5960,6 +6004,21 @@ static size_t debug_build_inline_pointer_value_expression(
                 INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */
                 INLINE_EXPR_APPEND_ULEB(shift);
                 INLINE_EXPR_APPEND_BYTE(0x26u); /* DW_OP_shra */
+            }
+            if (term->unsigned_conversion_width != 0u) {
+                uint8_t conversion_width =
+                    term->unsigned_conversion_width;
+                uint64_t mask;
+                if (conversion_width > address_size || conversion_width > 8u) {
+                    goto expression_too_large;
+                }
+                if (conversion_width < address_size) {
+                    mask = conversion_width == 8u ? UINT64_MAX
+                        : (UINT64_C(1) << (conversion_width * 8u)) - 1u;
+                    INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */
+                    INLINE_EXPR_APPEND_ULEB(mask);
+                    INLINE_EXPR_APPEND_BYTE(0x1au); /* DW_OP_and */
+                }
             }
             if (term->is_unsigned && term->index_multiplier != 1u) {
                 INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */

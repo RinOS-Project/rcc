@@ -7377,10 +7377,15 @@ remains a separate open item.
       Preserve modulo conversion by sign-extending the signed source to the
       address width before pointer scaling; verify both frame slots in legacy
       and verified optimized DWARF.
+- [x] Convert a frame-backed signed `short` to an unsigned `int` index when
+      the destination is narrower than the AMD64 address width. Sign-extend
+      the source, mask to the destination width before scaling, and use direct
+      address-width sign extension on i686. Verify legacy and verified
+      optimized DWARF on both targets; the native-Windows integrated DWARF
+      verifier passes.
 - [ ] Narrow-then-widen cast chains whose final width exceeds an intermediate
-      truncation; signed-to-unsigned widening below address width; mixed-width
-      subexpressions that cannot be safely flattened; non-frame-backed
-      operands; constants wider than the target address;
+      truncation; mixed-width subexpressions that cannot be safely flattened;
+      non-frame-backed operands; constants wider than the target address;
       multiplication beyond same-width unsigned or signed compile-time
       coefficients, and other unhandled index operators; pointer
       chains with more than thirty-two dynamic terms;
