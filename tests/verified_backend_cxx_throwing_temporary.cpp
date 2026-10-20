@@ -48,6 +48,24 @@ struct VerifiedThrowingReferenceConversionSource {
     }
 };
 
+struct VerifiedThrowingTemporaryConversionReceiverInner {
+    VerifiedThrowingTemporaryConversionSource source;
+};
+
+struct VerifiedThrowingTemporaryConversionReceiverEnvelope {
+    VerifiedThrowingTemporaryConversionReceiverInner inner;
+};
+
+static VerifiedThrowingTemporaryConversionReceiverEnvelope
+make_verified_temporary_conversion_receiver_envelope(
+    int* cleanup_order, int cleanup_id,
+    int* receiver_cleanup_order) noexcept {
+    return VerifiedThrowingTemporaryConversionReceiverEnvelope{
+        VerifiedThrowingTemporaryConversionReceiverInner{
+            VerifiedThrowingTemporaryConversionSource{
+                cleanup_order, cleanup_id, receiver_cleanup_order}}};
+}
+
 struct VerifiedFirstConstructorMember {
     int* cleanup_order;
 
@@ -347,7 +365,23 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     }
     if (reference_conversion_receiver_cleanup_order != 21) return -22;
     if (reference_conversion_target_cleanup_order != 0) return -23;
-    return 65715;
+    int subobject_receiver_cleanup_order = 0;
+    int subobject_receiver_observation = 0;
+    cleanup_order = 0;
+    {
+        const VerifiedThrowingTemporary& value =
+            make_verified_temporary_conversion_receiver_envelope(
+                &cleanup_order, 22, &subobject_receiver_cleanup_order)
+                .inner.source;
+        subobject_receiver_observation = value.cleanup_id * 100 +
+            subobject_receiver_cleanup_order * 10 + cleanup_order;
+    }
+    if (subobject_receiver_observation != 2420) {
+        return subobject_receiver_observation;
+    }
+    if (subobject_receiver_cleanup_order != 22) return -24;
+    if (cleanup_order != 22) return -25;
+    return 65716;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

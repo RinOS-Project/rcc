@@ -66,9 +66,9 @@ int main(void) {
         return 6;
     }
     result = verified_cxx_local_reference_normal_cleanup();
-    if (result != 65715) {
+    if (result != 65716) {
         fprintf(stderr,
-                "normal nested/conversion/reference cleanup returned %d, expected 65715\n",
+                "normal nested/conversion/reference cleanup returned %d, expected 65716\n",
                 result);
         return 7;
     }

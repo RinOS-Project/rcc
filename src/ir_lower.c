@@ -9031,14 +9031,34 @@ static bool lower_member_function_pointer_call_target(
     return callee_out->valid;
 }
 
+static bool lower_receiver_source_contains_subobject(
+    const Expr* expression, const Expr* receiver_source) {
+    const Expr* current = expression;
+    size_t depth = 0u;
+    bool saw_member = false;
+    while (current && current != receiver_source && depth++ < 128u) {
+        if (current->kind == EXPR_MEMBER) {
+            saw_member = true;
+            current = current->member_base;
+        } else if (current->kind == EXPR_CAST && current->cast_expr) {
+            current = current->cast_expr;
+        } else {
+            return false;
+        }
+    }
+    return saw_member && current == receiver_source;
+}
+
 static RccIrLowerValue lower_call_receiver_argument(
     RccIrLowerContext* context, const Expr* expression,
     const Expr* receiver_source,
+    const Decl* receiver_owner,
     RccIrLowerValue* complete_object_out) {
     const Expr* casts[32];
     const Expr* source = expression;
     size_t cast_count = 0u;
     RccIrLowerValue complete_object;
+    RccIrLowerValue temporary_owner_object = lower_invalid_value();
     if (!context || !expression || !complete_object_out) {
         return lower_invalid_value();
     }
@@ -9068,6 +9088,48 @@ static RccIrLowerValue lower_call_receiver_argument(
         complete_object = lower_expression(context, receiver_source);
         context->allow_nontrivial_temporary_conditional =
             previous_conditional_permission;
+    } else if (source && source->kind == EXPR_ADDR &&
+        source->cxx_implicit_object_address && source->unary_operand &&
+        receiver_source && receiver_owner && receiver_owner->type &&
+        receiver_source->type &&
+        (receiver_source->type->kind == TYPE_STRUCT ||
+         receiver_source->type->kind == TYPE_UNION) &&
+        lower_receiver_source_contains_subobject(
+            source->unary_operand, receiver_source)) {
+        RccIrInstruction* allocation;
+        const Expr* previous_destination_expression =
+            context->aggregate_result_destination_expression;
+        RccIrLowerValue previous_destination =
+            context->aggregate_result_destination;
+        bool previous_conditional_permission =
+            context->allow_nontrivial_temporary_conditional;
+        if (receiver_source->type->size <= 0 ||
+            receiver_source->type->align <= 0 ||
+            !type_is_compatible(receiver_owner->type,
+                                receiver_source->type) ||
+            !type_is_compatible(receiver_source->type,
+                                receiver_owner->type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        allocation = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!allocation) return lower_invalid_value();
+        rcc_ir_set_immediate(
+            allocation, (uint64_t)receiver_source->type->size);
+        allocation->alignment = (uint32_t)receiver_source->type->align;
+        temporary_owner_object = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
+        context->aggregate_result_destination_expression = receiver_source;
+        context->aggregate_result_destination = temporary_owner_object;
+        context->allow_nontrivial_temporary_conditional = true;
+        complete_object = lower_expression(context, source);
+        context->aggregate_result_destination_expression =
+            previous_destination_expression;
+        context->aggregate_result_destination = previous_destination;
+        context->allow_nontrivial_temporary_conditional =
+            previous_conditional_permission;
     } else {
         complete_object = lower_expression(context, source);
     }
@@ -9076,7 +9138,8 @@ static RccIrLowerValue lower_call_receiver_argument(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    *complete_object_out = complete_object;
+    *complete_object_out = temporary_owner_object.valid
+        ? temporary_owner_object : complete_object;
     while (cast_count != 0u) {
         const Expr* cast = casts[--cast_count];
         complete_object = lower_cast(context, complete_object, cast->type);
@@ -9450,6 +9513,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                    argument == expression->call_args) {
             value = lower_call_receiver_argument(
                 context, argument->expr, expression->cxx_temporary_source,
+                expression->cxx_temporary_owner,
                 &receiver_temporary_address);
             receiver_temporary_address_valid =
                 receiver_temporary_address.valid &&

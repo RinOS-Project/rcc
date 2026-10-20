@@ -3433,6 +3433,24 @@ static bool sema_prepare_class_prvalue_cleanup(
     Expr* source, Decl** owner_out, CxxCleanupPlan** cleanups_out,
     bool owner_stores_address, const char* unsupported_message);
 
+static Expr* sema_cxx_prvalue_subobject_source(Expr* expression) {
+    Expr* base;
+    if (!expression || expression->kind != EXPR_MEMBER ||
+        !(base = expression->member_base)) {
+        return NULL;
+    }
+    if (base->type &&
+        (base->type->kind == TYPE_STRUCT ||
+         base->type->kind == TYPE_UNION) &&
+        !is_lvalue(base) && !is_xvalue(base)) {
+        return base;
+    }
+    if (base->kind == EXPR_MEMBER && is_xvalue(base)) {
+        return sema_cxx_prvalue_subobject_source(base);
+    }
+    return NULL;
+}
+
 static bool cxx_reference_object_compatible(const Type* source,
                                             const Type* target) {
     Type source_unqualified;
@@ -3657,6 +3675,7 @@ reference_binding_source:
                     ast_arena_alloc(sizeof(*source_expression));
                 Expr* member;
                 Expr* call;
+                Expr* receiver_cleanup_source = NULL;
                 if (conversion_result_object &&
                     conversion_result_object->is_reference) {
                     conversion_result_object =
@@ -3681,14 +3700,23 @@ reference_binding_source:
                      source_expression->kind == EXPR_COMPOUND ||
                      source_expression->kind == EXPR_COND ||
                      source_expression->kind == EXPR_COMMA)) {
+                    receiver_cleanup_source = source_expression;
+                } else if (is_xvalue(source_expression) &&
+                           source_expression->kind == EXPR_MEMBER) {
+                    receiver_cleanup_source =
+                        sema_cxx_prvalue_subobject_source(
+                            source_expression);
+                }
+                if (receiver_cleanup_source) {
                     (void)sema_prepare_class_prvalue_cleanup(
-                        source_expression, &receiver_owner,
+                        receiver_cleanup_source, &receiver_owner,
                         &receiver_cleanups, false,
                         "class-prvalue conversion receiver cleanup is unsupported");
                     if (receiver_owner) {
                         call->cxx_temporary_owner = receiver_owner;
                         call->cxx_temporary_cleanups = receiver_cleanups;
-                        call->cxx_temporary_source = source_expression;
+                        call->cxx_temporary_source =
+                            receiver_cleanup_source;
                     }
                 }
                 if (apply_standard_conversion &&
