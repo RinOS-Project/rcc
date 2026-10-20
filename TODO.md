@@ -464,11 +464,17 @@
         初期化し、non-empty `noexcept` bodyでscalar演算・代入するfixtureを追加。
         `test-verified-cxx-reference-local` はi686/AMD64 `-O2`で8関数・fallback 0、
         両verified object実行と通常AMD64 host実行に成功。
-  - [ ] verified backendで複数scalar member/parameterやより一般的なconstructor
-        body、nontrivial base initialization、nontrivial/deleted target copy
-        constructor、call引数以外のfull-expression cleanup、例外経路を実装・検証。
-        標準conversion subsequenceとpointer-to-memberを含む全rank/partial orderingも
-        未完了
+  - [x] verified backendで複数scalar member/parameterを持つconstructor、
+        arithmetic/member assignmentを行うnon-empty `noexcept` body、複数の
+        nontrivial direct non-virtual base constructor、複数member/parameterの
+        initializer式とcall initializer、さらにbase/array/nested aggregateを含む
+        trivial copyを実装・回帰検証。`test-verified-cxx-reference-local` は
+        i686/AMD64の`-O0`/`-O2`で各19関数・fallback 0、4 verified object実行と
+        legacy AMD64実行を通過。
+  - [ ] より一般的なconstructor bodyのlocal/control-flow、virtualまたはthrowing
+        base construction、nontrivial/deleted target copy constructor、call引数以外の
+        full-expression cleanupと未検証の例外経路が残る。標準conversion subsequenceと
+        pointer-to-memberを含む全rank/partial orderingも未完了
   - [x] Namespace extension compatibility: verify reopened named and
         translation-unit anonymous namespaces, lookup through the transitive
         inline-namespace set for both namespace definitions and qualified
