@@ -3435,6 +3435,19 @@ static bool sema_prepare_class_prvalue_cleanup(
 
 static Expr* sema_cxx_prvalue_subobject_source(Expr* expression) {
     Expr* base;
+    if (expression && expression->kind == EXPR_CAST &&
+        is_xvalue(expression) && (base = expression->cast_expr)) {
+        if (base->type &&
+            (base->type->kind == TYPE_STRUCT ||
+             base->type->kind == TYPE_UNION) &&
+            !is_lvalue(base) && !is_xvalue(base)) {
+            return base;
+        }
+        if (is_xvalue(base)) {
+            return sema_cxx_prvalue_subobject_source(base);
+        }
+        return NULL;
+    }
     if (!expression || expression->kind != EXPR_MEMBER ||
         !(base = expression->member_base)) {
         return NULL;
@@ -3702,7 +3715,8 @@ reference_binding_source:
                      source_expression->kind == EXPR_COMMA)) {
                     receiver_cleanup_source = source_expression;
                 } else if (is_xvalue(source_expression) &&
-                           source_expression->kind == EXPR_MEMBER) {
+                           (source_expression->kind == EXPR_MEMBER ||
+                            source_expression->kind == EXPR_CAST)) {
                     receiver_cleanup_source =
                         sema_cxx_prvalue_subobject_source(
                             source_expression);

@@ -4596,6 +4596,7 @@ static void verify_cxx_throwing_temporary_object(
     ObjSymbol* direct_throw_symbol;
     ObjSymbol* conditional_throw_symbol;
     ObjSymbol* normal_cleanup_symbol;
+    ObjSymbol* base_conversion_receiver_symbol;
     ObjSymbol* throwing_initializer_symbol;
     ObjSymbol* throwing_constructor_symbol;
     ObjSymbol* temporary_cleanup_symbol;
@@ -4607,6 +4608,8 @@ static void verify_cxx_throwing_temporary_object(
         object, "verified_cxx_throwing_conditional_cleanup");
     normal_cleanup_symbol = objfile_find_symbol(
         object, "verified_cxx_local_reference_normal_cleanup");
+    base_conversion_receiver_symbol = objfile_find_symbol(
+        object, "verified_cxx_base_conversion_receiver_cleanup");
     throwing_initializer_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_initializer_cleanup");
     throwing_constructor_symbol = objfile_find_symbol(
@@ -4622,6 +4625,9 @@ static void verify_cxx_throwing_temporary_object(
            normal_cleanup_symbol != NULL &&
            normal_cleanup_symbol->binding == BIND_CODE &&
            normal_cleanup_symbol->section == 0 &&
+           base_conversion_receiver_symbol != NULL &&
+           base_conversion_receiver_symbol->binding == BIND_CODE &&
+           base_conversion_receiver_symbol->section == 0 &&
            throwing_initializer_symbol != NULL &&
            throwing_initializer_symbol->binding == BIND_CODE &&
            throwing_initializer_symbol->section == 0 &&
@@ -4694,6 +4700,15 @@ static void verify_cxx_throwing_temporary_object(
             }
             assert(normal_cleanup_result == 65716);
         }
+        address = symbol_address(memory, base_conversion_receiver_symbol);
+        memcpy(&no_arguments, &address, sizeof(no_arguments));
+        result = no_arguments();
+        if (result != 65717) {
+            fprintf(stderr,
+                    "verified base conversion receiver cleanup returned %d, expected 65717\n",
+                    result);
+        }
+        assert(result == 65717);
         address = symbol_address(memory, throwing_initializer_symbol);
         memcpy(&integer_argument, &address, sizeof(integer_argument));
         assert(integer_argument(1) == 560);

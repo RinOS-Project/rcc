@@ -14,6 +14,8 @@ extern int verified_cxx_throwing_conditional_cleanup(
     int select_outer, int select_inner, int* cleanup_order)
     RINOS_TEST_ABI;
 extern int verified_cxx_local_reference_normal_cleanup(void) RINOS_TEST_ABI;
+extern int verified_cxx_base_conversion_receiver_cleanup(void)
+    RINOS_TEST_ABI;
 extern int verified_cxx_throwing_initializer_cleanup(int should_throw)
     RINOS_TEST_ABI;
 extern int verified_cxx_throwing_constructor_reference_cleanup(
@@ -72,47 +74,54 @@ int main(void) {
                 result);
         return 7;
     }
+    result = verified_cxx_base_conversion_receiver_cleanup();
+    if (result != 65717) {
+        fprintf(stderr,
+                "base conversion receiver cleanup returned %d, expected 65717\n",
+                result);
+        return 8;
+    }
     result = verified_cxx_throwing_initializer_cleanup(1);
     if (result != 560) {
         fprintf(stderr,
                 "throwing initializer cleanup returned %d, expected 560\n",
                 result);
-        return 8;
+        return 9;
     }
     result = verified_cxx_throwing_initializer_cleanup(0);
     if (result != 66) {
         fprintf(stderr,
                 "successful initializer cleanup returned %d, expected 66\n",
                 result);
-        return 9;
+        return 10;
     }
     result = verified_cxx_throwing_constructor_reference_cleanup(1);
     if (result != 59031) {
         fprintf(stderr,
                 "throwing member constructor temporary returned %d, expected 59031\n",
                 result);
-        return 10;
+        return 11;
     }
     result = verified_cxx_throwing_constructor_reference_cleanup(2);
     if (result != 58231) {
         fprintf(stderr,
                 "throwing constructor body temporary returned %d, expected 58231\n",
                 result);
-        return 11;
+        return 12;
     }
     result = verified_cxx_throwing_constructor_reference_cleanup(0);
     if (result != 2231) {
         fprintf(stderr,
                 "successful constructor temporary returned %d, expected 2231\n",
                 result);
-        return 12;
+        return 13;
     }
     result = verified_cxx_throwing_constructor_reference_cleanup(3);
     if (result != 2231) {
         fprintf(stderr,
                 "implicitly completed constructor temporary returned %d, expected 2231\n",
                 result);
-        return 13;
+        return 14;
     }
     return rcc_test_main();
 }

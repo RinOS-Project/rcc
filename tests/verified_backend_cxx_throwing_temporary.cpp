@@ -66,6 +66,25 @@ make_verified_temporary_conversion_receiver_envelope(
                 cleanup_order, cleanup_id, receiver_cleanup_order}}};
 }
 
+struct VerifiedThrowingTemporaryConversionReceiverDerived :
+    VerifiedThrowingTemporaryConversionSource {
+    int* complete_cleanup_order;
+
+    ~VerifiedThrowingTemporaryConversionReceiverDerived() noexcept {
+        *complete_cleanup_order = *complete_cleanup_order * 10 + cleanup_id;
+    }
+};
+
+static VerifiedThrowingTemporaryConversionReceiverDerived
+make_verified_temporary_conversion_receiver_derived(
+    int* cleanup_order, int cleanup_id,
+    int* receiver_cleanup_order, int* complete_cleanup_order) noexcept {
+    return VerifiedThrowingTemporaryConversionReceiverDerived{
+        VerifiedThrowingTemporaryConversionSource{
+            cleanup_order, cleanup_id, receiver_cleanup_order},
+        complete_cleanup_order};
+}
+
 struct VerifiedFirstConstructorMember {
     int* cleanup_order;
 
@@ -382,6 +401,29 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     if (subobject_receiver_cleanup_order != 22) return -24;
     if (cleanup_order != 22) return -25;
     return 65716;
+}
+
+extern "C" int verified_cxx_base_conversion_receiver_cleanup() {
+    int cleanup_order = 0;
+    int base_receiver_cleanup_order = 0;
+    int derived_complete_cleanup_order = 0;
+    int base_receiver_observation = 0;
+    {
+        const VerifiedThrowingTemporary& value =
+            static_cast<VerifiedThrowingTemporaryConversionSource&&>(
+                make_verified_temporary_conversion_receiver_derived(
+                    &cleanup_order, 23, &base_receiver_cleanup_order,
+                    &derived_complete_cleanup_order));
+        base_receiver_observation = value.cleanup_id * 100 +
+            base_receiver_cleanup_order * 10 + cleanup_order;
+    }
+    if (base_receiver_observation != 2530) {
+        return base_receiver_observation;
+    }
+    if (base_receiver_cleanup_order != 23) return -26;
+    if (derived_complete_cleanup_order != 23) return -27;
+    if (cleanup_order != 23) return -28;
+    return 65717;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

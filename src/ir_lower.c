@@ -2410,12 +2410,21 @@ static RccIrLowerValue lower_lvalue_address_impl(
          expression->cxx_cast_kind == CXX_CAST_CONST ||
          expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
         RccIrLowerValue address;
+        const Expr* cast_source = expression->cast_expr;
         if (!lower_mark_wide_local_address_escaped(
-                context, expression->cast_expr)) {
+                context, cast_source)) {
             return lower_invalid_value();
         }
-        address = lower_lvalue_address(
-            context, expression->cast_expr);
+        if (cast_source && cast_source->kind == EXPR_CALL &&
+            cast_source->type &&
+            (cast_source->type->kind == TYPE_STRUCT ||
+             cast_source->type->kind == TYPE_UNION) &&
+            !cast_source->type->is_reference) {
+            address = lower_expression(context, cast_source);
+        } else {
+            address = lower_lvalue_address(context, cast_source);
+        }
+        if (!address.valid) return lower_invalid_value();
         if (expression->cxx_pointer_adjustment_valid) {
             return lower_adjusted_pointer(
                 context, address, expression->cxx_pointer_adjustment);
@@ -9035,18 +9044,30 @@ static bool lower_receiver_source_contains_subobject(
     const Expr* expression, const Expr* receiver_source) {
     const Expr* current = expression;
     size_t depth = 0u;
-    bool saw_member = false;
+    bool saw_subobject_projection = false;
     while (current && current != receiver_source && depth++ < 128u) {
         if (current->kind == EXPR_MEMBER) {
-            saw_member = true;
+            saw_subobject_projection = true;
             current = current->member_base;
         } else if (current->kind == EXPR_CAST && current->cast_expr) {
+            const Type* cast_type = current->type;
+            const Type* source_type = current->cast_expr->type;
+            if (cast_type && cast_type->is_reference &&
+                cast_type->is_rvalue_reference && cast_type->base &&
+                (cast_type->base->kind == TYPE_STRUCT ||
+                 cast_type->base->kind == TYPE_UNION) &&
+                source_type &&
+                (source_type->kind == TYPE_STRUCT ||
+                 source_type->kind == TYPE_UNION) &&
+                !source_type->is_reference) {
+                saw_subobject_projection = true;
+            }
             current = current->cast_expr;
         } else {
             return false;
         }
     }
-    return saw_member && current == receiver_source;
+    return saw_subobject_projection && current == receiver_source;
 }
 
 static RccIrLowerValue lower_call_receiver_argument(
