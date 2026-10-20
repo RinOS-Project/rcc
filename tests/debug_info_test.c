@@ -2375,18 +2375,21 @@ static bool find_variable_location(const ObjSection* info,
         expression_cursor = die + 1u + 20u;
         expression_size = read_uleb(
             info->data, info->size, &expression_cursor);
-        assert(expression_size >= 2u &&
-               expression_size <= info->size - expression_cursor);
+        if (expression_size < 2u ||
+            expression_size > info->size - expression_cursor) {
+            continue;
+        }
         expression_end = expression_cursor + expression_size;
-        assert(info->data[expression_cursor] == frame_register);
+        if (info->data[expression_cursor] != frame_register) continue;
         expression_cursor++;
-        *frame_offset = read_sleb(
-            info->data, expression_end,
-            &expression_cursor);
-        assert(expression_cursor == expression_end ||
-               (expression_cursor + 1u == expression_end &&
-                info->data[expression_cursor] == 0x06u) ||
-               strcmp(variable_name, "aligned") == 0);
+        if (!try_read_sleb(info->data, expression_end, &expression_cursor,
+                           frame_offset) ||
+            (expression_cursor != expression_end &&
+             !(expression_cursor + 1u == expression_end &&
+               info->data[expression_cursor] == 0x06u) &&
+             strcmp(variable_name, "aligned") != 0)) {
+            continue;
+        }
         return true;
     }
     return false;
@@ -3512,30 +3515,32 @@ static void verify_inline_parameter_frame_address(
            variable_frame_offset == expression_frame_offset);
 }
 
-static void verify_inline_parameter_frame_pointer_index(
+typedef struct VerifyInlinePointerIndexTerm {
+    const char* name;
+    uint8_t size;
+    bool is_unsigned;
+    uint64_t element_size;
+    bool subtract;
+} VerifyInlinePointerIndexTerm;
+
+static void verify_inline_parameter_frame_pointer_indices(
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, uint64_t call_die,
-    uint16_t architecture, const char* pointer_name, const char* index_name,
-    int64_t address_addend, bool dereference_source, uint8_t index_size,
-    bool index_unsigned, uint64_t element_size, bool subtract_index) {
+    uint16_t architecture, const char* pointer_name,
+    const VerifyInlinePointerIndexTerm* index_terms, size_t index_count,
+    int64_t address_addend, bool dereference_source) {
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint64_t concrete_parameter;
     uint64_t expression_offset;
     uint64_t expression_size;
     uint64_t expression_end;
-    uint64_t shift;
     int64_t pointer_expression_offset;
-    int64_t index_expression_offset;
     int64_t pointer_variable_offset;
-    int64_t index_variable_offset;
     bool pointer_has_location;
     bool pointer_is_location_list;
-    bool index_has_location;
-    bool index_is_location_list;
     assert(info && info->data && call_die < info->size && pointer_name &&
-           index_name && address_addend >= 0 && index_size > 0u &&
-           index_size <= address_size);
-    shift = address_size * 8u - index_size * 8u;
+           index_terms && index_count > 0u && index_count <= 8u &&
+           address_addend >= 0);
     concrete_parameter = call_die + 1u + 4u + address_size + 4u + 12u;
     assert(info->data[concrete_parameter] == 67u);
     assert(read_u32(info->data, concrete_parameter + 1u) ==
@@ -3559,35 +3564,53 @@ static void verify_inline_parameter_frame_pointer_index(
                info->data[expression_offset++] == 0x06u); /* DW_OP_deref */
     }
     assert(expression_offset < expression_end);
-    assert(info->data[expression_offset++] ==
-           (architecture == ARCH_X64 ? 0x76u : 0x75u));
-    index_expression_offset = read_sleb(
-        info->data, expression_end, &expression_offset);
-    assert(expression_offset + 2u <= expression_end &&
-           info->data[expression_offset++] == 0x94u &&
-           info->data[expression_offset++] == index_size);
-    if (!index_unsigned && shift != 0u) {
+    for (size_t index = 0u; index < index_count; ++index) {
+        const VerifyInlinePointerIndexTerm* term = &index_terms[index];
+        uint64_t shift;
+        int64_t index_expression_offset;
+        int64_t index_variable_offset;
+        bool index_has_location;
+        bool index_is_location_list;
+        assert(term->name && term->size > 0u && term->size <= address_size);
+        shift = address_size * 8u - term->size * 8u;
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] ==
+                   (architecture == ARCH_X64 ? 0x76u : 0x75u));
+        index_expression_offset = read_sleb(
+            info->data, expression_end, &expression_offset);
+        assert(expression_offset + 2u <= expression_end &&
+               info->data[expression_offset++] == 0x94u &&
+               info->data[expression_offset++] == term->size);
+        if (!term->is_unsigned && shift != 0u) {
+            assert(expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x10u);
+            assert(read_uleb(
+                info->data, expression_end, &expression_offset) == shift);
+            assert(expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x24u);
+            assert(expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x10u);
+            assert(read_uleb(
+                info->data, expression_end, &expression_offset) == shift);
+            assert(expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x26u);
+        }
         assert(expression_offset < expression_end &&
                info->data[expression_offset++] == 0x10u);
-        assert(read_uleb(info->data, expression_end, &expression_offset) ==
-               shift);
-        assert(expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x24u); /* DW_OP_shl */
-        assert(expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x10u);
-        assert(read_uleb(info->data, expression_end, &expression_offset) ==
-               shift);
-        assert(expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x26u); /* DW_OP_shra */
+        assert(read_uleb(
+            info->data, expression_end, &expression_offset) ==
+            term->element_size);
+        assert(expression_offset + 2u <= expression_end &&
+               info->data[expression_offset++] == 0x1eu &&
+               info->data[expression_offset++] ==
+                   (term->subtract ? 0x1cu : 0x22u));
+        assert(find_variable_location(
+            info, strings, locations, term->name, architecture,
+            &index_has_location, &index_is_location_list,
+            &index_variable_offset));
+        assert(index_has_location &&
+               index_variable_offset == index_expression_offset);
     }
-    assert(expression_offset < expression_end &&
-           info->data[expression_offset++] == 0x10u);
-    assert(read_uleb(info->data, expression_end, &expression_offset) ==
-           element_size);
-    assert(expression_offset + 2u <= expression_end &&
-           info->data[expression_offset++] == 0x1eu &&
-           info->data[expression_offset++] ==
-               (subtract_index ? 0x1cu : 0x22u));
     assert(expression_offset + 1u == expression_end &&
            info->data[expression_offset] == 0x9fu);
     assert(find_variable_location(
@@ -3596,12 +3619,6 @@ static void verify_inline_parameter_frame_pointer_index(
         &pointer_variable_offset));
     assert(pointer_has_location &&
            pointer_variable_offset == pointer_expression_offset);
-    assert(find_variable_location(
-        info, strings, locations, index_name, architecture,
-        &index_has_location, &index_is_location_list,
-        &index_variable_offset));
-    assert(index_has_location &&
-           index_variable_offset == index_expression_offset);
 }
 
 static void verify_inline_parameter_is_not_attributed(
@@ -5332,11 +5349,11 @@ static void verify_cxx_inline_automatic_pointer_value(
     objfile_free(object);
 }
 
-static void verify_cxx_inline_automatic_pointer_index(
+static void verify_cxx_inline_automatic_pointer_indices(
     const char* path, uint16_t architecture, const char* entry_name,
-    const char* pointer_name, const char* index_name,
-    int64_t address_addend, bool dereference_source, uint8_t index_size,
-    bool index_unsigned, uint64_t element_size, bool subtract_index)
+    const char* pointer_name,
+    const VerifyInlinePointerIndexTerm* index_terms, size_t index_count,
+    int64_t address_addend, bool dereference_source)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
@@ -5391,11 +5408,25 @@ static void verify_cxx_inline_automatic_pointer_index(
         }
     }
     assert(call_die != UINT64_MAX);
-    verify_inline_parameter_frame_pointer_index(
+    verify_inline_parameter_frame_pointer_indices(
         info, strings, locations, call_die, architecture,
-        pointer_name, index_name, address_addend, dereference_source,
-        index_size, index_unsigned, element_size, subtract_index);
+        pointer_name, index_terms, index_count, address_addend,
+        dereference_source);
     objfile_free(object);
+}
+
+static void verify_cxx_inline_automatic_pointer_index(
+    const char* path, uint16_t architecture, const char* entry_name,
+    const char* pointer_name, const char* index_name,
+    int64_t address_addend, bool dereference_source, uint8_t index_size,
+    bool index_unsigned, uint64_t element_size, bool subtract_index)
+{
+    const VerifyInlinePointerIndexTerm term = {
+        index_name, index_size, index_unsigned, element_size, subtract_index
+    };
+    verify_cxx_inline_automatic_pointer_indices(
+        path, architecture, entry_name, pointer_name, &term, 1u,
+        address_addend, dereference_source);
 }
 
 static void verify_cxx_inline_constexpr_parameter(
@@ -7913,6 +7944,12 @@ static void verify_verified_fallback_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
+    const VerifyInlinePointerIndexTerm compound_pointer_indices[] = {
+        {"debug_inline_automatic_compound_signed_index", 1u, false, 4u,
+         false},
+        {"debug_inline_automatic_compound_unsigned_index", 4u, true, 4u,
+         true}
+    };
     assert(argc == 44);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
@@ -8191,6 +8228,26 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_narrow_index_source",
         "debug_inline_automatic_narrow_index_source", 0, true, 1u, false,
         4u, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_compound_index_entry",
+        "debug_inline_automatic_pointer_compound_source",
+        compound_pointer_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_compound_index_entry",
+        "debug_inline_automatic_pointer_compound_source",
+        compound_pointer_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_compound_index_entry",
+        "debug_inline_automatic_pointer_compound_source",
+        compound_pointer_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_compound_index_entry",
+        "debug_inline_automatic_pointer_compound_source",
+        compound_pointer_indices, 2u, 0, true);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86, "debug_inline_automatic_array_index_entry",
         "debug_inline_automatic_array_index_source",

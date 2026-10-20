@@ -4897,12 +4897,23 @@ static bool debug_inline_parameter_frame_offset(
     return true;
 }
 
-typedef struct DebugInlineDynamicPointerIndex {
+typedef struct DebugInlineDynamicPointerIndexTerm {
     int64_t frame_offset;
     int element_size;
     uint8_t value_size;
     bool is_unsigned;
     bool subtract;
+} DebugInlineDynamicPointerIndexTerm;
+
+enum {
+    DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT = 8,
+    DEBUG_INLINE_POINTER_VALUE_EXPRESSION_CAPACITY = 512
+};
+
+typedef struct DebugInlineDynamicPointerIndex {
+    DebugInlineDynamicPointerIndexTerm
+        terms[DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT];
+    uint8_t term_count;
     bool is_dynamic;
 } DebugInlineDynamicPointerIndex;
 
@@ -4954,51 +4965,94 @@ static bool debug_inline_frame_integer_index_source(
     return true;
 }
 
-static bool debug_inline_pointer_dynamic_index_source(
-    const Expr* expression, const Expr** pointer_expression,
-    const Decl** index_declaration, const Type** index_type,
-    int* element_size, bool* subtract) {
+static bool debug_inline_pointer_dynamic_index_chain(
+    const Module* mod, const Expr* expression,
+    const Expr** pointer_expression, int64_t* byte_displacement,
+    DebugInlineDynamicPointerIndex* dynamic_index, uint8_t address_size,
+    unsigned int depth) {
     const Expr* pointer;
     const Expr* index;
     const Type* pointer_type;
     const Type* value_type;
     const Decl* declaration;
-    bool subtract_pointer;
-    if (!expression || !pointer_expression || !index_declaration ||
-        !index_type || !element_size || !subtract ||
-        (expression->kind != EXPR_ADD && expression->kind != EXPR_SUB)) {
+    int64_t element_count;
+    int64_t local_displacement;
+    int64_t nested_displacement = 0;
+    bool subtract;
+    if (!mod || !expression || !pointer_expression ||
+        !byte_displacement || !dynamic_index || depth >= 32u) {
         return false;
+    }
+    if (expression->kind != EXPR_ADD && expression->kind != EXPR_SUB) {
+        *pointer_expression = expression;
+        *byte_displacement = 0;
+        return true;
     }
     pointer = expression->binary_lhs;
     index = expression->binary_rhs;
-    subtract_pointer = expression->kind == EXPR_SUB;
+    subtract = expression->kind == EXPR_SUB;
     if (!pointer || !pointer->type ||
         (pointer->type->kind != TYPE_PTR &&
          pointer->type->kind != TYPE_ARRAY)) {
-        if (subtract_pointer || !index || !index->type ||
+        if (subtract || !index || !index->type ||
             (index->type->kind != TYPE_PTR &&
              index->type->kind != TYPE_ARRAY)) {
             return false;
         }
         pointer = expression->binary_rhs;
         index = expression->binary_lhs;
-        subtract_pointer = false;
+        subtract = false;
     }
     pointer_type = pointer->type;
     if (!pointer_type || pointer_type->cxx_is_member_pointer ||
         !pointer_type->base || pointer_type->base->kind == TYPE_FUNC ||
-        pointer_type->base->size <= 0 || !index) {
+        pointer_type->base->size <= 0 || !index ||
+        !debug_inline_pointer_dynamic_index_chain(
+            mod, pointer, pointer_expression, &nested_displacement,
+            dynamic_index, address_size, depth + 1u)) {
         return false;
     }
-    if (!debug_inline_frame_integer_index_source(
-            index, &declaration, &value_type)) {
-        return false;
+    if (debug_inline_integer_constant_value(index, &element_count, 0u)) {
+        if (subtract) {
+            if (element_count == INT64_MIN) return false;
+            element_count = -element_count;
+        }
+        if ((element_count > 0 &&
+             element_count > INT64_MAX / pointer_type->base->size) ||
+            (element_count < 0 &&
+             element_count < INT64_MIN / pointer_type->base->size)) {
+            return false;
+        }
+        local_displacement = element_count * pointer_type->base->size;
+        if ((local_displacement > 0 &&
+             nested_displacement > INT64_MAX - local_displacement) ||
+            (local_displacement < 0 &&
+             nested_displacement < INT64_MIN - local_displacement)) {
+            return false;
+        }
+        nested_displacement += local_displacement;
+    } else {
+        DebugInlineDynamicPointerIndexTerm* term;
+        if (!debug_inline_frame_integer_index_source(
+                index, &declaration, &value_type) ||
+            value_type->size > (int)address_size ||
+            dynamic_index->term_count >=
+                DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT) {
+            return false;
+        }
+        term = &dynamic_index->terms[dynamic_index->term_count];
+        if (!debug_inline_parameter_frame_offset(
+                mod, declaration, &term->frame_offset)) {
+            return false;
+        }
+        term->element_size = pointer_type->base->size;
+        term->value_size = (uint8_t)value_type->size;
+        term->is_unsigned = value_type->is_unsigned;
+        term->subtract = subtract;
+        ++dynamic_index->term_count;
+        dynamic_index->is_dynamic = true;
     }
-    *pointer_expression = pointer;
-    *index_declaration = declaration;
-    *index_type = value_type;
-    *element_size = pointer_type->base->size;
-    *subtract = subtract_pointer;
+    *byte_displacement = nested_displacement;
     return true;
 }
 
@@ -5031,83 +5085,16 @@ static bool debug_inline_dynamic_array_element_address(
         !debug_inline_address_path(
             expression->index_base, source, &base_addend, false, true, 0u) ||
         !debug_inline_parameter_frame_offset(
-            mod, index_declaration, &dynamic_index->frame_offset)) {
+            mod, index_declaration, &dynamic_index->terms[0].frame_offset)) {
         return false;
     }
-    dynamic_index->element_size = array_type->base->size;
-    dynamic_index->value_size = (uint8_t)index_type->size;
-    dynamic_index->is_unsigned = index_type->is_unsigned;
-    dynamic_index->subtract = false;
+    dynamic_index->terms[0].element_size = array_type->base->size;
+    dynamic_index->terms[0].value_size = (uint8_t)index_type->size;
+    dynamic_index->terms[0].is_unsigned = index_type->is_unsigned;
+    dynamic_index->terms[0].subtract = false;
+    dynamic_index->term_count = 1u;
     dynamic_index->is_dynamic = true;
     *address_addend = base_addend;
-    return true;
-}
-
-static bool debug_inline_pointer_arithmetic_source(
-    const Expr* expression, const Expr** pointer_expression,
-    int64_t* byte_displacement, unsigned int depth) {
-    const Expr* pointer;
-    const Expr* base_pointer;
-    const Expr* offset;
-    const Type* pointer_type;
-    const Type* element_type;
-    int64_t element_count;
-    int64_t local_displacement;
-    int64_t nested_displacement = 0;
-    bool subtract;
-    if (!expression || !pointer_expression || !byte_displacement ||
-        depth >= 32u ||
-        (expression->kind != EXPR_ADD && expression->kind != EXPR_SUB)) {
-        return false;
-    }
-    pointer = expression->binary_lhs;
-    offset = expression->binary_rhs;
-    subtract = expression->kind == EXPR_SUB;
-    if (!pointer || !pointer->type ||
-        (pointer->type->kind != TYPE_PTR &&
-         pointer->type->kind != TYPE_ARRAY)) {
-        if (subtract || !expression->binary_rhs ||
-            !expression->binary_rhs->type ||
-            (expression->binary_rhs->type->kind != TYPE_PTR &&
-             expression->binary_rhs->type->kind != TYPE_ARRAY)) {
-            return false;
-        }
-        pointer = expression->binary_rhs;
-        offset = expression->binary_lhs;
-    }
-    pointer_type = pointer->type;
-    if (pointer_type->cxx_is_member_pointer || !pointer_type->base ||
-        pointer_type->base->kind == TYPE_FUNC ||
-        pointer_type->base->size <= 0 ||
-        !debug_inline_integer_constant_value(offset, &element_count, 0u)) {
-        return false;
-    }
-    if (subtract) {
-        if (element_count == INT64_MIN) return false;
-        element_count = -element_count;
-    }
-    element_type = pointer_type->base;
-    if ((element_count > 0 &&
-         element_count > INT64_MAX / element_type->size) ||
-        (element_count < 0 &&
-         element_count < INT64_MIN / element_type->size)) {
-        return false;
-    }
-    local_displacement = element_count * element_type->size;
-    base_pointer = pointer;
-    if ((pointer->kind == EXPR_ADD || pointer->kind == EXPR_SUB) &&
-        !debug_inline_pointer_arithmetic_source(
-            pointer, &base_pointer, &nested_displacement, depth + 1u)) {
-        return false;
-    }
-    if ((local_displacement > 0 &&
-         nested_displacement > INT64_MAX - local_displacement) ||
-        (local_displacement < 0 &&
-         nested_displacement < INT64_MIN - local_displacement)) {
-        return false;
-    }
-    *pointer_expression = base_pointer;
-    *byte_displacement = nested_displacement + local_displacement;
     return true;
 }
 
@@ -5181,13 +5168,9 @@ static bool debug_inline_parameter_frame_address(
     const Expr* operand;
     const Expr* pointer_expression = NULL;
     const Decl* source;
-    const Decl* index_declaration = NULL;
     const Type* parameter_type;
     const Type* argument_type;
-    const Type* index_type = NULL;
     int64_t byte_displacement = 0;
-    int dynamic_element_size = 0;
-    bool dynamic_subtract = false;
     bool address_path_resolved = false;
     uint8_t address_size;
     if (!mod || !callee || !value || !value->declaration || !argument ||
@@ -5196,6 +5179,7 @@ static bool debug_inline_parameter_frame_address(
         !dynamic_index) {
         return false;
     }
+    dynamic_index->term_count = 0u;
     dynamic_index->is_dynamic = false;
     expression = argument->expr;
     address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
@@ -5236,23 +5220,9 @@ static bool debug_inline_parameter_frame_address(
     if (address_expression &&
         (address_expression->kind == EXPR_ADD ||
          address_expression->kind == EXPR_SUB)) {
-        if (debug_inline_pointer_dynamic_index_source(
-                address_expression, &pointer_expression,
-                &index_declaration, &index_type, &dynamic_element_size,
-                &dynamic_subtract)) {
-            if (index_type->size > (int)address_size ||
-                !debug_inline_parameter_frame_offset(
-                    mod, index_declaration, &dynamic_index->frame_offset)) {
-                return false;
-            }
-            dynamic_index->element_size = dynamic_element_size;
-            dynamic_index->value_size = (uint8_t)index_type->size;
-            dynamic_index->is_unsigned = index_type->is_unsigned;
-            dynamic_index->subtract = dynamic_subtract;
-            dynamic_index->is_dynamic = true;
-        } else if (!debug_inline_pointer_arithmetic_source(
-                       address_expression, &pointer_expression,
-                       &byte_displacement, 0u)) {
+        if (!debug_inline_pointer_dynamic_index_chain(
+                mod, address_expression, &pointer_expression,
+                &byte_displacement, dynamic_index, address_size, 0u)) {
             return false;
         }
         while (pointer_expression) {
@@ -5382,7 +5352,8 @@ static bool debug_inline_parameter_frame_address(
 }
 
 static size_t debug_build_inline_pointer_value_expression(
-    uint8_t expression[96], int architecture, int64_t frame_offset,
+    uint8_t expression[DEBUG_INLINE_POINTER_VALUE_EXPRESSION_CAPACITY],
+    int architecture, int64_t frame_offset,
     int64_t address_addend, bool dereference_source,
     int64_t pointer_adjustment,
     const DebugInlineDynamicPointerIndex* dynamic_index) {
@@ -5403,29 +5374,51 @@ static size_t debug_build_inline_pointer_value_expression(
     }
     if (dynamic_index && dynamic_index->is_dynamic) {
         uint8_t address_size = architecture == ARCH_X64 ? 8u : 4u;
-        expression[size++] = architecture == ARCH_X64 ? 0x76u : 0x75u;
-        debug_expr_append_sleb(
-            expression, &size, dynamic_index->frame_offset);
-        expression[size++] = 0x94u; /* DW_OP_deref_size */
-        expression[size++] = dynamic_index->value_size;
-        if (!dynamic_index->is_unsigned &&
-            dynamic_index->value_size < address_size) {
-            uint64_t shift = (uint64_t)(address_size -
-                dynamic_index->value_size) * 8u;
+        for (size_t index = 0u;
+             index < DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT;
+             ++index) {
+            if (index >= dynamic_index->term_count) break;
+            const DebugInlineDynamicPointerIndexTerm* term =
+                &dynamic_index->terms[index];
+            expression[size++] = architecture == ARCH_X64 ? 0x76u : 0x75u;
+            debug_expr_append_sleb(
+                expression, &size, term->frame_offset);
+            expression[size++] = 0x94u; /* DW_OP_deref_size */
+            expression[size++] = term->value_size;
+            if (!term->is_unsigned && term->value_size < address_size) {
+                uint64_t shift = (uint64_t)(address_size -
+                    term->value_size) * 8u;
+                expression[size++] = 0x10u; /* DW_OP_constu */
+                if (!debug_expression_uleb(
+                        expression,
+                        DEBUG_INLINE_POINTER_VALUE_EXPRESSION_CAPACITY - 16u,
+                        &size, shift)) {
+                    rcc_fatal("inline pointer DWARF expression is too large");
+                    return 0u;
+                }
+                expression[size++] = 0x24u; /* DW_OP_shl */
+                expression[size++] = 0x10u; /* DW_OP_constu */
+                if (!debug_expression_uleb(
+                        expression,
+                        DEBUG_INLINE_POINTER_VALUE_EXPRESSION_CAPACITY - 16u,
+                        &size, shift)) {
+                    rcc_fatal("inline pointer DWARF expression is too large");
+                    return 0u;
+                }
+                expression[size++] = 0x26u; /* DW_OP_shra */
+            }
             expression[size++] = 0x10u; /* DW_OP_constu */
-            debug_expression_uleb(expression, 96u, &size, shift);
-            expression[size++] = 0x24u; /* DW_OP_shl */
-            expression[size++] = 0x10u; /* DW_OP_constu */
-            debug_expression_uleb(expression, 96u, &size, shift);
-            expression[size++] = 0x26u; /* DW_OP_shra */
+            if (!debug_expression_uleb(
+                    expression,
+                    DEBUG_INLINE_POINTER_VALUE_EXPRESSION_CAPACITY - 16u,
+                    &size, (uint64_t)term->element_size)) {
+                rcc_fatal("inline pointer DWARF expression is too large");
+                return 0u;
+            }
+            expression[size++] = 0x1eu; /* DW_OP_mul */
+            expression[size++] = term->subtract
+                ? 0x1cu /* DW_OP_minus */ : 0x22u /* DW_OP_plus */;
         }
-        expression[size++] = 0x10u; /* DW_OP_constu */
-        debug_expression_uleb(
-            expression, 96u, &size,
-            (uint64_t)dynamic_index->element_size);
-        expression[size++] = 0x1eu; /* DW_OP_mul */
-        expression[size++] = dynamic_index->subtract
-            ? 0x1cu /* DW_OP_minus */ : 0x22u /* DW_OP_plus */;
     }
     if (pointer_adjustment > 0) {
         uint64_t value = (uint64_t)pointer_adjustment;
@@ -5533,7 +5526,8 @@ static void debug_emit_inline_parameter_instances(
                        &source_pointer_adjustment,
                        &source_frame_dereference,
                        &source_dynamic_index)) {
-            uint8_t expression[96];
+            uint8_t expression[
+                DEBUG_INLINE_POINTER_VALUE_EXPRESSION_CAPACITY];
             size_t expression_size =
                 debug_build_inline_pointer_value_expression(
                     expression, architecture, source_frame_address_offset,

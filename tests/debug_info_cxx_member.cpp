@@ -158,6 +158,7 @@ DebugInlineAutomaticAddressAggregate*
 int** debug_inline_automatic_pointer_slot_escape;
 int* debug_inline_automatic_pointer_value_escape;
 void* debug_inline_automatic_index_slot_escape;
+void* debug_inline_automatic_second_index_slot_escape;
 
 inline int debug_inline_adjusted_base_parameter_inline(
     DebugInlineAdjustedBase* value) {
@@ -279,6 +280,26 @@ int debug_inline_automatic_pointer_narrow_index_entry(
     return debug_inline_automatic_subobject_parameter_inline(
         debug_inline_automatic_pointer_narrow_index_source +
         debug_inline_automatic_narrow_index_source);
+}
+
+int debug_inline_automatic_pointer_compound_index_entry(
+    int* seed, signed char first_index_seed,
+    unsigned int second_index_seed) {
+    int* debug_inline_automatic_pointer_compound_source = seed;
+    signed char debug_inline_automatic_compound_signed_index =
+        first_index_seed;
+    unsigned int debug_inline_automatic_compound_unsigned_index =
+        second_index_seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_compound_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_compound_signed_index;
+    debug_inline_automatic_second_index_slot_escape =
+        &debug_inline_automatic_compound_unsigned_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        (debug_inline_automatic_pointer_compound_source +
+         debug_inline_automatic_compound_signed_index) -
+        debug_inline_automatic_compound_unsigned_index);
 }
 
 int debug_inline_automatic_array_index_entry(int index_seed) {

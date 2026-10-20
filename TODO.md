@@ -7289,6 +7289,12 @@ remains a separate open item.
       cannot be represented without changing the value; verify the one-byte
       signed load, sign extension, and scaled expression in all four target /
       backend configurations.
+- [x] Compose up to eight frame-backed integer terms in a pointer arithmetic
+      chain, retaining left-to-right add/subtract order, each term's signedness
+      and width, and its pointer-element scale. Verify
+      `(pointer + signed_char_index) - unsigned_int_index`, both frame
+      locations, and the exact DWARF expression in legacy and verified
+      optimized i686/AMD64 output; native-Windows `test-debug-info` passes.
 - [x] Preserve `&automatic_aggregate.array[index]` for a one-dimensional,
       fixed-size automatic array or array member with a frame-backed signed
       index. Add the fixed member displacement before the scaled runtime index;
@@ -7301,11 +7307,11 @@ remains a separate open item.
       `&array[((unsigned long long)0 - 1ULL) + 1ULL]` produces addend `0`, and
       out-of-bounds `&array[2 + 3]` is not attributed on i686/AMD64 legacy and
       verified optimized DWARF; native-Windows `test-debug-info` passes.
-- [ ] Virtual-base/member-pointer adjustments, negative displacements not
-      rooted at a statically indexed element, compound dynamic pointer
-      expressions, nested/VLA/pointer-based dynamic subobject paths and
-      non-frame-backed indexes, and optimized register/piece location tracking
-      remain open.
+- [ ] Computed integer-index operands, pointer chains with more than eight
+      dynamic terms, virtual-base/member-pointer adjustments, negative
+      displacements not rooted at a statically indexed element, nested/VLA/
+      pointer-based dynamic subobject paths, non-frame-backed indexes, and
+      optimized register/piece location tracking remain open.
 
 ## RCC continuation (2026-10-20, typed-SSA reference temporary unwind)
 
