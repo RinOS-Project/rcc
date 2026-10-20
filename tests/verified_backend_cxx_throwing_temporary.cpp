@@ -162,6 +162,8 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     int converted_const_rvalue_observation;
     int throwing_conversion_receiver_cleanup_order = 0;
     int throwing_conversion_observation = 0;
+    int conditional_receiver_cleanup_order = 0;
+    int conditional_receiver_observation;
     {
         const int& value =
             make_verified_throwing_temporary(
@@ -236,7 +238,38 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     }
     if (throwing_conversion_receiver_cleanup_order != 11) return -11;
     if (cleanup_order != 0) return -12;
-    return 65711;
+    cleanup_order = 0;
+    {
+        const VerifiedThrowingTemporary& value =
+            1 ? VerifiedThrowingTemporaryConversionSource{
+                    &cleanup_order, 12, &conditional_receiver_cleanup_order}
+              : VerifiedThrowingTemporaryConversionSource{
+                    &cleanup_order, 13, &conditional_receiver_cleanup_order};
+        conditional_receiver_observation = value.cleanup_id * 100 +
+            conditional_receiver_cleanup_order * 10 + cleanup_order;
+    }
+    if (conditional_receiver_observation != 1320) {
+        return conditional_receiver_observation;
+    }
+    if (conditional_receiver_cleanup_order != 12) return -13;
+    if (cleanup_order != 12) return -14;
+    cleanup_order = 0;
+    conditional_receiver_cleanup_order = 0;
+    {
+        const VerifiedThrowingTemporary& value =
+            0 ? VerifiedThrowingTemporaryConversionSource{
+                    &cleanup_order, 14, &conditional_receiver_cleanup_order}
+              : VerifiedThrowingTemporaryConversionSource{
+                    &cleanup_order, 15, &conditional_receiver_cleanup_order};
+        conditional_receiver_observation = value.cleanup_id * 100 +
+            conditional_receiver_cleanup_order * 10 + cleanup_order;
+    }
+    if (conditional_receiver_observation != 1650) {
+        return conditional_receiver_observation;
+    }
+    if (conditional_receiver_cleanup_order != 15) return -15;
+    if (cleanup_order != 15) return -16;
+    return 65712;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

@@ -7533,11 +7533,16 @@ static bool lower_nontrivial_temporary_conditional_arm_supported(
             lower_nontrivial_temporary_conditional_arm_supported(
                    expression->cond_else, result_type);
     }
-    /* Only same-type direct ordinary function calls with nonthrowing argument
-     * evaluation may construct a leaf. The call itself may throw before a
-     * complete temporary exists; its caller registers the destructor only
-     * after the whole conditional initializer succeeds. Inline member calls,
-     * constructors, conversions, and glvalue arms remain outside this path. */
+    /* A non-throwing aggregate initializer can construct a leaf directly.
+     * A same-type direct ordinary function call may also construct one; the
+     * call itself can throw before a complete temporary exists, so its caller
+     * registers the destructor only after the whole conditional succeeds.
+     * Inline member calls, constructors, conversions, and glvalue arms remain
+     * outside this path. */
+    if (expression->kind == EXPR_COMPOUND) {
+        return expression->type->kind == TYPE_STRUCT &&
+            lower_noexcept_expression(expression);
+    }
     if (expression->kind != EXPR_CALL ||
         !lower_nontrivial_temporary_call_arguments_supported(expression)) {
         return false;
@@ -7552,6 +7557,7 @@ static bool lower_nontrivial_temporary_conditional_arm_supported(
 
 static bool lower_nontrivial_temporary_conditional_supported(
     const RccIrLowerContext* context, const Expr* expression) {
+    bool supported;
     if (!context || !context->allow_nontrivial_temporary_conditional ||
         !expression || expression->kind != EXPR_COND ||
         !expression->type || expression->type->kind != TYPE_STRUCT ||
@@ -7567,10 +7573,11 @@ static bool lower_nontrivial_temporary_conditional_supported(
      * owns the selected result and has already proved its complete cleanup
      * plan. Recursively accept nested same-type conditionals whose leaves are
      * supported direct calls. */
-    return lower_nontrivial_temporary_conditional_arm_supported(
-               expression->cond_then, expression->type) &&
+    supported = lower_nontrivial_temporary_conditional_arm_supported(
+                    expression->cond_then, expression->type) &&
         lower_nontrivial_temporary_conditional_arm_supported(
-               expression->cond_else, expression->type);
+            expression->cond_else, expression->type);
+    return supported;
 }
 
 static bool lower_cleanup_object_is_owner_subobject(
@@ -9026,6 +9033,7 @@ static bool lower_member_function_pointer_call_target(
 
 static RccIrLowerValue lower_call_receiver_argument(
     RccIrLowerContext* context, const Expr* expression,
+    const Expr* receiver_source,
     RccIrLowerValue* complete_object_out) {
     const Expr* casts[32];
     const Expr* source = expression;
@@ -9045,7 +9053,23 @@ static RccIrLowerValue lower_call_receiver_argument(
         casts[cast_count++] = source;
         source = source->cast_expr;
     }
-    complete_object = lower_expression(context, source);
+    if (source && source->kind == EXPR_ADDR &&
+        source->cxx_implicit_object_address && source->unary_operand ==
+            receiver_source && receiver_source && receiver_source->type &&
+        (receiver_source->type->kind == TYPE_STRUCT ||
+         receiver_source->type->kind == TYPE_UNION) &&
+        receiver_source->kind == EXPR_COND &&
+        !receiver_source->cxx_conditional_lvalue &&
+        !receiver_source->cxx_conditional_xvalue) {
+        bool previous_conditional_permission =
+            context->allow_nontrivial_temporary_conditional;
+        context->allow_nontrivial_temporary_conditional = true;
+        complete_object = lower_expression(context, receiver_source);
+        context->allow_nontrivial_temporary_conditional =
+            previous_conditional_permission;
+    } else {
+        complete_object = lower_expression(context, source);
+    }
     if (!complete_object.valid ||
         complete_object.type.kind != RCC_IR_TYPE_POINTER) {
         context->unsupported = true;
@@ -9424,7 +9448,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         } else if (expression->cxx_temporary_owner &&
                    argument == expression->call_args) {
             value = lower_call_receiver_argument(
-                context, argument->expr, &receiver_temporary_address);
+                context, argument->expr, expression->cxx_temporary_source,
+                &receiver_temporary_address);
             receiver_temporary_address_valid =
                 receiver_temporary_address.valid &&
                 receiver_temporary_address.type.kind ==
@@ -12056,6 +12081,8 @@ static RccIrLowerValue lower_conditional_expression(
     RccIrBlockId targets[2];
     RccIrInstruction* phi;
     RccIrLowerValue aggregate_storage = lower_invalid_value();
+    RccIrType aggregate_return_type;
+    int aggregate_return_kind = LOWER_ABI_RETURN_UNSUPPORTED;
     bool aggregate_result;
     bool supported_temporary_conditional = false;
     if (!expression || !expression->type) {
@@ -12067,6 +12094,8 @@ static RccIrLowerValue lower_conditional_expression(
         RccIrInstruction* allocation;
         size_t allocation_size;
         size_t chunk_size = lower_abi_chunk_size();
+        aggregate_return_kind = lower_abi_return_layout(
+            expression->type, &aggregate_return_type);
         /* Ordinary aggregate conditionals still require trivial lifetime
          * semantics. A narrowly validated same-type direct-call conditional
          * may use shared result storage when its destructor plan belongs to
@@ -12082,7 +12111,9 @@ static RccIrLowerValue lower_conditional_expression(
              !lower_abi_single_sse_aggregate_supported(expression->type) &&
              !lower_abi_sse_pair_aggregate_supported(expression->type) &&
              !lower_abi_mixed_sse_aggregate_supported(
-                 expression->type, NULL))) {
+                 expression->type, NULL) &&
+             !(supported_temporary_conditional &&
+               aggregate_return_kind == LOWER_ABI_RETURN_SRET))) {
             context->unsupported = true;
             return lower_invalid_value();
         }

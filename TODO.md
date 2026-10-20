@@ -7306,6 +7306,14 @@ remains a separate open item.
       emits all twenty-two functions with zero fallback on i686/AMD64 at
       `-O0`/`-O2`; generated AMD64 SSA and legacy host execution pass, as do the
       verified exception-cleanup and function-template-reference regressions.
+- [x] Support a nontrivial class-prvalue conditional as a conversion-function
+      receiver, selecting either aggregate-initializer arm. Lower x64 SRET
+      results into the shared conditional destination and keep the selected
+      receiver alive through conversion, then destroy it at full-expression
+      end. Both arm checks pass (`65712`); the focused target emits twenty-two
+      functions with zero fallback on i686/AMD64 at `-O0`/`-O2`, and generated
+      AMD64 SSA, legacy host, verified exception-cleanup, and function-template
+      reference regressions pass.
 - [ ] Other converted-reference shapes, static/TLS lifetime extension,
       additional conditional/subobject forms, and remaining full-expression
       cleanup paths remain open.

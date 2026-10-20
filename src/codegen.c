@@ -16224,7 +16224,9 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                 int temporary_offset = source->kind == EXPR_CALL
                     ? source->call_result_offset
                     : source->kind == EXPR_COMPOUND
-                        ? source->compound_offset : 0;
+                        ? source->compound_offset
+                        : source->kind == EXPR_COND
+                            ? source->aggregate_offset : 0;
                 /* The implicit object argument recursively assigns its
                  * receiver's result slot while traversing call_args.  Only
                  * assign it here if this member-call form did not expose that
@@ -16235,7 +16237,9 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                     temporary_offset = source->kind == EXPR_CALL
                         ? source->call_result_offset
                         : source->kind == EXPR_COMPOUND
-                            ? source->compound_offset : 0;
+                            ? source->compound_offset
+                            : source->kind == EXPR_COND
+                                ? source->aggregate_offset : 0;
                 }
                 if (temporary_offset < 0) {
                     expression->cxx_temporary_owner->var_offset =

@@ -3678,7 +3678,8 @@ reference_binding_source:
                 if (!is_lvalue(source_expression) &&
                     !is_xvalue(source_expression) &&
                     (source_expression->kind == EXPR_CALL ||
-                     source_expression->kind == EXPR_COMPOUND)) {
+                     source_expression->kind == EXPR_COMPOUND ||
+                     source_expression->kind == EXPR_COND)) {
                     (void)sema_prepare_class_prvalue_cleanup(
                         source_expression, &receiver_owner,
                         &receiver_cleanups, false,
@@ -11163,7 +11164,9 @@ static bool sema_prepare_class_prvalue_cleanup(
         return false;
     }
     if (!owner_stores_address && source->kind != EXPR_CALL &&
-        source->kind != EXPR_COMPOUND) {
+        source->kind != EXPR_COMPOUND &&
+        (source->kind != EXPR_COND || source->cxx_conditional_lvalue ||
+         source->cxx_conditional_xvalue)) {
         rcc_error(source->loc, "%s", unsupported_message);
         return true;
     }
