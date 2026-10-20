@@ -15123,12 +15123,14 @@ static bool lower_cxx_destructor_subobjects_supported_impl(
             destructor->type->ret_type->kind != TYPE_VOID) {
             return false;
         }
-        /* RCC currently emits one destructor entry point per class.  A
-         * user-defined destructor for a virtual-base class cannot serve as
-         * both the complete-object and base-subobject variant: its generated
-         * epilogue would destroy virtual bases in either context. */
+        /* A virtual-base destructor body intentionally omits its implicit
+         * subobject epilogue. When used for a base subobject, the enclosing
+         * complete-object plan can call that body, clean its non-virtual
+         * subobjects here, and leave the shared virtual-base closure to the
+         * most-derived object. */
         if (!include_virtual_bases && cls->virtual_base_count != 0 &&
-            !cls->destructor_method->is_defaulted) {
+            !cls->destructor_method->is_defaulted &&
+            !destructor->func_is_noexcept) {
             return false;
         }
     }
@@ -15487,6 +15489,15 @@ static bool lower_cxx_emit_delete_subobject_destructor(
         lower_cxx_destructor_subobjects_leaf(cls) &&
         !destructor->func_is_noexcept) {
         return lower_cxx_emit_destructor_call(context, destructor, object);
+    }
+    if (destructor && destructor->func_body && !include_virtual_bases &&
+        cls && cls->virtual_base_count != 0 && !defaulted_destructor) {
+        if (!destructor->func_is_noexcept ||
+            !lower_cxx_emit_destructor_call(context, destructor, object)) {
+            return false;
+        }
+        return lower_cxx_emit_destructor_subobjects_impl(
+            context, cls, object, depth, false, false);
     }
     if (destructor && !include_virtual_bases && cls &&
         cls->virtual_base_count != 0 && !defaulted_destructor) {

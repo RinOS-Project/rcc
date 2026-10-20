@@ -6843,7 +6843,16 @@ remains a separate open item.
       element, with fallback-free i686/AMD64 objects and x64 execution in
       `test-verified-cxx-partial-array-init`; the destructor, delete, and
       explicit-throwing-destructor gates also pass.
-- [ ] Explicit/non-trivial intermediate virtual-base destructor graphs,
+- [x] Support a user-defined `noexcept` destructor on an intermediate virtual
+      base during complete-object cleanup. Invoke its body, emit its
+      non-virtual member/base cleanup plan, and leave the shared virtual-base
+      closure to the most-derived owner.
+- [x] Extend the shared nested-virtual-base array regression with user-defined
+      destructors at both intermediate levels. `test-verified-cxx-partial-array-init`
+      emits zero-fallback i686/AMD64 objects and verifies x64 reverse element,
+      intermediate, and shared-root order (`5,4,3,2,5,4,3,1`). Related
+      destructor, scalar-delete, and explicit-throwing-destructor gates pass.
+- [ ] Potentially-throwing intermediate virtual-base destructors,
       user-defined subobject constructors beyond the validated subset, and
       throwing DMI construction/unwind remain open.
 

@@ -4473,24 +4473,16 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         verified_partial_array_capture_destructor_trace = 0;
         assert(verified_runtime_free_count == 1u);
         assert(verified_partial_array_ctor_attempts == 2);
-        if (verified_partial_array_destructor_order != 14341) {
-            fprintf(stderr,
-                    "shared virtual-base destructor order was %d, trace:",
-                    verified_partial_array_destructor_order);
-            for (size_t trace_index = 0u;
-                 trace_index < verified_partial_array_destructor_trace_count;
-                 ++trace_index) {
-                fprintf(stderr, " %d",
-                        verified_partial_array_destructor_trace[trace_index]);
-            }
-            fputc('\n', stderr);
-        }
-        assert(verified_partial_array_destructor_order == 14341);
-        assert(verified_partial_array_destructor_trace_count == 4u);
-        assert(verified_partial_array_destructor_trace[0] == 14);
-        assert(verified_partial_array_destructor_trace[1] == 2);
-        assert(verified_partial_array_destructor_trace[2] == 14);
-        assert(verified_partial_array_destructor_trace[3] == 1);
+        assert(verified_partial_array_destructor_order == 54325431);
+        assert(verified_partial_array_destructor_trace_count == 8u);
+        assert(verified_partial_array_destructor_trace[0] == 5);
+        assert(verified_partial_array_destructor_trace[1] == 4);
+        assert(verified_partial_array_destructor_trace[2] == 3);
+        assert(verified_partial_array_destructor_trace[3] == 2);
+        assert(verified_partial_array_destructor_trace[4] == 5);
+        assert(verified_partial_array_destructor_trace[5] == 4);
+        assert(verified_partial_array_destructor_trace[6] == 3);
+        assert(verified_partial_array_destructor_trace[7] == 1);
         address = symbol_address(
             memory, shared_nested_virtual_dmi_fixed_symbol);
         memcpy(&shared_nested_virtual_dmi_fixed, &address,
@@ -4501,7 +4493,7 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         assert(shared_nested_virtual_dmi_fixed() == 15);
         assert(verified_runtime_free_count == 1u);
         assert(verified_partial_array_ctor_attempts == 1);
-        assert(verified_partial_array_destructor_order == 141);
+        assert(verified_partial_array_destructor_order == 5431);
         address = symbol_address(memory, implicit_array_dmi_symbol);
         memcpy(&implicit_array_dmi, &address, sizeof(implicit_array_dmi));
         verified_partial_array_destructor_order = 0;

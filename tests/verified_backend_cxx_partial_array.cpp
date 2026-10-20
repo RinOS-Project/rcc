@@ -195,12 +195,20 @@ class VerifiedSharedNestedVirtualDmiLeft
     : public virtual VerifiedSharedNestedVirtualDmiRoot {
 public:
     int left_value_ = 2;
+
+    ~VerifiedSharedNestedVirtualDmiLeft() noexcept {
+        verified_partial_array_record_destructor(3);
+    }
 };
 
 class VerifiedSharedNestedVirtualDmiRight
     : public virtual VerifiedSharedNestedVirtualDmiRoot {
 public:
     int right_value_ = 4;
+
+    ~VerifiedSharedNestedVirtualDmiRight() noexcept {
+        verified_partial_array_record_destructor(4);
+    }
 };
 
 class VerifiedSharedNestedVirtualDmiArrayElement final
@@ -210,8 +218,7 @@ public:
     int leaf_value_ = 8;
 
     ~VerifiedSharedNestedVirtualDmiArrayElement() noexcept {
-        verified_partial_array_record_destructor(
-            left_value_ + right_value_ + leaf_value_);
+        verified_partial_array_record_destructor(5);
     }
 };
 
