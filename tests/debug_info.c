@@ -184,6 +184,18 @@ int debug_inline_array_element_address_constant_entry(void)
         &debug_inline_addressed_array_source[2]);
 }
 
+int debug_inline_array_computed_index_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_array_source[1 + 1]);
+}
+
+int debug_inline_array_computed_index_out_of_bounds_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_array_source[2 + 3]);
+}
+
 int debug_inline_array_plus_constant_entry(void)
 {
     return debug_global_pointer_parameter_inline(

@@ -3531,6 +3531,8 @@ static void verify_inline_debug_object(const char* path,
     uint64_t readonly_address_constant_inline_call = UINT64_MAX;
     uint64_t cast_address_constant_inline_call = UINT64_MAX;
     uint64_t array_element_address_constant_inline_call = UINT64_MAX;
+    uint64_t array_computed_index_inline_call = UINT64_MAX;
+    uint64_t array_computed_index_out_of_bounds_inline_call = UINT64_MAX;
     uint64_t array_plus_constant_inline_call = UINT64_MAX;
     uint64_t constant_plus_array_inline_call = UINT64_MAX;
     uint64_t array_one_past_inline_call = UINT64_MAX;
@@ -3850,6 +3852,12 @@ static void verify_inline_debug_object(const char* path,
                        "debug_inline_array_element_address_constant_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
+                       "debug_inline_array_computed_index_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_array_computed_index_out_of_bounds_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
                        "debug_inline_array_plus_constant_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
@@ -4067,6 +4075,20 @@ static void verify_inline_debug_object(const char* path,
                        strcmp(inline_name,
                               "debug_global_pointer_parameter_inline") == 0 &&
                        strcmp(relocation->symbol_name,
+                              "debug_inline_array_computed_index_entry") == 0 &&
+                       array_computed_index_inline_call == UINT64_MAX) {
+                array_computed_index_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_array_computed_index_out_of_bounds_entry") == 0 &&
+                       array_computed_index_out_of_bounds_inline_call == UINT64_MAX) {
+                array_computed_index_out_of_bounds_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
                               "debug_inline_array_plus_constant_entry") == 0 &&
                        array_plus_constant_inline_call == UINT64_MAX) {
                 array_plus_constant_inline_call = die;
@@ -4239,6 +4261,8 @@ static void verify_inline_debug_object(const char* path,
     assert(readonly_address_constant_inline_call != UINT64_MAX);
     assert(cast_address_constant_inline_call != UINT64_MAX);
     assert(array_element_address_constant_inline_call != UINT64_MAX);
+    assert(array_computed_index_inline_call != UINT64_MAX);
+    assert(array_computed_index_out_of_bounds_inline_call != UINT64_MAX);
     assert(array_plus_constant_inline_call != UINT64_MAX);
     assert(constant_plus_array_inline_call != UINT64_MAX);
     assert(array_one_past_inline_call != UINT64_MAX);
@@ -4799,6 +4823,9 @@ static void verify_inline_debug_object(const char* path,
         info, array_plus_constant_inline_call, architecture,
         "debug_inline_addressed_array_source", 12);
     verify_inline_parameter_address_constant(
+        info, array_computed_index_inline_call, architecture,
+        "debug_inline_addressed_array_source", 8);
+    verify_inline_parameter_address_constant(
         info, constant_plus_array_inline_call, architecture,
         "debug_inline_addressed_array_source", 4);
     verify_inline_parameter_address_constant(
@@ -4824,6 +4851,8 @@ static void verify_inline_debug_object(const char* path,
         "debug_inline_addressed_pointer_source", 4);
     verify_inline_parameter_is_not_attributed(
         info, array_out_of_bounds_inline_call, architecture);
+    verify_inline_parameter_is_not_attributed(
+        info, array_computed_index_out_of_bounds_inline_call, architecture);
     verify_inline_parameter_is_not_attributed(
         info, array_before_begin_inline_call, architecture);
     verify_inline_parameter_is_not_attributed(

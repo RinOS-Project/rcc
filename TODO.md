@@ -7197,6 +7197,11 @@ remains a separate open item.
       referent to remain within the complete object. The C++ regression checks
       the exact base relocation addend (`4`) on i686/AMD64 in legacy and
       verified optimized DWARF; native-Windows `test-debug-info` passes.
+- [x] Resolve static array address paths when a subscript is a supported
+      integer constant expression rather than a single integer literal. Verify
+      `&array[1 + 1]` produces the exact symbol/addend (`8`) and a truly
+      out-of-bounds `&array[2 + 3]` is not attributed on i686/AMD64 legacy and
+      verified optimized DWARF; native-Windows `test-debug-info` passes.
 - [ ] Virtual-base/member-pointer adjustments, negative displacements not
       rooted at a statically indexed element, dynamic pointer expressions, and
       optimized register/piece location tracking remain open.

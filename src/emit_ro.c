@@ -4127,18 +4127,8 @@ static bool debug_inline_parameter_body_is_read_only(const Decl* callee) {
         callee->func_body, callee, 0u);
 }
 
-static bool debug_inline_literal_array_index(const Expr* expression,
-                                             int64_t* value) {
-    if (!expression || !value || expression->kind != EXPR_INT_LIT ||
-        !expression->type ||
-        !((expression->type->kind >= TYPE_BOOL &&
-           expression->type->kind <= TYPE_LLONG) ||
-          expression->type->kind == TYPE_ENUM)) {
-        return false;
-    }
-    *value = expression->int_val;
-    return true;
-}
+static bool debug_inline_integer_constant_value(
+    const Expr* expression, int64_t* value, unsigned int depth);
 
 static bool debug_inline_static_address_path(
     const Expr* expression, const Decl** source, int64_t* address_addend,
@@ -4543,8 +4533,8 @@ static bool debug_inline_static_address_path(
             array_type->array_len < 0 || !array_type->base ||
             array_type->base->size <= 0 || !expression->type ||
             expression->type->size <= 0 ||
-            !debug_inline_literal_array_index(expression->index_expr,
-                                               &element_index) ||
+            !debug_inline_integer_constant_value(
+                expression->index_expr, &element_index, 0u) ||
             element_index < 0 ||
             (allow_one_past
                 ? element_index > array_type->array_len
