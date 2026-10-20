@@ -5069,6 +5069,52 @@ static bool debug_inline_unsigned_index_multiplier(
     return false;
 }
 
+static bool debug_inline_signed_index_multiplier(
+    const Expr* expression, uint8_t value_size,
+    const Expr** indexed_expression, uint64_t* multiplier) {
+    const Type* expression_type;
+    const Type* lhs_type;
+    const Type* rhs_type;
+    int64_t constant_multiplier;
+    if (indexed_expression) *indexed_expression = NULL;
+    if (!expression || !expression->type || value_size == 0u ||
+        value_size > 8u || !indexed_expression || !multiplier) {
+        return false;
+    }
+    expression_type = expression->type;
+    if (!debug_inline_integer_constant_type(expression_type) ||
+        expression_type->size != value_size || expression_type->is_unsigned ||
+        expression_type->is_volatile || expression_type->is_reference ||
+        expression_type->is_atomic || expression->kind != EXPR_MUL ||
+        !expression->binary_lhs || !expression->binary_rhs) {
+        return false;
+    }
+    lhs_type = expression->binary_lhs->type;
+    rhs_type = expression->binary_rhs->type;
+    if (!lhs_type || !rhs_type ||
+        !debug_inline_integer_constant_type(lhs_type) ||
+        !debug_inline_integer_constant_type(rhs_type) ||
+        lhs_type->size != value_size || rhs_type->size != value_size ||
+        lhs_type->is_unsigned || rhs_type->is_unsigned ||
+        lhs_type->is_volatile || rhs_type->is_volatile ||
+        lhs_type->is_reference || rhs_type->is_reference ||
+        lhs_type->is_atomic || rhs_type->is_atomic) {
+        return false;
+    }
+    if (debug_inline_integer_constant_value(
+            expression->binary_lhs, &constant_multiplier, 0u)) {
+        *indexed_expression = expression->binary_rhs;
+    } else if (debug_inline_integer_constant_value(
+                   expression->binary_rhs, &constant_multiplier, 0u)) {
+        *indexed_expression = expression->binary_lhs;
+    } else {
+        return false;
+    }
+    if (constant_multiplier < 0) return false;
+    *multiplier = (uint64_t)constant_multiplier;
+    return true;
+}
+
 static bool debug_inline_collect_unsigned_computed_index_terms(
     const Module* mod, const Expr* expression, int polarity,
     uint8_t value_size, uint64_t multiplier, int element_size,
@@ -5245,19 +5291,24 @@ static bool debug_inline_append_dynamic_integer_index(
     {
         const Expr* indexed_expression;
         uint64_t multiplier;
-        if (expression_type->is_unsigned &&
-            debug_inline_unsigned_index_multiplier(
-                expression, (uint8_t)expression_type->size,
-                &indexed_expression, &multiplier) &&
+        bool has_constant_multiplier = expression_type->is_unsigned
+            ? debug_inline_unsigned_index_multiplier(
+                  expression, (uint8_t)expression_type->size,
+                  &indexed_expression, &multiplier)
+            : debug_inline_signed_index_multiplier(
+                  expression, (uint8_t)expression_type->size,
+                  &indexed_expression, &multiplier);
+        if (has_constant_multiplier &&
             debug_inline_frame_integer_index_source(
                 indexed_expression, &declaration, &value_type) &&
-            value_type->is_unsigned &&
+            value_type->is_unsigned == expression_type->is_unsigned &&
             value_type->size == expression_type->size) {
             DebugInlineDynamicPointerIndexTerm* term;
             DebugInlineDynamicPointerIndexGroup* group = NULL;
             if (dynamic_index->term_count >=
                     DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT ||
-                (value_type->size < (int)address_size &&
+                (value_type->is_unsigned &&
+                 value_type->size < (int)address_size &&
                  dynamic_index->group_count >=
                     DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT)) {
                 return false;
@@ -5269,12 +5320,13 @@ static bool debug_inline_append_dynamic_integer_index(
             }
             term->element_size = element_size;
             term->value_size = (uint8_t)value_type->size;
-            term->is_unsigned = true;
+            term->is_unsigned = value_type->is_unsigned;
             term->subtract = false;
             term->is_constant = false;
             term->constant_value = 0u;
             term->index_multiplier = multiplier;
-            if (value_type->size < (int)address_size) {
+            if (value_type->is_unsigned &&
+                value_type->size < (int)address_size) {
                 group = &dynamic_index->groups[dynamic_index->group_count++];
                 group->first_term = dynamic_index->term_count;
                 group->term_count = 1u;

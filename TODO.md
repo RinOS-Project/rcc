@@ -7347,11 +7347,16 @@ remains a separate open item.
       nodes and the frontend's shift/add normalization (for example,
       `index * 3u` becomes `(index << 1) + index`). Verify every term and its
       `DW_OP_mul` sequence in legacy and verified optimized i686/AMD64 DWARF.
-- [ ] Unsigned computed indexes with narrowing/signed casts, mixed-width
-      subexpressions, or non-frame-backed operands; constants wider than the
-      target address; multiplication beyond same-width unsigned compile-time
-      coefficients and other unhandled index operators; pointer chains with
-      more than sixteen dynamic terms;
+- [x] Preserve same-width signed frame-backed indexes multiplied by a
+      nonnegative compile-time signed constant. Sign-extend a narrow source
+      before multiplying, then scale by the pointee size. Verify the multiplier
+      and both frame slots in legacy and verified optimized i686/AMD64 DWARF;
+      native-Windows `test-debug-info` passes.
+- [ ] Computed indexes with narrowing/signed casts, mixed-width subexpressions,
+      or non-frame-backed operands; constants wider than the target address;
+      multiplication beyond same-width unsigned or nonnegative signed
+      compile-time coefficients, and other unhandled index operators; pointer
+      chains with more than sixteen dynamic terms;
       virtual-base/member-
       pointer adjustments, negative displacements not rooted at a statically
       indexed element, nested/VLA/pointer-based dynamic subobject paths,

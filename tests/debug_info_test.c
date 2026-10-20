@@ -8138,6 +8138,12 @@ int main(int argc, char** argv)
         {"debug_inline_automatic_add_unsigned_index", 4u, true, 4u,
          false, 0u, 0u, false, 0u}
     };
+    const VerifyInlinePointerIndexTerm scaled_signed_index_terms[] = {
+        {"debug_inline_automatic_scaled_signed_index", 4u, false, 4u,
+         false, 0u, 0u, false, 3u},
+        {"debug_inline_automatic_add_signed_index", 4u, false, 4u,
+         false, 0u, 0u, false, 0u}
+    };
     assert(argc == 44);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
@@ -8580,6 +8586,26 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_scaled_unsigned_index_entry",
         "debug_inline_automatic_pointer_scaled_unsigned_source",
         scaled_unsigned_index_x64_terms, 3u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_scaled_signed_index_entry",
+        "debug_inline_automatic_pointer_scaled_signed_source",
+        scaled_signed_index_terms, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_scaled_signed_index_entry",
+        "debug_inline_automatic_pointer_scaled_signed_source",
+        scaled_signed_index_terms, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_scaled_signed_index_entry",
+        "debug_inline_automatic_pointer_scaled_signed_source",
+        scaled_signed_index_terms, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_scaled_signed_index_entry",
+        "debug_inline_automatic_pointer_scaled_signed_source",
+        scaled_signed_index_terms, 2u, 0, true);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86, "debug_inline_automatic_array_index_entry",
         "debug_inline_automatic_array_index_source",
