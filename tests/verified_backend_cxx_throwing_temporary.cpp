@@ -85,6 +85,18 @@ make_verified_temporary_conversion_receiver_derived(
         complete_cleanup_order};
 }
 
+struct VerifiedVirtualBaseConversionSource {
+    int* cleanup_order;
+    int cleanup_id;
+
+    operator VerifiedThrowingTemporary() const noexcept {
+        return {cleanup_order, cleanup_id, {cleanup_id + 1}};
+    }
+};
+
+struct VerifiedVirtualBaseConversionDerived :
+    virtual VerifiedVirtualBaseConversionSource {};
+
 struct VerifiedFirstConstructorMember {
     int* cleanup_order;
 
@@ -424,6 +436,24 @@ extern "C" int verified_cxx_base_conversion_receiver_cleanup() {
     if (derived_complete_cleanup_order != 23) return -27;
     if (cleanup_order != 23) return -28;
     return 65717;
+}
+
+extern "C" int verified_cxx_virtual_base_conversion_receiver_cleanup() {
+    int cleanup_order = 0;
+    int conversion_observation = 0;
+    {
+        VerifiedVirtualBaseConversionDerived receiver;
+        receiver.cleanup_order = &cleanup_order;
+        receiver.cleanup_id = 24;
+        {
+            const VerifiedThrowingTemporary& value =
+                static_cast<VerifiedVirtualBaseConversionSource&&>(receiver);
+            conversion_observation = value.cleanup_id * 100 + cleanup_order;
+        }
+    }
+    if (conversion_observation != 2400) return conversion_observation;
+    if (cleanup_order != 24) return -29;
+    return 65718;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

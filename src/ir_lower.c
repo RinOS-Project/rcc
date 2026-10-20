@@ -2425,6 +2425,23 @@ static RccIrLowerValue lower_lvalue_address_impl(
             address = lower_lvalue_address(context, cast_source);
         }
         if (!address.valid) return lower_invalid_value();
+        if (expression->cxx_virtual_base_adjustment) {
+            const CxxClass* source_class =
+                expression->cxx_virtual_base_source_class;
+            if (!source_class ||
+                expression->cxx_virtual_base_pointer_offset < 0 ||
+                expression->cxx_virtual_base_index < 0 ||
+                expression->cxx_virtual_base_index >=
+                    source_class->virtual_base_count) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            return lower_virtual_base_member_pointer_object(
+                context, address,
+                expression->cxx_virtual_base_pointer_offset,
+                expression->cxx_virtual_base_index,
+                expression->cxx_virtual_base_nested_adjustment);
+        }
         if (expression->cxx_pointer_adjustment_valid) {
             return lower_adjusted_pointer(
                 context, address, expression->cxx_pointer_adjustment);
