@@ -370,6 +370,49 @@ int verified_goto_vla_aggregate_copy(int count)
         values[count - 1].value;
 }
 
+int verified_goto_vla_nested_aggregate_copy(int count)
+{
+    struct VerifiedVlaNestedCopyCell {
+        int samples[2];
+        struct {
+            short bias;
+            struct {
+                int code;
+            } detail;
+        } meta;
+    } values[count];
+    struct VerifiedVlaNestedCopyCell source = {{31, 7}, {11, {19}}};
+    values[0] = source;
+    values[count - 1] = values[0];
+    values[count - 1].samples[0] += 5;
+    return source.samples[0] + source.samples[1] +
+        values[0].samples[0] * 10 + values[0].samples[1] +
+        values[0].meta.bias + values[0].meta.detail.code +
+        values[count - 1].samples[0] + values[count - 1].samples[1] +
+        values[count - 1].meta.bias + values[count - 1].meta.detail.code;
+}
+
+int verified_goto_vla_compound_aggregate_copy(int count)
+{
+    struct VerifiedVlaCompoundCopyCell {
+        int samples[2];
+        struct {
+            short bias;
+        } meta;
+    } values[count];
+    values[0] = (struct VerifiedVlaCompoundCopyCell){
+        .samples = {2, 3},
+        .meta = {.bias = 5},
+    };
+    values[count - 1] = values[0];
+    values[count - 1].samples[0] += 7;
+    values[0].samples[0] += 20;
+    return values[0].samples[0] * 100 +
+        values[count - 1].samples[0] * 10 +
+        values[0].samples[1] + values[count - 1].samples[1] +
+        values[0].meta.bias + values[count - 1].meta.bias;
+}
+
 int verified_goto_vla_union_elements(int count)
 {
     union VerifiedVlaCell {
@@ -503,6 +546,8 @@ int main(void)
     }
     if (verified_goto_vla_fixed_array_of_structs(4) != 42) return 50;
     if (verified_goto_vla_aggregate_copy(4) != 388) return 53;
+    if (verified_goto_vla_nested_aggregate_copy(4) != 458) return 54;
+    if (verified_goto_vla_compound_aggregate_copy(4) != 2306) return 55;
     if (verified_goto_vla_union_elements(4) != 37) return 51;
     if (verified_goto_vla_volatile_elements(4) != 42) return 52;
     return 0;

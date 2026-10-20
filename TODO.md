@@ -7670,3 +7670,16 @@ remains a separate open item.
       generation and AMD64 host execution.
 - [ ] Other standard-conversion subsequences, reference-binding categories,
       pointer-to-member ranks, and user-defined conversion ties remain open.
+
+## RCC continuation (2026-10-20, nested typed-SSA VLA aggregate copies)
+
+- [x] Verify aggregate copies between fixed locals and VLA elements when the
+      structure contains a fixed-size array and recursively nested structures.
+      Also copy a designated compound literal into a VLA element, then copy
+      between VLA elements and mutate each side independently. The verified
+      backend emits all 31 fixture functions with zero fallback for i686/AMD64
+      at `-O0`/`-O2`; both AMD64 objects execute and the GCC C17 oracle passes
+      via `make SHELL=cmd.exe test-verified-goto`.
+- [ ] Broader VLA aggregate initialization/copy semantics, atomic elements,
+      C++ class lifetime, and cleanup/unwind/control-flow interactions remain
+      open.
