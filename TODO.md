@@ -7327,6 +7327,12 @@ remains a separate open item.
       converted result survives to scope exit. The focused target emits
       twenty-two functions with zero fallback on i686/AMD64 at `-O0`/`-O2`;
       generated AMD64 SSA and legacy host execution pass (`65714`).
+- [x] Verify class lvalue- and rvalue-reference conversion results from
+      nontrivial temporary receivers passed directly to reference parameters.
+      The referenced object remains the original object, and event order `12`
+      confirms conversion runs before receiver destruction at full-expression
+      end. `test-cxx-function-template-references` passes GCC C++20 diagnostics,
+      i686/AMD64 generation, and AMD64 host execution.
 - [ ] Other converted-reference shapes, static/TLS lifetime extension,
       additional conditional/subobject forms, and remaining full-expression
       cleanup paths remain open.

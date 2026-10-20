@@ -305,6 +305,34 @@ struct ConversionXvalueSource {
     }
 };
 
+struct ConversionTemporaryLvalueReceiverSource {
+    ConversionReferenceValue* value;
+    int* events;
+
+    operator ConversionReferenceValue&() const {
+        *events = *events * 10 + 1;
+        return *value;
+    }
+
+    ~ConversionTemporaryLvalueReceiverSource() {
+        *events = *events * 10 + 2;
+    }
+};
+
+struct ConversionTemporaryXvalueReceiverSource {
+    ConversionReferenceValue* value;
+    int* events;
+
+    operator ConversionReferenceValue&&() const {
+        *events = *events * 10 + 1;
+        return static_cast<ConversionReferenceValue&&>(*value);
+    }
+
+    ~ConversionTemporaryXvalueReceiverSource() {
+        *events = *events * 10 + 2;
+    }
+};
+
 struct ConversionDerivedXvalueSource {
     ConversionReferenceDerived* value;
 
@@ -815,6 +843,20 @@ int main() {
     if (&converted_lvalue != &converted_reference_value ||
         read_conversion_lvalue(conversion_lvalue_source) != 63)
         return 63;
+    int temporary_conversion_receiver_events = 0;
+    int temporary_conversion_result = read_conversion_lvalue(
+        ConversionTemporaryLvalueReceiverSource{
+            &converted_reference_value,
+            &temporary_conversion_receiver_events});
+    if (temporary_conversion_result != 63) return 75;
+    if (temporary_conversion_receiver_events != 12) return 77;
+    temporary_conversion_receiver_events = 0;
+    temporary_conversion_result = read_conversion_xvalue(
+        ConversionTemporaryXvalueReceiverSource{
+            &converted_reference_value,
+            &temporary_conversion_receiver_events});
+    if (temporary_conversion_result != 63) return 76;
+    if (temporary_conversion_receiver_events != 12) return 78;
     ConversionXvalueSource conversion_xvalue_source{
         &converted_reference_value};
     ConversionReferenceValue&& converted_xvalue =
