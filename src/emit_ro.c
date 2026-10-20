@@ -4910,26 +4910,32 @@ static bool debug_inline_frame_integer_index_source(
     const Expr* expression, const Decl** declaration,
     const Type** value_type) {
     const Expr* index = expression;
-    const Type* integer_type;
+    const Type* converted_type;
     const Decl* source;
     if (!index || !declaration || !value_type || !index->type) {
         return false;
     }
-    integer_type = index->type;
-    if (!debug_inline_integer_constant_type(integer_type) ||
-        integer_type->size <= 0 || integer_type->size > 8 ||
-        integer_type->is_volatile || integer_type->is_reference ||
-        integer_type->is_atomic) {
+    converted_type = index->type;
+    if (!debug_inline_integer_constant_type(converted_type) ||
+        converted_type->size <= 0 || converted_type->size > 8 ||
+        converted_type->is_volatile || converted_type->is_reference ||
+        converted_type->is_atomic) {
         return false;
     }
     while (index->kind == EXPR_CAST && index->cast_expr) {
         const Type* cast_source = index->cast_expr->type;
         if (!cast_source ||
             !debug_inline_integer_constant_type(cast_source) ||
-            cast_source->size != integer_type->size ||
-            cast_source->is_unsigned != integer_type->is_unsigned) {
+            cast_source->size <= 0 ||
+            cast_source->size > converted_type->size ||
+            (cast_source->is_unsigned != converted_type->is_unsigned &&
+             (!cast_source->is_unsigned || converted_type->is_unsigned ||
+              cast_source->size >= converted_type->size)) ||
+            cast_source->is_volatile || cast_source->is_reference ||
+            cast_source->is_atomic) {
             return false;
         }
+        converted_type = cast_source;
         index = index->cast_expr;
     }
     if (index->kind != EXPR_IDENT || !index->ident_decl) return false;
@@ -4937,14 +4943,14 @@ static bool debug_inline_frame_integer_index_source(
     if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
         !source->type ||
         !debug_inline_integer_constant_type(source->type) ||
-        source->type->size != integer_type->size ||
-        source->type->is_unsigned != integer_type->is_unsigned ||
+        source->type->size != converted_type->size ||
+        source->type->is_unsigned != converted_type->is_unsigned ||
         source->type->is_volatile || source->type->is_reference ||
         source->type->is_atomic) {
         return false;
     }
     *declaration = source;
-    *value_type = integer_type;
+    *value_type = source->type;
     return true;
 }
 

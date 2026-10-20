@@ -7283,6 +7283,12 @@ remains a separate open item.
       subtraction; regressions check both frame locations and the exact
       expression on i686/AMD64 in legacy and verified optimized DWARF.
       Native-Windows `test-debug-info` passes.
+- [x] Follow safe integral promotions and widening casts back to the
+      frame-backed index storage, including signed `char` promoted to `int`.
+      Reject narrowing and signed-to-unsigned conversions whose source range
+      cannot be represented without changing the value; verify the one-byte
+      signed load, sign extension, and scaled expression in all four target /
+      backend configurations.
 - [x] Preserve `&automatic_aggregate.array[index]` for a one-dimensional,
       fixed-size automatic array or array member with a frame-backed signed
       index. Add the fixed member displacement before the scaled runtime index;
