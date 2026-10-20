@@ -18,6 +18,7 @@ extern int verified_cxx_base_conversion_receiver_cleanup(void)
     RINOS_TEST_ABI;
 extern int verified_cxx_virtual_base_conversion_receiver_cleanup(void)
     RINOS_TEST_ABI;
+extern int verified_cxx_converted_base_lifetime(void) RINOS_TEST_ABI;
 extern int verified_cxx_throwing_initializer_cleanup(int should_throw)
     RINOS_TEST_ABI;
 extern int verified_cxx_throwing_constructor_reference_cleanup(
@@ -89,6 +90,13 @@ int main(void) {
                 "virtual-base conversion receiver cleanup returned %d, expected 65718\n",
                 result);
         return 9;
+    }
+    result = verified_cxx_converted_base_lifetime();
+    if (result != 65719) {
+        fprintf(stderr,
+                "converted-base temporary lifetime returned %d, expected 65719\n",
+                result);
+        return 15;
     }
     result = verified_cxx_throwing_initializer_cleanup(1);
     if (result != 560) {

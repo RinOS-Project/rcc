@@ -7196,7 +7196,7 @@ remains a separate open item.
       reference in typed SSA. Materialize the complete object, register its
       destructor after initialization with the active exception frame, and
       unregister then destroy it on normal scope exit. Static/TLS owners and
-      converted subobject bindings remain outside this path.
+      virtual-base converted-subobject bindings remain outside this path.
 - [x] Add a regression where evaluation of a later call argument throws after
       the reference-bound temporary is initialized. `test-verified-cxx-throwing-temporary`
       emits all twenty-one functions with zero fallback for i686/AMD64 at `-O0`
@@ -7339,6 +7339,21 @@ remains a separate open item.
       do not destroy the existing referent (`7630`). The focused verified
       target emits twenty-four functions with zero fallback on i686/AMD64 at
       `-O0`/`-O2`; generated AMD64 SSA and legacy host execution pass.
-- [ ] Other converted-reference shapes, static/TLS lifetime extension,
-      additional conditional/subobject forms, and remaining full-expression
+- [ ] Virtual-base converted subobjects, static/TLS lifetime extension,
+      additional conditional/projection forms, and remaining full-expression
       cleanup paths remain open.
+
+## RCC continuation (2026-10-20, converted-result base-reference lifetime)
+
+- [x] Preserve the complete nontrivial class-prvalue returned by a user-defined
+      conversion when an automatic reference binds to its unique public
+      non-virtual base subobject. Retain complete-object cleanup and apply the
+      semantically selected base displacement from the initialized owner;
+      the regression uses a nonzero-offset base in multiple inheritance and
+      observes base value `35` plus exactly-once derived/base destruction order
+      `21`.
+- [x] `test-verified-cxx-throwing-temporary` emits all thirty-four functions
+      with zero fallback on i686/AMD64 at `-O0`/`-O2`; the typed-SSA AMD64
+      objects and the AMD64 legacy-host object pass. The change remains limited
+      to non-virtual converted-base bindings; virtual-base temporary owners and
+      other converted-reference shapes remain open.

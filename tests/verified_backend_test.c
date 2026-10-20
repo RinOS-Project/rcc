@@ -4598,6 +4598,7 @@ static void verify_cxx_throwing_temporary_object(
     ObjSymbol* normal_cleanup_symbol;
     ObjSymbol* base_conversion_receiver_symbol;
     ObjSymbol* virtual_base_conversion_receiver_symbol;
+    ObjSymbol* converted_base_lifetime_symbol;
     ObjSymbol* throwing_initializer_symbol;
     ObjSymbol* throwing_constructor_symbol;
     ObjSymbol* temporary_cleanup_symbol;
@@ -4613,6 +4614,8 @@ static void verify_cxx_throwing_temporary_object(
         object, "verified_cxx_base_conversion_receiver_cleanup");
     virtual_base_conversion_receiver_symbol = objfile_find_symbol(
         object, "verified_cxx_virtual_base_conversion_receiver_cleanup");
+    converted_base_lifetime_symbol = objfile_find_symbol(
+        object, "verified_cxx_converted_base_lifetime");
     throwing_initializer_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_initializer_cleanup");
     throwing_constructor_symbol = objfile_find_symbol(
@@ -4634,6 +4637,9 @@ static void verify_cxx_throwing_temporary_object(
            virtual_base_conversion_receiver_symbol != NULL &&
            virtual_base_conversion_receiver_symbol->binding == BIND_CODE &&
            virtual_base_conversion_receiver_symbol->section == 0 &&
+           converted_base_lifetime_symbol != NULL &&
+           converted_base_lifetime_symbol->binding == BIND_CODE &&
+           converted_base_lifetime_symbol->section == 0 &&
            throwing_initializer_symbol != NULL &&
            throwing_initializer_symbol->binding == BIND_CODE &&
            throwing_initializer_symbol->section == 0 &&
@@ -4725,6 +4731,15 @@ static void verify_cxx_throwing_temporary_object(
                     result);
         }
         assert(result == 65718);
+        address = symbol_address(memory, converted_base_lifetime_symbol);
+        memcpy(&no_arguments, &address, sizeof(no_arguments));
+        result = no_arguments();
+        if (result != 65719) {
+            fprintf(stderr,
+                    "verified converted-base temporary lifetime returned %d, expected 65719\n",
+                    result);
+        }
+        assert(result == 65719);
         address = symbol_address(memory, throwing_initializer_symbol);
         memcpy(&integer_argument, &address, sizeof(integer_argument));
         assert(integer_argument(1) == 560);

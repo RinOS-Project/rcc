@@ -7971,10 +7971,17 @@ static bool lower_scope_cleanup_declaration_supported(
                                    reference_owner->type) &&
                 type_is_compatible(reference_owner->type,
                                    reference_source->type))
-             : (type_is_compatible(declaration->type->base,
-                                   reference_owner->type) &&
-                type_is_compatible(reference_owner->type,
-                                   declaration->type->base))) &&
+             : ((type_is_compatible(declaration->type->base,
+                                    reference_owner->type) &&
+                 type_is_compatible(reference_owner->type,
+                                    declaration->type->base)) ||
+                (declaration->var_init && declaration->var_init->type &&
+                 (declaration->var_init->type->kind == TYPE_STRUCT ||
+                  declaration->var_init->type->kind == TYPE_UNION) &&
+                 type_is_compatible(declaration->var_init->type,
+                                    reference_owner->type) &&
+                 type_is_compatible(reference_owner->type,
+                                    declaration->var_init->type)))) &&
         !declaration->var_is_global &&
         !declaration->var_is_static_local &&
         !declaration->var_is_thread_local &&
@@ -19127,6 +19134,29 @@ static bool lower_declaration(RccIrLowerContext* context,
                         return false;
                     }
                     initializer = owner_storage;
+                    if (!temporary_source &&
+                        declaration->var_init->cxx_virtual_base_adjustment) {
+                        const CxxClass* source_class =
+                            declaration->var_init->cxx_virtual_base_source_class;
+                        if (!source_class ||
+                            declaration->var_init->cxx_virtual_base_pointer_offset < 0 ||
+                            declaration->var_init->cxx_virtual_base_index < 0 ||
+                            declaration->var_init->cxx_virtual_base_index >=
+                                source_class->virtual_base_count) {
+                            context->unsupported = true;
+                            return false;
+                        }
+                        initializer = lower_virtual_base_member_pointer_object(
+                            context, initializer,
+                            declaration->var_init->cxx_virtual_base_pointer_offset,
+                            declaration->var_init->cxx_virtual_base_index,
+                            declaration->var_init->cxx_virtual_base_nested_adjustment);
+                    } else if (!temporary_source &&
+                               declaration->var_init->cxx_pointer_adjustment_valid) {
+                        initializer = lower_adjusted_pointer(
+                            context, initializer,
+                            declaration->var_init->cxx_pointer_adjustment);
+                    }
                 }
                 if (!initializer.valid ||
                     initializer.type.kind != RCC_IR_TYPE_POINTER) {

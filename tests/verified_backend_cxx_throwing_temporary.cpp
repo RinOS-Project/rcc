@@ -97,6 +97,39 @@ struct VerifiedVirtualBaseConversionSource {
 struct VerifiedVirtualBaseConversionDerived :
     virtual VerifiedVirtualBaseConversionSource {};
 
+struct VerifiedConvertedBase {
+    int* cleanup_order;
+    int value;
+
+    ~VerifiedConvertedBase() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 1;
+    }
+};
+
+struct VerifiedConvertedPrefix {
+    int value;
+};
+
+struct VerifiedConvertedDerived :
+    VerifiedConvertedPrefix, VerifiedConvertedBase {
+    int* cleanup_order;
+    int value;
+
+    ~VerifiedConvertedDerived() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 2;
+    }
+};
+
+struct VerifiedBaseConversionResultSource {
+    int* cleanup_order;
+    int value;
+
+    operator VerifiedConvertedDerived() const noexcept {
+        return VerifiedConvertedDerived{
+            {value - 1}, {cleanup_order, value + 1}, cleanup_order, value};
+    }
+};
+
 struct VerifiedFirstConstructorMember {
     int* cleanup_order;
 
@@ -454,6 +487,20 @@ extern "C" int verified_cxx_virtual_base_conversion_receiver_cleanup() {
     if (conversion_observation != 2400) return conversion_observation;
     if (cleanup_order != 24) return -29;
     return 65718;
+}
+
+extern "C" int verified_cxx_converted_base_lifetime() {
+    int cleanup_order = 0;
+    int observed_value = 0;
+    {
+        const VerifiedConvertedBase& value =
+            VerifiedBaseConversionResultSource{&cleanup_order, 34};
+        observed_value = value.value;
+        if (cleanup_order != 0) return -30;
+    }
+    if (observed_value != 35) return observed_value;
+    if (cleanup_order != 21) return cleanup_order * 100;
+    return 65719;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {
