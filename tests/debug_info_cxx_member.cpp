@@ -150,4 +150,28 @@ int debug_inline_adjusted_base_entry() {
         static_cast<DebugInlineAdjustedBase*>(
             &debug_inline_adjusted_pointer_source));
 }
+
+constexpr int debug_inline_constexpr_seed = 20;
+
+constexpr int debug_inline_constexpr_add_four(int value) {
+    return value + 4;
+}
+
+static inline int debug_inline_constexpr_identifier_parameter(int value) {
+    return value;
+}
+
+static inline int debug_inline_constexpr_call_parameter(int value) {
+    return value;
+}
+
+int debug_inline_constexpr_identifier_entry() {
+    return debug_inline_constexpr_identifier_parameter(
+        debug_inline_constexpr_seed * 2 + 1);
+}
+
+int debug_inline_constexpr_call_entry() {
+    return debug_inline_constexpr_call_parameter(
+        debug_inline_constexpr_add_four(19));
+}
 }

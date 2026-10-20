@@ -956,6 +956,11 @@ bool rcc_sema_eval_constexpr_integer_call(Decl* declaration,
                                           int64_t* value);
 /* Check that an expression is a constant integer or floating-point value. */
 bool rcc_sema_eval_constexpr_arithmetic_constant(Expr* expression);
+/* Evaluate a resolved constexpr integer expression and return its target-width
+ * bit pattern and signedness. */
+bool rcc_sema_eval_constexpr_integer_value(Expr* expression,
+                                           uint64_t* bits,
+                                           bool* is_unsigned);
 /* Evaluate a floating constant expression using its resolved result type. */
 bool rcc_sema_eval_constexpr_floating_constant(Expr* expression,
                                                double* value,

@@ -7395,3 +7395,15 @@ remains a separate open item.
       objects and the AMD64 legacy-host object pass. The change remains limited
       to non-virtual converted-base bindings; the separate virtual-base
       converted-reference continuation below covers that additional shape.
+
+## RCC continuation (2026-10-20, constexpr inline integer parameter values)
+
+- [x] Use the semantic constexpr scalar evaluator when recording optimized
+      inline integer parameters, preserving the evaluated target-width bit
+      pattern and signedness. This covers constexpr identifiers and bounded
+      integer expressions, while leaving non-constant inputs unattributed.
+- [x] Verify a constexpr-backed arithmetic expression and a constexpr
+      function result as `DW_AT_const_value` on inlined C++ formal parameters
+      for i686/AMD64. Native-Windows `make SHELL=cmd.exe test-debug-info` passes.
+- [ ] Dynamic integer expressions, general mutable-parameter locations, and
+      optimized register/piece tracking remain open.

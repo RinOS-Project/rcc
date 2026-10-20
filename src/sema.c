@@ -8677,6 +8677,21 @@ bool rcc_sema_eval_constexpr_arithmetic_constant(Expr* expression) {
         (value.is_floating || sema_constexpr_integer_type(value.type));
 }
 
+bool rcc_sema_eval_constexpr_integer_value(Expr* expression,
+                                           uint64_t* bits,
+                                           bool* is_unsigned) {
+    SemaConstexprScalar value;
+    if (!expression || !bits || !is_unsigned ||
+        !sema_eval_constexpr_scalar_expr(expression, NULL, 0, &value) ||
+        value.is_floating || value.is_pointer ||
+        !sema_constexpr_integer_type(value.type)) {
+        return false;
+    }
+    *bits = sema_constexpr_integer_bits(&value);
+    *is_unsigned = value.type->is_unsigned;
+    return true;
+}
+
 bool rcc_sema_eval_constexpr_floating_constant(Expr* expression,
                                                double* value,
                                                Type** type) {

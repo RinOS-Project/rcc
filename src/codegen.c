@@ -127,11 +127,24 @@ static bool debug_inline_capture_converted_integer(
     argument_is_unsigned = argument_type->is_unsigned;
     if (argument_is_unsigned) {
         if (!expr_eval_integer_constant_u64(
-                argument->expr, &unsigned_value)) return false;
-    } else {
-        if (!expr_eval_integer_constant(argument->expr, &signed_value)) {
+                argument->expr, &unsigned_value) &&
+            !rcc_sema_eval_constexpr_integer_value(
+                argument->expr, &unsigned_value, &argument_is_unsigned)) {
             return false;
         }
+    } else if (!expr_eval_integer_constant(argument->expr, &signed_value)) {
+        if (!rcc_sema_eval_constexpr_integer_value(
+                argument->expr, &unsigned_value, &argument_is_unsigned)) {
+            return false;
+        }
+        if (argument_is_unsigned) {
+            signed_value = 0;
+        } else {
+            signed_value = debug_inline_sign_extend_integer(
+                unsigned_value, (unsigned int)argument_type->size * 8u);
+            unsigned_value = (uint64_t)signed_value;
+        }
+    } else {
         unsigned_value = (uint64_t)signed_value;
     }
     if (parameter_type->kind == TYPE_BOOL) {
