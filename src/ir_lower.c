@@ -9058,7 +9058,8 @@ static RccIrLowerValue lower_call_receiver_argument(
             receiver_source && receiver_source && receiver_source->type &&
         (receiver_source->type->kind == TYPE_STRUCT ||
          receiver_source->type->kind == TYPE_UNION) &&
-        receiver_source->kind == EXPR_COND &&
+        (receiver_source->kind == EXPR_COND ||
+         receiver_source->kind == EXPR_COMMA) &&
         !receiver_source->cxx_conditional_lvalue &&
         !receiver_source->cxx_conditional_xvalue) {
         bool previous_conditional_permission =

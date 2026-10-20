@@ -164,6 +164,9 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     int throwing_conversion_observation = 0;
     int conditional_receiver_cleanup_order = 0;
     int conditional_receiver_observation;
+    int comma_receiver_cleanup_order = 0;
+    int comma_receiver_evaluations = 0;
+    int comma_receiver_observation;
     {
         const int& value =
             make_verified_throwing_temporary(
@@ -269,7 +272,22 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     }
     if (conditional_receiver_cleanup_order != 15) return -15;
     if (cleanup_order != 15) return -16;
-    return 65712;
+    cleanup_order = 0;
+    {
+        const VerifiedThrowingTemporary& value =
+            (++comma_receiver_evaluations,
+             VerifiedThrowingTemporaryConversionSource{
+                 &cleanup_order, 16, &comma_receiver_cleanup_order});
+        comma_receiver_observation = value.cleanup_id * 100 +
+            comma_receiver_cleanup_order * 10 + cleanup_order;
+    }
+    if (comma_receiver_observation != 1760) {
+        return comma_receiver_observation;
+    }
+    if (comma_receiver_evaluations != 1) return -17;
+    if (comma_receiver_cleanup_order != 16) return -18;
+    if (cleanup_order != 16) return -19;
+    return 65713;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

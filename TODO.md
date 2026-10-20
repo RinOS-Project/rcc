@@ -7314,6 +7314,13 @@ remains a separate open item.
       functions with zero fallback on i686/AMD64 at `-O0`/`-O2`, and generated
       AMD64 SSA, legacy host, verified exception-cleanup, and function-template
       reference regressions pass.
+- [x] Support a class-prvalue comma expression as a conversion-function
+      receiver. Evaluate its left operand once, materialize the aggregate right
+      operand as the receiver, destroy it at full-expression end, and retain
+      the converted result through local-reference scope exit. The focused
+      target emits twenty-two functions with zero fallback on i686/AMD64 at
+      `-O0`/`-O2`; generated AMD64 SSA and legacy host checks pass (`65713`),
+      as do verified exception-cleanup and function-template-reference tests.
 - [ ] Other converted-reference shapes, static/TLS lifetime extension,
       additional conditional/subobject forms, and remaining full-expression
       cleanup paths remain open.

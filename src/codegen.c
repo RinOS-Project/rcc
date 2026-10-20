@@ -16225,7 +16225,8 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                     ? source->call_result_offset
                     : source->kind == EXPR_COMPOUND
                         ? source->compound_offset
-                        : source->kind == EXPR_COND
+                        : (source->kind == EXPR_COND ||
+                           source->kind == EXPR_COMMA)
                             ? source->aggregate_offset : 0;
                 /* The implicit object argument recursively assigns its
                  * receiver's result slot while traversing call_args.  Only
@@ -16238,7 +16239,8 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                         ? source->call_result_offset
                         : source->kind == EXPR_COMPOUND
                             ? source->compound_offset
-                            : source->kind == EXPR_COND
+                            : (source->kind == EXPR_COND ||
+                               source->kind == EXPR_COMMA)
                                 ? source->aggregate_offset : 0;
                 }
                 if (temporary_offset < 0) {
