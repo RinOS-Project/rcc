@@ -7202,9 +7202,14 @@ remains a separate open item.
       emit the computed value with `DW_OP_stack_value`; verify `pointer + 2`
       (`+8` bytes) and `pointer - 1` (`-4` bytes) in legacy and verified
       optimized i686/AMD64 DWARF. Native-Windows `test-debug-info` passes.
+- [x] Accumulate bounded chains of constant pointer additions/subtractions
+      before reading the frame-backed pointer value. Verify
+      `(pointer + 2) - 1` as a net `+4` byte displacement for i686/AMD64 legacy
+      and verified optimized DWARF; native-Windows `test-debug-info` passes.
 - [ ] Register-only or optimized-away sources, virtual-base/member-pointer
-      adjustments, nested pointer arithmetic, nonconstant offsets, dynamic
-      subobject indexes and compound pointer expressions,
+      adjustments, nonconstant offsets, unbounded/mixed-type pointer
+      arithmetic chains, dynamic subobject indexes and compound pointer
+      expressions,
       mutable-parameter tracking, and optimized register/piece tracking remain
       open; this does not implement general variable-location tracking.
 

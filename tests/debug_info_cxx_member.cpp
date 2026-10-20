@@ -225,6 +225,17 @@ int debug_inline_automatic_pointer_sub_entry(int* seed) {
     return result;
 }
 
+int debug_inline_automatic_pointer_chain_entry(int* seed) {
+    int* debug_inline_automatic_pointer_chain_source = seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_chain_source;
+    int result = debug_inline_automatic_subobject_parameter_inline(
+        (debug_inline_automatic_pointer_chain_source + 2) - 1);
+    debug_inline_automatic_pointer_value_escape =
+        debug_inline_automatic_pointer_chain_source;
+    return result;
+}
+
 constexpr int debug_inline_constexpr_seed = 20;
 
 constexpr int debug_inline_constexpr_add_four(int value) {

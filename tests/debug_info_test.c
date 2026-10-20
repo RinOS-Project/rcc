@@ -7953,6 +7953,18 @@ int main(int argc, char** argv)
     verify_cxx_inline_automatic_pointer_value(
         argv[43], ARCH_X64, "debug_inline_automatic_pointer_sub_entry",
         "debug_inline_automatic_pointer_sub_source", -4, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[40], ARCH_X86, "debug_inline_automatic_pointer_chain_entry",
+        "debug_inline_automatic_pointer_chain_source", 4, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[41], ARCH_X64, "debug_inline_automatic_pointer_chain_entry",
+        "debug_inline_automatic_pointer_chain_source", 4, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[42], ARCH_X86, "debug_inline_automatic_pointer_chain_entry",
+        "debug_inline_automatic_pointer_chain_source", 4, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[43], ARCH_X64, "debug_inline_automatic_pointer_chain_entry",
+        "debug_inline_automatic_pointer_chain_source", 4, true);
     verify_cxx_inline_constexpr_parameter(
         argv[40], ARCH_X86, "debug_inline_constexpr_identifier_parameter",
         "debug_inline_constexpr_identifier_entry", 41);

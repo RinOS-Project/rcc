@@ -4899,14 +4899,18 @@ static bool debug_inline_parameter_frame_offset(
 
 static bool debug_inline_pointer_arithmetic_source(
     const Expr* expression, const Expr** pointer_expression,
-    int64_t* byte_displacement) {
+    int64_t* byte_displacement, unsigned int depth) {
     const Expr* pointer;
+    const Expr* base_pointer;
     const Expr* offset;
     const Type* pointer_type;
     const Type* element_type;
     int64_t element_count;
+    int64_t local_displacement;
+    int64_t nested_displacement = 0;
     bool subtract;
     if (!expression || !pointer_expression || !byte_displacement ||
+        depth >= 32u ||
         (expression->kind != EXPR_ADD && expression->kind != EXPR_SUB)) {
         return false;
     }
@@ -4943,8 +4947,21 @@ static bool debug_inline_pointer_arithmetic_source(
          element_count < INT64_MIN / element_type->size)) {
         return false;
     }
-    *pointer_expression = pointer;
-    *byte_displacement = element_count * element_type->size;
+    local_displacement = element_count * element_type->size;
+    base_pointer = pointer;
+    if ((pointer->kind == EXPR_ADD || pointer->kind == EXPR_SUB) &&
+        !debug_inline_pointer_arithmetic_source(
+            pointer, &base_pointer, &nested_displacement, depth + 1u)) {
+        return false;
+    }
+    if ((local_displacement > 0 &&
+         nested_displacement > INT64_MAX - local_displacement) ||
+        (local_displacement < 0 &&
+         nested_displacement < INT64_MIN - local_displacement)) {
+        return false;
+    }
+    *pointer_expression = base_pointer;
+    *byte_displacement = nested_displacement + local_displacement;
     return true;
 }
 
@@ -5067,7 +5084,7 @@ static bool debug_inline_parameter_frame_address(
          address_expression->kind == EXPR_SUB)) {
         if (!debug_inline_pointer_arithmetic_source(
                 address_expression, &pointer_expression,
-                &byte_displacement)) {
+                &byte_displacement, 0u)) {
             return false;
         }
         while (pointer_expression) {
