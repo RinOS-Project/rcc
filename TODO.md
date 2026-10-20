@@ -7395,8 +7395,13 @@ remains a separate open item.
       -> `long` and `int` -> `short` -> `signed char` -> `short` -> `int` using
       the original frame slot and scaled pointer expression in all four target/
       backend variants; the integrated DWARF verifier passes.
-- [ ] Multi-stage signedness-changing conversions that require intermediate
-      masks, and other non-value-preserving conversion sequences;
+- [x] Preserve a signed narrowing followed by signed-to-unsigned conversion
+      and a further unsigned cast. Verify the AMD64 32-bit modulo mask, i686
+      address-width sign extension, original frame slot, and scaled pointer
+      expression in all four target/backend variants.
+- [ ] Multi-stage signedness-changing conversions that require multiple
+      masks, or change signedness again after masking; other non-value-preserving
+      conversion sequences;
       mixed-width subexpressions that cannot be safely flattened;
       non-frame-backed operands; constants wider than the target address;
       multiplication beyond same-width unsigned or signed compile-time

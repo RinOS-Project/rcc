@@ -8088,6 +8088,11 @@ int main(int argc, char** argv)
             {"debug_inline_automatic_signed_narrow_unsigned_index",
              2u, false, 4u, false, 0u, 4u, false, 0u}
         };
+    const VerifyInlinePointerIndexTerm
+        signed_narrow_unsigned_multistage_index[] = {
+            {"debug_inline_automatic_signed_narrow_unsigned_multistage_index",
+             2u, false, 4u, false, 0u, 4u, false, 0u}
+        };
     const VerifyInlinePointerIndexTerm unsigned_computed_x86_indices[] = {
         {"debug_inline_automatic_unsigned_first_index", 4u, true, 4u,
          false, 0u, 0u, false, 0u},
@@ -8599,6 +8604,26 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_signed_narrow_unsigned_index_entry",
         "debug_inline_automatic_pointer_signed_narrow_unsigned_source",
         signed_narrow_unsigned_widen_index, 1u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_signed_narrow_unsigned_multistage_entry",
+        "debug_inline_automatic_pointer_signed_narrow_unsigned_multistage_source",
+        signed_narrow_unsigned_multistage_index, 1u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_signed_narrow_unsigned_multistage_entry",
+        "debug_inline_automatic_pointer_signed_narrow_unsigned_multistage_source",
+        signed_narrow_unsigned_multistage_index, 1u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_signed_narrow_unsigned_multistage_entry",
+        "debug_inline_automatic_pointer_signed_narrow_unsigned_multistage_source",
+        signed_narrow_unsigned_multistage_index, 1u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_signed_narrow_unsigned_multistage_entry",
+        "debug_inline_automatic_pointer_signed_narrow_unsigned_multistage_source",
+        signed_narrow_unsigned_multistage_index, 1u, 0, true);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_unsigned_narrow_signed_index_entry",
