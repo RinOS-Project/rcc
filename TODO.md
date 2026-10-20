@@ -7232,9 +7232,10 @@ remains a separate open item.
       optimized DWARF for i686/AMD64. Extend bounded scalar inlining to accept
       only type-compatible function-to-pointer decay. The native-Windows
       `test-debug-info` target passes.
-- [ ] General pointer arithmetic, nested member/array subobject paths, pointer
-      casts requiring target adjustment, dynamic pointer expressions, and
-      general register/piece location tracking remain open.
+- [ ] General pointer arithmetic outside the bounded automatic-frame cases,
+      nested member/array subobject paths, pointer casts requiring target
+      adjustment, dynamic expressions beyond one frame-backed integral index,
+      and general register/piece location tracking remain open.
 
 ## RIN/RLL/DRV fini-array format matrix (2026-10-20)
 
@@ -7275,6 +7276,13 @@ remains a separate open item.
       referent to remain within the complete object. The C++ regression checks
       the exact base relocation addend (`4`) on i686/AMD64 in legacy and
       verified optimized DWARF; native-Windows `test-debug-info` passes.
+- [x] Emit an inline pointer value expression for one signed or unsigned
+      integral local index applied to a frame-backed pointer local. Load both
+      frame slots, sign-extend a narrower signed index with DWARF v4 arithmetic
+      shifts, scale by the pointee size, and apply pointer addition or
+      subtraction; regressions check both frame locations and the exact
+      expression on i686/AMD64 in legacy and verified optimized DWARF.
+      Native-Windows `test-debug-info` passes.
 - [x] Resolve static array address paths with supported integer constant
       expressions using target-width signed conversions and unsigned modular
       arithmetic. Verify `&array[1 + 1]` produces symbol/addend (`8`),
@@ -7282,8 +7290,9 @@ remains a separate open item.
       out-of-bounds `&array[2 + 3]` is not attributed on i686/AMD64 legacy and
       verified optimized DWARF; native-Windows `test-debug-info` passes.
 - [ ] Virtual-base/member-pointer adjustments, negative displacements not
-      rooted at a statically indexed element, dynamic pointer expressions, and
-      optimized register/piece location tracking remain open.
+      rooted at a statically indexed element, compound dynamic pointer
+      expressions and non-frame-backed indexes, and optimized register/piece
+      location tracking remain open.
 
 ## RCC continuation (2026-10-20, typed-SSA reference temporary unwind)
 

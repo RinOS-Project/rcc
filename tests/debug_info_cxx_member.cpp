@@ -157,6 +157,7 @@ DebugInlineAutomaticAddressAggregate*
     debug_inline_automatic_aggregate_escape;
 int** debug_inline_automatic_pointer_slot_escape;
 int* debug_inline_automatic_pointer_value_escape;
+void* debug_inline_automatic_index_slot_escape;
 
 inline int debug_inline_adjusted_base_parameter_inline(
     DebugInlineAdjustedBase* value) {
@@ -233,6 +234,37 @@ int debug_inline_automatic_pointer_chain_entry(int* seed) {
         (debug_inline_automatic_pointer_chain_source + 2) - 1);
     debug_inline_automatic_pointer_value_escape =
         debug_inline_automatic_pointer_chain_source;
+    return result;
+}
+
+int debug_inline_automatic_pointer_index_entry(int* seed, int index_seed) {
+    int* debug_inline_automatic_pointer_index_source = seed;
+    int debug_inline_automatic_index_source = index_seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_index_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_index_source;
+    int result = debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_index_source +
+        debug_inline_automatic_index_source);
+    debug_inline_automatic_pointer_value_escape =
+        debug_inline_automatic_pointer_index_source;
+    return result;
+}
+
+int debug_inline_automatic_pointer_index_sub_entry(
+    int* seed, unsigned int index_seed) {
+    int* debug_inline_automatic_pointer_index_sub_source = seed;
+    unsigned int debug_inline_automatic_index_sub_source = index_seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_index_sub_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_index_sub_source;
+    int result = debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_index_sub_source -
+        debug_inline_automatic_index_sub_source);
+    debug_inline_automatic_pointer_value_escape =
+        debug_inline_automatic_pointer_index_sub_source;
     return result;
 }
 

@@ -3512,6 +3512,86 @@ static void verify_inline_parameter_frame_address(
            variable_frame_offset == expression_frame_offset);
 }
 
+static void verify_inline_parameter_frame_pointer_index(
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, uint64_t call_die,
+    uint16_t architecture, const char* pointer_name, const char* index_name,
+    uint8_t index_size, bool index_unsigned, uint64_t element_size,
+    bool subtract_index) {
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t concrete_parameter;
+    uint64_t expression_offset;
+    uint64_t expression_size;
+    uint64_t expression_end;
+    uint64_t shift = address_size * 8u - index_size * 8u;
+    int64_t pointer_expression_offset;
+    int64_t index_expression_offset;
+    int64_t pointer_variable_offset;
+    int64_t index_variable_offset;
+    bool pointer_has_location;
+    bool pointer_is_location_list;
+    bool index_has_location;
+    bool index_is_location_list;
+    assert(info && info->data && call_die < info->size && pointer_name &&
+           index_name && index_size > 0u && index_size <= address_size);
+    concrete_parameter = call_die + 1u + 4u + address_size + 4u + 12u;
+    assert(info->data[concrete_parameter] == 67u);
+    assert(read_u32(info->data, concrete_parameter + 1u) ==
+           read_u32(info->data, call_die + 1u) + 27u);
+    expression_offset = concrete_parameter + 5u;
+    expression_size = read_uleb(info->data, info->size, &expression_offset);
+    expression_end = expression_offset + expression_size;
+    assert(expression_size != 0u && expression_end <= info->size);
+    assert(info->data[expression_offset++] ==
+           (architecture == ARCH_X64 ? 0x76u : 0x75u));
+    pointer_expression_offset = read_sleb(
+        info->data, expression_end, &expression_offset);
+    assert(expression_offset < expression_end &&
+           info->data[expression_offset++] == 0x06u); /* DW_OP_deref */
+    assert(info->data[expression_offset++] ==
+           (architecture == ARCH_X64 ? 0x76u : 0x75u));
+    index_expression_offset = read_sleb(
+        info->data, expression_end, &expression_offset);
+    assert(expression_offset + 2u <= expression_end &&
+           info->data[expression_offset++] == 0x94u &&
+           info->data[expression_offset++] == index_size);
+    if (!index_unsigned && shift != 0u) {
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x10u);
+        assert(read_uleb(info->data, expression_end, &expression_offset) ==
+               shift);
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x24u); /* DW_OP_shl */
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x10u);
+        assert(read_uleb(info->data, expression_end, &expression_offset) ==
+               shift);
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x26u); /* DW_OP_shra */
+    }
+    assert(expression_offset < expression_end &&
+           info->data[expression_offset++] == 0x10u);
+    assert(read_uleb(info->data, expression_end, &expression_offset) ==
+           element_size);
+    assert(expression_offset + 2u <= expression_end &&
+           info->data[expression_offset++] == 0x1eu &&
+           info->data[expression_offset++] ==
+               (subtract_index ? 0x1cu : 0x22u));
+    assert(expression_offset + 1u == expression_end &&
+           info->data[expression_offset] == 0x9fu);
+    assert(find_variable_location(
+        info, strings, locations, pointer_name, architecture,
+        &pointer_has_location, &pointer_is_location_list,
+        &pointer_variable_offset));
+    assert(pointer_has_location &&
+           pointer_variable_offset == pointer_expression_offset);
+    assert(find_variable_location(
+        info, strings, locations, index_name, architecture,
+        &index_has_location, &index_is_location_list,
+        &index_variable_offset));
+    assert(index_has_location && index_variable_offset == index_expression_offset);
+}
+
 static void verify_inline_parameter_is_not_attributed(
     const ObjSection* info, uint64_t call_die, uint16_t architecture) {
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
@@ -5237,6 +5317,72 @@ static void verify_cxx_inline_automatic_pointer_value(
     verify_inline_parameter_frame_address(
         info, strings, locations, call_die, architecture, variable_name,
         expected_offset, dereference_source);
+    objfile_free(object);
+}
+
+static void verify_cxx_inline_automatic_pointer_index(
+    const char* path, uint16_t architecture, const char* entry_name,
+    const char* pointer_name, const char* index_name,
+    uint8_t index_size, bool index_unsigned, uint64_t element_size,
+    bool subtract_index)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* line;
+    ObjSection* locations;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t call_die = UINT64_MAX;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    line = objfile_get_section(object, ".debug_line");
+    locations = objfile_get_section(object, ".debug_loc");
+    assert(info != NULL && strings != NULL && line != NULL);
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 16u <= info->size; ++die) {
+        uint32_t origin;
+        uint32_t name;
+        uint32_t call_file;
+        uint64_t low_pc_offset;
+        bool has_entry_relocation = false;
+        if (info->data[die] != 41u) continue;
+        origin = read_u32(info->data, die + 1u);
+        if ((uint64_t)origin + 25u > info->size ||
+            info->data[origin] != 40u) continue;
+        name = read_u32(info->data, (uint64_t)origin + 1u);
+        if (name >= strings->size ||
+            strcmp((const char*)strings->data + name,
+                   "debug_inline_automatic_subobject_parameter_inline") != 0) {
+            continue;
+        }
+        low_pc_offset = die + 1u + 4u;
+        call_file = read_u32(
+            info->data, low_pc_offset + address_size + 4u);
+        if (call_file == 0u || !line_table_file_matches(
+                line, call_file, "tests/debug_info_cxx_member.cpp")) {
+            continue;
+        }
+        for (const ObjReloc* relocation = info->relocs;
+             relocation; relocation = relocation->next) {
+            if (relocation->offset == low_pc_offset &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, entry_name) == 0) {
+                has_entry_relocation = true;
+                break;
+            }
+        }
+        if (has_entry_relocation) {
+            call_die = die;
+            break;
+        }
+    }
+    assert(call_die != UINT64_MAX);
+    verify_inline_parameter_frame_pointer_index(
+        info, strings, locations, call_die, architecture,
+        pointer_name, index_name, index_size, index_unsigned,
+        element_size, subtract_index);
     objfile_free(object);
 }
 
@@ -7965,6 +8111,42 @@ int main(int argc, char** argv)
     verify_cxx_inline_automatic_pointer_value(
         argv[43], ARCH_X64, "debug_inline_automatic_pointer_chain_entry",
         "debug_inline_automatic_pointer_chain_source", 4, true);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[40], ARCH_X86, "debug_inline_automatic_pointer_index_entry",
+        "debug_inline_automatic_pointer_index_source",
+        "debug_inline_automatic_index_source", 4u, false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[41], ARCH_X64, "debug_inline_automatic_pointer_index_entry",
+        "debug_inline_automatic_pointer_index_source",
+        "debug_inline_automatic_index_source", 4u, false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[42], ARCH_X86, "debug_inline_automatic_pointer_index_entry",
+        "debug_inline_automatic_pointer_index_source",
+        "debug_inline_automatic_index_source", 4u, false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[43], ARCH_X64, "debug_inline_automatic_pointer_index_entry",
+        "debug_inline_automatic_pointer_index_source",
+        "debug_inline_automatic_index_source", 4u, false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_index_sub_entry",
+        "debug_inline_automatic_pointer_index_sub_source",
+        "debug_inline_automatic_index_sub_source", 4u, true, 4u, true);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_index_sub_entry",
+        "debug_inline_automatic_pointer_index_sub_source",
+        "debug_inline_automatic_index_sub_source", 4u, true, 4u, true);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_index_sub_entry",
+        "debug_inline_automatic_pointer_index_sub_source",
+        "debug_inline_automatic_index_sub_source", 4u, true, 4u, true);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_index_sub_entry",
+        "debug_inline_automatic_pointer_index_sub_source",
+        "debug_inline_automatic_index_sub_source", 4u, true, 4u, true);
     verify_cxx_inline_constexpr_parameter(
         argv[40], ARCH_X86, "debug_inline_constexpr_identifier_parameter",
         "debug_inline_constexpr_identifier_entry", 41);

@@ -4897,6 +4897,85 @@ static bool debug_inline_parameter_frame_offset(
     return true;
 }
 
+typedef struct DebugInlineDynamicPointerIndex {
+    int64_t frame_offset;
+    int element_size;
+    uint8_t value_size;
+    bool is_unsigned;
+    bool subtract;
+    bool is_dynamic;
+} DebugInlineDynamicPointerIndex;
+
+static bool debug_inline_pointer_dynamic_index_source(
+    const Expr* expression, const Expr** pointer_expression,
+    const Decl** index_declaration, const Type** index_type,
+    int* element_size, bool* subtract) {
+    const Expr* pointer;
+    const Expr* index;
+    const Type* pointer_type;
+    const Type* value_type;
+    const Decl* declaration;
+    bool subtract_pointer;
+    if (!expression || !pointer_expression || !index_declaration ||
+        !index_type || !element_size || !subtract ||
+        (expression->kind != EXPR_ADD && expression->kind != EXPR_SUB)) {
+        return false;
+    }
+    pointer = expression->binary_lhs;
+    index = expression->binary_rhs;
+    subtract_pointer = expression->kind == EXPR_SUB;
+    if (!pointer || !pointer->type ||
+        (pointer->type->kind != TYPE_PTR &&
+         pointer->type->kind != TYPE_ARRAY)) {
+        if (subtract_pointer || !index || !index->type ||
+            (index->type->kind != TYPE_PTR &&
+             index->type->kind != TYPE_ARRAY)) {
+            return false;
+        }
+        pointer = expression->binary_rhs;
+        index = expression->binary_lhs;
+        subtract_pointer = false;
+    }
+    pointer_type = pointer->type;
+    if (!pointer_type || pointer_type->cxx_is_member_pointer ||
+        !pointer_type->base || pointer_type->base->kind == TYPE_FUNC ||
+        pointer_type->base->size <= 0 || !index || !index->type) {
+        return false;
+    }
+    value_type = index->type;
+    if (!debug_inline_integer_constant_type(value_type) ||
+        value_type->size <= 0 || value_type->size > 8) {
+        return false;
+    }
+    while (index->kind == EXPR_CAST && index->cast_expr) {
+        const Type* cast_source = index->cast_expr->type;
+        if (!cast_source ||
+            !debug_inline_integer_constant_type(cast_source) ||
+            cast_source->size != value_type->size ||
+            cast_source->is_unsigned != value_type->is_unsigned) {
+            return false;
+        }
+        index = index->cast_expr;
+    }
+    if (index->kind != EXPR_IDENT || !index->ident_decl) return false;
+    declaration = index->ident_decl;
+    if ((declaration->kind != DECL_VAR &&
+         declaration->kind != DECL_PARAM) || !declaration->type ||
+        !debug_inline_integer_constant_type(declaration->type) ||
+        declaration->type->size != value_type->size ||
+        declaration->type->is_unsigned != value_type->is_unsigned ||
+        declaration->type->is_volatile || declaration->type->is_reference ||
+        declaration->type->is_atomic) {
+        return false;
+    }
+    *pointer_expression = pointer;
+    *index_declaration = declaration;
+    *index_type = value_type;
+    *element_size = pointer_type->base->size;
+    *subtract = subtract_pointer;
+    return true;
+}
+
 static bool debug_inline_pointer_arithmetic_source(
     const Expr* expression, const Expr** pointer_expression,
     int64_t* byte_displacement, unsigned int depth) {
@@ -5028,21 +5107,28 @@ static bool debug_inline_parameter_frame_address(
     const ModuleDebugInlineParameterValue* value,
     const ExprList* argument, int64_t* frame_offset,
     int64_t* address_addend, int64_t* pointer_adjustment,
-    bool* dereference_source) {
+    bool* dereference_source,
+    DebugInlineDynamicPointerIndex* dynamic_index) {
     const Expr* expression;
     const Expr* address_expression;
     const Expr* operand;
     const Expr* pointer_expression = NULL;
     const Decl* source;
+    const Decl* index_declaration = NULL;
     const Type* parameter_type;
     const Type* argument_type;
+    const Type* index_type = NULL;
     int64_t byte_displacement = 0;
+    int dynamic_element_size = 0;
+    bool dynamic_subtract = false;
     uint8_t address_size;
     if (!mod || !callee || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !frame_offset ||
-        !address_addend || !pointer_adjustment || !dereference_source) {
+        !address_addend || !pointer_adjustment || !dereference_source ||
+        !dynamic_index) {
         return false;
     }
+    dynamic_index->is_dynamic = false;
     expression = argument->expr;
     address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     address_expression = expression;
@@ -5082,9 +5168,23 @@ static bool debug_inline_parameter_frame_address(
     if (address_expression &&
         (address_expression->kind == EXPR_ADD ||
          address_expression->kind == EXPR_SUB)) {
-        if (!debug_inline_pointer_arithmetic_source(
+        if (debug_inline_pointer_dynamic_index_source(
                 address_expression, &pointer_expression,
-                &byte_displacement, 0u)) {
+                &index_declaration, &index_type, &dynamic_element_size,
+                &dynamic_subtract)) {
+            if (index_type->size > (int)address_size ||
+                !debug_inline_parameter_frame_offset(
+                    mod, index_declaration, &dynamic_index->frame_offset)) {
+                return false;
+            }
+            dynamic_index->element_size = dynamic_element_size;
+            dynamic_index->value_size = (uint8_t)index_type->size;
+            dynamic_index->is_unsigned = index_type->is_unsigned;
+            dynamic_index->subtract = dynamic_subtract;
+            dynamic_index->is_dynamic = true;
+        } else if (!debug_inline_pointer_arithmetic_source(
+                       address_expression, &pointer_expression,
+                       &byte_displacement, 0u)) {
             return false;
         }
         while (pointer_expression) {
@@ -5211,9 +5311,10 @@ static bool debug_inline_parameter_frame_address(
 }
 
 static size_t debug_build_inline_pointer_value_expression(
-    uint8_t expression[48], int architecture, int64_t frame_offset,
+    uint8_t expression[96], int architecture, int64_t frame_offset,
     int64_t address_addend, bool dereference_source,
-    int64_t pointer_adjustment) {
+    int64_t pointer_adjustment,
+    const DebugInlineDynamicPointerIndex* dynamic_index) {
     size_t size = debug_build_expr_breg(
         expression, architecture, frame_offset, 0u, false);
     if (address_addend > 0) {
@@ -5228,6 +5329,32 @@ static size_t debug_build_inline_pointer_value_expression(
     }
     if (dereference_source) {
         expression[size++] = 0x06u; /* DW_OP_deref */
+    }
+    if (dynamic_index && dynamic_index->is_dynamic) {
+        uint8_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+        expression[size++] = architecture == ARCH_X64 ? 0x76u : 0x75u;
+        debug_expr_append_sleb(
+            expression, &size, dynamic_index->frame_offset);
+        expression[size++] = 0x94u; /* DW_OP_deref_size */
+        expression[size++] = dynamic_index->value_size;
+        if (!dynamic_index->is_unsigned &&
+            dynamic_index->value_size < address_size) {
+            uint64_t shift = (uint64_t)(address_size -
+                dynamic_index->value_size) * 8u;
+            expression[size++] = 0x10u; /* DW_OP_constu */
+            debug_expression_uleb(expression, 96u, &size, shift);
+            expression[size++] = 0x24u; /* DW_OP_shl */
+            expression[size++] = 0x10u; /* DW_OP_constu */
+            debug_expression_uleb(expression, 96u, &size, shift);
+            expression[size++] = 0x26u; /* DW_OP_shra */
+        }
+        expression[size++] = 0x10u; /* DW_OP_constu */
+        debug_expression_uleb(
+            expression, 96u, &size,
+            (uint64_t)dynamic_index->element_size);
+        expression[size++] = 0x1eu; /* DW_OP_mul */
+        expression[size++] = dynamic_index->subtract
+            ? 0x1cu /* DW_OP_minus */ : 0x22u /* DW_OP_plus */;
     }
     if (pointer_adjustment > 0) {
         uint64_t value = (uint64_t)pointer_adjustment;
@@ -5268,6 +5395,7 @@ static void debug_emit_inline_parameter_instances(
         int64_t source_frame_address_addend = 0;
         int64_t source_pointer_adjustment = 0;
         bool source_frame_dereference = false;
+        DebugInlineDynamicPointerIndex source_dynamic_index = {0};
         int64_t address_addend = 0;
         if (value->has_signed_integer_constant && value->declaration &&
             (origin = debug_inline_parameter_origin_find(
@@ -5332,13 +5460,15 @@ static void debug_emit_inline_parameter_instances(
                        &source_frame_address_offset,
                        &source_frame_address_addend,
                        &source_pointer_adjustment,
-                       &source_frame_dereference)) {
-            uint8_t expression[48];
+                       &source_frame_dereference,
+                       &source_dynamic_index)) {
+            uint8_t expression[96];
             size_t expression_size =
                 debug_build_inline_pointer_value_expression(
                     expression, architecture, source_frame_address_offset,
                     source_frame_address_addend,
-                    source_frame_dereference, source_pointer_adjustment);
+                    source_frame_dereference, source_pointer_adjustment,
+                    &source_dynamic_index);
             section_add_byte(info, 67u);
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);
