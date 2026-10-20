@@ -7330,10 +7330,14 @@ remains a separate open item.
       `+`/`-` indexes. The AMD64 `index + 1u` regression checks the constant,
       source location, wrap mask, scaling, and final pointer operation in legacy
       and verified optimized DWARF.
-- [ ] Unsigned computed indexes with casts, mixed-width subexpressions, or
-      non-frame-backed operands; large unsigned constants outside signed
-      displacement range; multiplication and other unhandled index operators;
-      pointer chains with more than eight dynamic terms;
+- [x] Preserve supported narrow unsigned computations through same-width or
+      zero-extending unsigned casts. The AMD64 regression wraps `index + 1u` in
+      `static_cast<unsigned long>` and verifies the source-width mask and index
+      expression in legacy and verified optimized DWARF.
+- [ ] Unsigned computed indexes with narrowing/signed casts, mixed-width
+      subexpressions, or non-frame-backed operands; large unsigned constants
+      outside signed displacement range; multiplication and other unhandled
+      index operators; pointer chains with more than eight dynamic terms;
       virtual-base/member-
       pointer adjustments, negative displacements not rooted at a statically
       indexed element, nested/VLA/pointer-based dynamic subobject paths,
