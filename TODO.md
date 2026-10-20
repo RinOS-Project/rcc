@@ -7104,9 +7104,12 @@ remains a separate open item.
       and positive enum values on i686/AMD64. Extend inline DWARF checks for a
       C enum formal and `-2` constant in legacy and verified optimized objects.
       Native-Windows `test-optimize` and `test-debug-info` pass.
-- [ ] Additional C++ enum conversion cases, nonliteral enum-value attribution,
-      nonconstant parameter locations, and optimized register/piece tracking
-      remain open.
+- [x] Attribute a nonliteral signed C++ enum value held in a `constexpr`
+      variable to the inlined enum formal's `DW_AT_const_value`. Verify the
+      negative value in legacy and verified optimized i686/AMD64 DWARF;
+      native-Windows `make SHELL=cmd.exe test-debug-info` passes.
+- [ ] Other C++ enum conversions, nonconstant parameter locations, and
+      optimized register/piece tracking remain open.
 
 ## RCC continuation (2026-10-20, C++ nullptr inline conversion)
 

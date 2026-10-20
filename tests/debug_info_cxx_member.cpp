@@ -137,6 +137,13 @@ struct DebugInlineAdjustedDerived : DebugInlineAdjustedPrefix,
     int suffix;
 };
 
+enum class DebugInlineConstexprEnum : signed char {
+    negative = -37,
+};
+
+constexpr DebugInlineConstexprEnum debug_inline_constexpr_enum_value =
+    DebugInlineConstexprEnum::negative;
+
 extern "C" {
 DebugInlineAdjustedDerived debug_inline_adjusted_pointer_source;
 
@@ -165,6 +172,11 @@ static inline int debug_inline_constexpr_call_parameter(int value) {
     return value;
 }
 
+static inline int debug_inline_constexpr_enum_parameter(
+    DebugInlineConstexprEnum value) {
+    return static_cast<int>(value);
+}
+
 int debug_inline_constexpr_identifier_entry() {
     return debug_inline_constexpr_identifier_parameter(
         debug_inline_constexpr_seed * 2 + 1);
@@ -173,5 +185,10 @@ int debug_inline_constexpr_identifier_entry() {
 int debug_inline_constexpr_call_entry() {
     return debug_inline_constexpr_call_parameter(
         debug_inline_constexpr_add_four(19));
+}
+
+int debug_inline_constexpr_enum_entry() {
+    return debug_inline_constexpr_enum_parameter(
+        debug_inline_constexpr_enum_value);
 }
 }

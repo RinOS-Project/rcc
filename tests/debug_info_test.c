@@ -7723,6 +7723,18 @@ int main(int argc, char** argv)
     verify_cxx_inline_constexpr_parameter(
         argv[43], ARCH_X64, "debug_inline_constexpr_call_parameter",
         "debug_inline_constexpr_call_entry", 23);
+    verify_cxx_inline_constexpr_parameter(
+        argv[40], ARCH_X86, "debug_inline_constexpr_enum_parameter",
+        "debug_inline_constexpr_enum_entry", -37);
+    verify_cxx_inline_constexpr_parameter(
+        argv[41], ARCH_X64, "debug_inline_constexpr_enum_parameter",
+        "debug_inline_constexpr_enum_entry", -37);
+    verify_cxx_inline_constexpr_parameter(
+        argv[42], ARCH_X86, "debug_inline_constexpr_enum_parameter",
+        "debug_inline_constexpr_enum_entry", -37);
+    verify_cxx_inline_constexpr_parameter(
+        argv[43], ARCH_X64, "debug_inline_constexpr_enum_parameter",
+        "debug_inline_constexpr_enum_entry", -37);
     verify_class_template_parameter_dies(argv[26], ARCH_X86);
     verify_class_template_parameter_dies(argv[27], ARCH_X64);
     verify_class_template_template_parameter_die(argv[26], ARCH_X86);
