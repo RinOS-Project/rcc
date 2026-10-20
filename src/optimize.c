@@ -3008,15 +3008,21 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         expansion_cost > INLINE_PURE_SCALAR_EXPANSION_LIMIT) {
         return false;
     }
-    /* The return expression cost counts each parameter identifier as one
-     * node.  Charge the additional nodes introduced by each substituted
-     * pure argument so a large expression cannot bypass the per-argument
-     * repeated-use guard merely by using many distinct parameters. */
+    /* The return expression cost counts each binding identifier as one
+     * node.  Charge nodes introduced by substituted expressions, except for
+     * a single-use formal argument: its evaluation already exists at the
+     * call site, so charging its full tree again would mistake input cost
+     * for inline growth.  Callee-local expressions and repeated arguments
+     * still consume the bounded expansion budget. */
     for (index = 0u; index < binding_count; ++index) {
         size_t uses = bindings[index].uses;
         size_t cost = inline_pure_scalar_expression_cost(
             bindings[index].argument);
         size_t additional;
+        if (bindings[index].parameter &&
+            bindings[index].parameter->kind == DECL_PARAM && uses <= 1u) {
+            continue;
+        }
         if (uses == 0u || cost <= 1u) continue;
         if (cost == (size_t)-1 ||
             uses > ((size_t)-1) / (cost - 1u)) return false;

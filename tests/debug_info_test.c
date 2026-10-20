@@ -3543,7 +3543,7 @@ static void verify_inline_parameter_frame_pointer_indices(
     bool pointer_has_location;
     bool pointer_is_location_list;
     assert(info && info->data && call_die < info->size && pointer_name &&
-           index_terms && index_count > 0u && index_count <= 16u &&
+           index_terms && index_count > 0u && index_count <= 32u &&
            address_addend >= 0);
     concrete_parameter = call_die + 1u + 4u + address_size + 4u + 12u;
     assert(info->data[concrete_parameter] == 67u);
@@ -8110,11 +8110,27 @@ int main(int argc, char** argv)
         {"debug_inline_automatic_many_unsigned_index_7", 4u, true, 4u,
          false, 0u, 0u, false, 0u},
         {"debug_inline_automatic_many_unsigned_index_8", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_9", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_10", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_11", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_12", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_13", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_14", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_15", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_16", 4u, true, 4u,
          false, 0u, 0u, false, 0u}
     };
     const VerifyInlinePointerIndexTerm many_unsigned_index_x64_terms[] = {
         {"debug_inline_automatic_many_unsigned_index_0", 4u, true, 4u,
-         false, 9u, 4u, false, 0u},
+         false, 17u, 4u, false, 0u},
         {"debug_inline_automatic_many_unsigned_index_1", 4u, true, 4u,
          false, 0u, 0u, false, 0u},
         {"debug_inline_automatic_many_unsigned_index_2", 4u, true, 4u,
@@ -8130,6 +8146,22 @@ int main(int argc, char** argv)
         {"debug_inline_automatic_many_unsigned_index_7", 4u, true, 4u,
          false, 0u, 0u, false, 0u},
         {"debug_inline_automatic_many_unsigned_index_8", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_9", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_10", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_11", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_12", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_13", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_14", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_15", 4u, true, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_many_unsigned_index_16", 4u, true, 4u,
          false, 0u, 0u, false, 0u}
     };
     const VerifyInlinePointerIndexTerm scaled_unsigned_index_x86_terms[] = {
@@ -8566,22 +8598,22 @@ int main(int argc, char** argv)
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_many_unsigned_index_entry",
         "debug_inline_automatic_pointer_many_unsigned_source",
-        many_unsigned_index_x86_terms, 9u, 0, true);
+        many_unsigned_index_x86_terms, 17u, 0, true);
     verify_cxx_inline_automatic_pointer_indices(
         argv[41], ARCH_X64,
         "debug_inline_automatic_pointer_many_unsigned_index_entry",
         "debug_inline_automatic_pointer_many_unsigned_source",
-        many_unsigned_index_x64_terms, 9u, 0, true);
+        many_unsigned_index_x64_terms, 17u, 0, true);
     verify_cxx_inline_automatic_pointer_indices(
         argv[42], ARCH_X86,
         "debug_inline_automatic_pointer_many_unsigned_index_entry",
         "debug_inline_automatic_pointer_many_unsigned_source",
-        many_unsigned_index_x86_terms, 9u, 0, true);
+        many_unsigned_index_x86_terms, 17u, 0, true);
     verify_cxx_inline_automatic_pointer_indices(
         argv[43], ARCH_X64,
         "debug_inline_automatic_pointer_many_unsigned_index_entry",
         "debug_inline_automatic_pointer_many_unsigned_source",
-        many_unsigned_index_x64_terms, 9u, 0, true);
+        many_unsigned_index_x64_terms, 17u, 0, true);
     verify_cxx_inline_automatic_pointer_indices(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_scaled_unsigned_index_entry",

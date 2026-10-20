@@ -159,7 +159,7 @@ int** debug_inline_automatic_pointer_slot_escape;
 int* debug_inline_automatic_pointer_value_escape;
 void* debug_inline_automatic_index_slot_escape;
 void* debug_inline_automatic_second_index_slot_escape;
-void* debug_inline_automatic_many_index_slot_escape[9];
+void* debug_inline_automatic_many_index_slot_escape[17];
 
 inline int debug_inline_adjusted_base_parameter_inline(
     DebugInlineAdjustedBase* value) {
@@ -404,7 +404,9 @@ int debug_inline_automatic_pointer_many_unsigned_index_entry(
     int* seed, unsigned int seed0, unsigned int seed1,
     unsigned int seed2, unsigned int seed3, unsigned int seed4,
     unsigned int seed5, unsigned int seed6, unsigned int seed7,
-    unsigned int seed8) {
+    unsigned int seed8, unsigned int seed9, unsigned int seed10,
+    unsigned int seed11, unsigned int seed12, unsigned int seed13,
+    unsigned int seed14, unsigned int seed15, unsigned int seed16) {
     int* debug_inline_automatic_pointer_many_unsigned_source = seed;
     unsigned int debug_inline_automatic_many_unsigned_index_0 = seed0;
     unsigned int debug_inline_automatic_many_unsigned_index_1 = seed1;
@@ -415,6 +417,14 @@ int debug_inline_automatic_pointer_many_unsigned_index_entry(
     unsigned int debug_inline_automatic_many_unsigned_index_6 = seed6;
     unsigned int debug_inline_automatic_many_unsigned_index_7 = seed7;
     unsigned int debug_inline_automatic_many_unsigned_index_8 = seed8;
+    unsigned int debug_inline_automatic_many_unsigned_index_9 = seed9;
+    unsigned int debug_inline_automatic_many_unsigned_index_10 = seed10;
+    unsigned int debug_inline_automatic_many_unsigned_index_11 = seed11;
+    unsigned int debug_inline_automatic_many_unsigned_index_12 = seed12;
+    unsigned int debug_inline_automatic_many_unsigned_index_13 = seed13;
+    unsigned int debug_inline_automatic_many_unsigned_index_14 = seed14;
+    unsigned int debug_inline_automatic_many_unsigned_index_15 = seed15;
+    unsigned int debug_inline_automatic_many_unsigned_index_16 = seed16;
     debug_inline_automatic_pointer_slot_escape =
         &debug_inline_automatic_pointer_many_unsigned_source;
     debug_inline_automatic_many_index_slot_escape[0] =
@@ -435,6 +445,22 @@ int debug_inline_automatic_pointer_many_unsigned_index_entry(
         &debug_inline_automatic_many_unsigned_index_7;
     debug_inline_automatic_many_index_slot_escape[8] =
         &debug_inline_automatic_many_unsigned_index_8;
+    debug_inline_automatic_many_index_slot_escape[9] =
+        &debug_inline_automatic_many_unsigned_index_9;
+    debug_inline_automatic_many_index_slot_escape[10] =
+        &debug_inline_automatic_many_unsigned_index_10;
+    debug_inline_automatic_many_index_slot_escape[11] =
+        &debug_inline_automatic_many_unsigned_index_11;
+    debug_inline_automatic_many_index_slot_escape[12] =
+        &debug_inline_automatic_many_unsigned_index_12;
+    debug_inline_automatic_many_index_slot_escape[13] =
+        &debug_inline_automatic_many_unsigned_index_13;
+    debug_inline_automatic_many_index_slot_escape[14] =
+        &debug_inline_automatic_many_unsigned_index_14;
+    debug_inline_automatic_many_index_slot_escape[15] =
+        &debug_inline_automatic_many_unsigned_index_15;
+    debug_inline_automatic_many_index_slot_escape[16] =
+        &debug_inline_automatic_many_unsigned_index_16;
     return debug_inline_automatic_subobject_parameter_inline(
         debug_inline_automatic_pointer_many_unsigned_source +
         (debug_inline_automatic_many_unsigned_index_0 +
@@ -445,7 +471,15 @@ int debug_inline_automatic_pointer_many_unsigned_index_entry(
          debug_inline_automatic_many_unsigned_index_5 +
          debug_inline_automatic_many_unsigned_index_6 +
          debug_inline_automatic_many_unsigned_index_7 +
-         debug_inline_automatic_many_unsigned_index_8));
+         debug_inline_automatic_many_unsigned_index_8 +
+         debug_inline_automatic_many_unsigned_index_9 +
+         debug_inline_automatic_many_unsigned_index_10 +
+         debug_inline_automatic_many_unsigned_index_11 +
+         debug_inline_automatic_many_unsigned_index_12 +
+         debug_inline_automatic_many_unsigned_index_13 +
+         debug_inline_automatic_many_unsigned_index_14 +
+         debug_inline_automatic_many_unsigned_index_15 +
+         debug_inline_automatic_many_unsigned_index_16));
 }
 
 int debug_inline_automatic_pointer_scaled_unsigned_index_entry(

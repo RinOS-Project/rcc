@@ -7341,6 +7341,14 @@ remains a separate open item.
 - [x] Compose nine same-width unsigned frame-backed terms in one computed
       pointer index. Verify every source slot, width-correct arithmetic, and
       element scaling in legacy and verified optimized i686/AMD64 DWARF.
+- [x] Extend the bounded computed-index term capacity to 32 and verify a
+      17-term frame-backed unsigned expression, every source location, the
+      source-width wrap mask, and element scaling in legacy and verified
+      optimized i686/AMD64 DWARF.
+- [x] Keep bounded inlining from double-charging a single-use formal's
+      caller-side expression as newly expanded code. Retain the repeated-use
+      and callee-local expansion limits; `test-optimize` preserves large
+      callees while `test-debug-info` verifies the 17-term inline location.
 - [x] Preserve same-width unsigned frame-backed indexes multiplied by a
       compile-time unsigned constant. Apply the coefficient with source-width
       modular arithmetic before pointee scaling; recognize both multiplication
@@ -7357,7 +7365,7 @@ remains a separate open item.
       or non-frame-backed operands; constants wider than the target address;
       multiplication beyond same-width unsigned or signed compile-time
       coefficients, and other unhandled index operators; pointer
-      chains with more than sixteen dynamic terms;
+      chains with more than thirty-two dynamic terms;
       virtual-base/member-
       pointer adjustments, negative displacements not rooted at a statically
       indexed element, nested/VLA/pointer-based dynamic subobject paths,
