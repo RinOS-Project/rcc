@@ -7465,9 +7465,10 @@ remains a separate open item.
       `test-debug-info`.
 - [x] Preserve a frame-backed signed pointer index divided by a nonzero
       same-typed constant. Reconstruct `DW_OP_div` from the optimizer's
-      bias-and-shift form for positive and negative powers of two, and verify
-      divisors `2` and `-2`, source slots, and scaled expressions in legacy and
-      verified i686/AMD64 DWARF; the full `test-debug-info` gate passes.
+      bias-and-shift form for positive and negative powers of two, and retain
+      direct signed division for other constants. Verify divisors `2`, `-2`,
+      `3`, and `-3`, source slots, and scaled expressions in legacy and verified
+      i686/AMD64 DWARF; the full `test-debug-info` gate passes.
 - [ ] Signed results too narrow to represent a masked unsigned range; other
       non-value-preserving conversion sequences;
       mixed-width subexpressions that cannot be safely flattened;

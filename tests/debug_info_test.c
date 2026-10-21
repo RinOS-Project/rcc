@@ -8805,6 +8805,46 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_negative_divisor_index_entry",
         "debug_inline_automatic_pointer_negative_divisor_source",
         "debug_inline_automatic_negative_divisor_index", -2);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_odd_divisor_index_entry",
+        "debug_inline_automatic_pointer_odd_divisor_source",
+        "debug_inline_automatic_odd_divisor_index", 3);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_odd_divisor_index_entry",
+        "debug_inline_automatic_pointer_odd_divisor_source",
+        "debug_inline_automatic_odd_divisor_index", 3);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_odd_divisor_index_entry",
+        "debug_inline_automatic_pointer_odd_divisor_source",
+        "debug_inline_automatic_odd_divisor_index", 3);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_odd_divisor_index_entry",
+        "debug_inline_automatic_pointer_odd_divisor_source",
+        "debug_inline_automatic_odd_divisor_index", 3);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_negative_odd_divisor_index_entry",
+        "debug_inline_automatic_pointer_negative_odd_divisor_source",
+        "debug_inline_automatic_negative_odd_divisor_index", -3);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_negative_odd_divisor_index_entry",
+        "debug_inline_automatic_pointer_negative_odd_divisor_source",
+        "debug_inline_automatic_negative_odd_divisor_index", -3);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_negative_odd_divisor_index_entry",
+        "debug_inline_automatic_pointer_negative_odd_divisor_source",
+        "debug_inline_automatic_negative_odd_divisor_index", -3);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_negative_odd_divisor_index_entry",
+        "debug_inline_automatic_pointer_negative_odd_divisor_source",
+        "debug_inline_automatic_negative_odd_divisor_index", -3);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_signed_to_unsigned_index_entry",
