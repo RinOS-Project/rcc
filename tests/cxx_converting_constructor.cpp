@@ -32,6 +32,9 @@ AggregateCastTarget global_aggregate_cast_value =
 class ClassCastSource;
 
 int class_cast_target_destructor_count = 0;
+const void* class_cast_target_last_constructed = nullptr;
+int by_value_identity_destructor_count = 0;
+const void* by_value_identity_last_constructed = nullptr;
 
 class ClassCastTarget {
 public:
@@ -39,6 +42,7 @@ public:
     explicit ClassCastTarget(const ClassCastSource& source)
         : value_(300) {
         (void)source;
+        class_cast_target_last_constructed = this;
     }
     ~ClassCastTarget() {
         ++class_cast_target_destructor_count;
@@ -46,6 +50,10 @@ public:
 
     int value() const {
         return value_;
+    }
+
+    bool is_last_constructed_object() const {
+        return this == class_cast_target_last_constructed;
     }
 
 private:
@@ -76,6 +84,26 @@ private:
     int value_;
 };
 
+class ByValueIdentity {
+public:
+    explicit ByValueIdentity(int value) : value_(value) {
+        by_value_identity_last_constructed = this;
+    }
+    ByValueIdentity(const ByValueIdentity& source)
+        : value_(source.value_ + 1) {
+        by_value_identity_last_constructed = this;
+    }
+    ~ByValueIdentity() {
+        ++by_value_identity_destructor_count;
+    }
+
+    int value_if_last_constructed() const {
+        return this == by_value_identity_last_constructed ? value_ : 10000;
+    }
+
+    int value_;
+};
+
 OperatorOnlySource global_operator_only_source(5);
 ClassCastTarget global_class_cast_target =
     static_cast<ClassCastTarget>(global_operator_only_source);
@@ -93,11 +121,20 @@ static int consume(Converting object) {
 }
 
 static int consume_class_cast_target(ClassCastTarget object) {
-    return object.value();
+    return object.is_last_constructed_object() ? object.value() : 10000;
 }
 
 static void discard_class_cast_target(ClassCastTarget object) {
     (void)object;
+}
+
+static int consume_by_value_identity(ByValueIdentity object) {
+    return object.value_if_last_constructed();
+}
+
+static int consume_by_value_identity_after_six_integers(
+    int a, int b, int c, int d, int e, int f, ByValueIdentity object) {
+    return a + b + c + d + e + f + object.value_if_last_constructed();
 }
 
     Converting global_value = 2;
@@ -142,10 +179,32 @@ extern "C" int cxx_converting_constructor(void) {
                       static_cast<ClassCastTarget>(class_source));
         discard_class_cast_target(
             static_cast<ClassCastTarget>(class_source));
+        ByValueIdentity identity_source(71);
+        if (consume_by_value_identity(identity_source) != 72) {
+            delete heap_value;
+            return 301;
+        }
+        if (by_value_identity_destructor_count != 1) {
+            delete heap_value;
+            return 302;
+        }
+        if (consume_by_value_identity_after_six_integers(
+                1, 2, 3, 4, 5, 6, identity_source) != 93) {
+            delete heap_value;
+            return 303;
+        }
+        if (by_value_identity_destructor_count != 2) {
+            delete heap_value;
+            return 304;
+        }
     }
     if (class_cast_target_destructor_count != 4) {
         delete heap_value;
         return 100 + class_cast_target_destructor_count;
+    }
+    if (by_value_identity_destructor_count != 3) {
+        delete heap_value;
+        return 400 + by_value_identity_destructor_count;
     }
     delete heap_value;
     return result == 1264 ? 0 : 200;

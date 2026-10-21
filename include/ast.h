@@ -531,6 +531,9 @@ typedef struct ExprList {
      * conditional paths can skip inactive cleanups. */
     Decl* cxx_temporary_owner;
     CxxCleanupPlan* cxx_temporary_cleanups;
+    /* A temporary created for a non-trivial by-value parameter transfers
+     * lifetime responsibility to the callee immediately before the call. */
+    bool cxx_temporary_is_parameter_object;
     struct ExprList* cxx_temporary_next;
     struct ExprList* next;
 } ExprList;
@@ -1245,6 +1248,9 @@ struct Decl {
     /* C++ function parameter pack marker.  Supported type packs are expanded
      * during template instantiation before semantic analysis/codegen. */
     bool param_is_pack;
+    /* Itanium ABI passes a non-trivial by-value class parameter as an
+     * invisible pointer to the caller-created parameter object. */
+    bool param_is_cxx_indirect;
 
     union {
         /* DECL_VAR */

@@ -8133,9 +8133,15 @@ remains a separate open item.
       return and fallthrough paths. Static-cast prvalues exercise the parameter
       lifetime; verify exact counts against GCC, i686/AMD64 generation, and
       AMD64 default/`-O2` execution in `test-cxx-static-cast-constructor`.
+- [x] Pass nontrivial by-value class parameters through the Itanium invisible-
+      pointer ABI, directly constructing prvalue arguments as the callee's
+      parameter object and copy-initializing a distinct object for lvalue
+      arguments. Cover a seventh GP-class argument (stack spill), object
+      identity, exact destructor counts, GCC comparison, i686/AMD64 assembly,
+      and AMD64 default/`-O2` execution in
+      `test-cxx-static-cast-constructor`.
 - [ ] Remaining class-target cast coverage includes other aggregate
-      parenthesized-initialization edge cases, guaranteed direct construction
-      and object identity for class prvalues passed by value, parameter cleanup
-      during exception unwinding, other class-prvalue uses outside same-type
+      parenthesized-initialization edge cases, parameter cleanup during
+      exception unwinding, other class-prvalue uses outside same-type
       local/static-storage initialization, and overloaded conversion functions
       with non-exact result sequences.

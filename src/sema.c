@@ -11372,6 +11372,37 @@ static void sema_prepare_variadic_class_argument(ExprList* argument) {
         "non-trivial variadic class temporary cleanup is unsupported");
 }
 
+/* The Itanium ABI represents a non-trivial class parameter by an invisible
+ * pointer to the parameter object. A prvalue can initialize that object
+ * directly; an lvalue/xvalue first needs its own copy/move-initialized
+ * object. Keep its destruction armed in the caller while later arguments are
+ * evaluated, then codegen transfers that lifetime to the callee at entry. */
+static void sema_prepare_cxx_by_value_class_argument(
+    ExprList* argument, Type* parameter_type) {
+    Expr* source;
+    if (!rcc_parser_is_cxx_mode() || !argument ||
+        !(source = argument->expr) || !parameter_type ||
+        parameter_type->is_reference || !parameter_type->cxx_nontrivial ||
+        (parameter_type->kind != TYPE_STRUCT &&
+         parameter_type->kind != TYPE_UNION)) {
+        return;
+    }
+    if (is_lvalue(source) || is_xvalue(source)) {
+        Expr* temporary = expr_initializer_list(
+            exprlist_new(source), source->loc);
+        temporary->compound_type = parameter_type;
+        temporary->compound_copy_init = true;
+        sema_initializer(parameter_type, temporary);
+        argument->expr = temporary;
+        source = temporary;
+    }
+    argument->cxx_temporary_is_parameter_object = true;
+    sema_prepare_class_prvalue_cleanup(
+        source, &argument->cxx_temporary_owner,
+        &argument->cxx_temporary_cleanups, true,
+        "non-trivial by-value class parameter cleanup is unsupported");
+}
+
 static void sema_prepare_reference_argument_cleanup(ExprList* argument,
                                                     Type* parameter_type) {
     if (!argument || !argument->expr || !parameter_type ||
@@ -16896,6 +16927,8 @@ static Type* sema_expr(Expr* expr) {
                     } else {
                         sema_prepare_reference_argument_cleanup(
                             argument, parameter->type);
+                        sema_prepare_cxx_by_value_class_argument(
+                            argument, parameter->type);
                         sema_prepare_derived_to_base_value_argument_cleanup(
                             argument, parameter->type);
                     }
@@ -21885,6 +21918,18 @@ static void sema_decl(Decl* decl) {
                         ? decl->func_this_param->type->size : 4;
                 }
                 for (DeclList* p = decl->func_params; p; p = p->next) {
+                    Type* parameter_type = p->decl ? p->decl->type : NULL;
+                    bool indirect_class_parameter =
+                        rcc_parser_is_cxx_mode() && parameter_type &&
+                        parameter_type->cxx_class &&
+                        parameter_type->cxx_nontrivial &&
+                        !parameter_type->is_reference &&
+                        (parameter_type->kind == TYPE_STRUCT ||
+                         parameter_type->kind == TYPE_UNION);
+                    if (p->decl) {
+                        p->decl->param_is_cxx_indirect =
+                            indirect_class_parameter;
+                    }
                     current_func_last_param = p->decl;
                     Symbol* psym = NULL;
                     if (p->decl->name) {
@@ -21896,7 +21941,8 @@ static void sema_decl(Decl* decl) {
                     }
                     p->decl->var_offset = param_offset;
                     {
-                        int parameter_size = p->decl->type &&
+                        int parameter_size = indirect_class_parameter
+                            ? 4 : p->decl->type &&
                             p->decl->type->size > 4
                             ? p->decl->type->size : 4;
                         param_offset += (parameter_size + 3) & ~3;

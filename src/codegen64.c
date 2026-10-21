@@ -909,6 +909,8 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_expr_impl(Module* mod, Expr* expr);
 static void gen64_lvalue(Module* mod, Expr* expr);
+static void gen64_transfer_by_value_argument_cleanups64(
+    Module* mod, ExprList* arguments);
 static bool gen64_guarded_static_initializer(
     Module* mod, Decl* declaration);
 static void gen64_cxx_typeid(Module* mod, Expr* expr);
@@ -1400,6 +1402,7 @@ static Gen64AggregateClass gen64_empty_aggregate_class(void) {
 typedef struct {
     Gen64AggregateClass aggregate;
     bool is_aggregate;
+    bool indirect_class;
     bool materialize_rvalue_reference;
     bool memory;
     int storage;
@@ -1409,6 +1412,12 @@ typedef struct {
     int gp_start;
     int fp_start;
 } Gen64CallArg;
+
+static bool gen64_cxx_indirect_parameter(const Type* type) {
+    return type && type->cxx_class && type->cxx_nontrivial &&
+           !type->is_reference &&
+           (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
+}
 
 static Gen64Class gen64_merge_class(Gen64Class left, Gen64Class right) {
     if (left == GEN64_CLASS_MEMORY || right == GEN64_CLASS_MEMORY) {
@@ -4523,6 +4532,9 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 } else {
                     emit64_mov_reg_mem(mod, RAX, RBP, decl->var_offset);
                 }
+            } else if (decl->kind == DECL_PARAM &&
+                       decl->param_is_cxx_indirect) {
+                emit64_mov_reg_mem(mod, RAX, RBP, decl->var_offset);
             } else if (decl->var_is_global) {
                 gen64_symbol_address(mod, decl_link_name(decl), 0u);
             } else {
@@ -8916,8 +8928,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                         ? type_ptr(argument_type)
                         : gen64_default_argument_type(argument_type);
                 if (parameter) parameter = parameter->next;
-                call_arguments[i - 1].is_aggregate = gen64_is_aggregate(
-                    argument_types[i - 1]);
+                call_arguments[i - 1].indirect_class =
+                    gen64_cxx_indirect_parameter(argument_types[i - 1]);
+                call_arguments[i - 1].is_aggregate =
+                    !call_arguments[i - 1].indirect_class &&
+                    gen64_is_aggregate(argument_types[i - 1]);
                 if (call_arguments[i - 1].is_aggregate) {
                     call_arguments[i - 1].aggregate =
                         gen64_classify_aggregate(argument_types[i - 1]);
@@ -8926,8 +8941,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                         gen64_empty_aggregate_class();
                 }
                 call_arguments[i - 1].memory = false;
-                call_arguments[i - 1].storage = call_arguments[i - 1].is_aggregate
-                    ? gen64_aggregate_storage(argument_types[i - 1]) : 8;
+                call_arguments[i - 1].storage =
+                    call_arguments[i - 1].is_aggregate
+                        ? gen64_aggregate_storage(argument_types[i - 1]) : 8;
                 call_arguments[i - 1].materialize_rvalue_reference =
                     gen64_reference_argument_needs_temporary(
                         argument_types[i - 1], a->expr);
@@ -8961,7 +8977,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                         gp_cursor += gp_count;
                         fp_cursor += fp_count;
                     }
-                } else if (type && type->is_reference) {
+                } else if ((type && type->is_reference) ||
+                           argument->indirect_class) {
                     if (gp_cursor < 6) {
                         argument->gp_start = gp_cursor++;
                     } else {
@@ -9029,7 +9046,23 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 Expr* argument = args[i]->expr;
                 Type* passed_type = argument_types[i];
                 Gen64CallArg* layout = &call_arguments[i];
-                if (layout->is_aggregate) {
+                if (layout->indirect_class) {
+                    if (args[i]->cxx_temporary_is_parameter_object ||
+                        !gen64_expr_is_lvalue(argument)) {
+                        gen64_expr(mod, argument);
+                    } else {
+                        gen64_lvalue(mod, argument);
+                    }
+                    emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
+                    if (args[i]->cxx_temporary_owner) {
+                        emit64_mov_mem_reg(
+                            mod, RBP,
+                            args[i]->cxx_temporary_owner->var_offset, RAX);
+                    }
+                    gen64_push_call_temporary_cleanup(
+                        mod, args[i]->cxx_temporary_owner,
+                        args[i]->cxx_temporary_cleanups);
+                } else if (layout->is_aggregate) {
                     if (type_is_cxx_member_function_pointer(passed_type) &&
                         (argument->is_cxx_nullptr ||
                          (argument->type &&
@@ -9165,6 +9198,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             if (temp_bytes) {
                 active_cxx_constructor_this_stack_bias64 -= temp_bytes;
             }
+            gen64_transfer_by_value_argument_cleanups64(
+                mod, expr->call_args);
+            if (temp_bytes) emit64_mov_reg_reg(mod, R10, RSP);
             if (stack_bytes + stack_padding) {
                 if (stack_alignment > 16) {
                     int reserve_bytes;
@@ -9834,6 +9870,10 @@ static void gen64_cxx_exception_register_plan(
     Module* mod, CxxCleanupPlan* plan, int frame_offset);
 static void gen64_cxx_exception_unregister_cleanup(
     Module* mod, const CleanupCodegen64* cleanup);
+static void gen64_cxx_exception_unregister_plan(
+    Module* mod, CxxCleanupPlan* plan, int frame_offset);
+static void gen64_transfer_by_value_argument_cleanups64(
+    Module* mod, ExprList* arguments);
 static void gen64_cxx_guard_exception_unregister(
     Module* mod, const CleanupCodegen64* cleanup);
 static void gen64_cxx_exception_call(Module* mod, const char* name);
@@ -10211,6 +10251,51 @@ static void gen64_cxx_exception_register_plan(
     gen64_cxx_exception_register_plan_forward(mod, plan, frame_offset);
 }
 
+static void gen64_cxx_exception_unregister_plan_forward(
+    Module* mod, CxxCleanupPlan* plan, int frame_offset) {
+    for (; plan; plan = plan->next) {
+        if (plan->kind == CXX_CLEANUP_ARRAY_LOOP) {
+            int loop;
+            int done;
+            if (!plan->index_decl || plan->index_decl->var_offset >= 0 ||
+                plan->element_count < 0) {
+                rcc_error(plan->expression ? plan->expression->loc
+                                           : (SourceLoc){"<array-cleanup>", 0, 0},
+                          "automatic array cleanup loop has no frame index");
+                return;
+            }
+            if (plan->element_count == 0) continue;
+            loop = new_label64();
+            done = new_label64();
+            emit64_mov_reg_imm64(mod, RAX, 0u);
+            emit64_mov_mem_reg(mod, RBP, plan->index_decl->var_offset, RAX);
+            emit64_label(mod, loop);
+            emit64_mov_reg_mem(mod, RAX, RBP,
+                               plan->index_decl->var_offset);
+            emit64_cmp_reg_imm(mod, RAX, plan->element_count);
+            emit64_jcc_label(mod, CC64_AE, done);
+            gen64_cxx_exception_unregister_plan_forward(
+                mod, plan->body, frame_offset);
+            emit64_mov_reg_mem(mod, RAX, RBP,
+                               plan->index_decl->var_offset);
+            emit64_add_reg_imm(mod, RAX, 1);
+            emit64_mov_mem_reg(mod, RBP, plan->index_decl->var_offset, RAX);
+            emit64_jmp_label(mod, loop);
+            emit64_label(mod, done);
+        } else {
+            CleanupCodegen64 cleanup = {0};
+            cleanup.expression = plan->expression;
+            cleanup.exception_frame_offset = frame_offset;
+            gen64_cxx_exception_unregister_cleanup(mod, &cleanup);
+        }
+    }
+}
+
+static void gen64_cxx_exception_unregister_plan(
+    Module* mod, CxxCleanupPlan* plan, int frame_offset) {
+    gen64_cxx_exception_unregister_plan_forward(mod, plan, frame_offset);
+}
+
 static void gen64_push_call_temporary_cleanup(
     Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan) {
     CleanupCodegen64* cleanup;
@@ -10229,6 +10314,36 @@ static void gen64_push_call_temporary_cleanup(
         gen64_cxx_exception_register_plan(
             mod, cleanup->plan, active_cxx_exception_cleanup_frame_offset64);
         cleanup->exception_registered = true;
+    }
+}
+
+static void gen64_transfer_by_value_argument_cleanups64(
+    Module* mod, ExprList* arguments) {
+    for (ExprList* argument = arguments; argument;
+         argument = argument->next) {
+        CleanupCodegen64* cleanup;
+        if (!argument->cxx_temporary_is_parameter_object ||
+            !argument->cxx_temporary_owner) {
+            continue;
+        }
+        for (cleanup = active_cleanups64; cleanup;
+             cleanup = cleanup->previous) {
+            if (cleanup->temporary_owner !=
+                    argument->cxx_temporary_owner ||
+                cleanup->plan != argument->cxx_temporary_cleanups) {
+                continue;
+            }
+            if (cleanup->exception_registered) {
+                gen64_cxx_exception_unregister_plan(
+                    mod, cleanup->plan,
+                    cleanup->exception_frame_offset);
+                cleanup->exception_registered = false;
+            }
+            break;
+        }
+        emit64_mov_reg_imm64(mod, RAX, 0u);
+        emit64_mov_mem_reg(mod, RBP,
+                           argument->cxx_temporary_owner->var_offset, RAX);
     }
 }
 
@@ -13473,19 +13588,24 @@ static void gen64_function(Module* mod, Decl* decl) {
     for (DeclList* parameter = all_parameters; parameter;
          parameter = parameter->next) {
         Decl* value = parameter->decl;
+        bool indirect_class = gen64_cxx_indirect_parameter(value->type);
         int vla_dimensions = value->param_array_type &&
             gen64_type_has_vla_any(value->param_array_type)
             ? gen64_vla_dimension_count(value->param_array_type) : 0;
         int size = value->type && value->type->size > 0
             ? value->type->size : 8;
-        int aggregate = value->type &&
+        int aggregate = !indirect_class && value->type &&
             (value->type->kind == TYPE_STRUCT ||
              value->type->kind == TYPE_UNION ||
              value->type->kind == TYPE_ARRAY ||
              type_is_cxx_member_function_pointer(value->type));
         int units = aggregate ? (size + 7) / 8 : 1;
-        int64_t storage = aggregate ? (int64_t)units * 8
-                                    : ((int64_t)size + 3) & ~INT64_C(3);
+        int64_t storage = indirect_class ? 8
+            : aggregate ? (int64_t)units * 8
+                        : ((int64_t)size + 3) & ~INT64_C(3);
+        if (value->kind == DECL_PARAM) {
+            value->param_is_cxx_indirect = indirect_class;
+        }
         original_parameter_size += size;
         original_parameter_size = (original_parameter_size + 3) &
                                   ~INT64_C(3);
@@ -13571,7 +13691,9 @@ static void gen64_function(Module* mod, Decl* decl) {
         Decl* value = parameter->decl;
         int size = value->type && value->type->size > 0
             ? value->type->size : 8;
-        bool aggregate = gen64_is_aggregate(value->type);
+        bool indirect_class = gen64_cxx_indirect_parameter(value->type);
+        bool aggregate = !indirect_class &&
+                         gen64_is_aggregate(value->type);
         Gen64AggregateClass classification;
         if (aggregate) {
             classification = gen64_classify_aggregate(value->type);
@@ -13620,13 +13742,23 @@ static void gen64_function(Module* mod, Decl* decl) {
                 }
             }
         } else if (!memory_argument) {
-            emit64_store_typed(mod, RBP, value->var_offset,
-                               argument_registers[register_cursor++],
-                               value->type);
+            if (indirect_class) {
+                emit64_mov_mem_reg(
+                    mod, RBP, value->var_offset,
+                    argument_registers[register_cursor++]);
+            } else {
+                emit64_store_typed(mod, RBP, value->var_offset,
+                                   argument_registers[register_cursor++],
+                                   value->type);
+            }
         } else {
-            int storage = aggregate ? gen64_aggregate_storage(value->type)
+            int storage = indirect_class ? 8
+                : aggregate ? gen64_aggregate_storage(value->type)
                                      : (size + 7) & ~7;
-            if (aggregate) {
+            if (indirect_class) {
+                emit64_mov_reg_mem(mod, RAX, RBP, stack_cursor);
+                emit64_mov_mem_reg(mod, RBP, value->var_offset, RAX);
+            } else if (aggregate) {
                 gen64_copy_memory(mod, RBP, value->var_offset,
                                   RBP, stack_cursor, size);
             } else if (value->type && gen64_is_floating(value->type)) {

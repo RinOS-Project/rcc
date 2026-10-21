@@ -1673,6 +1673,7 @@ Decl* decl_param(const char* name, Type* type, int index, SourceLoc loc) {
     d->param_index = index;
     d->param_array_type = NULL;
     d->param_is_pack = false;
+    d->param_is_cxx_indirect = false;
     return d;
 }
 
@@ -1781,6 +1782,7 @@ ExprList* exprlist_new(Expr* expr) {
     list->expr = expr;
     list->cxx_temporary_owner = NULL;
     list->cxx_temporary_cleanups = NULL;
+    list->cxx_temporary_is_parameter_object = false;
     list->cxx_temporary_next = NULL;
     list->next = NULL;
     return list;

@@ -4222,6 +4222,8 @@ static void gen_shift_integer64_from_stack(Module* mod, Expr* lhs,
                                            int rhs_stack_offset);
 static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type);
 static void gen_call(Module* mod, Expr* expr);
+static void gen_transfer_by_value_argument_cleanups32(
+    Module* mod, ExprList* arguments);
 static void gen_lvalue(Module* mod, Expr* expr);
 static bool gen_guarded_static_initializer32(
     Module* mod, Decl* declaration);
@@ -7799,6 +7801,12 @@ static void gen_copy_aggregate_to_address32(Module* mod, int destination_registe
     }
 }
 
+static bool gen_cxx_indirect_parameter32(const Type* type) {
+    return type && type->cxx_class && type->cxx_nontrivial &&
+           !type->is_reference &&
+           (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
+}
+
 /* Generate lvalue address in EAX */
 static void gen_lvalue(Module* mod, Expr* expr) {
     switch (expr->kind) {
@@ -7856,6 +7864,9 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 } else {
                     emit_mov_reg_mem(mod, EAX, EBP, decl->var_offset);
                 }
+            } else if (decl->kind == DECL_PARAM &&
+                       decl->param_is_cxx_indirect) {
+                emit_mov_reg_mem(mod, EAX, EBP, decl->var_offset);
             } else if (decl->var_is_global) {
                 gen_symbol_address(mod, decl_link_name(decl), 0u);
             } else {
@@ -12781,6 +12792,20 @@ static void gen_call(Module* mod, Expr* expr) {
             argument_bytes += 4;
             continue;
         }
+        if (gen_cxx_indirect_parameter32(passed_type)) {
+            gen_expr(mod, argument);
+            if (args[i]->cxx_temporary_owner) {
+                emit_mov_mem_reg(
+                    mod, EBP,
+                    args[i]->cxx_temporary_owner->var_offset, EAX);
+            }
+            emit_push_reg(mod, EAX);
+            argument_bytes += 4;
+            codegen_push_call_temporary_cleanup32(
+                mod, args[i]->cxx_temporary_owner,
+                args[i]->cxx_temporary_cleanups);
+            continue;
+        }
         if (passed_type && gen_aggregate_type32(passed_type)) {
             int units = (passed_type->size + 3) / 4;
             if (type_is_cxx_member_function_pointer(passed_type) &&
@@ -12913,6 +12938,7 @@ static void gen_call(Module* mod, Expr* expr) {
         emit_push_reg(mod, EAX);
         argument_bytes += 4;
     }
+    gen_transfer_by_value_argument_cleanups32(mod, expr->call_args);
     rcc_free(argument_types);
     rcc_free(args);
     rcc_free(reference_temp_offsets);
@@ -17481,6 +17507,8 @@ static bool gen_cxx_cleanup_plan_registerable32(
     const CxxCleanupPlan* plan);
 static void gen_cxx_exception_register_plan32(
     Module* mod, CxxCleanupPlan* plan, int frame_offset);
+static void gen_cxx_exception_unregister_plan32(
+    Module* mod, CxxCleanupPlan* plan, int frame_offset);
 
 static void gen_cxx_exception_unregister_cleanup32(
     Module* mod, const CleanupCodegen* cleanup);
@@ -17895,6 +17923,51 @@ static void gen_cxx_exception_register_plan32(
     gen_cxx_cleanup_plan_register_forward32(mod, plan, frame_offset);
 }
 
+static void gen_cxx_exception_unregister_plan_forward32(
+    Module* mod, CxxCleanupPlan* plan, int frame_offset) {
+    for (; plan; plan = plan->next) {
+        if (plan->kind == CXX_CLEANUP_ARRAY_LOOP) {
+            int loop;
+            int done;
+            if (!plan->index_decl || plan->index_decl->var_offset >= 0 ||
+                plan->element_count < 0) {
+                rcc_error(plan->expression ? plan->expression->loc
+                                           : (SourceLoc){"<array-cleanup>", 0, 0},
+                          "automatic array cleanup loop has no frame index");
+                return;
+            }
+            if (plan->element_count == 0) continue;
+            loop = new_label();
+            done = new_label();
+            emit_mov_reg_imm(mod, EAX, 0u);
+            emit_mov_mem_reg(mod, EBP, plan->index_decl->var_offset, EAX);
+            emit_label(mod, loop);
+            emit_mov_reg_mem(mod, EAX, EBP,
+                             plan->index_decl->var_offset);
+            emit_cmp_reg_imm(mod, EAX, plan->element_count);
+            emit_jcc_label(mod, CC_AE, done);
+            gen_cxx_exception_unregister_plan_forward32(
+                mod, plan->body, frame_offset);
+            emit_mov_reg_mem(mod, EAX, EBP,
+                             plan->index_decl->var_offset);
+            emit_add_reg_imm(mod, EAX, 1);
+            emit_mov_mem_reg(mod, EBP, plan->index_decl->var_offset, EAX);
+            emit_jmp_label(mod, loop);
+            emit_label(mod, done);
+        } else {
+            CleanupCodegen cleanup = {0};
+            cleanup.expression = plan->expression;
+            cleanup.exception_frame_offset = frame_offset;
+            gen_cxx_exception_unregister_cleanup32(mod, &cleanup);
+        }
+    }
+}
+
+static void gen_cxx_exception_unregister_plan32(
+    Module* mod, CxxCleanupPlan* plan, int frame_offset) {
+    gen_cxx_exception_unregister_plan_forward32(mod, plan, frame_offset);
+}
+
 static void codegen_push_call_temporary_cleanup32(
     Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan) {
     CleanupCodegen* cleanup;
@@ -17913,6 +17986,36 @@ static void codegen_push_call_temporary_cleanup32(
         gen_cxx_exception_register_plan32(
             mod, cleanup->plan, active_cxx_exception_cleanup_frame_offset);
         cleanup->exception_registered = true;
+    }
+}
+
+static void gen_transfer_by_value_argument_cleanups32(
+    Module* mod, ExprList* arguments) {
+    for (ExprList* argument = arguments; argument;
+         argument = argument->next) {
+        CleanupCodegen* cleanup;
+        if (!argument->cxx_temporary_is_parameter_object ||
+            !argument->cxx_temporary_owner) {
+            continue;
+        }
+        for (cleanup = active_cleanups; cleanup;
+             cleanup = cleanup->previous) {
+            if (cleanup->temporary_owner !=
+                    argument->cxx_temporary_owner ||
+                cleanup->plan != argument->cxx_temporary_cleanups) {
+                continue;
+            }
+            if (cleanup->exception_registered) {
+                gen_cxx_exception_unregister_plan32(
+                    mod, cleanup->plan,
+                    cleanup->exception_frame_offset);
+                cleanup->exception_registered = false;
+            }
+            break;
+        }
+        emit_mov_reg_imm(mod, EAX, 0u);
+        emit_mov_mem_reg(mod, EBP,
+                         argument->cxx_temporary_owner->var_offset, EAX);
     }
 }
 
@@ -19617,6 +19720,14 @@ static void gen_function(Module* mod, Decl* decl) {
     if (decl->func_is_naked) {
         gen_stmt(mod, decl->func_body);
         return;
+    }
+
+    for (DeclList* parameter = decl->func_params; parameter;
+         parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->kind == DECL_PARAM) {
+            parameter->decl->param_is_cxx_indirect =
+                gen_cxx_indirect_parameter32(parameter->decl->type);
+        }
     }
 
     stack_size = codegen_required_local_bytes(decl->func_body);
