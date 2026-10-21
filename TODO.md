@@ -8092,8 +8092,13 @@ remains a separate open item.
       of an explicit operator or an extra conversion after an explicit
       operator pass in
       `test-cxx-static-cast-conversion-operator`.
+- [x] Apply explicit conversion-function lookup to `static_cast` expressions
+      targeting pointer-to-member types. Verify the returned member designator
+      is used, both target widths assemble, AMD64 executes against a GCC C++20
+      oracle, and implicit return conversion from the explicit operator is
+      still rejected in `test-cxx-static-cast-conversion-operator`.
 - [ ] Full C++ explicit-cast coverage remains open for pointer-to-member
-      conversion functions and less-common standard conversion sequences.
+      adjustment edge cases and less-common standard conversion sequences.
 
 ## RCC continuation (2026-10-21, C++ class-target `static_cast`)
 

@@ -15083,10 +15083,20 @@ static Type* sema_expr(Expr* expr) {
                     break;
                 }
                 if (!source_member) {
-                    Type* converted = implicit_cast(expr->cast_expr, target);
+                    Type* source_object = source->is_reference &&
+                            source->base
+                        ? source->base : source;
+                    bool class_source = source_object &&
+                        (source_object->kind == TYPE_STRUCT ||
+                         source_object->kind == TYPE_UNION);
+                    Type* converted = class_source
+                        ? implicit_cast_with_explicit_conversion(
+                              expr->cast_expr, target, true)
+                        : implicit_cast(expr->cast_expr, target);
                     if (!converted) {
-                        rcc_error(expr->loc,
-                                  "static_cast requires a null pointer-to-member constant");
+                        rcc_error(expr->loc, class_source
+                            ? "static_cast requires a viable pointer-to-member conversion function"
+                            : "static_cast requires a null pointer-to-member constant");
                     } else {
                         expr->is_cxx_nullptr =
                             expr->cast_expr->is_cxx_nullptr;

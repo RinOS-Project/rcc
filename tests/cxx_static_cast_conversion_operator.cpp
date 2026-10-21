@@ -42,6 +42,22 @@ public:
     }
 };
 
+struct MemberPointerTarget {
+    int value;
+};
+
+using MemberPointerTargetValue = int MemberPointerTarget::*;
+
+class ExplicitMemberPointerConversion {
+public:
+    int calls;
+
+    explicit operator MemberPointerTargetValue() {
+        ++calls;
+        return &MemberPointerTarget::value;
+    }
+};
+
 #if defined(TEST_EXPLICIT_STANDARD_SEQUENCE_REJECTED)
 unsigned reject_explicit_standard_conversion(
     ExplicitIntegerConversion value) {
@@ -51,6 +67,11 @@ unsigned reject_explicit_standard_conversion(
 
 #if defined(TEST_IMPLICIT_CONVERSION_REJECTED)
 int reject_implicit_conversion(ExplicitIntegerConversion value) {
+    return value;
+}
+
+MemberPointerTargetValue reject_implicit_member_pointer_conversion(
+    ExplicitMemberPointerConversion value) {
     return value;
 }
 #endif
@@ -77,7 +98,11 @@ int main() {
     ExplicitBooleanConversion explicit_boolean{1, 0};
     int pointed_value = 29;
     ExplicitPointerConversion explicit_pointer{&pointed_value, 0};
+    MemberPointerTarget member_pointer_target{31};
+    ExplicitMemberPointerConversion explicit_member_pointer{0};
     RankedConversion ranked_value{0, 0};
+    MemberPointerTargetValue member_pointer =
+        static_cast<MemberPointerTargetValue>(explicit_member_pointer);
 
     return static_cast<int>(implicit_value) == 9 &&
                    static_cast<unsigned>(implicit_value) == 9u &&
@@ -89,6 +114,8 @@ int main() {
                    explicit_boolean.calls == 1 &&
                    static_cast<int*>(explicit_pointer) == &pointed_value &&
                    explicit_pointer.calls == 1 &&
+                   (member_pointer_target.*member_pointer) == 31 &&
+                   explicit_member_pointer.calls == 1 &&
                    static_cast<double>(ranked_value) == 2.5 &&
                    ranked_value.integer_calls == 0 &&
                    ranked_value.floating_calls == 1 &&
