@@ -9985,16 +9985,26 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
 }
 
 static RccIrLowerValue lower_atomic_exchange_call(
-    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerContext* context, const Expr* expression,
+    bool generic_builtin) {
     const ExprList* object_argument = expression->call_args;
     const ExprList* desired_argument = object_argument
         ? object_argument->next : NULL;
-    const ExprList* order_argument = desired_argument
+    const ExprList* result_argument = generic_builtin && desired_argument
         ? desired_argument->next : NULL;
+    const ExprList* order_argument = generic_builtin
+        ? (result_argument ? result_argument->next : NULL)
+        : (desired_argument ? desired_argument->next : NULL);
     Type* object_pointer_type;
     Type* object_type;
+    Type* desired_pointer_type = NULL;
+    Type* desired_type = NULL;
+    Type* result_pointer_type = NULL;
+    Type* result_type = NULL;
     RccIrType exchange_type;
     RccIrLowerValue object_address;
+    RccIrLowerValue desired_address = lower_invalid_value();
+    RccIrLowerValue result_address = lower_invalid_value();
     RccIrLowerValue desired;
     RccIrLowerValue order;
     RccIrValue operands[2];
@@ -10007,7 +10017,8 @@ static RccIrLowerValue lower_atomic_exchange_call(
         (sync_builtin
              ? desired_argument->next != NULL
              : !order_argument || order_argument->next ||
-                   !order_argument->expr)) {
+                   !order_argument->expr) ||
+        (generic_builtin && (!result_argument || !result_argument->expr))) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -10015,7 +10026,20 @@ static RccIrLowerValue lower_atomic_exchange_call(
     object_type = object_pointer_type &&
             object_pointer_type->kind == TYPE_PTR
         ? object_pointer_type->base : NULL;
+    if (generic_builtin) {
+        desired_pointer_type = desired_argument->expr->type;
+        desired_type = desired_pointer_type &&
+                desired_pointer_type->kind == TYPE_PTR
+            ? desired_pointer_type->base : NULL;
+        result_pointer_type = result_argument->expr->type;
+        result_type = result_pointer_type &&
+                result_pointer_type->kind == TYPE_PTR
+            ? result_pointer_type->base : NULL;
+    }
     if (!object_type || !lower_type(object_type, &exchange_type) ||
+        (generic_builtin && (!desired_type || !result_type ||
+         !type_is_compatible(object_type, desired_type) ||
+         !type_is_compatible(object_type, result_type))) ||
         (exchange_type.kind != RCC_IR_TYPE_INTEGER &&
          exchange_type.kind != RCC_IR_TYPE_POINTER) ||
         (exchange_type.kind == RCC_IR_TYPE_INTEGER &&
@@ -10031,15 +10055,40 @@ static RccIrLowerValue lower_atomic_exchange_call(
     /* Memory XCHG is sequentially consistent, stronger than the acquire-only
      * legacy lock test-and-set and every explicit __atomic order. */
     object_address = lower_expression(context, object_argument->expr);
-    desired = lower_expression(context, desired_argument->expr);
+    if (generic_builtin) {
+        desired_address = lower_expression(context, desired_argument->expr);
+        result_address = lower_expression(context, result_argument->expr);
+    } else {
+        desired = lower_expression(context, desired_argument->expr);
+    }
+    if (order_argument) {
+        order = lower_expression(context, order_argument->expr);
+    }
+    if (generic_builtin) {
+        if (desired_address.valid) {
+            desired_address.volatile_access =
+                desired_address.volatile_access || desired_type->is_volatile;
+            desired_address.atomic_access = false;
+        }
+        if (result_address.valid) {
+            result_address.volatile_access =
+                result_address.volatile_access || result_type->is_volatile;
+            result_address.atomic_access = false;
+        }
+        desired = lower_load_address(context, desired_address, desired_type);
+    }
     if (!object_address.valid ||
         object_address.type.kind != RCC_IR_TYPE_POINTER ||
-        !desired.valid) {
+        !desired.valid ||
+        (generic_builtin &&
+         (!desired_address.valid ||
+          desired_address.type.kind != RCC_IR_TYPE_POINTER ||
+          !result_address.valid ||
+          result_address.type.kind != RCC_IR_TYPE_POINTER))) {
         context->unsupported = true;
         return lower_invalid_value();
     }
     if (order_argument) {
-        order = lower_expression(context, order_argument->expr);
         if (!order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
             context->unsupported = true;
             return lower_invalid_value();
@@ -10056,6 +10105,18 @@ static RccIrLowerValue lower_atomic_exchange_call(
         context, RCC_IR_ATOMIC_EXCHANGE, exchange_type,
         operands, 2u, NULL, 0u);
     if (!exchange) return lower_invalid_value();
+    if (generic_builtin) {
+        RccIrLowerValue old_value = lower_value(
+            exchange->result, exchange_type,
+            object_type->kind == TYPE_PTR || object_type->is_unsigned);
+        RccIrLowerValue void_result = lower_invalid_value();
+        if (!lower_store_address(context, result_address, old_value)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        void_result.valid = true;
+        return void_result;
+    }
     return lower_value(
         exchange->result, exchange_type,
         object_type->kind == TYPE_PTR || object_type->is_unsigned);
@@ -10700,10 +10761,15 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         (strcmp(expression->call_func->ident_name,
                 "__atomic_exchange_n") == 0 ||
          strcmp(expression->call_func->ident_name,
+                "__atomic_exchange") == 0 ||
+         strcmp(expression->call_func->ident_name,
                 "__sync_lock_test_and_set") == 0 ||
          strcmp(expression->call_func->ident_name,
                 "__sync_swap") == 0)) {
-        return lower_atomic_exchange_call(context, expression);
+        return lower_atomic_exchange_call(
+            context, expression,
+            strcmp(expression->call_func->ident_name,
+                   "__atomic_exchange") == 0);
     }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
