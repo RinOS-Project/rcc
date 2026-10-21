@@ -9565,6 +9565,7 @@ static RccIrLowerValue lower_atomic_fetch_arithmetic_call(
     RccIrLowerValue order;
     RccIrLowerValue atomic_operand;
     RccIrLowerValue old_value;
+    RccIrLowerValue byte_delta = lower_invalid_value();
     RccIrLowerValue zero;
     RccIrValue operands[2];
     RccIrInstruction* fetch_add;
@@ -9584,10 +9585,11 @@ static RccIrLowerValue lower_atomic_fetch_arithmetic_call(
     object_type = object_pointer_type &&
             object_pointer_type->kind == TYPE_PTR
         ? object_pointer_type->base : NULL;
-    if (!object_type || !type_is_integer(object_type) ||
-        !lower_type(object_type, &atomic_type) ||
-        atomic_type.kind != RCC_IR_TYPE_INTEGER ||
-        (atomic_type.bit_width != 8u &&
+    if (!object_type || !lower_type(object_type, &atomic_type) ||
+        (atomic_type.kind != RCC_IR_TYPE_INTEGER &&
+         atomic_type.kind != RCC_IR_TYPE_POINTER) ||
+        (atomic_type.kind == RCC_IR_TYPE_INTEGER &&
+         atomic_type.bit_width != 8u &&
          atomic_type.bit_width != 16u &&
          atomic_type.bit_width != 32u &&
          (atomic_type.bit_width != 64u ||
@@ -9609,21 +9611,51 @@ static RccIrLowerValue lower_atomic_fetch_arithmetic_call(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    operand = lower_cast(context, operand, object_type);
-    if (!operand.valid) return lower_invalid_value();
+    if (atomic_type.kind == RCC_IR_TYPE_POINTER) {
+        Type* pointer_integer_type = g_opts.target_arch == ARCH_X64
+            ? type_ulong : type_uint;
+        if (operand.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        /* GCC's atomic pointer fetch builtins add raw bytes, not scaled C
+         * pointer elements. Match that contract and keep the offset at the
+         * target pointer width before issuing LOCK XADD. */
+        byte_delta = lower_cast(context, operand, pointer_integer_type);
+        if (!byte_delta.valid) return lower_invalid_value();
+        if (subtract) {
+            RccIrValue negate_operands[2];
+            RccIrInstruction* negated;
+            zero = lower_integer_constant(
+                context, byte_delta.type, true, 0u);
+            if (!zero.valid) return lower_invalid_value();
+            negate_operands[0] = zero.value;
+            negate_operands[1] = byte_delta.value;
+            negated = lower_append(
+                context, RCC_IR_SUB, byte_delta.type,
+                negate_operands, 2u, NULL, 0u);
+            if (!negated) return lower_invalid_value();
+            byte_delta = lower_value(
+                negated->result, byte_delta.type, true);
+        }
+        atomic_operand = byte_delta;
+    } else {
+        operand = lower_cast(context, operand, object_type);
+        if (!operand.valid) return lower_invalid_value();
 
-    atomic_operand = operand;
-    if (subtract) {
-        RccIrInstruction* negated;
-        zero = lower_integer_constant(context, atomic_type, true, 0u);
-        if (!zero.valid) return lower_invalid_value();
-        operands[0] = zero.value;
-        operands[1] = operand.value;
-        negated = lower_append(
-            context, RCC_IR_SUB, atomic_type, operands, 2u, NULL, 0u);
-        if (!negated) return lower_invalid_value();
-        atomic_operand = lower_value(
-            negated->result, atomic_type, object_type->is_unsigned);
+        atomic_operand = operand;
+        if (subtract) {
+            RccIrInstruction* negated;
+            zero = lower_integer_constant(context, atomic_type, true, 0u);
+            if (!zero.valid) return lower_invalid_value();
+            operands[0] = zero.value;
+            operands[1] = operand.value;
+            negated = lower_append(
+                context, RCC_IR_SUB, atomic_type, operands, 2u, NULL, 0u);
+            if (!negated) return lower_invalid_value();
+            atomic_operand = lower_value(
+                negated->result, atomic_type, object_type->is_unsigned);
+        }
     }
 
     operands[0] = object_address.value;
@@ -9633,8 +9665,13 @@ static RccIrLowerValue lower_atomic_fetch_arithmetic_call(
         operands, 2u, NULL, 0u);
     if (!fetch_add) return lower_invalid_value();
     old_value = lower_value(
-        fetch_add->result, atomic_type, object_type->is_unsigned);
+        fetch_add->result, atomic_type,
+        atomic_type.kind == RCC_IR_TYPE_POINTER || object_type->is_unsigned);
     if (!return_new) return old_value;
+    if (atomic_type.kind == RCC_IR_TYPE_POINTER) {
+        return lower_atomic_pointer_result(
+            context, old_value, byte_delta);
+    }
 
     operands[0] = old_value.value;
     operands[1] = operand.value;

@@ -7727,7 +7727,7 @@ remains a separate open item.
       builtins plus scalar `__atomic_exchange_n` are lowered directly, with
       their explicit-order expressions evaluated once. See the continuations
       below.
-- [ ] Other atomic integer RMW operators, pointer fetch-arithmetic builtins,
+- [ ] Other atomic integer RMW operators,
       generic/aggregate builtin variants, floating/aggregate atomics, and
       general C++ atomic operations remain open.
 - [x] Fix optimized VLA-bound dead-store elimination: runtime array
@@ -7756,9 +7756,9 @@ remains a separate open item.
       implemented for local objects and formal parameters, including pointer
       subtraction, as recorded in the continuations below.
 - [ ] Additional VLA pointer forms beyond the covered offsets/subtraction,
-      typed-SSA explicit-order atomic builtins beyond integer fetch arithmetic
-      and scalar exchange, other atomic RMW operators, floating/aggregate
-      atomics, and general C++ atomic operations remain open.
+      typed-SSA explicit-order atomic builtins beyond scalar integer/pointer
+      load, store, exchange, and fetch arithmetic; other atomic RMW operators,
+      floating/aggregate atomics, and general C++ atomic operations remain open.
 
 ## RCC continuation (2026-10-21, VLA pointer offsets)
 
@@ -7850,7 +7850,7 @@ remains a separate open item.
       plus pointer exchanges on AMD64, with zero fallback at `-O0`/`-O2`.
       AMD64 verified objects execute; `test-ir` verifies and executes the
       exchange opcode for both targets.
-- [ ] Other atomic integer RMW builtins, pointer fetch-arithmetic builtins,
+- [ ] Other atomic integer RMW builtins,
       generic/aggregate atomic builtin forms, floating/aggregate atomics, and
       general C++ atomic operations remain open.
 
@@ -7867,6 +7867,22 @@ remains a separate open item.
       fallback at `-O0`/`-O2` on both architectures, AMD64 object execution, and
       a GCC C17 oracle. `test-atomic-builtins`, `test-atomic-language`, and
       `test-ir` pass.
-- [ ] Other atomic integer RMW builtins, pointer fetch-arithmetic builtins,
+- [ ] Other atomic integer RMW builtins,
       generic/aggregate builtin forms, floating/aggregate atomics, and general
       C++ atomic operations remain open.
+
+## RCC continuation (2026-10-21, typed-SSA atomic pointer fetch arithmetic)
+
+- [x] Lower pointer-valued `__atomic_fetch_add`, `__atomic_fetch_sub`,
+      `__atomic_add_fetch`, and `__atomic_sub_fetch` directly to typed SSA.
+      Match GCC's builtin byte-offset semantics (no element-size scaling), use
+      target pointer width, and preserve old/new pointer results. Runtime memory
+      order expressions are evaluated once; unsupported target widths continue
+      through the existing complete legacy backend.
+- [x] `test-verified-atomic-fetch-add` exercises all four forms on `void*` to
+      distinguish byte offsets from ordinary C pointer arithmetic, compiles
+      i686/AMD64 at `-O0`/`-O2` with zero fallback, executes AMD64 outputs, and
+      agrees with the GCC C17 oracle. Atomic builtin, language, and IR suites
+      pass; invalid pointer offset types receive a diagnostic.
+- [ ] Other atomic integer RMW operators, generic/aggregate builtin forms,
+      floating/aggregate atomics, and general C++ atomic operations remain open.

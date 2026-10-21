@@ -2000,6 +2000,10 @@ static bool atomic_allows_pointer_value(const char* name) {
     return strcmp(name, "__atomic_load_n") == 0 ||
            strcmp(name, "__atomic_store_n") == 0 ||
            strcmp(name, "__atomic_exchange_n") == 0 ||
+           strcmp(name, "__atomic_fetch_add") == 0 ||
+           strcmp(name, "__atomic_fetch_sub") == 0 ||
+           strcmp(name, "__atomic_add_fetch") == 0 ||
+           strcmp(name, "__atomic_sub_fetch") == 0 ||
            strcmp(name, "__atomic_compare_exchange_n") == 0 ||
            strcmp(name, "__atomic_load") == 0 ||
            strcmp(name, "__atomic_store") == 0 ||
@@ -19061,6 +19065,18 @@ static bool sema_atomic_builtin_call(Expr* expr) {
             rcc_error(expr->loc,
                       "%s requires an unsigned integer object pointer",
                       name);
+        }
+    }
+    if (pointer_type && pointer_type->kind == TYPE_PTR &&
+        pointer_type->base && pointer_type->base->kind == TYPE_PTR &&
+        (strcmp(name, "__atomic_fetch_add") == 0 ||
+         strcmp(name, "__atomic_fetch_sub") == 0 ||
+         strcmp(name, "__atomic_add_fetch") == 0 ||
+         strcmp(name, "__atomic_sub_fetch") == 0)) {
+        Expr* offset = sema_call_argument(expr, 1);
+        if (!offset || !offset->type || !type_is_integer(offset->type)) {
+            rcc_error(expr->loc,
+                      "%s pointer operand must have integer type", name);
         }
     }
     if (requires_expected_pointer) {

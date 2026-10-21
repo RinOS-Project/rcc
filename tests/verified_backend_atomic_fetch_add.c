@@ -32,10 +32,15 @@ int main(void)
     int builtin_signed_new;
     unsigned int exchange_old;
     unsigned int builtin_loaded;
+    void *pointer_fetch_old;
+    void *pointer_add_new;
+    void *pointer_sub_old;
+    void *pointer_sub_new;
     unsigned char exchange_u8_old;
     unsigned short exchange_u16_old;
     int *exchange_pointer_old;
     int *builtin_loaded_pointer;
+    _Atomic(void *) fetch_cursor;
     int elements[8] = {0};
     _Atomic(int *) cursor = elements;
     int *old_pointer;
@@ -96,6 +101,15 @@ int main(void)
     __atomic_store_n(
         &load_store_cursor, &elements[7],
         builtin_order++ % 2 ? __ATOMIC_RELEASE : __ATOMIC_RELAXED);
+    fetch_cursor = elements;
+    pointer_fetch_old = __atomic_fetch_add(
+        &fetch_cursor, 2, builtin_order++ % 6);
+    pointer_add_new = __atomic_add_fetch(
+        &fetch_cursor, 1, builtin_order++ % 6);
+    pointer_sub_old = __atomic_fetch_sub(
+        &fetch_cursor, 2, builtin_order++ % 6);
+    pointer_sub_new = __atomic_sub_fetch(
+        &fetch_cursor, 1, builtin_order++ % 6);
 #if defined(__x86_64__)
     builtin_wide_old = __atomic_fetch_sub(
         &builtin_wide, 0x100000000ULL, builtin_order++ % 6);
@@ -115,12 +129,12 @@ int main(void)
         builtin_fetch_add == 28u && builtin_add_fetch == 35u &&
         builtin_value == 35u &&
 #if defined(__x86_64__)
-        builtin_order == 19 && builtin_wide_old == 0x10000000aULL &&
+        builtin_order == 23 && builtin_wide_old == 0x10000000aULL &&
         builtin_wide_new == 17ULL && builtin_wide == 17ULL &&
         exchange_wide_old == 0x123456789abcdef0ULL &&
         exchange_wide == 0xfedcba9876543210ULL &&
 #else
-        builtin_order == 16 &&
+        builtin_order == 20 &&
 #endif
         builtin_narrow_old == 120 && builtin_signed8 == 110 &&
         builtin_u16_old == 65530u && builtin_u16 == 4u &&
@@ -132,6 +146,10 @@ int main(void)
         builtin_loaded == 51u && load_store_value == 73u &&
         builtin_loaded_pointer == &elements[2] &&
         load_store_cursor == &elements[7] &&
+        pointer_fetch_old == (void*)elements &&
+        pointer_add_new == (void*)((unsigned char*)elements + 3) &&
+        pointer_sub_old == (void*)((unsigned char*)elements + 3) &&
+        pointer_sub_new == (void*)elements && fetch_cursor == (void*)elements &&
         builtin_signed_old == -30 && builtin_signed_new == -31 &&
         builtin_signed == -31
             ? 0 : 1;

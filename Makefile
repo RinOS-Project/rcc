@@ -14516,6 +14516,8 @@ endif
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_fetch_uinc requires an unsigned integer object pointer" \
 		$(TEST_OUT)/atomic-x86/invalid.log
+	$(GREP) -F -q "__atomic_fetch_add pointer operand must have integer type" \
+		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_always_lock_free size argument must be an integer constant" \
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_is_lock_free size argument must have integer type" \

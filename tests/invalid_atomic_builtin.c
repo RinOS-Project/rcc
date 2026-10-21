@@ -43,6 +43,10 @@ int invalid_test_and_set_width(volatile uint32_t* value) {
     return __atomic_test_and_set(value, __ATOMIC_SEQ_CST);
 }
 
+void invalid_atomic_pointer_fetch_offset(void* volatile* value) {
+    __atomic_fetch_add(value, (void*)1, __ATOMIC_RELAXED);
+}
+
 void invalid_clear_width(volatile uint32_t* value) {
     __atomic_clear(value, __ATOMIC_SEQ_CST);
 }
