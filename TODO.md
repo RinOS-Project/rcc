@@ -7278,10 +7278,10 @@ remains a separate open item.
       and verified optimized DWARF; native-Windows `test-debug-info` passes.
 - [ ] Register-only or optimized-away sources, virtual-base/member-pointer
       adjustments, nonconstant offsets, unbounded/mixed-type pointer
-      arithmetic chains, nested dynamic subobject paths, compound pointer
-      expressions, mutable-parameter tracking, and optimized register/piece
-      tracking remain open; this does not implement general variable-location
-      tracking.
+      arithmetic chains, nested VLA/pointer-based dynamic subobject paths,
+      compound pointer expressions, mutable-parameter tracking, and optimized
+      register/piece tracking remain open; this does not implement general
+      variable-location tracking.
 
 ## RCC continuation (2026-10-20, inline symbolic pointer constants)
 
@@ -7303,9 +7303,10 @@ remains a separate open item.
       only type-compatible function-to-pointer decay. The native-Windows
       `test-debug-info` target passes.
 - [ ] General pointer arithmetic outside the bounded automatic-frame cases,
-      general nested member/array subobject paths, pointer casts requiring target
-      adjustment, dynamic expressions beyond one frame-backed integral index,
-      and general register/piece location tracking remain open.
+      nested paths beyond the tested fixed-size automatic two-dimensional
+      arrays, pointer casts requiring target adjustment, VLA/pointer-based
+      dynamic subobjects, mutable-parameter tracking, and general
+      register/piece location tracking remain open.
 
 ## RIN/RLL/DRV fini-array format matrix (2026-10-20)
 
@@ -8334,3 +8335,16 @@ remains a separate open item.
 - [ ] Other member-type qualification/noexcept combinations,
       virtual/ambiguous owner paths, and broader standard conversion-sequence
       ordering remain open.
+
+## RCC continuation (2026-10-21, dynamic nested automatic-array DWARF)
+
+- [x] Preserve inline pointer arguments formed by subscripting a fixed-size
+      automatic two-dimensional array with independently frame-backed row and
+      column indexes. Also compose either dimension with a constant subscript.
+      Verify the matrix frame slot, both dynamic-index slots, the row stride
+      (20 bytes), and column stride (4 bytes) in i686/AMD64 legacy and verified
+      optimized DWARF. `test-debug-info` passes.
+- [ ] VLA and pointer-based nested dynamic subobjects, target-adjusting casts,
+      dynamic pointer arithmetic beyond the separately covered bounded forms,
+      mutable parameter tracking, and optimized register/piece locations
+      remain open.

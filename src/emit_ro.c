@@ -6516,20 +6516,27 @@ static bool debug_inline_pointer_dynamic_index_chain(
 static bool debug_inline_dynamic_array_element_address(
     const Module* mod, const Expr* expression, uint8_t address_size,
     const Decl** source, int64_t* address_addend,
-    DebugInlineDynamicPointerIndex* dynamic_index) {
+    DebugInlineDynamicPointerIndex* dynamic_index, unsigned int depth) {
     const Type* array_type;
     const Type* index_type;
     const Decl* index_declaration;
     const Expr* array_designator;
+    DebugInlineDynamicPointerIndexTerm* term;
     int64_t base_addend;
+    int64_t constant_index;
+    int64_t index_displacement = 0;
+    int64_t index_frame_offset;
     uint8_t unsigned_conversion_width = 0u;
+    bool index_is_constant;
     if (!mod || !expression || expression->kind != EXPR_INDEX ||
         !expression->index_base || !expression->index_expr || !source ||
-        !address_addend || !dynamic_index) {
+        !address_addend || !dynamic_index || depth >= 32u) {
         return false;
     }
     array_type = expression->index_base->type;
-    if (!array_type || array_type->kind != TYPE_ARRAY) {
+    if (array_type && array_type->kind == TYPE_ARRAY) {
+        array_designator = expression->index_base;
+    } else {
         array_designator = debug_inline_static_array_designator(
             expression->index_base, &array_type);
         if (!array_designator) return false;
@@ -6537,30 +6544,64 @@ static bool debug_inline_dynamic_array_element_address(
     if (!array_type || array_type->kind != TYPE_ARRAY ||
         array_type->array_len < 0 || array_type->size <= 0 ||
         !array_type->base || array_type->base->size <= 0 ||
-        !debug_inline_frame_integer_index_source(
-            expression->index_expr, &index_declaration, &index_type,
-            address_size, &unsigned_conversion_width) ||
-        index_type->size > (int)address_size ||
-        !debug_inline_address_path(
-            expression->index_base, source, &base_addend, false, true, 0u) ||
-        !debug_inline_parameter_frame_offset(
-            mod, index_declaration, &dynamic_index->terms[0].frame_offset)) {
+        !expression->index_expr->type) {
         return false;
     }
-    dynamic_index->terms[0].element_size = array_type->base->size;
-    dynamic_index->terms[0].value_size = (uint8_t)index_type->size;
-    dynamic_index->terms[0].unsigned_conversion_width =
-        unsigned_conversion_width;
-    dynamic_index->terms[0].cast_step_count = 0u;
-    dynamic_index->terms[0].is_unsigned = index_type->is_unsigned;
-    dynamic_index->terms[0].subtract = false;
-    dynamic_index->terms[0].is_constant = false;
-    dynamic_index->terms[0].constant_value = 0u;
-    dynamic_index->terms[0].index_multiplier = 1u;
-    dynamic_index->terms[0].signed_index_multiplier = 1;
-    dynamic_index->terms[0].signed_index_divisor = 0;
-    dynamic_index->term_count = 1u;
-    dynamic_index->is_dynamic = true;
+    index_is_constant = debug_inline_integer_constant_value(
+        expression->index_expr, &constant_index, 0u);
+    if (index_is_constant) {
+        if (constant_index < 0 || constant_index >= array_type->array_len ||
+            constant_index > INT64_MAX / array_type->base->size) {
+            return false;
+        }
+        index_displacement = constant_index * array_type->base->size;
+    } else if (!debug_inline_frame_integer_index_source(
+                   expression->index_expr, &index_declaration, &index_type,
+                   address_size, &unsigned_conversion_width) ||
+               index_type->size > (int)address_size ||
+               dynamic_index->term_count >=
+                   DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT ||
+               !debug_inline_parameter_frame_offset(
+                   mod, index_declaration, &index_frame_offset)) {
+        return false;
+    }
+    if (array_designator->kind == EXPR_INDEX) {
+        if (!debug_inline_dynamic_array_element_address(
+                mod, array_designator, address_size, source, &base_addend,
+                dynamic_index, depth + 1u)) {
+            return false;
+        }
+    } else if (!debug_inline_address_path(
+                   array_designator, source, &base_addend,
+                   false, true, 0u)) {
+        return false;
+    }
+    if (index_is_constant) {
+        if ((index_displacement > 0 &&
+             base_addend > INT64_MAX - index_displacement) ||
+            (index_displacement < 0 &&
+             base_addend < INT64_MIN - index_displacement)) {
+            return false;
+        }
+        base_addend += index_displacement;
+    } else {
+        term = &dynamic_index->terms[dynamic_index->term_count];
+        term->frame_offset = index_frame_offset;
+        term->element_size = array_type->base->size;
+        term->value_size = (uint8_t)index_type->size;
+        term->unsigned_conversion_width = unsigned_conversion_width;
+        term->cast_step_count = 0u;
+        term->is_unsigned = index_type->is_unsigned;
+        term->subtract = false;
+        term->is_constant = false;
+        term->constant_value = 0u;
+        term->index_multiplier = 1u;
+        term->signed_index_multiplier = 1;
+        term->signed_index_divisor = 0;
+        ++dynamic_index->term_count;
+        dynamic_index->is_dynamic = true;
+    }
+    if (!dynamic_index->is_dynamic && depth == 0u) return false;
     *address_addend = base_addend;
     return true;
 }
@@ -6758,7 +6799,7 @@ static bool debug_inline_parameter_frame_address(
         *dereference_source = false;
         address_path_resolved = debug_inline_dynamic_array_element_address(
             mod, operand, address_size, &source, address_addend,
-            dynamic_index);
+            dynamic_index, 0u);
     }
     if (!operand || (!address_path_resolved && !debug_inline_address_path(
             operand, &source, address_addend, true, true, 0u))) {

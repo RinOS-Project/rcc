@@ -8637,6 +8637,21 @@ int main(int argc, char** argv)
         {"debug_inline_automatic_computed_int_index", 4u, false, 4u,
          false, 0u, 0u, false, 0u}
     };
+    const VerifyInlinePointerIndexTerm nested_array_pointer_indices[] = {
+        {"debug_inline_automatic_nested_row_index", 4u, false, 20u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_nested_column_index", 4u, false, 4u,
+         false, 0u, 0u, false, 0u}
+    };
+    const VerifyInlinePointerIndexTerm nested_array_constant_row_index[] = {
+        {"debug_inline_automatic_nested_constant_row_column", 4u, false,
+         4u, false, 0u, 0u, false, 0u}
+    };
+    const VerifyInlinePointerIndexTerm
+        nested_array_constant_column_index[] = {
+            {"debug_inline_automatic_nested_constant_column_row", 4u,
+             false, 20u, false, 0u, 0u, false, 0u}
+        };
     const VerifyInlinePointerIndexTerm mixed_width_x64_indices[] = {
         {"debug_inline_automatic_mixed_width_signed_index", 4u, false, 4u,
          false, 0u, 0u, false, 0u},
@@ -9501,6 +9516,66 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_computed_index_entry",
         "debug_inline_automatic_pointer_computed_source",
         computed_pointer_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_nested_array_index_entry",
+        "debug_inline_automatic_nested_matrix",
+        nested_array_pointer_indices, 2u, 0, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_nested_array_index_entry",
+        "debug_inline_automatic_nested_matrix",
+        nested_array_pointer_indices, 2u, 0, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_nested_array_index_entry",
+        "debug_inline_automatic_nested_matrix",
+        nested_array_pointer_indices, 2u, 0, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_nested_array_index_entry",
+        "debug_inline_automatic_nested_matrix",
+        nested_array_pointer_indices, 2u, 0, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_nested_array_constant_row_entry",
+        "debug_inline_automatic_nested_constant_row_matrix",
+        nested_array_constant_row_index, 1u, 20, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_nested_array_constant_row_entry",
+        "debug_inline_automatic_nested_constant_row_matrix",
+        nested_array_constant_row_index, 1u, 20, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_nested_array_constant_row_entry",
+        "debug_inline_automatic_nested_constant_row_matrix",
+        nested_array_constant_row_index, 1u, 20, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_nested_array_constant_row_entry",
+        "debug_inline_automatic_nested_constant_row_matrix",
+        nested_array_constant_row_index, 1u, 20, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_nested_array_constant_column_entry",
+        "debug_inline_automatic_nested_constant_column_matrix",
+        nested_array_constant_column_index, 1u, 8, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_nested_array_constant_column_entry",
+        "debug_inline_automatic_nested_constant_column_matrix",
+        nested_array_constant_column_index, 1u, 8, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_nested_array_constant_column_entry",
+        "debug_inline_automatic_nested_constant_column_matrix",
+        nested_array_constant_column_index, 1u, 8, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_nested_array_constant_column_entry",
+        "debug_inline_automatic_nested_constant_column_matrix",
+        nested_array_constant_column_index, 1u, 8, false);
     verify_cxx_inline_automatic_pointer_indices(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_unsigned_computed_index_entry",

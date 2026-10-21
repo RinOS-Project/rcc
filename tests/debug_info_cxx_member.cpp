@@ -160,6 +160,7 @@ int* debug_inline_automatic_pointer_value_escape;
 void* debug_inline_automatic_index_slot_escape;
 void* debug_inline_automatic_second_index_slot_escape;
 void* debug_inline_automatic_many_index_slot_escape[17];
+int (*debug_inline_automatic_matrix_slot_escape)[5];
 
 inline int debug_inline_adjusted_base_parameter_inline(
     DebugInlineAdjustedBase* value) {
@@ -383,6 +384,49 @@ int debug_inline_automatic_pointer_computed_index_entry(
         debug_inline_automatic_pointer_computed_source +
         (debug_inline_automatic_computed_signed_index +
          debug_inline_automatic_computed_int_index));
+}
+
+int debug_inline_automatic_nested_array_index_entry(
+    int row_seed, int column_seed) {
+    int debug_inline_automatic_nested_matrix[4][5];
+    int debug_inline_automatic_nested_row_index = row_seed;
+    int debug_inline_automatic_nested_column_index = column_seed;
+    debug_inline_automatic_matrix_slot_escape =
+        debug_inline_automatic_nested_matrix;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_nested_row_index;
+    debug_inline_automatic_second_index_slot_escape =
+        &debug_inline_automatic_nested_column_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        &debug_inline_automatic_nested_matrix[
+            debug_inline_automatic_nested_row_index][
+            debug_inline_automatic_nested_column_index]);
+}
+
+int debug_inline_automatic_nested_array_constant_row_entry(
+    int column_seed) {
+    int debug_inline_automatic_nested_constant_row_matrix[4][5];
+    int debug_inline_automatic_nested_constant_row_column = column_seed;
+    debug_inline_automatic_matrix_slot_escape =
+        debug_inline_automatic_nested_constant_row_matrix;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_nested_constant_row_column;
+    return debug_inline_automatic_subobject_parameter_inline(
+        &debug_inline_automatic_nested_constant_row_matrix[1]
+            [debug_inline_automatic_nested_constant_row_column]);
+}
+
+int debug_inline_automatic_nested_array_constant_column_entry(
+    int row_seed) {
+    int debug_inline_automatic_nested_constant_column_matrix[4][5];
+    int debug_inline_automatic_nested_constant_column_row = row_seed;
+    debug_inline_automatic_matrix_slot_escape =
+        debug_inline_automatic_nested_constant_column_matrix;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_nested_constant_column_row;
+    return debug_inline_automatic_subobject_parameter_inline(
+        &debug_inline_automatic_nested_constant_column_matrix[
+            debug_inline_automatic_nested_constant_column_row][2]);
 }
 
 int debug_inline_automatic_pointer_unsigned_computed_index_entry(
