@@ -328,6 +328,8 @@ int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
 int codegen_assign_global_initializer_storage(
     GlobalInitializer* initializers, int stack_alignment);
 ExprList* codegen_call_temporary_owners(void);
+bool codegen_runtime_global_paren_aggregate(const Type* type,
+                                           const Expr* initializer);
 int codegen_assign_global_cleanup_storage(GlobalFinalizer* finalizers,
                                           int stack_alignment);
 void codegen_assign_cleanup_plan(CxxCleanupPlan* plan, int* bytes,

@@ -10734,6 +10734,15 @@ static bool gen64_global_initializer(Module* mod, Decl* declaration) {
         return gen64_static_reference_temporary_initializer(
             mod, declaration);
     }
+    if (codegen_runtime_global_paren_aggregate(type, initializer)) {
+        gen64_expr(mod, initializer);
+        emit64_push_reg(mod, RAX);
+        gen64_decl_storage_address(mod, declaration);
+        emit64_mov_reg_reg(mod, RDX, RAX);
+        emit64_pop_reg(mod, RCX);
+        gen64_copy_memory(mod, RDX, 0, RCX, 0, type->size);
+        return true;
+    }
     if (rcc_parser_is_cxx_mode() &&
         rcc_parser_cxx_standard_at_least(17) && type->cxx_class &&
         (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
@@ -11148,6 +11157,7 @@ static void codegen_emit_global_init64(Module* mod) {
     emit64_push_reg(mod, RBP);
     emit64_mov_reg_reg(mod, RBP, RSP);
     if (stack_size > 0) emit64_sub_reg_imm(mod, RSP, stack_size);
+    gen64_clear_call_temporary_owners(mod);
     old_return_type = current_function_return_type64;
     current_function_return_type64 = NULL;
     old_cleanups = active_cleanups64;

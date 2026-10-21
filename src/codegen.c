@@ -1179,6 +1179,17 @@ static bool codegen_runtime_global_constructor(const Type* type,
            initializer->compound_constructor->method->decl->func_body;
 }
 
+bool codegen_runtime_global_paren_aggregate(const Type* type,
+                                           const Expr* initializer) {
+    return type && initializer && rcc_parser_is_cxx_mode() &&
+           rcc_parser_cxx_standard_at_least(20) && type->cxx_class &&
+           (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+           initializer->kind == EXPR_COMPOUND &&
+           initializer->compound_paren_init &&
+           !initializer->compound_constructor && type->size > 0 &&
+           rcc_sema_cxx_trivially_copyable((Type*)type);
+}
+
 static void codegen_defer_global_initializer(Module* mod, Decl* declaration) {
     GlobalInitializer* initializer;
     GlobalInitializer** tail;
@@ -2652,7 +2663,9 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                 mod, declaration->type, declaration->var_init, offset)) {
             if (codegen_runtime_global_scalar(declaration->type) ||
                 codegen_runtime_global_constructor(declaration->type,
-                                                   declaration->var_init)) {
+                                                   declaration->var_init) ||
+                codegen_runtime_global_paren_aggregate(
+                    declaration->type, declaration->var_init)) {
                 codegen_defer_global_initializer(mod, declaration);
             } else {
                 rcc_error(declaration->loc,
@@ -16841,6 +16854,7 @@ int codegen_assign_global_initializer_storage(
     GlobalInitializer* initializers, int stack_alignment) {
     int bytes = 0;
     if (stack_alignment < 1) stack_alignment = 1;
+    active_call_temporary_owners = NULL;
     for (; initializers; initializers = initializers->next) {
         Decl* declaration = initializers->declaration;
         Expr* initializer = declaration ? declaration->var_init : NULL;
@@ -18665,6 +18679,25 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
         return gen_static_reference_temporary_initializer32(
             mod, declaration);
     }
+    if (codegen_runtime_global_paren_aggregate(type, initializer)) {
+        size_t offset = 0u;
+        gen_expr(mod, initializer);
+        emit_push_reg(mod, EAX);
+        gen_decl_storage_address32(mod, declaration);
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_pop_reg(mod, EDX);
+        while (offset + 4u <= (size_t)type->size) {
+            emit_mov_reg_mem(mod, EAX, EDX, (int32_t)offset);
+            emit_mov_mem_reg(mod, ECX, (int32_t)offset, EAX);
+            offset += 4u;
+        }
+        while (offset < (size_t)type->size) {
+            emit_load_typed32(mod, EAX, EDX, (int32_t)offset, type_uchar);
+            emit_store_typed32(mod, ECX, (int32_t)offset, EAX, type_uchar);
+            ++offset;
+        }
+        return true;
+    }
     if (codegen_runtime_global_constructor(type, initializer)) {
         if (initializer->kind == EXPR_CALL && initializer->type &&
             type_is_compatible(type, initializer->type)) {
@@ -18755,6 +18788,7 @@ static void codegen_emit_global_init32(Module* mod) {
     emit_push_reg(mod, EBP);
     emit_mov_reg_reg(mod, EBP, ESP);
     if (stack_size > 0) emit_sub_reg_imm(mod, ESP, stack_size);
+    gen_clear_call_temporary_owners32(mod);
     old_return_type = current_function_return_type;
     current_function_return_type = NULL;
     old_cleanups = active_cleanups;

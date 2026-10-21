@@ -10318,6 +10318,10 @@ static bool sema_cxx_trivially_copyable(Type* type, int depth) {
     return true;
 }
 
+bool rcc_sema_cxx_trivially_copyable(Type* type) {
+    return sema_cxx_trivially_copyable(type, 0);
+}
+
 static Decl* sema_cxx_destructor_function(Type* object_type);
 static bool sema_cxx_type_has_destructor_cleanup(Type* object_type,
                                                  int depth);

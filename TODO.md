@@ -8193,5 +8193,11 @@ remains a separate open item.
       observes the temporary from a later element initializer, compares with
       GCC C++20, emits i686/AMD64 objects at default and `-O2`, verifies
       PE-i386, and executes AMD64 at both optimization levels.
-- [ ] Global/static-duration aggregate initialization and typed-SSA lowering
-      for this cleanup case remain open, as do other class-prvalue contexts.
+- [x] Lower namespace-scope static-duration C++20 parenthesized aggregate
+      initialization for trivially-copyable class aggregates, including the
+      reference-member temporary cleanup above. Test global initialization
+      order and full-expression cleanup against GCC; emit i686/AMD64 objects at
+      default and `-O2`, verify PE-i386, and execute AMD64 at both levels.
+- [ ] Extend this to non-trivially-copyable aggregate targets, block-static and
+      thread-local cases, and verified-SSA lowering; other class-prvalue
+      contexts remain open.
