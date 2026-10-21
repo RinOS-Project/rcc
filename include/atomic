@@ -14,6 +14,160 @@ enum memory_order {
     memory_order_seq_cst = __ATOMIC_SEQ_CST
 };
 
+template<class T>
+struct __rcc_atomic_ops {
+    static void store_impl(volatile T* object, T desired,
+                           memory_order order) noexcept {
+        __atomic_store_n(object, desired, order);
+    }
+    static T load_impl(const volatile T* object,
+                       memory_order order) noexcept {
+        return __atomic_load_n(object, order);
+    }
+    static T exchange_impl(volatile T* object, T desired,
+                           memory_order order) noexcept {
+        return __atomic_exchange_n(object, desired, order);
+    }
+    static bool compare_exchange_impl(
+        volatile T* object, T* expected, T desired, bool weak,
+        memory_order success, memory_order failure) noexcept {
+        return __atomic_compare_exchange_n(
+            object, expected, desired, weak, success, failure);
+    }
+    static T fetch_add_impl(volatile T* object, T operand,
+                            memory_order order) noexcept {
+        return __atomic_fetch_add(object, operand, order);
+    }
+    static T fetch_sub_impl(volatile T* object, T operand,
+                            memory_order order) noexcept {
+        return __atomic_fetch_sub(object, operand, order);
+    }
+};
+
+template<class T>
+struct __rcc_atomic_ops<T*> {
+    static void store_impl(T* volatile* object, T* desired,
+                           memory_order order) noexcept {
+        __atomic_store_n(object, desired, order);
+    }
+    static T* load_impl(T* const volatile* object,
+                        memory_order order) noexcept {
+        return __atomic_load_n(object, order);
+    }
+    static T* exchange_impl(T* volatile* object, T* desired,
+                            memory_order order) noexcept {
+        return __atomic_exchange_n(object, desired, order);
+    }
+    static bool compare_exchange_impl(
+        T* volatile* object, T** expected, T* desired, bool weak,
+        memory_order success, memory_order failure) noexcept {
+        return __atomic_compare_exchange_n(
+            object, expected, desired, weak, success, failure);
+    }
+};
+
+template<>
+struct __rcc_atomic_ops<float> {
+    static void store_impl(volatile float* object, float desired,
+                           memory_order order) noexcept {
+        __atomic_store(object, &desired, order);
+    }
+    static float load_impl(const volatile float* object,
+                           memory_order order) noexcept {
+        float result;
+        __atomic_load(object, &result, order);
+        return result;
+    }
+    static float exchange_impl(volatile float* object, float desired,
+                               memory_order order) noexcept {
+        float previous;
+        __atomic_exchange(object, &desired, &previous, order);
+        return previous;
+    }
+    static bool compare_exchange_impl(
+        volatile float* object, float* expected, float desired, bool weak,
+        memory_order success, memory_order failure) noexcept {
+        return __atomic_compare_exchange(
+            object, expected, &desired, weak, success, failure);
+    }
+    static float fetch_add_impl(volatile float* object, float operand,
+                                memory_order order) noexcept {
+        float expected;
+        __atomic_load(object, &expected, memory_order_relaxed);
+        for (;;) {
+            float desired = expected + operand;
+            if (__atomic_compare_exchange(
+                    object, &expected, &desired, 1, order,
+                    memory_order_relaxed))
+                return expected;
+        }
+    }
+    static float fetch_sub_impl(volatile float* object, float operand,
+                                memory_order order) noexcept {
+        float expected;
+        __atomic_load(object, &expected, memory_order_relaxed);
+        for (;;) {
+            float desired = expected - operand;
+            if (__atomic_compare_exchange(
+                    object, &expected, &desired, 1, order,
+                    memory_order_relaxed))
+                return expected;
+        }
+    }
+};
+
+#if defined(__x86_64__)
+template<>
+struct __rcc_atomic_ops<double> {
+    static void store_impl(volatile double* object, double desired,
+                           memory_order order) noexcept {
+        __atomic_store(object, &desired, order);
+    }
+    static double load_impl(const volatile double* object,
+                            memory_order order) noexcept {
+        double result;
+        __atomic_load(object, &result, order);
+        return result;
+    }
+    static double exchange_impl(volatile double* object, double desired,
+                                memory_order order) noexcept {
+        double previous;
+        __atomic_exchange(object, &desired, &previous, order);
+        return previous;
+    }
+    static bool compare_exchange_impl(
+        volatile double* object, double* expected, double desired,
+        bool weak, memory_order success, memory_order failure) noexcept {
+        return __atomic_compare_exchange(
+            object, expected, &desired, weak, success, failure);
+    }
+    static double fetch_add_impl(volatile double* object, double operand,
+                                 memory_order order) noexcept {
+        double expected;
+        __atomic_load(object, &expected, memory_order_relaxed);
+        for (;;) {
+            double desired = expected + operand;
+            if (__atomic_compare_exchange(
+                    object, &expected, &desired, 1, order,
+                    memory_order_relaxed))
+                return expected;
+        }
+    }
+    static double fetch_sub_impl(volatile double* object, double operand,
+                                 memory_order order) noexcept {
+        double expected;
+        __atomic_load(object, &expected, memory_order_relaxed);
+        for (;;) {
+            double desired = expected - operand;
+            if (__atomic_compare_exchange(
+                    object, &expected, &desired, 1, order,
+                    memory_order_relaxed))
+                return expected;
+        }
+    }
+};
+#endif
+
 class atomic_flag {
 public:
     constexpr atomic_flag() noexcept : value_(0u) {}
@@ -42,7 +196,7 @@ private:
 };
 
 template<class T>
-class __rcc_atomic_base {
+class __rcc_atomic_base : public __rcc_atomic_ops<T> {
 public:
     constexpr __rcc_atomic_base() noexcept : value_(0) {}
     constexpr __rcc_atomic_base(T desired) noexcept : value_(desired) {}
@@ -54,14 +208,14 @@ public:
     }
 
     void store(T desired, memory_order order) noexcept {
-        __atomic_store_n(&value_, desired, order);
+        this->store_impl(&value_, desired, order);
     }
     void store(T desired) noexcept {
         store(desired, memory_order_seq_cst);
     }
 
     T load(memory_order order) const noexcept {
-        return __atomic_load_n(&value_, order);
+        return this->load_impl(&value_, order);
     }
     T load() const noexcept { return load(memory_order_seq_cst); }
 
@@ -70,7 +224,7 @@ public:
     }
 
     T exchange(T desired, memory_order order) noexcept {
-        return __atomic_exchange_n(&value_, desired, order);
+        return this->exchange_impl(&value_, desired, order);
     }
     T exchange(T desired) noexcept {
         return exchange(desired, memory_order_seq_cst);
@@ -79,8 +233,8 @@ public:
     bool compare_exchange_weak(T& expected, T desired,
                                memory_order success,
                                memory_order failure) noexcept {
-        return __atomic_compare_exchange_n(
-            &value_, &expected, desired, 1, success, failure);
+        return this->compare_exchange_impl(
+            &value_, &expected, desired, true, success, failure);
     }
 
     bool compare_exchange_weak(T& expected, T desired) noexcept {
@@ -98,8 +252,8 @@ public:
     bool compare_exchange_strong(T& expected, T desired,
                                  memory_order success,
                                  memory_order failure) noexcept {
-        return __atomic_compare_exchange_n(
-            &value_, &expected, desired, 0, success, failure);
+        return this->compare_exchange_impl(
+            &value_, &expected, desired, false, success, failure);
     }
 
     bool compare_exchange_strong(T& expected, T desired) noexcept {
@@ -121,7 +275,7 @@ protected:
         return order;
     }
 
-    mutable T value_;
+    mutable volatile T value_;
 };
 
 template<class T>
@@ -138,38 +292,47 @@ public:
     }
 
     T fetch_add(T operand, memory_order order) noexcept {
-        return __atomic_fetch_add(&this->value_, operand, order);
+        return this->fetch_add_impl(&this->value_, operand, order);
     }
     T fetch_add(T operand) noexcept {
         return fetch_add(operand, memory_order_seq_cst);
     }
 
     T fetch_sub(T operand, memory_order order) noexcept {
-        return __atomic_fetch_sub(&this->value_, operand, order);
+        return this->fetch_sub_impl(&this->value_, operand, order);
     }
     T fetch_sub(T operand) noexcept {
         return fetch_sub(operand, memory_order_seq_cst);
     }
 
-    T fetch_and(T operand, memory_order order) noexcept {
+    template<class U>
+    T fetch_and(U operand, memory_order order) noexcept {
         return __atomic_fetch_and(&this->value_, operand, order);
     }
-    T fetch_and(T operand) noexcept {
-        return fetch_and(operand, memory_order_seq_cst);
+    template<class U>
+    T fetch_and(U operand) noexcept {
+        return __atomic_fetch_and(
+            &this->value_, operand, memory_order_seq_cst);
     }
 
-    T fetch_or(T operand, memory_order order) noexcept {
+    template<class U>
+    T fetch_or(U operand, memory_order order) noexcept {
         return __atomic_fetch_or(&this->value_, operand, order);
     }
-    T fetch_or(T operand) noexcept {
-        return fetch_or(operand, memory_order_seq_cst);
+    template<class U>
+    T fetch_or(U operand) noexcept {
+        return __atomic_fetch_or(
+            &this->value_, operand, memory_order_seq_cst);
     }
 
-    T fetch_xor(T operand, memory_order order) noexcept {
+    template<class U>
+    T fetch_xor(U operand, memory_order order) noexcept {
         return __atomic_fetch_xor(&this->value_, operand, order);
     }
-    T fetch_xor(T operand) noexcept {
-        return fetch_xor(operand, memory_order_seq_cst);
+    template<class U>
+    T fetch_xor(U operand) noexcept {
+        return __atomic_fetch_xor(
+            &this->value_, operand, memory_order_seq_cst);
     }
 
     T operator++() noexcept { return fetch_add(1, memory_order_seq_cst) + 1; }

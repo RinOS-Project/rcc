@@ -8060,6 +8060,12 @@ remains a separate open item.
       invalid order/pointer diagnostics pass.
 - [x] Make `test-atomic-builtins` an explicit C++20 regression prerequisite
       and include it in both C17 and C++ regression aggregates.
-- [ ] Full `<atomic>` conformance remains open: floating specializations and
-      fetch operations, type constraints/traits and volatile overloads, complete
-      constructor/API overload sets, and C++20 wait/notify operations.
+- [x] Add C++20 floating scalar atomic operations to the shared `atomic<T>`
+      API: `float` load/store/conversion/assignment, exchange, weak/strong
+      compare-exchange, and CAS-loop `fetch_add/sub` on i686 and AMD64; add the
+      same support for `double` on AMD64. Default initialization and arithmetic
+      results compile on both targets and execute in AMD64 `-O0`/`-O2` runs via
+      `test-atomic-builtins`.
+- [ ] Full `<atomic>` conformance remains open: `double` operations on i686,
+      type constraints/traits and volatile overloads, complete constructor/API
+      overload sets, and C++20 wait/notify operations.

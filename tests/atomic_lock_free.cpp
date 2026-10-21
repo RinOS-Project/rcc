@@ -47,6 +47,8 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     std::atomic<int*>::difference_type offset = 2;
     std::atomic_flag flag = ATOMIC_FLAG_INIT;
     int* pointer_expected;
+    std::atomic<float> floating;
+    float floating_expected = 9.0f;
     unsigned expected = 9u;
     if (zero.load() != 0u || !zero.is_lock_free()) return 20u;
     if (wide.fetch_add(3ULL) != 4ULL || wide.load() != 7ULL) return 21u;
@@ -60,6 +62,42 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (flag.test()) return 34u;
     if (flag.test_and_set()) return 35u;
     flag.clear();
+    if (floating.load() != 0.0f) return 36u;
+    floating.store(1.5f);
+    if (floating.load(std::memory_order_relaxed) != 1.5f) return 48u;
+    if (floating.fetch_add(2.0f, std::memory_order_acq_rel) != 1.5f ||
+        floating.load() != 3.5f) return 37u;
+    if (floating.fetch_sub(0.5f) != 3.5f || floating.load() != 3.0f)
+        return 38u;
+    if (floating.compare_exchange_strong(
+            floating_expected, 6.0f, std::memory_order_acq_rel,
+            std::memory_order_acquire) || floating_expected != 3.0f)
+        return 39u;
+    floating_expected = 3.0f;
+    if (!floating.compare_exchange_weak(
+            floating_expected, 4.0f, std::memory_order_release) ||
+        floating.load() != 4.0f) return 40u;
+    if (floating.exchange(5.5f, std::memory_order_relaxed) != 4.0f ||
+        floating.load() != 5.5f) return 41u;
+    if ((floating = 7.0f) != 7.0f || floating.load() != 7.0f) return 42u;
+#if defined(__x86_64__)
+    {
+        std::atomic<double> floating_wide;
+        double floating_wide_expected = 3.0;
+        if (floating_wide.load() != 0.0) return 47u;
+        floating_wide.store(2.25);
+        if (floating_wide.fetch_add(1.5) != 2.25 ||
+            floating_wide.load() != 3.75) return 43u;
+        if (floating_wide.fetch_sub(0.75, std::memory_order_relaxed) !=
+                3.75 || floating_wide.load() != 3.0) return 44u;
+        if (!floating_wide.compare_exchange_strong(
+                floating_wide_expected, 4.5, std::memory_order_acq_rel,
+                std::memory_order_acquire) || floating_wide.load() != 4.5)
+            return 45u;
+        if ((floating_wide = 6.25) != 6.25 || floating_wide.load() != 6.25)
+            return 46u;
+    }
+#endif
     if (value.load(std::memory_order_relaxed) != 3u) return 1u;
     value.store(7u, std::memory_order_release);
     if (value.exchange(9u, std::memory_order_acq_rel) != 7u) return 2u;
@@ -67,7 +105,7 @@ extern "C" unsigned cpp_standard_atomic_operations() {
             expected, 13u, std::memory_order_acq_rel,
             std::memory_order_acquire)) return 3u;
     if (value.fetch_add(2u, std::memory_order_relaxed) != 13u) return 4u;
-    if (value.fetch_and(7u, std::memory_order_seq_cst) != 15u) return 5u;
+    if (value.fetch_and(7u) != 15u) return 5u;
     if (value.fetch_or(8u) != 7u) return 6u;
     if (value.fetch_xor(3u) != 15u) return 7u;
     if (value++ != 12u || value.load() != 13u) return 8u;
