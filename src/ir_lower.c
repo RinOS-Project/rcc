@@ -9549,6 +9549,103 @@ static RccIrLowerValue lower_call_receiver_argument(
     return complete_object;
 }
 
+static RccIrLowerValue lower_atomic_fetch_arithmetic_call(
+    RccIrLowerContext* context, const Expr* expression,
+    const char* name) {
+    const ExprList* object_argument = expression->call_args;
+    const ExprList* operand_argument = object_argument
+        ? object_argument->next : NULL;
+    const ExprList* order_argument = operand_argument
+        ? operand_argument->next : NULL;
+    Type* object_pointer_type;
+    Type* object_type;
+    RccIrType atomic_type;
+    RccIrLowerValue object_address;
+    RccIrLowerValue operand;
+    RccIrLowerValue order;
+    RccIrLowerValue atomic_operand;
+    RccIrLowerValue old_value;
+    RccIrLowerValue zero;
+    RccIrValue operands[2];
+    RccIrInstruction* fetch_add;
+    RccIrInstruction* operation;
+    bool subtract = strcmp(name, "__atomic_fetch_sub") == 0 ||
+        strcmp(name, "__atomic_sub_fetch") == 0;
+    bool return_new = strcmp(name, "__atomic_add_fetch") == 0 ||
+        strcmp(name, "__atomic_sub_fetch") == 0;
+
+    if (!object_argument || !operand_argument || !order_argument ||
+        order_argument->next || !object_argument->expr ||
+        !operand_argument->expr || !order_argument->expr) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_pointer_type = object_argument->expr->type;
+    object_type = object_pointer_type &&
+            object_pointer_type->kind == TYPE_PTR
+        ? object_pointer_type->base : NULL;
+    if (!object_type || !type_is_integer(object_type) ||
+        !lower_type(object_type, &atomic_type) ||
+        atomic_type.kind != RCC_IR_TYPE_INTEGER ||
+        (atomic_type.bit_width != 8u &&
+         atomic_type.bit_width != 16u &&
+         atomic_type.bit_width != 32u &&
+         (atomic_type.bit_width != 64u ||
+          g_opts.target_arch != ARCH_X64))) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    /* Explicit memory orders may be runtime expressions. LOCK XADD provides
+     * sequentially consistent ordering, which is valid for every defined
+     * order; still evaluate the order expression exactly once for its effects. */
+    object_address = lower_expression(context, object_argument->expr);
+    operand = lower_expression(context, operand_argument->expr);
+    order = lower_expression(context, order_argument->expr);
+    if (!object_address.valid ||
+        object_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !operand.valid || operand.type.kind != RCC_IR_TYPE_INTEGER ||
+        !order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operand = lower_cast(context, operand, object_type);
+    if (!operand.valid) return lower_invalid_value();
+
+    atomic_operand = operand;
+    if (subtract) {
+        RccIrInstruction* negated;
+        zero = lower_integer_constant(context, atomic_type, true, 0u);
+        if (!zero.valid) return lower_invalid_value();
+        operands[0] = zero.value;
+        operands[1] = operand.value;
+        negated = lower_append(
+            context, RCC_IR_SUB, atomic_type, operands, 2u, NULL, 0u);
+        if (!negated) return lower_invalid_value();
+        atomic_operand = lower_value(
+            negated->result, atomic_type, object_type->is_unsigned);
+    }
+
+    operands[0] = object_address.value;
+    operands[1] = atomic_operand.value;
+    fetch_add = lower_append(
+        context, RCC_IR_ATOMIC_FETCH_ADD, atomic_type,
+        operands, 2u, NULL, 0u);
+    if (!fetch_add) return lower_invalid_value();
+    old_value = lower_value(
+        fetch_add->result, atomic_type, object_type->is_unsigned);
+    if (!return_new) return old_value;
+
+    operands[0] = old_value.value;
+    operands[1] = operand.value;
+    operation = lower_append(
+        context, subtract ? RCC_IR_SUB : RCC_IR_ADD,
+        atomic_type, operands, 2u, NULL, 0u);
+    if (!operation) return lower_invalid_value();
+    return lower_value(
+        operation->result, atomic_type, object_type->is_unsigned);
+}
+
 static RccIrLowerValue lower_call(RccIrLowerContext* context,
                                   const Expr* expression) {
     const Decl* callee = NULL;
@@ -9585,6 +9682,20 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     bool register_temporary_cleanups = expression &&
         !expression->cxx_call_is_noexcept;
     RccIrInstruction* call;
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        (strcmp(expression->call_func->ident_name,
+                "__atomic_fetch_add") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_fetch_sub") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_add_fetch") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_sub_fetch") == 0)) {
+        return lower_atomic_fetch_arithmetic_call(
+            context, expression, expression->call_func->ident_name);
+    }
     if (expression && expression->call_method &&
         expression->call_method->kind != TYPE_METHOD_FUNCTION) {
         return lower_inline_method_call(context, expression);

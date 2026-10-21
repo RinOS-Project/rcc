@@ -7722,9 +7722,11 @@ remains a separate open item.
       checks exactly one fallback for i686/AMD64 at `-O0`/`-O2` and executes
       both AMD64 objects; it remains part of `test-verified-backend` and
       production `test-ci`.
-- [ ] Extend typed-SSA atomic RMW beyond scalar and fixed-size-pointer
-      fetch-add: dynamic VLA pointee strides, explicit-order `__atomic_*`
-      builtins and memory-order semantics, additional integer RMW operators,
+- [x] Typed-SSA atomic pointer RMW now uses captured extents for dynamic VLA
+      pointees; integer `__atomic_fetch_add/sub` and `__atomic_add/sub_fetch`
+      builtins are also lowered directly, with their explicit-order expressions
+      evaluated once. See the continuations below.
+- [ ] Other atomic integer RMW operators, pointer/aggregate builtin variants,
       floating/aggregate atomics, and general C++ atomic operations remain open.
 - [x] Fix optimized VLA-bound dead-store elimination: runtime array
       declarator bounds and variably-modified types in `sizeof` are now reads
@@ -7752,8 +7754,9 @@ remains a separate open item.
       implemented for local objects and formal parameters, including pointer
       subtraction, as recorded in the continuations below.
 - [ ] Additional VLA pointer forms beyond the covered offsets/subtraction,
-      explicit atomic memory orders, other RMW operators, floating/aggregate
-      atomics, and general C++ atomic operations remain open.
+      explicit-order atomic builtins beyond integer fetch-add/sub, other RMW
+      operators, floating/aggregate atomics, and general C++ atomic operations
+      remain open.
 
 ## RCC continuation (2026-10-21, VLA pointer offsets)
 
@@ -7771,8 +7774,9 @@ remains a separate open item.
 - [x] Typed-SSA lowering for dynamic VLA pointer strides and subtraction of
       two pointers to compatible complete VLA objects is implemented in the
       continuation below.
-- [ ] Explicit memory orders, other atomic RMW operators,
-      floating/aggregate atomics, and general C++ atomics remain open.
+- [ ] Typed-SSA lowering for other explicit-order atomic builtins and RMW
+      operators, floating/aggregate atomics, and general C++ atomics remains
+      open.
 
 ## RCC continuation (2026-10-21, typed-SSA pointer-to-VLA extents)
 
@@ -7793,8 +7797,9 @@ remains a separate open item.
 - [x] Typed-SSA VLA pointer strides for local objects and formal parameters,
       plus subtraction between pointers to compatible complete VLA objects,
       are implemented in the subsequent continuation entries below.
-- [ ] Explicit atomic memory orders, other atomic RMW operators,
-      floating/aggregate atomics, and general C++ atomics remain open.
+- [ ] Typed-SSA lowering for other explicit-order atomic builtins and RMW
+      operators, floating/aggregate atomics, and general C++ atomics remains
+      open.
 - [x] Verify every target in the complete non-hardware `TEST_CI_TARGETS` set.
       The initial `make test-ci` run passed C17, C++20, AQC, IR, and IR lowering,
       then stopped when its restricted PATH omitted the installed Clang needed
@@ -7821,5 +7826,22 @@ remains a separate open item.
       Semantic analysis accepts runtime-complete VLA element types; typed SSA
       divides the byte difference by the left operand's captured extent, and
       legacy i686/AMD64 codegen uses the saved stride too.
-- [ ] Explicit atomic memory orders, other atomic RMW operators,
-      floating/aggregate atomics, and general C++ atomics remain open.
+- [ ] Typed-SSA lowering for other explicit-order atomic builtins and RMW
+      operators, floating/aggregate atomics, and general C++ atomics remains
+      open.
+
+## RCC continuation (2026-10-21, typed-SSA atomic fetch arithmetic)
+
+- [x] Lower integer `__atomic_fetch_add`, `__atomic_fetch_sub`,
+      `__atomic_add_fetch`, and `__atomic_sub_fetch` directly to typed SSA.
+      Runtime order expressions are evaluated exactly once; `LOCK XADD` gives
+      sequentially consistent ordering, which is stronger than every valid
+      order and preserves the requested semantics.
+- [x] `test-verified-atomic-fetch-add` checks signed/unsigned 8/16/32-bit
+      objects on i686 and AMD64, plus 64-bit objects on AMD64, with zero
+      fallback at `-O0`/`-O2`. It exercises all four builtin result forms and
+      volatile runtime order expressions; AMD64 objects execute and the GCC
+      C17 oracle agrees. `test-atomic-builtins` and `test-atomic-language`
+      also pass on both targets.
+- [ ] Other atomic integer RMW operators, pointer/aggregate builtin variants,
+      floating/aggregate atomics, and general C++ atomic operations remain open.
