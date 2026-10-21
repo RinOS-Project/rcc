@@ -9834,6 +9834,11 @@ static RccIrLowerValue lower_atomic_load_store_call(
 static RccIrLowerValue lower_atomic_fence_call(
     RccIrLowerContext* context, const Expr* expression) {
     const ExprList* order_argument = expression->call_args;
+    bool is_sync_fence = expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        strcmp(expression->call_func->ident_name,
+               "__sync_synchronize") == 0;
     RccIrType fence_type = rcc_ir_type_integer(32u);
     RccIrLowerValue order;
     RccIrLowerValue zero;
@@ -9842,14 +9847,18 @@ static RccIrLowerValue lower_atomic_fence_call(
     RccIrInstruction* allocation;
     RccIrInstruction* fence;
 
-    if (!order_argument || !order_argument->expr || order_argument->next) {
+    if ((is_sync_fence && order_argument) ||
+        (!is_sync_fence && (!order_argument || !order_argument->expr ||
+                            order_argument->next))) {
         context->unsupported = true;
         return lower_invalid_value();
     }
-    order = lower_expression(context, order_argument->expr);
-    if (!order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
-        context->unsupported = true;
-        return lower_invalid_value();
+    if (!is_sync_fence) {
+        order = lower_expression(context, order_argument->expr);
+        if (!order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
     }
 
     /* A locked memory XCHG is a sequentially consistent hardware barrier,
@@ -9877,6 +9886,71 @@ static RccIrLowerValue lower_atomic_fence_call(
         RccIrLowerValue void_result = lower_invalid_value();
         void_result.valid = true;
         return void_result;
+    }
+}
+
+static RccIrLowerValue lower_atomic_test_and_set_call(
+    RccIrLowerContext* context, const Expr* expression, bool clear) {
+    const ExprList* object_argument = expression->call_args;
+    const ExprList* order_argument = object_argument
+        ? object_argument->next : NULL;
+    RccIrType byte_type = rcc_ir_type_integer(8u);
+    RccIrLowerValue object_address;
+    RccIrLowerValue order;
+    RccIrLowerValue value;
+    RccIrValue operands[2];
+    RccIrInstruction* operation;
+
+    if (!object_argument || !object_argument->expr || !order_argument ||
+        !order_argument->expr || order_argument->next) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_address = lower_expression(context, object_argument->expr);
+    order = lower_expression(context, order_argument->expr);
+    if (!object_address.valid ||
+        object_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_address.atomic_access = true;
+    value = lower_integer_constant(context, byte_type, true, clear ? 0u : 1u);
+    if (!value.valid) return lower_invalid_value();
+    if (clear) {
+        if (!lower_store_address(context, object_address, value)) {
+            return lower_invalid_value();
+        }
+        {
+            RccIrLowerValue void_result = lower_invalid_value();
+            void_result.valid = true;
+            return void_result;
+        }
+    }
+    operands[0] = object_address.value;
+    operands[1] = value.value;
+    operation = lower_append(
+        context, RCC_IR_ATOMIC_EXCHANGE, byte_type,
+        operands, 2u, NULL, 0u);
+    if (!operation) return lower_invalid_value();
+    {
+        RccIrLowerValue old_value = lower_value(
+            operation->result, byte_type, true);
+        RccIrLowerValue zero = lower_integer_constant(
+            context, byte_type, true, 0u);
+        RccIrInstruction* nonzero;
+        if (!zero.valid) return lower_invalid_value();
+        operands[0] = old_value.value;
+        operands[1] = zero.value;
+        nonzero = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            operands, 2u, NULL, 0u);
+        if (!nonzero) return lower_invalid_value();
+        rcc_ir_set_predicate(nonzero, RCC_IR_ICMP_NE);
+        return lower_cast(
+            context,
+            lower_value(nonzero->result, rcc_ir_type_integer(1u), true),
+            expression->type);
     }
 }
 
@@ -9922,8 +9996,22 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         (strcmp(expression->call_func->ident_name,
                 "__atomic_thread_fence") == 0 ||
          strcmp(expression->call_func->ident_name,
-                "__atomic_signal_fence") == 0)) {
+                "__atomic_signal_fence") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_synchronize") == 0)) {
         return lower_atomic_fence_call(context, expression);
+    }
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        (strcmp(expression->call_func->ident_name,
+                "__atomic_test_and_set") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_clear") == 0)) {
+        return lower_atomic_test_and_set_call(
+            context, expression,
+            strcmp(expression->call_func->ident_name,
+                   "__atomic_clear") == 0);
     }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&

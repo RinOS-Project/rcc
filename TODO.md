@@ -7757,9 +7757,9 @@ remains a separate open item.
       subtraction, as recorded in the continuations below.
 - [ ] Additional VLA pointer forms beyond the covered offsets/subtraction,
       typed-SSA explicit-order atomic builtins beyond scalar integer/pointer
-      load, store, exchange, fetch arithmetic, and fences; other atomic RMW
-      operators, floating/aggregate atomics, and general C++ atomic operations
-      remain open.
+      load, store, exchange, fetch arithmetic, test-and-set/clear, and fences;
+      other atomic RMW operators, floating/aggregate atomics, and general C++
+      atomic operations remain open.
 
 ## RCC continuation (2026-10-21, VLA pointer offsets)
 
@@ -7885,6 +7885,19 @@ remains a separate open item.
       i686/AMD64 at `-O0`/`-O2` with zero fallback, executes AMD64 outputs, and
       agrees with the GCC C17 oracle. Atomic builtin, language, and IR suites
       pass; invalid pointer offset types receive a diagnostic.
+- [ ] Other atomic integer RMW operators, generic/aggregate builtin forms,
+      floating/aggregate atomics, and general C++ atomic operations remain open.
+
+## RCC continuation (2026-10-21, typed-SSA atomic test-and-set/clear)
+
+- [x] Lower `__atomic_test_and_set`, `__atomic_clear`, and
+      `__sync_synchronize` directly to typed SSA. Test-and-set uses byte memory
+      `XCHG` and returns the prior byte's truth value; clear uses atomic byte
+      `XCHG` with zero; synchronize reuses the sequentially consistent local
+      stack-word fence. Runtime order expressions are evaluated exactly once.
+- [x] `test-verified-atomic-fetch-add` covers consecutive test-and-set results,
+      clear's final byte value, order-expression counts, zero fallback on both
+      targets at `-O0`/`-O2`, AMD64 execution, and the GCC C17 oracle.
 - [ ] Other atomic integer RMW operators, generic/aggregate builtin forms,
       floating/aggregate atomics, and general C++ atomic operations remain open.
 
