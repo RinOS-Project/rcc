@@ -8283,6 +8283,13 @@ remains a separate open item.
 
 ## RCC continuation (2026-10-21, conversion-function member-pointer adjustment)
 
+- [x] Verify the base-to-derived member-pointer adjustment over a transitive
+      two-level non-virtual owner path with nonzero offsets at both levels.
+      Exercise both data- and member-function pointers returned by conversion
+      functions; GCC C++20, i686/AMD64 legacy output, AMD64 default/`-O2`
+      execution, and all thirteen verified-SSA functions with zero fallback at
+      both architectures and optimization levels pass in
+      `test-cxx-static-cast-conversion-operator`.
 - [x] Preserve the standard base-to-derived data- and member-function-pointer
       conversions after class conversion functions return base-owned member
       pointers in `static_cast`. Verify GCC C++20 parity, i686/AMD64 legacy

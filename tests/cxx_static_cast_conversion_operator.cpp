@@ -68,8 +68,15 @@ struct MemberPointerConversionBase {
     int add(int amount) { return value + amount; }
 };
 
-struct MemberPointerConversionDerived : MemberPointerConversionPrefix,
-                                       MemberPointerConversionBase {};
+struct MemberPointerConversionIntermediate : MemberPointerConversionPrefix,
+                                            MemberPointerConversionBase {};
+
+struct MemberPointerConversionDerivedPrefix {
+    int derived_prefix;
+};
+
+struct MemberPointerConversionDerived : MemberPointerConversionDerivedPrefix,
+                                       MemberPointerConversionIntermediate {};
 
 class BaseMemberPointerConversion {
 public:
@@ -148,6 +155,7 @@ int main() {
     ExplicitMemberPointerConversion explicit_member_pointer{0};
     MemberPointerConversionDerived member_pointer_derived;
     member_pointer_derived.prefix = 5;
+    member_pointer_derived.derived_prefix = 7;
     member_pointer_derived.value = 37;
     BaseMemberPointerConversion base_member_pointer;
     BaseMemberFunctionPointerConversion base_member_function_pointer;
