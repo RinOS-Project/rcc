@@ -8124,7 +8124,12 @@ remains a separate open item.
       results verify exact local destructor counts, global initialization
       values, a GCC C++20 oracle, i686/AMD64 assembly, and RCC default/`-O2`
       AMD64 execution in `test-cxx-static-cast-constructor`.
-- [ ] Remaining class-target cast coverage includes C++20 aggregate
+- [x] Apply C++20 aggregate parenthesized-initialization rules to
+      class-target `static_cast`, including value-initialization of omitted
+      members and omitted default member initializers. Verify local and global
+      casts against GCC, assemble both target widths, and execute RCC AMD64 at
+      default optimization and `-O2` in `test-cxx-static-cast-constructor`.
+- [ ] Remaining class-target cast coverage includes other aggregate
       parenthesized-initialization edge cases, class-prvalue uses outside
       same-type local/static-storage initialization, and overloaded conversion
       functions with non-exact result sequences.

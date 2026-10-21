@@ -571,6 +571,9 @@ static Type* sema_expr_reuse_preanalyzed(Expr* expression,
 }
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
+static Expr* sema_cxx_default_member_initializer(Type* type,
+                                                Expr* source,
+                                                SourceLoc loc);
 static bool sema_resolve_function_noexcept(Decl* declaration);
 static bool sema_cxx_select_function_pointer_overload(
     Type* target, Expr* expression);
@@ -15057,6 +15060,12 @@ static Type* sema_expr(Expr* expr) {
                     exprlist_new(expr->cast_expr), expr->loc);
                 initializer->compound_type = expr->cast_type;
                 initializer->compound_paren_init = true;
+                {
+                    Expr* with_defaults =
+                        sema_cxx_default_member_initializer(
+                            expr->cast_type, initializer, expr->loc);
+                    if (with_defaults) initializer = with_defaults;
+                }
                 sema_initializer(expr->cast_type, initializer);
                 *expr = *initializer;
                 break;
@@ -21027,17 +21036,16 @@ static int sema_cxx_field_index(Type* type, const char* name) {
  * retain their source order, and omitted members receive their declared
  * defaults.  A non-aggregate initializer is deliberately left alone because
  * it denotes copy/constructor initialization rather than member defaults. */
-static Expr* sema_cxx_default_member_initializer(Decl* declaration) {
-    Type* type = declaration ? declaration->type : NULL;
+static Expr* sema_cxx_default_member_initializer(Type* type, Expr* source,
+                                                SourceLoc loc) {
     CxxClass* cls = type ? type->cxx_class : NULL;
-    Expr* source = declaration ? declaration->var_init : NULL;
     ExprList* items = NULL;
     unsigned char* initialized = NULL;
     int field_count;
     int cursor = 0;
     int index;
 
-    if (!declaration || !type || !cls || !cls->has_field_initializer ||
+    if (!type || !cls || !cls->has_field_initializer ||
         !type->fields || (source && source->kind != EXPR_COMPOUND)) {
         return NULL;
     }
@@ -21107,9 +21115,11 @@ static Expr* sema_cxx_default_member_initializer(Decl* declaration) {
     if (!items) return NULL;
 
     {
-        SourceLoc loc = source ? source->loc : declaration->loc;
+        if (source) loc = source->loc;
         Expr* result = expr_initializer_list(items, loc);
         result->compound_type = type;
+        result->compound_paren_init = source &&
+            source->compound_paren_init;
         result->compound_cxx_default_member_normalized = true;
         return result;
     }
@@ -21501,7 +21511,8 @@ static void sema_decl(Decl* decl) {
             }
             {
                 Expr* default_initializer =
-                    sema_cxx_default_member_initializer(decl);
+                    sema_cxx_default_member_initializer(
+                        decl->type, decl->var_init, decl->loc);
                 if (default_initializer) decl->var_init = default_initializer;
             }
             if (rcc_parser_is_cxx_mode()) {

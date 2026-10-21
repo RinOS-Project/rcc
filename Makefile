@@ -19606,7 +19606,8 @@ test-cxx-static-cast-constructor: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-cast-constructor)
 	$(CC) -c -o $(TEST_OUT)/cxx-static-cast-constructor/gcc-runner.o \
 		tests/cxx_converting_constructor_run_test.c
-	$(CXX) -std=c++20 -Wall -Wextra -Werror -c \
+	$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-Wno-missing-field-initializers -c \
 		-o $(TEST_OUT)/cxx-static-cast-constructor/gcc-source.o \
 		tests/cxx_converting_constructor.cpp
 	$(CXX) -o $(TEST_OUT)/cxx-static-cast-constructor/gcc-host \

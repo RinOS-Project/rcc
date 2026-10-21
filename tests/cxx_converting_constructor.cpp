@@ -20,6 +20,15 @@ struct SliceDerived : SliceBase {
     int extra;
 };
 
+struct AggregateCastTarget {
+    int first;
+    int value_initialized;
+    int default_initialized = 19;
+};
+
+AggregateCastTarget global_aggregate_cast_value =
+    static_cast<AggregateCastTarget>(29);
+
 class ClassCastSource;
 
 int class_cast_target_destructor_count = 0;
@@ -94,6 +103,8 @@ extern "C" int cxx_converting_constructor(void) {
     derived_value.value = 11;
     derived_value.extra = 12;
     SliceBase sliced_value = static_cast<SliceBase>(derived_value);
+    AggregateCastTarget aggregate_cast_value =
+        static_cast<AggregateCastTarget>(23);
     Converting* heap_value = new Converting(6);
     int cast_value = int(8);
     int brace_cast_value = int{9};
@@ -101,7 +112,13 @@ extern "C" int cxx_converting_constructor(void) {
     int result = global_value.value() + local_value.value() +
                  direct_value.value() + copied_value.value() +
                  explicit_cast_value.value() +
-                 sliced_value.value + heap_value->value() +
+                 sliced_value.value + aggregate_cast_value.first +
+                 aggregate_cast_value.value_initialized +
+                 aggregate_cast_value.default_initialized +
+                 global_aggregate_cast_value.first +
+                 global_aggregate_cast_value.value_initialized +
+                 global_aggregate_cast_value.default_initialized +
+                 heap_value->value() +
                  global_class_cast_target.value() +
                  consume(Converting(7)) + cast_value +
                  brace_cast_value + empty_cast_value;
@@ -119,5 +136,5 @@ extern "C" int cxx_converting_constructor(void) {
         return 1;
     }
     delete heap_value;
-    return result == 874 ? 0 : 1;
+    return result == 964 ? 0 : 1;
 }
