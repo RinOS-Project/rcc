@@ -1,6 +1,8 @@
 #ifndef RCC_CXX_ATOMIC
 #define RCC_CXX_ATOMIC
 
+#include <stddef.h>
+
 namespace std {
 
 enum memory_order {
@@ -13,12 +15,12 @@ enum memory_order {
 };
 
 template<class T>
-class atomic {
+class __rcc_atomic_base {
 public:
-    atomic() noexcept : value_(0) {}
-    atomic(T desired) noexcept : value_(desired) {}
-    atomic(const atomic&) = delete;
-    atomic& operator=(const atomic&) = delete;
+    __rcc_atomic_base() noexcept : value_(0) {}
+    __rcc_atomic_base(T desired) noexcept : value_(desired) {}
+    __rcc_atomic_base(const __rcc_atomic_base&) = delete;
+    __rcc_atomic_base& operator=(const __rcc_atomic_base&) = delete;
 
     bool is_lock_free() const noexcept {
         return __atomic_is_lock_free(sizeof(T), &value_);
@@ -38,11 +40,6 @@ public:
 
     operator T() const noexcept {
         return load(memory_order_seq_cst);
-    }
-
-    T operator=(T desired) noexcept {
-        store(desired, memory_order_seq_cst);
-        return desired;
     }
 
     T exchange(T desired, memory_order order) noexcept {
@@ -90,36 +87,59 @@ public:
             expected, desired, order, default_failure_order(order));
     }
 
+protected:
+    static memory_order default_failure_order(memory_order order) noexcept {
+        if (order == memory_order_release) return memory_order_relaxed;
+        if (order == memory_order_acq_rel) return memory_order_acquire;
+        return order;
+    }
+
+    mutable T value_;
+};
+
+template<class T>
+class atomic : public __rcc_atomic_base<T> {
+public:
+    atomic() noexcept : __rcc_atomic_base<T>() {}
+    atomic(T desired) noexcept : __rcc_atomic_base<T>(desired) {}
+    atomic(const atomic&) = delete;
+    atomic& operator=(const atomic&) = delete;
+
+    T operator=(T desired) noexcept {
+        this->store(desired, memory_order_seq_cst);
+        return desired;
+    }
+
     T fetch_add(T operand, memory_order order) noexcept {
-        return __atomic_fetch_add(&value_, operand, order);
+        return __atomic_fetch_add(&this->value_, operand, order);
     }
     T fetch_add(T operand) noexcept {
         return fetch_add(operand, memory_order_seq_cst);
     }
 
     T fetch_sub(T operand, memory_order order) noexcept {
-        return __atomic_fetch_sub(&value_, operand, order);
+        return __atomic_fetch_sub(&this->value_, operand, order);
     }
     T fetch_sub(T operand) noexcept {
         return fetch_sub(operand, memory_order_seq_cst);
     }
 
     T fetch_and(T operand, memory_order order) noexcept {
-        return __atomic_fetch_and(&value_, operand, order);
+        return __atomic_fetch_and(&this->value_, operand, order);
     }
     T fetch_and(T operand) noexcept {
         return fetch_and(operand, memory_order_seq_cst);
     }
 
     T fetch_or(T operand, memory_order order) noexcept {
-        return __atomic_fetch_or(&value_, operand, order);
+        return __atomic_fetch_or(&this->value_, operand, order);
     }
     T fetch_or(T operand) noexcept {
         return fetch_or(operand, memory_order_seq_cst);
     }
 
     T fetch_xor(T operand, memory_order order) noexcept {
-        return __atomic_fetch_xor(&value_, operand, order);
+        return __atomic_fetch_xor(&this->value_, operand, order);
     }
     T fetch_xor(T operand) noexcept {
         return fetch_xor(operand, memory_order_seq_cst);
@@ -139,15 +159,56 @@ public:
     T operator-=(T operand) noexcept {
         return fetch_sub(operand, memory_order_seq_cst) - operand;
     }
+};
 
-private:
-    static memory_order default_failure_order(memory_order order) noexcept {
-        if (order == memory_order_release) return memory_order_relaxed;
-        if (order == memory_order_acq_rel) return memory_order_acquire;
-        return order;
+template<class T>
+class atomic<T*> : public __rcc_atomic_base<T*> {
+public:
+    using difference_type = ptrdiff_t;
+
+    atomic() noexcept { this->value_ = (T*)0; }
+    atomic(T* desired) noexcept { this->value_ = desired; }
+
+    T* operator=(T* desired) noexcept {
+        this->store(desired, memory_order_seq_cst);
+        return desired;
     }
 
-    mutable T value_;
+    /* The builtin takes byte offsets; this API takes element offsets. */
+    T* fetch_add(difference_type operand, memory_order order) noexcept {
+        return __atomic_fetch_add(
+            &this->value_, operand * sizeof(T), order);
+    }
+    T* fetch_add(difference_type operand) noexcept {
+        return fetch_add(operand, memory_order_seq_cst);
+    }
+
+    T* fetch_sub(difference_type operand, memory_order order) noexcept {
+        return __atomic_fetch_sub(
+            &this->value_, operand * sizeof(T), order);
+    }
+    T* fetch_sub(difference_type operand) noexcept {
+        return fetch_sub(operand, memory_order_seq_cst);
+    }
+
+    T* operator++() noexcept {
+        return fetch_add(1, memory_order_seq_cst) + 1;
+    }
+    T* operator++(int) noexcept {
+        return fetch_add(1, memory_order_seq_cst);
+    }
+    T* operator--() noexcept {
+        return fetch_sub(1, memory_order_seq_cst) - 1;
+    }
+    T* operator--(int) noexcept {
+        return fetch_sub(1, memory_order_seq_cst);
+    }
+    T* operator+=(difference_type operand) noexcept {
+        return fetch_add(operand, memory_order_seq_cst) + operand;
+    }
+    T* operator-=(difference_type operand) noexcept {
+        return fetch_sub(operand, memory_order_seq_cst) - operand;
+    }
 };
 
 }

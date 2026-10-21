@@ -8049,13 +8049,16 @@ remains a separate open item.
       their established x86 sequentially-consistent implementations.
 - [x] Extend the C++ atomic fixture with default/value initialization,
       lock-free query, 32-bit and 64-bit integer operations, explicit/default
-      order overloads, successful and failed compare-exchange, and old/new
-      results. `test-atomic-builtins` compiles i686/AMD64 C++20 objects at
-      `-O0`/`-O2` and executes both AMD64 objects; all existing C atomic
-      execution and invalid order/pointer diagnostics pass.
+      order overloads, successful and failed compare-exchange, old/new
+      results, and pointer `difference_type` arithmetic. The pointer
+      specialization scales `fetch_add/sub` by pointee size and covers pointer
+      pre/post increment/decrement, compound updates, and CAS.
+      `test-atomic-builtins` compiles i686/AMD64 C++20 objects at `-O0`/`-O2`
+      and executes both AMD64 objects; all existing C atomic execution and
+      invalid order/pointer diagnostics pass.
 - [x] Make `test-atomic-builtins` an explicit C++20 regression prerequisite
       and include it in both C17 and C++ regression aggregates.
-- [ ] Full `<atomic>` conformance remains open: pointer `difference_type`
-      arithmetic, floating specializations and floating fetch operations,
+- [ ] Full `<atomic>` conformance remains open: floating specializations and
+      floating fetch operations,
       `atomic_flag`, type constraints/traits and volatile overloads, complete
       constructor/API overload sets, and C++20 wait/notify operations.

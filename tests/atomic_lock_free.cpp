@@ -41,9 +41,16 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     std::atomic<unsigned> zero;
     std::atomic<unsigned> value(3u);
     std::atomic<unsigned long long> wide(4ULL);
+    int pointer_values[5];
+    std::atomic<int*> pointer;
+    std::atomic<int*> initialized_pointer(pointer_values + 1);
+    std::atomic<int*>::difference_type offset = 2;
+    int* pointer_expected;
     unsigned expected = 9u;
     if (zero.load() != 0u || !zero.is_lock_free()) return 20u;
     if (wide.fetch_add(3ULL) != 4ULL || wide.load() != 7ULL) return 21u;
+    if (initialized_pointer.load() != pointer_values + 1) return 29u;
+    pointer.store(pointer_values);
     if (value.load(std::memory_order_relaxed) != 3u) return 1u;
     value.store(7u, std::memory_order_release);
     if (value.exchange(9u, std::memory_order_acq_rel) != 7u) return 2u;
@@ -65,5 +72,24 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     value.store(12u);
     if ((value = 5u) != 5u || value.load() != 5u) return 11u;
     value.store(12u);
+    if (pointer.fetch_add(offset) != pointer_values ||
+        pointer.load() != pointer_values + 2) return 22u;
+    if (pointer++ != pointer_values + 2 ||
+        pointer.load() != pointer_values + 3) return 23u;
+    if (pointer.fetch_sub(2, std::memory_order_relaxed) !=
+            pointer_values + 3 || pointer.load() != pointer_values + 1)
+        return 24u;
+    if ((pointer += 2) != pointer_values + 3 ||
+        pointer.load() != pointer_values + 3) return 25u;
+    if (--pointer != pointer_values + 2 ||
+        pointer.load() != pointer_values + 2) return 26u;
+    pointer_expected = pointer_values + 2;
+    if (!pointer.compare_exchange_strong(
+            pointer_expected, pointer_values + 4) ||
+        pointer.load() != pointer_values + 4) return 27u;
+    pointer_expected = pointer_values;
+    if (pointer.compare_exchange_strong(
+            pointer_expected, pointer_values) ||
+        pointer_expected != pointer_values + 4) return 28u;
     return value.load();
 }
