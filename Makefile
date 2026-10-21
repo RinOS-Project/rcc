@@ -19598,3 +19598,51 @@ endif
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_EXPLICIT_STANDARD_SEQUENCE_REJECTED -c -o $(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.ro tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.log)
 	$(GREP) -F -q "static_cast requires a viable conversion function" $(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.ro)
+
+test-cxx-converting-constructor: test-cxx-static-cast-constructor
+
+.PHONY: test-cxx-static-cast-constructor
+test-cxx-static-cast-constructor: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-cast-constructor)
+	$(CC) -c -o $(TEST_OUT)/cxx-static-cast-constructor/gcc-runner.o \
+		tests/cxx_converting_constructor_run_test.c
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -c \
+		-o $(TEST_OUT)/cxx-static-cast-constructor/gcc-source.o \
+		tests/cxx_converting_constructor.cpp
+	$(CXX) -o $(TEST_OUT)/cxx-static-cast-constructor/gcc-host \
+		$(TEST_OUT)/cxx-static-cast-constructor/gcc-runner.o \
+		$(TEST_OUT)/cxx-static-cast-constructor/gcc-source.o
+	$(TEST_OUT)/cxx-static-cast-constructor/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x86.s \
+		tests/cxx_converting_constructor.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x86.o \
+		$(TEST_OUT)/cxx-static-cast-constructor/rcc-x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x64.s \
+		tests/cxx_converting_constructor.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x64.o \
+		$(TEST_OUT)/cxx-static-cast-constructor/rcc-x64.s
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-host \
+		tests/cxx_converting_constructor_run_test.c \
+		$(TEST_OUT)/cxx-static-cast-constructor/rcc-x64.o \
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-host
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-o2.s \
+		tests/cxx_converting_constructor.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-o2.o \
+		$(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-o2.s
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-o2-host \
+		tests/cxx_converting_constructor_run_test.c \
+		$(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-o2.o \
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-o2-host
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -DTEST_INVALID_CLASS_TARGET_STATIC_CAST -fsyntax-only tests/cxx_converting_constructor.cpp,$(TEST_OUT)/cxx-static-cast-constructor/gcc-invalid.log)
+	$(GREP) -F -q "too many initializers" $(TEST_OUT)/cxx-static-cast-constructor/gcc-invalid.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_INVALID_CLASS_TARGET_STATIC_CAST -c -o $(TEST_OUT)/cxx-static-cast-constructor/invalid-x86.ro tests/cxx_converting_constructor.cpp,$(TEST_OUT)/cxx-static-cast-constructor/invalid-x86.log)
+	$(GREP) -F -q "too many initializers for aggregate" $(TEST_OUT)/cxx-static-cast-constructor/invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-static-cast-constructor/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_INVALID_CLASS_TARGET_STATIC_CAST -c -o $(TEST_OUT)/cxx-static-cast-constructor/invalid-x64.ro tests/cxx_converting_constructor.cpp,$(TEST_OUT)/cxx-static-cast-constructor/invalid-x64.log)
+	$(GREP) -F -q "too many initializers for aggregate" $(TEST_OUT)/cxx-static-cast-constructor/invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-static-cast-constructor/invalid-x64.ro)

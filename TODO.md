@@ -8092,6 +8092,21 @@ remains a separate open item.
       of an explicit operator or an extra conversion after an explicit
       operator pass in
       `test-cxx-static-cast-conversion-operator`.
-- [ ] Full C++ explicit-cast coverage remains open, including class targets,
-      pointer-to-member conversion functions, and less-common standard
-      conversion sequences.
+- [ ] Full C++ explicit-cast coverage remains open for pointer-to-member
+      conversion functions and less-common standard conversion sequences.
+
+## RCC continuation (2026-10-21, C++ class-target `static_cast`)
+
+- [x] Lower class-target `static_cast` through the C++ direct-initialization
+      and constructor overload path, including explicit converting
+      constructors; preserve the built-in derived-to-base class-value
+      conversion and base-subobject adjustment before that path. Verify the
+      selected explicit overload and base slicing by their results, i686/AMD64
+      code generation, AMD64 default and `-O2` execution, and a GCC C++20
+      oracle in `test-cxx-static-cast-constructor`.
+- [x] Reject a scalar-to-empty-class `static_cast` with no viable constructor
+      on i686/AMD64, and preserve rejection of copy-initialization through an
+      explicit constructor.
+- [ ] Remaining class-target cast coverage includes C++20 aggregate
+      parenthesized initialization edge cases, class-prvalue cleanup, and
+      interactions with user-defined conversion operators.

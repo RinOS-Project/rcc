@@ -14997,6 +14997,29 @@ static Type* sema_expr(Expr* expr) {
             expr->type = expr->cast_type;
             expr->cxx_pointer_adjustment_valid = false;
             expr->cxx_member_pointer_adjustment_valid = false;
+            if (rcc_parser_is_cxx_mode() &&
+                expr->cxx_cast_kind == CXX_CAST_STATIC &&
+                expr->cast_type &&
+                (expr->cast_type->kind == TYPE_STRUCT ||
+                 expr->cast_type->kind == TYPE_UNION) &&
+                expr->cast_type->cxx_class) {
+                /* Preserve the built-in derived-to-base class-value
+                 * conversion before using direct initialization for the
+                 * remaining class targets.  The initializer path handles
+                 * constructors, while this existing lowering copies the
+                 * selected base subobject (including its adjustment). */
+                if (source) {
+                    (void)sema_cxx_apply_derived_to_base_value_cast(
+                        expr->cast_expr, expr->cast_type, false);
+                }
+                Expr* initializer = expr_initializer_list(
+                    exprlist_new(expr->cast_expr), expr->loc);
+                initializer->compound_type = expr->cast_type;
+                initializer->compound_paren_init = true;
+                sema_initializer(expr->cast_type, initializer);
+                *expr = *initializer;
+                break;
+            }
             if (source && expr->cast_type &&
                 ((source->kind == TYPE_PTR &&
                   source->cxx_is_member_pointer) ||
