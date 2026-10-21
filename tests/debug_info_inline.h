@@ -18,6 +18,11 @@ inline int debug_nonconstant_integer_subtract_parameter_inline(int value)
     return value;
 }
 
+inline int debug_nonconstant_integer_multiply_parameter_inline(int value)
+{
+    return value;
+}
+
 inline int debug_local_inline(int value)
 {
     const int inline_local_value = 7;

@@ -93,11 +93,14 @@ int debug_inline_nonconstant_integer_entry(int value)
 {
     int debug_inline_nonconstant_integer_source = value;
     int added_value;
+    int multiplied_value;
     debug_inline_nonconstant_integer_escape =
         &debug_inline_nonconstant_integer_source;
     added_value = debug_nonconstant_integer_parameter_inline(
         debug_inline_nonconstant_integer_source + 5);
-    return added_value +
+    multiplied_value = debug_nonconstant_integer_multiply_parameter_inline(
+        debug_inline_nonconstant_integer_source * 3);
+    return added_value + multiplied_value +
         debug_nonconstant_integer_subtract_parameter_inline(
             debug_inline_nonconstant_integer_source - 3);
 }

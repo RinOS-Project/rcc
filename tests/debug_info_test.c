@@ -8124,7 +8124,8 @@ static void verify_inline_integer_expression_parameter(
     bool has_variable_location;
     bool variable_is_location_list;
     assert(object != NULL && object->arch == architecture && inline_name &&
-           (expected_operation == 0x22u || expected_operation == 0x1cu));
+           (expected_operation == 0x22u || expected_operation == 0x1cu ||
+            expected_operation == 0x1eu));
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
@@ -8425,11 +8426,19 @@ int main(int argc, char** argv)
             "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu,
             3);
         verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu,
+            3);
+        verify_inline_integer_expression_parameter(
             argv[3], ARCH_X64,
             "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
         verify_inline_integer_expression_parameter(
             argv[3], ARCH_X64,
             "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu,
+            3);
+        verify_inline_integer_expression_parameter(
+            argv[3], ARCH_X64,
+            "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu,
             3);
         verify_inline_integer_expression_parameter(
             argv[4], ARCH_X86,
@@ -8439,11 +8448,19 @@ int main(int argc, char** argv)
             "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu,
             3);
         verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu,
+            3);
+        verify_inline_integer_expression_parameter(
             argv[5], ARCH_X64,
             "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
         verify_inline_integer_expression_parameter(
             argv[5], ARCH_X64,
             "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu,
+            3);
+        verify_inline_integer_expression_parameter(
+            argv[5], ARCH_X64,
+            "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu,
             3);
         return 0;
     }
@@ -8592,11 +8609,17 @@ int main(int argc, char** argv)
         argv[24], ARCH_X86,
         "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu, 3);
     verify_inline_integer_expression_parameter(
+        argv[24], ARCH_X86,
+        "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu, 3);
+    verify_inline_integer_expression_parameter(
         argv[25], ARCH_X64,
         "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
     verify_inline_integer_expression_parameter(
         argv[25], ARCH_X64,
         "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu, 3);
+    verify_inline_integer_expression_parameter(
+        argv[25], ARCH_X64,
+        "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu, 3);
     verify_inline_integer_expression_parameter(
         argv[38], ARCH_X86,
         "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
@@ -8604,11 +8627,17 @@ int main(int argc, char** argv)
         argv[38], ARCH_X86,
         "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu, 3);
     verify_inline_integer_expression_parameter(
+        argv[38], ARCH_X86,
+        "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu, 3);
+    verify_inline_integer_expression_parameter(
         argv[39], ARCH_X64,
         "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
     verify_inline_integer_expression_parameter(
         argv[39], ARCH_X64,
         "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu, 3);
+    verify_inline_integer_expression_parameter(
+        argv[39], ARCH_X64,
+        "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu, 3);
     verify_cxx_inline_nullptr_parameter(argv[40], ARCH_X86);
     verify_cxx_inline_nullptr_parameter(argv[41], ARCH_X64);
     verify_cxx_inline_nullptr_parameter(argv[42], ARCH_X86);
