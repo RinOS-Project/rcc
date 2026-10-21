@@ -129,6 +129,7 @@ typedef struct RccIrLowerVlaAllocation {
     const Decl* declaration;
     RccIrValue stack_pointer;
     RccIrLowerVlaDimension* dimensions;
+    bool has_dynamic_storage;
     struct RccIrLowerVlaAllocation* previous_scope;
     struct RccIrLowerVlaAllocation* allocated_next;
 } RccIrLowerVlaAllocation;
@@ -997,39 +998,41 @@ static bool lower_vla_restore_until(
     RccIrLowerContext* context, RccIrLowerVlaAllocation* marker) {
     RccIrLowerVlaAllocation* allocation = context
         ? context->vla_allocations : NULL;
+    RccIrLowerVlaAllocation* restore_allocation = NULL;
     if (!context) return false;
     if (allocation == marker) return true;
-    if (!allocation) {
-        context->unsupported = true;
-        return false;
-    }
-    while (allocation->previous_scope != marker) {
-        allocation = allocation->previous_scope;
+    while (allocation != marker) {
         if (!allocation) {
             context->unsupported = true;
             return false;
         }
+        if (allocation->has_dynamic_storage) {
+            restore_allocation = allocation;
+        }
+        allocation = allocation->previous_scope;
     }
-    return lower_stack_restore(context, allocation->stack_pointer);
+    return !restore_allocation ||
+        lower_stack_restore(context, restore_allocation->stack_pointer);
 }
 
 static bool lower_vla_restore_count(
     RccIrLowerContext* context, size_t allocation_count) {
     RccIrLowerVlaAllocation* allocation;
+    RccIrLowerVlaAllocation* restore_allocation = NULL;
     if (!context || allocation_count == 0u) return allocation_count == 0u;
     allocation = context->vla_allocations;
-    for (size_t index = 1u; index < allocation_count; ++index) {
-        if (!allocation || !allocation->previous_scope) {
+    for (size_t index = 0u; index < allocation_count; ++index) {
+        if (!allocation) {
             context->unsupported = true;
             return false;
         }
+        if (allocation->has_dynamic_storage) {
+            restore_allocation = allocation;
+        }
         allocation = allocation->previous_scope;
     }
-    if (!allocation) {
-        context->unsupported = true;
-        return false;
-    }
-    return lower_stack_restore(context, allocation->stack_pointer);
+    return !restore_allocation ||
+        lower_stack_restore(context, restore_allocation->stack_pointer);
 }
 
 static void lower_release_vla_dimensions(
@@ -1953,6 +1956,16 @@ static RccIrLowerValue lower_truth(RccIrLowerContext* context,
     return lower_value(compare->result, i1, true);
 }
 
+static bool lower_type_has_vla_any(const Type* type) {
+    if (!type) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_bound != NULL || type->array_unspecified_bound ||
+               lower_type_has_vla_any(type->base);
+    }
+    return type->kind == TYPE_PTR &&
+           lower_type_has_vla_any(type->base);
+}
+
 static const Decl* lower_vla_owner(const Expr* expression) {
     while (expression) {
         if (expression->kind == EXPR_INDEX) {
@@ -1966,7 +1979,7 @@ static const Decl* lower_vla_owner(const Expr* expression) {
     if (expression && expression->kind == EXPR_IDENT &&
         expression->ident_decl &&
         expression->ident_decl->kind == DECL_VAR &&
-        expression->ident_decl->var_is_vla) {
+        lower_type_has_vla_any(expression->ident_decl->type)) {
         return expression->ident_decl;
     }
     return NULL;
@@ -2095,7 +2108,8 @@ static RccIrLowerValue lower_pointer_offset(
 
 static RccIrLowerValue lower_atomic_pointer_delta(
     RccIrLowerContext* context, RccIrLowerValue index,
-    const Type* pointer_type, bool subtract_index) {
+    const Type* pointer_type, bool subtract_index,
+    const Decl* vla_declaration) {
     Type* pointer_integer_type = g_opts.target_arch == ARCH_X64
         ? type_ulong : type_uint;
     RccIrType pointer_integer;
@@ -2104,8 +2118,9 @@ static RccIrLowerValue lower_atomic_pointer_delta(
     RccIrValue operands[2];
     RccIrInstruction* instruction;
     if (!pointer_type || pointer_type->kind != TYPE_PTR ||
-        !pointer_type->base || pointer_type->base->size <= 0 ||
-        (uint64_t)pointer_type->base->size > (uint64_t)INT32_MAX ||
+        !pointer_type->base ||
+        (pointer_type->base->size > 0 &&
+         (uint64_t)pointer_type->base->size > (uint64_t)INT32_MAX) ||
         !lower_type(pointer_integer_type, &pointer_integer) ||
         pointer_integer.kind != RCC_IR_TYPE_INTEGER || !index.valid ||
         index.type.kind != RCC_IR_TYPE_INTEGER) {
@@ -2113,9 +2128,15 @@ static RccIrLowerValue lower_atomic_pointer_delta(
         return lower_invalid_value();
     }
     index = lower_cast(context, index, pointer_integer_type);
-    scale = lower_integer_constant(
-        context, pointer_integer, true,
-        (uint64_t)pointer_type->base->size);
+    if (pointer_type->base->size > 0) {
+        scale = lower_integer_constant(
+            context, pointer_integer, true,
+            (uint64_t)pointer_type->base->size);
+    } else if (!lower_vla_saved_byte_extent(
+                   context, vla_declaration, pointer_type->base, &scale)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
     if (!index.valid || !scale.valid) return lower_invalid_value();
     operands[0] = index.value;
     operands[1] = scale.value;
@@ -6856,7 +6877,8 @@ static RccIrLowerValue lower_compound_assignment(
             }
             byte_delta = lower_atomic_pointer_delta(
                 context, delta, expression->binary_lhs->type,
-                expression->kind == EXPR_SUB_ASSIGN);
+                expression->kind == EXPR_SUB_ASSIGN,
+                lower_vla_owner(expression->binary_lhs));
             if (!byte_delta.valid) return lower_invalid_value();
             operands[0] = address.value;
             operands[1] = byte_delta.value;
@@ -6950,7 +6972,8 @@ static RccIrLowerValue lower_compound_assignment(
         }
         result = lower_pointer_offset(
             context, left, right, expression->binary_lhs->type,
-            expression->kind == EXPR_SUB_ASSIGN, NULL);
+            expression->kind == EXPR_SUB_ASSIGN,
+            lower_vla_owner(expression->binary_lhs));
         if (!result.valid ||
             !lower_store_address(context, address, result)) {
             return lower_invalid_value();
@@ -7067,7 +7090,8 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
                 context, pointer_integer_ir_type, true, 1u);
             if (!one.valid) return lower_invalid_value();
             byte_delta = lower_atomic_pointer_delta(
-                context, one, expression->unary_operand->type, !increment);
+                context, one, expression->unary_operand->type, !increment,
+                lower_vla_owner(expression->unary_operand));
             if (!byte_delta.valid) return lower_invalid_value();
             pointer_operands[0] = address.value;
             pointer_operands[1] = byte_delta.value;
@@ -7150,7 +7174,7 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
         if (!one.valid) return lower_invalid_value();
         new_value = lower_pointer_offset(
             context, old_value, one, expression->unary_operand->type,
-            !increment, NULL);
+            !increment, lower_vla_owner(expression->unary_operand));
         if (!new_value.valid ||
             !lower_store_address(context, address, new_value)) {
             return lower_invalid_value();
@@ -19123,6 +19147,21 @@ static bool lower_supported_vla_declaration(
         !declaration->var_cleanups;
 }
 
+static const Type* lower_vla_pointer_target_array(const Type* type) {
+    while (type && type->kind == TYPE_PTR) type = type->base;
+    return type && type->kind == TYPE_ARRAY ? type : NULL;
+}
+
+static bool lower_supported_vla_pointer_declaration(
+    const Decl* declaration) {
+    const Type* target = declaration
+        ? lower_vla_pointer_target_array(declaration->type) : NULL;
+    return declaration && lower_type_has_vla_any(declaration->type) &&
+        declaration->type && declaration->type->kind == TYPE_PTR &&
+        target && lower_vla_object_type_supported(target) &&
+        !declaration->var_cleanup && !declaration->var_cleanups;
+}
+
 static RccIrLowerValue lower_supported_vla_byte_size(
     RccIrLowerContext* context, const Type* type,
     RccIrLowerVlaAllocation* allocation) {
@@ -19282,6 +19321,8 @@ static bool lower_declaration(RccIrLowerContext* context,
         is_member_function_pointer;
     bool is_supported_vla = declaration && declaration->var_is_vla &&
         lower_supported_vla_declaration(declaration);
+    bool is_supported_vla_pointer = declaration &&
+        lower_supported_vla_pointer_declaration(declaration);
     bool wide_scalar = declaration->type &&
         lower_i686_wide_scalar_type(declaration->type);
     bool wide_ssa = wide_scalar && !declaration->type->is_volatile &&
@@ -19337,9 +19378,32 @@ static bool lower_declaration(RccIrLowerContext* context,
         context->unsupported = true;
         return false;
     }
-    if (declaration->var_is_vla && !is_supported_vla) {
+    if ((declaration->var_is_vla ||
+         lower_type_has_vla_any(declaration->type)) &&
+        !is_supported_vla && !is_supported_vla_pointer) {
         context->unsupported = true;
         return false;
+    }
+    if (is_supported_vla_pointer) {
+        RccIrLowerVlaAllocation* vla_extents =
+            rcc_alloc(sizeof(*vla_extents));
+        const Type* target = lower_vla_pointer_target_array(
+            declaration->type);
+        RccIrLowerValue byte_extent = lower_supported_vla_byte_size(
+            context, target, vla_extents);
+        if (!byte_extent.valid) {
+            lower_release_vla_dimensions(vla_extents->dimensions);
+            rcc_free(vla_extents);
+            return false;
+        }
+        vla_extents->declaration = declaration;
+        vla_extents->stack_pointer = RCC_IR_VALUE_NONE;
+        vla_extents->has_dynamic_storage = false;
+        vla_extents->previous_scope = context->vla_allocations;
+        vla_extents->allocated_next =
+            context->allocated_vla_allocations;
+        context->allocated_vla_allocations = vla_extents;
+        context->vla_allocations = vla_extents;
     }
     if (is_supported_vla) {
         RccIrLowerVlaAllocation* vla_allocation =
@@ -19375,6 +19439,7 @@ static bool lower_declaration(RccIrLowerContext* context,
             (uint64_t)declaration->type->base->align);
         dynamic_allocation->source_declaration = declaration;
         vla_allocation->stack_pointer = stack_pointer.value;
+        vla_allocation->has_dynamic_storage = true;
         vla_allocation->previous_scope = context->vla_allocations;
         vla_allocation->allocated_next =
             context->allocated_vla_allocations;

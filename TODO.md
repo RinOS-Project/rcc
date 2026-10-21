@@ -7769,3 +7769,24 @@ remains a separate open item.
       two pointers to VLA objects remain open, along with explicit memory
       orders, other atomic RMW operators, floating/aggregate atomics, and
       general C++ atomics.
+
+## RCC continuation (2026-10-21, typed-SSA pointer-to-VLA extents)
+
+- [x] Capture the runtime byte extent at local pointer-to-VLA declaration in
+      typed SSA. Plain pointer addition/subtraction, commuted addition,
+      compound updates, and atomic prefix/postfix/compound updates use that
+      captured stride after the source bound changes.
+- [x] Track variably-modified pointer declarations in scope-exit restoration
+      and goto analysis without treating extent-only entries as dynamic stack
+      allocations. Reject goto into a variably-modified pointer scope and
+      preserve valid goto exits from that scope.
+- [x] Regressions compare exact byte offsets after changing the bound and
+      cover pointer-scope goto. `test-verified-vla-local-bound` emits all five
+      functions with zero fallback for i686/AMD64 at `-O0`/`-O1`/`-O2` and
+      executes AMD64 objects at all three levels. `test-vla-semantics`,
+      `test-verified-atomic-vla-rmw`, `test-verified-goto`, and both GCC C17
+      fixture oracles pass.
+- [ ] Typed-SSA VLA pointer parameters and subtraction of two pointers to VLA
+      objects remain open, as do explicit atomic memory orders, other atomic
+      RMW operators, floating/aggregate atomics, general C++ atomics, and the
+      complete non-hardware `test-ci` gate.

@@ -20809,7 +20809,7 @@ static void sema_collect_vla_gotos(Stmt* statement, SemaVlaPath** active,
         }
         case STMT_DECL:
             if (statement->decl && statement->decl->kind == DECL_VAR &&
-                statement->decl->var_is_vla) {
+                sema_type_is_variably_modified(statement->decl->type)) {
                 SemaVlaPath* path = rcc_alloc(sizeof(*path));
                 path->previous = *active;
                 path->allocation_next = context->allocations;
@@ -20839,7 +20839,7 @@ static void sema_validate_vla_gotos(Stmt* statement) {
         }
         if (path != label->path) {
             rcc_error(item->statement->loc,
-                      "goto enters a variable-length array scope");
+                      "goto enters the scope of a variably modified identifier");
         } else {
             item->statement->goto_vla_count = count;
         }
