@@ -3823,8 +3823,8 @@ static void verify_static_local_tls_object(const char* path, uint16_t arch)
             ++guard_relocation_count;
         }
     }
-    assert(tls_symbol_count >= 3u && guard_symbol_count == 1u &&
-           tls_relocation_count >= 3u && guard_relocation_count >= 1u);
+    assert(tls_symbol_count >= 6u && guard_symbol_count == 2u &&
+           tls_relocation_count >= 6u && guard_relocation_count >= 2u);
     for (size_t index = 0u;
          index < sizeof(required_runtime_symbols) /
                      sizeof(required_runtime_symbols[0]); ++index) {

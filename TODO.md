@@ -655,11 +655,12 @@
         verified-backend fallback for i686/AMD64 at both optimization levels.
         aggregate and object-destruction cases remain separate.
   - [x] Support dynamically initialized function-local C++ `thread_local`
-        integer scalars in legacy and verified backends. Keep the guard and
-        object in TLS, register guard-abort cleanup before evaluating the
-        initializer, and release only after success. GCC and RCC-generated
+        integer and pointer scalars in legacy and verified backends. Keep each
+        guard and object in TLS, register guard-abort cleanup before evaluating
+        the initializer, and release only after success. GCC and RCC-generated
         x64 host code verify throw/abort/retry/reuse in two fresh pthreads;
-        legacy i686/AMD64 objects and verified SSA at `-O0`/`-O2` emit the TLS
+        pointer checks confirm each thread retains its own TLS address. Legacy
+        i686/AMD64 objects and verified SSA at `-O0`/`-O2` emit all TLS
         guard/value relocations and exception runtime imports without fallback.
         RinOS-target runtime integration and aggregate TLS initialization remain
         separate.

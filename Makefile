@@ -18839,14 +18839,14 @@ define CHECK_VERIFIED_STATIC_LOCAL_EMISSION
 %WINDIR%\System32\findstr.exe /l /c:"Verified backend: 12 function(s) emitted" "$(subst /,\,$(1))" >NUL
 endef
 define CHECK_VERIFIED_STATIC_LOCAL_TLS_EMISSION
-%WINDIR%\System32\findstr.exe /l /c:"Verified backend: 4 function(s) emitted" "$(subst /,\,$(1))" >NUL
+%WINDIR%\System32\findstr.exe /l /c:"Verified backend: 6 function(s) emitted" "$(subst /,\,$(1))" >NUL
 endef
 else
 define CHECK_VERIFIED_STATIC_LOCAL_EMISSION
 grep -F -q 'Verified backend: 12 function(s) emitted' "$(1)"
 endef
 define CHECK_VERIFIED_STATIC_LOCAL_TLS_EMISSION
-grep -F -q 'Verified backend: 4 function(s) emitted' "$(1)"
+grep -F -q 'Verified backend: 6 function(s) emitted' "$(1)"
 endef
 endif
 
