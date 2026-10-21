@@ -2923,6 +2923,16 @@ static bool lower_store_address(RccIrLowerContext* context,
                                 RccIrLowerValue value) {
     RccIrValue operands[2];
     if (!address.valid || !value.valid) return false;
+    if (address.atomic_access && value.type.kind == RCC_IR_TYPE_FLOAT &&
+        (value.type.bit_width == 32u ||
+         (value.type.bit_width == 64u && g_opts.target_arch == ARCH_X64))) {
+        RccIrType integer_type = rcc_ir_type_integer(value.type.bit_width);
+        RccIrInstruction* bitcast = lower_append(
+            context, RCC_IR_BITCAST, integer_type,
+            &value.value, 1u, NULL, 0u);
+        if (!bitcast) return false;
+        value = lower_value(bitcast->result, integer_type, true);
+    }
     operands[0] = value.value;
     operands[1] = address.value;
     {
@@ -9984,6 +9994,56 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
     return lower_cast(context, result, expression->type);
 }
 
+static bool lower_atomic_representation_type(
+    RccIrType object_type, RccIrType* operation_type) {
+    if (!operation_type) return false;
+    if (object_type.kind == RCC_IR_TYPE_INTEGER) {
+        if (object_type.bit_width != 8u && object_type.bit_width != 16u &&
+            object_type.bit_width != 32u &&
+            (object_type.bit_width != 64u ||
+             g_opts.target_arch != ARCH_X64)) {
+            return false;
+        }
+        *operation_type = object_type;
+        return true;
+    }
+    if (object_type.kind == RCC_IR_TYPE_POINTER) {
+        *operation_type = object_type;
+        return true;
+    }
+    if (object_type.kind == RCC_IR_TYPE_FLOAT &&
+        (object_type.bit_width == 32u ||
+         (object_type.bit_width == 64u &&
+          g_opts.target_arch == ARCH_X64))) {
+        *operation_type = rcc_ir_type_integer(object_type.bit_width);
+        return true;
+    }
+    return false;
+}
+
+static RccIrLowerValue lower_atomic_representation_cast(
+    RccIrLowerContext* context, RccIrLowerValue value,
+    RccIrType target_type) {
+    RccIrInstruction* bitcast;
+    if (!context || !value.valid) return lower_invalid_value();
+    if (rcc_ir_type_equal(value.type, target_type)) return value;
+    if (!((value.type.kind == RCC_IR_TYPE_FLOAT &&
+           target_type.kind == RCC_IR_TYPE_INTEGER) ||
+          (value.type.kind == RCC_IR_TYPE_INTEGER &&
+           target_type.kind == RCC_IR_TYPE_FLOAT)) ||
+        value.type.bit_width != target_type.bit_width) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    bitcast = lower_append(
+        context, RCC_IR_BITCAST, target_type,
+        &value.value, 1u, NULL, 0u);
+    return bitcast
+        ? lower_value(bitcast->result, target_type,
+                      target_type.kind == RCC_IR_TYPE_INTEGER)
+        : lower_invalid_value();
+}
+
 static RccIrLowerValue lower_atomic_exchange_call(
     RccIrLowerContext* context, const Expr* expression,
     bool generic_builtin) {
@@ -10001,6 +10061,7 @@ static RccIrLowerValue lower_atomic_exchange_call(
     Type* desired_type = NULL;
     Type* result_pointer_type = NULL;
     Type* result_type = NULL;
+    RccIrType object_ir_type;
     RccIrType exchange_type;
     RccIrLowerValue object_address;
     RccIrLowerValue desired_address = lower_invalid_value();
@@ -10036,18 +10097,11 @@ static RccIrLowerValue lower_atomic_exchange_call(
                 result_pointer_type->kind == TYPE_PTR
             ? result_pointer_type->base : NULL;
     }
-    if (!object_type || !lower_type(object_type, &exchange_type) ||
+    if (!object_type || !lower_type(object_type, &object_ir_type) ||
+        !lower_atomic_representation_type(object_ir_type, &exchange_type) ||
         (generic_builtin && (!desired_type || !result_type ||
          !type_is_compatible(object_type, desired_type) ||
-         !type_is_compatible(object_type, result_type))) ||
-        (exchange_type.kind != RCC_IR_TYPE_INTEGER &&
-         exchange_type.kind != RCC_IR_TYPE_POINTER) ||
-        (exchange_type.kind == RCC_IR_TYPE_INTEGER &&
-         exchange_type.bit_width != 8u &&
-         exchange_type.bit_width != 16u &&
-         exchange_type.bit_width != 32u &&
-         (exchange_type.bit_width != 64u ||
-          g_opts.target_arch != ARCH_X64))) {
+         !type_is_compatible(object_type, result_type)))) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -10095,6 +10149,8 @@ static RccIrLowerValue lower_atomic_exchange_call(
         }
     }
     desired = lower_cast(context, desired, object_type);
+    desired = lower_atomic_representation_cast(
+        context, desired, exchange_type);
     if (!desired.valid || !rcc_ir_type_equal(desired.type, exchange_type)) {
         context->unsupported = true;
         return lower_invalid_value();
@@ -10105,10 +10161,15 @@ static RccIrLowerValue lower_atomic_exchange_call(
         context, RCC_IR_ATOMIC_EXCHANGE, exchange_type,
         operands, 2u, NULL, 0u);
     if (!exchange) return lower_invalid_value();
+    {
+        RccIrLowerValue old_value = lower_atomic_representation_cast(
+            context,
+            lower_value(exchange->result, exchange_type,
+                        object_type->kind == TYPE_PTR ||
+                            object_type->is_unsigned),
+            object_ir_type);
+        if (!old_value.valid) return lower_invalid_value();
     if (generic_builtin) {
-        RccIrLowerValue old_value = lower_value(
-            exchange->result, exchange_type,
-            object_type->kind == TYPE_PTR || object_type->is_unsigned);
         RccIrLowerValue void_result = lower_invalid_value();
         if (!lower_store_address(context, result_address, old_value)) {
             context->unsupported = true;
@@ -10117,9 +10178,8 @@ static RccIrLowerValue lower_atomic_exchange_call(
         void_result.valid = true;
         return void_result;
     }
-    return lower_value(
-        exchange->result, exchange_type,
-        object_type->kind == TYPE_PTR || object_type->is_unsigned);
+        return lower_cast(context, old_value, expression->type);
+    }
 }
 
 static RccIrLowerValue lower_atomic_compare_exchange_call(
@@ -10142,6 +10202,7 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
     Type* expected_type;
     Type* desired_pointer_type = NULL;
     Type* desired_type = NULL;
+    RccIrType object_ir_type;
     RccIrType atomic_type;
     RccIrLowerValue object_address;
     RccIrLowerValue expected_address;
@@ -10186,13 +10247,8 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
         !type_is_compatible(object_type, expected_type) ||
         (generic_builtin && (!desired_type ||
          !type_is_compatible(object_type, desired_type))) ||
-        !lower_type(object_type, &atomic_type) ||
-        (atomic_type.kind == RCC_IR_TYPE_INTEGER &&
-         atomic_type.bit_width != 8u && atomic_type.bit_width != 16u &&
-         atomic_type.bit_width != 32u &&
-         (atomic_type.bit_width != 64u || g_opts.target_arch != ARCH_X64)) ||
-        (atomic_type.kind != RCC_IR_TYPE_INTEGER &&
-         atomic_type.kind != RCC_IR_TYPE_POINTER)) {
+        !lower_type(object_type, &object_ir_type) ||
+        !lower_atomic_representation_type(object_ir_type, &atomic_type)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -10243,8 +10299,12 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
         return lower_invalid_value();
     }
     desired = lower_cast(context, desired, object_type);
+    expected = lower_atomic_representation_cast(
+        context, expected, atomic_type);
+    desired = lower_atomic_representation_cast(
+        context, desired, atomic_type);
     if (!desired.valid || !rcc_ir_type_equal(desired.type, atomic_type) ||
-        !rcc_ir_type_equal(expected.type, atomic_type)) {
+        !expected.valid || !rcc_ir_type_equal(expected.type, atomic_type)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -10276,11 +10336,18 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
     }
     context->current = failure_block;
     context->terminated = false;
-    if (!lower_store_address(context, expected_address,
-                             lower_value(operation->result, atomic_type,
-                                         object_type->is_unsigned)) ||
+    {
+        RccIrLowerValue observed = lower_atomic_representation_cast(
+            context,
+            lower_value(operation->result, atomic_type,
+                        atomic_type.kind == RCC_IR_TYPE_POINTER ||
+                            object_type->is_unsigned),
+            object_ir_type);
+        if (!observed.valid ||
+            !lower_store_address(context, expected_address, observed) ||
         !lower_branch(context, merge_block->id)) {
-        return lower_invalid_value();
+            return lower_invalid_value();
+        }
     }
     context->current = merge_block;
     context->terminated = false;
@@ -10419,7 +10486,11 @@ static RccIrLowerValue lower_atomic_load_store_call(
         (generic_builtin && (!value_type ||
          !type_is_compatible(object_type, value_type))) ||
         (atomic_type.kind != RCC_IR_TYPE_INTEGER &&
-         atomic_type.kind != RCC_IR_TYPE_POINTER) ||
+         atomic_type.kind != RCC_IR_TYPE_POINTER &&
+         !(atomic_type.kind == RCC_IR_TYPE_FLOAT &&
+           (atomic_type.bit_width == 32u ||
+            (atomic_type.bit_width == 64u &&
+             g_opts.target_arch == ARCH_X64)))) ||
         (atomic_type.kind == RCC_IR_TYPE_INTEGER &&
          atomic_type.bit_width != 8u &&
          atomic_type.bit_width != 16u &&
@@ -10446,9 +10517,7 @@ static RccIrLowerValue lower_atomic_load_store_call(
         !order.valid || order.type.kind != RCC_IR_TYPE_INTEGER ||
         (generic_builtin && (!value_address.valid ||
          value_address.type.kind != RCC_IR_TYPE_POINTER)) ||
-        (is_store && !generic_builtin && (!value.valid ||
-                      (value.type.kind != RCC_IR_TYPE_INTEGER &&
-                       value.type.kind != RCC_IR_TYPE_POINTER)))) {
+        (is_store && !generic_builtin && !value.valid)) {
         context->unsupported = true;
         return lower_invalid_value();
     }

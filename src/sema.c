@@ -2012,6 +2012,13 @@ static bool atomic_allows_pointer_value(const char* name) {
            strcmp(name, "__sync_swap") == 0;
 }
 
+static bool atomic_allows_floating_value(const char* name) {
+    return strcmp(name, "__atomic_load") == 0 ||
+           strcmp(name, "__atomic_store") == 0 ||
+           strcmp(name, "__atomic_exchange") == 0 ||
+           strcmp(name, "__atomic_compare_exchange") == 0;
+}
+
 /* ═══════════════════════════════════════
  * Type Checking Helpers
  * ═══════════════════════════════════════ */
@@ -19027,6 +19034,7 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     if (requires_pointer) {
         bool pointer_value;
         bool integer_value;
+        bool floating_value;
         pointer_type = expr->call_args ? expr->call_args->expr->type : NULL;
         pointer_value = pointer_type && pointer_type->kind == TYPE_PTR &&
             pointer_type->base && pointer_type->base->kind == TYPE_PTR &&
@@ -19037,8 +19045,16 @@ static bool sema_atomic_builtin_call(Expr* expr) {
              pointer_type->base->size == 2u ||
              pointer_type->base->size == 4u ||
              pointer_type->base->size == 8u);
+        floating_value = pointer_type && pointer_type->kind == TYPE_PTR &&
+            pointer_type->base &&
+            (pointer_type->base->kind == TYPE_FLOAT ||
+             pointer_type->base->kind == TYPE_DOUBLE) &&
+            atomic_allows_floating_value(name) &&
+            (pointer_type->base->size == 4u ||
+             (pointer_type->base->size == 8u &&
+              g_opts.target_arch == ARCH_X64));
         if (!pointer_type || pointer_type->kind != TYPE_PTR ||
-            (!integer_value && !pointer_value)) {
+            (!integer_value && !pointer_value && !floating_value)) {
             rcc_error(expr->loc,
                       "%s requires a supported lock-free object pointer",
                       name);
@@ -19048,9 +19064,10 @@ static bool sema_atomic_builtin_call(Expr* expr) {
                     strcmp(name, "__atomic_compare_exchange") == 0) &&
                    (!pointer_type->base ||
                     (!type_is_integer(pointer_type->base) &&
-                     pointer_type->base->kind != TYPE_PTR))) {
+                     pointer_type->base->kind != TYPE_PTR &&
+                     !floating_value))) {
             rcc_error(expr->loc,
-                      "%s requires a lock-free integer or pointer object type",
+                      "%s requires a supported lock-free scalar object type",
                       name);
         } else if ((strcmp(name, "__atomic_test_and_set") == 0 ||
                     strcmp(name, "__atomic_clear") == 0) &&
