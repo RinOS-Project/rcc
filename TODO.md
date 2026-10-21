@@ -7751,3 +7751,21 @@ remains a separate open item.
 - [ ] Typed-SSA lowering for dynamic VLA pointer strides remains open, as do
       explicit memory orders, other RMW operators, floating/aggregate atomics,
       general C++ atomic operations, and broader VLA pointer arithmetic.
+
+## RCC continuation (2026-10-21, VLA pointer offsets)
+
+- [x] Support pointer `p + n`, `p - n`, `p += n`, and `p -= n` when `p` points
+      to a complete VLA object. C semantic checks now accept these complete
+      variably-modified element types; both i686 and AMD64 legacy code generators
+      scale by the declaration-captured extent, including atomic pointer
+      compound assignments. Array-expression decay and commuted `n + p` are
+      covered too.
+- [x] Extend `test-verified-atomic-vla-rmw` to exercise plain and atomic VLA
+      pointers, both addition orders, subtraction, compound updates, and a
+      changed bound variable. Compilation/fallback counts pass for i686/AMD64
+      at `-O0`/`-O2`; both AMD64 objects execute successfully and the same C17
+      fixture passes GCC's native oracle.
+- [ ] Typed-SSA lowering for dynamic VLA pointer strides and subtraction of
+      two pointers to VLA objects remain open, along with explicit memory
+      orders, other atomic RMW operators, floating/aggregate atomics, and
+      general C++ atomics.

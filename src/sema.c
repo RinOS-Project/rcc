@@ -2295,8 +2295,8 @@ static bool is_pointer_arithmetic_type(Type* type) {
 }
 
 /* A VLA's complete object size is known at run time even though its
- * translation-time `size` field is not positive.  Pointer ++/-- can use the
- * extent captured for the variably-modified type at its declaration. */
+ * translation-time `size` field is not positive. Pointer arithmetic can use
+ * the extent captured for the variably-modified type at its declaration. */
 static bool is_complete_vla_object_type(Type* type) {
     if (!type) return false;
     if (type->kind == TYPE_ARRAY) {
@@ -2312,13 +2312,16 @@ static bool is_vla_array_type(Type* type) {
            (type->array_bound || is_vla_array_type(type->base));
 }
 
-static bool is_pointer_increment_type(Type* type) {
+static bool is_pointer_offset_type(Type* type) {
     Type* base = get_pointer_base(type);
     return base && base->kind != TYPE_VOID && base->kind != TYPE_FUNC &&
            (base->size > 0 ||
-            (base->kind == TYPE_ARRAY &&
-             is_vla_array_type(base) &&
+            (base->kind == TYPE_ARRAY && is_vla_array_type(base) &&
              is_complete_vla_object_type(base)));
+}
+
+static bool is_pointer_increment_type(Type* type) {
+    return is_pointer_offset_type(type);
 }
 
 static Type* generic_selection_type(Type* type) {
@@ -15330,14 +15333,14 @@ static Type* sema_expr(Expr* expr) {
                           "nullptr does not support arithmetic operators");
                 expr->type = type_int;
             } else if (left_pointer && type_is_integer(rt)) {
-                if (!is_pointer_arithmetic_type(lt)) {
+                if (!is_pointer_offset_type(lt)) {
                     rcc_error(expr->loc,
                               "pointer arithmetic requires a complete object type");
                 }
                 expr->type = left_result;
             } else if (type_is_integer(lt) && right_pointer &&
                        expr->kind == EXPR_ADD) {
-                if (!is_pointer_arithmetic_type(rt)) {
+                if (!is_pointer_offset_type(rt)) {
                     rcc_error(expr->loc,
                               "pointer arithmetic requires a complete object type");
                 }
@@ -15696,7 +15699,7 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc,
                           "nullptr does not support arithmetic operators");
             } else if (!((type_is_pointer(lt) &&
-                          is_pointer_arithmetic_type(lt) &&
+                          is_pointer_offset_type(lt) &&
                           type_is_integer(rt)) ||
                   (sema_is_arithmetic_type(lt) &&
                    sema_is_arithmetic_type(rt)))) {

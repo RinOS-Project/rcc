@@ -1339,7 +1339,8 @@ static void gen64_vla_extent_for_expr(Module* mod, Type* type,
 }
 
 static bool gen64_pointer_stride_is_dynamic(const Type* type) {
-    return type && type->kind == TYPE_PTR && type->base &&
+    return type && (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
+           type->base &&
            type->base->kind == TYPE_ARRAY &&
            gen64_type_has_vla(type->base);
 }
@@ -7871,6 +7872,54 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                        gen64_float_width(expr->type));
                 break;
             }
+            {
+                Expr* pointer_expr = NULL;
+                Expr* index_expr = NULL;
+                Type* pointer_type = NULL;
+                bool pointer_on_left =
+                    gen64_pointer_stride_is_dynamic(
+                        expr->binary_lhs->type) &&
+                    type_is_integer(expr->binary_rhs->type);
+                if (pointer_on_left) {
+                    pointer_expr = expr->binary_lhs;
+                    index_expr = expr->binary_rhs;
+                    pointer_type = pointer_expr->type;
+                } else if (type_is_integer(expr->binary_lhs->type) &&
+                           gen64_pointer_stride_is_dynamic(
+                               expr->binary_rhs->type)) {
+                    pointer_expr = expr->binary_rhs;
+                    index_expr = expr->binary_lhs;
+                    pointer_type = pointer_expr->type;
+                }
+                if (pointer_expr) {
+                    if (pointer_on_left) {
+                        gen64_expr(mod, pointer_expr);
+                        emit64_push_reg(mod, RAX);
+                        emit64_push_reg(mod, RAX);
+                        gen64_expr(mod, index_expr);
+                        emit64_push_reg(mod, RAX);
+                        emit64_push_reg(mod, RAX);
+                    } else {
+                        gen64_expr(mod, index_expr);
+                        emit64_push_reg(mod, RAX);
+                        emit64_push_reg(mod, RAX);
+                        gen64_expr(mod, pointer_expr);
+                        emit64_push_reg(mod, RAX);
+                        emit64_push_reg(mod, RAX);
+                    }
+                    gen64_vla_extent_for_expr(
+                        mod, pointer_type->base, pointer_expr);
+                    emit64_mov_reg_reg(mod, RDX, RAX);
+                    emit64_mov_reg_mem(mod, RCX, RSP,
+                                       pointer_on_left ? 8 : 24);
+                    emit64_imul_reg_reg(mod, RCX, RDX);
+                    emit64_mov_reg_mem(mod, RAX, RSP,
+                                       pointer_on_left ? 24 : 8);
+                    emit64_add_reg_reg(mod, RAX, RCX);
+                    emit64_add_reg_imm(mod, RSP, 32);
+                    break;
+                }
+            }
             gen64_expr(mod, expr->binary_lhs);
             emit64_push_reg(mod, RAX);
             gen64_expr(mod, expr->binary_rhs);
@@ -7904,6 +7953,25 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_pop_reg(mod, RAX);
                 gen64_float_binary_raw(mod, 0x5C,
                                        gen64_float_width(expr->type));
+                break;
+            }
+            if (gen64_pointer_stride_is_dynamic(expr->binary_lhs->type) &&
+                type_is_integer(expr->binary_rhs->type)) {
+                gen64_expr(mod, expr->binary_lhs);
+                emit64_push_reg(mod, RAX);
+                emit64_push_reg(mod, RAX);
+                gen64_expr(mod, expr->binary_rhs);
+                emit64_push_reg(mod, RAX);
+                emit64_push_reg(mod, RAX);
+                gen64_vla_extent_for_expr(
+                    mod, expr->binary_lhs->type->base,
+                    expr->binary_lhs);
+                emit64_mov_reg_reg(mod, RDX, RAX);
+                emit64_mov_reg_mem(mod, RCX, RSP, 8);
+                emit64_imul_reg_reg(mod, RCX, RDX);
+                emit64_mov_reg_mem(mod, RAX, RSP, 24);
+                emit64_sub_reg_reg(mod, RAX, RCX);
+                emit64_add_reg_imm(mod, RSP, 32);
                 break;
             }
             gen64_expr(mod, expr->binary_lhs);
@@ -8359,7 +8427,18 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     break;
                 }
                 gen64_expr(mod, expr->binary_rhs);
-                emit64_scale_reg(mod, RAX, scale);
+                if (gen64_pointer_stride_is_dynamic(type)) {
+                    emit64_push_reg(mod, RAX);
+                    emit64_push_reg(mod, RAX);
+                    gen64_vla_extent_for_expr(
+                        mod, type->base, expr->binary_lhs);
+                    emit64_mov_reg_reg(mod, RCX, RAX);
+                    emit64_mov_reg_mem(mod, RAX, RSP, 8);
+                    emit64_imul_reg_reg(mod, RAX, RCX);
+                    emit64_add_reg_imm(mod, RSP, 16);
+                } else {
+                    emit64_scale_reg(mod, RAX, scale);
+                }
                 if (expr->kind == EXPR_SUB_ASSIGN) emit64_neg_reg(mod, RAX);
                 emit64_push_reg(mod, RAX);
                 gen64_lvalue(mod, expr->binary_lhs);
@@ -8420,13 +8499,27 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             uint32_t scale = gen64_pointer_element_size(
                 expr->binary_lhs->type);
+            bool dynamic_scale = gen64_pointer_stride_is_dynamic(
+                expr->binary_lhs->type);
             gen64_lvalue(mod, expr->binary_lhs);
             emit64_push_reg(mod, RAX);
             emit64_load_typed(mod, RAX, RAX, 0,
                               expr->binary_lhs->type);
             emit64_push_reg(mod, RAX);
             gen64_expr(mod, expr->binary_rhs);
-            emit64_scale_reg(mod, RAX, scale);
+            if (dynamic_scale) {
+                emit64_push_reg(mod, RAX);
+                emit64_push_reg(mod, RAX);
+                gen64_vla_extent_for_expr(
+                    mod, expr->binary_lhs->type->base,
+                    expr->binary_lhs);
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_mov_reg_mem(mod, RAX, RSP, 8);
+                emit64_imul_reg_reg(mod, RAX, RCX);
+                emit64_add_reg_imm(mod, RSP, 16);
+            } else {
+                emit64_scale_reg(mod, RAX, scale);
+            }
             emit64_mov_reg_reg(mod, RDX, RAX);
             emit64_pop_reg(mod, RAX);
             if (expr->kind == EXPR_ADD_ASSIGN) {

@@ -4808,7 +4808,8 @@ static void gen_vla_extent_for_expr(Module* mod, Type* type,
 }
 
 static bool pointer_stride_is_dynamic(const Type* type) {
-    return type && type->kind == TYPE_PTR && type->base &&
+    return type && (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
+           type->base &&
            type->base->kind == TYPE_ARRAY &&
            codegen_type_has_vla(type->base);
 }
@@ -13464,6 +13465,53 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 emit_x87_binary_stack(mod, arithmetic_type, EXPR_ADD);
                 break;
             }
+            {
+                Expr* pointer_expr = NULL;
+                Expr* index_expr = NULL;
+                Type* pointer_type = NULL;
+                bool pointer_on_left =
+                    pointer_stride_is_dynamic(expr->binary_lhs->type) &&
+                    type_is_integer(expr->binary_rhs->type);
+                if (pointer_on_left) {
+                    pointer_expr = expr->binary_lhs;
+                    index_expr = expr->binary_rhs;
+                    pointer_type = pointer_expr->type;
+                } else if (type_is_integer(expr->binary_lhs->type) &&
+                           pointer_stride_is_dynamic(
+                               expr->binary_rhs->type)) {
+                    pointer_expr = expr->binary_rhs;
+                    index_expr = expr->binary_lhs;
+                    pointer_type = pointer_expr->type;
+                }
+                if (pointer_expr) {
+                    if (pointer_on_left) {
+                        gen_expr(mod, pointer_expr);
+                        emit_push_reg(mod, EAX);
+                        emit_push_reg(mod, EAX);
+                        gen_expr(mod, index_expr);
+                        emit_push_reg(mod, EAX);
+                        emit_push_reg(mod, EAX);
+                    } else {
+                        gen_expr(mod, index_expr);
+                        emit_push_reg(mod, EAX);
+                        emit_push_reg(mod, EAX);
+                        gen_expr(mod, pointer_expr);
+                        emit_push_reg(mod, EAX);
+                        emit_push_reg(mod, EAX);
+                    }
+                    gen_vla_extent_for_expr(
+                        mod, pointer_type->base, pointer_expr);
+                    emit_mov_reg_reg(mod, EDX, EAX);
+                    emit_mov_reg_mem(mod, ECX, ESP,
+                                     pointer_on_left ? 4 : 12);
+                    emit_imul_reg_reg(mod, ECX, EDX);
+                    emit_mov_reg_mem(mod, EAX, ESP,
+                                     pointer_on_left ? 12 : 4);
+                    emit_add_reg_reg(mod, EAX, ECX);
+                    emit_add_reg_imm(mod, ESP, 16);
+                    break;
+                }
+            }
             gen_expr(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->binary_rhs);
@@ -13502,6 +13550,25 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                     emit_push_reg(mod, EAX);
                 }
                 emit_x87_binary_stack(mod, arithmetic_type, EXPR_SUB);
+                break;
+            }
+            if (pointer_stride_is_dynamic(expr->binary_lhs->type) &&
+                type_is_integer(expr->binary_rhs->type)) {
+                gen_expr(mod, expr->binary_lhs);
+                emit_push_reg(mod, EAX);
+                emit_push_reg(mod, EAX);
+                gen_expr(mod, expr->binary_rhs);
+                emit_push_reg(mod, EAX);
+                emit_push_reg(mod, EAX);
+                gen_vla_extent_for_expr(
+                    mod, expr->binary_lhs->type->base,
+                    expr->binary_lhs);
+                emit_mov_reg_reg(mod, EDX, EAX);
+                emit_mov_reg_mem(mod, ECX, ESP, 4);
+                emit_imul_reg_reg(mod, ECX, EDX);
+                emit_mov_reg_mem(mod, EAX, ESP, 12);
+                emit_sub_reg_reg(mod, EAX, ECX);
+                emit_add_reg_imm(mod, ESP, 16);
                 break;
             }
             gen_expr(mod, expr->binary_lhs);
@@ -14027,7 +14094,18 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                     break;
                 }
                 gen_expr(mod, expr->binary_rhs);
-                emit_scale_reg(mod, EAX, scale);
+                if (pointer_stride_is_dynamic(type)) {
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                    gen_vla_extent_for_expr(
+                        mod, type->base, expr->binary_lhs);
+                    emit_mov_reg_reg(mod, ECX, EAX);
+                    emit_mov_reg_mem(mod, EAX, ESP, 4);
+                    emit_imul_reg_reg(mod, EAX, ECX);
+                    emit_add_reg_imm(mod, ESP, 8);
+                } else {
+                    emit_scale_reg(mod, EAX, scale);
+                }
                 if (expr->kind == EXPR_SUB_ASSIGN) emit_neg_reg(mod, EAX);
                 emit_push_reg(mod, EAX);
                 gen_lvalue(mod, expr->binary_lhs);
@@ -14074,13 +14152,27 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             }
             uint32_t scale = codegen_pointer_element_size(
                 expr->binary_lhs->type);
+            bool dynamic_scale = pointer_stride_is_dynamic(
+                expr->binary_lhs->type);
             gen_lvalue(mod, expr->binary_lhs);
             emit_push_reg(mod, EAX);
             emit_load_typed32(mod, EAX, EAX, 0,
                               expr->binary_lhs->type);
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->binary_rhs);
-            emit_scale_reg(mod, EAX, scale);
+            if (dynamic_scale) {
+                emit_push_reg(mod, EAX);
+                emit_push_reg(mod, EAX);
+                gen_vla_extent_for_expr(
+                    mod, expr->binary_lhs->type->base,
+                    expr->binary_lhs);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_mov_reg_mem(mod, EAX, ESP, 4);
+                emit_imul_reg_reg(mod, EAX, ECX);
+                emit_add_reg_imm(mod, ESP, 8);
+            } else {
+                emit_scale_reg(mod, EAX, scale);
+            }
             emit_mov_reg_reg(mod, EDX, EAX);
             emit_pop_reg(mod, EAX);
             if (expr->kind == EXPR_ADD_ASSIGN) {

@@ -9,6 +9,12 @@ int main(void)
     int (*plain_cursor)[count] = rows;
     int (*old_plain_row)[count];
     int (*prefix_plain_row)[count];
+    int (*sum_plain_row)[count];
+    int (*reverse_sum_plain_row)[count];
+    int (*compound_plain_row)[count];
+    int (*sub_plain_row)[count];
+    int (*array_sum_row)[count];
+    int (*compound_atomic_row)[count];
     int old_value;
     int prefix_value;
     int compound_value;
@@ -28,6 +34,14 @@ int main(void)
     old_plain_row = plain_cursor++;
     prefix_plain_row = --plain_cursor;
     prefix_row = --row_cursor;
+    sum_plain_row = plain_cursor + 1;
+    reverse_sum_plain_row = 1 + plain_cursor;
+    array_sum_row = rows + 1;
+    compound_plain_row = (plain_cursor += 1);
+    sub_plain_row = plain_cursor - 1;
+    plain_cursor -= 1;
+    compound_atomic_row = (row_cursor += 1);
+    row_cursor -= 1;
 
     return old_value == 13 && values[0] == 14 &&
         prefix_value == 19 && values[1] == 16 &&
@@ -35,5 +49,10 @@ int main(void)
         subtract_value == 16 && values[2] == 6 &&
         old_row == &rows[0] && row_cursor == &rows[0] &&
         prefix_row == &rows[0] && old_plain_row == &rows[0] &&
-        plain_cursor == &rows[0] && prefix_plain_row == &rows[0] ? 0 : 1;
+        plain_cursor == &rows[0] && prefix_plain_row == &rows[0] &&
+        sum_plain_row == &rows[1] &&
+        reverse_sum_plain_row == &rows[1] &&
+        compound_plain_row == &rows[1] &&
+        array_sum_row == &rows[1] && sub_plain_row == &rows[0] &&
+        compound_atomic_row == &rows[1] ? 0 : 1;
 }
