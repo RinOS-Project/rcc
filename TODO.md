@@ -7776,9 +7776,10 @@ remains a separate open item.
 - [x] Typed-SSA lowering for dynamic VLA pointer strides and subtraction of
       two pointers to compatible complete VLA objects is implemented in the
       continuation below.
-- [ ] Typed-SSA lowering for other explicit-order atomic builtins and RMW
-      operators beyond integer fetch arithmetic and scalar exchange,
-      floating/aggregate atomics, and general C++ atomics remains open.
+- [ ] Typed-SSA lowering for explicit-order atomic builtins beyond scalar
+      integer/pointer load, store, exchange, and integer fetch arithmetic;
+      other RMW operators, generic/aggregate and floating atomics, and general
+      C++ atomic operations remain open.
 
 ## RCC continuation (2026-10-21, typed-SSA pointer-to-VLA extents)
 
@@ -7852,3 +7853,20 @@ remains a separate open item.
 - [ ] Other atomic integer RMW builtins, pointer fetch-arithmetic builtins,
       generic/aggregate atomic builtin forms, floating/aggregate atomics, and
       general C++ atomic operations remain open.
+
+## RCC continuation (2026-10-21, typed-SSA atomic load/store builtins)
+
+- [x] Lower scalar `__atomic_load_n` and `__atomic_store_n` calls directly to
+      typed SSA for 8/16/32-bit integers on i686/AMD64, 64-bit integers on
+      AMD64, and target-width pointers. Runtime order expressions are evaluated
+      exactly once; loads remain observable and stores use memory `XCHG` for
+      sequential consistency, stronger than every valid store order. Unsupported
+      widths continue through the existing complete legacy backend.
+- [x] `test-verified-atomic-fetch-add` covers integer and pointer load/store
+      with side-effecting runtime order expressions, zero verified-backend
+      fallback at `-O0`/`-O2` on both architectures, AMD64 object execution, and
+      a GCC C17 oracle. `test-atomic-builtins`, `test-atomic-language`, and
+      `test-ir` pass.
+- [ ] Other atomic integer RMW builtins, pointer fetch-arithmetic builtins,
+      generic/aggregate builtin forms, floating/aggregate atomics, and general
+      C++ atomic operations remain open.

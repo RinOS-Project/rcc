@@ -12,6 +12,8 @@ int main(void)
     _Atomic unsigned short exchange_u16 = 4660u;
     _Atomic unsigned int exchange_value = 9u;
     _Atomic(int *) exchange_cursor;
+    _Atomic unsigned int load_store_value = 51u;
+    _Atomic(int *) load_store_cursor;
 #if defined(__x86_64__)
     _Atomic unsigned long long builtin_wide = 0x10000000aULL;
     _Atomic unsigned long long exchange_wide = 0x123456789abcdef0ULL;
@@ -29,9 +31,11 @@ int main(void)
     int builtin_signed_old;
     int builtin_signed_new;
     unsigned int exchange_old;
+    unsigned int builtin_loaded;
     unsigned char exchange_u8_old;
     unsigned short exchange_u16_old;
     int *exchange_pointer_old;
+    int *builtin_loaded_pointer;
     int elements[8] = {0};
     _Atomic(int *) cursor = elements;
     int *old_pointer;
@@ -81,6 +85,17 @@ int main(void)
         &exchange_u16, 0xabcdU, builtin_order++ % 6);
     exchange_pointer_old = __atomic_exchange_n(
         &exchange_cursor, &elements[5], builtin_order++ % 6);
+    builtin_loaded = __atomic_load_n(
+        &load_store_value, builtin_order++ % 3);
+    __atomic_store_n(
+        &load_store_value, 73u,
+        builtin_order++ % 2 ? __ATOMIC_RELEASE : __ATOMIC_RELAXED);
+    load_store_cursor = &elements[2];
+    builtin_loaded_pointer = __atomic_load_n(
+        &load_store_cursor, builtin_order++ % 3);
+    __atomic_store_n(
+        &load_store_cursor, &elements[7],
+        builtin_order++ % 2 ? __ATOMIC_RELEASE : __ATOMIC_RELAXED);
 #if defined(__x86_64__)
     builtin_wide_old = __atomic_fetch_sub(
         &builtin_wide, 0x100000000ULL, builtin_order++ % 6);
@@ -100,12 +115,12 @@ int main(void)
         builtin_fetch_add == 28u && builtin_add_fetch == 35u &&
         builtin_value == 35u &&
 #if defined(__x86_64__)
-        builtin_order == 15 && builtin_wide_old == 0x10000000aULL &&
+        builtin_order == 19 && builtin_wide_old == 0x10000000aULL &&
         builtin_wide_new == 17ULL && builtin_wide == 17ULL &&
         exchange_wide_old == 0x123456789abcdef0ULL &&
         exchange_wide == 0xfedcba9876543210ULL &&
 #else
-        builtin_order == 12 &&
+        builtin_order == 16 &&
 #endif
         builtin_narrow_old == 120 && builtin_signed8 == 110 &&
         builtin_u16_old == 65530u && builtin_u16 == 4u &&
@@ -114,6 +129,9 @@ int main(void)
         exchange_u16_old == 4660u && exchange_u16 == 0xabcdU &&
         exchange_pointer_old == &elements[0] &&
         exchange_cursor == &elements[5] &&
+        builtin_loaded == 51u && load_store_value == 73u &&
+        builtin_loaded_pointer == &elements[2] &&
+        load_store_cursor == &elements[7] &&
         builtin_signed_old == -30 && builtin_signed_new == -31 &&
         builtin_signed == -31
             ? 0 : 1;

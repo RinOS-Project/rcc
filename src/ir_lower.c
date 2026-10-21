@@ -9714,6 +9714,86 @@ static RccIrLowerValue lower_atomic_exchange_call(
         object_type->kind == TYPE_PTR || object_type->is_unsigned);
 }
 
+static RccIrLowerValue lower_atomic_load_store_call(
+    RccIrLowerContext* context, const Expr* expression,
+    const char* name) {
+    const ExprList* object_argument = expression->call_args;
+    const ExprList* value_argument = object_argument
+        ? object_argument->next : NULL;
+    const ExprList* order_argument = NULL;
+    Type* object_pointer_type;
+    Type* object_type;
+    RccIrType atomic_type;
+    RccIrLowerValue object_address;
+    RccIrLowerValue value = lower_invalid_value();
+    RccIrLowerValue order;
+    bool is_store = strcmp(name, "__atomic_store_n") == 0;
+
+    if (is_store) {
+        order_argument = value_argument ? value_argument->next : NULL;
+    } else {
+        order_argument = value_argument;
+        value_argument = NULL;
+    }
+    if (!object_argument || !order_argument ||
+        order_argument->next || !object_argument->expr ||
+        !order_argument->expr || (is_store &&
+        (!value_argument || !value_argument->expr))) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_pointer_type = object_argument->expr->type;
+    object_type = object_pointer_type &&
+            object_pointer_type->kind == TYPE_PTR
+        ? object_pointer_type->base : NULL;
+    if (!object_type || !lower_type(object_type, &atomic_type) ||
+        (atomic_type.kind != RCC_IR_TYPE_INTEGER &&
+         atomic_type.kind != RCC_IR_TYPE_POINTER) ||
+        (atomic_type.kind == RCC_IR_TYPE_INTEGER &&
+         atomic_type.bit_width != 8u &&
+         atomic_type.bit_width != 16u &&
+         atomic_type.bit_width != 32u &&
+         (atomic_type.bit_width != 64u ||
+          g_opts.target_arch != ARCH_X64))) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    /* The x86 memory model makes a normal load at least acquire-ordered;
+     * the volatile IR marker keeps it observable and prevents CSE. A memory XCHG
+     * store is sequentially consistent, stronger than every valid store
+     * order. Evaluate runtime order operands once even when no fence is needed. */
+    object_address = lower_expression(context, object_argument->expr);
+    if (is_store) {
+        value = lower_expression(context, value_argument->expr);
+    }
+    order = lower_expression(context, order_argument->expr);
+    if (!object_address.valid ||
+        object_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !order.valid || order.type.kind != RCC_IR_TYPE_INTEGER ||
+        (is_store && (!value.valid ||
+                      (value.type.kind != RCC_IR_TYPE_INTEGER &&
+                       value.type.kind != RCC_IR_TYPE_POINTER)))) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_address.atomic_access = true;
+    if (!is_store) {
+        return lower_load_address(context, object_address, object_type);
+    }
+    value = lower_cast(context, value, object_type);
+    if (!value.valid || !rcc_ir_type_equal(value.type, atomic_type) ||
+        !lower_store_address(context, object_address, value)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    {
+        RccIrLowerValue void_result = lower_invalid_value();
+        void_result.valid = true;
+        return void_result;
+    }
+}
+
 static RccIrLowerValue lower_call(RccIrLowerContext* context,
                                   const Expr* expression) {
     const Decl* callee = NULL;
@@ -9750,6 +9830,16 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     bool register_temporary_cleanups = expression &&
         !expression->cxx_call_is_noexcept;
     RccIrInstruction* call;
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        (strcmp(expression->call_func->ident_name,
+                "__atomic_load_n") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_store_n") == 0)) {
+        return lower_atomic_load_store_call(
+            context, expression, expression->call_func->ident_name);
+    }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
         expression->call_func->ident_name &&
