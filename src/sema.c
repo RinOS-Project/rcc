@@ -11557,7 +11557,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
           declaration->storage == STORAGE_EXTERN))) {
         return;
     }
-    if (!declaration->var_init &&
+    if (declaration->kind != DECL_PARAM && !declaration->var_init &&
         sema_cxx_default_initialization_needs_lowering(object_type, 0)) {
         rcc_error(declaration->loc,
                   "default initialization of this C++ object requires unsupported constructor or member initialization");
@@ -21915,6 +21915,7 @@ static void sema_decl(Decl* decl) {
                     if (p->decl) {
                         sema_validate_restrict_type(p->decl->type,
                                                     p->decl->loc);
+                        sema_prepare_variable_destructor_cleanup(p->decl);
                     }
                 }
 

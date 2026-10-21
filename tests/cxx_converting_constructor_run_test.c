@@ -23,8 +23,13 @@ RIN_SYSV void rin_free(void* pointer)
 
 int main(void)
 {
+    int result;
     if (__rcc_global_init) __rcc_global_init();
-    assert(cxx_converting_constructor() == 0);
+    result = cxx_converting_constructor();
+    if (result != 0) {
+        fprintf(stderr, "C++ converting constructor test returned %d\n", result);
+    }
+    assert(result == 0);
     puts("C++ converting constructor execution test passed");
     return 0;
 }

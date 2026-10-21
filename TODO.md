@@ -8129,7 +8129,13 @@ remains a separate open item.
       members and omitted default member initializers. Verify local and global
       casts against GCC, assemble both target widths, and execute RCC AMD64 at
       default optimization and `-O2` in `test-cxx-static-cast-constructor`.
+- [x] Run nontrivial by-value class parameter destructors on both explicit
+      return and fallthrough paths. Static-cast prvalues exercise the parameter
+      lifetime; verify exact counts against GCC, i686/AMD64 generation, and
+      AMD64 default/`-O2` execution in `test-cxx-static-cast-constructor`.
 - [ ] Remaining class-target cast coverage includes other aggregate
-      parenthesized-initialization edge cases, class-prvalue uses outside
-      same-type local/static-storage initialization, and overloaded conversion
-      functions with non-exact result sequences.
+      parenthesized-initialization edge cases, guaranteed direct construction
+      and object identity for class prvalues passed by value, parameter cleanup
+      during exception unwinding, other class-prvalue uses outside same-type
+      local/static-storage initialization, and overloaded conversion functions
+      with non-exact result sequences.

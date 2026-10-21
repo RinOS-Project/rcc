@@ -92,6 +92,14 @@ static int consume(Converting object) {
     return object.value();
 }
 
+static int consume_class_cast_target(ClassCastTarget object) {
+    return object.value();
+}
+
+static void discard_class_cast_target(ClassCastTarget object) {
+    (void)object;
+}
+
     Converting global_value = 2;
 
 extern "C" int cxx_converting_constructor(void) {
@@ -129,12 +137,16 @@ extern "C" int cxx_converting_constructor(void) {
         OperatorOnlySource operator_only_source(4);
         ClassCastTarget operator_cast_value =
             static_cast<ClassCastTarget>(operator_only_source);
-        result += class_cast_value.value() + operator_cast_value.value();
+        result += class_cast_value.value() + operator_cast_value.value() +
+                  consume_class_cast_target(
+                      static_cast<ClassCastTarget>(class_source));
+        discard_class_cast_target(
+            static_cast<ClassCastTarget>(class_source));
     }
-    if (class_cast_target_destructor_count != 2) {
+    if (class_cast_target_destructor_count != 4) {
         delete heap_value;
-        return 1;
+        return 100 + class_cast_target_destructor_count;
     }
     delete heap_value;
-    return result == 964 ? 0 : 1;
+    return result == 1264 ? 0 : 200;
 }

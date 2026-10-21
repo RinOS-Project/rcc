@@ -13517,6 +13517,13 @@ static void gen64_function(Module* mod, Decl* decl) {
         }
         stack_size = (int)parameter_frame_size;
     }
+    for (DeclList* parameter = decl->func_params; parameter;
+         parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->var_cleanups) {
+            codegen_assign_cleanup_plan(parameter->decl->var_cleanups,
+                                        &stack_size, 8);
+        }
+    }
     stack_size = codegen_assign_local_vla_extent_slots(
         decl->func_body, stack_size, 8);
     stack_size = codegen_assign_compound_storage(decl->func_body, stack_size,
@@ -13677,12 +13684,26 @@ static void gen64_function(Module* mod, Decl* decl) {
     break_vla_marker64 = NULL;
     continue_vla_marker64 = NULL;
     named_codegen_labels64 = NULL;
+    for (DeclList* parameter = decl->func_params; parameter;
+         parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->var_cleanups) {
+            CleanupCodegen64* cleanup = rcc_alloc(sizeof(*cleanup));
+            cleanup->plan = parameter->decl->var_cleanups;
+            cleanup->previous = active_cleanups64;
+            cleanup->guard_abort = NULL;
+            cleanup->declaration = parameter->decl;
+            cleanup->exception_frame_offset = INT_MAX;
+            cleanup->exception_registered = false;
+            active_cleanups64 = cleanup;
+        }
+    }
     /* Constructor storage initialization is emitted by the complete-object
      * caller.  The constructor symbol itself contains only the user body;
      * this lets a derived constructor invoke a base constructor without
      * reconstructing virtual bases that the most-derived caller already
      * initialized. */
     gen64_stmt(mod, decl->func_body);
+    gen64_cleanups_until(mod, NULL);
     gen64_cxx_destroy_current_function_subobjects(mod);
     discard64_cleanups_until(NULL);
     discard64_vla_scopes_until(NULL);
