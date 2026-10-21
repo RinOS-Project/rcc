@@ -5063,6 +5063,21 @@ static bool debug_build_inline_integer_value_expression(
                 architecture);
     }
 
+    if (expression->kind == EXPR_NEG && expression->unary_operand &&
+        debug_inline_integer_expression_type(
+            expression->unary_operand->type) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->unary_operand->type, expression->type, 0u) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->unary_operand, output, capacity,
+            output_size, depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            output, capacity, output_size, 0x1fu) && /* DW_OP_neg */
+        debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture)) {
+        return true;
+    }
+
     if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
          expression->kind == EXPR_MUL) &&
         expression->binary_lhs && expression->binary_rhs &&
@@ -5102,7 +5117,8 @@ static bool debug_inline_parameter_integer_expression(
         !expression_size ||
         (argument->expr->kind != EXPR_ADD &&
          argument->expr->kind != EXPR_SUB &&
-         argument->expr->kind != EXPR_MUL) ||
+         argument->expr->kind != EXPR_MUL &&
+         argument->expr->kind != EXPR_NEG) ||
         !debug_inline_parameter_body_is_read_only(callee)) {
         return false;
     }

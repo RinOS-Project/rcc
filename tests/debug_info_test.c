@@ -8125,7 +8125,7 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     assert(object != NULL && object->arch == architecture && inline_name &&
            (expected_operation == 0x22u || expected_operation == 0x1cu ||
-            expected_operation == 0x1eu));
+            expected_operation == 0x1eu || expected_operation == 0x1fu));
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
@@ -8192,23 +8192,25 @@ static void verify_inline_integer_expression_parameter(
                expression_offset < expression_end &&
                info->data[expression_offset++] == 0x26u);
     }
-    assert(expression_offset < expression_end &&
-           info->data[expression_offset++] == 0x11u &&
-           read_sleb(info->data, expression_end, &expression_offset) ==
-               expected_constant);
-    if (architecture == ARCH_X64) {
+    if (expected_operation != 0x1fu) {
         assert(expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x10u &&
-               read_uleb(info->data, expression_end,
-                         &expression_offset) == 32u &&
-               expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x24u &&
-               expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x10u &&
-               read_uleb(info->data, expression_end,
-                         &expression_offset) == 32u &&
-               expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x26u);
+               info->data[expression_offset++] == 0x11u &&
+               read_sleb(info->data, expression_end, &expression_offset) ==
+                   expected_constant);
+        if (architecture == ARCH_X64) {
+            assert(expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x10u &&
+                   read_uleb(info->data, expression_end,
+                             &expression_offset) == 32u &&
+                   expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x24u &&
+                   expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x10u &&
+                   read_uleb(info->data, expression_end,
+                             &expression_offset) == 32u &&
+                   expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x26u);
+        }
     }
     assert(expression_offset < expression_end &&
            info->data[expression_offset++] == expected_operation);
@@ -8430,6 +8432,9 @@ int main(int argc, char** argv)
             "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu,
             3);
         verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_integer_negate_parameter_inline", 0x1fu, 0);
+        verify_inline_integer_expression_parameter(
             argv[3], ARCH_X64,
             "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
         verify_inline_integer_expression_parameter(
@@ -8440,6 +8445,9 @@ int main(int argc, char** argv)
             argv[3], ARCH_X64,
             "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu,
             3);
+        verify_inline_integer_expression_parameter(
+            argv[3], ARCH_X64,
+            "debug_nonconstant_integer_negate_parameter_inline", 0x1fu, 0);
         verify_inline_integer_expression_parameter(
             argv[4], ARCH_X86,
             "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
@@ -8452,6 +8460,9 @@ int main(int argc, char** argv)
             "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu,
             3);
         verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_integer_negate_parameter_inline", 0x1fu, 0);
+        verify_inline_integer_expression_parameter(
             argv[5], ARCH_X64,
             "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
         verify_inline_integer_expression_parameter(
@@ -8462,6 +8473,9 @@ int main(int argc, char** argv)
             argv[5], ARCH_X64,
             "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu,
             3);
+        verify_inline_integer_expression_parameter(
+            argv[5], ARCH_X64,
+            "debug_nonconstant_integer_negate_parameter_inline", 0x1fu, 0);
         return 0;
     }
     assert(argc == 44);
@@ -8612,6 +8626,9 @@ int main(int argc, char** argv)
         argv[24], ARCH_X86,
         "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu, 3);
     verify_inline_integer_expression_parameter(
+        argv[24], ARCH_X86,
+        "debug_nonconstant_integer_negate_parameter_inline", 0x1fu, 0);
+    verify_inline_integer_expression_parameter(
         argv[25], ARCH_X64,
         "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
     verify_inline_integer_expression_parameter(
@@ -8620,6 +8637,9 @@ int main(int argc, char** argv)
     verify_inline_integer_expression_parameter(
         argv[25], ARCH_X64,
         "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu, 3);
+    verify_inline_integer_expression_parameter(
+        argv[25], ARCH_X64,
+        "debug_nonconstant_integer_negate_parameter_inline", 0x1fu, 0);
     verify_inline_integer_expression_parameter(
         argv[38], ARCH_X86,
         "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
@@ -8630,6 +8650,9 @@ int main(int argc, char** argv)
         argv[38], ARCH_X86,
         "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu, 3);
     verify_inline_integer_expression_parameter(
+        argv[38], ARCH_X86,
+        "debug_nonconstant_integer_negate_parameter_inline", 0x1fu, 0);
+    verify_inline_integer_expression_parameter(
         argv[39], ARCH_X64,
         "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
     verify_inline_integer_expression_parameter(
@@ -8638,6 +8661,9 @@ int main(int argc, char** argv)
     verify_inline_integer_expression_parameter(
         argv[39], ARCH_X64,
         "debug_nonconstant_integer_multiply_parameter_inline", 0x1eu, 3);
+    verify_inline_integer_expression_parameter(
+        argv[39], ARCH_X64,
+        "debug_nonconstant_integer_negate_parameter_inline", 0x1fu, 0);
     verify_cxx_inline_nullptr_parameter(argv[40], ARCH_X86);
     verify_cxx_inline_nullptr_parameter(argv[41], ARCH_X64);
     verify_cxx_inline_nullptr_parameter(argv[42], ARCH_X86);
