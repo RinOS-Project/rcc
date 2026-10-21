@@ -79,17 +79,26 @@ static int vla_pointer_stride(void)
         atomic_cursor == &rows[0] ? 0 : 1;
 }
 
+static int vla_pointer_parameter_stride(int count, int (*rows)[count])
+{
+    count = 1;
+    return rows[1][2] == 43 ? 0 : 1;
+}
+
 int main(void)
 {
     int count = 3;
     int values[count];
+    int rows[2][3];
 
     values[0] = 7;
     values[2] = 9;
+    rows[1][2] = 43;
 
     return count == 3 && values[0] == 7 && values[2] == 9 &&
         vla_array_expression_stride() == 0 &&
         vla_pointer_declaration() == 0 &&
         vla_pointer_scope_exit() == 0 &&
-        vla_pointer_stride() == 0 ? 0 : 1;
+        vla_pointer_stride() == 0 &&
+        vla_pointer_parameter_stride(3, rows) == 0 ? 0 : 1;
 }

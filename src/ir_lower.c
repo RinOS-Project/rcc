@@ -1978,7 +1978,8 @@ static const Decl* lower_vla_owner(const Expr* expression) {
     }
     if (expression && expression->kind == EXPR_IDENT &&
         expression->ident_decl &&
-        expression->ident_decl->kind == DECL_VAR &&
+        (expression->ident_decl->kind == DECL_VAR ||
+         expression->ident_decl->kind == DECL_PARAM) &&
         lower_type_has_vla_any(expression->ident_decl->type)) {
         return expression->ident_decl;
     }
@@ -19212,6 +19213,31 @@ static RccIrLowerValue lower_supported_vla_byte_size(
     return result;
 }
 
+static bool lower_capture_vla_pointer_extent(
+    RccIrLowerContext* context, const Decl* declaration) {
+    RccIrLowerVlaAllocation* extents;
+    const Type* target;
+    RccIrLowerValue byte_extent;
+    if (!context || !declaration) return false;
+    if (!lower_supported_vla_pointer_declaration(declaration)) return true;
+    extents = rcc_alloc(sizeof(*extents));
+    target = lower_vla_pointer_target_array(declaration->type);
+    byte_extent = lower_supported_vla_byte_size(context, target, extents);
+    if (!byte_extent.valid) {
+        lower_release_vla_dimensions(extents->dimensions);
+        rcc_free(extents);
+        return false;
+    }
+    extents->declaration = declaration;
+    extents->stack_pointer = RCC_IR_VALUE_NONE;
+    extents->has_dynamic_storage = false;
+    extents->previous_scope = context->vla_allocations;
+    extents->allocated_next = context->allocated_vla_allocations;
+    context->allocated_vla_allocations = extents;
+    context->vla_allocations = extents;
+    return true;
+}
+
 static Expr* lower_rebase_reference_temporary_subobject(
     const Expr* expression, const Expr* complete_object,
     const Decl* owner, bool* replaced) {
@@ -19384,26 +19410,9 @@ static bool lower_declaration(RccIrLowerContext* context,
         context->unsupported = true;
         return false;
     }
-    if (is_supported_vla_pointer) {
-        RccIrLowerVlaAllocation* vla_extents =
-            rcc_alloc(sizeof(*vla_extents));
-        const Type* target = lower_vla_pointer_target_array(
-            declaration->type);
-        RccIrLowerValue byte_extent = lower_supported_vla_byte_size(
-            context, target, vla_extents);
-        if (!byte_extent.valid) {
-            lower_release_vla_dimensions(vla_extents->dimensions);
-            rcc_free(vla_extents);
-            return false;
-        }
-        vla_extents->declaration = declaration;
-        vla_extents->stack_pointer = RCC_IR_VALUE_NONE;
-        vla_extents->has_dynamic_storage = false;
-        vla_extents->previous_scope = context->vla_allocations;
-        vla_extents->allocated_next =
-            context->allocated_vla_allocations;
-        context->allocated_vla_allocations = vla_extents;
-        context->vla_allocations = vla_extents;
+    if (is_supported_vla_pointer &&
+        !lower_capture_vla_pointer_extent(context, declaration)) {
+        return false;
     }
     if (is_supported_vla) {
         RccIrLowerVlaAllocation* vla_allocation =
@@ -20771,6 +20780,7 @@ static bool lower_parameters(RccIrLowerContext* context,
             }
             ++index;
         }
+        if (!lower_capture_vla_pointer_extent(context, item)) return false;
         parameter = parameter->next;
     }
     return index == context->function->parameter_count;

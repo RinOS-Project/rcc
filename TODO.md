@@ -7786,9 +7786,9 @@ remains a separate open item.
       executes AMD64 objects at all three levels. `test-vla-semantics`,
       `test-verified-atomic-vla-rmw`, `test-verified-goto`, and both GCC C17
       fixture oracles pass.
-- [ ] Typed-SSA VLA pointer parameters and subtraction of two pointers to VLA
-      objects remain open, as do explicit atomic memory orders, other atomic
-      RMW operators, floating/aggregate atomics, and general C++ atomics.
+- [ ] Subtraction of two pointers to VLA objects remains open, as do explicit
+      atomic memory orders, other atomic RMW operators, floating/aggregate
+      atomics, and general C++ atomics.
 - [x] Verify every target in the complete non-hardware `TEST_CI_TARGETS` set.
       The initial `make test-ci` run passed C17, C++20, AQC, IR, and IR lowering,
       then stopped when its restricted PATH omitted the installed Clang needed
@@ -7797,3 +7797,18 @@ remains a separate open item.
       `rinvalidate`, fuzz/property gates, and dual-architecture stage0-to-stage2
       bootstrap all passed. Target-set coverage is complete across these runs;
       a single uninterrupted aggregate invocation was not repeated.
+
+## RCC continuation (2026-10-21, typed-SSA VLA pointer parameters)
+
+- [x] Capture pointer-to-VLA parameter extents after lowering their bound
+      parameters, before entering the function body. VLA pointer owner lookup
+      now includes formal parameters, so indexing and pointer arithmetic use
+      the entry-time stride even after a bound parameter is modified.
+- [x] Extend `test-verified-vla-local-bound` with a pointer-to-VLA parameter
+      regression. Six functions compile with zero fallback for i686/AMD64 at
+      `-O0`/`-O1`/`-O2`; AMD64 objects execute at all three levels and a GCC C17
+      host oracle passes. VLA semantic, IR lowering, atomic VLA RMW, and goto
+      gates pass as well.
+- [ ] Subtraction of two pointers to VLA objects, explicit atomic memory
+      orders, other atomic RMW operators, floating/aggregate atomics, and
+      general C++ atomics remain open.
