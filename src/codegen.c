@@ -13553,6 +13553,24 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 break;
             }
             if (pointer_stride_is_dynamic(expr->binary_lhs->type) &&
+                pointer_stride_is_dynamic(expr->binary_rhs->type)) {
+                gen_expr(mod, expr->binary_lhs);
+                emit_push_reg(mod, EAX);
+                gen_expr(mod, expr->binary_rhs);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_pop_reg(mod, EAX);
+                emit_sub_reg_reg(mod, EAX, ECX);
+                emit_push_reg(mod, EAX);
+                gen_vla_extent_for_expr(
+                    mod, expr->binary_lhs->type->base,
+                    expr->binary_lhs);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_pop_reg(mod, EAX);
+                emit_cdq(mod);
+                emit_idiv_reg(mod, ECX);
+                break;
+            }
+            if (pointer_stride_is_dynamic(expr->binary_lhs->type) &&
                 type_is_integer(expr->binary_rhs->type)) {
                 gen_expr(mod, expr->binary_lhs);
                 emit_push_reg(mod, EAX);

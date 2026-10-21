@@ -17428,6 +17428,14 @@ test-verified-vla-local-bound: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/vla-local-bound-x64-o1.ro
 	$(TEST_OUT)/verified-backend/vla-local-bound-run --entry \
 		$(TEST_OUT)/verified-backend/vla-local-bound-x64-o2.ro
+	$(RCC_TARGET) --target i686-unknown-rinos -O0 -c \
+		-o $(TEST_OUT)/verified-backend/vla-local-bound-legacy-x86.ro \
+		tests/verified_backend_vla_local_bound.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O0 -c \
+		-o $(TEST_OUT)/verified-backend/vla-local-bound-legacy-x64.ro \
+		tests/verified_backend_vla_local_bound.c
+	$(TEST_OUT)/verified-backend/vla-local-bound-run --entry \
+		$(TEST_OUT)/verified-backend/vla-local-bound-legacy-x64.ro
 	$(CC) -std=c17 -Wall -Wextra -Werror -O2 \
 		-o $(TEST_OUT)/verified-backend/vla-local-bound-gcc.exe \
 		tests/verified_backend_vla_local_bound.c

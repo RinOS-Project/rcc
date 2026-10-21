@@ -7956,6 +7956,24 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 break;
             }
             if (gen64_pointer_stride_is_dynamic(expr->binary_lhs->type) &&
+                gen64_pointer_stride_is_dynamic(expr->binary_rhs->type)) {
+                gen64_expr(mod, expr->binary_lhs);
+                emit64_push_reg(mod, RAX);
+                gen64_expr(mod, expr->binary_rhs);
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_pop_reg(mod, RAX);
+                emit64_sub_reg_reg(mod, RAX, RCX);
+                emit64_push_reg(mod, RAX);
+                gen64_vla_extent_for_expr(
+                    mod, expr->binary_lhs->type->base,
+                    expr->binary_lhs);
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_pop_reg(mod, RAX);
+                emit64_cqo(mod);
+                emit64_idiv_reg(mod, RCX);
+                break;
+            }
+            if (gen64_pointer_stride_is_dynamic(expr->binary_lhs->type) &&
                 type_is_integer(expr->binary_rhs->type)) {
                 gen64_expr(mod, expr->binary_lhs);
                 emit64_push_reg(mod, RAX);

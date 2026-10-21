@@ -2250,7 +2250,7 @@ static RccIrLowerValue lower_pointer_difference(
         return lower_invalid_value();
     }
     pointer_type = expression->binary_lhs->type;
-    if (!pointer_type->base || pointer_type->base->size <= 0) {
+    if (!pointer_type->base) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -2264,8 +2264,20 @@ static RccIrLowerValue lower_pointer_difference(
     difference = lower_append(context, RCC_IR_SUB, result_type,
                               operands, 2u, NULL, 0u);
     if (!difference) return lower_invalid_value();
-    scale = lower_integer_constant(
-        context, result_type, false, (uint64_t)pointer_type->base->size);
+    if (pointer_type->base->size > 0) {
+        scale = lower_integer_constant(
+            context, result_type, false,
+            (uint64_t)pointer_type->base->size);
+    } else {
+        if (!lower_type_has_vla_any(pointer_type->base) ||
+            !lower_vla_saved_byte_extent(
+                context, lower_vla_owner(expression->binary_lhs),
+                pointer_type->base, &scale) ||
+            !rcc_ir_type_equal(scale.type, result_type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+    }
     if (!scale.valid) return lower_invalid_value();
     operands[0] = difference->result;
     operands[1] = scale.value;

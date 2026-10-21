@@ -81,8 +81,11 @@ static int vla_pointer_stride(void)
 
 static int vla_pointer_parameter_stride(int count, int (*rows)[count])
 {
+    int (*next)[count];
     count = 1;
-    return rows[1][2] == 43 ? 0 : 1;
+    next = rows + 1;
+    return rows[1][2] == 43 && next - rows == 1 && rows - next == -1
+        ? 0 : 1;
 }
 
 int main(void)

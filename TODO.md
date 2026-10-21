@@ -7748,9 +7748,12 @@ remains a separate open item.
       the saved stride, and uses the complete legacy backend through the
       verified backend's existing fallback; the gate checks fallback count and
       execution rather than claiming typed-SSA coverage.
-- [ ] Typed-SSA lowering for dynamic VLA pointer strides remains open, as do
-      explicit memory orders, other RMW operators, floating/aggregate atomics,
-      general C++ atomic operations, and broader VLA pointer arithmetic.
+- [x] Typed-SSA lowering for the covered dynamic VLA pointer strides is
+      implemented for local objects and formal parameters, including pointer
+      subtraction, as recorded in the continuations below.
+- [ ] Additional VLA pointer forms beyond the covered offsets/subtraction,
+      explicit atomic memory orders, other RMW operators, floating/aggregate
+      atomics, and general C++ atomic operations remain open.
 
 ## RCC continuation (2026-10-21, VLA pointer offsets)
 
@@ -7765,10 +7768,11 @@ remains a separate open item.
       changed bound variable. Compilation/fallback counts pass for i686/AMD64
       at `-O0`/`-O2`; both AMD64 objects execute successfully and the same C17
       fixture passes GCC's native oracle.
-- [ ] Typed-SSA lowering for dynamic VLA pointer strides and subtraction of
-      two pointers to VLA objects remain open, along with explicit memory
-      orders, other atomic RMW operators, floating/aggregate atomics, and
-      general C++ atomics.
+- [x] Typed-SSA lowering for dynamic VLA pointer strides and subtraction of
+      two pointers to compatible complete VLA objects is implemented in the
+      continuation below.
+- [ ] Explicit memory orders, other atomic RMW operators,
+      floating/aggregate atomics, and general C++ atomics remain open.
 
 ## RCC continuation (2026-10-21, typed-SSA pointer-to-VLA extents)
 
@@ -7786,9 +7790,11 @@ remains a separate open item.
       executes AMD64 objects at all three levels. `test-vla-semantics`,
       `test-verified-atomic-vla-rmw`, `test-verified-goto`, and both GCC C17
       fixture oracles pass.
-- [ ] Subtraction of two pointers to VLA objects remains open, as do explicit
-      atomic memory orders, other atomic RMW operators, floating/aggregate
-      atomics, and general C++ atomics.
+- [x] Typed-SSA VLA pointer strides for local objects and formal parameters,
+      plus subtraction between pointers to compatible complete VLA objects,
+      are implemented in the subsequent continuation entries below.
+- [ ] Explicit atomic memory orders, other atomic RMW operators,
+      floating/aggregate atomics, and general C++ atomics remain open.
 - [x] Verify every target in the complete non-hardware `TEST_CI_TARGETS` set.
       The initial `make test-ci` run passed C17, C++20, AQC, IR, and IR lowering,
       then stopped when its restricted PATH omitted the installed Clang needed
@@ -7805,10 +7811,15 @@ remains a separate open item.
       now includes formal parameters, so indexing and pointer arithmetic use
       the entry-time stride even after a bound parameter is modified.
 - [x] Extend `test-verified-vla-local-bound` with a pointer-to-VLA parameter
-      regression. Six functions compile with zero fallback for i686/AMD64 at
-      `-O0`/`-O1`/`-O2`; AMD64 objects execute at all three levels and a GCC C17
-      host oracle passes. VLA semantic, IR lowering, atomic VLA RMW, and goto
-      gates pass as well.
-- [ ] Subtraction of two pointers to VLA objects, explicit atomic memory
-      orders, other atomic RMW operators, floating/aggregate atomics, and
-      general C++ atomics remain open.
+      regression that mutates the bound, performs pointer arithmetic and
+      subtraction, then indexes the pointee. Six functions compile with zero
+      fallback for i686/AMD64 at `-O0`/`-O1`/`-O2`; AMD64 verified objects run at
+      all levels. Legacy objects compile for both targets and the AMD64 object
+      executes; the GCC C17 oracle passes. VLA semantic, IR lowering, atomic
+      VLA RMW, and goto gates pass as well.
+- [x] Support subtraction of pointers to compatible, complete VLA objects.
+      Semantic analysis accepts runtime-complete VLA element types; typed SSA
+      divides the byte difference by the left operand's captured extent, and
+      legacy i686/AMD64 codegen uses the saved stride too.
+- [ ] Explicit atomic memory orders, other atomic RMW operators,
+      floating/aggregate atomics, and general C++ atomics remain open.

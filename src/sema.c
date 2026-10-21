@@ -2288,12 +2288,6 @@ static Type* get_pointer_base(Type* t) {
     return NULL;
 }
 
-static bool is_pointer_arithmetic_type(Type* type) {
-    Type* base = get_pointer_base(type);
-    return base && base->kind != TYPE_VOID && base->kind != TYPE_FUNC &&
-           base->size > 0;
-}
-
 /* A VLA's complete object size is known at run time even though its
  * translation-time `size` field is not positive. Pointer arithmetic can use
  * the extent captured for the variably-modified type at its declaration. */
@@ -15349,8 +15343,8 @@ static Type* sema_expr(Expr* expr) {
                        expr->kind == EXPR_SUB) {
                 Type* left_base = get_pointer_base(lt);
                 Type* right_base = get_pointer_base(rt);
-                if (!is_pointer_arithmetic_type(lt) ||
-                    !is_pointer_arithmetic_type(rt) ||
+                if (!is_pointer_offset_type(lt) ||
+                    !is_pointer_offset_type(rt) ||
                     !type_is_compatible(left_base, right_base)) {
                     rcc_error(expr->loc,
                               "pointer subtraction requires compatible complete object types");
