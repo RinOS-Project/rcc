@@ -9702,6 +9702,8 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
     RccIrLowerValue operand;
     RccIrLowerValue order;
     RccIrLowerValue result;
+    RccIrLowerValue zero;
+    RccIrLowerValue one;
     RccIrValue phi_operands[2];
     RccIrBlockId phi_targets[2];
     RccIrValue binary_operands[3];
@@ -9714,13 +9716,19 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
     RccIrInstruction* compare_exchange;
     RccIrInstruction* compare;
     bool return_new;
+    bool sync_builtin = strncmp(name, "__sync_", 7u) == 0;
     bool nand_operation = false;
     bool minmax_operation = false;
+    bool wrap_increment = false;
+    bool wrap_decrement = false;
     bool minimum = false;
 
-    if (!object_argument || !operand_argument || !order_argument ||
-        order_argument->next || !object_argument->expr ||
-        !operand_argument->expr || !order_argument->expr) {
+    if (!object_argument || !operand_argument || !object_argument->expr ||
+        !operand_argument->expr ||
+        (sync_builtin
+             ? operand_argument->next != NULL
+             : !order_argument || order_argument->next ||
+                   !order_argument->expr)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -9738,16 +9746,24 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
     }
 
     if (strcmp(name, "__atomic_fetch_and") == 0 ||
-        strcmp(name, "__atomic_and_fetch") == 0) {
+        strcmp(name, "__atomic_and_fetch") == 0 ||
+        strcmp(name, "__sync_fetch_and_and") == 0 ||
+        strcmp(name, "__sync_and_and_fetch") == 0) {
         opcode = RCC_IR_AND;
     } else if (strcmp(name, "__atomic_fetch_or") == 0 ||
-               strcmp(name, "__atomic_or_fetch") == 0) {
+               strcmp(name, "__atomic_or_fetch") == 0 ||
+               strcmp(name, "__sync_fetch_and_or") == 0 ||
+               strcmp(name, "__sync_or_and_fetch") == 0) {
         opcode = RCC_IR_OR;
     } else if (strcmp(name, "__atomic_fetch_xor") == 0 ||
-               strcmp(name, "__atomic_xor_fetch") == 0) {
+               strcmp(name, "__atomic_xor_fetch") == 0 ||
+               strcmp(name, "__sync_fetch_and_xor") == 0 ||
+               strcmp(name, "__sync_xor_and_fetch") == 0) {
         opcode = RCC_IR_XOR;
     } else if (strcmp(name, "__atomic_fetch_nand") == 0 ||
-               strcmp(name, "__atomic_nand_fetch") == 0) {
+               strcmp(name, "__atomic_nand_fetch") == 0 ||
+               strcmp(name, "__sync_fetch_and_nand") == 0 ||
+               strcmp(name, "__sync_nand_and_fetch") == 0) {
         opcode = RCC_IR_AND;
         nand_operation = true;
     } else if (strcmp(name, "__atomic_fetch_min") == 0 ||
@@ -9755,6 +9771,12 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
         opcode = RCC_IR_SELECT;
         minmax_operation = true;
         minimum = strcmp(name, "__atomic_fetch_min") == 0;
+    } else if (strcmp(name, "__atomic_fetch_uinc") == 0) {
+        opcode = RCC_IR_ADD;
+        wrap_increment = true;
+    } else if (strcmp(name, "__atomic_fetch_udec") == 0) {
+        opcode = RCC_IR_SUB;
+        wrap_decrement = true;
     } else {
         context->unsupported = true;
         return lower_invalid_value();
@@ -9762,19 +9784,32 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
     return_new = strcmp(name, "__atomic_and_fetch") == 0 ||
         strcmp(name, "__atomic_or_fetch") == 0 ||
         strcmp(name, "__atomic_xor_fetch") == 0 ||
-        strcmp(name, "__atomic_nand_fetch") == 0;
+        strcmp(name, "__atomic_nand_fetch") == 0 ||
+        strcmp(name, "__sync_and_and_fetch") == 0 ||
+        strcmp(name, "__sync_or_and_fetch") == 0 ||
+        strcmp(name, "__sync_xor_and_fetch") == 0 ||
+        strcmp(name, "__sync_nand_and_fetch") == 0;
+    if ((wrap_increment || wrap_decrement) && !object_type->is_unsigned) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
 
     /* Evaluate every builtin argument before the first object access.  The
      * CAS retry loop is sequentially consistent, stronger than every valid
-     * order; the runtime order expression is nevertheless evaluated once. */
+     * order; any runtime order expression is nevertheless evaluated once. */
     address = lower_expression(context, object_argument->expr);
     operand = lower_expression(context, operand_argument->expr);
-    order = lower_expression(context, order_argument->expr);
     if (!address.valid || address.type.kind != RCC_IR_TYPE_POINTER ||
-        !operand.valid || operand.type.kind != RCC_IR_TYPE_INTEGER ||
-        !order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
+        !operand.valid || operand.type.kind != RCC_IR_TYPE_INTEGER) {
         context->unsupported = true;
         return lower_invalid_value();
+    }
+    if (order_argument) {
+        order = lower_expression(context, order_argument->expr);
+        if (!order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
     }
     operand = lower_cast(context, operand, object_type);
     if (!operand.valid || !rcc_ir_type_equal(operand.type, atomic_type)) {
@@ -9806,7 +9841,68 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
     if (!current_phi) return lower_invalid_value();
     binary_operands[0] = current_phi->result;
     binary_operands[1] = operand.value;
-    if (minmax_operation) {
+    if (wrap_increment || wrap_decrement) {
+        RccIrInstruction* arithmetic;
+        zero = lower_integer_constant(context, atomic_type, true, 0u);
+        one = lower_integer_constant(context, atomic_type, true, 1u);
+        if (!zero.valid || !one.valid) return lower_invalid_value();
+        if (wrap_increment) {
+            RccIrInstruction* selected;
+            binary_operands[1] = one.value;
+            arithmetic = lower_append(
+                context, RCC_IR_ADD, atomic_type,
+                binary_operands, 2u, NULL, 0u);
+            compare_operands[0] = current_phi->result;
+            compare_operands[1] = operand.value;
+            value_compare = lower_append(
+                context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+                compare_operands, 2u, NULL, 0u);
+            if (!arithmetic || !value_compare) return lower_invalid_value();
+            rcc_ir_set_predicate(value_compare, RCC_IR_ICMP_ULT);
+            binary_operands[0] = value_compare->result;
+            binary_operands[1] = arithmetic->result;
+            binary_operands[2] = zero.value;
+            selected = lower_append(
+                context, RCC_IR_SELECT, atomic_type,
+                binary_operands, 3u, NULL, 0u);
+            binary = selected;
+        } else {
+            RccIrInstruction* in_range_value;
+            RccIrInstruction* nonzero_value;
+            binary_operands[1] = one.value;
+            arithmetic = lower_append(
+                context, RCC_IR_SUB, atomic_type,
+                binary_operands, 2u, NULL, 0u);
+            compare_operands[0] = current_phi->result;
+            compare_operands[1] = operand.value;
+            value_compare = lower_append(
+                context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+                compare_operands, 2u, NULL, 0u);
+            if (!arithmetic || !value_compare) return lower_invalid_value();
+            rcc_ir_set_predicate(value_compare, RCC_IR_ICMP_UGT);
+            binary_operands[0] = value_compare->result;
+            binary_operands[1] = operand.value;
+            binary_operands[2] = arithmetic->result;
+            in_range_value = lower_append(
+                context, RCC_IR_SELECT, atomic_type,
+                binary_operands, 3u, NULL, 0u);
+            if (!in_range_value) return lower_invalid_value();
+            compare_operands[0] = current_phi->result;
+            compare_operands[1] = zero.value;
+            value_compare = lower_append(
+                context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+                compare_operands, 2u, NULL, 0u);
+            if (!value_compare) return lower_invalid_value();
+            rcc_ir_set_predicate(value_compare, RCC_IR_ICMP_EQ);
+            binary_operands[0] = value_compare->result;
+            binary_operands[1] = operand.value;
+            binary_operands[2] = in_range_value->result;
+            nonzero_value = lower_append(
+                context, RCC_IR_SELECT, atomic_type,
+                binary_operands, 3u, NULL, 0u);
+            binary = nonzero_value;
+        }
+    } else if (minmax_operation) {
         RccIrIntPredicate predicate;
         compare_operands[0] = current_phi->result;
         compare_operands[1] = operand.value;
@@ -10396,13 +10492,33 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
          strcmp(expression->call_func->ident_name,
                 "__atomic_fetch_max") == 0 ||
          strcmp(expression->call_func->ident_name,
+                "__atomic_fetch_uinc") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_fetch_udec") == 0 ||
+         strcmp(expression->call_func->ident_name,
                 "__atomic_and_fetch") == 0 ||
          strcmp(expression->call_func->ident_name,
                 "__atomic_or_fetch") == 0 ||
          strcmp(expression->call_func->ident_name,
                 "__atomic_xor_fetch") == 0 ||
          strcmp(expression->call_func->ident_name,
-                "__atomic_nand_fetch") == 0)) {
+                "__atomic_nand_fetch") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_fetch_and_and") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_fetch_and_or") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_fetch_and_xor") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_fetch_and_nand") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_and_and_fetch") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_or_and_fetch") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_xor_and_fetch") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_nand_and_fetch") == 0)) {
         return lower_atomic_fetch_bitwise_call(
             context, expression, expression->call_func->ident_name);
     }

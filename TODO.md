@@ -7916,8 +7916,8 @@ remains a separate open item.
       targets pass at `-O0`/`-O2` with zero verified-backend fallback; AMD64
       objects execute and agree with the GCC C17 oracle. Atomic builtin,
       language, and IR/MIR/x86 encoding suites pass.
-- [ ] Atomic uinc/udec RMW builtins, generic/aggregate builtin forms,
-      floating/aggregate atomics, and general C++ atomic operations remain open.
+- [ ] Generic/aggregate builtin forms, floating/aggregate atomics, and general
+      C++ atomic operations remain open.
 
 ## RCC continuation (2026-10-21, typed-SSA atomic test-and-set/clear)
 
@@ -7955,5 +7955,21 @@ remains a separate open item.
       signed/unsigned min/max state and prior values. Both targets pass at
       `-O0`/`-O2` with zero verified-backend fallback; AMD64 objects execute
       and agree with a GCC C17 oracle.
-- [ ] Atomic uinc/udec RMW builtins, generic/aggregate builtin forms,
-      floating/aggregate atomics, and general C++ atomic operations remain open.
+- [ ] Generic/aggregate builtin forms, floating/aggregate atomics, and general
+      C++ atomic operations remain open.
+
+## RCC continuation (2026-10-21, typed-SSA unsigned-wrap and sync bitwise RMW)
+
+- [x] Lower `__atomic_fetch_uinc` and `__atomic_fetch_udec` using bounded
+      compare-exchange loops: increment wraps to zero at/above the limit, while
+      decrement wraps to the limit at zero or above it. Lower all legacy
+      `__sync_{fetch_and_,}{and,or,xor,nand}` old/new forms to the same
+      sequentially consistent loop; their arguments are evaluated once.
+- [x] `test-verified-atomic-fetch-add` covers uinc/udec boundary cases,
+      side-effecting orders, and each legacy sync AND/OR/XOR/NAND old/new form.
+      Both targets pass at `-O0`/`-O2` with zero verified-backend fallback;
+      AMD64 objects execute and match the GCC C17 oracle (with host
+      compare-exchange oracles for the nonstandard uinc/udec builtins). Atomic
+      builtin, language, and IR/MIR/x86 suites pass.
+- [ ] Generic/aggregate builtin forms, floating/aggregate atomics, and general
+      C++ atomic operations remain open.

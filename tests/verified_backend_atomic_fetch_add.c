@@ -46,6 +46,31 @@ static int oracle_atomic_fetch_max_signed(
         }
     }
 }
+
+static unsigned int oracle_atomic_fetch_uinc(
+    volatile unsigned int* object, unsigned int limit, int order) {
+    unsigned int expected = __atomic_load_n(object, __ATOMIC_RELAXED);
+    for (;;) {
+        unsigned int desired = expected < limit ? expected + 1u : 0u;
+        if (__atomic_compare_exchange_n(object, &expected, desired, 0,
+                                        order, __ATOMIC_RELAXED)) {
+            return expected;
+        }
+    }
+}
+
+static unsigned int oracle_atomic_fetch_udec(
+    volatile unsigned int* object, unsigned int limit, int order) {
+    unsigned int expected = __atomic_load_n(object, __ATOMIC_RELAXED);
+    for (;;) {
+        unsigned int desired = expected == 0u || expected > limit
+            ? limit : expected - 1u;
+        if (__atomic_compare_exchange_n(object, &expected, desired, 0,
+                                        order, __ATOMIC_RELAXED)) {
+            return expected;
+        }
+    }
+}
 #endif
 
 int main(void)
@@ -76,6 +101,8 @@ int main(void)
     volatile unsigned int nand_value = 0xf0f0u;
     volatile unsigned int minmax_unsigned = 15u;
     volatile int minmax_signed = -10;
+    volatile unsigned int wrap_value = 3u;
+    volatile unsigned int sync_value = 0x0ff0u;
 #if defined(__x86_64__)
     _Atomic unsigned long long builtin_wide = 0x10000000aULL;
     _Atomic unsigned long long exchange_wide = 0x123456789abcdef0ULL;
@@ -115,6 +142,7 @@ int main(void)
     unsigned int compare_exchange_success_order_evaluations = 0u;
     unsigned int compare_exchange_failure_order_evaluations = 0u;
     unsigned int bitwise_order_evaluations = 0u;
+    unsigned int wrap_order_evaluations = 0u;
     unsigned int bitwise_fetch_and;
     unsigned int bitwise_fetch_or;
     unsigned int bitwise_fetch_xor;
@@ -129,6 +157,19 @@ int main(void)
     unsigned int max_unsigned_old;
     int max_signed_old;
     int min_signed_old;
+    unsigned int wrap_uinc_old;
+    unsigned int wrap_uinc_limit_old;
+    unsigned int wrap_udec_zero_old;
+    unsigned int wrap_udec_limit_old;
+    unsigned int wrap_udec_excess_old;
+    unsigned int sync_fetch_and_old;
+    unsigned int sync_and_fetch_new;
+    unsigned int sync_fetch_old;
+    unsigned int sync_or_fetch_new;
+    unsigned int sync_fetch_xor_old;
+    unsigned int sync_xor_fetch_new;
+    unsigned int sync_fetch_nand_old;
+    unsigned int sync_nand_new;
     void *pointer_fetch_old;
     void *pointer_add_new;
     void *pointer_sub_old;
@@ -314,6 +355,39 @@ int main(void)
     bitwise_wide_old = __atomic_fetch_xor(
         &bitwise_wide, 0x0f0f0f0f0f0f0f0fULL, __ATOMIC_SEQ_CST);
 #endif
+#if defined(__RCC__)
+    wrap_uinc_old = __atomic_fetch_uinc(
+        &wrap_value, 4u, (wrap_order_evaluations++, __ATOMIC_SEQ_CST));
+    wrap_uinc_limit_old = __atomic_fetch_uinc(
+        &wrap_value, 4u, (wrap_order_evaluations++, __ATOMIC_SEQ_CST));
+    wrap_udec_zero_old = __atomic_fetch_udec(
+        &wrap_value, 4u, (wrap_order_evaluations++, __ATOMIC_SEQ_CST));
+    wrap_udec_limit_old = __atomic_fetch_udec(
+        &wrap_value, 4u, (wrap_order_evaluations++, __ATOMIC_SEQ_CST));
+    wrap_value = 5u;
+    wrap_udec_excess_old = __atomic_fetch_udec(
+        &wrap_value, 4u, (wrap_order_evaluations++, __ATOMIC_SEQ_CST));
+#else
+    wrap_uinc_old = oracle_atomic_fetch_uinc(
+        &wrap_value, 4u, (wrap_order_evaluations++, __ATOMIC_SEQ_CST));
+    wrap_uinc_limit_old = oracle_atomic_fetch_uinc(
+        &wrap_value, 4u, (wrap_order_evaluations++, __ATOMIC_SEQ_CST));
+    wrap_udec_zero_old = oracle_atomic_fetch_udec(
+        &wrap_value, 4u, (wrap_order_evaluations++, __ATOMIC_SEQ_CST));
+    wrap_udec_limit_old = oracle_atomic_fetch_udec(
+        &wrap_value, 4u, (wrap_order_evaluations++, __ATOMIC_SEQ_CST));
+    wrap_value = 5u;
+    wrap_udec_excess_old = oracle_atomic_fetch_udec(
+        &wrap_value, 4u, (wrap_order_evaluations++, __ATOMIC_SEQ_CST));
+#endif
+    sync_fetch_and_old = __sync_fetch_and_and(&sync_value, 0x0fffu);
+    sync_and_fetch_new = __sync_and_and_fetch(&sync_value, 0x00f0u);
+    sync_fetch_old = __sync_fetch_and_or(&sync_value, 0x8001u);
+    sync_or_fetch_new = __sync_or_and_fetch(&sync_value, 0x000eu);
+    sync_fetch_xor_old = __sync_fetch_and_xor(&sync_value, 0x00ffu);
+    sync_xor_fetch_new = __sync_xor_and_fetch(&sync_value, 0x0f00u);
+    sync_fetch_nand_old = __sync_fetch_and_nand(&sync_value, 0x8f00u);
+    sync_nand_new = __sync_nand_and_fetch(&sync_value, 0x00ffu);
 
     return old8 == 250u && value8 == 5u && added8 == 5u &&
         old16 == 65530u && value16 == 5u && added16 == 5u &&
@@ -371,6 +445,15 @@ int main(void)
         minmax_unsigned == 20u && max_signed_old == -10 &&
         min_signed_old == 5 && minmax_signed == -20 &&
         bitwise_order_evaluations == 12u &&
+        wrap_uinc_old == 3u && wrap_uinc_limit_old == 4u &&
+        wrap_udec_zero_old == 0u && wrap_udec_limit_old == 4u &&
+        wrap_udec_excess_old == 5u && wrap_value == 4u &&
+        wrap_order_evaluations == 5u &&
+        sync_fetch_and_old == 0x0ff0u && sync_and_fetch_new == 0x00f0u &&
+        sync_fetch_old == 0x00f0u && sync_or_fetch_new == 0x80ffu &&
+        sync_fetch_xor_old == 0x80ffu && sync_xor_fetch_new == 0x8f00u &&
+        sync_fetch_nand_old == 0x8f00u && sync_value == 0xffffff00u &&
+        sync_nand_new == 0xffffff00u &&
 #if defined(__x86_64__)
         bitwise_wide_old == 0xf0f0f0f0f0f0f0f0ULL &&
         bitwise_wide == 0xffffffffffffffffULL &&
