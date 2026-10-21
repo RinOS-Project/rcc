@@ -10062,7 +10062,8 @@ static RccIrLowerValue lower_atomic_exchange_call(
 }
 
 static RccIrLowerValue lower_atomic_compare_exchange_call(
-    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerContext* context, const Expr* expression,
+    bool generic_builtin) {
     const ExprList* object_argument = expression->call_args;
     const ExprList* expected_argument = object_argument
         ? object_argument->next : NULL;
@@ -10078,9 +10079,12 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
     Type* object_type;
     Type* expected_pointer_type;
     Type* expected_type;
+    Type* desired_pointer_type = NULL;
+    Type* desired_type = NULL;
     RccIrType atomic_type;
     RccIrLowerValue object_address;
     RccIrLowerValue expected_address;
+    RccIrLowerValue desired_address = lower_invalid_value();
     RccIrLowerValue expected;
     RccIrLowerValue desired;
     RccIrLowerValue weak;
@@ -10111,8 +10115,16 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
     expected_type = expected_pointer_type &&
             expected_pointer_type->kind == TYPE_PTR
         ? expected_pointer_type->base : NULL;
+    if (generic_builtin) {
+        desired_pointer_type = desired_argument->expr->type;
+        desired_type = desired_pointer_type &&
+                desired_pointer_type->kind == TYPE_PTR
+            ? desired_pointer_type->base : NULL;
+    }
     if (!object_type || !expected_type ||
         !type_is_compatible(object_type, expected_type) ||
+        (generic_builtin && (!desired_type ||
+         !type_is_compatible(object_type, desired_type))) ||
         !lower_type(object_type, &atomic_type) ||
         (atomic_type.kind == RCC_IR_TYPE_INTEGER &&
          atomic_type.bit_width != 8u && atomic_type.bit_width != 16u &&
@@ -10129,21 +10141,37 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
      * success/failure order and also implements weak operations strongly. */
     object_address = lower_expression(context, object_argument->expr);
     expected_address = lower_expression(context, expected_argument->expr);
+    if (generic_builtin) {
+        desired_address = lower_expression(context, desired_argument->expr);
+    } else {
+        desired = lower_expression(context, desired_argument->expr);
+    }
     if (expected_address.valid) {
         expected_address.volatile_access = expected_address.volatile_access ||
             expected_type->is_volatile;
         expected_address.atomic_access = false;
     }
-    desired = lower_expression(context, desired_argument->expr);
+    if (generic_builtin && desired_address.valid) {
+        desired_address.volatile_access = desired_address.volatile_access ||
+            desired_type->is_volatile;
+        desired_address.atomic_access = false;
+    }
     weak = lower_expression(context, weak_argument->expr);
     success_order = lower_expression(context, success_order_argument->expr);
     failure_order = lower_expression(context, failure_order_argument->expr);
-    /* All call argument expressions finish before the builtin reads *expected. */
+    /* All call argument expressions finish before the builtin reads its
+     * expected/desired objects.  In the generic form both pointers are
+     * evaluated before either pointed-to value is loaded. */
     expected = lower_load_address(context, expected_address, expected_type);
+    if (generic_builtin) {
+        desired = lower_load_address(context, desired_address, desired_type);
+    }
     if (!object_address.valid ||
         object_address.type.kind != RCC_IR_TYPE_POINTER ||
         !expected_address.valid ||
         expected_address.type.kind != RCC_IR_TYPE_POINTER ||
+        (generic_builtin && (!desired_address.valid ||
+         desired_address.type.kind != RCC_IR_TYPE_POINTER)) ||
         !expected.valid || !desired.valid || !weak.valid ||
         weak.type.kind != RCC_IR_TYPE_INTEGER ||
         !success_order.valid ||
@@ -10643,9 +10671,14 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
         expression->call_func->ident_name &&
-        strcmp(expression->call_func->ident_name,
-               "__atomic_compare_exchange_n") == 0) {
-        return lower_atomic_compare_exchange_call(context, expression);
+        (strcmp(expression->call_func->ident_name,
+                "__atomic_compare_exchange_n") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_compare_exchange") == 0)) {
+        return lower_atomic_compare_exchange_call(
+            context, expression,
+            strcmp(expression->call_func->ident_name,
+                   "__atomic_compare_exchange") == 0);
     }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&

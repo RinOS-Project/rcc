@@ -100,6 +100,8 @@ int main(void)
     volatile unsigned short compare_exchange16 = 0x1234u;
     volatile unsigned int compare_exchange32 = 0x10203040u;
     int * volatile compare_exchange_pointer;
+    volatile unsigned int generic_compare_exchange32 = 0x11223344u;
+    int * volatile generic_compare_exchange_pointer;
     volatile unsigned int bitwise_value = 0xf0f0u;
     volatile unsigned char bitwise_byte = 0xf3u;
     volatile unsigned short bitwise_word = 0xf0f3u;
@@ -142,11 +144,25 @@ int main(void)
     unsigned short compare_exchange16_expected = 0x1234u;
     unsigned int compare_exchange32_expected = 7u;
     int *compare_exchange_pointer_expected;
+    unsigned int generic_compare_exchange32_expected = 0xdeadbeefu;
+    unsigned int generic_compare_exchange32_desired = 0xaabbccddu;
+    int *generic_compare_exchange_pointer_expected;
+    int *generic_compare_exchange_pointer_desired;
     int compare_exchange8_failed;
     int compare_exchange8_succeeded;
     int compare_exchange16_succeeded;
     int compare_exchange32_failed;
     int compare_exchange_pointer_succeeded;
+    int generic_compare_exchange32_failed;
+    int generic_compare_exchange32_succeeded;
+    int generic_compare_exchange_pointer_failed;
+    int generic_compare_exchange_pointer_succeeded;
+    unsigned int generic_compare_exchange_object_evaluations = 0u;
+    unsigned int generic_compare_exchange_expected_ptr_evaluations = 0u;
+    unsigned int generic_compare_exchange_desired_ptr_evaluations = 0u;
+    unsigned int generic_compare_exchange_weak_evaluations = 0u;
+    unsigned int generic_compare_exchange_success_order_evaluations = 0u;
+    unsigned int generic_compare_exchange_failure_order_evaluations = 0u;
     unsigned int compare_exchange_weak_evaluations = 0u;
     unsigned int compare_exchange_success_order_evaluations = 0u;
     unsigned int compare_exchange_failure_order_evaluations = 0u;
@@ -213,6 +229,9 @@ int main(void)
     int *decremented_pointer;
     compare_exchange_pointer = &elements[1];
     compare_exchange_pointer_expected = &elements[1];
+    generic_compare_exchange_pointer = &elements[2];
+    generic_compare_exchange_pointer_expected = &elements[1];
+    generic_compare_exchange_pointer_desired = &elements[5];
     unsigned char old8 = value8++;
     unsigned short old16 = value16++;
     unsigned char added8 = (value8 += 10u);
@@ -314,6 +333,40 @@ int main(void)
     compare_exchange_pointer_succeeded = __atomic_compare_exchange_n(
         &compare_exchange_pointer, &compare_exchange_pointer_expected,
         &elements[3], 1, __ATOMIC_SEQ_CST, __ATOMIC_ACQUIRE);
+    generic_compare_exchange32_failed = __atomic_compare_exchange(
+        (generic_compare_exchange_object_evaluations++,
+         &generic_compare_exchange32),
+        (generic_compare_exchange_expected_ptr_evaluations++,
+         &generic_compare_exchange32_expected),
+        (generic_compare_exchange_desired_ptr_evaluations++,
+         &generic_compare_exchange32_desired),
+        (generic_compare_exchange_weak_evaluations++, 1),
+        (generic_compare_exchange_success_order_evaluations++,
+         __ATOMIC_SEQ_CST),
+        (generic_compare_exchange_failure_order_evaluations++,
+         __ATOMIC_ACQUIRE));
+    generic_compare_exchange32_succeeded = __atomic_compare_exchange(
+        (generic_compare_exchange_object_evaluations++,
+         &generic_compare_exchange32),
+        (generic_compare_exchange_expected_ptr_evaluations++,
+         &generic_compare_exchange32_expected),
+        (generic_compare_exchange_desired_ptr_evaluations++,
+         &generic_compare_exchange32_desired),
+        (generic_compare_exchange_weak_evaluations++, 0),
+        (generic_compare_exchange_success_order_evaluations++,
+         __ATOMIC_ACQ_REL),
+        (generic_compare_exchange_failure_order_evaluations++,
+         __ATOMIC_ACQUIRE));
+    generic_compare_exchange_pointer_failed = __atomic_compare_exchange(
+        &generic_compare_exchange_pointer,
+        &generic_compare_exchange_pointer_expected,
+        &generic_compare_exchange_pointer_desired, 0,
+        __ATOMIC_SEQ_CST, __ATOMIC_ACQUIRE);
+    generic_compare_exchange_pointer_succeeded = __atomic_compare_exchange(
+        &generic_compare_exchange_pointer,
+        &generic_compare_exchange_pointer_expected,
+        &generic_compare_exchange_pointer_desired, 0,
+        __ATOMIC_SEQ_CST, __ATOMIC_ACQUIRE);
 #if defined(__x86_64__)
     compare_exchange64_succeeded = __atomic_compare_exchange_n(
         &compare_exchange64, &compare_exchange64_expected,
@@ -486,6 +539,20 @@ int main(void)
         compare_exchange_pointer_succeeded == 1 &&
         compare_exchange_pointer == &elements[3] &&
         compare_exchange_pointer_expected == &elements[1] &&
+        generic_compare_exchange32_failed == 0 &&
+        generic_compare_exchange32_expected == 0x11223344u &&
+        generic_compare_exchange32_succeeded == 1 &&
+        generic_compare_exchange32 == 0xaabbccddu &&
+        generic_compare_exchange_pointer_failed == 0 &&
+        generic_compare_exchange_pointer_expected == &elements[2] &&
+        generic_compare_exchange_pointer_succeeded == 1 &&
+        generic_compare_exchange_pointer == &elements[5] &&
+        generic_compare_exchange_object_evaluations == 2u &&
+        generic_compare_exchange_expected_ptr_evaluations == 2u &&
+        generic_compare_exchange_desired_ptr_evaluations == 2u &&
+        generic_compare_exchange_weak_evaluations == 2u &&
+        generic_compare_exchange_success_order_evaluations == 2u &&
+        generic_compare_exchange_failure_order_evaluations == 2u &&
         compare_exchange_weak_evaluations == 2u &&
         compare_exchange_success_order_evaluations == 2u &&
         compare_exchange_failure_order_evaluations == 2u &&
