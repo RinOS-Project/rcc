@@ -8105,6 +8105,136 @@ static void verify_verified_fallback_debug_object(const char* path,
     objfile_free(object);
 }
 
+static void verify_inline_integer_expression_parameter(
+    const char* path, uint16_t architecture, const char* inline_name,
+    uint8_t expected_operation, int64_t expected_constant) {
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* locations;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t call_die = UINT64_MAX;
+    uint64_t origin_die = UINT64_MAX;
+    uint64_t parameter_die;
+    uint64_t expression_offset;
+    uint64_t expression_size;
+    uint64_t expression_end;
+    int64_t frame_offset;
+    int64_t variable_frame_offset;
+    bool has_variable_location;
+    bool variable_is_location_list;
+    assert(object != NULL && object->arch == architecture && inline_name &&
+           (expected_operation == 0x22u || expected_operation == 0x1cu));
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    locations = objfile_get_section(object, ".debug_loc");
+    assert(info != NULL && strings != NULL && locations != NULL);
+    for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 12u <=
+         info->size; ++die) {
+        uint32_t candidate_origin;
+        uint32_t name_offset;
+        uint64_t low_pc_offset;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        candidate_origin = read_u32(info->data, die + 1u);
+        if (candidate_origin >= info->size ||
+            info->data[candidate_origin] != 40u) continue;
+        name_offset = read_u32(info->data, candidate_origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   inline_name) != 0) {
+            continue;
+        }
+        low_pc_offset = die + 1u + 4u;
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == low_pc_offset &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name,
+                       "debug_inline_nonconstant_integer_entry") == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+        origin_die = candidate_origin;
+    }
+    assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    parameter_die = call_die + 1u + 4u + address_size + 4u + 12u;
+    assert(parameter_die + 5u < info->size &&
+           info->data[parameter_die] == 67u &&
+           read_u32(info->data, parameter_die + 1u) == origin_die + 27u);
+    expression_offset = parameter_die + 5u;
+    expression_size = read_uleb(
+        info->data, info->size, &expression_offset);
+    expression_end = expression_offset + expression_size;
+    assert(expression_end <= info->size && expression_size > 0u);
+    assert(info->data[expression_offset++] ==
+           (architecture == ARCH_X64 ? 0x76u : 0x75u));
+    frame_offset = read_sleb(info->data, expression_end, &expression_offset);
+    assert(expression_offset + 2u <= expression_end &&
+           info->data[expression_offset++] == 0x94u &&
+           info->data[expression_offset++] == 4u);
+    if (architecture == ARCH_X64) {
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x10u &&
+               read_uleb(info->data, expression_end,
+                         &expression_offset) == 32u &&
+               expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x24u &&
+               expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x10u &&
+               read_uleb(info->data, expression_end,
+                         &expression_offset) == 32u &&
+               expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x26u);
+    }
+    assert(expression_offset < expression_end &&
+           info->data[expression_offset++] == 0x11u &&
+           read_sleb(info->data, expression_end, &expression_offset) ==
+               expected_constant);
+    if (architecture == ARCH_X64) {
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x10u &&
+               read_uleb(info->data, expression_end,
+                         &expression_offset) == 32u &&
+               expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x24u &&
+               expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x10u &&
+               read_uleb(info->data, expression_end,
+                         &expression_offset) == 32u &&
+               expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x26u);
+    }
+    assert(expression_offset < expression_end &&
+           info->data[expression_offset++] == expected_operation);
+    if (architecture == ARCH_X64) {
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x10u &&
+               read_uleb(info->data, expression_end,
+                         &expression_offset) == 32u &&
+               expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x24u &&
+               expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x10u &&
+               read_uleb(info->data, expression_end,
+                         &expression_offset) == 32u &&
+               expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x26u);
+    }
+    assert(expression_offset + 1u == expression_end &&
+           info->data[expression_offset] == 0x9fu);
+    assert(find_variable_location(
+        info, strings, locations, "debug_inline_nonconstant_integer_source",
+        architecture, &has_variable_location, &variable_is_location_list,
+        &variable_frame_offset));
+    assert(has_variable_location && variable_frame_offset == frame_offset);
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
     const VerifyInlinePointerIndexTerm compound_pointer_indices[] = {
@@ -8285,6 +8415,38 @@ int main(int argc, char** argv)
         {"debug_inline_automatic_neg_add_signed_index", 4u, false, 4u,
          false, 0u, 0u, false, 0u}
     };
+    if (argc == 6 &&
+        strcmp(argv[1], "--verify-inline-integer-expression") == 0) {
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu,
+            3);
+        verify_inline_integer_expression_parameter(
+            argv[3], ARCH_X64,
+            "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
+        verify_inline_integer_expression_parameter(
+            argv[3], ARCH_X64,
+            "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu,
+            3);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu,
+            3);
+        verify_inline_integer_expression_parameter(
+            argv[5], ARCH_X64,
+            "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
+        verify_inline_integer_expression_parameter(
+            argv[5], ARCH_X64,
+            "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu,
+            3);
+        return 0;
+    }
     assert(argc == 44);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
@@ -8423,6 +8585,30 @@ int main(int argc, char** argv)
     verify_inline_debug_object(argv[25], ARCH_X64);
     verify_inline_debug_object(argv[38], ARCH_X86);
     verify_inline_debug_object(argv[39], ARCH_X64);
+    verify_inline_integer_expression_parameter(
+        argv[24], ARCH_X86,
+        "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
+    verify_inline_integer_expression_parameter(
+        argv[24], ARCH_X86,
+        "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu, 3);
+    verify_inline_integer_expression_parameter(
+        argv[25], ARCH_X64,
+        "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
+    verify_inline_integer_expression_parameter(
+        argv[25], ARCH_X64,
+        "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu, 3);
+    verify_inline_integer_expression_parameter(
+        argv[38], ARCH_X86,
+        "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
+    verify_inline_integer_expression_parameter(
+        argv[38], ARCH_X86,
+        "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu, 3);
+    verify_inline_integer_expression_parameter(
+        argv[39], ARCH_X64,
+        "debug_nonconstant_integer_parameter_inline", 0x22u, 5);
+    verify_inline_integer_expression_parameter(
+        argv[39], ARCH_X64,
+        "debug_nonconstant_integer_subtract_parameter_inline", 0x1cu, 3);
     verify_cxx_inline_nullptr_parameter(argv[40], ARCH_X86);
     verify_cxx_inline_nullptr_parameter(argv[41], ARCH_X64);
     verify_cxx_inline_nullptr_parameter(argv[42], ARCH_X86);

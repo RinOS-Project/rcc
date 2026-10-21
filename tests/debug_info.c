@@ -50,6 +50,7 @@ struct debug_inline_addressed_nested_container
 const int debug_inline_readonly_addressed_pointer_source = 31;
 int** debug_inline_escaped_pointer;
 int* debug_inline_escaped_object_address;
+int* debug_inline_nonconstant_integer_escape;
 
 static void debug_inline_object_address_sink(int* value)
 {
@@ -86,6 +87,19 @@ int debug_line_entry(void)
 int debug_inline_entry(int value)
 {
     return debug_declared_inline(value);
+}
+
+int debug_inline_nonconstant_integer_entry(int value)
+{
+    int debug_inline_nonconstant_integer_source = value;
+    int added_value;
+    debug_inline_nonconstant_integer_escape =
+        &debug_inline_nonconstant_integer_source;
+    added_value = debug_nonconstant_integer_parameter_inline(
+        debug_inline_nonconstant_integer_source + 5);
+    return added_value +
+        debug_nonconstant_integer_subtract_parameter_inline(
+            debug_inline_nonconstant_integer_source - 3);
 }
 
 int debug_inline_local_entry(int value)

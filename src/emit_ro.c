@@ -4913,6 +4913,213 @@ static bool debug_inline_parameter_frame_offset(
     return true;
 }
 
+enum { DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY = 256 };
+
+static bool debug_inline_integer_expression_type(const Type* type) {
+    return type && !type->is_volatile && !type->is_reference &&
+        !type->is_atomic && type->size > 0 && type->size <= 8 &&
+        ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+         type->kind == TYPE_ENUM);
+}
+
+static bool debug_inline_integer_expression_append_byte(
+    uint8_t* expression, size_t capacity, size_t* size, uint8_t value) {
+    if (!expression || !size || *size >= capacity) return false;
+    expression[(*size)++] = value;
+    return true;
+}
+
+static bool debug_inline_integer_expression_normalize(
+    uint8_t* expression, size_t capacity, size_t* size,
+    const Type* type, int architecture) {
+    unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
+    unsigned int type_size;
+    unsigned int shift;
+    uint64_t mask;
+    bool is_unsigned;
+    if (!debug_inline_integer_expression_type(type) ||
+        (unsigned int)type->size > address_size) {
+        return false;
+    }
+    type_size = (unsigned int)type->size;
+    if (type_size == address_size) return true;
+    is_unsigned = type->is_unsigned || type->kind == TYPE_BOOL;
+    if (is_unsigned) {
+        mask = (UINT64_C(1) << (type_size * 8u)) - 1u;
+        return debug_inline_integer_expression_append_byte(
+                   expression, capacity, size, 0x10u) && /* constu */
+            debug_expression_uleb(expression, capacity, size, mask) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x1au); /* and */
+    }
+    shift = (address_size - type_size) * 8u;
+    return debug_inline_integer_expression_append_byte(
+               expression, capacity, size, 0x10u) && /* constu */
+        debug_expression_uleb(expression, capacity, size, shift) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x24u) && /* shl */
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x10u) && /* constu */
+        debug_expression_uleb(expression, capacity, size, shift) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x26u); /* shra */
+}
+
+static bool debug_inline_integer_literal_bits(
+    const Expr* expression, uint64_t* bits, unsigned int depth) {
+    if (!expression || !bits || depth >= 32u) return false;
+    if (expression->kind == EXPR_INT_LIT) {
+        *bits = (uint64_t)expression->int_val;
+        return true;
+    }
+    if (expression->kind == EXPR_NEG && expression->unary_operand &&
+        debug_inline_integer_literal_bits(
+            expression->unary_operand, bits, depth + 1u)) {
+        *bits = UINT64_C(0) - *bits;
+        return true;
+    }
+    return false;
+}
+
+static int64_t debug_inline_integer_bits_to_signed(uint64_t bits,
+                                                   unsigned int width) {
+    uint64_t modulus;
+    if (width >= 64u) {
+        if (bits <= (uint64_t)INT64_MAX) return (int64_t)bits;
+        return -((int64_t)(~bits)) - 1;
+    }
+    modulus = UINT64_C(1) << width;
+    bits &= modulus - 1u;
+    if ((bits & (modulus >> 1u)) != 0u) {
+        return -(int64_t)(modulus - bits);
+    }
+    return (int64_t)bits;
+}
+
+static bool debug_build_inline_integer_value_expression(
+    const Module* mod, int architecture, const Expr* expression,
+    uint8_t* output, size_t capacity, size_t* output_size,
+    unsigned int depth) {
+    int64_t signed_constant;
+    uint64_t unsigned_constant;
+    if (!mod || !expression || !output || !output_size || depth >= 32u ||
+        !debug_inline_integer_expression_type(expression->type)) {
+        return false;
+    }
+    if (debug_inline_integer_literal_bits(
+            expression, &unsigned_constant, 0u)) {
+        if (expression->type->is_unsigned ||
+            expression->type->kind == TYPE_BOOL) {
+            return debug_inline_integer_expression_append_byte(
+                       output, capacity, output_size, 0x10u) &&
+                debug_expression_uleb(
+                    output, capacity, output_size, unsigned_constant) &&
+                debug_inline_integer_expression_normalize(
+                    output, capacity, output_size, expression->type,
+                    architecture);
+        }
+        signed_constant = debug_inline_integer_bits_to_signed(
+            unsigned_constant, (unsigned int)expression->type->size * 8u);
+        return debug_inline_integer_expression_append_byte(
+                   output, capacity, output_size, 0x11u) &&
+            debug_expression_sleb_bounded(
+                output, capacity, output_size, signed_constant) &&
+            debug_inline_integer_expression_normalize(
+                output, capacity, output_size, expression->type,
+                architecture);
+    }
+
+    if (expression->kind == EXPR_IDENT && expression->ident_decl) {
+        const Decl* source = expression->ident_decl;
+        int64_t frame_offset;
+        uint8_t address_expression[32];
+        size_t address_expression_size;
+        if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+            source->var_is_global || source->var_is_static_local ||
+            source->var_is_thread_local || source->var_is_vla ||
+            !source->type ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                source->type, expression->type, 0u) ||
+            !debug_inline_parameter_frame_offset(
+                mod, source, &frame_offset)) {
+            return false;
+        }
+        address_expression_size = debug_build_expr_breg(
+            address_expression, architecture, frame_offset, 0u, false);
+        if (address_expression_size == 0u || *output_size > capacity ||
+            address_expression_size > capacity - *output_size) {
+            return false;
+        }
+        memcpy(output + *output_size, address_expression,
+               address_expression_size);
+        *output_size += address_expression_size;
+        return debug_inline_integer_expression_append_byte(
+                   output, capacity, output_size, 0x94u) && /* deref_size */
+            debug_inline_integer_expression_append_byte(
+                output, capacity, output_size,
+                (uint8_t)source->type->size) &&
+            debug_inline_integer_expression_normalize(
+                output, capacity, output_size, expression->type,
+                architecture);
+    }
+
+    if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB) &&
+        expression->binary_lhs && expression->binary_rhs &&
+        debug_inline_integer_expression_type(expression->binary_lhs->type) &&
+        debug_inline_integer_expression_type(expression->binary_rhs->type) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_lhs->type, expression->type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_rhs->type, expression->type, 0u) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->binary_lhs, output, capacity,
+            output_size, depth + 1u) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->binary_rhs, output, capacity,
+            output_size, depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            output, capacity, output_size,
+            expression->kind == EXPR_ADD ? 0x22u : 0x1cu) &&
+        debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture)) {
+        return true;
+    }
+    return false;
+}
+
+static bool debug_inline_parameter_integer_expression(
+    const Module* mod, int architecture, const Decl* callee,
+    const ModuleDebugInlineParameterValue* value, const ExprList* argument,
+    uint8_t expression[DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY],
+    size_t* expression_size) {
+    const Type* parameter_type;
+    const Expr* source_expression;
+    size_t size = 0u;
+    if (!mod || !callee || !value || !value->declaration || !argument ||
+        !argument->expr || argument->cxx_temporary_owner || !expression ||
+        !expression_size ||
+        (argument->expr->kind != EXPR_ADD &&
+         argument->expr->kind != EXPR_SUB) ||
+        !debug_inline_parameter_body_is_read_only(callee)) {
+        return false;
+    }
+    parameter_type = value->declaration->type;
+    source_expression = argument->expr;
+    if (!debug_inline_integer_expression_type(parameter_type) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, source_expression->type, 0u) ||
+        !debug_build_inline_integer_value_expression(
+            mod, architecture, source_expression, expression,
+            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY, &size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
+            &size, 0x9fu)) { /* DW_OP_stack_value */
+        return false;
+    }
+    *expression_size = size;
+    return true;
+}
+
 typedef struct DebugInlineDynamicPointerIndexTerm {
     int64_t frame_offset;
     int element_size;
@@ -6295,6 +6502,9 @@ static void debug_emit_inline_parameter_instances(
         int64_t source_pointer_adjustment = 0;
         bool source_frame_dereference = false;
         DebugInlineDynamicPointerIndex source_dynamic_index = {0};
+        uint8_t integer_value_expression[
+            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
+        size_t integer_value_expression_size = 0u;
         int64_t address_addend = 0;
         if (value->has_signed_integer_constant && value->declaration &&
             (origin = debug_inline_parameter_origin_find(
@@ -6373,6 +6583,18 @@ static void debug_emit_inline_parameter_instances(
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);
             section_add_bytes(info, expression, expression_size);
+        } else if (value->declaration && argument && argument->expr &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_integer_expression(
+                       mod, architecture, call->callee, value, argument,
+                       integer_value_expression,
+                       &integer_value_expression_size)) {
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, integer_value_expression_size);
+            section_add_bytes(info, integer_value_expression,
+                              integer_value_expression_size);
         } else if (value->declaration &&
                    (origin = debug_inline_parameter_origin_find(
                        origins, call->callee, value->declaration)) != NULL) {

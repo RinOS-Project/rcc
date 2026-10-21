@@ -548,6 +548,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-raw-strings test-cxx-alternative-tokens \
 	test-cxx20-unsupported-boundaries
 .PHONY: test-debug-info
+.PHONY: test-debug-info-inline-expression
 .PHONY: test-verified-i686-variadic-fp
 .PHONY: test-cxx-static-reference-temporaries \
 	test-cxx-static-reference-temporaries-posix
@@ -1260,7 +1261,7 @@ test-c-multi-declarator: $(RCC_TARGET)
 		-o $(TEST_OUT)/c-multi-declarator/x64.ro tests/c_multi_declarator.c
 	@echo "C17 comma-separated declarator tests completed"
 
-test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
+test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-debug-info-inline-expression
 	$(call MKDIR_P,$(TEST_OUT)/debug-info)
 	$(RCC_TARGET) --target i686-unknown-rinos -g -c \
 		-o $(TEST_OUT)/debug-info/x86-g.ro tests/debug_info.c
@@ -1610,6 +1611,31 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/verified-cxx-member-nullptr-x86-g.ro \
 		$(TEST_OUT)/debug-info/verified-cxx-member-nullptr-x64-g.ro
 	@echo "Relocatable DWARF line/info/location-list/frame tests completed"
+
+test-debug-info-inline-expression: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/debug-info-inline-expression)
+	$(RCC_TARGET) --target i686-unknown-rinos -g -O1 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/x86-inline-g.ro \
+		tests/debug_info.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -g -O1 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/x64-inline-g.ro \
+		tests/debug_info.c
+	$(RCC_TARGET) --target i686-unknown-rinos -g -O1 -fverified-backend -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-g.ro \
+		tests/debug_info.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -g -O1 -fverified-backend -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-g.ro \
+		tests/debug_info.c
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/debug-info-inline-expression/verify \
+		tests/debug_info_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/debug-info-inline-expression/verify \
+		--verify-inline-integer-expression \
+		$(TEST_OUT)/debug-info-inline-expression/x86-inline-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/x64-inline-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-g.ro
+	@echo "Bounded inline integer-expression DWARF tests completed"
 
 test-aqc: $(AQC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))

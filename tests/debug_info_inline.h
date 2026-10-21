@@ -8,6 +8,16 @@ inline int debug_declared_inline(int value)
     return debug_nested_inline(value) + 5;
 }
 
+inline int debug_nonconstant_integer_parameter_inline(int value)
+{
+    return value;
+}
+
+inline int debug_nonconstant_integer_subtract_parameter_inline(int value)
+{
+    return value;
+}
+
 inline int debug_local_inline(int value)
 {
     const int inline_local_value = 7;
