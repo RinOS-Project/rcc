@@ -24,17 +24,33 @@ typedef long long RINOS_ABI (*WideLoopFunction)(unsigned int, long long);
 typedef long long RINOS_ABI (*WideRestartFunction)(
     unsigned int, unsigned int, unsigned int, long long);
 
+static int object_section_index(const ObjectFile* object,
+                                const ObjSection* wanted)
+{
+    const ObjSection* section;
+    int index = 0;
+    for (section = object ? object->sections : NULL;
+         section; section = section->next, ++index) {
+        if (section == wanted) return index;
+    }
+    return -1;
+}
+
 int main(int argc, char** argv)
 {
     int entry_only;
     ObjectFile* object;
     ObjSection* text;
+    ObjSection* rodata;
+    int rodata_index;
     ObjSymbol* entry_symbol;
     ObjSymbol* wide_loop_symbol = NULL;
     ObjSymbol* nested_wide_loop_symbol = NULL;
     ObjSymbol* nested_wide_restart_symbol = NULL;
     size_t page_size;
     size_t mapping_size;
+    size_t rodata_offset = 0u;
+    size_t used_size;
     void* memory;
     void* entry_address;
     EntryFunction entry;
@@ -53,6 +69,8 @@ int main(int argc, char** argv)
     object = objfile_read(entry_only ? argv[2] : argv[1]);
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
+    rodata = objfile_get_section(object, ".rodata");
+    rodata_index = object_section_index(object, rodata);
     entry_symbol = objfile_find_symbol(object, "main");
     assert(text != NULL && text->data != NULL && text->size != 0u &&
            entry_symbol != NULL && entry_symbol->section == 0);
@@ -77,7 +95,17 @@ int main(int argc, char** argv)
     page_size = host_page_size > 0 ? (size_t)host_page_size : 0u;
 #endif
     assert(page_size != 0u && text->size <= SIZE_MAX - page_size + 1u);
-    mapping_size = ((size_t)text->size + page_size - 1u) & ~(page_size - 1u);
+    used_size = (size_t)text->size;
+    if (rodata && rodata->size != 0u) {
+        size_t alignment = rodata->align ? rodata->align : 1u;
+        size_t mask = alignment - 1u;
+        assert((alignment & mask) == 0u && used_size <= SIZE_MAX - mask);
+        rodata_offset = (used_size + mask) & ~mask;
+        assert(rodata->size <= SIZE_MAX - rodata_offset);
+        used_size = rodata_offset + (size_t)rodata->size;
+    }
+    assert(used_size <= SIZE_MAX - page_size + 1u);
+    mapping_size = (used_size + page_size - 1u) & ~(page_size - 1u);
 #ifdef _WIN32
     memory = VirtualAlloc(NULL, mapping_size, MEM_RESERVE | MEM_COMMIT,
                           PAGE_READWRITE);
@@ -88,6 +116,10 @@ int main(int argc, char** argv)
 #endif
     assert(memory != NULL);
     memcpy(memory, text->data, (size_t)text->size);
+    if (rodata && rodata->size != 0u) {
+        memcpy((uint8_t*)memory + rodata_offset,
+               rodata->data, (size_t)rodata->size);
+    }
     for (ObjReloc* relocation = text->relocs; relocation;
          relocation = relocation->next) {
         ObjSymbol* symbol = objfile_find_symbol(
@@ -96,18 +128,29 @@ int main(int argc, char** argv)
         int64_t target;
         int64_t delta;
         int32_t encoded;
-        assert(relocation->type == RELOC_REL32 && symbol != NULL &&
-               symbol->section == 0 &&
-               relocation->offset <= text->size &&
-               sizeof(encoded) <= text->size - relocation->offset);
+        assert(symbol != NULL &&
+               (symbol->section == 0 ||
+                (rodata && symbol->section == rodata_index)) &&
+               relocation->offset <= text->size);
         place = (uint8_t*)memory + relocation->offset;
         target = (int64_t)(uintptr_t)memory +
+            (symbol->section == 0 ? 0 : (int64_t)rodata_offset) +
             (int64_t)symbol->value + relocation->addend;
-        delta = target -
-            (int64_t)(uintptr_t)(place + sizeof(encoded));
-        encoded = (int32_t)delta;
-        assert((int64_t)encoded == delta);
-        memcpy(place, &encoded, sizeof(encoded));
+        if (relocation->type == RELOC_REL32) {
+            assert(sizeof(encoded) <= text->size - relocation->offset);
+            delta = target -
+                (int64_t)(uintptr_t)(place + sizeof(encoded));
+            encoded = (int32_t)delta;
+            assert((int64_t)encoded == delta);
+            memcpy(place, &encoded, sizeof(encoded));
+        } else if (relocation->type == RELOC_ABS64) {
+            uint64_t encoded_address = (uint64_t)target;
+            assert(sizeof(encoded_address) <=
+                   text->size - relocation->offset);
+            memcpy(place, &encoded_address, sizeof(encoded_address));
+        } else {
+            assert(!"entry runner does not support this relocation type");
+        }
     }
 #ifdef _WIN32
     assert(VirtualProtect(memory, mapping_size, PAGE_EXECUTE_READ, &previous));

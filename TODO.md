@@ -8019,3 +8019,22 @@ remains a separate open item.
       language, and IR/MIR/x86 suites pass.
 - [ ] Generic/aggregate builtin forms, floating/aggregate atomics, and general
       C++ atomic operations remain open.
+
+## RCC continuation (2026-10-21, typed-SSA generic floating atomics)
+
+- [x] Lower generic `__atomic_load`, `__atomic_store`, `__atomic_exchange`,
+      and `__atomic_compare_exchange` for 32-bit `float` on i686/AMD64 and
+      64-bit `double` on AMD64. Exchange/CAS operate on same-width integer
+      bitcasts so signed zero and NaN payloads are compared by representation;
+      atomic stores use integer-width sequentially-consistent `XCHG`.
+- [x] Add `test-verified-atomic-fetch-add` coverage for generic float load,
+      store, exchange, failed/successful CAS, and +0/-0 representation mismatch;
+      AMD64 double coverage exercises all four generic operations. Both targets
+      pass `-O0`/`-O2` with zero verified-backend fallback, GCC C17 oracle and
+      AMD64 object execution pass, and the runner now resolves local `.rodata`
+      `REL32`/`ABS64` references needed by floating constants.
+- [x] `test-atomic-builtins`, `test-atomic-language`, and `test-ir` pass.
+- [ ] Floating support remains limited to generic builtins and lock-free
+      32-bit `float` on both targets / 64-bit `double` on AMD64. Standard
+      `stdatomic.h` floating typedef/API coverage, aggregate and wider floating
+      objects, and general C++ atomic conformance remain open.
