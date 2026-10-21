@@ -95,6 +95,9 @@ int debug_inline_nonconstant_integer_entry(int value)
     int added_value;
     int multiplied_value;
     int negated_value;
+    int bitand_value;
+    int bitor_value;
+    int bitxor_value;
     debug_inline_nonconstant_integer_escape =
         &debug_inline_nonconstant_integer_source;
     added_value = debug_nonconstant_integer_parameter_inline(
@@ -103,7 +106,14 @@ int debug_inline_nonconstant_integer_entry(int value)
         debug_inline_nonconstant_integer_source * 3);
     negated_value = debug_nonconstant_integer_negate_parameter_inline(
         -debug_inline_nonconstant_integer_source);
-    return added_value + multiplied_value + negated_value +
+    bitand_value = debug_nonconstant_integer_bitand_parameter_inline(
+        debug_inline_nonconstant_integer_source & 7);
+    bitor_value = debug_nonconstant_integer_bitor_parameter_inline(
+        debug_inline_nonconstant_integer_source | 8);
+    bitxor_value = debug_nonconstant_integer_bitxor_parameter_inline(
+        debug_inline_nonconstant_integer_source ^ 15);
+    return added_value + multiplied_value + negated_value + bitand_value +
+        bitor_value + bitxor_value +
         debug_nonconstant_integer_subtract_parameter_inline(
             debug_inline_nonconstant_integer_source - 3);
 }

@@ -28,6 +28,21 @@ inline int debug_nonconstant_integer_negate_parameter_inline(int value)
     return value;
 }
 
+inline int debug_nonconstant_integer_bitand_parameter_inline(int value)
+{
+    return value;
+}
+
+inline int debug_nonconstant_integer_bitor_parameter_inline(int value)
+{
+    return value;
+}
+
+inline int debug_nonconstant_integer_bitxor_parameter_inline(int value)
+{
+    return value;
+}
+
 inline int debug_local_inline(int value)
 {
     const int inline_local_value = 7;

@@ -2259,13 +2259,13 @@
         storage is a defined static object or an addressable frame slot and
         whose callee body is a bounded side-effect-free return/if-else tree.
   - [x] Preserve runtime signed integer arguments formed by bounded unary `-`
-        and binary `+`, `-`, and `*` expression trees over same-typed constants
-        and addressable frame locals. Emit a target-width-correct DWARF
-        expression that loads and sign-extends narrow locals, evaluates and
-        width-normalizes each arithmetic operation, and leaves the value on the
-        DWARF stack. Decode each parameter location and cross-check its source
-        frame slot for legacy and verified i686/AMD64 `-g -O1` objects in
-        `test-debug-info`.
+        and binary `+`, `-`, `*`, `&`, `|`, and `^` expression trees over
+        same-typed constants and addressable frame locals. Emit a
+        target-width-correct DWARF expression that loads and sign-extends narrow
+        locals, evaluates and width-normalizes each arithmetic/bitwise
+        operation, and leaves the value on the DWARF stack. Decode each
+        parameter location and cross-check its source frame slot for legacy and
+        verified i686/AMD64 `-g -O1` objects in `test-debug-info`.
         Remaining work includes arbitrary nonconstant argument expressions,
         mutable parameters, optimized-away/register-only sources, nested lexical
         locals, tracking optimized variables across register and piece

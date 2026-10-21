@@ -5079,7 +5079,8 @@ static bool debug_build_inline_integer_value_expression(
     }
 
     if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
-         expression->kind == EXPR_MUL) &&
+         expression->kind == EXPR_MUL || expression->kind == EXPR_BITAND ||
+         expression->kind == EXPR_BITOR || expression->kind == EXPR_BITXOR) &&
         expression->binary_lhs && expression->binary_rhs &&
         debug_inline_integer_expression_type(expression->binary_lhs->type) &&
         debug_inline_integer_expression_type(expression->binary_rhs->type) &&
@@ -5096,7 +5097,10 @@ static bool debug_build_inline_integer_value_expression(
         debug_inline_integer_expression_append_byte(
             output, capacity, output_size,
             expression->kind == EXPR_ADD ? 0x22u :
-                expression->kind == EXPR_SUB ? 0x1cu : 0x1eu) &&
+                expression->kind == EXPR_SUB ? 0x1cu :
+                expression->kind == EXPR_MUL ? 0x1eu :
+                expression->kind == EXPR_BITAND ? 0x1au :
+                expression->kind == EXPR_BITOR ? 0x21u : 0x27u) &&
         debug_inline_integer_expression_normalize(
             output, capacity, output_size, expression->type, architecture)) {
         return true;
@@ -5118,6 +5122,9 @@ static bool debug_inline_parameter_integer_expression(
         (argument->expr->kind != EXPR_ADD &&
          argument->expr->kind != EXPR_SUB &&
          argument->expr->kind != EXPR_MUL &&
+         argument->expr->kind != EXPR_BITAND &&
+         argument->expr->kind != EXPR_BITOR &&
+         argument->expr->kind != EXPR_BITXOR &&
          argument->expr->kind != EXPR_NEG) ||
         !debug_inline_parameter_body_is_read_only(callee)) {
         return false;
