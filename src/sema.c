@@ -20210,10 +20210,16 @@ static void sema_initializer(Type* type, Expr* initializer) {
             sema_expr(initializer);
         }
         if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            bool guaranteed_call_prvalue_elision =
+                rcc_parser_is_cxx_mode() &&
+                rcc_parser_cxx_standard_at_least(17) &&
+                initializer->kind == EXPR_CALL &&
+                !is_lvalue(initializer) && !is_xvalue(initializer);
             if (rcc_parser_is_cxx_mode() && type->cxx_class &&
                 initializer->type && type_is_compatible(type, initializer->type) &&
                 !sema_cxx_trivially_copyable(type, 0) &&
-                sema_cxx_type_has_destructor_cleanup(type, 0)) {
+                sema_cxx_type_has_destructor_cleanup(type, 0) &&
+                !guaranteed_call_prvalue_elision) {
                 rcc_error(initializer->loc,
                           "C++ scope-cleanup object requires a validated direct constructor");
                 return;

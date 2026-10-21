@@ -3692,6 +3692,17 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                                     int32_t displacement) {
     Expr* string = gen64_character_array_string(type, initializer);
     if (!type || !initializer) return false;
+    if (rcc_parser_is_cxx_mode() &&
+        rcc_parser_cxx_standard_at_least(17) &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        initializer->kind == EXPR_CALL && initializer->type &&
+        type_is_compatible(type, initializer->type)) {
+        int result_offset = initializer->call_result_offset;
+        initializer->call_result_offset = displacement;
+        gen64_expr(mod, initializer);
+        initializer->call_result_offset = result_offset;
+        return true;
+    }
     if (initializer->kind == EXPR_COMPOUND &&
         initializer->compound_constructor && type->cxx_class) {
         emit64_lea(mod, RAX, RBP, displacement);
@@ -10583,6 +10594,33 @@ static bool gen64_global_initializer(Module* mod, Decl* declaration) {
     if (declaration->var_reference_temporary_owner) {
         return gen64_static_reference_temporary_initializer(
             mod, declaration);
+    }
+    if (rcc_parser_is_cxx_mode() &&
+        rcc_parser_cxx_standard_at_least(17) && type->cxx_class &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        initializer->kind == EXPR_CALL && initializer->type &&
+        type_is_compatible(type, initializer->type)) {
+        if (gen64_classify_aggregate(type).memory) {
+            Expr* old_call = active_static_reference_result_call64;
+            const char* old_symbol =
+                active_static_reference_result_symbol64;
+            Decl* old_decl = active_static_reference_result_decl64;
+            active_static_reference_result_call64 = initializer;
+            active_static_reference_result_symbol64 =
+                decl_link_name(declaration);
+            active_static_reference_result_decl64 = declaration;
+            gen64_expr(mod, initializer);
+            active_static_reference_result_call64 = old_call;
+            active_static_reference_result_symbol64 = old_symbol;
+            active_static_reference_result_decl64 = old_decl;
+        } else {
+            gen64_expr(mod, initializer);
+            emit64_mov_reg_reg(mod, RDX, RAX);
+            gen64_decl_storage_address(mod, declaration);
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            gen64_copy_memory(mod, RCX, 0, RDX, 0, type->size);
+        }
+        return true;
     }
     if (type->cxx_class && initializer->kind == EXPR_COMPOUND &&
         initializer->compound_constructor &&

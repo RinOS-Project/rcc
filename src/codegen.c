@@ -1164,8 +1164,15 @@ static bool codegen_runtime_global_scalar(const Type* type) {
 
 static bool codegen_runtime_global_constructor(const Type* type,
                                                const Expr* initializer) {
-    return type && type->cxx_class && initializer &&
-           initializer->kind == EXPR_COMPOUND &&
+    if (!type || !type->cxx_class || !initializer) return false;
+    if (rcc_parser_is_cxx_mode() &&
+        rcc_parser_cxx_standard_at_least(17) &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        initializer->kind == EXPR_CALL && initializer->type &&
+        type_is_compatible((Type*)type, initializer->type)) {
+        return true;
+    }
+    return initializer->kind == EXPR_COMPOUND &&
            initializer->compound_constructor &&
            initializer->compound_constructor->method &&
            initializer->compound_constructor->method->decl &&
@@ -16822,6 +16829,17 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                   int32_t displacement) {
     Expr* string = codegen_character_array_string(type, initializer);
     if (!type || !initializer) return false;
+    if (rcc_parser_is_cxx_mode() &&
+        rcc_parser_cxx_standard_at_least(17) &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        initializer->kind == EXPR_CALL && initializer->type &&
+        type_is_compatible(type, initializer->type)) {
+        int result_offset = initializer->call_result_offset;
+        initializer->call_result_offset = displacement;
+        gen_expr(mod, initializer);
+        initializer->call_result_offset = result_offset;
+        return true;
+    }
     if (initializer->kind == EXPR_COMPOUND &&
         initializer->compound_constructor && type->cxx_class) {
         emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
@@ -18499,6 +18517,21 @@ static bool gen_global_initializer32(Module* mod, Decl* declaration) {
             mod, declaration);
     }
     if (codegen_runtime_global_constructor(type, initializer)) {
+        if (initializer->kind == EXPR_CALL && initializer->type &&
+            type_is_compatible(type, initializer->type)) {
+            Expr* old_call = active_static_reference_result_call32;
+            const char* old_symbol = active_static_reference_result_symbol32;
+            Decl* old_decl = active_static_reference_result_decl32;
+            active_static_reference_result_call32 = initializer;
+            active_static_reference_result_symbol32 =
+                decl_link_name(declaration);
+            active_static_reference_result_decl32 = declaration;
+            gen_expr(mod, initializer);
+            active_static_reference_result_call32 = old_call;
+            active_static_reference_result_symbol32 = old_symbol;
+            active_static_reference_result_decl32 = old_decl;
+            return true;
+        }
         gen_decl_storage_address32(mod, declaration);
         emit_mov_reg_reg(mod, ECX, EAX);
         gen_cxx_initialize_object32(

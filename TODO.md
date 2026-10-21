@@ -8118,6 +8118,13 @@ remains a separate open item.
       competing paths produce distinct values and pass the GCC C++20 oracle,
       i686/AMD64 code generation, and AMD64 default/`-O2` execution in
       `test-cxx-static-cast-constructor`.
+- [x] In C++17 and later, initialize a same-type nontrivial class local or
+      static-storage object directly in its destination from a class-returning
+      call, avoiding an extra copy or temporary. Static-cast conversion
+      results verify exact local destructor counts, global initialization
+      values, a GCC C++20 oracle, i686/AMD64 assembly, and RCC default/`-O2`
+      AMD64 execution in `test-cxx-static-cast-constructor`.
 - [ ] Remaining class-target cast coverage includes C++20 aggregate
-      parenthesized-initialization edge cases, class-prvalue cleanup, and
-      overloaded conversion functions with non-exact result sequences.
+      parenthesized-initialization edge cases, class-prvalue uses outside
+      same-type local/static-storage initialization, and overloaded conversion
+      functions with non-exact result sequences.
