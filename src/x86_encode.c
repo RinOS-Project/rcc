@@ -1652,6 +1652,18 @@ static bool x86_emit_indirect_exchange(
     return x86_emit_indirect_modrm(encoder, value, address);
 }
 
+static bool x86_emit_indirect_compare_exchange(
+    RccX86Encoder* encoder, RccX86HardwareGpr address,
+    RccX86HardwareGpr desired, uint16_t size) {
+    if (!x86_emit_u8(encoder, 0xf0u) ||
+        !x86_emit_prefix(encoder, size, desired, address, size == 1u) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, size == 1u ? 0xb0u : 0xb1u)) {
+        return false;
+    }
+    return x86_emit_indirect_modrm(encoder, desired, address);
+}
+
 static bool x86_emit_indirect_fetch_add(
     RccX86Encoder* encoder, RccX86HardwareGpr address,
     RccX86HardwareGpr value, uint16_t size) {
@@ -2186,6 +2198,66 @@ static bool x86_emit_atomic_exchange(
     }
     if (!x86_emit_indirect_exchange(
             encoder, address_register, RCC_X86_GPR_AX, size)) return false;
+    if (destination.kind == RCC_X86_VALUE_GPR) {
+        return x86_emit_move_register_register(
+            encoder, destination.gpr, RCC_X86_GPR_AX, size);
+    }
+    return x86_emit_store(encoder, destination, RCC_X86_GPR_AX, size);
+}
+
+static bool x86_emit_atomic_compare_exchange(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value address = instruction->operands[0];
+    RccX86Value expected = instruction->operands[1];
+    RccX86Value desired = instruction->operands[2];
+    RccX86Value destination = instruction->destination;
+    bool pointer_operation = instruction->type.kind == RCC_MIR_TYPE_POINTER;
+    uint16_t size = pointer_operation
+        ? encoder->function->pointer_size
+        : instruction->type.bit_width / 8u;
+    RccX86HardwareGpr address_register = RCC_X86_GPR_CX;
+    RccX86HardwareGpr desired_register = RCC_X86_GPR_DX;
+    if ((!pointer_operation &&
+         instruction->type.kind != RCC_MIR_TYPE_INTEGER) ||
+        (!pointer_operation &&
+         size != 1u && size != 2u && size != 4u &&
+         (size != 8u ||
+          encoder->function->target != RCC_X86_TARGET_X86_64)) ||
+        instruction->operand_types[0].kind != RCC_MIR_TYPE_POINTER ||
+        !rcc_mir_type_equal(instruction->operand_types[1],
+                            instruction->type) ||
+        !rcc_mir_type_equal(instruction->operand_types[2],
+                            instruction->type)) {
+        return x86_encode_error(
+            encoder, "x86 atomic compare-exchange contract is invalid");
+    }
+    /* MIR allocation reserves AX/CX/DX across this instruction.  CMPXCHG
+     * consumes expected in AX, the address in CX, and desired in DX; AX
+     * contains the observed value on both success and failure. */
+    if (expected.kind == RCC_X86_VALUE_GPR) {
+        if (!x86_emit_move_register_register(
+                encoder, RCC_X86_GPR_AX, expected.gpr, size)) return false;
+    } else if (!x86_emit_load(encoder, RCC_X86_GPR_AX, expected, size)) {
+        return false;
+    }
+    if (desired.kind == RCC_X86_VALUE_GPR) {
+        if (!x86_emit_move_register_register(
+                encoder, desired_register, desired.gpr, size)) return false;
+    } else if (!x86_emit_load(encoder, desired_register, desired, size)) {
+        return false;
+    }
+    if (address.kind == RCC_X86_VALUE_GPR) {
+        if (!x86_emit_move_register_register(
+                encoder, address_register, address.gpr,
+                encoder->function->pointer_size)) return false;
+    } else if (!x86_emit_load(
+                   encoder, address_register, address,
+                   encoder->function->pointer_size)) {
+        return false;
+    }
+    if (!x86_emit_indirect_compare_exchange(
+            encoder, address_register, desired_register, size)) return false;
     if (destination.kind == RCC_X86_VALUE_GPR) {
         return x86_emit_move_register_register(
             encoder, destination.gpr, RCC_X86_GPR_AX, size);
@@ -3167,6 +3239,8 @@ static bool x86_emit_instruction(
             return x86_emit_atomic_fetch_add(encoder, instruction);
         case RCC_X86_ATOMIC_EXCHANGE:
             return x86_emit_atomic_exchange(encoder, instruction);
+        case RCC_X86_ATOMIC_COMPARE_EXCHANGE:
+            return x86_emit_atomic_compare_exchange(encoder, instruction);
         case RCC_X86_GEP:
             return x86_emit_gep(encoder, instruction);
         case RCC_X86_CAPTURE_RETURN_PAIR:

@@ -1649,6 +1649,7 @@ static bool ir_pass_cse_candidate(const RccIrInstruction* instruction) {
         case RCC_IR_STORE:
         case RCC_IR_ATOMIC_FETCH_ADD:
         case RCC_IR_ATOMIC_EXCHANGE:
+        case RCC_IR_ATOMIC_COMPARE_EXCHANGE:
         case RCC_IR_CALL:
         case RCC_IR_CAPTURE_RETURN_PAIR:
         case RCC_IR_BRANCH:
@@ -1955,7 +1956,8 @@ static void ir_pass_common_block(RccIrCseContext* context,
             continue;
         }
         if (instruction->opcode == RCC_IR_ATOMIC_FETCH_ADD ||
-            instruction->opcode == RCC_IR_ATOMIC_EXCHANGE) {
+            instruction->opcode == RCC_IR_ATOMIC_EXCHANGE ||
+            instruction->opcode == RCC_IR_ATOMIC_COMPARE_EXCHANGE) {
             /* Atomic RMW may change any aliased memory and must remain
              * ordered with every observable load/store in this block. */
             context->block_load_count = 0u;
@@ -2168,6 +2170,7 @@ static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {
         case RCC_IR_STORE:
         case RCC_IR_ATOMIC_FETCH_ADD:
         case RCC_IR_ATOMIC_EXCHANGE:
+        case RCC_IR_ATOMIC_COMPARE_EXCHANGE:
         case RCC_IR_CALL:
         case RCC_IR_CAPTURE_RETURN_PAIR:
         case RCC_IR_BRANCH:

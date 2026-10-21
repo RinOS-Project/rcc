@@ -452,6 +452,8 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_STORE: return "store";
         case RCC_IR_ATOMIC_FETCH_ADD: return "atomic_fetch_add";
         case RCC_IR_ATOMIC_EXCHANGE: return "atomic_exchange";
+        case RCC_IR_ATOMIC_COMPARE_EXCHANGE:
+            return "atomic_compare_exchange";
         case RCC_IR_GEP: return "gep";
         case RCC_IR_SYMBOL_ADDRESS: return "symbol_address";
         case RCC_IR_CALL: return "call";
@@ -899,6 +901,28 @@ static bool ir_verify_instruction_types(
                 return ir_verify_error(
                     verifier,
                     "atomic_exchange requires a pointer address and matching desired value");
+            }
+            return true;
+        case RCC_IR_ATOMIC_COMPARE_EXCHANGE:
+            if (!ir_require_shape(verifier, instruction, 3u, 0u) ||
+                (instruction->type.kind == RCC_IR_TYPE_INTEGER &&
+                 instruction->type.bit_width != 8u &&
+                 instruction->type.bit_width != 16u &&
+                 instruction->type.bit_width != 32u &&
+                 instruction->type.bit_width != 64u) ||
+                (instruction->type.kind != RCC_IR_TYPE_INTEGER &&
+                 instruction->type.kind != RCC_IR_TYPE_POINTER) ||
+                !ir_value_type(verifier, instruction->operands[0], &first) ||
+                !ir_value_type(verifier, instruction->operands[1], &second)) {
+                return false;
+            }
+            if (first.kind != RCC_IR_TYPE_POINTER ||
+                !rcc_ir_type_equal(second, instruction->type) ||
+                !ir_value_type(verifier, instruction->operands[2], &second) ||
+                !rcc_ir_type_equal(second, instruction->type)) {
+                return ir_verify_error(
+                    verifier,
+                    "atomic_compare_exchange requires matching expected and desired values");
             }
             return true;
         case RCC_IR_GEP:

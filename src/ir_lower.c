@@ -9751,6 +9751,143 @@ static RccIrLowerValue lower_atomic_exchange_call(
         object_type->kind == TYPE_PTR || object_type->is_unsigned);
 }
 
+static RccIrLowerValue lower_atomic_compare_exchange_call(
+    RccIrLowerContext* context, const Expr* expression) {
+    const ExprList* object_argument = expression->call_args;
+    const ExprList* expected_argument = object_argument
+        ? object_argument->next : NULL;
+    const ExprList* desired_argument = expected_argument
+        ? expected_argument->next : NULL;
+    const ExprList* weak_argument = desired_argument
+        ? desired_argument->next : NULL;
+    const ExprList* success_order_argument = weak_argument
+        ? weak_argument->next : NULL;
+    const ExprList* failure_order_argument = success_order_argument
+        ? success_order_argument->next : NULL;
+    Type* object_pointer_type;
+    Type* object_type;
+    Type* expected_pointer_type;
+    Type* expected_type;
+    RccIrType atomic_type;
+    RccIrLowerValue object_address;
+    RccIrLowerValue expected_address;
+    RccIrLowerValue expected;
+    RccIrLowerValue desired;
+    RccIrLowerValue weak;
+    RccIrLowerValue success_order;
+    RccIrLowerValue failure_order;
+    RccIrLowerValue success;
+    RccIrValue operands[3];
+    RccIrValue compare_operands[2];
+    RccIrInstruction* operation;
+    RccIrInstruction* compare;
+    RccIrBlock* failure_block;
+    RccIrBlock* merge_block;
+
+    if (!object_argument || !expected_argument || !desired_argument ||
+        !weak_argument || !success_order_argument ||
+        !failure_order_argument || failure_order_argument->next ||
+        !object_argument->expr || !expected_argument->expr ||
+        !desired_argument->expr || !weak_argument->expr ||
+        !success_order_argument->expr || !failure_order_argument->expr) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_pointer_type = object_argument->expr->type;
+    object_type = object_pointer_type &&
+            object_pointer_type->kind == TYPE_PTR
+        ? object_pointer_type->base : NULL;
+    expected_pointer_type = expected_argument->expr->type;
+    expected_type = expected_pointer_type &&
+            expected_pointer_type->kind == TYPE_PTR
+        ? expected_pointer_type->base : NULL;
+    if (!object_type || !expected_type ||
+        !type_is_compatible(object_type, expected_type) ||
+        !lower_type(object_type, &atomic_type) ||
+        (atomic_type.kind == RCC_IR_TYPE_INTEGER &&
+         atomic_type.bit_width != 8u && atomic_type.bit_width != 16u &&
+         atomic_type.bit_width != 32u &&
+         (atomic_type.bit_width != 64u || g_opts.target_arch != ARCH_X64)) ||
+        (atomic_type.kind != RCC_IR_TYPE_INTEGER &&
+         atomic_type.kind != RCC_IR_TYPE_POINTER)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    /* The builtin's weak/order operands are still evaluated once.  Locked
+     * CMPXCHG is sequentially consistent, which is stronger than every valid
+     * success/failure order and also implements weak operations strongly. */
+    object_address = lower_expression(context, object_argument->expr);
+    expected_address = lower_expression(context, expected_argument->expr);
+    if (expected_address.valid) {
+        expected_address.volatile_access = expected_address.volatile_access ||
+            expected_type->is_volatile;
+        expected_address.atomic_access = false;
+    }
+    desired = lower_expression(context, desired_argument->expr);
+    weak = lower_expression(context, weak_argument->expr);
+    success_order = lower_expression(context, success_order_argument->expr);
+    failure_order = lower_expression(context, failure_order_argument->expr);
+    /* All call argument expressions finish before the builtin reads *expected. */
+    expected = lower_load_address(context, expected_address, expected_type);
+    if (!object_address.valid ||
+        object_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !expected_address.valid ||
+        expected_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !expected.valid || !desired.valid || !weak.valid ||
+        weak.type.kind != RCC_IR_TYPE_INTEGER ||
+        !success_order.valid ||
+        success_order.type.kind != RCC_IR_TYPE_INTEGER ||
+        !failure_order.valid ||
+        failure_order.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    desired = lower_cast(context, desired, object_type);
+    if (!desired.valid || !rcc_ir_type_equal(desired.type, atomic_type) ||
+        !rcc_ir_type_equal(expected.type, atomic_type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    operands[0] = object_address.value;
+    operands[1] = expected.value;
+    operands[2] = desired.value;
+    operation = lower_append(
+        context, RCC_IR_ATOMIC_COMPARE_EXCHANGE, atomic_type,
+        operands, 3u, NULL, 0u);
+    if (!operation) return lower_invalid_value();
+    compare_operands[0] = operation->result;
+    compare_operands[1] = expected.value;
+    compare = lower_append(
+        context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+        compare_operands, 2u, NULL, 0u);
+    if (!compare) return lower_invalid_value();
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_EQ);
+    success = lower_value(compare->result, rcc_ir_type_integer(1u), true);
+
+    failure_block = rcc_ir_block_add(
+        context->function, "atomic.compare_exchange.failed");
+    merge_block = rcc_ir_block_add(
+        context->function, "atomic.compare_exchange.end");
+    if (!failure_block || !merge_block ||
+        !lower_conditional_branch(context, success, merge_block->id,
+                                  failure_block->id)) {
+        return lower_invalid_value();
+    }
+    context->current = failure_block;
+    context->terminated = false;
+    if (!lower_store_address(context, expected_address,
+                             lower_value(operation->result, atomic_type,
+                                         object_type->is_unsigned)) ||
+        !lower_branch(context, merge_block->id)) {
+        return lower_invalid_value();
+    }
+    context->current = merge_block;
+    context->terminated = false;
+    return lower_cast(context, success, expression->type);
+}
+
 static RccIrLowerValue lower_atomic_load_store_call(
     RccIrLowerContext* context, const Expr* expression,
     const char* name) {
@@ -10029,6 +10166,13 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         strcmp(expression->call_func->ident_name,
                "__atomic_exchange_n") == 0) {
         return lower_atomic_exchange_call(context, expression);
+    }
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        strcmp(expression->call_func->ident_name,
+               "__atomic_compare_exchange_n") == 0) {
+        return lower_atomic_compare_exchange_call(context, expression);
     }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&

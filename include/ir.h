@@ -88,6 +88,8 @@ typedef enum {
     /* Atomic integer/pointer exchange: returns the prior value and updates
      * memory with the desired value. */
     RCC_IR_ATOMIC_EXCHANGE,
+    /* Atomic compare-exchange: returns the observed value. */
+    RCC_IR_ATOMIC_COMPARE_EXCHANGE,
     RCC_IR_GEP,
     RCC_IR_SYMBOL_ADDRESS,
     RCC_IR_CALL,

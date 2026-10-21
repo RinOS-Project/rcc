@@ -101,6 +101,13 @@ static bool x86_legal_atomic_exchange_supported(
         rcc_mir_type_equal(desired, type);
 }
 
+static bool x86_legal_atomic_compare_exchange_supported(
+    RccMirType type, RccMirType expected, RccMirType desired,
+    RccX86Target target) {
+    return x86_legal_atomic_exchange_supported(type, expected, target) &&
+        rcc_mir_type_equal(expected, desired);
+}
+
 static bool x86_legal_return_type_supported(
     RccMirType type, const RccX86Abi* abi) {
     if (type.kind == RCC_MIR_TYPE_FLOAT) {
@@ -1531,6 +1538,10 @@ static bool x86_legal_selected_shape(
             return instruction->has_destination &&
                 instruction->operand_count == 2u &&
                 instruction->target_count == 0u;
+        case RCC_X86_ATOMIC_COMPARE_EXCHANGE:
+            return instruction->has_destination &&
+                instruction->operand_count == 3u &&
+                instruction->target_count == 0u;
         case RCC_X86_TRUNCATE: case RCC_X86_ZERO_EXTEND:
         case RCC_X86_SIGN_EXTEND: case RCC_X86_FLOAT_EXTEND:
         case RCC_X86_SITOFP: case RCC_X86_FPTOSI:
@@ -2074,6 +2085,14 @@ bool rcc_x86_verify_legal_function(
                  (!x86_legal_atomic_exchange_supported(
                       instruction->type, instruction->operand_types[1],
                       function->target) ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_POINTER)) ||
+                (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
+                 instruction->selected_opcode ==
+                     RCC_X86_ATOMIC_COMPARE_EXCHANGE &&
+                 (!x86_legal_atomic_compare_exchange_supported(
+                      instruction->type, instruction->operand_types[1],
+                      instruction->operand_types[2], function->target) ||
                   instruction->operand_types[0].kind !=
                       RCC_MIR_TYPE_POINTER)) ||
                 (instruction->opcode == RCC_X86_LEGAL_SELECTED &&

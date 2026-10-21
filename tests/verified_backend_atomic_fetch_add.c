@@ -16,12 +16,21 @@ int main(void)
     _Atomic(int *) load_store_cursor;
     _Atomic unsigned char test_set_value = 0u;
     _Atomic unsigned char clear_value = 1u;
+    volatile unsigned char compare_exchange8 = 42u;
+    volatile unsigned short compare_exchange16 = 0x1234u;
+    volatile unsigned int compare_exchange32 = 0x10203040u;
+    int * volatile compare_exchange_pointer;
 #if defined(__x86_64__)
     _Atomic unsigned long long builtin_wide = 0x10000000aULL;
     _Atomic unsigned long long exchange_wide = 0x123456789abcdef0ULL;
+    volatile unsigned long long compare_exchange64 =
+        0x123456789abcdef0ULL;
     unsigned long long builtin_wide_old;
     unsigned long long builtin_wide_new;
     unsigned long long exchange_wide_old;
+    unsigned long long compare_exchange64_expected =
+        0x123456789abcdef0ULL;
+    int compare_exchange64_succeeded;
 #endif
     volatile int builtin_order = __ATOMIC_RELAXED;
     unsigned int builtin_fetch_sub;
@@ -34,6 +43,18 @@ int main(void)
     int builtin_signed_new;
     unsigned int exchange_old;
     unsigned int builtin_loaded;
+    unsigned char compare_exchange8_expected = 41u;
+    unsigned short compare_exchange16_expected = 0x1234u;
+    unsigned int compare_exchange32_expected = 7u;
+    int *compare_exchange_pointer_expected;
+    int compare_exchange8_failed;
+    int compare_exchange8_succeeded;
+    int compare_exchange16_succeeded;
+    int compare_exchange32_failed;
+    int compare_exchange_pointer_succeeded;
+    unsigned int compare_exchange_weak_evaluations = 0u;
+    unsigned int compare_exchange_success_order_evaluations = 0u;
+    unsigned int compare_exchange_failure_order_evaluations = 0u;
     void *pointer_fetch_old;
     void *pointer_add_new;
     void *pointer_sub_old;
@@ -52,6 +73,8 @@ int main(void)
     int *subtracted_pointer;
     int *prefix_pointer;
     int *decremented_pointer;
+    compare_exchange_pointer = &elements[1];
+    compare_exchange_pointer_expected = &elements[1];
     unsigned char old8 = value8++;
     unsigned short old16 = value16++;
     unsigned char added8 = (value8 += 10u);
@@ -133,6 +156,32 @@ int main(void)
         builtin_order++ % 2 ? __ATOMIC_RELEASE : __ATOMIC_RELAXED);
     __sync_synchronize();
 
+    compare_exchange8_failed = __atomic_compare_exchange_n(
+        &compare_exchange8, &compare_exchange8_expected, 43u,
+        (compare_exchange_weak_evaluations++, 1),
+        (compare_exchange_success_order_evaluations++, __ATOMIC_SEQ_CST),
+        (compare_exchange_failure_order_evaluations++, __ATOMIC_ACQUIRE));
+    compare_exchange8_expected = 42u;
+    compare_exchange8_succeeded = __atomic_compare_exchange_n(
+        &compare_exchange8, &compare_exchange8_expected, 43u,
+        (compare_exchange_weak_evaluations++, 1),
+        (compare_exchange_success_order_evaluations++, __ATOMIC_SEQ_CST),
+        (compare_exchange_failure_order_evaluations++, __ATOMIC_ACQUIRE));
+    compare_exchange16_succeeded = __atomic_compare_exchange_n(
+        &compare_exchange16, &compare_exchange16_expected, 0x5678u, 0,
+        __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+    compare_exchange32_failed = __atomic_compare_exchange_n(
+        &compare_exchange32, &compare_exchange32_expected, 0x50607080u, 0,
+        __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+    compare_exchange_pointer_succeeded = __atomic_compare_exchange_n(
+        &compare_exchange_pointer, &compare_exchange_pointer_expected,
+        &elements[3], 1, __ATOMIC_SEQ_CST, __ATOMIC_ACQUIRE);
+#if defined(__x86_64__)
+    compare_exchange64_succeeded = __atomic_compare_exchange_n(
+        &compare_exchange64, &compare_exchange64_expected,
+        0xfedcba9876543210ULL, 0, __ATOMIC_SEQ_CST, __ATOMIC_ACQUIRE);
+#endif
+
     return old8 == 250u && value8 == 5u && added8 == 5u &&
         old16 == 65530u && value16 == 5u && added16 == 5u &&
         old_signed8 == -120 && signed8 == -112 && added_signed8 == -112 &&
@@ -166,6 +215,23 @@ int main(void)
         pointer_sub_new == (void*)elements && fetch_cursor == (void*)elements &&
         test_set_first == 0 && test_set_second == 1 && test_set_value == 1u &&
         clear_value == 0u &&
+        compare_exchange8_failed == 0 && compare_exchange8_expected == 42u &&
+        compare_exchange8_succeeded == 1 && compare_exchange8 == 43u &&
+        compare_exchange16_succeeded == 1 &&
+        compare_exchange16 == 0x5678u &&
+        compare_exchange32_failed == 0 &&
+        compare_exchange32_expected == 0x10203040u &&
+        compare_exchange_pointer_succeeded == 1 &&
+        compare_exchange_pointer == &elements[3] &&
+        compare_exchange_pointer_expected == &elements[1] &&
+        compare_exchange_weak_evaluations == 2u &&
+        compare_exchange_success_order_evaluations == 2u &&
+        compare_exchange_failure_order_evaluations == 2u &&
+#if defined(__x86_64__)
+        compare_exchange64_succeeded == 1 &&
+        compare_exchange64 == 0xfedcba9876543210ULL &&
+        compare_exchange64_expected == 0x123456789abcdef0ULL &&
+#endif
         builtin_signed_old == -30 && builtin_signed_new == -31 &&
         builtin_signed == -31
             ? 0 : 1;

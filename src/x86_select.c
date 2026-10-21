@@ -82,6 +82,14 @@ static bool x86_atomic_fetch_add_supported(
         rcc_mir_type_equal(delta, type);
 }
 
+static bool x86_atomic_compare_exchange_supported(
+    RccMirType type, RccMirType expected, RccMirType desired,
+    RccX86Target target) {
+    return x86_atomic_store_operand_supported(type, target) &&
+        rcc_mir_type_equal(expected, type) &&
+        rcc_mir_type_equal(desired, type);
+}
+
 static bool x86_function_return_supported(RccMirType type,
                                           RccX86Target target) {
     return (target == RCC_X86_TARGET_I686 &&
@@ -329,6 +337,8 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_STORE: return RCC_X86_STORE;
         case RCC_MIR_ATOMIC_FETCH_ADD: return RCC_X86_ATOMIC_FETCH_ADD;
         case RCC_MIR_ATOMIC_EXCHANGE: return RCC_X86_ATOMIC_EXCHANGE;
+        case RCC_MIR_ATOMIC_COMPARE_EXCHANGE:
+            return RCC_X86_ATOMIC_COMPARE_EXCHANGE;
         case RCC_MIR_GEP: return RCC_X86_GEP;
         case RCC_MIR_SYMBOL_ADDRESS: return RCC_X86_SYMBOL_ADDRESS;
         case RCC_MIR_CALL: return RCC_X86_CALL;
@@ -614,6 +624,10 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
             return instruction->has_destination &&
                 instruction->operand_count == 2u &&
                 instruction->target_count == 0u;
+        case RCC_X86_ATOMIC_COMPARE_EXCHANGE:
+            return instruction->has_destination &&
+                instruction->operand_count == 3u &&
+                instruction->target_count == 0u;
         case RCC_X86_STACK_RESTORE:
             return !instruction->has_destination &&
                 instruction->operand_count == 1u &&
@@ -768,6 +782,13 @@ bool rcc_x86_verify_function(
                       RCC_MIR_TYPE_POINTER ||
                   !rcc_mir_type_equal(instruction->operand_types[1],
                                       instruction->type))) ||
+                (instruction->opcode ==
+                     RCC_X86_ATOMIC_COMPARE_EXCHANGE &&
+                 (!x86_atomic_compare_exchange_supported(
+                      instruction->type, instruction->operand_types[1],
+                      instruction->operand_types[2], function->target) ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_POINTER)) ||
                 (instruction->sysv_variadic_call &&
                  (instruction->opcode != RCC_X86_CALL ||
                   function->target != RCC_X86_TARGET_X86_64)) ||

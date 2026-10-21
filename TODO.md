@@ -7888,6 +7888,22 @@ remains a separate open item.
 - [ ] Other atomic integer RMW operators, generic/aggregate builtin forms,
       floating/aggregate atomics, and general C++ atomic operations remain open.
 
+## RCC continuation (2026-10-21, typed-SSA compare-exchange)
+
+- [x] Lower scalar/pointer `__atomic_compare_exchange_n` calls to typed SSA
+      and x86 `LOCK CMPXCHG`. Strong hardware semantics correctly implement
+      weak requests; the locked operation supplies sequential consistency for
+      every valid success/failure order. Object, expected, desired, weak, and
+      order expressions are evaluated once before the expected value is read;
+      `*expected` is updated only after failure.
+- [x] `test-verified-atomic-fetch-add` covers failed and successful byte
+      comparisons, 16/32-bit values, target-width pointers, and AMD64 64-bit
+      values. i686/AMD64 `-O0`/`-O2` builds have zero verified-backend fallback;
+      AMD64 objects execute and agree with the GCC C17 oracle. Atomic builtin,
+      language, and IR/MIR/x86 encoding suites pass.
+- [ ] Other atomic integer RMW operators, generic/aggregate builtin forms,
+      floating/aggregate atomics, and general C++ atomic operations remain open.
+
 ## RCC continuation (2026-10-21, typed-SSA atomic test-and-set/clear)
 
 - [x] Lower `__atomic_test_and_set`, `__atomic_clear`, and
