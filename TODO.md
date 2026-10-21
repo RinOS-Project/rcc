@@ -8216,11 +8216,12 @@ remains a separate open item.
 
 ## RCC continuation (2026-10-21, conversion-function member-pointer adjustment)
 
-- [x] Preserve the standard base-to-derived member-pointer conversion after a
-      class conversion function returns a base-owned member pointer in
-      `static_cast`. Verify GCC C++20 parity, i686/AMD64 legacy code generation,
-      AMD64 execution at default optimization and `-O2`, and verified-SSA
-      emission of all nine functions with zero fallback on i686/AMD64 at
-      `-O0`/`-O2` in `test-cxx-static-cast-conversion-operator`.
+- [x] Preserve the standard base-to-derived data- and member-function-pointer
+      conversions after class conversion functions return base-owned member
+      pointers in `static_cast`. Verify GCC C++20 parity, i686/AMD64 legacy
+      code generation, AMD64 execution at default optimization and `-O2`, and
+      verified-SSA emission of all eleven functions with zero fallback on
+      i686/AMD64 at `-O0`/`-O2` in
+      `test-cxx-static-cast-conversion-operator`.
 - [ ] Other pointer-to-member adjustment edge cases and less-common explicit
       cast conversion sequences remain open.

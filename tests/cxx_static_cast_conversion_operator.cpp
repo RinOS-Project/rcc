@@ -64,6 +64,8 @@ struct MemberPointerConversionPrefix {
 
 struct MemberPointerConversionBase {
     int value;
+
+    int add(int amount) { return value + amount; }
 };
 
 struct MemberPointerConversionDerived : MemberPointerConversionPrefix,
@@ -73,6 +75,16 @@ class BaseMemberPointerConversion {
 public:
     operator int MemberPointerConversionBase::*() {
         return &MemberPointerConversionBase::value;
+    }
+};
+
+using BaseMemberFunctionPointer =
+    int (MemberPointerConversionBase::*)(int);
+
+class BaseMemberFunctionPointerConversion {
+public:
+    operator BaseMemberFunctionPointer() {
+        return &MemberPointerConversionBase::add;
     }
 };
 
@@ -122,12 +134,16 @@ int main() {
     member_pointer_derived.prefix = 5;
     member_pointer_derived.value = 37;
     BaseMemberPointerConversion base_member_pointer;
+    BaseMemberFunctionPointerConversion base_member_function_pointer;
     RankedConversion ranked_value{0, 0};
     MemberPointerTargetValue member_pointer =
         static_cast<MemberPointerTargetValue>(explicit_member_pointer);
     int MemberPointerConversionDerived::*adjusted_member_pointer =
         static_cast<int MemberPointerConversionDerived::*>(
             base_member_pointer);
+    int (MemberPointerConversionDerived::*adjusted_member_function_pointer)(
+        int) = static_cast<int (MemberPointerConversionDerived::*)(int)>(
+        base_member_function_pointer);
 
     return static_cast<int>(implicit_value) == 9 &&
                    static_cast<unsigned>(implicit_value) == 9u &&
@@ -142,6 +158,8 @@ int main() {
                    (member_pointer_target.*member_pointer) == 31 &&
                    explicit_member_pointer.calls == 1 &&
                    (member_pointer_derived.*adjusted_member_pointer) == 37 &&
+                   (member_pointer_derived.*adjusted_member_function_pointer)(
+                       5) == 42 &&
                    static_cast<double>(ranked_value) == 2.5 &&
                    ranked_value.integer_calls == 0 &&
                    ranked_value.floating_calls == 1 &&
