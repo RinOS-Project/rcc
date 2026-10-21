@@ -8182,3 +8182,16 @@ remains a separate open item.
       65-class-return chain passes GCC and RCC x64 execution; i686/AMD64 typed
       SSA emits with zero fallback at `-O0`/`-O2`, the i686 `-O2` object is
       PE-i386, and circular-chain diagnostics pass for both target widths.
+
+## RCC continuation (2026-10-21, parenthesized aggregate reference temporaries)
+
+- [x] Keep a nontrivial class prvalue bound to a reference member during C++20
+      aggregate parenthesized initialization alive through the remaining
+      element initializers, then destroy it exactly once at the full-expression
+      boundary. Track a caller-frame owner and cleanup plan on the initializer
+      element and lower it in both legacy target backends. The regression
+      observes the temporary from a later element initializer, compares with
+      GCC C++20, emits i686/AMD64 objects at default and `-O2`, verifies
+      PE-i386, and executes AMD64 at both optimization levels.
+- [ ] Global/static-duration aggregate initialization and typed-SSA lowering
+      for this cleanup case remain open, as do other class-prvalue contexts.

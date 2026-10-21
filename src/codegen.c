@@ -16171,6 +16171,32 @@ ExprList* codegen_call_temporary_owners(void) {
     return active_call_temporary_owners;
 }
 
+static void codegen_assign_initializer_temporary_storage(
+    ExprList* initializer, int* bytes, int stack_alignment) {
+    if (!initializer || !initializer->cxx_temporary_owner || !bytes ||
+        *bytes == INT_MAX) {
+        return;
+    }
+    Type* owner_type = initializer->cxx_temporary_owner->type;
+    int size = owner_type && owner_type->size > 0
+        ? owner_type->size : stack_alignment;
+    int alignment = owner_type && owner_type->align > 0
+        ? owner_type->align : stack_alignment;
+    int64_t extent;
+    if (alignment < stack_alignment) alignment = stack_alignment;
+    extent = (int64_t)*bytes + size;
+    if (extent > INT_MAX) {
+        *bytes = INT_MAX;
+    } else {
+        *bytes = codegen_align_frame_bytes((int)extent, alignment);
+        initializer->cxx_temporary_owner->var_offset = -*bytes;
+        initializer->cxx_temporary_next = active_call_temporary_owners;
+        active_call_temporary_owners = initializer;
+    }
+    codegen_assign_cleanup_plan(initializer->cxx_temporary_cleanups,
+                                bytes, stack_alignment);
+}
+
 static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                                          int stack_alignment) {
     if (!expression || !bytes || *bytes == INT_MAX) return;
@@ -16510,6 +16536,8 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                  initializer; initializer = initializer->next) {
                 codegen_assign_compound_expr(initializer->expr, bytes,
                                              stack_alignment);
+                codegen_assign_initializer_temporary_storage(
+                    initializer, bytes, stack_alignment);
             }
             break;
         case EXPR_GENERIC:
@@ -16851,6 +16879,24 @@ static void gen_cxx_exception_change_local_subobject32(
         unregister);
 }
 
+static bool gen_local_initializer_with_temporary_cleanup32(
+    Module* mod, Type* type, Expr* initializer, int32_t displacement,
+    ExprList* item) {
+    if (!type || type->kind != TYPE_PTR || !type->is_reference || !item ||
+        !item->cxx_temporary_owner || !item->cxx_temporary_cleanups) {
+        return gen_local_initializer(mod, type, initializer, displacement);
+    }
+    gen_lvalue(mod, initializer);
+    gen_cxx_reference_adjustment32(mod, initializer);
+    emit_store_typed32(mod, EBP,
+                       item->cxx_temporary_owner->var_offset,
+                       EAX, item->cxx_temporary_owner->type);
+    emit_store_typed32(mod, EBP, displacement, EAX, type);
+    codegen_push_call_temporary_cleanup32(
+        mod, item->cxx_temporary_owner, item->cxx_temporary_cleanups);
+    return true;
+}
+
 static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                   int32_t displacement) {
     Expr* string = codegen_character_array_string(type, initializer);
@@ -17062,9 +17108,9 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                 (int32_t)field_offset)) {
                             return false;
                         }
-                    } else if (!gen_local_initializer(
+                    } else if (!gen_local_initializer_with_temporary_cleanup32(
                                    mod, element_type, item->expr,
-                                   (int32_t)field_offset)) {
+                                   (int32_t)field_offset, item)) {
                         return false;
                     }
                     gen_cxx_exception_change_local_subobject32(
@@ -17124,9 +17170,9 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                          ? !gen_bitfield_initializer32(
                                mod, field, item->expr,
                                (int32_t)field_offset)
-                         : !gen_local_initializer(
+                         : !gen_local_initializer_with_temporary_cleanup32(
                                mod, field->type, item->expr,
-                               (int32_t)field_offset))) {
+                               (int32_t)field_offset, item))) {
                     return false;
                 }
                 if (!field->is_bitfield) {

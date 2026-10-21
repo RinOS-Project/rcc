@@ -3686,6 +3686,30 @@ static void gen64_cxx_exception_change_local_subobject(
         active_cxx_exception_cleanup_frame_offset64, unregister);
 }
 
+static bool gen64_local_initializer(Module* mod, Type* type,
+                                    Expr* initializer,
+                                    int32_t displacement);
+static void gen64_push_call_temporary_cleanup(
+    Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
+
+static bool gen64_local_initializer_with_temporary_cleanup(
+    Module* mod, Type* type, Expr* initializer, int32_t displacement,
+    ExprList* item) {
+    if (!type || type->kind != TYPE_PTR || !type->is_reference || !item ||
+        !item->cxx_temporary_owner || !item->cxx_temporary_cleanups) {
+        return gen64_local_initializer(mod, type, initializer, displacement);
+    }
+    gen64_lvalue(mod, initializer);
+    gen64_cxx_reference_adjustment(mod, initializer);
+    emit64_store_typed(mod, RBP,
+                       item->cxx_temporary_owner->var_offset,
+                       RAX, item->cxx_temporary_owner->type);
+    emit64_store_typed(mod, RBP, displacement, RAX, type);
+    gen64_push_call_temporary_cleanup(
+        mod, item->cxx_temporary_owner, item->cxx_temporary_cleanups);
+    return true;
+}
+
 static void gen64_cxx_call_constructor(Module* mod,
                                         CxxConstructorInfo* constructor,
                                         ExprList* arguments);
@@ -3911,9 +3935,9 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                                 (int32_t)target_offset)) {
                             return false;
                         }
-                    } else if (!gen64_local_initializer(
+                    } else if (!gen64_local_initializer_with_temporary_cleanup(
                                    mod, element_type, item->expr,
-                                   (int32_t)target_offset)) {
+                                   (int32_t)target_offset, item)) {
                         return false;
                     }
                     gen64_cxx_exception_change_local_subobject(
@@ -3973,9 +3997,9 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                          ? !gen64_bitfield_initializer(
                                mod, field, item->expr,
                                (int32_t)field_offset)
-                         : !gen64_local_initializer(
+                         : !gen64_local_initializer_with_temporary_cleanup(
                                mod, field->type, item->expr,
-                               (int32_t)field_offset))) {
+                               (int32_t)field_offset, item))) {
                     return false;
                 }
                 if (!field->is_bitfield) {

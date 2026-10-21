@@ -20595,6 +20595,15 @@ static void sema_initializer(Type* type, Expr* initializer) {
                     ++initialized;
                     continue;
                 }
+                if (initializer->compound_paren_init &&
+                    element_type->kind == TYPE_PTR &&
+                    element_type->is_reference) {
+                    if (item->expr && !item->expr->type) {
+                        sema_expr(item->expr);
+                    }
+                    sema_prepare_reference_argument_cleanup(
+                        item, element_type);
+                }
                 initializer_absorb_designator_followups(element_type, item);
                 sema_initializer(element_type, item->expr);
                 if (item->designator_kind == INIT_DESIGNATOR_NONE) {
@@ -20642,6 +20651,14 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 cursor = field->next;
                 ++initialized;
                 continue;
+            }
+            if (initializer->compound_paren_init && field->type &&
+                field->type->kind == TYPE_PTR &&
+                field->type->is_reference) {
+                if (item->expr && !item->expr->type) {
+                    sema_expr(item->expr);
+                }
+                sema_prepare_reference_argument_cleanup(item, field->type);
             }
             initializer_absorb_designator_followups(field->type, item);
             sema_initializer(field->type, item->expr);
