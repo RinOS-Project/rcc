@@ -7973,3 +7973,18 @@ remains a separate open item.
       builtin, language, and IR/MIR/x86 suites pass.
 - [ ] Generic/aggregate builtin forms, floating/aggregate atomics, and general
       C++ atomic operations remain open.
+
+## RCC continuation (2026-10-21, typed-SSA legacy sync arithmetic RMW)
+
+- [x] Lower `__sync_fetch_and_add`, `__sync_fetch_and_sub`,
+      `__sync_add_and_fetch`, and `__sync_sub_and_fetch` directly to typed SSA
+      using sequentially consistent `LOCK XADD`. Preserve old/new results and
+      evaluate each operand expression once; leave no-order-argument sync calls
+      distinct from the explicit-order `__atomic` forms.
+- [x] `test-verified-atomic-fetch-add` exercises all four arithmetic and all
+      eight bitwise/NAND legacy sync forms plus uinc/udec boundary cases. Both
+      targets pass at `-O0`/`-O2` with zero verified-backend fallback; AMD64
+      objects execute and match the GCC C17 oracle. Atomic builtin, language,
+      and IR/MIR/x86 suites pass.
+- [ ] Generic/aggregate builtin forms, floating/aggregate atomics, and general
+      C++ atomic operations remain open.

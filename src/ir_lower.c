@@ -9570,14 +9570,22 @@ static RccIrLowerValue lower_atomic_fetch_arithmetic_call(
     RccIrValue operands[2];
     RccIrInstruction* fetch_add;
     RccIrInstruction* operation;
+    bool sync_builtin = strncmp(name, "__sync_", 7u) == 0;
     bool subtract = strcmp(name, "__atomic_fetch_sub") == 0 ||
-        strcmp(name, "__atomic_sub_fetch") == 0;
+        strcmp(name, "__atomic_sub_fetch") == 0 ||
+        strcmp(name, "__sync_fetch_and_sub") == 0 ||
+        strcmp(name, "__sync_sub_and_fetch") == 0;
     bool return_new = strcmp(name, "__atomic_add_fetch") == 0 ||
-        strcmp(name, "__atomic_sub_fetch") == 0;
+        strcmp(name, "__atomic_sub_fetch") == 0 ||
+        strcmp(name, "__sync_add_and_fetch") == 0 ||
+        strcmp(name, "__sync_sub_and_fetch") == 0;
 
-    if (!object_argument || !operand_argument || !order_argument ||
-        order_argument->next || !object_argument->expr ||
-        !operand_argument->expr || !order_argument->expr) {
+    if (!object_argument || !operand_argument || !object_argument->expr ||
+        !operand_argument->expr ||
+        (sync_builtin
+             ? operand_argument->next != NULL
+             : !order_argument || order_argument->next ||
+                   !order_argument->expr)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -9598,18 +9606,23 @@ static RccIrLowerValue lower_atomic_fetch_arithmetic_call(
         return lower_invalid_value();
     }
 
-    /* Explicit memory orders may be runtime expressions. LOCK XADD provides
-     * sequentially consistent ordering, which is valid for every defined
-     * order; still evaluate the order expression exactly once for its effects. */
+    /* LOCK XADD provides sequentially consistent ordering, valid for every
+     * __atomic order and required by __sync. Evaluate an explicit order once
+     * for its effects; legacy __sync forms have no order argument. */
     object_address = lower_expression(context, object_argument->expr);
     operand = lower_expression(context, operand_argument->expr);
-    order = lower_expression(context, order_argument->expr);
     if (!object_address.valid ||
         object_address.type.kind != RCC_IR_TYPE_POINTER ||
-        !operand.valid || operand.type.kind != RCC_IR_TYPE_INTEGER ||
-        !order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
+        !operand.valid || operand.type.kind != RCC_IR_TYPE_INTEGER) {
         context->unsupported = true;
         return lower_invalid_value();
+    }
+    if (order_argument) {
+        order = lower_expression(context, order_argument->expr);
+        if (!order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
     }
     if (atomic_type.kind == RCC_IR_TYPE_POINTER) {
         Type* pointer_integer_type = g_opts.target_arch == ARCH_X64
@@ -10473,6 +10486,20 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 "__atomic_add_fetch") == 0 ||
          strcmp(expression->call_func->ident_name,
                 "__atomic_sub_fetch") == 0)) {
+        return lower_atomic_fetch_arithmetic_call(
+            context, expression, expression->call_func->ident_name);
+    }
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        (strcmp(expression->call_func->ident_name,
+                "__sync_fetch_and_add") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_fetch_and_sub") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_add_and_fetch") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_sub_and_fetch") == 0)) {
         return lower_atomic_fetch_arithmetic_call(
             context, expression, expression->call_func->ident_name);
     }

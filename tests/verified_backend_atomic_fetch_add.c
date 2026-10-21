@@ -103,6 +103,7 @@ int main(void)
     volatile int minmax_signed = -10;
     volatile unsigned int wrap_value = 3u;
     volatile unsigned int sync_value = 0x0ff0u;
+    volatile unsigned int sync_arithmetic_value = 30u;
 #if defined(__x86_64__)
     _Atomic unsigned long long builtin_wide = 0x10000000aULL;
     _Atomic unsigned long long exchange_wide = 0x123456789abcdef0ULL;
@@ -170,6 +171,11 @@ int main(void)
     unsigned int sync_xor_fetch_new;
     unsigned int sync_fetch_nand_old;
     unsigned int sync_nand_new;
+    unsigned int sync_fetch_add_old;
+    unsigned int sync_add_fetch_new;
+    unsigned int sync_fetch_sub_old;
+    unsigned int sync_sub_fetch_new;
+    unsigned int sync_operand_evaluations = 0u;
     void *pointer_fetch_old;
     void *pointer_add_new;
     void *pointer_sub_old;
@@ -388,6 +394,14 @@ int main(void)
     sync_xor_fetch_new = __sync_xor_and_fetch(&sync_value, 0x0f00u);
     sync_fetch_nand_old = __sync_fetch_and_nand(&sync_value, 0x8f00u);
     sync_nand_new = __sync_nand_and_fetch(&sync_value, 0x00ffu);
+    sync_fetch_add_old = __sync_fetch_and_add(
+        &sync_arithmetic_value, (sync_operand_evaluations++, 4u));
+    sync_add_fetch_new = __sync_add_and_fetch(
+        &sync_arithmetic_value, (sync_operand_evaluations++, 3u));
+    sync_fetch_sub_old = __sync_fetch_and_sub(
+        &sync_arithmetic_value, (sync_operand_evaluations++, 5u));
+    sync_sub_fetch_new = __sync_sub_and_fetch(
+        &sync_arithmetic_value, (sync_operand_evaluations++, 7u));
 
     return old8 == 250u && value8 == 5u && added8 == 5u &&
         old16 == 65530u && value16 == 5u && added16 == 5u &&
@@ -454,6 +468,9 @@ int main(void)
         sync_fetch_xor_old == 0x80ffu && sync_xor_fetch_new == 0x8f00u &&
         sync_fetch_nand_old == 0x8f00u && sync_value == 0xffffff00u &&
         sync_nand_new == 0xffffff00u &&
+        sync_fetch_add_old == 30u && sync_add_fetch_new == 37u &&
+        sync_fetch_sub_old == 37u && sync_sub_fetch_new == 25u &&
+        sync_arithmetic_value == 25u && sync_operand_evaluations == 4u &&
 #if defined(__x86_64__)
         bitwise_wide_old == 0xf0f0f0f0f0f0f0f0ULL &&
         bitwise_wide == 0xffffffffffffffffULL &&
