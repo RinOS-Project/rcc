@@ -8172,5 +8172,9 @@ remains a separate open item.
       generation, and AMD64 default/`-O2` execution pass.
 - [x] Keep the single pointer-returning `operator->` form in typed SSA with
       zero fallback for both targets; emit three functions at `-O2`.
-- [ ] Class-returning proxy calls in typed SSA, nontrivial proxy cleanup there,
-      and chains beyond the bounded 64-step semantic limit remain open.
+- [x] Lower the implicit object for a class-prvalue member call from the
+      aggregate result storage. A class-returning proxy with a nontrivial
+      destructor emits four functions with zero typed-SSA fallback on i686
+      and AMD64 at `-O0` and `-O2`; GCC C++20 and RCC AMD64 execution verify
+      exactly-once cleanup.
+- [ ] Chains beyond the bounded 64-step semantic limit remain open.

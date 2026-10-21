@@ -8571,7 +8571,7 @@ test-cxx-iterator-range-for: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-iterator-range-for/invalid-x64.ro tests/cxx_iterator_range_for_invalid.cpp,$(TEST_OUT)/cxx-iterator-range-for/invalid-x64.log)
 	$(GREP) -F -q "requires one public non-overloaded begin() and end() member" $(TEST_OUT)/cxx-iterator-range-for/invalid-x64.log
 
-test-cxx-operator-arrow: $(RCXX_TARGET)
+test-cxx-operator-arrow: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-operator-arrow)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-operator-arrow/gcc-oracle$(EXE_SUFFIX) tests/cxx_operator_arrow.cpp
 	$(TEST_OUT)/cxx-operator-arrow/gcc-oracle$(EXE_SUFFIX)
@@ -8591,6 +8591,24 @@ test-cxx-operator-arrow: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_VERIFIED_ARROW_SINGLE -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/verified-x64.ro tests/cxx_operator_arrow_verified.cpp >$(TEST_OUT)/cxx-operator-arrow/verified-x64.log
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' $(TEST_OUT)/cxx-operator-arrow/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-x64.log,0)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -DTEST_VERIFIED_ARROW_CLEANUP -DTEST_GCC_NATIVE_ABI -o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-gcc-host$(EXE_SUFFIX) tests/cxx_operator_arrow_verified.cpp tests/cxx_operator_arrow_verified_host.c
+	$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-gcc-host$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_VERIFIED_ARROW_CLEANUP -O2 -S -o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.s tests/cxx_operator_arrow_verified.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.s
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-host tests/cxx_operator_arrow_verified_host.c $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_VERIFIED_ARROW_CLEANUP -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86.ro tests/cxx_operator_arrow_verified.cpp >$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_VERIFIED_ARROW_CLEANUP -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.ro tests/cxx_operator_arrow_verified.cpp >$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_VERIFIED_ARROW_CLEANUP -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o0.ro tests/cxx_operator_arrow_verified.cpp >$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o0.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o0.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_VERIFIED_ARROW_CLEANUP -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o0.ro tests/cxx_operator_arrow_verified.cpp >$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o0.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o0.log,0)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-x86.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-x86.log)
 	$(GREP) -F -q "operator-> must return a pointer or a class type" $(TEST_OUT)/cxx-operator-arrow/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-x64.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-x64.log)
@@ -9180,6 +9198,54 @@ test-cxx-operator-arrow-posix: $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/cxx-operator-arrow/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-x64.log,0)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-DTEST_VERIFIED_ARROW_CLEANUP -DTEST_GCC_NATIVE_ABI \
+		-o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-gcc-host \
+		tests/cxx_operator_arrow_verified.cpp \
+		tests/cxx_operator_arrow_verified_host.c
+	$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-gcc-host
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-DTEST_VERIFIED_ARROW_CLEANUP -O2 -S \
+		-o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.s \
+		tests/cxx_operator_arrow_verified.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.o \
+		$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.s
+	$(CC) -o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-host \
+		tests/cxx_operator_arrow_verified_host.c \
+		$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64.o
+	$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-DTEST_VERIFIED_ARROW_CLEANUP -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o0.ro \
+		tests/cxx_operator_arrow_verified.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o0.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o0.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-DTEST_VERIFIED_ARROW_CLEANUP -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o2.ro \
+		tests/cxx_operator_arrow_verified.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x86-o2.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-DTEST_VERIFIED_ARROW_CLEANUP -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o0.ro \
+		tests/cxx_operator_arrow_verified.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o0.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o0.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-DTEST_VERIFIED_ARROW_CLEANUP -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o2.ro \
+		tests/cxx_operator_arrow_verified.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o2.log,0)
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-operator-arrow/invalid-x86.ro \
 		tests/cxx_operator_arrow_invalid.cpp \

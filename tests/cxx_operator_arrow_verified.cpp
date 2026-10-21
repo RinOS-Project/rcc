@@ -2,8 +2,20 @@ struct VerifiedArrowTarget {
     int value;
 };
 
+#if defined(TEST_VERIFIED_ARROW_CLEANUP)
+extern "C" {
+int verified_arrow_cleanup_count = 0;
+}
+#endif
+
 struct VerifiedArrowLeaf {
     VerifiedArrowTarget* target;
+
+#if defined(TEST_VERIFIED_ARROW_CLEANUP)
+    ~VerifiedArrowLeaf() {
+        ++verified_arrow_cleanup_count;
+    }
+#endif
 
     VerifiedArrowTarget* operator->() {
         return target;

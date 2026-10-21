@@ -9504,6 +9504,18 @@ static RccIrLowerValue lower_call_receiver_argument(
         context->allow_nontrivial_temporary_conditional =
             previous_conditional_permission;
     } else if (source && source->kind == EXPR_ADDR &&
+        source->cxx_implicit_object_address &&
+        source->unary_operand == receiver_source && receiver_source &&
+        receiver_source->type && !receiver_source->type->is_reference &&
+        (receiver_source->type->kind == TYPE_STRUCT ||
+         receiver_source->type->kind == TYPE_UNION) &&
+        (receiver_source->kind == EXPR_CALL ||
+         receiver_source->kind == EXPR_VA_ARG)) {
+        /* A class-prvalue call already lowers to its result-storage address.
+         * Use that address as the implicit object for the following member
+         * call instead of trying to take the address of the call AST node. */
+        complete_object = lower_expression(context, receiver_source);
+    } else if (source && source->kind == EXPR_ADDR &&
         source->cxx_implicit_object_address && source->unary_operand &&
         receiver_source && receiver_owner && receiver_owner->type &&
         receiver_source->type &&
@@ -13474,6 +13486,19 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             if (type_is_cxx_member_function_pointer(expression->type)) {
                 return lower_member_function_pointer_address(
                     context, expression);
+            }
+            if (expression->cxx_implicit_object_address &&
+                expression->unary_operand &&
+                expression->unary_operand->type &&
+                !expression->unary_operand->type->is_reference &&
+                (expression->unary_operand->type->kind == TYPE_STRUCT ||
+                 expression->unary_operand->type->kind == TYPE_UNION) &&
+                (expression->unary_operand->kind == EXPR_CALL ||
+                 expression->unary_operand->kind == EXPR_VA_ARG)) {
+                /* A member call on a class prvalue uses the storage returned
+                 * by that expression as its implicit object; it is not an
+                 * ordinary address-of an lvalue. */
+                return lower_expression(context, expression->unary_operand);
             }
             if (!lower_mark_wide_local_address_escaped(
                     context, expression->unary_operand)) {
