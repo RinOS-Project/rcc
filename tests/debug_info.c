@@ -51,6 +51,7 @@ const int debug_inline_readonly_addressed_pointer_source = 31;
 int** debug_inline_escaped_pointer;
 int* debug_inline_escaped_object_address;
 int* debug_inline_nonconstant_integer_escape;
+unsigned int* debug_inline_nonconstant_unsigned_integer_escape;
 
 static void debug_inline_object_address_sink(int* value)
 {
@@ -92,14 +93,20 @@ int debug_inline_entry(int value)
 int debug_inline_nonconstant_integer_entry(int value)
 {
     int debug_inline_nonconstant_integer_source = value;
+    unsigned int debug_inline_nonconstant_unsigned_integer_source =
+        (unsigned int)value;
     int added_value;
     int multiplied_value;
     int negated_value;
     int bitand_value;
     int bitor_value;
     int bitxor_value;
+    int lshift_value;
+    int rshift_value;
     debug_inline_nonconstant_integer_escape =
         &debug_inline_nonconstant_integer_source;
+    debug_inline_nonconstant_unsigned_integer_escape =
+        &debug_inline_nonconstant_unsigned_integer_source;
     added_value = debug_nonconstant_integer_parameter_inline(
         debug_inline_nonconstant_integer_source + 5);
     multiplied_value = debug_nonconstant_integer_multiply_parameter_inline(
@@ -112,8 +119,15 @@ int debug_inline_nonconstant_integer_entry(int value)
         debug_inline_nonconstant_integer_source | 8);
     bitxor_value = debug_nonconstant_integer_bitxor_parameter_inline(
         debug_inline_nonconstant_integer_source ^ 15);
+    lshift_value = debug_nonconstant_integer_lshift_parameter_inline(
+        debug_inline_nonconstant_integer_source << 2);
+    rshift_value = debug_nonconstant_integer_rshift_parameter_inline(
+        debug_inline_nonconstant_integer_source >> 1);
+    rshift_value += (int)
+        debug_nonconstant_unsigned_integer_rshift_parameter_inline(
+            debug_inline_nonconstant_unsigned_integer_source >> 1u);
     return added_value + multiplied_value + negated_value + bitand_value +
-        bitor_value + bitxor_value +
+        bitor_value + bitxor_value + lshift_value + rshift_value +
         debug_nonconstant_integer_subtract_parameter_inline(
             debug_inline_nonconstant_integer_source - 3);
 }

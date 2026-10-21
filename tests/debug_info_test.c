@@ -8105,9 +8105,35 @@ static void verify_verified_fallback_debug_object(const char* path,
     objfile_free(object);
 }
 
+static void verify_inline_integer_expression_normalization(
+    const uint8_t* data, uint64_t expression_end, uint64_t* expression_offset,
+    uint16_t architecture, bool is_unsigned) {
+    if (architecture != ARCH_X64) return;
+    if (is_unsigned) {
+        assert(*expression_offset < expression_end &&
+               data[(*expression_offset)++] == 0x10u &&
+               read_uleb(data, expression_end, expression_offset) ==
+                   (uint64_t)UINT32_MAX &&
+               *expression_offset < expression_end &&
+               data[(*expression_offset)++] == 0x1au);
+        return;
+    }
+    assert(*expression_offset < expression_end &&
+           data[(*expression_offset)++] == 0x10u &&
+           read_uleb(data, expression_end, expression_offset) == 32u &&
+           *expression_offset < expression_end &&
+           data[(*expression_offset)++] == 0x24u &&
+           *expression_offset < expression_end &&
+           data[(*expression_offset)++] == 0x10u &&
+           read_uleb(data, expression_end, expression_offset) == 32u &&
+           *expression_offset < expression_end &&
+           data[(*expression_offset)++] == 0x26u);
+}
+
 static void verify_inline_integer_expression_parameter(
     const char* path, uint16_t architecture, const char* inline_name,
-    uint8_t expected_operation, int64_t expected_constant) {
+    const char* source_name, bool is_unsigned, uint8_t expected_operation,
+    int64_t expected_constant) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -8124,10 +8150,12 @@ static void verify_inline_integer_expression_parameter(
     bool has_variable_location;
     bool variable_is_location_list;
     assert(object != NULL && object->arch == architecture && inline_name &&
+           source_name &&
            (expected_operation == 0x22u || expected_operation == 0x1cu ||
             expected_operation == 0x1eu || expected_operation == 0x1fu ||
             expected_operation == 0x1au || expected_operation == 0x21u ||
-            expected_operation == 0x27u));
+            expected_operation == 0x27u || expected_operation == 0x24u ||
+            expected_operation == 0x25u || expected_operation == 0x26u));
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
@@ -8180,60 +8208,35 @@ static void verify_inline_integer_expression_parameter(
     assert(expression_offset + 2u <= expression_end &&
            info->data[expression_offset++] == 0x94u &&
            info->data[expression_offset++] == 4u);
-    if (architecture == ARCH_X64) {
-        assert(expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x10u &&
-               read_uleb(info->data, expression_end,
-                         &expression_offset) == 32u &&
-               expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x24u &&
-               expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x10u &&
-               read_uleb(info->data, expression_end,
-                         &expression_offset) == 32u &&
-               expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x26u);
-    }
+    verify_inline_integer_expression_normalization(
+        info->data, expression_end, &expression_offset, architecture,
+        is_unsigned);
     if (expected_operation != 0x1fu) {
-        assert(expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x11u &&
-               read_sleb(info->data, expression_end, &expression_offset) ==
-                   expected_constant);
-        if (architecture == ARCH_X64) {
+        if (is_unsigned) {
             assert(expression_offset < expression_end &&
                    info->data[expression_offset++] == 0x10u &&
                    read_uleb(info->data, expression_end,
-                             &expression_offset) == 32u &&
-                   expression_offset < expression_end &&
-                   info->data[expression_offset++] == 0x24u &&
-                   expression_offset < expression_end &&
-                   info->data[expression_offset++] == 0x10u &&
-                   read_uleb(info->data, expression_end,
-                             &expression_offset) == 32u &&
-                   expression_offset < expression_end &&
-                   info->data[expression_offset++] == 0x26u);
+                             &expression_offset) ==
+                       (uint64_t)expected_constant);
+        } else {
+            assert(expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x11u &&
+                   read_sleb(info->data, expression_end,
+                             &expression_offset) == expected_constant);
         }
+        verify_inline_integer_expression_normalization(
+            info->data, expression_end, &expression_offset, architecture,
+            is_unsigned);
     }
     assert(expression_offset < expression_end &&
            info->data[expression_offset++] == expected_operation);
-    if (architecture == ARCH_X64) {
-        assert(expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x10u &&
-               read_uleb(info->data, expression_end,
-                         &expression_offset) == 32u &&
-               expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x24u &&
-               expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x10u &&
-               read_uleb(info->data, expression_end,
-                         &expression_offset) == 32u &&
-               expression_offset < expression_end &&
-               info->data[expression_offset++] == 0x26u);
-    }
+    verify_inline_integer_expression_normalization(
+        info->data, expression_end, &expression_offset, architecture,
+        is_unsigned);
     assert(expression_offset + 1u == expression_end &&
            info->data[expression_offset] == 0x9fu);
     assert(find_variable_location(
-        info, strings, locations, "debug_inline_nonconstant_integer_source",
+        info, strings, locations, source_name,
         architecture, &has_variable_location, &variable_is_location_list,
         &variable_frame_offset));
     assert(has_variable_location && variable_frame_offset == frame_offset);
@@ -8242,6 +8245,8 @@ static void verify_inline_integer_expression_parameter(
 
 typedef struct VerifyInlineIntegerExpressionCase {
     const char* inline_name;
+    const char* source_name;
+    bool is_unsigned;
     uint8_t operation;
     int64_t constant;
 } VerifyInlineIntegerExpressionCase;
@@ -8249,18 +8254,32 @@ typedef struct VerifyInlineIntegerExpressionCase {
 static void verify_inline_integer_expression_cases(
     const char* path, uint16_t architecture) {
     static const VerifyInlineIntegerExpressionCase cases[] = {
-        {"debug_nonconstant_integer_parameter_inline", 0x22u, 5},
-        {"debug_nonconstant_integer_subtract_parameter_inline", 0x1cu, 3},
-        {"debug_nonconstant_integer_multiply_parameter_inline", 0x1eu, 3},
-        {"debug_nonconstant_integer_negate_parameter_inline", 0x1fu, 0},
-        {"debug_nonconstant_integer_bitand_parameter_inline", 0x1au, 7},
-        {"debug_nonconstant_integer_bitor_parameter_inline", 0x21u, 8},
-        {"debug_nonconstant_integer_bitxor_parameter_inline", 0x27u, 15}
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x22u, 5},
+        {"debug_nonconstant_integer_subtract_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x1cu, 3},
+        {"debug_nonconstant_integer_multiply_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x1eu, 3},
+        {"debug_nonconstant_integer_negate_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x1fu, 0},
+        {"debug_nonconstant_integer_bitand_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x1au, 7},
+        {"debug_nonconstant_integer_bitor_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x21u, 8},
+        {"debug_nonconstant_integer_bitxor_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x27u, 15},
+        {"debug_nonconstant_integer_lshift_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x24u, 2},
+        {"debug_nonconstant_integer_rshift_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x26u, 1},
+        {"debug_nonconstant_unsigned_integer_rshift_parameter_inline",
+         "debug_inline_nonconstant_unsigned_integer_source", true, 0x25u, 1}
     };
     for (size_t index = 0u; index < sizeof(cases) / sizeof(cases[0]);
          ++index) {
         verify_inline_integer_expression_parameter(
             path, architecture, cases[index].inline_name,
+            cases[index].source_name, cases[index].is_unsigned,
             cases[index].operation, cases[index].constant);
     }
 }

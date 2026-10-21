@@ -43,6 +43,22 @@ inline int debug_nonconstant_integer_bitxor_parameter_inline(int value)
     return value;
 }
 
+inline int debug_nonconstant_integer_lshift_parameter_inline(int value)
+{
+    return value;
+}
+
+inline int debug_nonconstant_integer_rshift_parameter_inline(int value)
+{
+    return value;
+}
+
+inline unsigned int debug_nonconstant_unsigned_integer_rshift_parameter_inline(
+    unsigned int value)
+{
+    return value;
+}
+
 inline int debug_local_inline(int value)
 {
     const int inline_local_value = 7;
