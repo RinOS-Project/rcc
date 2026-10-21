@@ -3247,6 +3247,50 @@ static int sema_cxx_pointer_result_source_relation(
     return 0;
 }
 
+/* For two base-to-derived pointer-to-member conversions with the same member
+ * type and destination owner, prefer the result whose source owner is nearer
+ * to the destination. The viability checks have already established that
+ * both owner paths are accessible and unambiguous. */
+static int sema_cxx_member_pointer_result_owner_relation(
+    Type* left_result, Type* right_result, Type* target) {
+    Type* left_pointer;
+    Type* right_pointer;
+    Type* target_pointer;
+    CxxClass* left_owner;
+    CxxClass* right_owner;
+    CxxClass* target_owner;
+    if (!left_result || !right_result || !target) return 0;
+    left_pointer = left_result->is_reference ? left_result->base : left_result;
+    right_pointer = right_result->is_reference ? right_result->base
+                                               : right_result;
+    target_pointer = target->is_reference ? target->base : target;
+    if (!left_pointer || !right_pointer || !target_pointer ||
+        left_pointer->kind != TYPE_PTR || right_pointer->kind != TYPE_PTR ||
+        target_pointer->kind != TYPE_PTR ||
+        !left_pointer->cxx_is_member_pointer ||
+        !right_pointer->cxx_is_member_pointer ||
+        !target_pointer->cxx_is_member_pointer || !left_pointer->base ||
+        !right_pointer->base || !target_pointer->cxx_member_pointer_owner ||
+        !left_pointer->cxx_member_pointer_owner ||
+        !right_pointer->cxx_member_pointer_owner ||
+        !cxx_same_parameter_type(left_pointer->base, right_pointer->base,
+                                 false)) {
+        return 0;
+    }
+    left_owner = left_pointer->cxx_member_pointer_owner->cxx_class;
+    right_owner = right_pointer->cxx_member_pointer_owner->cxx_class;
+    target_owner = target_pointer->cxx_member_pointer_owner->cxx_class;
+    if (!left_owner || !right_owner || !target_owner ||
+        left_owner == right_owner ||
+        !sema_cxx_class_derives_from(target_owner, left_owner, 0u) ||
+        !sema_cxx_class_derives_from(target_owner, right_owner, 0u)) {
+        return 0;
+    }
+    if (sema_cxx_class_derives_from(left_owner, right_owner, 0u)) return 1;
+    if (sema_cxx_class_derives_from(right_owner, left_owner, 0u)) return -1;
+    return 0;
+}
+
 static bool sema_cxx_qualification_targets_related(
     Type* left, Type* right, bool ignore_current_qualification,
     bool* left_subset, bool* right_subset, unsigned depth);
@@ -3469,6 +3513,12 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                     relation = sema_cxx_pointer_result_source_relation(
                         candidates[other].result_type,
                         candidates[index].result_type, target);
+                    if (relation == 0) {
+                        relation =
+                            sema_cxx_member_pointer_result_owner_relation(
+                                candidates[other].result_type,
+                                candidates[index].result_type, target);
+                    }
                     if (relation == 0) {
                         relation =
                             sema_cxx_pointer_result_qualification_relation(
@@ -15289,8 +15339,16 @@ static Type* sema_expr(Expr* expr) {
                               expr->cast_expr, target, true)
                         : implicit_cast(expr->cast_expr, target);
                     if (!converted) {
+                        bool ambiguous_conversion = false;
+                        if (class_source) {
+                            (void)sema_find_cxx_conversion_method(
+                                source_object, target, &ambiguous_conversion,
+                                expr->cast_expr, true);
+                        }
                         rcc_error(expr->loc, class_source
-                            ? "static_cast requires a viable pointer-to-member conversion function"
+                            ? ambiguous_conversion
+                                ? "static_cast has ambiguous pointer-to-member conversion functions"
+                                : "static_cast requires a viable pointer-to-member conversion function"
                             : "static_cast requires a null pointer-to-member constant");
                     } else {
                         expr->is_cxx_nullptr =

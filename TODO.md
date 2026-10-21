@@ -8314,3 +8314,18 @@ remains a separate open item.
 - [ ] Other pointer-to-member adjustment edge cases and standard conversion
       sequence ordering beyond promotion-versus-conversion and
       exact-versus-qualification remain open.
+
+## RCC continuation (2026-10-21, conversion-function member-pointer owner ranking)
+
+- [x] For conversion functions returning member pointers owned by related
+      non-virtual bases, prefer the result owned by the nearer base when both
+      convert to a member-pointer target owned by the same derived class.
+      Verify explicit `static_cast` and implicit function-argument conversion
+      against GCC, execute the selected member through i686-generated and
+      AMD64 default/`-O2` output, and retain ambiguity for unrelated base
+      owners. The focused gate checks i686 PE object format and verifies that
+      ambiguous `.ro` output is absent on both target widths.
+- [ ] The verified backend still falls back for this member-pointer selection
+      and adjustment expression. Other member-type qualification/noexcept
+      combinations, virtual/ambiguous owner paths, and broader standard
+      conversion-sequence ordering remain open.

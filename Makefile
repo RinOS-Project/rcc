@@ -20028,7 +20028,75 @@ test-cxx-conversion-nested-pointer-qualification: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-nested-pointer-qualification/x64.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_NESTED_POINTER_QUALIFICATION_SAFE -c -o $(TEST_OUT)/cxx-conversion-nested-pointer-qualification/safe-x64.ro tests/cxx_conversion_nested_pointer_qualification.cpp
 
-test-cxx-conversion-operator: test-cxx-conversion-member-pointer-owner-path test-cxx-conversion-nested-pointer-qualification test-cxx-static-cast-conversion-operator
+test-cxx-conversion-operator: test-cxx-conversion-member-pointer-owner-path test-cxx-conversion-nested-pointer-qualification test-cxx-conversion-member-pointer-owner-ranking test-cxx-static-cast-conversion-operator
+
+.PHONY: test-cxx-conversion-member-pointer-owner-ranking
+test-cxx-conversion-member-pointer-owner-ranking: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86.s \
+		tests/cxx_conversion_member_pointer_owner_ranking.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86.o \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86.s
+	objdump -f $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86.o \
+		> $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86-arch.log
+	$(GREP) -F -q "pe-i386" \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64.s \
+		tests/cxx_conversion_member_pointer_owner_ranking.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64.o \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64.s
+ifeq ($(OS),Windows_NT)
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64.o
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64.o \
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-host
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2.s \
+		tests/cxx_conversion_member_pointer_owner_ranking.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2.o \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2.o
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2.o \
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2-host
+else
+	$(CC) -no-pie -o \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64 \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64.s
+	$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2.s \
+		tests/cxx_conversion_member_pointer_owner_ranking.cpp
+	$(CC) -no-pie -o \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2 \
+		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2.s
+	$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64-o2
+endif
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/gcc-host \
+		tests/cxx_conversion_member_pointer_owner_ranking.cpp
+	$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/gcc-host
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -DTEST_UNRELATED_MEMBER_POINTER_OWNERS_AMBIGUOUS -fsyntax-only tests/cxx_conversion_member_pointer_owner_ranking.cpp,$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/unrelated-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/unrelated-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_UNRELATED_MEMBER_POINTER_OWNERS_AMBIGUOUS -c -o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/unrelated-x86.ro tests/cxx_conversion_member_pointer_owner_ranking.cpp,$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/unrelated-x86.log)
+	$(GREP) -F -q "static_cast has ambiguous pointer-to-member conversion functions" $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/unrelated-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/unrelated-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_UNRELATED_MEMBER_POINTER_OWNERS_AMBIGUOUS -c -o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/unrelated-x64.ro tests/cxx_conversion_member_pointer_owner_ranking.cpp,$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/unrelated-x64.log)
+	$(GREP) -F -q "static_cast has ambiguous pointer-to-member conversion functions" $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/unrelated-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/unrelated-x64.ro)
 
 .PHONY: test-cxx-static-cast-conversion-operator
 test-cxx-static-cast-conversion-operator: $(RCXX_TARGET)
