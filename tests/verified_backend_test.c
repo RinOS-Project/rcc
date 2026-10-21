@@ -3773,6 +3773,67 @@ static void verify_static_local_scalar_object(const char* path)
     objfile_free(object);
 }
 
+static void verify_static_local_tls_object(const char* path, uint16_t arch)
+{
+    static const char* const required_runtime_symbols[] = {
+        "__cxa_guard_acquire",
+        "__cxa_guard_release",
+        "__cxa_guard_abort",
+        "rin_cpp_exception_register_current_cleanup",
+        "rin_cpp_exception_unregister_current_cleanup",
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSection* tls;
+    ObjSection* section;
+    size_t tls_symbol_count = 0u;
+    size_t guard_symbol_count = 0u;
+    size_t tls_relocation_count = 0u;
+    size_t guard_relocation_count = 0u;
+    int tls_section_index = 0;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    tls = objfile_get_section(object, ".tls");
+    assert(text != NULL && tls != NULL && tls->type == SECT_TLS &&
+           tls->memory_size >= 16u);
+    for (section = object->sections; section && section != tls;
+         section = section->next) {
+        ++tls_section_index;
+    }
+    assert(section == tls);
+    for (ObjSymbol* symbol = object->symbols; symbol; symbol = symbol->next) {
+        if (symbol->binding != BIND_TLS ||
+            symbol->section != tls_section_index) {
+            continue;
+        }
+        ++tls_symbol_count;
+        if (strstr(symbol->name, "$rcc_static_guard")) {
+            ++guard_symbol_count;
+        }
+    }
+    for (ObjReloc* relocation = text->relocs; relocation;
+         relocation = relocation->next) {
+        ObjSymbol* symbol;
+        if (relocation->type != RELOC_TLSOFF32S) continue;
+        symbol = objfile_find_symbol(object, relocation->symbol_name);
+        assert(symbol != NULL && symbol->binding == BIND_TLS &&
+               symbol->section == tls_section_index);
+        ++tls_relocation_count;
+        if (strstr(symbol->name, "$rcc_static_guard")) {
+            ++guard_relocation_count;
+        }
+    }
+    assert(tls_symbol_count >= 3u && guard_symbol_count == 1u &&
+           tls_relocation_count >= 3u && guard_relocation_count >= 1u);
+    for (size_t index = 0u;
+         index < sizeof(required_runtime_symbols) /
+                     sizeof(required_runtime_symbols[0]); ++index) {
+        assert(objfile_find_symbol(
+                   object, required_runtime_symbols[index]) != NULL);
+    }
+    objfile_free(object);
+}
+
 static void verify_cxx_reference_local_object(const char* path,
                                               uint16_t arch,
                                               bool execute,
@@ -6127,6 +6188,22 @@ static void verify_sysv_sse_pair_aggregate_return_object(
 
 int main(int argc, char** argv)
 {
+    if (argc == 4 &&
+        strcmp(argv[1], "--static-local-tls-object") == 0) {
+        uint16_t arch;
+        if (strcmp(argv[2], "i686") == 0) {
+            arch = ARCH_X86;
+        } else if (strcmp(argv[2], "x86_64") == 0) {
+            arch = ARCH_X64;
+        } else {
+            fprintf(stderr, "unknown TLS object architecture '%s'\n",
+                    argv[2]);
+            return 2;
+        }
+        verify_static_local_tls_object(argv[3], arch);
+        puts("Verified function-static TLS guard and relocations passed");
+        return 0;
+    }
     if (argc == 3 &&
         strcmp(argv[1], "--static-local-scalar-object") == 0) {
         verify_static_local_scalar_object(argv[2]);

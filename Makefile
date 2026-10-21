@@ -18838,9 +18838,15 @@ ifeq ($(OS),Windows_NT)
 define CHECK_VERIFIED_STATIC_LOCAL_EMISSION
 %WINDIR%\System32\findstr.exe /l /c:"Verified backend: 12 function(s) emitted" "$(subst /,\,$(1))" >NUL
 endef
+define CHECK_VERIFIED_STATIC_LOCAL_TLS_EMISSION
+%WINDIR%\System32\findstr.exe /l /c:"Verified backend: 4 function(s) emitted" "$(subst /,\,$(1))" >NUL
+endef
 else
 define CHECK_VERIFIED_STATIC_LOCAL_EMISSION
 grep -F -q 'Verified backend: 12 function(s) emitted' "$(1)"
+endef
+define CHECK_VERIFIED_STATIC_LOCAL_TLS_EMISSION
+grep -F -q 'Verified backend: 4 function(s) emitted' "$(1)"
 endef
 endif
 
@@ -18850,6 +18856,10 @@ test-verified-cxx-static-local-scalar: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTI
 		$(TEST_OUT)/verified-cxx-static-local-scalar/gcc.exe \
 		tests/verified_backend_static_local.cpp
 	$(TEST_OUT)/verified-cxx-static-local-scalar/gcc.exe
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/gcc-tls.exe \
+		tests/verified_backend_static_local_tls.cpp
+	$(TEST_OUT)/verified-cxx-static-local-scalar/gcc-tls.exe
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-cxx-static-local-scalar/x86.ro \
@@ -18874,7 +18884,7 @@ test-verified-cxx-static-local-scalar: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTI
 		tests/verified_backend_static_local.cpp > \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/x64-o2.log 2>&1
 	$(call CHECK_VERIFIED_STATIC_LOCAL_EMISSION,$(TEST_OUT)/verified-cxx-static-local-scalar/x64-o2.log)
-	$(CC) $(CFLAGS) -I$(INCDIR) -o \
+	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -I$(INCDIR) -o \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME) \
@@ -18885,6 +18895,72 @@ test-verified-cxx-static-local-scalar: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTI
 	$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
 		--static-local-scalar-object \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/x64-o2.ro
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/tls-legacy-x86.ro \
+		tests/verified_backend_static_local_tls.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/tls-legacy-x64.ro \
+		tests/verified_backend_static_local_tls.cpp
+	$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
+		--static-local-tls-object i686 \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-legacy-x86.ro
+	$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
+		--static-local-tls-object x86_64 \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-legacy-x64.ro
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/tls-x86.ro \
+		tests/verified_backend_static_local_tls.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x86.log 2>&1
+	$(call CHECK_VERIFIED_STATIC_LOCAL_TLS_EMISSION,$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x86.log)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/tls-x64.ro \
+		tests/verified_backend_static_local_tls.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x64.log 2>&1
+	$(call CHECK_VERIFIED_STATIC_LOCAL_TLS_EMISSION,$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x64.log)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/tls-x86-o2.ro \
+		tests/verified_backend_static_local_tls.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x86-o2.log 2>&1
+	$(call CHECK_VERIFIED_STATIC_LOCAL_TLS_EMISSION,$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x86-o2.log)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/tls-x64-o2.ro \
+		tests/verified_backend_static_local_tls.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x64-o2.log 2>&1
+	$(call CHECK_VERIFIED_STATIC_LOCAL_TLS_EMISSION,$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x64-o2.log)
+	$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
+		--static-local-tls-object i686 \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x86.ro
+	$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
+		--static-local-tls-object x86_64 \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x64.ro
+	$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
+		--static-local-tls-object i686 \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x86-o2.ro
+	$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
+		--static-local-tls-object x86_64 \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-x64-o2.ro
+ifeq ($(OS),Windows_NT)
+	@echo "POSIX thread-local runtime execution is covered by the Linux CI gate"
+else
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/tls-native-x64.s \
+		tests/verified_backend_static_local_tls.cpp
+	$(CC) -c -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-native-x64.o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-native-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-native-x64.o
+	$(CC) $(CFLAGS) -pthread -Wl,--allow-multiple-definition -no-pie -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-native-x64-host \
+		tests/verified_backend_static_local_tls_host.c \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/tls-native-x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(TEST_OUT)/verified-cxx-static-local-scalar/tls-native-x64-host
+endif
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.s \
 		tests/verified_backend_static_local.cpp
@@ -18902,22 +18978,22 @@ ifeq ($(OS),Windows_NT)
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.o
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.o
-	$(CC) $(CFLAGS) -o \
+	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -o \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-host \
 		tests/cxx_language_core_host.c \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.o \
 		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
-	$(CC) $(CFLAGS) -o \
+	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -o \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2-host \
 		tests/cxx_language_core_host.c \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.o \
 		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 else
-	$(CC) -no-pie -o \
+	$(CC) -Wl,--allow-multiple-definition -no-pie -o \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-host \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.o \
 		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
-	$(CC) -no-pie -o \
+	$(CC) -Wl,--allow-multiple-definition -no-pie -o \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2-host \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.o \
 		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)

@@ -1166,7 +1166,6 @@ static bool codegen_runtime_function_static_scalar(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
     if (!declaration || !type || !declaration->var_is_static_local ||
-        declaration->var_is_thread_local ||
         declaration->storage != STORAGE_STATIC ||
         !rcc_parser_is_cxx_mode() || type->size <= 0) {
         return false;
@@ -2251,6 +2250,7 @@ static bool codegen_attach_static_initializer_guard(Decl* declaration) {
     guard->link_name = guard_name;
     guard->storage = STORAGE_STATIC;
     guard->var_is_global = true;
+    guard->var_is_thread_local = declaration->var_is_thread_local;
     declaration->var_reference_temporary_guard = guard;
     return true;
 }
@@ -2335,8 +2335,16 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
                  declaration->type, declaration->var_init) ||
              !codegen_emit_tls_initializer(
                  mod, declaration->type, declaration->var_init, offset))) {
+            if (!declaration->var_reference_temporary_guard &&
+                codegen_runtime_function_static_scalar(declaration)) {
+                if (!codegen_attach_static_initializer_guard(declaration) ||
+                    !codegen_emit_static_initializer_guard_storage(
+                        mod, declaration)) {
+                    return false;
+                }
+            }
             if (declaration->var_reference_temporary_guard &&
-                (codegen_runtime_global_scalar(declaration->type) ||
+                (codegen_runtime_function_static_scalar(declaration) ||
                  codegen_runtime_global_constructor(
                      declaration->type, declaration->var_init))) {
                 memset(mod->tls.data + offset, 0, size);

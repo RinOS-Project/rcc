@@ -653,7 +653,16 @@
         floating, pointer, and volatile scalars; x64 legacy and verified
         execution pass at `-O0` and `-O2`, and all twelve functions emit without
         verified-backend fallback for i686/AMD64 at both optimization levels.
-        TLS, aggregate, and object-destruction cases remain separate.
+        aggregate and object-destruction cases remain separate.
+  - [x] Support dynamically initialized function-local C++ `thread_local`
+        integer scalars in legacy and verified backends. Keep the guard and
+        object in TLS, register guard-abort cleanup before evaluating the
+        initializer, and release only after success. GCC and RCC-generated
+        x64 host code verify throw/abort/retry/reuse in two fresh pthreads;
+        legacy i686/AMD64 objects and verified SSA at `-O0`/`-O2` emit the TLS
+        guard/value relocations and exception runtime imports without fallback.
+        RinOS-target runtime integration and aggregate TLS initialization remain
+        separate.
   - [x] Extend reference-initialization retry coverage to a nontrivial class
         prvalue whose constructor throws once. Verify guard abort, successful
         retry, stable reference identity, one `__cxa_atexit` registration, and

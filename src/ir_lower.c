@@ -2445,7 +2445,7 @@ static bool lower_static_local_dynamic_scalar_supported(
         declaration->var_reference_temporary_guard && type &&
         type->size > 0 && !type->is_reference &&
         !type->cleanup_function && !declaration->var_cleanup &&
-        !declaration->var_cleanups && !declaration->var_is_thread_local &&
+        !declaration->var_cleanups &&
         declaration->storage == STORAGE_STATIC &&
         type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
         type->kind != TYPE_UNION && type->kind != TYPE_VECTOR &&
@@ -20858,6 +20858,7 @@ static bool lower_static_local_scalar_initializer(
             NULL, 0u, NULL, 0u);
         if (!guard_symbol) return false;
         rcc_ir_set_callee(guard_symbol, decl_link_name(guard));
+        guard_symbol->symbol_is_tls = guard->var_is_thread_local;
         guard_address = lower_value(
             guard_symbol->result, rcc_ir_type_pointer(0u), true);
     }
@@ -20888,6 +20889,7 @@ static bool lower_static_local_scalar_initializer(
         NULL, 0u, NULL, 0u);
     if (!initializer.valid || !object_address) return false;
     rcc_ir_set_callee(object_address, decl_link_name(declaration));
+    object_address->symbol_is_tls = declaration->var_is_thread_local;
     object = lower_value(object_address->result,
                          rcc_ir_type_pointer(0u), true);
     object.volatile_access = declaration->type->is_volatile;
