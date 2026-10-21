@@ -2287,9 +2287,15 @@
         zero-or-one quotient. Evaluate the emitted DWARF expressions at
         32/64-bit boundaries with low and runtime high divisors in legacy and
         verified `-g -O1` objects through `test-debug-info-inline-expression`.
+  - [x] Record i686 inline-call ranges for 64-bit expressions lowered through
+        the EDX:EAX pair path. Preserve an unchanged `unsigned long long`
+        inline parameter passed from an addressable caller frame slot as a
+        frame-relative memory location instead of truncating it to a generic
+        32-bit DWARF stack value. Verify the exact location and matching source
+        frame slot in legacy and verified `-g -O1` objects.
   - [ ] Unsigned operands wider than the target address width (notably
-        i686 `unsigned long long`), arbitrary nonconstant argument expressions,
-        mutable parameters,
+        i686 `unsigned long long`) in computed expressions, arbitrary
+        nonconstant argument expressions, mutable parameters,
         optimized-away/register-only sources, nested lexical locals, tracking
         optimized variables across register and piece locations, declaration
         lifetimes across every optimized CFG edge, and CFI/unwind coverage for

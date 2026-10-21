@@ -122,6 +122,12 @@ inline unsigned long long debug_nonconstant_unsigned_long_long_high_remainder_in
     return value;
 }
 
+inline unsigned long long
+debug_nonconstant_unsigned_long_long_identity_inline(unsigned long long value)
+{
+    return value + 1ull;
+}
+
 inline int debug_local_inline(int value)
 {
     const int inline_local_value = 7;

@@ -8407,7 +8407,8 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0x27u || expected_operation == 0x1bu ||
             expected_operation == 0x1du ||
             expected_operation == 0x24u ||
-            expected_operation == 0x25u || expected_operation == 0x26u));
+            expected_operation == 0x25u || expected_operation == 0x26u ||
+            expected_operation == 0xfeu));
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
@@ -8444,7 +8445,11 @@ static void verify_inline_integer_expression_parameter(
         call_die = die;
         origin_die = candidate_origin;
     }
-    assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    if (call_die == UINT64_MAX || origin_die == UINT64_MAX) {
+        fprintf(stderr, "missing inline DWARF call for %s (%s)\n",
+                inline_name, path);
+        assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    }
     parameter_die = call_die + 1u + 4u + address_size + 4u + 12u;
     assert(parameter_die + 5u < info->size &&
            info->data[parameter_die] == 67u &&
@@ -8457,6 +8462,17 @@ static void verify_inline_integer_expression_parameter(
     assert(info->data[expression_offset++] ==
            (architecture == ARCH_X64 ? 0x76u : 0x75u));
     frame_offset = read_sleb(info->data, expression_end, &expression_offset);
+    if (expected_operation == 0xfeu) {
+        assert(is_unsigned && value_size > address_size &&
+               expression_offset == expression_end);
+        assert(find_variable_location(
+            info, strings, locations, source_name,
+            architecture, &has_variable_location, &variable_is_location_list,
+            &variable_frame_offset));
+        assert(has_variable_location && variable_frame_offset == frame_offset);
+        objfile_free(object);
+        return;
+    }
     assert(expression_offset + 2u <= expression_end &&
            info->data[expression_offset++] == 0x94u &&
            info->data[expression_offset++] == value_size);
@@ -8633,12 +8649,18 @@ static void verify_inline_integer_expression_cases(
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0x1du, 0,
          "debug_inline_nonconstant_unsigned_long_long_high_divisor_source",
-         true}
+         true},
+        {"debug_nonconstant_unsigned_long_long_identity_inline",
+         "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
+         0xfeu, 0, NULL, false}
     };
     uint8_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     for (size_t index = 0u; index < sizeof(cases) / sizeof(cases[0]);
          ++index) {
-        if (cases[index].value_size > address_size) continue;
+        if (cases[index].operation == 0xfeu && architecture != ARCH_X86)
+            continue;
+        if (cases[index].value_size > address_size &&
+            cases[index].operation != 0xfeu) continue;
         verify_inline_integer_expression_parameter(
             path, architecture, cases[index].inline_name,
             cases[index].source_name, cases[index].is_unsigned,

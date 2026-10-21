@@ -4282,6 +4282,7 @@ static void gen_cxx_typeid32(Module* mod, Expr* expr);
 static void gen_cxx_dynamic_cast_runtime32(Module* mod, Expr* expr);
 static void emit_test_scalar_value(Module* mod, const Type* type);
 static void gen_expr64_pair(Module* mod, Expr* expr);
+static void gen_expr64_pair_impl(Module* mod, Expr* expr);
 static void gen_expr_as_integer64(Module* mod, Expr* expr);
 static void gen_multiply_integer64_from_stack(Module* mod, Expr* lhs,
                                               int rhs_stack_offset);
@@ -8547,6 +8548,36 @@ static void gen_shift_integer64_from_stack(Module* mod, Expr* lhs,
  * from the ordinary EAX expression path so an unsupported operation cannot
  * silently truncate its high word. */
 static void gen_expr64_pair(Module* mod, Expr* expr) {
+    const Decl* caller = NULL;
+    const Decl* callee = NULL;
+    SourceLoc call_location = {NULL, 0, 0};
+    const ExprList* arguments = NULL;
+    uint32_t start;
+    size_t parent_index_plus_one;
+    size_t inline_call_index;
+    uint32_t end;
+    if (!g_opts.debug_info ||
+        !rcc_optimize_inline_debug_info(expr, &caller, &callee,
+                                        &call_location, &arguments)) {
+        gen_expr64_pair_impl(mod, expr);
+        return;
+    }
+    start = code_offset(mod);
+    parent_index_plus_one = mod->debug_inline_active_call_plus_one;
+    inline_call_index = module_begin_debug_inline_call(
+        mod, caller, callee, arguments, call_location, start,
+        parent_index_plus_one);
+    if (inline_call_index == SIZE_MAX) {
+        rcc_fatal("DWARF inline-call index exceeds addressable range");
+    }
+    mod->debug_inline_active_call_plus_one = inline_call_index + 1u;
+    gen_expr64_pair_impl(mod, expr);
+    end = code_offset(mod);
+    mod->debug_inline_active_call_plus_one = parent_index_plus_one;
+    module_end_debug_inline_call(mod, inline_call_index, end);
+}
+
+static void gen_expr64_pair_impl(Module* mod, Expr* expr) {
     if (!expr) {
         rcc_error((SourceLoc){"<expr>", 0, 0},
                   "missing expression in i686 64-bit code generation");
@@ -17444,6 +17475,10 @@ static void gen_expr(Module* mod, Expr* expr) {
     size_t inline_call_index;
     uint32_t end;
     if (!expr) return;
+    if (expr && gen_is_integer64(expr->type)) {
+        gen_expr64_pair(mod, expr);
+        return;
+    }
     if (!g_opts.debug_info ||
         !rcc_optimize_inline_debug_info(expr, &caller, &callee,
                                         &call_location, &arguments)) {

@@ -5501,7 +5501,8 @@ static bool debug_inline_parameter_integer_expression(
     if (!mod || !callee || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !expression ||
         !expression_size ||
-        (argument->expr->kind != EXPR_ADD &&
+        (argument->expr->kind != EXPR_IDENT &&
+         argument->expr->kind != EXPR_ADD &&
          argument->expr->kind != EXPR_SUB &&
          argument->expr->kind != EXPR_MUL &&
          argument->expr->kind != EXPR_DIV &&
@@ -5520,8 +5521,46 @@ static bool debug_inline_parameter_integer_expression(
     source_expression = argument->expr;
     if (!debug_inline_integer_expression_type(parameter_type) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-            parameter_type, source_expression->type, 0u) ||
-        !debug_build_inline_integer_value_expression(
+            parameter_type, source_expression->type, 0u)) {
+        return false;
+    }
+
+    /* Ordinary-width identifier arguments keep the existing frame-location
+       path. This value-expression helper handles identifiers directly only
+       for the wider-than-address case below (or as subexpressions). */
+    if (source_expression->kind == EXPR_IDENT &&
+        (architecture == ARCH_X64 || !parameter_type->is_unsigned ||
+         (unsigned int)parameter_type->size <= 4u)) {
+        return false;
+    }
+
+    /* A generic DWARF stack entry is only address-sized. On i686, preserve
+       an unchanged 64-bit unsigned inline argument as a memory location
+       instead of loading it into that narrower stack entry. The callee body
+       is read-only (checked above), so the caller's stable frame slot is the
+       exact parameter value for this inline instance. */
+    if (architecture != ARCH_X64 && parameter_type->is_unsigned &&
+        (unsigned int)parameter_type->size > 4u &&
+        source_expression->kind == EXPR_IDENT &&
+        source_expression->ident_decl) {
+        const Decl* source = source_expression->ident_decl;
+        int64_t frame_offset;
+        if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+            source->var_is_global || source->var_is_static_local ||
+            source->var_is_thread_local || source->var_is_vla ||
+            !source->type ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                source->type, parameter_type, 0u) ||
+            !debug_inline_parameter_frame_offset(
+                mod, source, &frame_offset)) {
+            return false;
+        }
+        *expression_size = debug_build_expr_breg(
+            expression, architecture, frame_offset, 0u, false);
+        return *expression_size != 0u;
+    }
+
+    if (!debug_build_inline_integer_value_expression(
             mod, architecture, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY, &size, 0u) ||
         !debug_inline_integer_expression_append_byte(
