@@ -10313,20 +10313,24 @@ static RccIrLowerValue lower_sync_compare_exchange_call(
 
 static RccIrLowerValue lower_atomic_load_store_call(
     RccIrLowerContext* context, const Expr* expression,
-    const char* name) {
+    const char* name, bool generic_builtin) {
     const ExprList* object_argument = expression->call_args;
     const ExprList* value_argument = object_argument
         ? object_argument->next : NULL;
     const ExprList* order_argument = NULL;
     Type* object_pointer_type;
     Type* object_type;
+    Type* value_pointer_type = NULL;
+    Type* value_type = NULL;
     RccIrType atomic_type;
     RccIrLowerValue object_address;
+    RccIrLowerValue value_address = lower_invalid_value();
     RccIrLowerValue value = lower_invalid_value();
     RccIrLowerValue order;
-    bool is_store = strcmp(name, "__atomic_store_n") == 0;
+    bool is_store = strcmp(name, "__atomic_store_n") == 0 ||
+        strcmp(name, "__atomic_store") == 0;
 
-    if (is_store) {
+    if (is_store || generic_builtin) {
         order_argument = value_argument ? value_argument->next : NULL;
     } else {
         order_argument = value_argument;
@@ -10343,7 +10347,16 @@ static RccIrLowerValue lower_atomic_load_store_call(
     object_type = object_pointer_type &&
             object_pointer_type->kind == TYPE_PTR
         ? object_pointer_type->base : NULL;
+    if (generic_builtin) {
+        value_pointer_type = value_argument && value_argument->expr
+            ? value_argument->expr->type : NULL;
+        value_type = value_pointer_type &&
+                value_pointer_type->kind == TYPE_PTR
+            ? value_pointer_type->base : NULL;
+    }
     if (!object_type || !lower_type(object_type, &atomic_type) ||
+        (generic_builtin && (!value_type ||
+         !type_is_compatible(object_type, value_type))) ||
         (atomic_type.kind != RCC_IR_TYPE_INTEGER &&
          atomic_type.kind != RCC_IR_TYPE_POINTER) ||
         (atomic_type.kind == RCC_IR_TYPE_INTEGER &&
@@ -10361,22 +10374,46 @@ static RccIrLowerValue lower_atomic_load_store_call(
      * store is sequentially consistent, stronger than every valid store
      * order. Evaluate runtime order operands once even when no fence is needed. */
     object_address = lower_expression(context, object_argument->expr);
-    if (is_store) {
+    if (generic_builtin) {
+        value_address = lower_expression(context, value_argument->expr);
+    } else if (is_store) {
         value = lower_expression(context, value_argument->expr);
     }
     order = lower_expression(context, order_argument->expr);
     if (!object_address.valid ||
         object_address.type.kind != RCC_IR_TYPE_POINTER ||
         !order.valid || order.type.kind != RCC_IR_TYPE_INTEGER ||
-        (is_store && (!value.valid ||
+        (generic_builtin && (!value_address.valid ||
+         value_address.type.kind != RCC_IR_TYPE_POINTER)) ||
+        (is_store && !generic_builtin && (!value.valid ||
                       (value.type.kind != RCC_IR_TYPE_INTEGER &&
                        value.type.kind != RCC_IR_TYPE_POINTER)))) {
         context->unsupported = true;
         return lower_invalid_value();
     }
+    if (generic_builtin) {
+        value_address.volatile_access = value_address.volatile_access ||
+            value_type->is_volatile;
+        value_address.atomic_access = false;
+        if (is_store) {
+            value = lower_load_address(context, value_address, value_type);
+            if (!value.valid) return lower_invalid_value();
+        }
+    }
     object_address.atomic_access = true;
     if (!is_store) {
-        return lower_load_address(context, object_address, object_type);
+        value = lower_load_address(context, object_address, object_type);
+        if (!value.valid) return lower_invalid_value();
+        if (!generic_builtin) return value;
+        if (!lower_store_address(context, value_address, value)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        {
+            RccIrLowerValue void_result = lower_invalid_value();
+            void_result.valid = true;
+            return void_result;
+        }
     }
     value = lower_cast(context, value, object_type);
     if (!value.valid || !rcc_ir_type_equal(value.type, atomic_type) ||
@@ -10646,9 +10683,16 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         (strcmp(expression->call_func->ident_name,
                 "__atomic_load_n") == 0 ||
          strcmp(expression->call_func->ident_name,
-                "__atomic_store_n") == 0)) {
+                "__atomic_store_n") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_load") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_store") == 0)) {
+        const char* atomic_name = expression->call_func->ident_name;
         return lower_atomic_load_store_call(
-            context, expression, expression->call_func->ident_name);
+            context, expression, atomic_name,
+            strcmp(atomic_name, "__atomic_load") == 0 ||
+                strcmp(atomic_name, "__atomic_store") == 0);
     }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
