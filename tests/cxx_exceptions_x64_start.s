@@ -158,13 +158,37 @@ rin_cpp_exception_register_current_cleanup:
     ret
 
 rin_cpp_exception_unregister_current_cleanup:
-    mov rin_cpp_exception_top(%rip), %rax
-    test %rax, %rax
+    mov rin_cpp_exception_top(%rip), %r9
+    test %r9, %r9
     jz 14f
-    mov %rsi, %rdx
-    mov %rdi, %rsi
-    mov %rax, %rdi
-    jmp rin_cpp_exception_unregister_cleanup
+15:
+    mov 88(%r9), %rax
+    xor %r8d, %r8d
+16:
+    test %rax, %rax
+    jz 17f
+    cmp %rdi, 0(%rax)
+    jne 18f
+    cmp %rsi, 8(%rax)
+    je 19f
+18:
+    mov %rax, %r8
+    mov 16(%rax), %rax
+    jmp 16b
+17:
+    mov 64(%r9), %r9
+    test %r9, %r9
+    jnz 15b
+    ret
+19:
+    mov 16(%rax), %rcx
+    test %r8, %r8
+    jnz 20f
+    mov %rcx, 88(%r9)
+    ret
+20:
+    mov %rcx, 16(%r8)
+    ret
 14:
     ret
 

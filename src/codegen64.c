@@ -13827,6 +13827,11 @@ static void gen64_function(Module* mod, Decl* decl) {
             cleanup->exception_frame_offset = INT_MAX;
             cleanup->exception_registered = false;
             active_cleanups64 = cleanup;
+            if (gen64_cxx_cleanup_plan_registerable(cleanup->plan)) {
+                gen64_cxx_exception_register_plan(
+                    mod, cleanup->plan, INT_MAX);
+                cleanup->exception_registered = true;
+            }
         }
     }
     /* Constructor storage initialization is emitted by the complete-object

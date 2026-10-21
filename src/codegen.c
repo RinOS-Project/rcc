@@ -19802,6 +19802,11 @@ static void gen_function(Module* mod, Decl* decl) {
             cleanup->exception_frame_offset = INT_MAX;
             cleanup->exception_registered = false;
             active_cleanups = cleanup;
+            if (gen_cxx_cleanup_plan_registerable32(cleanup->plan)) {
+                gen_cxx_exception_register_plan32(
+                    mod, cleanup->plan, INT_MAX);
+                cleanup->exception_registered = true;
+            }
         }
     }
     /* Constructor storage initialization is emitted by the complete-object

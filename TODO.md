@@ -8140,8 +8140,16 @@ remains a separate open item.
       identity, exact destructor counts, GCC comparison, i686/AMD64 assembly,
       and AMD64 default/`-O2` execution in
       `test-cxx-static-cast-constructor`.
+- [x] Preserve nontrivial by-value parameter cleanup when an exception escapes
+      through a nested call, and when the callee returns from an internal
+      `try`. Search the active exception-frame chain when unregistering cleanup
+      records, and make an absent record a no-op when no frame owned it.
+      `test-cxx-exception-cleanup` coverage passes AMD64 default/`-O2` runtime,
+      i686/AMD64 object emission, and verified backend on both architectures
+      with 55 functions and zero fallback. The test command's remaining Windows
+      shell-path issue is environmental; its compiler, format, verified, and
+      runtime steps were run directly.
 - [ ] Remaining class-target cast coverage includes other aggregate
-      parenthesized-initialization edge cases, parameter cleanup during
-      exception unwinding, other class-prvalue uses outside same-type
-      local/static-storage initialization, and overloaded conversion functions
-      with non-exact result sequences.
+      parenthesized-initialization edge cases, other class-prvalue uses outside
+      same-type local/static-storage initialization, and overloaded conversion
+      functions with non-exact result sequences.

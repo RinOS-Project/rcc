@@ -300,6 +300,7 @@ static bool lower_initialize_union_storage(
 static RccIrLowerValue lower_compound_literal_address(
     RccIrLowerContext* context, const Expr* expression);
 static bool lower_abi_is_aggregate(const Type* type);
+static bool lower_abi_indirect_class_parameter(const Type* type);
 static bool lower_abi_native_scalar_type(
     const Type* type, RccIrType* ir_type);
 static bool lower_abi_aggregate_supported(const Type* type);
@@ -3313,7 +3314,9 @@ static RccIrLowerValue lower_sysv_va_start(
             context->unsupported = true;
             return lower_invalid_value();
         }
-        if (lower_abi_is_aggregate(type)) {
+        if (lower_abi_indirect_class_parameter(type)) {
+            if (gp_count < 6u) ++gp_count;
+        } else if (lower_abi_is_aggregate(type)) {
             LowerSysvAggregateClass classification;
             bool stack_argument;
             if (!lower_sysv_call_aggregate_assignment(
@@ -8616,8 +8619,9 @@ static bool lower_change_current_exception_cleanup(
 
 static bool lower_prepare_scope_cleanup_plan(
     RccIrLowerContext* context, const CxxCleanupPlan* plan);
-static bool lower_register_current_cleanup_plan(
-    RccIrLowerContext* context, const CxxCleanupPlan* plan);
+static bool lower_change_current_cleanup_plan(
+    RccIrLowerContext* context, const CxxCleanupPlan* plan,
+    bool register_cleanup);
 
 static bool lower_register_call_temporary_cleanups(
     RccIrLowerContext* context, const ExprList* const* arguments,
@@ -8630,8 +8634,28 @@ static bool lower_register_call_temporary_cleanups(
         }
         if (!lower_prepare_scope_cleanup_plan(
                 context, argument->cxx_temporary_cleanups) ||
-            !lower_register_current_cleanup_plan(
-                context, argument->cxx_temporary_cleanups)) {
+            !lower_change_current_cleanup_plan(
+                context, argument->cxx_temporary_cleanups, true)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool lower_transfer_by_value_argument_cleanups(
+    RccIrLowerContext* context, const ExprList* arguments,
+    bool cleanup_registered) {
+    if (!cleanup_registered) return true;
+    for (const ExprList* argument = arguments; argument;
+         argument = argument->next) {
+        if (!argument->cxx_temporary_is_parameter_object ||
+            !argument->cxx_temporary_owner ||
+            !argument->cxx_temporary_cleanups) {
+            continue;
+        }
+        if (!lower_change_current_cleanup_plan(
+                context, argument->cxx_temporary_cleanups, false)) {
             context->unsupported = true;
             return false;
         }
@@ -8646,8 +8670,8 @@ static bool lower_register_call_receiver_temporary_cleanup(
             expression, true) ||
         !lower_prepare_scope_cleanup_plan(
             context, expression->cxx_temporary_cleanups) ||
-        !lower_register_current_cleanup_plan(
-            context, expression->cxx_temporary_cleanups)) {
+        !lower_change_current_cleanup_plan(
+            context, expression->cxx_temporary_cleanups, true)) {
         if (context) context->unsupported = true;
         return false;
     }
@@ -8848,8 +8872,9 @@ static bool lower_prepare_scope_cleanup_plan(
     return true;
 }
 
-static bool lower_register_current_cleanup_array_loop(
-    RccIrLowerContext* context, const CxxCleanupPlan* plan) {
+static bool lower_change_current_cleanup_array_loop(
+    RccIrLowerContext* context, const CxxCleanupPlan* plan,
+    bool register_cleanup) {
     RccIrLowerLocal* index_local;
     RccIrLowerValue index_address;
     RccIrLowerValue index_value;
@@ -8917,7 +8942,8 @@ static bool lower_register_current_cleanup_array_loop(
     }
     context->current = body_block;
     context->terminated = false;
-    if (!lower_register_current_cleanup_plan(context, plan->body) ||
+    if (!lower_change_current_cleanup_plan(
+            context, plan->body, register_cleanup) ||
         context->terminated) {
         return false;
     }
@@ -8940,16 +8966,18 @@ static bool lower_register_current_cleanup_array_loop(
     return true;
 }
 
-static bool lower_register_current_cleanup_plan(
-    RccIrLowerContext* context, const CxxCleanupPlan* plan) {
+static bool lower_change_current_cleanup_plan(
+    RccIrLowerContext* context, const CxxCleanupPlan* plan,
+    bool register_cleanup) {
     for (; plan; plan = plan->next) {
         if (plan->kind == CXX_CLEANUP_ARRAY_LOOP) {
-            if (!lower_register_current_cleanup_array_loop(context, plan)) {
+            if (!lower_change_current_cleanup_array_loop(
+                    context, plan, register_cleanup)) {
                 return false;
             }
         } else if (plan->kind != CXX_CLEANUP_EXPRESSION ||
                    !lower_change_current_exception_cleanup(
-                       context, plan, true)) {
+                       context, plan, register_cleanup)) {
             if (context) context->unsupported = true;
             return false;
         }
@@ -8962,7 +8990,7 @@ static bool lower_push_scope_cleanup_plan(
     RccIrLowerScopeCleanup* cleanup;
     if (!context || !plan ||
         !lower_prepare_scope_cleanup_plan(context, plan) ||
-        !lower_register_current_cleanup_plan(context, plan)) return false;
+        !lower_change_current_cleanup_plan(context, plan, true)) return false;
     cleanup = rcc_alloc(sizeof(*cleanup));
     cleanup->plan = plan;
     cleanup->exception_registered = true;
@@ -9047,6 +9075,7 @@ static bool lower_emit_call_temporary_cleanups(
     bool unregister_current_frame) {
     while (count > 0u) {
         const ExprList* argument = arguments[--count];
+        if (argument->cxx_temporary_is_parameter_object) continue;
         if (!lower_temporary_cleanup_plan_supported(
                 argument, unregister_current_frame)) {
             context->unsupported = true;
@@ -9120,7 +9149,9 @@ static bool lower_sysv_call_memory_arguments(
             ? parameter->type
             : argument->expr ? argument->expr->type : NULL;
         size_t units = 1u;
-        if (lower_abi_is_aggregate(type)) {
+        if (lower_abi_indirect_class_parameter(type)) {
+            if (gp_arguments_used < 6u) ++gp_arguments_used;
+        } else if (lower_abi_is_aggregate(type)) {
             LowerSysvAggregateClass classification;
             bool stack_argument;
             if (!lower_sysv_call_aggregate_assignment(
@@ -9161,7 +9192,9 @@ static bool lower_sysv_call_memory_arguments(
             ? parameter->type
             : argument->expr ? argument->expr->type : NULL;
         size_t units = 1u;
-        if (lower_abi_is_aggregate(type)) {
+        if (lower_abi_indirect_class_parameter(type)) {
+            if (gp_arguments_used < 6u) ++gp_arguments_used;
+        } else if (lower_abi_is_aggregate(type)) {
             LowerSysvAggregateClass classification;
             bool stack_argument;
             if (!lower_sysv_call_aggregate_assignment(
@@ -11088,7 +11121,16 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         const Type* argument_type = parameter && parameter->type
             ? parameter->type
             : argument->expr ? argument->expr->type : NULL;
-        if (parameter && lower_abi_is_aggregate(parameter->type)) {
+        if (parameter &&
+            lower_abi_indirect_class_parameter(parameter->type)) {
+            if (!argument->expr || !argument->expr->type ||
+                !type_is_compatible(parameter->type, argument->expr->type)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            units = 1u;
+        } else if (parameter &&
+                   lower_abi_is_aggregate(parameter->type)) {
             if (!argument->expr || !argument->expr->type ||
                 !type_is_compatible(parameter->type, argument->expr->type)) {
                 context->unsupported = true;
@@ -11132,7 +11174,10 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             return lower_invalid_value();
         }
         argument_count += units;
-        if (g_opts.target_arch == ARCH_X64 &&
+        if (g_opts.target_arch == ARCH_X64 && argument_type &&
+            lower_abi_indirect_class_parameter(argument_type)) {
+            if (sysv_gp_arguments_used < 6u) ++sysv_gp_arguments_used;
+        } else if (g_opts.target_arch == ARCH_X64 &&
             argument_type && !lower_abi_is_aggregate(argument_type) &&
             argument_type->kind != TYPE_FLOAT &&
             argument_type->kind != TYPE_DOUBLE &&
@@ -11177,7 +11222,12 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         LowerSysvAggregateClass sysv_aggregate_classification;
         bool sysv_aggregate_on_stack = false;
         if (g_opts.target_arch == ARCH_X64 && argument_type &&
-            lower_abi_is_aggregate(argument_type)) {
+            lower_abi_indirect_class_parameter(argument_type)) {
+            if (sysv_flatten_gp_arguments_used < 6u) {
+                ++sysv_flatten_gp_arguments_used;
+            }
+        } else if (g_opts.target_arch == ARCH_X64 && argument_type &&
+                   lower_abi_is_aggregate(argument_type)) {
             if (!lower_sysv_call_aggregate_assignment(
                     argument_type,
                     &sysv_flatten_gp_arguments_used,
@@ -11303,7 +11353,25 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         } else {
             value = lower_expression(context, argument->expr);
         }
-        if (parameter && lower_abi_is_aggregate(parameter->type)) {
+        if (parameter &&
+            lower_abi_indirect_class_parameter(parameter->type)) {
+            if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER) {
+                rcc_free(operands);
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (argument->cxx_temporary_owner) {
+                if (!temporary_owner_bound &&
+                    !lower_bind_temporary_owner(
+                        context, argument->cxx_temporary_owner, value)) {
+                    rcc_free(operands);
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                temporary_cleanups[cleanup_count++] = argument;
+            }
+            operands[index++] = value.value;
+        } else if (parameter && lower_abi_is_aggregate(parameter->type)) {
             LowerSysvAggregateClass classification;
             size_t units;
             bool sysv_aggregate = g_opts.target_arch == ARCH_X64;
@@ -11562,6 +11630,13 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         rcc_free(operands);
         rcc_free(sysv_memory_arguments);
         context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (!lower_transfer_by_value_argument_cleanups(
+            context, expression->call_args,
+            register_temporary_cleanups)) {
+        rcc_free(operands);
+        rcc_free(sysv_memory_arguments);
         return lower_invalid_value();
     }
     call_type = return_type;
@@ -15867,6 +15942,12 @@ static bool lower_abi_is_aggregate(const Type* type) {
                     type_is_cxx_member_function_pointer(type));
 }
 
+static bool lower_abi_indirect_class_parameter(const Type* type) {
+    return type && type->cxx_class && type->cxx_nontrivial &&
+        !type->is_reference &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
+}
+
 static bool lower_abi_naturally_aligned_internal(
     const Type* type, uint64_t offset, unsigned depth) {
     const TypeField* field;
@@ -16193,7 +16274,9 @@ static bool lower_abi_parameter_layout(
     for (parameter = parameters; parameter; parameter = parameter->next) {
         size_t units = 1u;
         RccIrType scalar_type;
-        if (lower_abi_is_aggregate(parameter->type)) {
+        if (lower_abi_indirect_class_parameter(parameter->type)) {
+            scalar_type = rcc_ir_type_pointer(0u);
+        } else if (lower_abi_is_aggregate(parameter->type)) {
             if (g_opts.target_arch == ARCH_X64) {
                 LowerSysvAggregateClass classification;
                 bool stack_argument;
@@ -16254,7 +16337,12 @@ static bool lower_abi_parameter_layout(
     sse_arguments_used = 0u;
     memory_parameter_count = 0u;
     for (parameter = parameters; parameter; parameter = parameter->next) {
-        if (lower_abi_is_aggregate(parameter->type)) {
+        if (lower_abi_indirect_class_parameter(parameter->type)) {
+            if (types) types[cursor] = rcc_ir_type_pointer(0u);
+            if (g_opts.target_arch == ARCH_X64 &&
+                gp_arguments_used < 6u) ++gp_arguments_used;
+            ++cursor;
+        } else if (lower_abi_is_aggregate(parameter->type)) {
             if (g_opts.target_arch == ARCH_X64) {
                 LowerSysvAggregateClass classification;
                 bool stack_argument;
@@ -22049,9 +22137,12 @@ static bool lower_parameters(RccIrLowerContext* context,
     while (parameter) {
         const Decl* item = parameter->decl;
         RccIrType type;
-        RccIrInstruction* allocation;
+        RccIrInstruction* allocation = NULL;
         RccIrValue operands[2];
-        bool aggregate = item && lower_abi_is_aggregate(item->type);
+        bool indirect_class = item &&
+            lower_abi_indirect_class_parameter(item->type);
+        bool aggregate = item && !indirect_class &&
+            lower_abi_is_aggregate(item->type);
         bool sysv_aggregate = aggregate &&
             g_opts.target_arch == ARCH_X64;
         LowerSysvAggregateClass sysv_classification;
@@ -22061,14 +22152,16 @@ static bool lower_parameters(RccIrLowerContext* context,
                        item->type, &sysv_classification)
                  : lower_abi_aggregate_supported(item->type));
         bool wide_scalar = item && lower_i686_wide_scalar_type(item->type);
-        size_t units = aggregate
+        size_t units = indirect_class ? 1u : aggregate
             ? (sysv_aggregate
                    ? (size_t)sysv_classification.count
                    : ((size_t)item->type->size +
                       lower_abi_chunk_size() - 1u) /
                          lower_abi_chunk_size())
             : (wide_scalar ? 2u : 1u);
-        size_t allocation_size = aggregate
+        size_t allocation_size = indirect_class
+            ? (g_opts.target_arch == ARCH_X64 ? 8u : 4u)
+            : aggregate
             ? units * lower_abi_chunk_size()
             : (wide_scalar ? 8u
                : (item && item->type && item->type->size > 0
@@ -22076,7 +22169,9 @@ static bool lower_parameters(RccIrLowerContext* context,
         if (!item || item->kind != DECL_PARAM ||
             index > context->function->parameter_count ||
             units > context->function->parameter_count - index ||
-            (aggregate
+            (indirect_class
+                 ? false
+                 : aggregate
                  ? !aggregate_supported
                  : wide_scalar
                  ? false
@@ -22084,20 +22179,31 @@ static bool lower_parameters(RccIrLowerContext* context,
             context->unsupported = true;
             return false;
         }
-        allocation = lower_append(context, RCC_IR_ALLOCA,
-                                  rcc_ir_type_pointer(0u), NULL, 0u,
-                                  NULL, 0u);
-        if (!allocation) return false;
-        rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
-        allocation->alignment = item->type->align > 0
-            ? (uint32_t)item->type->align : 0u;
-        allocation->source_declaration = item;
-        if (aggregate || wide_scalar) type = rcc_ir_type_pointer(0u);
-        if (!lower_add_local(context, item, allocation->result, type)) {
-            context->unsupported = true;
-            return false;
+        if (indirect_class) {
+            type = rcc_ir_type_pointer(0u);
+            if (!lower_add_local(
+                    context, item, context->function->parameters[index],
+                    type)) {
+                context->unsupported = true;
+                return false;
+            }
+            ++index;
+        } else {
+            allocation = lower_append(context, RCC_IR_ALLOCA,
+                                      rcc_ir_type_pointer(0u), NULL, 0u,
+                                      NULL, 0u);
+            if (!allocation) return false;
+            rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
+            allocation->alignment = item->type->align > 0
+                ? (uint32_t)item->type->align : 0u;
+            allocation->source_declaration = item;
+            if (aggregate || wide_scalar) type = rcc_ir_type_pointer(0u);
+            if (!lower_add_local(context, item, allocation->result, type)) {
+                context->unsupported = true;
+                return false;
+            }
         }
-        if (aggregate) {
+        if (!indirect_class && aggregate) {
             RccIrLowerValue base = lower_value(
                 allocation->result, rcc_ir_type_pointer(0u), true);
             for (size_t unit = 0u; unit < units; ++unit) {
@@ -22113,7 +22219,7 @@ static bool lower_parameters(RccIrLowerContext* context,
                 }
                 ++index;
             }
-        } else if (wide_scalar) {
+        } else if (!indirect_class && wide_scalar) {
             RccIrLowerValue base = lower_value(
                 allocation->result, rcc_ir_type_pointer(0u), true);
             for (size_t unit = 0u; unit < 2u; ++unit) {
@@ -22141,7 +22247,7 @@ static bool lower_parameters(RccIrLowerContext* context,
                 }
             }
             index += 2u;
-        } else {
+        } else if (!indirect_class) {
             operands[0] = context->function->parameters[index];
             operands[1] = allocation->result;
             if (!lower_append(context, RCC_IR_STORE, rcc_ir_type_void(),
@@ -22149,6 +22255,12 @@ static bool lower_parameters(RccIrLowerContext* context,
                 return false;
             }
             ++index;
+        }
+        if (item->var_cleanups &&
+            !lower_push_scope_cleanup_plan(
+                context, item->var_cleanups)) {
+            context->unsupported = true;
+            return false;
         }
         if (!lower_capture_vla_pointer_extent(context, item)) return false;
         parameter = parameter->next;
@@ -22182,14 +22294,6 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     has_scope_cleanups = lower_statement_has_scope_cleanups(
         declaration->func_body);
     if (has_scope_cleanups) {
-        for (const DeclList* parameter = declaration->func_params;
-             parameter; parameter = parameter->next) {
-            if (parameter->decl &&
-                (parameter->decl->var_cleanup ||
-                 parameter->decl->var_cleanups)) {
-                return RCC_IR_LOWER_UNSUPPORTED;
-            }
-        }
         if (!lower_statement_scope_cleanups_supported(
                 declaration->func_body)) {
             return RCC_IR_LOWER_UNSUPPORTED;
@@ -22265,7 +22369,8 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
                                    : RCC_IR_LOWER_INVALID;
     }
     if (!context.terminated) {
-        if (!lower_cxx_unregister_constructor_partial_member_cleanups(
+        if (!lower_emit_scope_cleanups_until(&context, NULL) ||
+            !lower_cxx_unregister_constructor_partial_member_cleanups(
                 &context) ||
             !lower_cxx_emit_current_destructor_subobjects(&context)) {
             lower_release_scope_cleanups(context.allocated_scope_cleanups);

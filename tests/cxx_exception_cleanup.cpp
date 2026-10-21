@@ -174,6 +174,18 @@ private:
     int id_;
 };
 
+class ByValueExceptionParameter final {
+public:
+    explicit ByValueExceptionParameter(int* order) : order_(order) {}
+
+    ~ByValueExceptionParameter() {
+        *order_ = *order_ * 10 + 7;
+    }
+
+private:
+    int* order_;
+};
+
 class NestedFirstExceptionGuard final {
 public:
     explicit NestedFirstExceptionGuard(int* order) : order_(order) {}
@@ -314,6 +326,40 @@ extern "C" int cxx_exception_cleanup_across_call() {
     } catch (int caught) {
         return caught + count * 100 + order * 1000;
     }
+}
+
+extern "C" int cxx_exception_cleanup_by_value_parameter_callee(
+    ByValueExceptionParameter parameter) {
+    (void)parameter;
+    return cxx_exception_cleanup_callee(31);
+}
+
+extern "C" int cxx_exception_cleanup_by_value_parameter() {
+    int order = 0;
+    try {
+        cxx_exception_cleanup_by_value_parameter_callee(
+            ByValueExceptionParameter{&order});
+    } catch (int caught) {
+        return caught + order * 100;
+    }
+    return -1;
+}
+
+extern "C" int cxx_exception_cleanup_by_value_parameter_try_return(
+    ByValueExceptionParameter parameter) {
+    try {
+        (void)parameter;
+        return 41;
+    } catch (int caught) {
+        return caught;
+    }
+}
+
+extern "C" int cxx_exception_cleanup_by_value_parameter_return() {
+    int order = 0;
+    const int result = cxx_exception_cleanup_by_value_parameter_try_return(
+        ByValueExceptionParameter{&order});
+    return result + order * 100;
 }
 
 extern "C" int cxx_exception_cleanup_nested_members() {
@@ -458,6 +504,8 @@ extern "C" int main() {
                    cxx_exception_cleanup_rethrow() == 105 &&
                    cxx_exception_cleanup_total == 3 &&
                    cxx_exception_cleanup_across_call() == 21223 &&
+                   cxx_exception_cleanup_by_value_parameter() == 731 &&
+                   cxx_exception_cleanup_by_value_parameter_return() == 741 &&
                    cxx_exception_destructor_total == 2 &&
                    cxx_exception_cleanup_nested_members() == 21029 &&
                    cxx_exception_cleanup_delete_throw() == 21037 &&

@@ -154,16 +154,50 @@ rin_cpp_exception_register_current_cleanup:
     ret
 
 rin_cpp_exception_unregister_current_cleanup:
-    mov rin_cpp_exception_top, %eax
-    test %eax, %eax
+    push %ebx
+    push %esi
+    push %edi
+    mov rin_cpp_exception_top, %ebx
+    test %ebx, %ebx
     jz 14f
-    push 8(%esp)
-    push 8(%esp)
-    push %eax
-    call rin_cpp_exception_unregister_cleanup
-    add $12, %esp
+    mov 16(%esp), %ecx
+    mov 20(%esp), %edx
+15:
+    mov 36(%ebx), %edi
+    xor %esi, %esi
+16:
+    test %edi, %edi
+    jz 17f
+    cmp %ecx, 0(%edi)
+    jne 18f
+    cmp %edx, 4(%edi)
+    je 19f
+18:
+    mov %edi, %esi
+    mov 8(%edi), %edi
+    jmp 16b
+17:
+    mov 24(%ebx), %ebx
+    test %ebx, %ebx
+    jnz 15b
+    jmp 14f
+19:
+    mov 8(%edi), %eax
+    test %esi, %esi
+    jnz 20f
+    mov %eax, 36(%ebx)
+    jmp 21f
+20:
+    mov %eax, 8(%esi)
+21:
+    pop %edi
+    pop %esi
+    pop %ebx
     ret
 14:
+    pop %edi
+    pop %esi
+    pop %ebx
     ret
 
 rin_cpp_exception_unwind_cleanups:
