@@ -8004,3 +8004,18 @@ remains a separate open item.
 - [ ] Generic/aggregate builtin forms, floating/aggregate atomics, general
       C++ atomic operations, and legacy sync compare-exchange builtins remain
       open.
+
+## RCC continuation (2026-10-21, typed-SSA legacy sync compare-exchange)
+
+- [x] Lower `__sync_bool_compare_and_swap` and
+      `__sync_val_compare_and_swap` directly to typed SSA and locked
+      `CMPXCHG`. The bool form compares the observed old value with the expected
+      value; the value form returns that observed old value. All arguments are
+      evaluated once before the full-barrier operation.
+- [x] `test-verified-atomic-fetch-add` covers both forms' success and failure
+      paths, result values, final state, and input-expression evaluation counts.
+      Both targets pass at `-O0`/`-O2` with zero verified-backend fallback;
+      AMD64 objects execute and match the GCC C17 oracle. Atomic builtin,
+      language, and IR/MIR/x86 suites pass.
+- [ ] Generic/aggregate builtin forms, floating/aggregate atomics, and general
+      C++ atomic operations remain open.

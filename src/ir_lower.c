@@ -10198,6 +10198,91 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
     return lower_cast(context, success, expression->type);
 }
 
+static RccIrLowerValue lower_sync_compare_exchange_call(
+    RccIrLowerContext* context, const Expr* expression, const char* name) {
+    const ExprList* object_argument = expression->call_args;
+    const ExprList* expected_argument = object_argument
+        ? object_argument->next : NULL;
+    const ExprList* desired_argument = expected_argument
+        ? expected_argument->next : NULL;
+    Type* object_pointer_type;
+    Type* object_type;
+    RccIrType atomic_type;
+    RccIrLowerValue object_address;
+    RccIrLowerValue expected;
+    RccIrLowerValue desired;
+    RccIrLowerValue result;
+    RccIrValue operands[3];
+    RccIrValue compare_operands[2];
+    RccIrInstruction* operation;
+    bool returns_bool = strcmp(
+        name, "__sync_bool_compare_and_swap") == 0;
+
+    if (!object_argument || !expected_argument || !desired_argument ||
+        desired_argument->next || !object_argument->expr ||
+        !expected_argument->expr || !desired_argument->expr) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_pointer_type = object_argument->expr->type;
+    object_type = object_pointer_type &&
+            object_pointer_type->kind == TYPE_PTR
+        ? object_pointer_type->base : NULL;
+    if (!object_type || !lower_type(object_type, &atomic_type) ||
+        (atomic_type.kind == RCC_IR_TYPE_INTEGER &&
+         atomic_type.bit_width != 8u && atomic_type.bit_width != 16u &&
+         atomic_type.bit_width != 32u &&
+         (atomic_type.bit_width != 64u || g_opts.target_arch != ARCH_X64)) ||
+        (atomic_type.kind != RCC_IR_TYPE_INTEGER &&
+         atomic_type.kind != RCC_IR_TYPE_POINTER)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    /* Legacy sync compare-exchange is a full barrier. Evaluate every source
+     * argument once before the locked operation observes the object. */
+    object_address = lower_expression(context, object_argument->expr);
+    expected = lower_expression(context, expected_argument->expr);
+    desired = lower_expression(context, desired_argument->expr);
+    if (!object_address.valid ||
+        object_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !expected.valid || !desired.valid) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    expected = lower_cast(context, expected, object_type);
+    desired = lower_cast(context, desired, object_type);
+    if (!expected.valid || !desired.valid ||
+        !rcc_ir_type_equal(expected.type, atomic_type) ||
+        !rcc_ir_type_equal(desired.type, atomic_type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    operands[0] = object_address.value;
+    operands[1] = expected.value;
+    operands[2] = desired.value;
+    operation = lower_append(
+        context, RCC_IR_ATOMIC_COMPARE_EXCHANGE, atomic_type,
+        operands, 3u, NULL, 0u);
+    if (!operation) return lower_invalid_value();
+    result = lower_value(
+        operation->result, atomic_type,
+        object_type->kind == TYPE_PTR || object_type->is_unsigned);
+    if (returns_bool) {
+        RccIrInstruction* compare;
+        compare_operands[0] = operation->result;
+        compare_operands[1] = expected.value;
+        compare = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            compare_operands, 2u, NULL, 0u);
+        if (!compare) return lower_invalid_value();
+        rcc_ir_set_predicate(compare, RCC_IR_ICMP_EQ);
+        result = lower_value(compare->result, rcc_ir_type_integer(1u), true);
+    }
+    return lower_cast(context, result, expression->type);
+}
+
 static RccIrLowerValue lower_atomic_load_store_call(
     RccIrLowerContext* context, const Expr* expression,
     const char* name) {
@@ -10561,6 +10646,16 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         strcmp(expression->call_func->ident_name,
                "__atomic_compare_exchange_n") == 0) {
         return lower_atomic_compare_exchange_call(context, expression);
+    }
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        (strcmp(expression->call_func->ident_name,
+                "__sync_bool_compare_and_swap") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_val_compare_and_swap") == 0)) {
+        return lower_sync_compare_exchange_call(
+            context, expression, expression->call_func->ident_name);
     }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&

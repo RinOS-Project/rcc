@@ -111,6 +111,7 @@ int main(void)
     volatile unsigned int sync_arithmetic_value = 30u;
     volatile unsigned int sync_lock_value = 0u;
     volatile unsigned int sync_swap_value = 0x1234u;
+    volatile unsigned int sync_compare_value = 42u;
 #if defined(__x86_64__)
     _Atomic unsigned long long builtin_wide = 0x10000000aULL;
     _Atomic unsigned long long exchange_wide = 0x123456789abcdef0ULL;
@@ -186,6 +187,12 @@ int main(void)
     unsigned int sync_lock_first_old;
     unsigned int sync_lock_second_old;
     unsigned int sync_swap_old;
+    int sync_compare_success;
+    int sync_compare_failure;
+    unsigned int sync_compare_value_failure;
+    unsigned int sync_compare_value_success;
+    unsigned int sync_compare_expected_evaluations = 0u;
+    unsigned int sync_compare_desired_evaluations = 0u;
     void *pointer_fetch_old;
     void *pointer_add_new;
     void *pointer_sub_old;
@@ -420,6 +427,22 @@ int main(void)
 #else
     sync_swap_old = oracle_sync_swap(&sync_swap_value, 0xa5a5u);
 #endif
+    sync_compare_success = __sync_bool_compare_and_swap(
+        &sync_compare_value,
+        (sync_compare_expected_evaluations++, 42u),
+        (sync_compare_desired_evaluations++, 77u));
+    sync_compare_failure = __sync_bool_compare_and_swap(
+        &sync_compare_value,
+        (sync_compare_expected_evaluations++, 42u),
+        (sync_compare_desired_evaluations++, 88u));
+    sync_compare_value_failure = __sync_val_compare_and_swap(
+        &sync_compare_value,
+        (sync_compare_expected_evaluations++, 42u),
+        (sync_compare_desired_evaluations++, 99u));
+    sync_compare_value_success = __sync_val_compare_and_swap(
+        &sync_compare_value,
+        (sync_compare_expected_evaluations++, 77u),
+        (sync_compare_desired_evaluations++, 99u));
 
     return old8 == 250u && value8 == 5u && added8 == 5u &&
         old16 == 65530u && value16 == 5u && added16 == 5u &&
@@ -492,6 +515,11 @@ int main(void)
         sync_lock_first_old == 0u && sync_lock_second_old == 7u &&
         sync_lock_value == 0u && sync_swap_old == 0x1234u &&
         sync_swap_value == 0xa5a5u &&
+        sync_compare_success == 1 && sync_compare_failure == 0 &&
+        sync_compare_value_failure == 77u &&
+        sync_compare_value_success == 77u && sync_compare_value == 99u &&
+        sync_compare_expected_evaluations == 4u &&
+        sync_compare_desired_evaluations == 4u &&
 #if defined(__x86_64__)
         bitwise_wide_old == 0xf0f0f0f0f0f0f0f0ULL &&
         bitwise_wide == 0xffffffffffffffffULL &&
