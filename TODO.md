@@ -8153,3 +8153,19 @@ remains a separate open item.
       parenthesized-initialization edge cases, other class-prvalue uses outside
       same-type local/static-storage initialization, and overloaded conversion
       functions with non-exact result sequences.
+
+## RCC continuation (2026-10-21, class-returning `operator->` proxies)
+
+- [x] Follow overloaded `operator->` calls whose intermediate result is a
+      class prvalue, continuing until the chain produces a pointer. Preserve
+      intermediate proxy full-expression destruction; the nested proxy/member
+      call/destructor sequence is verified as `1234` against GCC C++20.
+- [x] Verify scalar return rejection and a class return without a subsequent
+      `operator->` on i686/AMD64. The test gate also compiles optimized objects
+      for both target widths and runs AMD64 at default optimization and `-O2`.
+      The Windows make shell could not resolve its configured `objdump` path in
+      this environment; all codegen, object-format, diagnostic, oracle, and
+      runtime steps were run directly.
+- [ ] Ref-qualified/cv-overloaded proxy chains, chains beyond the bounded
+      64-step semantic limit, and verified-SSA lowering of nontrivial proxy
+      cleanup remain open.

@@ -8574,10 +8574,23 @@ test-cxx-iterator-range-for: $(RCXX_TARGET)
 test-cxx-operator-arrow: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-operator-arrow)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-operator-arrow,cxx_operator_arrow.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-operator-arrow/x86-o2.s tests/cxx_operator_arrow.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-operator-arrow/x86-o2.o $(TEST_OUT)/cxx-operator-arrow/x86-o2.s
+	objdump -f $(TEST_OUT)/cxx-operator-arrow/x86-o2.o > $(TEST_OUT)/cxx-operator-arrow/x86-o2-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-operator-arrow/x86-o2-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-operator-arrow/x64-o2.s tests/cxx_operator_arrow.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-operator-arrow/x64-o2.o $(TEST_OUT)/cxx-operator-arrow/x64-o2.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-operator-arrow/x64-o2.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-operator-arrow/x64-o2-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-operator-arrow/x64-o2.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-operator-arrow/x64-o2-host
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-x86.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-x86.log)
-	$(GREP) -F -q "operator-> must return a pointer in the bounded RCC++ profile" $(TEST_OUT)/cxx-operator-arrow/invalid-x86.log
+	$(GREP) -F -q "operator-> must return a pointer or a class type" $(TEST_OUT)/cxx-operator-arrow/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-x64.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-x64.log)
-	$(GREP) -F -q "operator-> must return a pointer in the bounded RCC++ profile" $(TEST_OUT)/cxx-operator-arrow/invalid-x64.log
+	$(GREP) -F -q "operator-> must return a pointer or a class type" $(TEST_OUT)/cxx-operator-arrow/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_INVALID_CLASS_ARROW_CHAIN -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-chain-x86.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-chain-x86.log)
+	$(GREP) -F -q "class-returning operator-> has no next operator->" $(TEST_OUT)/cxx-operator-arrow/invalid-chain-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_INVALID_CLASS_ARROW_CHAIN -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-chain-x64.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-chain-x64.log)
+	$(GREP) -F -q "class-returning operator-> has no next operator->" $(TEST_OUT)/cxx-operator-arrow/invalid-chain-x64.log
 
 test-cxx-requires-expression: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-requires-expression)
@@ -9112,6 +9125,11 @@ test-cxx-operator-arrow-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-operator-arrow/start-x86.o \
 		$(TEST_OUT)/cxx-operator-arrow/x86.o
 	$(TEST_OUT)/cxx-operator-arrow/x86
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-operator-arrow/x86-o2.s \
+		tests/cxx_operator_arrow.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-operator-arrow/x86-o2.o \
+		$(TEST_OUT)/cxx-operator-arrow/x86-o2.s
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-operator-arrow/x64.s \
 		tests/cxx_operator_arrow.cpp
@@ -9124,6 +9142,16 @@ test-cxx-operator-arrow-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-operator-arrow/start-x64.o \
 		$(TEST_OUT)/cxx-operator-arrow/x64.o
 	$(TEST_OUT)/cxx-operator-arrow/x64
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-operator-arrow/x64-o2.s \
+		tests/cxx_operator_arrow.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-operator-arrow/x64-o2.o \
+		$(TEST_OUT)/cxx-operator-arrow/x64-o2.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-operator-arrow/x64-o2 \
+		$(TEST_OUT)/cxx-operator-arrow/start-x64.o \
+		$(TEST_OUT)/cxx-operator-arrow/x64-o2.o
+	$(TEST_OUT)/cxx-operator-arrow/x64-o2
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-operator-arrow/invalid-x86.ro \
 		tests/cxx_operator_arrow_invalid.cpp \
@@ -9136,10 +9164,28 @@ test-cxx-operator-arrow-posix: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-operator-arrow/invalid-x64.log 2>&1; then \
 		echo "invalid operator-> return type unexpectedly compiled"; exit 1; \
 	fi
-	$(GREP) -q "operator-> must return a pointer in the bounded RCC++ profile" \
+	$(GREP) -q "operator-> must return a pointer or a class type" \
 		$(TEST_OUT)/cxx-operator-arrow/invalid-x86.log
-	$(GREP) -q "operator-> must return a pointer in the bounded RCC++ profile" \
+	$(GREP) -q "operator-> must return a pointer or a class type" \
 		$(TEST_OUT)/cxx-operator-arrow/invalid-x64.log
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-DTEST_INVALID_CLASS_ARROW_CHAIN -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/invalid-chain-x86.ro \
+		tests/cxx_operator_arrow_invalid.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/invalid-chain-x86.log 2>&1; then \
+		echo "invalid class operator-> chain unexpectedly compiled"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-DTEST_INVALID_CLASS_ARROW_CHAIN -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/invalid-chain-x64.ro \
+		tests/cxx_operator_arrow_invalid.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/invalid-chain-x64.log 2>&1; then \
+		echo "invalid class operator-> chain unexpectedly compiled"; exit 1; \
+	fi
+	$(GREP) -q "class-returning operator-> has no next operator->" \
+		$(TEST_OUT)/cxx-operator-arrow/invalid-chain-x86.log
+	$(GREP) -q "class-returning operator-> has no next operator->" \
+		$(TEST_OUT)/cxx-operator-arrow/invalid-chain-x64.log
 	@echo "C++ overloaded operator-> tests completed"
 
 test-cxx-requires-expression-posix: $(RCXX_TARGET)

@@ -13640,43 +13640,81 @@ static bool sema_rewrite_cxx_subscript_operator(Expr* expression,
     return true;
 }
 
-/* Lower the bounded RCC++ `operator->` form through the ordinary member-call
- * ABI.  Pointer returns are ABI-equivalent to a built-in pointer selection;
- * class/proxy returns remain an explicit diagnostic until class-return ABI
- * materialization is available, rather than being treated as a fake pointer. */
+/* Lower the bounded RCC++ `operator->` chain through ordinary member calls.
+ * Intermediate class results keep their normal full-expression cleanup. */
 static bool sema_rewrite_cxx_arrow_operator(Expr* expression,
                                             Type* object_type) {
     Type* aggregate;
     TypeMethod* method;
+    Expr* receiver;
+    Type* receiver_type;
     Expr* member;
     Expr* call;
     Expr* rewritten;
 
     if (!expression || expression->kind != EXPR_PTR_MEMBER ||
         !expression->member_base || !object_type) return false;
-    aggregate = object_type;
-    if (aggregate->kind == TYPE_PTR && aggregate->is_reference) {
-        aggregate = aggregate->base;
+    receiver = expression->member_base;
+    receiver_type = object_type;
+    for (unsigned depth = 0u; depth < 64u; ++depth) {
+        Type* returned_object_type;
+        aggregate = receiver_type;
+        if (aggregate->kind == TYPE_PTR && aggregate->is_reference) {
+            aggregate = aggregate->base;
+        }
+        aggregate = generic_selection_type(aggregate);
+        if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                           aggregate->kind != TYPE_UNION)) {
+            return false;
+        }
+        method = sema_find_function_method(aggregate, "operator->");
+        if (!method || !method->function_decl) {
+            if (depth != 0u) {
+                rcc_error(expression->loc,
+                          "class-returning operator-> has no next operator->");
+                expression->type = type_int;
+            }
+            return false;
+        }
+        member = expr_member(receiver, "operator->", expression->loc);
+        call = expr_call(member, NULL, expression->loc);
+        sema_expr(call);
+        if (!call->type) {
+            expression->type = type_int;
+            return false;
+        }
+        returned_object_type = call->type;
+        if (returned_object_type->kind == TYPE_PTR &&
+            returned_object_type->is_reference) {
+            returned_object_type = returned_object_type->base;
+        }
+        returned_object_type = generic_selection_type(returned_object_type);
+        if (returned_object_type &&
+            (returned_object_type->kind == TYPE_STRUCT ||
+             returned_object_type->kind == TYPE_UNION)) {
+            receiver = call;
+            receiver_type = call->type;
+            continue;
+        }
+        if (call->type->kind != TYPE_PTR ||
+            (call->type->is_reference &&
+             (!call->type->base ||
+              call->type->base->kind != TYPE_PTR))) {
+            rcc_error(expression->loc,
+                      "operator-> must return a pointer or a class type");
+            expression->type = type_int;
+            return false;
+        }
+        rewritten = expr_member(call, expression->member_name,
+                                expression->loc);
+        rewritten->kind = EXPR_PTR_MEMBER;
+        *expression = *rewritten;
+        return true;
     }
-    aggregate = generic_selection_type(aggregate);
-    if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
-                       aggregate->kind != TYPE_UNION)) return false;
-    method = sema_find_function_method(aggregate, "operator->");
-    if (!method || !method->function_decl) return false;
-    member = expr_member(expression->member_base, "operator->",
-                         expression->loc);
-    call = expr_call(member, NULL, expression->loc);
-    sema_expr(call);
-    if (!call->type || call->type->kind != TYPE_PTR) {
-        rcc_error(expression->loc,
-                  "operator-> must return a pointer in the bounded RCC++ profile");
-        expression->type = type_int;
-        return false;
-    }
-    rewritten = expr_member(call, expression->member_name, expression->loc);
-    rewritten->kind = EXPR_PTR_MEMBER;
-    *expression = *rewritten;
-    return true;
+    rcc_error(expression->loc,
+              "operator-> chain exceeds 64 class-returning calls");
+    expression->type = type_int;
+    return false;
 }
 
 static bool sema_rewrite_cxx_call_operator(Expr* expression,
@@ -14443,6 +14481,11 @@ static Type* sema_expr(Expr* expr) {
             expr->call_func->kind == EXPR_PTR_MEMBER) {
             object_type = sema_expr(expr->call_func->member_base);
             if (expr->call_func->kind == EXPR_PTR_MEMBER) {
+                if (sema_rewrite_cxx_arrow_operator(
+                        expr->call_func, object_type)) {
+                    object_type = sema_expr(
+                        expr->call_func->member_base);
+                }
                 object_type = get_pointer_base(object_type);
             }
         } else if (expr->call_func->kind == EXPR_IDENT) {
