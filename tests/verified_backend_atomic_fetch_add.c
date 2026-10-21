@@ -1,3 +1,53 @@
+#ifndef __RCC__
+static unsigned int oracle_atomic_fetch_min_unsigned(
+    volatile unsigned int* object, unsigned int operand, int order) {
+    unsigned int expected = __atomic_load_n(object, __ATOMIC_RELAXED);
+    for (;;) {
+        unsigned int desired = expected < operand ? expected : operand;
+        if (__atomic_compare_exchange_n(object, &expected, desired, 0,
+                                        order, __ATOMIC_RELAXED)) {
+            return expected;
+        }
+    }
+}
+
+static unsigned int oracle_atomic_fetch_max_unsigned(
+    volatile unsigned int* object, unsigned int operand, int order) {
+    unsigned int expected = __atomic_load_n(object, __ATOMIC_RELAXED);
+    for (;;) {
+        unsigned int desired = expected > operand ? expected : operand;
+        if (__atomic_compare_exchange_n(object, &expected, desired, 0,
+                                        order, __ATOMIC_RELAXED)) {
+            return expected;
+        }
+    }
+}
+
+static int oracle_atomic_fetch_min_signed(
+    volatile int* object, int operand, int order) {
+    int expected = __atomic_load_n(object, __ATOMIC_RELAXED);
+    for (;;) {
+        int desired = expected < operand ? expected : operand;
+        if (__atomic_compare_exchange_n(object, &expected, desired, 0,
+                                        order, __ATOMIC_RELAXED)) {
+            return expected;
+        }
+    }
+}
+
+static int oracle_atomic_fetch_max_signed(
+    volatile int* object, int operand, int order) {
+    int expected = __atomic_load_n(object, __ATOMIC_RELAXED);
+    for (;;) {
+        int desired = expected > operand ? expected : operand;
+        if (__atomic_compare_exchange_n(object, &expected, desired, 0,
+                                        order, __ATOMIC_RELAXED)) {
+            return expected;
+        }
+    }
+}
+#endif
+
 int main(void)
 {
     _Atomic unsigned char value8 = 250u;
@@ -23,6 +73,9 @@ int main(void)
     volatile unsigned int bitwise_value = 0xf0f0u;
     volatile unsigned char bitwise_byte = 0xf3u;
     volatile unsigned short bitwise_word = 0xf0f3u;
+    volatile unsigned int nand_value = 0xf0f0u;
+    volatile unsigned int minmax_unsigned = 15u;
+    volatile int minmax_signed = -10;
 #if defined(__x86_64__)
     _Atomic unsigned long long builtin_wide = 0x10000000aULL;
     _Atomic unsigned long long exchange_wide = 0x123456789abcdef0ULL;
@@ -70,6 +123,12 @@ int main(void)
     unsigned int bitwise_xor_fetch;
     unsigned char bitwise_byte_old;
     unsigned short bitwise_word_old;
+    unsigned int nand_fetch_old;
+    unsigned int nand_fetch_new;
+    unsigned int min_unsigned_old;
+    unsigned int max_unsigned_old;
+    int max_signed_old;
+    int min_signed_old;
     void *pointer_fetch_old;
     void *pointer_add_new;
     void *pointer_sub_old;
@@ -218,6 +277,39 @@ int main(void)
         &bitwise_byte, 0xffu, __ATOMIC_SEQ_CST);
     bitwise_word_old = __atomic_fetch_and(
         &bitwise_word, 0x0ff0u, __ATOMIC_SEQ_CST);
+    nand_fetch_old = __atomic_fetch_nand(
+        &nand_value, 0x0ff0u,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    nand_fetch_new = __atomic_nand_fetch(
+        &nand_value, 0x0f00u,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+#if defined(__RCC__)
+    min_unsigned_old = __atomic_fetch_min(
+        &minmax_unsigned, 7u,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    max_unsigned_old = __atomic_fetch_max(
+        &minmax_unsigned, 20u,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    max_signed_old = __atomic_fetch_max(
+        &minmax_signed, 5,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    min_signed_old = __atomic_fetch_min(
+        &minmax_signed, -20,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+#else
+    min_unsigned_old = oracle_atomic_fetch_min_unsigned(
+        &minmax_unsigned, 7u,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    max_unsigned_old = oracle_atomic_fetch_max_unsigned(
+        &minmax_unsigned, 20u,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    max_signed_old = oracle_atomic_fetch_max_signed(
+        &minmax_signed, 5,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    min_signed_old = oracle_atomic_fetch_min_signed(
+        &minmax_signed, -20,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+#endif
 #if defined(__x86_64__)
     bitwise_wide_old = __atomic_fetch_xor(
         &bitwise_wide, 0x0f0f0f0f0f0f0f0fULL, __ATOMIC_SEQ_CST);
@@ -273,7 +365,12 @@ int main(void)
         bitwise_or_fetch == 0x010eu && bitwise_xor_fetch == 0xfef1u &&
         bitwise_value == 0xfef1u && bitwise_byte_old == 0xf3u &&
         bitwise_byte == 0x0cu && bitwise_word_old == 0xf0f3u &&
-        bitwise_word == 0x00f0u && bitwise_order_evaluations == 6u &&
+        bitwise_word == 0x00f0u && nand_fetch_old == 0xf0f0u &&
+        nand_fetch_new == 0xfffff0ffu && nand_value == 0xfffff0ffu &&
+        min_unsigned_old == 15u && max_unsigned_old == 7u &&
+        minmax_unsigned == 20u && max_signed_old == -10 &&
+        min_signed_old == 5 && minmax_signed == -20 &&
+        bitwise_order_evaluations == 12u &&
 #if defined(__x86_64__)
         bitwise_wide_old == 0xf0f0f0f0f0f0f0f0ULL &&
         bitwise_wide == 0xffffffffffffffffULL &&

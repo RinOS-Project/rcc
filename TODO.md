@@ -7916,9 +7916,8 @@ remains a separate open item.
       targets pass at `-O0`/`-O2` with zero verified-backend fallback; AMD64
       objects execute and agree with the GCC C17 oracle. Atomic builtin,
       language, and IR/MIR/x86 encoding suites pass.
-- [ ] Atomic NAND/min/max/uinc/udec RMW builtins, generic/aggregate builtin
-      forms, floating/aggregate atomics, and general C++ atomic operations
-      remain open.
+- [ ] Atomic uinc/udec RMW builtins, generic/aggregate builtin forms,
+      floating/aggregate atomics, and general C++ atomic operations remain open.
 
 ## RCC continuation (2026-10-21, typed-SSA atomic test-and-set/clear)
 
@@ -7943,4 +7942,18 @@ remains a separate open item.
       zero fallback at `-O0`/`-O2` for i686/AMD64, AMD64 execution, and the GCC
       C17 oracle; existing `test-ir` verifies the x86 XCHG encoding.
 - [ ] Other atomic integer RMW operators, generic/aggregate builtin forms,
+      floating/aggregate atomics, and general C++ atomic operations remain open.
+
+## RCC continuation (2026-10-21, typed-SSA NAND/min/max atomic RMW)
+
+- [x] Lower `__atomic_fetch_nand`, `__atomic_nand_fetch`,
+      `__atomic_fetch_min`, and `__atomic_fetch_max` with typed-SSA
+      compare-exchange retry loops. NAND is width-masked; min/max comparisons
+      follow the signedness of the atomic object. Runtime order expressions are
+      evaluated once and the locked operation is sequentially consistent.
+- [x] `test-verified-atomic-fetch-add` covers fetch/new NAND results and
+      signed/unsigned min/max state and prior values. Both targets pass at
+      `-O0`/`-O2` with zero verified-backend fallback; AMD64 objects execute
+      and agree with a GCC C17 oracle.
+- [ ] Atomic uinc/udec RMW builtins, generic/aggregate builtin forms,
       floating/aggregate atomics, and general C++ atomic operations remain open.

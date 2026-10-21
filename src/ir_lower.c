@@ -9704,15 +9704,19 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
     RccIrLowerValue result;
     RccIrValue phi_operands[2];
     RccIrBlockId phi_targets[2];
-    RccIrValue binary_operands[2];
+    RccIrValue binary_operands[3];
     RccIrValue compare_exchange_operands[3];
     RccIrValue compare_operands[2];
     RccIrInstruction* initial_load;
     RccIrInstruction* current_phi;
     RccIrInstruction* binary;
+    RccIrInstruction* value_compare;
     RccIrInstruction* compare_exchange;
     RccIrInstruction* compare;
     bool return_new;
+    bool nand_operation = false;
+    bool minmax_operation = false;
+    bool minimum = false;
 
     if (!object_argument || !operand_argument || !order_argument ||
         order_argument->next || !object_argument->expr ||
@@ -9742,13 +9746,23 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
     } else if (strcmp(name, "__atomic_fetch_xor") == 0 ||
                strcmp(name, "__atomic_xor_fetch") == 0) {
         opcode = RCC_IR_XOR;
+    } else if (strcmp(name, "__atomic_fetch_nand") == 0 ||
+               strcmp(name, "__atomic_nand_fetch") == 0) {
+        opcode = RCC_IR_AND;
+        nand_operation = true;
+    } else if (strcmp(name, "__atomic_fetch_min") == 0 ||
+               strcmp(name, "__atomic_fetch_max") == 0) {
+        opcode = RCC_IR_SELECT;
+        minmax_operation = true;
+        minimum = strcmp(name, "__atomic_fetch_min") == 0;
     } else {
         context->unsupported = true;
         return lower_invalid_value();
     }
     return_new = strcmp(name, "__atomic_and_fetch") == 0 ||
         strcmp(name, "__atomic_or_fetch") == 0 ||
-        strcmp(name, "__atomic_xor_fetch") == 0;
+        strcmp(name, "__atomic_xor_fetch") == 0 ||
+        strcmp(name, "__atomic_nand_fetch") == 0;
 
     /* Evaluate every builtin argument before the first object access.  The
      * CAS retry loop is sequentially consistent, stronger than every valid
@@ -9792,8 +9806,44 @@ static RccIrLowerValue lower_atomic_fetch_bitwise_call(
     if (!current_phi) return lower_invalid_value();
     binary_operands[0] = current_phi->result;
     binary_operands[1] = operand.value;
-    binary = lower_append(
-        context, opcode, atomic_type, binary_operands, 2u, NULL, 0u);
+    if (minmax_operation) {
+        RccIrIntPredicate predicate;
+        compare_operands[0] = current_phi->result;
+        compare_operands[1] = operand.value;
+        value_compare = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            compare_operands, 2u, NULL, 0u);
+        if (!value_compare) return lower_invalid_value();
+        if (minimum) {
+            predicate = object_type->is_unsigned
+                ? RCC_IR_ICMP_ULT : RCC_IR_ICMP_SLT;
+        } else {
+            predicate = object_type->is_unsigned
+                ? RCC_IR_ICMP_UGT : RCC_IR_ICMP_SGT;
+        }
+        rcc_ir_set_predicate(value_compare, predicate);
+        binary_operands[0] = value_compare->result;
+        binary_operands[1] = current_phi->result;
+        binary_operands[2] = operand.value;
+        binary = lower_append(
+            context, RCC_IR_SELECT, atomic_type,
+            binary_operands, 3u, NULL, 0u);
+    } else {
+        binary = lower_append(
+            context, opcode, atomic_type, binary_operands, 2u, NULL, 0u);
+        if (binary && nand_operation) {
+            uint64_t all_ones = UINT64_MAX >>
+                (64u - atomic_type.bit_width);
+            RccIrLowerValue mask = lower_integer_constant(
+                context, atomic_type, true, all_ones);
+            if (!mask.valid) return lower_invalid_value();
+            binary_operands[0] = binary->result;
+            binary_operands[1] = mask.value;
+            binary = lower_append(
+                context, RCC_IR_XOR, atomic_type,
+                binary_operands, 2u, NULL, 0u);
+        }
+    }
     if (!binary) return lower_invalid_value();
     compare_exchange_operands[0] = address.value;
     compare_exchange_operands[1] = current_phi->result;
@@ -10340,11 +10390,19 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
          strcmp(expression->call_func->ident_name,
                 "__atomic_fetch_xor") == 0 ||
          strcmp(expression->call_func->ident_name,
+                "__atomic_fetch_nand") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_fetch_min") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_fetch_max") == 0 ||
+         strcmp(expression->call_func->ident_name,
                 "__atomic_and_fetch") == 0 ||
          strcmp(expression->call_func->ident_name,
                 "__atomic_or_fetch") == 0 ||
          strcmp(expression->call_func->ident_name,
-                "__atomic_xor_fetch") == 0)) {
+                "__atomic_xor_fetch") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_nand_fetch") == 0)) {
         return lower_atomic_fetch_bitwise_call(
             context, expression, expression->call_func->ident_name);
     }
