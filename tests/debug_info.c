@@ -98,6 +98,7 @@ int debug_inline_nonconstant_integer_entry(int value)
     int added_value;
     int multiplied_value;
     int divided_value;
+    int remainder_value;
     int negated_value;
     int bitnot_value;
     int bitand_value;
@@ -115,6 +116,8 @@ int debug_inline_nonconstant_integer_entry(int value)
         debug_inline_nonconstant_integer_source * 3);
     divided_value = debug_nonconstant_integer_divide_parameter_inline(
         debug_inline_nonconstant_integer_source / 3);
+    remainder_value = debug_nonconstant_integer_remainder_parameter_inline(
+        debug_inline_nonconstant_integer_source % 5);
     negated_value = debug_nonconstant_integer_negate_parameter_inline(
         -debug_inline_nonconstant_integer_source);
     bitnot_value = debug_nonconstant_integer_bitnot_parameter_inline(
@@ -132,7 +135,8 @@ int debug_inline_nonconstant_integer_entry(int value)
     rshift_value += (int)
         debug_nonconstant_unsigned_integer_rshift_parameter_inline(
             debug_inline_nonconstant_unsigned_integer_source >> 1u);
-    return added_value + multiplied_value + divided_value + negated_value +
+    return added_value + multiplied_value + divided_value + remainder_value +
+        negated_value +
         bitnot_value +
         bitand_value +
         bitor_value + bitxor_value + lshift_value + rshift_value +

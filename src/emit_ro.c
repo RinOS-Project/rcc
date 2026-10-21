@@ -5082,6 +5082,45 @@ static bool debug_build_inline_integer_value_expression(
         return true;
     }
 
+    /* DW_OP_mod's signed remainder rule is not sufficiently portable. Build
+       C's truncation-toward-zero remainder as lhs - (lhs / rhs) * rhs. */
+    if (expression->kind == EXPR_MOD && expression->binary_lhs &&
+        expression->binary_rhs &&
+        debug_inline_integer_expression_type(expression->type) &&
+        !(expression->type->is_unsigned ||
+          expression->type->kind == TYPE_BOOL) &&
+        debug_inline_integer_expression_type(expression->binary_lhs->type) &&
+        debug_inline_integer_expression_type(expression->binary_rhs->type) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_lhs->type, expression->type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_rhs->type, expression->type, 0u) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->binary_lhs, output, capacity,
+            output_size, depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            output, capacity, output_size, 0x12u) && /* DW_OP_dup */
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->binary_rhs, output, capacity,
+            output_size, depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            output, capacity, output_size, 0x1bu) && /* DW_OP_div */
+        debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->binary_rhs, output, capacity,
+            output_size, depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            output, capacity, output_size, 0x1eu) && /* DW_OP_mul */
+        debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture) &&
+        debug_inline_integer_expression_append_byte(
+            output, capacity, output_size, 0x1cu) && /* DW_OP_minus */
+        debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture)) {
+        return true;
+    }
+
     if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
          expression->kind == EXPR_MUL || expression->kind == EXPR_DIV ||
          expression->kind == EXPR_BITAND ||
@@ -5137,6 +5176,7 @@ static bool debug_inline_parameter_integer_expression(
          argument->expr->kind != EXPR_SUB &&
          argument->expr->kind != EXPR_MUL &&
          argument->expr->kind != EXPR_DIV &&
+         argument->expr->kind != EXPR_MOD &&
          argument->expr->kind != EXPR_BITAND &&
          argument->expr->kind != EXPR_BITOR &&
          argument->expr->kind != EXPR_BITXOR &&

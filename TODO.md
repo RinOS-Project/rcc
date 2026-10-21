@@ -2259,15 +2259,18 @@
         storage is a defined static object or an addressable frame slot and
         whose callee body is a bounded side-effect-free return/if-else tree.
   - [x] Preserve runtime signed/unsigned integer arguments formed by bounded
-        unary `-`/`~` and binary `+`, `-`, `*`, signed `/`, `&`, `|`, `^`,
-        `<<`, and `>>` expression trees over same-typed constants and addressable
-        frame locals.
+        unary `-`/`~` and binary `+`, `-`, `*`, signed `/` and `%`, `&`, `|`,
+        `^`, `<<`, and `>>` expression trees over same-typed constants and
+        addressable frame locals.
         Emit a target-width-correct DWARF expression that loads and normalizes
         signed or unsigned locals, selects arithmetic/logical right shift by the
-        result type, width-normalizes each operation, and leaves the value on
-        the DWARF stack. Decode each parameter location and cross-check its
-        source frame slot and exact `DW_OP_div`/`DW_OP_neg`/`DW_OP_not` opcodes
-        for legacy and verified i686/AMD64 `-g -O1` objects in `test-debug-info`.
+        result type, width-normalizes each operation, synthesizes signed
+        remainder as `a - (a / b) * b` without relying on ambiguous `DW_OP_mod`
+        semantics, and leaves the value on the DWARF stack. Decode each
+        parameter location and cross-check its source frame slot and exact
+        `DW_OP_div`/`DW_OP_neg`/`DW_OP_not` opcodes plus the full remainder
+        expression for legacy and verified i686/AMD64 `-g -O1` objects in
+        `test-debug-info`.
         Remaining work includes arbitrary nonconstant argument expressions,
         unsigned division and remainder expressions, mutable parameters,
         optimized-away/register-only sources, nested lexical locals, tracking

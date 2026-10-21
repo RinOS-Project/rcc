@@ -8156,6 +8156,7 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0x20u ||
             expected_operation == 0x1au || expected_operation == 0x21u ||
             expected_operation == 0x27u || expected_operation == 0x1bu ||
+            expected_operation == 0x1du ||
             expected_operation == 0x24u ||
             expected_operation == 0x25u || expected_operation == 0x26u));
     info = objfile_get_section(object, ".debug_info");
@@ -8213,28 +8214,55 @@ static void verify_inline_integer_expression_parameter(
     verify_inline_integer_expression_normalization(
         info->data, expression_end, &expression_offset, architecture,
         is_unsigned);
-    if (expected_operation != 0x1fu && expected_operation != 0x20u) {
-        if (is_unsigned) {
-            assert(expression_offset < expression_end &&
-                   info->data[expression_offset++] == 0x10u &&
-                   read_uleb(info->data, expression_end,
-                             &expression_offset) ==
-                       (uint64_t)expected_constant);
-        } else {
+    /* 0x1d is a test-case marker: signed % is verified as a full synthesized
+       expression, never as the DW_OP_mod opcode itself. */
+    if (expected_operation == 0x1du) {
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x12u);
+        for (size_t term = 0u; term < 2u; ++term) {
             assert(expression_offset < expression_end &&
                    info->data[expression_offset++] == 0x11u &&
                    read_sleb(info->data, expression_end,
                              &expression_offset) == expected_constant);
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &expression_offset, architecture,
+                false);
+            assert(expression_offset < expression_end &&
+                   info->data[expression_offset++] ==
+                       (term == 0u ? 0x1bu : 0x1eu));
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &expression_offset, architecture,
+                false);
         }
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x1cu);
+        verify_inline_integer_expression_normalization(
+            info->data, expression_end, &expression_offset, architecture,
+            false);
+    } else {
+        if (expected_operation != 0x1fu && expected_operation != 0x20u) {
+            if (is_unsigned) {
+                assert(expression_offset < expression_end &&
+                       info->data[expression_offset++] == 0x10u &&
+                       read_uleb(info->data, expression_end,
+                                 &expression_offset) ==
+                           (uint64_t)expected_constant);
+            } else {
+                assert(expression_offset < expression_end &&
+                       info->data[expression_offset++] == 0x11u &&
+                       read_sleb(info->data, expression_end,
+                                 &expression_offset) == expected_constant);
+            }
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &expression_offset, architecture,
+                is_unsigned);
+        }
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == expected_operation);
         verify_inline_integer_expression_normalization(
             info->data, expression_end, &expression_offset, architecture,
             is_unsigned);
     }
-    assert(expression_offset < expression_end &&
-           info->data[expression_offset++] == expected_operation);
-    verify_inline_integer_expression_normalization(
-        info->data, expression_end, &expression_offset, architecture,
-        is_unsigned);
     assert(expression_offset + 1u == expression_end &&
            info->data[expression_offset] == 0x9fu);
     assert(find_variable_location(
@@ -8264,6 +8292,8 @@ static void verify_inline_integer_expression_cases(
          "debug_inline_nonconstant_integer_source", false, 0x1eu, 3},
         {"debug_nonconstant_integer_divide_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 0x1bu, 3},
+        {"debug_nonconstant_integer_remainder_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x1du, 5},
         {"debug_nonconstant_integer_negate_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 0x1fu, 0},
         {"debug_nonconstant_integer_bitnot_parameter_inline",

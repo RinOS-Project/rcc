@@ -28,6 +28,11 @@ inline int debug_nonconstant_integer_divide_parameter_inline(int value)
     return value;
 }
 
+inline int debug_nonconstant_integer_remainder_parameter_inline(int value)
+{
+    return value;
+}
+
 inline int debug_nonconstant_integer_negate_parameter_inline(int value)
 {
     return value;
