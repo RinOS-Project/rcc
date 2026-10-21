@@ -5490,6 +5490,136 @@ static bool debug_build_inline_integer_value_expression(
     return false;
 }
 
+static bool debug_inline_integer_expression_append_frame_u32(
+    uint8_t* expression, size_t capacity, size_t* size,
+    int architecture, int64_t frame_offset) {
+    uint8_t address_expression[32];
+    if (!expression || !size || *size > capacity) {
+        return false;
+    }
+    size_t address_expression_size = debug_build_expr_breg(
+        address_expression, architecture, frame_offset, 0u, false);
+    if (address_expression_size == 0u ||
+        address_expression_size > capacity - *size) {
+        return false;
+    }
+    memcpy(expression + *size, address_expression, address_expression_size);
+    *size += address_expression_size;
+    return debug_inline_integer_expression_append_byte(
+               expression, capacity, size, 0x94u) && /* DW_OP_deref_size */
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 4u);
+}
+
+static bool debug_inline_parameter_i686_unsigned_u64_add_expression(
+    const Module* mod, const Type* parameter_type,
+    const Expr* source_expression, uint8_t* expression, size_t capacity,
+    size_t* expression_size) {
+    const Expr* source_expression_value;
+    const Expr* constant_expression;
+    const Decl* source;
+    int64_t frame_offset;
+    uint64_t constant;
+    uint32_t low_constant;
+    uint32_t high_constant;
+    size_t size = 0u;
+    const uint64_t sign_bit = UINT64_C(0x80000000);
+    if (!mod || !parameter_type || !source_expression || !expression ||
+        !expression_size || source_expression->kind != EXPR_ADD ||
+        !parameter_type->is_unsigned || parameter_type->size != 8u ||
+        !source_expression->binary_lhs || !source_expression->binary_rhs) {
+        return false;
+    }
+    if (source_expression->binary_lhs->kind == EXPR_IDENT &&
+        source_expression->binary_lhs->ident_decl) {
+        source_expression_value = source_expression->binary_lhs;
+        constant_expression = source_expression->binary_rhs;
+    } else if (source_expression->binary_rhs->kind == EXPR_IDENT &&
+               source_expression->binary_rhs->ident_decl) {
+        source_expression_value = source_expression->binary_rhs;
+        constant_expression = source_expression->binary_lhs;
+    } else {
+        return false;
+    }
+    source = source_expression_value->ident_decl;
+    if (!source || (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+        source->var_is_global || source->var_is_static_local ||
+        source->var_is_thread_local || source->var_is_vla || !source->type ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source->type, parameter_type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source_expression_value->type, parameter_type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            constant_expression->type, parameter_type, 0u) ||
+        !debug_inline_integer_literal_bits(constant_expression, &constant, 0u) ||
+        !debug_inline_parameter_frame_offset(mod, source, &frame_offset) ||
+        frame_offset > INT64_MAX - 4) {
+        return false;
+    }
+    low_constant = (uint32_t)constant;
+    high_constant = (uint32_t)(constant >> 32u);
+
+    /* First piece: (source.low + constant.low) modulo 2^32. */
+    if (!debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, frame_offset) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, low_constant) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x22u) || /* DW_OP_plus */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x9fu) || /* DW_OP_stack_value */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 4u)) {
+        return false;
+    }
+
+    /* Second piece: source.high + constant.high + carry. Compare the wrapped
+       low sum with the original low word after flipping the sign bit, so the
+       generic signed DW_OP_lt implements an exact unsigned comparison. */
+    if (!debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, frame_offset + 4) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, high_constant) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x22u) || /* high base */
+        !debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, frame_offset) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, low_constant) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x22u) || /* wrapped low sum */
+        !debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, frame_offset) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, sign_bit) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x27u) || /* xor sign bit */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x16u) || /* swap */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, sign_bit) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x27u) || /* xor sign bit */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x16u) || /* swap */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x2du) || /* DW_OP_lt */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x22u) || /* add carry */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x9fu) || /* DW_OP_stack_value */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 4u)) {
+        return false;
+    }
+    *expression_size = size;
+    return true;
+}
+
 static bool debug_inline_parameter_integer_expression(
     const Module* mod, int architecture, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
@@ -5539,7 +5669,7 @@ static bool debug_inline_parameter_integer_expression(
        instead of loading it into that narrower stack entry. The callee body
        is read-only (checked above), so the caller's stable frame slot is the
        exact parameter value for this inline instance. */
-    if (architecture != ARCH_X64 && parameter_type->is_unsigned &&
+    if (architecture == ARCH_X86 && parameter_type->is_unsigned &&
         (unsigned int)parameter_type->size > 4u &&
         source_expression->kind == EXPR_IDENT &&
         source_expression->ident_decl) {
@@ -5558,6 +5688,16 @@ static bool debug_inline_parameter_integer_expression(
         *expression_size = debug_build_expr_breg(
             expression, architecture, frame_offset, 0u, false);
         return *expression_size != 0u;
+    }
+
+    if (architecture != ARCH_X64 && parameter_type->is_unsigned &&
+        (unsigned int)parameter_type->size == 8u &&
+        source_expression->kind == EXPR_ADD &&
+        debug_inline_parameter_i686_unsigned_u64_add_expression(
+            mod, parameter_type, source_expression, expression,
+            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
+            expression_size)) {
+        return true;
     }
 
     if (!debug_build_inline_integer_value_expression(

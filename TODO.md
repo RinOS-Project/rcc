@@ -8361,3 +8361,15 @@ remains a separate open item.
       casts, dynamic pointer arithmetic beyond the separately covered bounded
       forms, mutable parameter tracking, and optimized register/piece locations
       remain open.
+
+## RCC continuation (2026-10-21, i686 unsigned 64-bit inline addition DWARF)
+
+- [x] Describe an inline `unsigned long long` argument formed from a stable
+      frame-backed `unsigned long long` plus a same-typed integer constant on
+      i686. Emit the result as exact low/high four-byte `DW_OP_piece` values,
+      including unsigned carry into the high word. The verifier checks the
+      frame slots and opcode stream, and exercises wrap/carry boundary values.
+      Native-Windows `test-debug-info-inline-expression` and full
+      `test-debug-info` pass.
+- [ ] General i686 unsigned 64-bit arithmetic, nonconstant operands, and other
+      optimized multi-piece locations remain open.

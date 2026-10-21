@@ -128,6 +128,7 @@ int debug_inline_nonconstant_integer_entry(int value)
     unsigned long long unsigned_long_long_high_divided_value;
     unsigned long long unsigned_long_long_high_remainder_value;
     unsigned long long unsigned_long_long_identity_value;
+    unsigned long long unsigned_long_long_added_value;
     debug_inline_nonconstant_integer_escape =
         &debug_inline_nonconstant_integer_source;
     debug_inline_nonconstant_unsigned_integer_escape =
@@ -194,6 +195,10 @@ int debug_inline_nonconstant_integer_entry(int value)
     unsigned_long_long_identity_value =
         debug_nonconstant_unsigned_long_long_identity_inline(
             debug_inline_nonconstant_unsigned_long_long_source);
+    unsigned_long_long_added_value =
+        debug_nonconstant_unsigned_long_long_add_inline(
+            debug_inline_nonconstant_unsigned_long_long_source +
+                0x100000005ull);
     return added_value + multiplied_value + divided_value + remainder_value +
         negated_value +
         bitnot_value +
@@ -207,6 +212,7 @@ int debug_inline_nonconstant_integer_entry(int value)
         (int)unsigned_long_long_high_divided_value +
         (int)unsigned_long_long_high_remainder_value +
         (int)unsigned_long_long_identity_value +
+        (int)unsigned_long_long_added_value +
         debug_nonconstant_integer_subtract_parameter_inline(
             debug_inline_nonconstant_integer_source - 3);
 }
