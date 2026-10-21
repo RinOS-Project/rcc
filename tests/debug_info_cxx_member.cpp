@@ -254,6 +254,32 @@ int debug_inline_automatic_pointer_index_entry(int* seed, int index_seed) {
     return result;
 }
 
+int debug_inline_automatic_pointer_divided_index_entry(
+    int* seed, int index_seed) {
+    int* debug_inline_automatic_pointer_divided_source = seed;
+    int debug_inline_automatic_divided_index = index_seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_divided_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_divided_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_divided_source +
+        (debug_inline_automatic_divided_index / 2));
+}
+
+int debug_inline_automatic_pointer_negative_divisor_index_entry(
+    int* seed, int index_seed) {
+    int* debug_inline_automatic_pointer_negative_divisor_source = seed;
+    int debug_inline_automatic_negative_divisor_index = index_seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_negative_divisor_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_negative_divisor_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_negative_divisor_source +
+        (debug_inline_automatic_negative_divisor_index / -2));
+}
+
 int debug_inline_automatic_pointer_index_sub_entry(
     int* seed, unsigned int index_seed) {
     int* debug_inline_automatic_pointer_index_sub_source = seed;

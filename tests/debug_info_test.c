@@ -3534,7 +3534,8 @@ static void verify_inline_parameter_frame_pointer_indices(
     uint16_t architecture, const char* pointer_name,
     const VerifyInlinePointerIndexTerm* index_terms, size_t index_count,
     int64_t address_addend, bool dereference_source,
-    const uint8_t* cast_steps, size_t cast_step_count) {
+    const uint8_t* cast_steps, size_t cast_step_count,
+    int64_t signed_divisor) {
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint64_t concrete_parameter;
     uint64_t expression_offset;
@@ -3725,6 +3726,15 @@ static void verify_inline_parameter_frame_pointer_indices(
                 assert(expression_offset < expression_end &&
                        info->data[expression_offset++] == 0x1au);
             }
+        }
+        if (index == 0u && signed_divisor != 0) {
+            assert(!term->is_unsigned && term->group_count == 0u &&
+                   expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x11u &&
+                   read_sleb(info->data, expression_end,
+                             &expression_offset) == signed_divisor &&
+                   expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x1bu);
         }
         if ((term->is_unsigned && term->constant_value > 1) ||
             (!term->is_unsigned &&
@@ -5504,7 +5514,8 @@ static void verify_cxx_inline_automatic_pointer_indices_impl(
     const char* pointer_name,
     const VerifyInlinePointerIndexTerm* index_terms, size_t index_count,
     int64_t address_addend, bool dereference_source,
-    const uint8_t* cast_steps, size_t cast_step_count)
+    const uint8_t* cast_steps, size_t cast_step_count,
+    int64_t signed_divisor)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
@@ -5562,7 +5573,7 @@ static void verify_cxx_inline_automatic_pointer_indices_impl(
     verify_inline_parameter_frame_pointer_indices(
         info, strings, locations, call_die, architecture,
         pointer_name, index_terms, index_count, address_addend,
-        dereference_source, cast_steps, cast_step_count);
+        dereference_source, cast_steps, cast_step_count, signed_divisor);
     objfile_free(object);
 }
 
@@ -5574,7 +5585,19 @@ static void verify_cxx_inline_automatic_pointer_indices(
 {
     verify_cxx_inline_automatic_pointer_indices_impl(
         path, architecture, entry_name, pointer_name, index_terms,
-        index_count, address_addend, dereference_source, NULL, 0u);
+        index_count, address_addend, dereference_source, NULL, 0u, 0);
+}
+
+static void verify_cxx_inline_automatic_pointer_divided_index(
+    const char* path, uint16_t architecture, const char* entry_name,
+    const char* pointer_name, const char* index_name,
+    int64_t signed_divisor) {
+    const VerifyInlinePointerIndexTerm term = {
+        index_name, 4u, false, 4u, false, 0u, 0u, false, 0u
+    };
+    verify_cxx_inline_automatic_pointer_indices_impl(
+        path, architecture, entry_name, pointer_name, &term, 1u,
+        0, true, NULL, 0u, signed_divisor);
 }
 
 static void verify_cxx_inline_automatic_pointer_index(
@@ -8742,6 +8765,46 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_index_source",
         "debug_inline_automatic_index_source", 0, true, 4u, false, 4u,
         false);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_divided_index_entry",
+        "debug_inline_automatic_pointer_divided_source",
+        "debug_inline_automatic_divided_index", 2);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_divided_index_entry",
+        "debug_inline_automatic_pointer_divided_source",
+        "debug_inline_automatic_divided_index", 2);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_divided_index_entry",
+        "debug_inline_automatic_pointer_divided_source",
+        "debug_inline_automatic_divided_index", 2);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_divided_index_entry",
+        "debug_inline_automatic_pointer_divided_source",
+        "debug_inline_automatic_divided_index", 2);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_negative_divisor_index_entry",
+        "debug_inline_automatic_pointer_negative_divisor_source",
+        "debug_inline_automatic_negative_divisor_index", -2);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_negative_divisor_index_entry",
+        "debug_inline_automatic_pointer_negative_divisor_source",
+        "debug_inline_automatic_negative_divisor_index", -2);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_negative_divisor_index_entry",
+        "debug_inline_automatic_pointer_negative_divisor_source",
+        "debug_inline_automatic_negative_divisor_index", -2);
+    verify_cxx_inline_automatic_pointer_divided_index(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_negative_divisor_index_entry",
+        "debug_inline_automatic_pointer_negative_divisor_source",
+        "debug_inline_automatic_negative_divisor_index", -2);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_signed_to_unsigned_index_entry",
@@ -8925,7 +8988,7 @@ int main(int argc, char** argv)
         multiple_mask_x64_index, 1u, 0, true,
         multiple_mask_x64_steps,
         sizeof(multiple_mask_x64_steps) /
-            sizeof(multiple_mask_x64_steps[0]));
+            sizeof(multiple_mask_x64_steps[0]), 0);
     verify_cxx_inline_automatic_pointer_indices_impl(
         argv[43], ARCH_X64,
         "debug_inline_automatic_pointer_multiple_mask_index_entry",
@@ -8933,7 +8996,7 @@ int main(int argc, char** argv)
         multiple_mask_x64_index, 1u, 0, true,
         multiple_mask_x64_steps,
         sizeof(multiple_mask_x64_steps) /
-            sizeof(multiple_mask_x64_steps[0]));
+            sizeof(multiple_mask_x64_steps[0]), 0);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_unsigned_narrow_signed_index_entry",

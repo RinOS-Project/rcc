@@ -5218,6 +5218,7 @@ typedef struct DebugInlineDynamicPointerIndexTerm {
     uint64_t constant_value;
     uint64_t index_multiplier;
     int64_t signed_index_multiplier;
+    int64_t signed_index_divisor;
 } DebugInlineDynamicPointerIndexTerm;
 
 enum { DEBUG_INLINE_INTEGER_INDEX_CAST_LIMIT = 16 };
@@ -5601,6 +5602,142 @@ static bool debug_inline_signed_index_multiplier(
     return true;
 }
 
+static bool debug_inline_signed_index_divisor(
+    const Expr* expression, uint8_t value_size,
+    const Expr** indexed_expression, uint8_t* division_size,
+    int64_t* divisor) {
+    const Expr* division = expression;
+    const Type* expression_type;
+    const Type* division_type;
+    const Type* lhs_type;
+    const Type* rhs_type;
+    int64_t constant_divisor;
+    bool negate_quotient = false;
+    if (indexed_expression) *indexed_expression = NULL;
+    if (!expression || !expression->type || value_size == 0u ||
+        value_size > 8u || !indexed_expression || !division_size ||
+        !divisor) {
+        return false;
+    }
+    expression_type = expression->type;
+    if (!debug_inline_integer_constant_type(expression_type) ||
+        expression_type->size != value_size || expression_type->is_unsigned ||
+        expression_type->is_volatile || expression_type->is_reference ||
+        expression_type->is_atomic) {
+        return false;
+    }
+    while (division->kind == EXPR_CAST && division->cast_expr) {
+        const Type* cast_source_type = division->cast_expr->type;
+        const Type* cast_target_type = division->type;
+        if (!cast_source_type || !cast_target_type ||
+            !debug_inline_integer_constant_type(cast_source_type) ||
+            !debug_inline_integer_constant_type(cast_target_type) ||
+            cast_source_type->is_unsigned || cast_target_type->is_unsigned ||
+            cast_source_type->is_volatile || cast_target_type->is_volatile ||
+            cast_source_type->is_reference || cast_target_type->is_reference ||
+            cast_source_type->is_atomic || cast_target_type->is_atomic ||
+            cast_target_type->size < cast_source_type->size ||
+            cast_target_type->size > (int)value_size) {
+            return false;
+        }
+        division = division->cast_expr;
+    }
+    if (division->kind == EXPR_NEG && division->unary_operand) {
+        negate_quotient = true;
+        division = division->unary_operand;
+    }
+    division_type = division->type;
+    if (division->kind == EXPR_RSHIFT && division->binary_lhs &&
+        division->binary_rhs) {
+        const Expr* adjusted = division->binary_lhs;
+        const Expr* bias;
+        const Expr* sign_mask;
+        const Expr* value_source;
+        const Expr* sign_source;
+        int64_t shift_count;
+        int64_t sign_shift;
+        int64_t mask_value;
+        int width;
+        uint64_t magnitude;
+        if (!division_type ||
+            !debug_inline_integer_constant_type(division_type) ||
+            division_type->is_unsigned || division_type->is_volatile ||
+            division_type->is_reference || division_type->is_atomic ||
+            division_type->size <= 0 || division_type->size > (int)value_size ||
+            !debug_inline_integer_constant_value(
+                division->binary_rhs, &shift_count, 0u) ||
+            shift_count <= 0 || shift_count >= 63 ||
+            adjusted->kind != EXPR_ADD || !adjusted->binary_lhs ||
+            !adjusted->binary_rhs) {
+            return false;
+        }
+        bias = adjusted->binary_rhs;
+        if (bias->kind != EXPR_BITAND || !bias->binary_lhs ||
+            !bias->binary_rhs ||
+            !debug_inline_integer_constant_value(
+                bias->binary_rhs, &mask_value, 0u)) {
+            return false;
+        }
+        sign_mask = bias->binary_lhs;
+        if (sign_mask->kind != EXPR_RSHIFT || !sign_mask->binary_lhs ||
+            !sign_mask->binary_rhs ||
+            !debug_inline_integer_constant_value(
+                sign_mask->binary_rhs, &sign_shift, 0u)) {
+            return false;
+        }
+        value_source = adjusted->binary_lhs;
+        sign_source = sign_mask->binary_lhs;
+        width = division_type->size * 8;
+        if (value_source->kind != EXPR_IDENT ||
+            sign_source->kind != EXPR_IDENT ||
+            !value_source->ident_decl ||
+            value_source->ident_decl != sign_source->ident_decl ||
+            value_source->type != division_type ||
+            sign_source->type != division_type || sign_shift != width - 1 ||
+            mask_value != (int64_t)((UINT64_C(1) << shift_count) - 1u)) {
+            return false;
+        }
+        magnitude = UINT64_C(1) << (unsigned int)shift_count;
+        if (magnitude > (uint64_t)INT64_MAX) return false;
+        *indexed_expression = value_source;
+        *division_size = (uint8_t)division_type->size;
+        *divisor = (int64_t)magnitude;
+        if (negate_quotient) *divisor = -*divisor;
+        return true;
+    }
+    if (division->kind != EXPR_DIV || !division->binary_lhs ||
+        !division->binary_rhs) return false;
+    lhs_type = division->binary_lhs->type;
+    rhs_type = division->binary_rhs->type;
+    if (!division_type ||
+        !debug_inline_integer_constant_type(division_type) ||
+        division_type->is_unsigned || division_type->is_volatile ||
+        division_type->is_reference || division_type->is_atomic ||
+        division_type->size <= 0 || division_type->size > (int)value_size ||
+        !lhs_type || !rhs_type ||
+        !debug_inline_integer_constant_type(lhs_type) ||
+        !debug_inline_integer_constant_type(rhs_type) ||
+        lhs_type->size != division_type->size ||
+        rhs_type->size != division_type->size ||
+        lhs_type->is_unsigned || rhs_type->is_unsigned ||
+        lhs_type->is_volatile || rhs_type->is_volatile ||
+        lhs_type->is_reference || rhs_type->is_reference ||
+        lhs_type->is_atomic || rhs_type->is_atomic ||
+        !debug_inline_integer_constant_value(
+            division->binary_rhs, &constant_divisor, 0u) ||
+        constant_divisor == 0) {
+        return false;
+    }
+    if (negate_quotient) {
+        if (constant_divisor == INT64_MIN) return false;
+        constant_divisor = -constant_divisor;
+    }
+    *indexed_expression = division->binary_lhs;
+    *division_size = (uint8_t)division_type->size;
+    *divisor = constant_divisor;
+    return true;
+}
+
 static bool debug_inline_collect_unsigned_computed_index_terms(
     const Module* mod, const Expr* expression, int polarity,
     uint8_t value_size, uint64_t multiplier, int element_size,
@@ -5658,6 +5795,7 @@ static bool debug_inline_collect_unsigned_computed_index_terms(
             }
             term->index_multiplier = 1u;
             term->signed_index_multiplier = 1;
+            term->signed_index_divisor = 0;
             ++*term_count;
             return true;
         }
@@ -5705,6 +5843,7 @@ static bool debug_inline_collect_unsigned_computed_index_terms(
     term->constant_value = 0u;
     term->index_multiplier = multiplier;
     term->signed_index_multiplier = 1;
+    term->signed_index_divisor = 0;
     ++*term_count;
     return true;
 }
@@ -5780,6 +5919,7 @@ static bool debug_inline_append_dynamic_integer_index(
             term->constant_value = 0u;
             term->index_multiplier = 1u;
             term->signed_index_multiplier = 1;
+            term->signed_index_divisor = 0;
             ++dynamic_index->term_count;
             dynamic_index->is_dynamic = true;
             return true;
@@ -5811,6 +5951,7 @@ static bool debug_inline_append_dynamic_integer_index(
                 term->constant_value = 0u;
                 term->index_multiplier = 1u;
                 term->signed_index_multiplier = 1;
+                term->signed_index_divisor = 0;
                 ++dynamic_index->term_count;
                 dynamic_index->is_dynamic = true;
                 return true;
@@ -5822,20 +5963,28 @@ static bool debug_inline_append_dynamic_integer_index(
         uint8_t unsigned_conversion_width = 0u;
         uint64_t multiplier = 1u;
         int64_t signed_multiplier = 1;
+        int64_t signed_divisor = 0;
+        uint8_t signed_division_size = 0u;
+        bool has_constant_divisor = !expression_type->is_unsigned &&
+            debug_inline_signed_index_divisor(
+                expression, (uint8_t)expression_type->size,
+                &indexed_expression, &signed_division_size,
+                &signed_divisor);
         bool has_constant_multiplier = expression_type->is_unsigned
             ? debug_inline_unsigned_index_multiplier(
                   expression, (uint8_t)expression_type->size,
                   &indexed_expression, &multiplier)
-            : debug_inline_signed_index_multiplier(
+            : !has_constant_divisor && debug_inline_signed_index_multiplier(
                   expression, (uint8_t)expression_type->size,
                   &indexed_expression, &signed_multiplier);
-        if (has_constant_multiplier &&
+        if ((has_constant_multiplier || has_constant_divisor) &&
             debug_inline_frame_integer_index_source(
                 indexed_expression, &declaration, &value_type,
                 address_size, &unsigned_conversion_width) &&
             unsigned_conversion_width == 0u &&
             value_type->is_unsigned == expression_type->is_unsigned &&
-            value_type->size == expression_type->size) {
+            value_type->size == (has_constant_divisor
+                ? signed_division_size : expression_type->size)) {
             DebugInlineDynamicPointerIndexTerm* term;
             DebugInlineDynamicPointerIndexGroup* group = NULL;
             if (dynamic_index->term_count >=
@@ -5859,8 +6008,11 @@ static bool debug_inline_append_dynamic_integer_index(
             term->subtract = false;
             term->is_constant = false;
             term->constant_value = 0u;
-            term->index_multiplier = multiplier;
-            term->signed_index_multiplier = signed_multiplier;
+            term->index_multiplier = has_constant_divisor ? 1u : multiplier;
+            term->signed_index_multiplier = has_constant_divisor
+                ? 1 : signed_multiplier;
+            term->signed_index_divisor = has_constant_divisor
+                ? signed_divisor : 0;
             if (value_type->is_unsigned &&
                 value_type->size < (int)address_size) {
                 group = &dynamic_index->groups[dynamic_index->group_count++];
@@ -5917,6 +6069,7 @@ static bool debug_inline_append_dynamic_integer_index(
             term->constant_value = constant_bits;
             term->index_multiplier = 1u;
             term->signed_index_multiplier = 1;
+            term->signed_index_divisor = 0;
             group = &dynamic_index->groups[dynamic_index->group_count++];
             group->first_term = dynamic_index->term_count;
             group->term_count = 1u;
@@ -6076,6 +6229,7 @@ static bool debug_inline_dynamic_array_element_address(
     dynamic_index->terms[0].constant_value = 0u;
     dynamic_index->terms[0].index_multiplier = 1u;
     dynamic_index->terms[0].signed_index_multiplier = 1;
+    dynamic_index->terms[0].signed_index_divisor = 0;
     dynamic_index->term_count = 1u;
     dynamic_index->is_dynamic = true;
     *address_addend = base_addend;
@@ -6518,6 +6672,12 @@ static size_t debug_build_inline_pointer_value_expression(
                     INLINE_EXPR_APPEND_ULEB(mask);
                     INLINE_EXPR_APPEND_BYTE(0x1au); /* DW_OP_and */
                 }
+            }
+            if (term->signed_index_divisor != 0) {
+                if (term->is_unsigned) goto expression_too_large;
+                INLINE_EXPR_APPEND_BYTE(0x11u); /* DW_OP_consts */
+                INLINE_EXPR_APPEND_SLEB(term->signed_index_divisor);
+                INLINE_EXPR_APPEND_BYTE(0x1bu); /* DW_OP_div */
             }
             if (term->is_unsigned && term->index_multiplier != 1u) {
                 INLINE_EXPR_APPEND_BYTE(0x10u); /* DW_OP_constu */
