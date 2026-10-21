@@ -4979,6 +4979,297 @@ static bool debug_inline_integer_division_uses_signed_stack_safely(
     return !type->is_unsigned || (unsigned int)type->size < address_size;
 }
 
+static bool debug_inline_integer_division_uses_full_width_unsigned(
+    const Type* type, int architecture) {
+    unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
+    return type && type->is_unsigned &&
+        (unsigned int)type->size == address_size &&
+        (address_size == 4u || address_size == 8u);
+}
+
+static bool debug_inline_integer_expression_append_constu(
+    uint8_t* expression, size_t capacity, size_t* size, uint64_t value) {
+    return debug_inline_integer_expression_append_byte(
+               expression, capacity, size, 0x10u) &&
+        debug_expression_uleb(expression, capacity, size, value);
+}
+
+static bool debug_inline_integer_expression_append_pick(
+    uint8_t* expression, size_t capacity, size_t* size, uint8_t index) {
+    return debug_inline_integer_expression_append_byte(
+               expression, capacity, size, 0x15u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, index);
+}
+
+static bool debug_inline_integer_expression_append_branch(
+    uint8_t* expression, size_t capacity, size_t* size, uint8_t opcode,
+    size_t* operand_offset) {
+    if (!expression || !size || !operand_offset || *size > capacity ||
+        capacity - *size < 3u ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, opcode)) {
+        return false;
+    }
+    *operand_offset = *size;
+    expression[(*size)++] = 0u;
+    expression[(*size)++] = 0u;
+    return true;
+}
+
+static bool debug_inline_integer_expression_patch_branch(
+    uint8_t* expression, size_t size, size_t operand_offset,
+    size_t target_offset) {
+    int64_t displacement;
+    uint16_t encoded_displacement;
+    if (!expression || operand_offset > size || size - operand_offset < 2u ||
+        target_offset > (size_t)INT64_MAX ||
+        operand_offset + 2u > (size_t)INT64_MAX) {
+        return false;
+    }
+    displacement = (int64_t)target_offset -
+        (int64_t)(operand_offset + 2u);
+    if (displacement < INT16_MIN || displacement > INT16_MAX) return false;
+    encoded_displacement = (uint16_t)(int16_t)displacement;
+    expression[operand_offset] = (uint8_t)encoded_displacement;
+    expression[operand_offset + 1u] =
+        (uint8_t)(encoded_displacement >> 8u);
+    return true;
+}
+
+static bool debug_inline_integer_expression_clean_to_top(
+    uint8_t* expression, size_t capacity, size_t* size,
+    size_t stack_depth) {
+    size_t entries_to_remove;
+    if (!expression || !size || stack_depth == 0u) return false;
+    entries_to_remove = stack_depth - 1u;
+    while (entries_to_remove >= 2u) {
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x17u) || /* DW_OP_rot */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x13u) || /* DW_OP_drop */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x13u)) {
+            return false;
+        }
+        entries_to_remove -= 2u;
+    }
+    if (entries_to_remove != 0u) {
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x16u) || /* DW_OP_swap */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x13u)) { /* DW_OP_drop */
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool debug_inline_integer_expression_append_unsigned_ge(
+    uint8_t* expression, size_t capacity, size_t* size,
+    uint64_t sign_bit) {
+    /* Preserve the two operands and append (lhs >= rhs) using a signed
+       generic comparison after flipping each operand's sign bit. */
+    return debug_inline_integer_expression_append_pick(
+               expression, capacity, size, 1u) && /* lhs */
+        debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 1u) && /* rhs */
+        debug_inline_integer_expression_append_constu(
+            expression, capacity, size, sign_bit) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x27u) && /* DW_OP_xor */
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x16u) && /* DW_OP_swap */
+        debug_inline_integer_expression_append_constu(
+            expression, capacity, size, sign_bit) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x27u) && /* DW_OP_xor */
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x16u) && /* DW_OP_swap */
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x2au); /* DW_OP_ge */
+}
+
+static bool debug_inline_integer_expression_append_full_width_unsigned_division(
+    uint8_t* expression, size_t capacity, size_t* size,
+    int architecture, bool remainder) {
+    unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
+    unsigned int address_bits = address_size * 8u;
+    uint64_t sign_bit = UINT64_C(1) << (address_bits - 1u);
+    size_t high_branch_operand;
+    size_t low_path_end_operand;
+    size_t high_path_offset;
+    size_t expression_end;
+    if (!expression || !size || address_size > 8u ||
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 0u) || /* divisor */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, address_bits - 1u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x25u) || /* DW_OP_shr */
+        !debug_inline_integer_expression_append_branch(
+            expression, capacity, size, 0x28u, &high_branch_operand)) {
+        return false;
+    }
+
+    /* Low-divisor path. Halving the dividend makes the signed DW_OP_div
+       safe; the final quotient bit is recovered from the remainder. */
+    if (!debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 1u) || /* dividend */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 1u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x25u) || /* DW_OP_shr */
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 1u) || /* divisor */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1bu) || /* DW_OP_div */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x12u) || /* DW_OP_dup */
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 2u) || /* divisor */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1eu) || /* DW_OP_mul */
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 3u) || /* dividend */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 1u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x25u) || /* DW_OP_shr */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x16u) || /* DW_OP_swap */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1cu)) { /* DW_OP_minus */
+        return false;
+    }
+    /* Stack: dividend, divisor, q0, r0. Append input parity and
+       ceil((divisor - parity) / 2), then compare the signed-safe values. */
+    if (!debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 3u) || /* dividend */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 1u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1au) || /* DW_OP_and */
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 3u) || /* divisor */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 1u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x25u) || /* DW_OP_shr */
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 4u) || /* divisor */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 1u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1au) || /* DW_OP_and */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 1u) ||
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 3u) || /* parity */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1cu) || /* 1 - parity */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1au) || /* DW_OP_and */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x22u) || /* DW_OP_plus */
+        !debug_inline_integer_expression_append_pick(
+            expression, capacity, size, 2u) || /* r0 */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x16u) || /* DW_OP_swap */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x2au)) { /* DW_OP_ge */
+        return false;
+    }
+
+    if (!remainder) {
+        /* q = 2*q0 + carry. */
+        if (!debug_inline_integer_expression_append_pick(
+                expression, capacity, size, 3u) || /* q0 */
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, size, 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x24u) || /* DW_OP_shl */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, size, 1u) || /* carry */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x22u) || /* DW_OP_plus */
+            !debug_inline_integer_expression_clean_to_top(
+                expression, capacity, size, 7u)) {
+            return false;
+        }
+    } else {
+        /* r = (2*r0 + parity) - carry*divisor modulo the address width. */
+        if (!debug_inline_integer_expression_append_pick(
+                expression, capacity, size, 2u) || /* r0 */
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, size, 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x24u) || /* DW_OP_shl */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, size, 2u) || /* parity */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x22u) || /* DW_OP_plus */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, size, 1u) || /* carry */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, size, 6u) || /* divisor */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x1eu) || /* DW_OP_mul */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, size, 1u) || /* raw remainder */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x16u) || /* DW_OP_swap */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x1cu) || /* raw - correction */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x16u) || /* DW_OP_swap */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x13u) || /* DW_OP_drop */
+            !debug_inline_integer_expression_clean_to_top(
+                expression, capacity, size, 7u)) {
+            return false;
+        }
+    }
+    if (!debug_inline_integer_expression_append_branch(
+            expression, capacity, size, 0x2fu, &low_path_end_operand)) {
+        return false;
+    }
+    high_path_offset = *size;
+    if (!debug_inline_integer_expression_patch_branch(
+            expression, *size, high_branch_operand, high_path_offset) ||
+        !debug_inline_integer_expression_append_unsigned_ge(
+            expression, capacity, size, sign_bit)) {
+        return false;
+    }
+    if (remainder) {
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x12u) || /* DW_OP_dup */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, size, 2u) || /* divisor */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x1eu) || /* carry*divisor */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x16u) || /* DW_OP_swap */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x13u) || /* DW_OP_drop */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, size, 2u) || /* dividend */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x16u) || /* DW_OP_swap */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x1cu)) { /* dividend - product */
+            return false;
+        }
+    }
+    if (!debug_inline_integer_expression_clean_to_top(
+            expression, capacity, size, 3u)) {
+        return false;
+    }
+    expression_end = *size;
+    return debug_inline_integer_expression_patch_branch(
+        expression, expression_end, low_path_end_operand, expression_end);
+}
+
 static bool debug_inline_integer_literal_bits(
     const Expr* expression, uint64_t* bits, unsigned int depth) {
     if (!expression || !bits || depth >= 32u) return false;
@@ -5091,6 +5382,30 @@ static bool debug_build_inline_integer_value_expression(
         debug_inline_integer_expression_append_byte(
             output, capacity, output_size,
             expression->kind == EXPR_NEG ? 0x1fu : 0x20u) &&
+        debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture)) {
+        return true;
+    }
+
+    if ((expression->kind == EXPR_DIV || expression->kind == EXPR_MOD) &&
+        expression->binary_lhs && expression->binary_rhs &&
+        debug_inline_integer_division_uses_full_width_unsigned(
+            expression->type, architecture) &&
+        debug_inline_integer_expression_type(expression->binary_lhs->type) &&
+        debug_inline_integer_expression_type(expression->binary_rhs->type) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_lhs->type, expression->type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_rhs->type, expression->type, 0u) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->binary_lhs, output, capacity,
+            output_size, depth + 1u) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->binary_rhs, output, capacity,
+            output_size, depth + 1u) &&
+        debug_inline_integer_expression_append_full_width_unsigned_division(
+            output, capacity, output_size, architecture,
+            expression->kind == EXPR_MOD) &&
         debug_inline_integer_expression_normalize(
             output, capacity, output_size, expression->type, architecture)) {
         return true;

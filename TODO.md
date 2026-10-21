@@ -2278,9 +2278,18 @@
         and verified `-g -O1` objects, including the 32-bit normalization,
         exact `DW_OP_div`/synthesized remainder operations, and source frame
         slot. Keep full-width unsigned operands out of signed `DW_OP_div`.
-  - [ ] Full-width unsigned division and remainder (including i686 address-
-        width operands and AMD64 64-bit operands), arbitrary nonconstant
-        argument expressions, mutable parameters,
+  - [x] Lower full-width unsigned `/` and `%` when the operand width equals
+        the target address width (i686 `unsigned int`, AMD64
+        `unsigned long long`) without passing full-range values to signed
+        `DW_OP_div`. For low divisors, halve the dividend before signed
+        division and reconstruct quotient/remainder; for high divisors,
+        compare unsigned values by flipping the sign bit and use the resulting
+        zero-or-one quotient. Evaluate the emitted DWARF expressions at
+        32/64-bit boundaries with low and runtime high divisors in legacy and
+        verified `-g -O1` objects through `test-debug-info-inline-expression`.
+  - [ ] Unsigned operands wider than the target address width (notably
+        i686 `unsigned long long`), arbitrary nonconstant argument expressions,
+        mutable parameters,
         optimized-away/register-only sources, nested lexical locals, tracking
         optimized variables across register and piece locations, declaration
         lifetimes across every optimized CFG edge, and CFI/unwind coverage for

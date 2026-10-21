@@ -52,6 +52,9 @@ int** debug_inline_escaped_pointer;
 int* debug_inline_escaped_object_address;
 int* debug_inline_nonconstant_integer_escape;
 unsigned int* debug_inline_nonconstant_unsigned_integer_escape;
+unsigned int* debug_inline_nonconstant_unsigned_high_divisor_escape;
+unsigned long long* debug_inline_nonconstant_unsigned_long_long_escape;
+unsigned long long* debug_inline_nonconstant_unsigned_long_long_high_divisor_escape;
 
 static void debug_inline_object_address_sink(int* value)
 {
@@ -95,6 +98,16 @@ int debug_inline_nonconstant_integer_entry(int value)
     int debug_inline_nonconstant_integer_source = value;
     unsigned int debug_inline_nonconstant_unsigned_integer_source =
         (unsigned int)value;
+    unsigned int debug_inline_nonconstant_unsigned_high_divisor_source =
+        (debug_inline_nonconstant_unsigned_integer_source >> 2u) |
+        0x80000000u;
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_source =
+            (unsigned long long)(unsigned int)value;
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_high_divisor_source =
+            (debug_inline_nonconstant_unsigned_long_long_source >> 2u) |
+                0x8000000000000000ull;
     int added_value;
     int multiplied_value;
     int divided_value;
@@ -108,10 +121,22 @@ int debug_inline_nonconstant_integer_entry(int value)
     int rshift_value;
     unsigned int unsigned_divided_value;
     unsigned int unsigned_remainder_value;
+    unsigned int unsigned_high_divided_value;
+    unsigned int unsigned_high_remainder_value;
+    unsigned long long unsigned_long_long_divided_value;
+    unsigned long long unsigned_long_long_remainder_value;
+    unsigned long long unsigned_long_long_high_divided_value;
+    unsigned long long unsigned_long_long_high_remainder_value;
     debug_inline_nonconstant_integer_escape =
         &debug_inline_nonconstant_integer_source;
     debug_inline_nonconstant_unsigned_integer_escape =
         &debug_inline_nonconstant_unsigned_integer_source;
+    debug_inline_nonconstant_unsigned_high_divisor_escape =
+        &debug_inline_nonconstant_unsigned_high_divisor_source;
+    debug_inline_nonconstant_unsigned_long_long_escape =
+        &debug_inline_nonconstant_unsigned_long_long_source;
+    debug_inline_nonconstant_unsigned_long_long_high_divisor_escape =
+        &debug_inline_nonconstant_unsigned_long_long_high_divisor_source;
     added_value = debug_nonconstant_integer_parameter_inline(
         debug_inline_nonconstant_integer_source + 5);
     multiplied_value = debug_nonconstant_integer_multiply_parameter_inline(
@@ -143,12 +168,40 @@ int debug_inline_nonconstant_integer_entry(int value)
     unsigned_remainder_value =
         debug_nonconstant_unsigned_integer_remainder_parameter_inline(
             debug_inline_nonconstant_unsigned_integer_source % 5u);
+    unsigned_high_divided_value =
+        debug_nonconstant_unsigned_integer_high_divide_inline(
+            debug_inline_nonconstant_unsigned_integer_source /
+                debug_inline_nonconstant_unsigned_high_divisor_source);
+    unsigned_high_remainder_value =
+        debug_nonconstant_unsigned_integer_high_remainder_inline(
+            debug_inline_nonconstant_unsigned_integer_source %
+                debug_inline_nonconstant_unsigned_high_divisor_source);
+    unsigned_long_long_divided_value =
+        debug_nonconstant_unsigned_long_long_divide_inline(
+            debug_inline_nonconstant_unsigned_long_long_source / 3ull);
+    unsigned_long_long_remainder_value =
+        debug_nonconstant_unsigned_long_long_remainder_inline(
+            debug_inline_nonconstant_unsigned_long_long_source % 5ull);
+    unsigned_long_long_high_divided_value =
+        debug_nonconstant_unsigned_long_long_high_divide_inline(
+            debug_inline_nonconstant_unsigned_long_long_source /
+                debug_inline_nonconstant_unsigned_long_long_high_divisor_source);
+    unsigned_long_long_high_remainder_value =
+        debug_nonconstant_unsigned_long_long_high_remainder_inline(
+            debug_inline_nonconstant_unsigned_long_long_source %
+                debug_inline_nonconstant_unsigned_long_long_high_divisor_source);
     return added_value + multiplied_value + divided_value + remainder_value +
         negated_value +
         bitnot_value +
         bitand_value +
         bitor_value + bitxor_value + lshift_value + rshift_value +
         (int)unsigned_divided_value + (int)unsigned_remainder_value +
+        (int)unsigned_high_divided_value +
+        (int)unsigned_high_remainder_value +
+        (int)unsigned_long_long_divided_value +
+        (int)unsigned_long_long_remainder_value +
+        (int)unsigned_long_long_high_divided_value +
+        (int)unsigned_long_long_high_remainder_value +
         debug_nonconstant_integer_subtract_parameter_inline(
             debug_inline_nonconstant_integer_source - 3);
 }

@@ -86,6 +86,42 @@ inline unsigned int debug_nonconstant_unsigned_integer_remainder_parameter_inlin
     return value;
 }
 
+inline unsigned int debug_nonconstant_unsigned_integer_high_divide_inline(
+    unsigned int value)
+{
+    return value;
+}
+
+inline unsigned int debug_nonconstant_unsigned_integer_high_remainder_inline(
+    unsigned int value)
+{
+    return value;
+}
+
+inline unsigned long long debug_nonconstant_unsigned_long_long_divide_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
+inline unsigned long long debug_nonconstant_unsigned_long_long_remainder_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
+inline unsigned long long debug_nonconstant_unsigned_long_long_high_divide_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
+inline unsigned long long debug_nonconstant_unsigned_long_long_high_remainder_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
 inline int debug_local_inline(int value)
 {
     const int inline_local_value = 7;
