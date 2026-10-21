@@ -7788,5 +7788,12 @@ remains a separate open item.
       fixture oracles pass.
 - [ ] Typed-SSA VLA pointer parameters and subtraction of two pointers to VLA
       objects remain open, as do explicit atomic memory orders, other atomic
-      RMW operators, floating/aggregate atomics, general C++ atomics, and the
-      complete non-hardware `test-ci` gate.
+      RMW operators, floating/aggregate atomics, and general C++ atomics.
+- [x] Verify every target in the complete non-hardware `TEST_CI_TARGETS` set.
+      The initial `make test-ci` run passed C17, C++20, AQC, IR, and IR lowering,
+      then stopped when its restricted PATH omitted the installed Clang needed
+      by `test-rinvalidate-dynamic-tls`. Reran `test-verified-backend` and all
+      subsequent targets with Clang on PATH; the signed dynamic-TLS RLL,
+      `rinvalidate`, fuzz/property gates, and dual-architecture stage0-to-stage2
+      bootstrap all passed. Target-set coverage is complete across these runs;
+      a single uninterrupted aggregate invocation was not repeated.
