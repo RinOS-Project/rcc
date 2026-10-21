@@ -478,9 +478,16 @@
         外し、i686/AMD64の`-O0`/`-O2`で25関数・fallback 0、object実行とlegacy AMD64
         executionを`test-verified-cxx-reference-local`で検証。
         `test-verified-cxx-throwing-temporary`も成功。
-  - [ ] より一般的なconstructor bodyのnested/fallthrough switch、potentially-throwing base
-        constructor、virtual base construction、nontrivial/deleted target copy constructor、call引数以外の
-        full-expression cleanupと未検証の例外経路が残る。標準conversion subsequenceと
+  - [x] verified SSAで唯一のdirect non-virtual baseがpotentially-throwing constructorを持つ
+        bounded caseをlowerする。derived bodyは空、subobject fieldはscalar、base call引数と
+        後続scalar member initializerはnon-throwingと証明できる場合だけ受理し、base throw時に
+        未完成のderived subobject cleanupを誤登録しない。実throw/catchと成功値をx64で実行し、
+        i686/AMD64の`-O0`/`-O2`で41関数・fallback 0を確認。`test-verified-cxx-throwing-temporary`
+        に統合し、legacy x64 executionでもthrow propagationを検証。
+  - [ ] 複数base間で先行subobjectの破棄を要するpotentially-throwing base constructor、
+        constructor bodyのnested/fallthrough switch、virtual base construction、nontrivial/deleted
+        target copy constructor、call引数以外のfull-expression cleanupと未検証の例外経路が残る。
+        標準conversion subsequenceと
         pointer-to-memberを含む全rank/partial orderingも未完了
   - [x] Namespace extension compatibility: verify reopened named and
         translation-unit anonymous namespaces, lookup through the transitive

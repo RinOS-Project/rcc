@@ -24,6 +24,8 @@ extern int verified_cxx_throwing_initializer_cleanup(int should_throw)
     RINOS_TEST_ABI;
 extern int verified_cxx_throwing_constructor_reference_cleanup(
     int should_throw) RINOS_TEST_ABI;
+extern int verified_cxx_single_throwing_base_constructor(int should_throw)
+    RINOS_TEST_ABI;
 extern int rcc_test_main(void) RINOS_TEST_ABI;
 
 int main(void) {
@@ -147,6 +149,20 @@ int main(void) {
                 "implicitly completed constructor temporary returned %d, expected 2231\n",
                 result);
         return 15;
+    }
+    result = verified_cxx_single_throwing_base_constructor(1);
+    if (result != 61) {
+        fprintf(stderr,
+                "throwing single-base constructor returned %d, expected 61\n",
+                result);
+        return 16;
+    }
+    result = verified_cxx_single_throwing_base_constructor(0);
+    if (result != 87) {
+        fprintf(stderr,
+                "nonthrowing single-base construction returned %d, expected 87\n",
+                result);
+        return 17;
     }
     return rcc_test_main();
 }

@@ -18025,7 +18025,7 @@ test-verified-volatile: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/volatile-cxx-x64.log
 	@echo "Verified backend volatile scalar access tests completed"
 
-test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
+test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
@@ -18059,10 +18059,11 @@ test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(GREP) -F -q 'Verified backend: 25 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x64-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x64-o0.log,0)
-	$(CC) $(CFLAGS) -I$(INCDIR) \
+	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-run \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
-		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
 		--cxx-reference-object-base-constructor \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x86.ro x86
@@ -18207,21 +18208,21 @@ test-verified-cxx-throwing-temporary: $(RCXX_TARGET) test-verified-cxx-reference
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log
-	$(GREP) -F -q 'Verified backend: 38 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log
+	$(GREP) -F -q 'Verified backend: 41 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log
-	$(GREP) -F -q 'Verified backend: 38 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log
+	$(GREP) -F -q 'Verified backend: 41 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log
-	$(GREP) -F -q 'Verified backend: 38 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log
+	$(GREP) -F -q 'Verified backend: 41 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log,0)
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.ro
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.ro
@@ -18230,7 +18231,7 @@ test-verified-cxx-throwing-temporary: $(RCXX_TARGET) test-verified-cxx-reference
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log
-	$(GREP) -F -q 'Verified backend: 38 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log
+	$(GREP) -F -q 'Verified backend: 41 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log,0)
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.ro
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.ro

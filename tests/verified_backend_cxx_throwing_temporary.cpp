@@ -213,6 +213,22 @@ struct VerifiedThrowingConstructorTemporary {
     ~VerifiedThrowingConstructorTemporary() noexcept {}
 };
 
+struct VerifiedPotentiallyThrowingBase {
+    int value;
+
+    explicit VerifiedPotentiallyThrowingBase(int initial) {
+        if (initial < 0) throw 61;
+        value = initial;
+    }
+};
+
+struct VerifiedSingleThrowingBaseDerived : VerifiedPotentiallyThrowingBase {
+    int tail;
+
+    explicit VerifiedSingleThrowingBaseDerived(int initial)
+        : VerifiedPotentiallyThrowingBase(initial), tail(7) {}
+};
+
 VerifiedThrowingTemporary make_verified_throwing_temporary(
     int* cleanup_order, int cleanup_id) noexcept {
     return {cleanup_order, cleanup_id, {cleanup_id + 1}};
@@ -580,6 +596,16 @@ extern "C" int verified_cxx_throwing_constructor_reference_cleanup(
         result = value;
     }
     return result * 1000 + cleanup_order;
+}
+
+extern "C" int verified_cxx_single_throwing_base_constructor(
+    int should_throw) {
+    try {
+        VerifiedSingleThrowingBaseDerived object(should_throw ? -1 : 8);
+        return object.value * 10 + object.tail;
+    } catch (int value) {
+        return value;
+    }
 }
 
 extern "C" int main() {

@@ -4714,6 +4714,7 @@ static void verify_cxx_throwing_temporary_object(
     ObjSymbol* converted_virtual_base_lifetime_symbol;
     ObjSymbol* throwing_initializer_symbol;
     ObjSymbol* throwing_constructor_symbol;
+    ObjSymbol* throwing_base_constructor_symbol;
     ObjSymbol* temporary_cleanup_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
@@ -4735,6 +4736,8 @@ static void verify_cxx_throwing_temporary_object(
         object, "verified_cxx_throwing_initializer_cleanup");
     throwing_constructor_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_constructor_reference_cleanup");
+    throwing_base_constructor_symbol = objfile_find_symbol(
+        object, "verified_cxx_single_throwing_base_constructor");
     temporary_cleanup_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_temporary_cleanup");
     assert(text != NULL && direct_throw_symbol != NULL &&
@@ -4764,6 +4767,9 @@ static void verify_cxx_throwing_temporary_object(
            throwing_constructor_symbol != NULL &&
            throwing_constructor_symbol->binding == BIND_CODE &&
            throwing_constructor_symbol->section == 0 &&
+           throwing_base_constructor_symbol != NULL &&
+           throwing_base_constructor_symbol->binding == BIND_CODE &&
+           throwing_base_constructor_symbol->section == 0 &&
            temporary_cleanup_symbol != NULL &&
            temporary_cleanup_symbol->binding == BIND_CODE &&
            temporary_cleanup_symbol->section == 0);
@@ -4897,6 +4903,10 @@ static void verify_cxx_throwing_temporary_object(
         }
         assert(result == 2231);
         assert(constructor_argument(3) == 2231);
+        address = symbol_address(memory, throwing_base_constructor_symbol);
+        memcpy(&integer_argument, &address, sizeof(integer_argument));
+        assert(integer_argument(1) == 61);
+        assert(integer_argument(0) == 87);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

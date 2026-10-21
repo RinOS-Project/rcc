@@ -17413,9 +17413,7 @@ static bool lower_cxx_constructor_body_is_empty(const Decl* declaration) {
 /* A potentially-throwing exception specification does not itself add a
  * throwing operation. When a constructor has an empty body, no field
  * initializers, and only scalar data members, the validated base/member
- * initializers below are the complete operation set. Base constructor calls
- * are independently required to be noexcept, so this shape needs no partial
- * construction cleanup edge. */
+ * initializers below are the complete operation set. */
 static bool lower_cxx_empty_body_constructor_with_bases_supported(
     const CxxClass* cls, const Decl* declaration) {
     if (!cls || !declaration || declaration->func_is_noexcept) return true;
@@ -17528,13 +17526,23 @@ static bool lower_cxx_initialize_constructor_members(
             const Decl* base_declaration =
                 base_initializer->constructor->method
                     ? base_initializer->constructor->method->decl : NULL;
+            /* A throwing call is safe here only when it is the sole direct
+             * base. It runs before scalar member stores, and the surrounding
+             * support checks reject any later throwing initializer/body, so
+             * a failed base call leaves no completed derived subobject. */
+            bool single_throwing_base = base_declaration &&
+                !base_declaration->func_is_noexcept &&
+                !declaration->func_is_noexcept && cls->base_count == 1 &&
+                base_index == 0;
             memset(&base_expression, 0, sizeof(base_expression));
             base_expression.kind = EXPR_COMPOUND;
             base_expression.type = base->type;
             base_expression.compound_constructor =
                 base_initializer->constructor;
             base_expression.compound_init = base_initializer->arguments;
-            if (!base_declaration || !base_declaration->func_is_noexcept ||
+            if (!base_declaration ||
+                (!base_declaration->func_is_noexcept &&
+                 !single_throwing_base) ||
                 !lower_noexcept_expression_list(
                     base_initializer->arguments) ||
                 !lower_cleanup_constructor_call_supported(&base_expression)) {
