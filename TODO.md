@@ -8038,3 +8038,24 @@ remains a separate open item.
       32-bit `float` on both targets / 64-bit `double` on AMD64. Standard
       `stdatomic.h` floating typedef/API coverage, aggregate and wider floating
       objects, and general C++ atomic conformance remain open.
+
+## RCC continuation (2026-10-21, C++ integer `std::atomic` API)
+
+- [x] Add the compiler's `<atomic>` header with `std::memory_order` and a
+      scalar-integer `std::atomic<T>` surface for initialization, load/store,
+      conversion, assignment, exchange, weak/strong compare-exchange,
+      fetch-add/sub/and/or/xor, and increment/decrement/compound arithmetic.
+      Operations delegate to the compiler's checked atomic builtins and use
+      their established x86 sequentially-consistent implementations.
+- [x] Extend the C++ atomic fixture with default/value initialization,
+      lock-free query, 32-bit and 64-bit integer operations, explicit/default
+      order overloads, successful and failed compare-exchange, and old/new
+      results. `test-atomic-builtins` compiles i686/AMD64 C++20 objects at
+      `-O0`/`-O2` and executes both AMD64 objects; all existing C atomic
+      execution and invalid order/pointer diagnostics pass.
+- [x] Make `test-atomic-builtins` an explicit C++20 regression prerequisite
+      and include it in both C17 and C++ regression aggregates.
+- [ ] Full `<atomic>` conformance remains open: pointer `difference_type`
+      arithmetic, floating specializations and floating fetch operations,
+      `atomic_flag`, type constraints/traits and volatile overloads, complete
+      constructor/API overload sets, and C++20 wait/notify operations.

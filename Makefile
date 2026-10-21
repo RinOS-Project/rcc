@@ -574,6 +574,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-compiler-builtins \
+	test-atomic-builtins \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
 	test-preprocessor-has-include \
@@ -14465,7 +14466,7 @@ test-preprocessor-va-opt: $(RCC_TARGET)
 		-o $(TEST_OUT)/preprocessor-va-opt-x64.ro tests/preprocessor_va_opt.c
 	@echo "C++20 __VA_OPT__ replacement-list tests completed"
 
-test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
+test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x86)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x64)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
@@ -14482,8 +14483,12 @@ test-atomic-builtins: $(RCC_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-cxx-x64)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/atomic-cxx-x86/atomic.ro tests/atomic_lock_free.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -c \
+		-o $(TEST_OUT)/atomic-cxx-x86/atomic-o2.ro tests/atomic_lock_free.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/atomic-cxx-x64/atomic.ro tests/atomic_lock_free.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -c \
+		-o $(TEST_OUT)/atomic-cxx-x64/atomic-o2.ro tests/atomic_lock_free.cpp
 
 ifeq ($(OS),Windows_NT)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
@@ -14491,7 +14496,9 @@ ifeq ($(OS),Windows_NT)
 		tests/atomic_builtin_run_test.c src/emit_ro.c src/utils.c -pthread
 	$(TEST_OUT)/atomic-builtin-run-test \
 		$(TEST_OUT)/atomic-x86/atomic.ro \
-		$(TEST_OUT)/atomic-x64/atomic.ro
+		$(TEST_OUT)/atomic-x64/atomic.ro \
+		$(TEST_OUT)/atomic-cxx-x64/atomic.ro \
+		$(TEST_OUT)/atomic-cxx-x64/atomic-o2.ro
 
 else
 	$(CC) $(CFLAGS) -I$(INCDIR) \
@@ -14502,10 +14509,14 @@ else
 		tests/atomic_builtin_run_test.c src/emit_ro.c src/utils.c -pthread
 	$(TEST_OUT)/atomic-builtin-run-test-x86 \
 		$(TEST_OUT)/atomic-x86/atomic.ro \
-		$(TEST_OUT)/atomic-x64/atomic.ro
+		$(TEST_OUT)/atomic-x64/atomic.ro \
+		$(TEST_OUT)/atomic-cxx-x86/atomic.ro \
+		$(TEST_OUT)/atomic-cxx-x86/atomic-o2.ro
 	$(TEST_OUT)/atomic-builtin-run-test \
 		$(TEST_OUT)/atomic-x86/atomic.ro \
-		$(TEST_OUT)/atomic-x64/atomic.ro
+		$(TEST_OUT)/atomic-x64/atomic.ro \
+		$(TEST_OUT)/atomic-cxx-x64/atomic.ro \
+		$(TEST_OUT)/atomic-cxx-x64/atomic-o2.ro
 endif
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/invalid.ro \

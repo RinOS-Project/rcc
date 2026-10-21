@@ -161,6 +161,7 @@ typedef int64_t (RCC_SYSV_ABI *atomic_i64_order_fn)(volatile int64_t*, int64_t,
                                                      int);
 typedef uint64_t (RCC_SYSV_ABI *atomic_u64_order_fn)(volatile uint64_t*,
                                                       uint64_t, int);
+typedef unsigned (RCC_SYSV_ABI *cpp_standard_atomic_fn)(void);
 #if defined(__i386__)
 typedef long (RCC_SYSV_ABI *atomic_long_binary_fn)(volatile long*, long);
 #endif
@@ -262,6 +263,35 @@ static void* atomic_minmax_worker(void* argument) {
         void* load_address = (mapping) + load_symbol->value;                  \
         memcpy(&(target), &load_address, sizeof(target));                     \
     } while (0)
+
+static void verify_cpp_standard_atomic(ObjectFile* object) {
+    ObjSection* code;
+    long page_size;
+    size_t mapping_size;
+    uint8_t* mapping;
+    cpp_standard_atomic_fn operations;
+    assert(object != NULL);
+#if defined(__x86_64__)
+    assert(object->arch == ARCH_X64);
+#else
+    assert(object->arch == ARCH_X86);
+#endif
+    code = objfile_get_section(object, ".text");
+    assert(code != NULL && code->size > 0u && code->relocs == NULL);
+    page_size = sysconf(_SC_PAGESIZE);
+    assert(page_size > 0);
+    mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
+                    (size_t)page_size) * (size_t)page_size;
+    mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(mapping != MAP_FAILED);
+    memcpy(mapping, code->data, (size_t)code->size);
+    assert(mprotect(mapping, mapping_size, PROT_READ | PROT_EXEC) == 0);
+    LOAD_FUNCTION(operations, object, mapping,
+                  "cpp_standard_atomic_operations");
+    assert(operations() == 12u);
+    assert(munmap(mapping, mapping_size) == 0);
+}
 #endif
 
 int main(int argc, char** argv) {
@@ -271,7 +301,7 @@ int main(int argc, char** argv) {
     static const uint8_t word_xadd[] = {0x66, 0xF0, 0x0F, 0xC1};
     static const uint8_t byte_cmpxchg[] = {0xF0, 0x0F, 0xB0};
     static const uint8_t word_cmpxchg[] = {0x66, 0xF0, 0x0F, 0xB1};
-    assert(argc == 3);
+    assert(argc == 5);
     x86_object = objfile_read(argv[1]);
     assert(x86_object != NULL && x86_object->arch == ARCH_X86);
     x86_code = objfile_get_section(x86_object, ".text");
@@ -284,6 +314,14 @@ int main(int argc, char** argv) {
                           "standard_atomic_long_fetch_xor_value");
     objfile_free(x86_object);
 #if defined(__x86_64__) || defined(__i386__)
+    {
+        ObjectFile* cpp_object = objfile_read(argv[3]);
+        verify_cpp_standard_atomic(cpp_object);
+        objfile_free(cpp_object);
+        cpp_object = objfile_read(argv[4]);
+        verify_cpp_standard_atomic(cpp_object);
+        objfile_free(cpp_object);
+    }
 #if defined(__x86_64__)
     ObjectFile* object = objfile_read(argv[2]);
 #else
