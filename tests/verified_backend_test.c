@@ -40,6 +40,11 @@ extern void RINOS_ABI rin_cpp_exception_unregister_cleanup(void);
 extern void RINOS_ABI rin_cpp_exception_unwind_cleanups(void);
 extern void* RINOS_ABI rin_malloc(unsigned long size);
 extern void RINOS_ABI rin_free(void* pointer);
+extern int RINOS_ABI __cxa_guard_acquire(unsigned long long* guard);
+extern void RINOS_ABI __cxa_guard_release(unsigned long long* guard);
+extern void RINOS_ABI __cxa_guard_abort(unsigned long long* guard);
+extern int cxx_static_reference_guard_aborts;
+extern int cxx_static_reference_guard_releases;
 extern int RINOS_ABI verified_runtime_setjmp(void* buffer) __asm__("setjmp");
 extern void RINOS_ABI verified_runtime_longjmp(
     void* buffer, int value) __asm__("longjmp");
@@ -381,6 +386,8 @@ static void* verified_runtime_import_address(const char* symbol_name)
         void (RINOS_ABI *integer_argument)(int);
         int (RINOS_ABI *setjmp_function)(void*);
         void (RINOS_ABI *longjmp_function)(void*, int);
+        int (RINOS_ABI *guard_acquire)(unsigned long long*);
+        void (RINOS_ABI *guard_action)(unsigned long long*);
     } function;
     void* address = NULL;
     memset(&function, 0, sizeof(function));
@@ -439,6 +446,12 @@ static void* verified_runtime_import_address(const char* symbol_name)
         function.setjmp_function = verified_runtime_setjmp;
     } else if (strcmp(symbol_name, "longjmp") == 0) {
         function.longjmp_function = verified_runtime_longjmp;
+    } else if (strcmp(symbol_name, "__cxa_guard_acquire") == 0) {
+        function.guard_acquire = __cxa_guard_acquire;
+    } else if (strcmp(symbol_name, "__cxa_guard_release") == 0) {
+        function.guard_action = __cxa_guard_release;
+    } else if (strcmp(symbol_name, "__cxa_guard_abort") == 0) {
+        function.guard_action = __cxa_guard_abort;
     } else {
         return NULL;
     }
@@ -3733,6 +3746,33 @@ static void verify_cxx_object(const char* path, bool execute)
     objfile_free(object);
 }
 
+static void verify_static_local_scalar_object(const char* path)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* entry_symbol;
+    size_t mapping_size;
+    void* memory;
+    int (RINOS_ABI *entry)(void);
+    void* address;
+    assert(object != NULL && object->arch == ARCH_X64);
+    text = objfile_get_section(object, ".text");
+    entry_symbol = objfile_find_symbol(object, "main");
+    assert(text != NULL && entry_symbol != NULL &&
+           entry_symbol->type == SYM_GLOBAL &&
+           entry_symbol->binding == BIND_CODE && entry_symbol->section == 0);
+    memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, entry_symbol);
+    memcpy(&entry, &address, sizeof(entry));
+    cxx_static_reference_guard_aborts = 0;
+    cxx_static_reference_guard_releases = 0;
+    assert(entry() == 0);
+    assert(cxx_static_reference_guard_aborts == 1);
+    assert(cxx_static_reference_guard_releases == 4);
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
 static void verify_cxx_reference_local_object(const char* path,
                                               uint16_t arch,
                                               bool execute,
@@ -6087,6 +6127,12 @@ static void verify_sysv_sse_pair_aggregate_return_object(
 
 int main(int argc, char** argv)
 {
+    if (argc == 3 &&
+        strcmp(argv[1], "--static-local-scalar-object") == 0) {
+        verify_static_local_scalar_object(argv[2]);
+        puts("Verified dynamic static-scalar exception retry passed");
+        return 0;
+    }
     if (argc == 9 &&
         strcmp(argv[1], "--sysv-sse-aggregate-return-object") == 0) {
         verify_sysv_sse_aggregate_return_object(

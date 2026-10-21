@@ -570,6 +570,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-verified-cxx-temporary-cleanup
 .PHONY: test-verified-cxx-automatic-array-cleanup
 .PHONY: test-verified-cxx-virtual-base-value
+.PHONY: test-verified-cxx-static-local-scalar
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
 .PHONY: test-cxx-return-semantics
@@ -645,6 +646,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-class-template-static-data \
 	test-cxx-class-template-static-data-odr \
 	test-cxx-static-locals \
+	test-verified-cxx-static-local-scalar \
 	test-cxx-function-templates \
 	test-cxx-member-function-templates \
 	test-cxx-class-template-member-function-templates \
@@ -18832,7 +18834,99 @@ test-verified-sysv-sse-pair-return: $(RCC_TARGET) $(RCXX_TARGET) $(CXX_HOST_EXCE
 		verified_mixed_sse_integer_call_integer
 	@echo "SysV two-SSE aggregate return tests completed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) test-rinvalidate-dynamic-tls test-verified-goto test-verified-atomic-vla-rmw test-verified-atomic-fetch-add test-verified-vla-local-bound test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-partial-array-init test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested test-verified-sysv-sse-pair-return
+ifeq ($(OS),Windows_NT)
+define CHECK_VERIFIED_STATIC_LOCAL_EMISSION
+%WINDIR%\System32\findstr.exe /l /c:"Verified backend: 10 function(s) emitted" "$(subst /,\,$(1))" >NUL
+endef
+else
+define CHECK_VERIFIED_STATIC_LOCAL_EMISSION
+grep -F -q 'Verified backend: 10 function(s) emitted' "$(1)"
+endef
+endif
+
+test-verified-cxx-static-local-scalar: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-static-local-scalar)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/gcc.exe \
+		tests/verified_backend_static_local.cpp
+	$(TEST_OUT)/verified-cxx-static-local-scalar/gcc.exe
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/x86.ro \
+		tests/verified_backend_static_local.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/x86.log 2>&1
+	$(call CHECK_VERIFIED_STATIC_LOCAL_EMISSION,$(TEST_OUT)/verified-cxx-static-local-scalar/x86.log)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/x64.ro \
+		tests/verified_backend_static_local.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/x64.log 2>&1
+	$(call CHECK_VERIFIED_STATIC_LOCAL_EMISSION,$(TEST_OUT)/verified-cxx-static-local-scalar/x64.log)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/x86-o2.ro \
+		tests/verified_backend_static_local.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/x86-o2.log 2>&1
+	$(call CHECK_VERIFIED_STATIC_LOCAL_EMISSION,$(TEST_OUT)/verified-cxx-static-local-scalar/x86-o2.log)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/x64-o2.ro \
+		tests/verified_backend_static_local.cpp > \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/x64-o2.log 2>&1
+	$(call CHECK_VERIFIED_STATIC_LOCAL_EMISSION,$(TEST_OUT)/verified-cxx-static-local-scalar/x64-o2.log)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
+		--static-local-scalar-object \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/x64.ro
+	$(TEST_OUT)/verified-cxx-static-local-scalar/verify \
+		--static-local-scalar-object \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/x64-o2.ro
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.s \
+		tests/verified_backend_static_local.cpp
+	$(CC) -c -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.s \
+		tests/verified_backend_static_local.cpp
+	$(CC) -c -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.s
+ifeq ($(OS),Windows_NT)
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.o
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.o
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+else
+	$(CC) -no-pie -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-host \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(CC) -no-pie -o \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2-host \
+		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+endif
+	$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-host
+	$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2-host
+	@echo "C++ dynamic function-static scalar initialization tests completed"
+
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) test-rinvalidate-dynamic-tls test-verified-goto test-verified-atomic-vla-rmw test-verified-atomic-fetch-add test-verified-vla-local-bound test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-partial-array-init test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested test-verified-sysv-sse-pair-return test-verified-cxx-static-local-scalar
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \

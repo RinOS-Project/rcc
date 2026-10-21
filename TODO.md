@@ -644,6 +644,16 @@
         later attempt succeeds, and subsequent access reuses the same object.
         The generated target code executed successfully with the test exception
         and guard runtime; RinOS runtime integration remains separate.
+  - [x] Support dynamically initialized non-TLS block-scope C++ integer,
+        enum, and floating scalar statics in legacy and verified backends.
+        Emit a per-object guard, perform first-use initialization, register
+        `__cxa_guard_abort` for exception retry, then release on success. The
+        regression throws on the first attempt, catches it, retries, and checks
+        exactly-once reuse against GCC. Coverage includes integer, enum,
+        floating, and volatile scalars; x64 legacy and verified execution pass
+        at `-O0` and `-O2`, and all ten functions emit without verified-backend
+        fallback for i686/AMD64 at both optimization levels. Pointer, TLS,
+        aggregate, and object-destruction cases remain separate.
   - [x] Extend reference-initialization retry coverage to a nontrivial class
         prvalue whose constructor throws once. Verify guard abort, successful
         retry, stable reference identity, one `__cxa_atexit` registration, and

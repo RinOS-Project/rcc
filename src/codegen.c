@@ -2213,6 +2213,36 @@ static void codegen_defer_static_local_cleanup(Module* mod,
     *tail = cleanup;
 }
 
+static bool codegen_attach_static_initializer_guard(Decl* declaration) {
+    const char* base;
+    const char* suffix = "$rcc_static_guard";
+    size_t base_length;
+    size_t suffix_length = strlen(suffix);
+    char* guard_name;
+    Decl* guard;
+    if (!declaration || declaration->var_reference_temporary_guard) {
+        return declaration != NULL;
+    }
+    base = decl_link_name(declaration);
+    base_length = base ? strlen(base) : 0u;
+    if (base_length > SIZE_MAX - suffix_length - 1u) {
+        rcc_error(declaration->loc,
+                  "static initialization guard symbol is too large");
+        return false;
+    }
+    guard_name = rcc_alloc(base_length + suffix_length + 1u);
+    if (base_length) memcpy(guard_name, base, base_length);
+    memcpy(guard_name + base_length, suffix, suffix_length + 1u);
+    guard = decl_var("__rcc_static_guard", type_llong, NULL,
+                     declaration->loc);
+    guard->name = guard_name;
+    guard->link_name = guard_name;
+    guard->storage = STORAGE_STATIC;
+    guard->var_is_global = true;
+    declaration->var_reference_temporary_guard = guard;
+    return true;
+}
+
 static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     uint8_t zero[32] = {0};
     uint32_t size;
@@ -2358,6 +2388,16 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     declaration->var_dynamic_initializer = false;
     if (!codegen_emit_static_initializer(
             mod, declaration->type, declaration->var_init, offset)) {
+        if (!declaration->var_reference_temporary_guard &&
+            !declaration->var_is_thread_local &&
+            rcc_parser_is_cxx_mode() &&
+            codegen_runtime_global_scalar(declaration->type)) {
+            if (!codegen_attach_static_initializer_guard(declaration) ||
+                !codegen_emit_static_initializer_guard_storage(
+                    mod, declaration)) {
+                return false;
+            }
+        }
         if (declaration->var_reference_temporary_guard &&
             (codegen_runtime_global_scalar(declaration->type) ||
              codegen_runtime_global_constructor(

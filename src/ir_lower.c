@@ -2436,6 +2436,23 @@ static RccIrLowerValue lower_virtual_base_member_pointer_object(
     return adjusted;
 }
 
+static bool lower_static_local_dynamic_scalar_supported(
+    const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    return declaration && declaration->kind == DECL_VAR &&
+        declaration->var_is_static_local &&
+        declaration->var_dynamic_initializer &&
+        declaration->var_reference_temporary_guard && type &&
+        type->size > 0 && !type->is_reference &&
+        !type->cleanup_function && !declaration->var_cleanup &&
+        !declaration->var_cleanups && !declaration->var_is_thread_local &&
+        declaration->storage == STORAGE_STATIC &&
+        type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
+        type->kind != TYPE_UNION && type->kind != TYPE_VECTOR &&
+        (type_is_integer((Type*)type) || type->kind == TYPE_ENUM ||
+         type_is_floating((Type*)type));
+}
+
 static RccIrLowerValue lower_lvalue_address_impl(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerLocal* local;
@@ -2478,6 +2495,7 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 declaration->type->is_reference ||
                 declaration->type->cleanup_function ||
                 (declaration->var_is_static_local &&
+                 !lower_static_local_dynamic_scalar_supported(declaration) &&
                  (declaration->var_dynamic_initializer ||
                   declaration->var_reference_temporary_guard ||
                   declaration->var_reference_temporary_owner ||
@@ -20810,6 +20828,88 @@ static Expr* lower_rebase_reference_temporary_subobject(
     }
 }
 
+static bool lower_static_local_scalar_initializer(
+    RccIrLowerContext* context, const Decl* declaration) {
+    const Decl* guard = declaration
+        ? declaration->var_reference_temporary_guard : NULL;
+    RccIrLowerValue guard_address;
+    RccIrLowerValue acquired;
+    RccIrLowerValue initializer;
+    RccIrValue operand;
+    RccIrBlock* initialize_block;
+    RccIrBlock* done_block;
+    RccIrInstruction* object_address;
+    RccIrLowerValue object;
+    if (!context || !declaration || !guard || !declaration->var_init ||
+        !declaration->type || declaration->type->size <= 0 ||
+        declaration->type->is_reference ||
+        declaration->type->kind == TYPE_ARRAY ||
+        declaration->type->kind == TYPE_STRUCT ||
+        declaration->type->kind == TYPE_UNION ||
+        declaration->type->kind == TYPE_VECTOR ||
+        declaration->type->cleanup_function || declaration->var_cleanups ||
+        declaration->storage != STORAGE_STATIC) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    {
+        RccIrInstruction* guard_symbol = lower_append(
+            context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!guard_symbol) return false;
+        rcc_ir_set_callee(guard_symbol, decl_link_name(guard));
+        guard_address = lower_value(
+            guard_symbol->result, rcc_ir_type_pointer(0u), true);
+    }
+    operand = guard_address.value;
+    acquired = lower_cxx_runtime_call(
+        context, "__cxa_guard_acquire", rcc_ir_type_integer(32u),
+        &operand, 1u);
+    initialize_block = rcc_ir_block_add(
+        context->function, "static.local.initialize");
+    done_block = rcc_ir_block_add(
+        context->function, "static.local.initialized");
+    if (!acquired.valid || !initialize_block || !done_block ||
+        !lower_conditional_branch(
+            context, acquired, initialize_block->id, done_block->id)) {
+        return false;
+    }
+
+    context->current = initialize_block;
+    context->terminated = false;
+    if (!lower_cxx_change_current_cleanup(
+            context, "__cxa_guard_abort", guard_address, true)) {
+        return false;
+    }
+    initializer = lower_expression(context, declaration->var_init);
+    initializer = lower_cast(context, initializer, declaration->type);
+    object_address = lower_append(
+        context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!initializer.valid || !object_address) return false;
+    rcc_ir_set_callee(object_address, decl_link_name(declaration));
+    object = lower_value(object_address->result,
+                         rcc_ir_type_pointer(0u), true);
+    object.volatile_access = declaration->type->is_volatile;
+    object.atomic_access = declaration->type->is_atomic;
+    if (!lower_store_address(
+            context, object, initializer) ||
+        !lower_cxx_change_current_cleanup(
+            context, "__cxa_guard_abort", guard_address, false)) {
+        return false;
+    }
+    operand = guard_address.value;
+    (void)lower_cxx_runtime_call(
+        context, "__cxa_guard_release", rcc_ir_type_void(),
+        &operand, 1u);
+    if (context->unsupported || !lower_branch(context, done_block->id)) {
+        return false;
+    }
+    context->current = done_block;
+    context->terminated = false;
+    return true;
+}
+
 static bool lower_declaration(RccIrLowerContext* context,
                               const Decl* declaration) {
     RccIrType type = rcc_ir_type_void();
@@ -20844,6 +20944,11 @@ static bool lower_declaration(RccIrLowerContext* context,
      * backend. */
     if (declaration->kind != DECL_VAR) return true;
     if (declaration->var_is_static_local) {
+        if (lower_static_local_dynamic_scalar_supported(declaration) &&
+            !is_aggregate) {
+            return lower_static_local_scalar_initializer(
+                context, declaration);
+        }
         if (!declaration->type || declaration->type->size <= 0 ||
             declaration->type->is_reference ||
             declaration->type->cleanup_function ||
