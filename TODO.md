@@ -8170,5 +8170,7 @@ remains a separate open item.
       and follow an intermediate class lvalue-reference result without
       inventing a temporary. GCC C++20, i686/AMD64 default/`-O2` object
       generation, and AMD64 default/`-O2` execution pass.
-- [ ] Chains beyond the bounded 64-step semantic limit and verified-SSA
-      lowering of nontrivial proxy cleanup remain open.
+- [x] Keep the single pointer-returning `operator->` form in typed SSA with
+      zero fallback for both targets; emit three functions at `-O2`.
+- [ ] Class-returning proxy calls in typed SSA, nontrivial proxy cleanup there,
+      and chains beyond the bounded 64-step semantic limit remain open.

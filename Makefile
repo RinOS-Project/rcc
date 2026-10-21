@@ -8585,6 +8585,12 @@ test-cxx-operator-arrow: $(RCXX_TARGET)
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-operator-arrow/x64-o2.o
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-operator-arrow/x64-o2-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-operator-arrow/x64-o2.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-operator-arrow/x64-o2-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_VERIFIED_ARROW_SINGLE -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/verified-x86.ro tests/cxx_operator_arrow_verified.cpp >$(TEST_OUT)/cxx-operator-arrow/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' $(TEST_OUT)/cxx-operator-arrow/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_VERIFIED_ARROW_SINGLE -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/verified-x64.ro tests/cxx_operator_arrow_verified.cpp >$(TEST_OUT)/cxx-operator-arrow/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' $(TEST_OUT)/cxx-operator-arrow/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-x64.log,0)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-x86.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-x86.log)
 	$(GREP) -F -q "operator-> must return a pointer or a class type" $(TEST_OUT)/cxx-operator-arrow/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-x64.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-x64.log)
@@ -9158,6 +9164,22 @@ test-cxx-operator-arrow-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-operator-arrow/start-x64.o \
 		$(TEST_OUT)/cxx-operator-arrow/x64-o2.o
 	$(TEST_OUT)/cxx-operator-arrow/x64-o2
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-DTEST_VERIFIED_ARROW_SINGLE -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/verified-x86.ro \
+		tests/cxx_operator_arrow_verified.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/cxx-operator-arrow/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-DTEST_VERIFIED_ARROW_SINGLE -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/verified-x64.ro \
+		tests/cxx_operator_arrow_verified.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/cxx-operator-arrow/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-x64.log,0)
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-operator-arrow/invalid-x86.ro \
 		tests/cxx_operator_arrow_invalid.cpp \
