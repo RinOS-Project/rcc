@@ -8220,8 +8220,14 @@ remains a separate open item.
       conversions after class conversion functions return base-owned member
       pointers in `static_cast`. Verify GCC C++20 parity, i686/AMD64 legacy
       code generation, AMD64 execution at default optimization and `-O2`, and
-      verified-SSA emission of all eleven functions with zero fallback on
+      verified-SSA emission of all thirteen functions with zero fallback on
       i686/AMD64 at `-O0`/`-O2` in
       `test-cxx-static-cast-conversion-operator`.
-- [ ] Other pointer-to-member adjustment edge cases and less-common explicit
-      cast conversion sequences remain open.
+- [x] Compare non-exact conversion-function result sequences for
+      `static_cast<double>`: `float`-to-`double` promotion must beat
+      `int`-to-`double` conversion. Check the selected function's runtime
+      result and call counts against GCC, i686/AMD64 generation, AMD64
+      execution at default/`-O2`, and all thirteen verified-SSA functions with
+      zero fallback in the same target.
+- [ ] Other pointer-to-member adjustment edge cases and standard conversion
+      sequence ordering beyond promotion-versus-conversion remain open.

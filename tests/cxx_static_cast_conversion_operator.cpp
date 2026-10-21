@@ -122,6 +122,22 @@ public:
     }
 };
 
+class StandardSequenceRankedConversion {
+public:
+    int integer_calls;
+    int floating_calls;
+
+    operator int() {
+        ++integer_calls;
+        return 7;
+    }
+
+    operator float() {
+        ++floating_calls;
+        return 3.5f;
+    }
+};
+
 int main() {
     ImplicitIntegerConversion implicit_value{7, 0};
     ExplicitIntegerConversion explicit_value{13, 0};
@@ -136,6 +152,7 @@ int main() {
     BaseMemberPointerConversion base_member_pointer;
     BaseMemberFunctionPointerConversion base_member_function_pointer;
     RankedConversion ranked_value{0, 0};
+    StandardSequenceRankedConversion standard_sequence_ranked{0, 0};
     MemberPointerTargetValue member_pointer =
         static_cast<MemberPointerTargetValue>(explicit_member_pointer);
     int MemberPointerConversionDerived::*adjusted_member_pointer =
@@ -165,7 +182,10 @@ int main() {
                    ranked_value.floating_calls == 1 &&
                    static_cast<int>(ranked_value) == 5 &&
                    ranked_value.integer_calls == 1 &&
-                   ranked_value.floating_calls == 1
+                   ranked_value.floating_calls == 1 &&
+                   static_cast<double>(standard_sequence_ranked) == 3.5 &&
+                   standard_sequence_ranked.integer_calls == 0 &&
+                   standard_sequence_ranked.floating_calls == 1
         ? 0
         : 1;
 }
