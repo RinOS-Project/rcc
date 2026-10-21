@@ -7988,3 +7988,19 @@ remains a separate open item.
       and IR/MIR/x86 suites pass.
 - [ ] Generic/aggregate builtin forms, floating/aggregate atomics, and general
       C++ atomic operations remain open.
+
+## RCC continuation (2026-10-21, typed-SSA legacy sync lock exchange)
+
+- [x] Lower `__sync_lock_test_and_set`, `__sync_lock_release`, and
+      `__sync_swap` directly to typed SSA. Memory `XCHG` provides sequential
+      consistency, stronger than the acquire/release requirements of the lock
+      operations. Release writes zero, and each builtin argument is evaluated
+      once.
+- [x] `test-verified-atomic-fetch-add` covers repeated lock acquisition,
+      release, and swap. Both targets pass at `-O0`/`-O2` with zero
+      verified-backend fallback; AMD64 objects execute and match the GCC C17
+      oracle (using `__atomic_exchange_n` as the host oracle for RinOS's
+      `__sync_swap`). Atomic builtin, language, and IR/MIR/x86 suites pass.
+- [ ] Generic/aggregate builtin forms, floating/aggregate atomics, general
+      C++ atomic operations, and legacy sync compare-exchange builtins remain
+      open.

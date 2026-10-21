@@ -71,6 +71,11 @@ static unsigned int oracle_atomic_fetch_udec(
         }
     }
 }
+
+static unsigned int oracle_sync_swap(
+    volatile unsigned int* object, unsigned int desired) {
+    return __atomic_exchange_n(object, desired, __ATOMIC_SEQ_CST);
+}
 #endif
 
 int main(void)
@@ -104,6 +109,8 @@ int main(void)
     volatile unsigned int wrap_value = 3u;
     volatile unsigned int sync_value = 0x0ff0u;
     volatile unsigned int sync_arithmetic_value = 30u;
+    volatile unsigned int sync_lock_value = 0u;
+    volatile unsigned int sync_swap_value = 0x1234u;
 #if defined(__x86_64__)
     _Atomic unsigned long long builtin_wide = 0x10000000aULL;
     _Atomic unsigned long long exchange_wide = 0x123456789abcdef0ULL;
@@ -176,6 +183,9 @@ int main(void)
     unsigned int sync_fetch_sub_old;
     unsigned int sync_sub_fetch_new;
     unsigned int sync_operand_evaluations = 0u;
+    unsigned int sync_lock_first_old;
+    unsigned int sync_lock_second_old;
+    unsigned int sync_swap_old;
     void *pointer_fetch_old;
     void *pointer_add_new;
     void *pointer_sub_old;
@@ -402,6 +412,14 @@ int main(void)
         &sync_arithmetic_value, (sync_operand_evaluations++, 5u));
     sync_sub_fetch_new = __sync_sub_and_fetch(
         &sync_arithmetic_value, (sync_operand_evaluations++, 7u));
+    sync_lock_first_old = __sync_lock_test_and_set(&sync_lock_value, 7u);
+    sync_lock_second_old = __sync_lock_test_and_set(&sync_lock_value, 9u);
+    __sync_lock_release(&sync_lock_value);
+#if defined(__RCC__)
+    sync_swap_old = __sync_swap(&sync_swap_value, 0xa5a5u);
+#else
+    sync_swap_old = oracle_sync_swap(&sync_swap_value, 0xa5a5u);
+#endif
 
     return old8 == 250u && value8 == 5u && added8 == 5u &&
         old16 == 65530u && value16 == 5u && added16 == 5u &&
@@ -471,6 +489,9 @@ int main(void)
         sync_fetch_add_old == 30u && sync_add_fetch_new == 37u &&
         sync_fetch_sub_old == 37u && sync_sub_fetch_new == 25u &&
         sync_arithmetic_value == 25u && sync_operand_evaluations == 4u &&
+        sync_lock_first_old == 0u && sync_lock_second_old == 7u &&
+        sync_lock_value == 0u && sync_swap_old == 0x1234u &&
+        sync_swap_value == 0xa5a5u &&
 #if defined(__x86_64__)
         bitwise_wide_old == 0xf0f0f0f0f0f0f0f0ULL &&
         bitwise_wide == 0xffffffffffffffffULL &&

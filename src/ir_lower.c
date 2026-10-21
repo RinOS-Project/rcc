@@ -9999,10 +9999,15 @@ static RccIrLowerValue lower_atomic_exchange_call(
     RccIrLowerValue order;
     RccIrValue operands[2];
     RccIrInstruction* exchange;
+    bool sync_builtin = strncmp(
+        expression->call_func->ident_name, "__sync_", 7u) == 0;
 
-    if (!object_argument || !desired_argument || !order_argument ||
-        order_argument->next || !object_argument->expr ||
-        !desired_argument->expr || !order_argument->expr) {
+    if (!object_argument || !desired_argument || !object_argument->expr ||
+        !desired_argument->expr ||
+        (sync_builtin
+             ? desired_argument->next != NULL
+             : !order_argument || order_argument->next ||
+                   !order_argument->expr)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -10023,18 +10028,22 @@ static RccIrLowerValue lower_atomic_exchange_call(
         return lower_invalid_value();
     }
 
-    /* XCHG with a memory operand is implicitly locked and sequentially
-     * consistent. Evaluate the source order expression even though the
-     * instruction's stronger ordering makes its value unnecessary. */
+    /* Memory XCHG is sequentially consistent, stronger than the acquire-only
+     * legacy lock test-and-set and every explicit __atomic order. */
     object_address = lower_expression(context, object_argument->expr);
     desired = lower_expression(context, desired_argument->expr);
-    order = lower_expression(context, order_argument->expr);
     if (!object_address.valid ||
         object_address.type.kind != RCC_IR_TYPE_POINTER ||
-        !desired.valid || !order.valid ||
-        order.type.kind != RCC_IR_TYPE_INTEGER) {
+        !desired.valid) {
         context->unsupported = true;
         return lower_invalid_value();
+    }
+    if (order_argument) {
+        order = lower_expression(context, order_argument->expr);
+        if (!order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
     }
     desired = lower_cast(context, desired, object_type);
     if (!desired.valid || !rcc_ir_type_equal(desired.type, exchange_type)) {
@@ -10392,6 +10401,73 @@ static RccIrLowerValue lower_atomic_test_and_set_call(
     }
 }
 
+static RccIrLowerValue lower_sync_lock_release_call(
+    RccIrLowerContext* context, const Expr* expression) {
+    const ExprList* object_argument = expression->call_args;
+    Type* object_pointer_type;
+    Type* object_type;
+    RccIrType object_ir_type;
+    RccIrLowerValue object_address;
+    RccIrLowerValue zero;
+    RccIrValue operands[2];
+    RccIrInstruction* exchange;
+
+    if (!object_argument || object_argument->next ||
+        !object_argument->expr) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_pointer_type = object_argument->expr->type;
+    object_type = object_pointer_type &&
+            object_pointer_type->kind == TYPE_PTR
+        ? object_pointer_type->base : NULL;
+    if (!object_type || !lower_type(object_type, &object_ir_type) ||
+        (object_ir_type.kind != RCC_IR_TYPE_INTEGER &&
+         object_ir_type.kind != RCC_IR_TYPE_POINTER) ||
+        (object_ir_type.kind == RCC_IR_TYPE_INTEGER &&
+         object_ir_type.bit_width != 8u &&
+         object_ir_type.bit_width != 16u &&
+         object_ir_type.bit_width != 32u &&
+         (object_ir_type.bit_width != 64u ||
+          g_opts.target_arch != ARCH_X64))) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_address = lower_expression(context, object_argument->expr);
+    if (!object_address.valid ||
+        object_address.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_address.atomic_access = true;
+    if (object_ir_type.kind == RCC_IR_TYPE_POINTER) {
+        RccIrType word_type = rcc_ir_type_integer(
+            g_opts.target_arch == ARCH_X64 ? 64u : 32u);
+        RccIrLowerValue zero_word = lower_integer_constant(
+            context, word_type, true, 0u);
+        if (!zero_word.valid) return lower_invalid_value();
+        zero = lower_cast(context, zero_word, object_type);
+    } else {
+        zero = lower_integer_constant(
+            context, object_ir_type, true, 0u);
+    }
+    if (!zero.valid || !rcc_ir_type_equal(zero.type, object_ir_type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = object_address.value;
+    operands[1] = zero.value;
+    exchange = lower_append(
+        context, RCC_IR_ATOMIC_EXCHANGE, object_ir_type,
+        operands, 2u, NULL, 0u);
+    if (!exchange) return lower_invalid_value();
+    {
+        RccIrLowerValue void_result = lower_invalid_value();
+        void_result.valid = true;
+        return void_result;
+    }
+}
+
 static RccIrLowerValue lower_call(RccIrLowerContext* context,
                                   const Expr* expression) {
     const Decl* callee = NULL;
@@ -10464,9 +10540,20 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
         expression->call_func->ident_name &&
-        strcmp(expression->call_func->ident_name,
-               "__atomic_exchange_n") == 0) {
+        (strcmp(expression->call_func->ident_name,
+                "__atomic_exchange_n") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_lock_test_and_set") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__sync_swap") == 0)) {
         return lower_atomic_exchange_call(context, expression);
+    }
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        strcmp(expression->call_func->ident_name,
+               "__sync_lock_release") == 0) {
+        return lower_sync_lock_release_call(context, expression);
     }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
