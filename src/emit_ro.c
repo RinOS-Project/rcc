@@ -5083,11 +5083,15 @@ static bool debug_build_inline_integer_value_expression(
     }
 
     if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
-         expression->kind == EXPR_MUL || expression->kind == EXPR_BITAND ||
+         expression->kind == EXPR_MUL || expression->kind == EXPR_DIV ||
+         expression->kind == EXPR_BITAND ||
          expression->kind == EXPR_BITOR || expression->kind == EXPR_BITXOR ||
          expression->kind == EXPR_LSHIFT ||
          expression->kind == EXPR_RSHIFT) &&
         expression->binary_lhs && expression->binary_rhs &&
+        (expression->kind != EXPR_DIV ||
+         !(expression->type->is_unsigned ||
+           expression->type->kind == TYPE_BOOL)) &&
         debug_inline_integer_expression_type(expression->binary_lhs->type) &&
         debug_inline_integer_expression_type(expression->binary_rhs->type) &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -5105,6 +5109,7 @@ static bool debug_build_inline_integer_value_expression(
             expression->kind == EXPR_ADD ? 0x22u :
                 expression->kind == EXPR_SUB ? 0x1cu :
                 expression->kind == EXPR_MUL ? 0x1eu :
+                expression->kind == EXPR_DIV ? 0x1bu :
                 expression->kind == EXPR_BITAND ? 0x1au :
                 expression->kind == EXPR_BITOR ? 0x21u :
                 expression->kind == EXPR_BITXOR ? 0x27u :
@@ -5131,6 +5136,7 @@ static bool debug_inline_parameter_integer_expression(
         (argument->expr->kind != EXPR_ADD &&
          argument->expr->kind != EXPR_SUB &&
          argument->expr->kind != EXPR_MUL &&
+         argument->expr->kind != EXPR_DIV &&
          argument->expr->kind != EXPR_BITAND &&
          argument->expr->kind != EXPR_BITOR &&
          argument->expr->kind != EXPR_BITXOR &&
