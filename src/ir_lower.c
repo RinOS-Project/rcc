@@ -2450,7 +2450,7 @@ static bool lower_static_local_dynamic_scalar_supported(
         type->kind != TYPE_ARRAY && type->kind != TYPE_STRUCT &&
         type->kind != TYPE_UNION && type->kind != TYPE_VECTOR &&
         (type_is_integer((Type*)type) || type->kind == TYPE_ENUM ||
-         type_is_floating((Type*)type));
+         type_is_floating((Type*)type) || type->kind == TYPE_PTR);
 }
 
 static RccIrLowerValue lower_lvalue_address_impl(

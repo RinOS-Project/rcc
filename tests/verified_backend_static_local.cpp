@@ -2,6 +2,8 @@ static int initialization_count;
 static int enum_initialization_count;
 static int floating_initialization_count;
 static int volatile_initialization_count;
+static int pointer_initialization_count;
+static int pointer_target = 53;
 
 enum class StaticKind : unsigned char { expected = 23 };
 
@@ -24,6 +26,11 @@ static double make_static_floating_value() {
 static int make_static_volatile_value() {
     ++volatile_initialization_count;
     return 41;
+}
+
+static int* make_static_pointer() {
+    ++pointer_initialization_count;
+    return &pointer_target;
 }
 
 int read_function_static_value() {
@@ -50,6 +57,11 @@ int read_function_static_volatile() {
     return value;
 }
 
+int read_function_static_pointer() {
+    static int* value = make_static_pointer();
+    return *value;
+}
+
 int main() {
     if (function_static_initialization_count() != 0) return 1;
     try {
@@ -72,5 +84,8 @@ int main() {
     if (read_function_static_volatile() != 41) return 13;
     if (read_function_static_volatile() != 41 ||
         volatile_initialization_count != 1) return 14;
+    if (read_function_static_pointer() != 53) return 15;
+    if (read_function_static_pointer() != 53 ||
+        pointer_initialization_count != 1) return 16;
     return 0;
 }

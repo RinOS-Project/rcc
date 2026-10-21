@@ -3768,7 +3768,7 @@ static void verify_static_local_scalar_object(const char* path)
     cxx_static_reference_guard_releases = 0;
     assert(entry() == 0);
     assert(cxx_static_reference_guard_aborts == 1);
-    assert(cxx_static_reference_guard_releases == 4);
+    assert(cxx_static_reference_guard_releases == 5);
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }

@@ -18836,11 +18836,11 @@ test-verified-sysv-sse-pair-return: $(RCC_TARGET) $(RCXX_TARGET) $(CXX_HOST_EXCE
 
 ifeq ($(OS),Windows_NT)
 define CHECK_VERIFIED_STATIC_LOCAL_EMISSION
-%WINDIR%\System32\findstr.exe /l /c:"Verified backend: 10 function(s) emitted" "$(subst /,\,$(1))" >NUL
+%WINDIR%\System32\findstr.exe /l /c:"Verified backend: 12 function(s) emitted" "$(subst /,\,$(1))" >NUL
 endef
 else
 define CHECK_VERIFIED_STATIC_LOCAL_EMISSION
-grep -F -q 'Verified backend: 10 function(s) emitted' "$(1)"
+grep -F -q 'Verified backend: 12 function(s) emitted' "$(1)"
 endef
 endif
 

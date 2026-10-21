@@ -650,10 +650,10 @@
         `__cxa_guard_abort` for exception retry, then release on success. The
         regression throws on the first attempt, catches it, retries, and checks
         exactly-once reuse against GCC. Coverage includes integer, enum,
-        floating, and volatile scalars; x64 legacy and verified execution pass
-        at `-O0` and `-O2`, and all ten functions emit without verified-backend
-        fallback for i686/AMD64 at both optimization levels. Pointer, TLS,
-        aggregate, and object-destruction cases remain separate.
+        floating, pointer, and volatile scalars; x64 legacy and verified
+        execution pass at `-O0` and `-O2`, and all twelve functions emit without
+        verified-backend fallback for i686/AMD64 at both optimization levels.
+        TLS, aggregate, and object-destruction cases remain separate.
   - [x] Extend reference-initialization retry coverage to a nontrivial class
         prvalue whose constructor throws once. Verify guard abort, successful
         retry, stable reference identity, one `__cxa_atexit` registration, and

@@ -1162,6 +1162,18 @@ static bool codegen_runtime_global_scalar(const Type* type) {
            type_is_floating((Type*)type);
 }
 
+static bool codegen_runtime_function_static_scalar(
+    const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    if (!declaration || !type || !declaration->var_is_static_local ||
+        declaration->var_is_thread_local ||
+        declaration->storage != STORAGE_STATIC ||
+        !rcc_parser_is_cxx_mode() || type->size <= 0) {
+        return false;
+    }
+    return codegen_runtime_global_scalar(type) || type->kind == TYPE_PTR;
+}
+
 static bool codegen_runtime_global_constructor(const Type* type,
                                                const Expr* initializer) {
     if (!type || !type->cxx_class || !initializer) return false;
@@ -2389,9 +2401,7 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     if (!codegen_emit_static_initializer(
             mod, declaration->type, declaration->var_init, offset)) {
         if (!declaration->var_reference_temporary_guard &&
-            !declaration->var_is_thread_local &&
-            rcc_parser_is_cxx_mode() &&
-            codegen_runtime_global_scalar(declaration->type)) {
+            codegen_runtime_function_static_scalar(declaration)) {
             if (!codegen_attach_static_initializer_guard(declaration) ||
                 !codegen_emit_static_initializer_guard_storage(
                     mod, declaration)) {
@@ -2399,7 +2409,7 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
             }
         }
         if (declaration->var_reference_temporary_guard &&
-            (codegen_runtime_global_scalar(declaration->type) ||
+            (codegen_runtime_function_static_scalar(declaration) ||
              codegen_runtime_global_constructor(
                  declaration->type, declaration->var_init) ||
              codegen_runtime_global_paren_aggregate(
