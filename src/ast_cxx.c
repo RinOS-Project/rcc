@@ -12028,7 +12028,10 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
         if (index >= 0 && value_present[index]) {
             copy = expr_int(value_args[index], expression->loc);
             copy->type = parameter && parameter->type
-                ? parameter->type : type_int;
+                ? template_substitute_type(
+                      tmpl, parameter->type, args, arg_count, value_args,
+                      value_present)
+                : type_int;
             return copy;
         }
     }

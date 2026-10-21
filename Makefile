@@ -1540,17 +1540,17 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-debug-info-inli
 		-o $(TEST_OUT)/debug-info/verified-fallback-x86-g.ro \
 		tests/verified_backend_debug_fallback.cpp \
 		>$(TEST_OUT)/debug-info/verified-fallback-x86.log
-	$(GREP) -F -q 'Verified backend fallback:' \
+	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
 		$(TEST_OUT)/debug-info/verified-fallback-x86.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info/verified-fallback-x86.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info/verified-fallback-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/debug-info/verified-fallback-x64-g.ro \
 		tests/verified_backend_debug_fallback.cpp \
 		>$(TEST_OUT)/debug-info/verified-fallback-x64.log
-	$(GREP) -F -q 'Verified backend fallback:' \
+	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
 		$(TEST_OUT)/debug-info/verified-fallback-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info/verified-fallback-x64.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info/verified-fallback-x64.log,0)
 	$(RCC_TARGET) --target i686-unknown-rinos -g -fverified-backend -c \
 		-o $(TEST_OUT)/debug-info/verified-globals-x86-g.ro \
 		tests/verified_backend_globals.c

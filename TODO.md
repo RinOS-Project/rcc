@@ -2097,6 +2097,10 @@
         integral packもfunction DIEに実型・値を出力しGCCとmangling照合済み。
         pointer／reference等のcompound／non-integral dependent value packと、
         未instantiateのdependent function-template definition DIEは未完
+  - [x] Function-template scalar non-type parameterを値expressionへ置換する際、
+        dependent nested-aliasで宣言された実型も具体化してからexpressionへ設定。
+        `static_cast<int>(Value)`を含むfunction specializationのi686/AMD64生成と
+        GCC一致、全`test-debug-info`回帰で検証
   - [x] Concrete function-template template-template argumentを明示指定および
         deductionで解決し、type parameter／integral non-type parameter signaturesの
         compatible actual template名を保持。Itanium manglingとGNU DWARF v4
