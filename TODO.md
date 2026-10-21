@@ -8107,6 +8107,12 @@ remains a separate open item.
 - [x] Reject a scalar-to-empty-class `static_cast` with no viable constructor
       on i686/AMD64, and preserve rejection of copy-initialization through an
       explicit constructor.
+- [x] Preserve direct-constructor selection when a source also has an
+      explicit conversion operator to the target class; when no direct
+      constructor is viable, lower that explicit conversion operator. The
+      competing paths produce distinct values and pass the GCC C++20 oracle,
+      i686/AMD64 code generation, and AMD64 default/`-O2` execution in
+      `test-cxx-static-cast-constructor`.
 - [ ] Remaining class-target cast coverage includes C++20 aggregate
-      parenthesized initialization edge cases, class-prvalue cleanup, and
-      interactions with user-defined conversion operators.
+      parenthesized-initialization edge cases, class-prvalue cleanup, and
+      overloaded conversion functions with non-exact result sequences.

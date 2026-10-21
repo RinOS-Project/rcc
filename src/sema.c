@@ -12041,6 +12041,31 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
         object_type, arguments, loc, true);
 }
 
+/* A class-target static_cast may use a conversion function only when direct
+ * initialization has no viable constructor.  This signature-only probe also
+ * counts inaccessible, deleted, or not-yet-lowerable candidates so the
+ * conversion-function fallback cannot silently bypass their diagnostics. */
+static bool sema_cxx_has_viable_direct_constructor_signature(
+    Type* object_type, Expr* argument) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    if (!cls || !argument) return false;
+    for (CxxConstructorInfo* candidate = cls->constructors; candidate;
+         candidate = candidate->next) {
+        TypeParam* parameter;
+        if (!candidate->method || candidate->parameter_count < 1 ||
+            (candidate->parameter_count > 1 &&
+             !sema_cxx_constructor_arity_has_defaults(candidate, 1))) {
+            continue;
+        }
+        parameter = candidate->parameters;
+        if (parameter && parameter->type &&
+            cxx_conversion_rank_detail(argument, parameter->type, NULL) >= 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void sema_resolve_cxx_constructor_initializers(
     CxxConstructorInfo* constructor, SourceLoc loc) {
     CxxClass* cls;
@@ -15008,9 +15033,25 @@ static Type* sema_expr(Expr* expr) {
                  * remaining class targets.  The initializer path handles
                  * constructors, while this existing lowering copies the
                  * selected base subobject (including its adjustment). */
-                if (source) {
-                    (void)sema_cxx_apply_derived_to_base_value_cast(
+                bool derived_to_base = source &&
+                    sema_cxx_apply_derived_to_base_value_cast(
                         expr->cast_expr, expr->cast_type, false);
+                Type* source_object = source && source->is_reference &&
+                        source->base
+                    ? source->base : source;
+                if (!derived_to_base && source_object &&
+                    (source_object->kind == TYPE_STRUCT ||
+                     source_object->kind == TYPE_UNION) &&
+                    !type_is_compatible(source_object, expr->cast_type) &&
+                    !sema_cxx_has_viable_direct_constructor_signature(
+                        expr->cast_type, expr->cast_expr)) {
+                    Type* converted = implicit_cast_with_explicit_conversion(
+                        expr->cast_expr, expr->cast_type, true);
+                    if (converted &&
+                        type_is_compatible(converted, expr->cast_type)) {
+                        *expr = *expr->cast_expr;
+                        break;
+                    }
                 }
                 Expr* initializer = expr_initializer_list(
                     exprlist_new(expr->cast_expr), expr->loc);
