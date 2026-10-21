@@ -8039,7 +8039,7 @@ remains a separate open item.
       `stdatomic.h` floating typedef/API coverage, aggregate and wider floating
       objects, and general C++ atomic conformance remain open.
 
-## RCC continuation (2026-10-21, C++ integer `std::atomic` API)
+## RCC continuation (2026-10-21, C++ scalar/pointer `std::atomic` and `atomic_flag`)
 
 - [x] Add the compiler's `<atomic>` header with `std::memory_order` and a
       scalar-integer `std::atomic<T>` surface for initialization, load/store,
@@ -8053,12 +8053,13 @@ remains a separate open item.
       results, and pointer `difference_type` arithmetic. The pointer
       specialization scales `fetch_add/sub` by pointee size and covers pointer
       pre/post increment/decrement, compound updates, and CAS.
+      Add C++20 `atomic_flag`, `ATOMIC_FLAG_INIT`, the clear initial state, and
+      `test_and_set`, `clear`, and `test` with explicit/default order forms.
       `test-atomic-builtins` compiles i686/AMD64 C++20 objects at `-O0`/`-O2`
       and executes both AMD64 objects; all existing C atomic execution and
       invalid order/pointer diagnostics pass.
 - [x] Make `test-atomic-builtins` an explicit C++20 regression prerequisite
       and include it in both C17 and C++ regression aggregates.
 - [ ] Full `<atomic>` conformance remains open: floating specializations and
-      floating fetch operations,
-      `atomic_flag`, type constraints/traits and volatile overloads, complete
+      fetch operations, type constraints/traits and volatile overloads, complete
       constructor/API overload sets, and C++20 wait/notify operations.

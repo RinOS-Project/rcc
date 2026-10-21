@@ -14,11 +14,38 @@ enum memory_order {
     memory_order_seq_cst = __ATOMIC_SEQ_CST
 };
 
+class atomic_flag {
+public:
+    constexpr atomic_flag() noexcept : value_(0u) {}
+    atomic_flag(const atomic_flag&) = delete;
+    atomic_flag& operator=(const atomic_flag&) = delete;
+
+    bool test_and_set(memory_order order) noexcept {
+        return __atomic_test_and_set(&value_, order);
+    }
+    bool test_and_set() noexcept {
+        return test_and_set(memory_order_seq_cst);
+    }
+
+    void clear(memory_order order) noexcept {
+        __atomic_clear(&value_, order);
+    }
+    void clear() noexcept { clear(memory_order_seq_cst); }
+
+    bool test(memory_order order) const noexcept {
+        return __atomic_load_n(&value_, order) != 0u;
+    }
+    bool test() const noexcept { return test(memory_order_seq_cst); }
+
+private:
+    mutable unsigned char value_;
+};
+
 template<class T>
 class __rcc_atomic_base {
 public:
-    __rcc_atomic_base() noexcept : value_(0) {}
-    __rcc_atomic_base(T desired) noexcept : value_(desired) {}
+    constexpr __rcc_atomic_base() noexcept : value_(0) {}
+    constexpr __rcc_atomic_base(T desired) noexcept : value_(desired) {}
     __rcc_atomic_base(const __rcc_atomic_base&) = delete;
     __rcc_atomic_base& operator=(const __rcc_atomic_base&) = delete;
 
@@ -100,8 +127,8 @@ protected:
 template<class T>
 class atomic : public __rcc_atomic_base<T> {
 public:
-    atomic() noexcept : __rcc_atomic_base<T>() {}
-    atomic(T desired) noexcept : __rcc_atomic_base<T>(desired) {}
+    constexpr atomic() noexcept : __rcc_atomic_base<T>() {}
+    constexpr atomic(T desired) noexcept : __rcc_atomic_base<T>(desired) {}
     atomic(const atomic&) = delete;
     atomic& operator=(const atomic&) = delete;
 
@@ -166,8 +193,9 @@ class atomic<T*> : public __rcc_atomic_base<T*> {
 public:
     using difference_type = ptrdiff_t;
 
-    atomic() noexcept { this->value_ = (T*)0; }
-    atomic(T* desired) noexcept { this->value_ = desired; }
+    constexpr atomic() noexcept : __rcc_atomic_base<T*>() {}
+    constexpr atomic(T* desired) noexcept
+        : __rcc_atomic_base<T*>(desired) {}
 
     T* operator=(T* desired) noexcept {
         this->store(desired, memory_order_seq_cst);
@@ -212,5 +240,7 @@ public:
 };
 
 }
+
+#define ATOMIC_FLAG_INIT {}
 
 #endif
