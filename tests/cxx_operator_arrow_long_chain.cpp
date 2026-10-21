@@ -1,0 +1,84 @@
+struct LongArrowTarget {
+    int value;
+};
+
+LongArrowTarget long_arrow_target = {42};
+
+#define DEFINE_ARROW_STEP(TYPE, NEXT) \
+    struct TYPE { NEXT operator->() const { return {}; } }
+
+struct Arrow65 {
+    LongArrowTarget* operator->() const {
+        return &long_arrow_target;
+    }
+};
+
+DEFINE_ARROW_STEP(Arrow64, Arrow65);
+DEFINE_ARROW_STEP(Arrow63, Arrow64);
+DEFINE_ARROW_STEP(Arrow62, Arrow63);
+DEFINE_ARROW_STEP(Arrow61, Arrow62);
+DEFINE_ARROW_STEP(Arrow60, Arrow61);
+DEFINE_ARROW_STEP(Arrow59, Arrow60);
+DEFINE_ARROW_STEP(Arrow58, Arrow59);
+DEFINE_ARROW_STEP(Arrow57, Arrow58);
+DEFINE_ARROW_STEP(Arrow56, Arrow57);
+DEFINE_ARROW_STEP(Arrow55, Arrow56);
+DEFINE_ARROW_STEP(Arrow54, Arrow55);
+DEFINE_ARROW_STEP(Arrow53, Arrow54);
+DEFINE_ARROW_STEP(Arrow52, Arrow53);
+DEFINE_ARROW_STEP(Arrow51, Arrow52);
+DEFINE_ARROW_STEP(Arrow50, Arrow51);
+DEFINE_ARROW_STEP(Arrow49, Arrow50);
+DEFINE_ARROW_STEP(Arrow48, Arrow49);
+DEFINE_ARROW_STEP(Arrow47, Arrow48);
+DEFINE_ARROW_STEP(Arrow46, Arrow47);
+DEFINE_ARROW_STEP(Arrow45, Arrow46);
+DEFINE_ARROW_STEP(Arrow44, Arrow45);
+DEFINE_ARROW_STEP(Arrow43, Arrow44);
+DEFINE_ARROW_STEP(Arrow42, Arrow43);
+DEFINE_ARROW_STEP(Arrow41, Arrow42);
+DEFINE_ARROW_STEP(Arrow40, Arrow41);
+DEFINE_ARROW_STEP(Arrow39, Arrow40);
+DEFINE_ARROW_STEP(Arrow38, Arrow39);
+DEFINE_ARROW_STEP(Arrow37, Arrow38);
+DEFINE_ARROW_STEP(Arrow36, Arrow37);
+DEFINE_ARROW_STEP(Arrow35, Arrow36);
+DEFINE_ARROW_STEP(Arrow34, Arrow35);
+DEFINE_ARROW_STEP(Arrow33, Arrow34);
+DEFINE_ARROW_STEP(Arrow32, Arrow33);
+DEFINE_ARROW_STEP(Arrow31, Arrow32);
+DEFINE_ARROW_STEP(Arrow30, Arrow31);
+DEFINE_ARROW_STEP(Arrow29, Arrow30);
+DEFINE_ARROW_STEP(Arrow28, Arrow29);
+DEFINE_ARROW_STEP(Arrow27, Arrow28);
+DEFINE_ARROW_STEP(Arrow26, Arrow27);
+DEFINE_ARROW_STEP(Arrow25, Arrow26);
+DEFINE_ARROW_STEP(Arrow24, Arrow25);
+DEFINE_ARROW_STEP(Arrow23, Arrow24);
+DEFINE_ARROW_STEP(Arrow22, Arrow23);
+DEFINE_ARROW_STEP(Arrow21, Arrow22);
+DEFINE_ARROW_STEP(Arrow20, Arrow21);
+DEFINE_ARROW_STEP(Arrow19, Arrow20);
+DEFINE_ARROW_STEP(Arrow18, Arrow19);
+DEFINE_ARROW_STEP(Arrow17, Arrow18);
+DEFINE_ARROW_STEP(Arrow16, Arrow17);
+DEFINE_ARROW_STEP(Arrow15, Arrow16);
+DEFINE_ARROW_STEP(Arrow14, Arrow15);
+DEFINE_ARROW_STEP(Arrow13, Arrow14);
+DEFINE_ARROW_STEP(Arrow12, Arrow13);
+DEFINE_ARROW_STEP(Arrow11, Arrow12);
+DEFINE_ARROW_STEP(Arrow10, Arrow11);
+DEFINE_ARROW_STEP(Arrow09, Arrow10);
+DEFINE_ARROW_STEP(Arrow08, Arrow09);
+DEFINE_ARROW_STEP(Arrow07, Arrow08);
+DEFINE_ARROW_STEP(Arrow06, Arrow07);
+DEFINE_ARROW_STEP(Arrow05, Arrow06);
+DEFINE_ARROW_STEP(Arrow04, Arrow05);
+DEFINE_ARROW_STEP(Arrow03, Arrow04);
+DEFINE_ARROW_STEP(Arrow02, Arrow03);
+DEFINE_ARROW_STEP(Arrow01, Arrow02);
+DEFINE_ARROW_STEP(Arrow00, Arrow01);
+
+int main() {
+    return Arrow00{}->value == 42 ? 0 : 1;
+}

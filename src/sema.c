@@ -13640,8 +13640,68 @@ static bool sema_rewrite_cxx_subscript_operator(Expr* expression,
     return true;
 }
 
-/* Lower the bounded RCC++ `operator->` chain through ordinary member calls.
- * Intermediate class results keep their normal full-expression cleanup. */
+static Type* sema_cxx_arrow_aggregate_type(Type* object_type) {
+    if (object_type && object_type->kind == TYPE_PTR &&
+        object_type->is_reference) {
+        object_type = object_type->base;
+    }
+    object_type = generic_selection_type(object_type);
+    if (!object_type || (object_type->kind != TYPE_STRUCT &&
+                         object_type->kind != TYPE_UNION)) {
+        return NULL;
+    }
+    return object_type;
+}
+
+static bool sema_cxx_arrow_same_receiver_state(
+    Type* prior_type, Expr* prior_receiver, Type* aggregate,
+    Expr* receiver) {
+    Type* prior_aggregate = sema_cxx_arrow_aggregate_type(prior_type);
+    return prior_aggregate && aggregate &&
+        type_is_compatible(prior_aggregate, aggregate) &&
+        prior_aggregate->is_const == aggregate->is_const &&
+        prior_aggregate->is_volatile == aggregate->is_volatile &&
+        is_lvalue(prior_receiver) == is_lvalue(receiver) &&
+        is_xvalue(prior_receiver) == is_xvalue(receiver);
+}
+
+/* A repeated resolved receiver state cannot make further progress: method
+ * lookup is deterministic for its class type and value category. Walk only
+ * the member-call receiver spine built by this rewrite, not arbitrary call
+ * arguments nested inside the expression. */
+static bool sema_cxx_arrow_chain_repeats(
+    Expr* receiver, Type* aggregate, TypeMethod* method) {
+    Expr* prior_call = receiver;
+    const char* method_link_name = method && method->function_decl
+        ? method->function_decl->link_name : NULL;
+    while (prior_call && prior_call->kind == EXPR_CALL) {
+        Expr* function = prior_call->call_func;
+        ExprList* implicit_object = prior_call->call_args;
+        Expr* object_address = implicit_object
+            ? implicit_object->expr : NULL;
+        Expr* prior_receiver = object_address &&
+                object_address->kind == EXPR_ADDR &&
+                object_address->cxx_implicit_object_address
+            ? object_address->unary_operand : NULL;
+        Decl* prior_function = function && function->kind == EXPR_IDENT
+            ? function->ident_decl : NULL;
+        bool same_function = prior_function && method_link_name &&
+            prior_function->link_name &&
+            strcmp(prior_function->link_name, method_link_name) == 0;
+        if (!prior_receiver) break;
+        if (same_function &&
+            sema_cxx_arrow_same_receiver_state(
+                prior_receiver->type, prior_receiver, aggregate,
+                receiver)) {
+            return true;
+        }
+        prior_call = prior_receiver;
+    }
+    return false;
+}
+
+/* Lower RCC++ `operator->` chains through ordinary member calls. Intermediate
+ * class results keep their normal full-expression cleanup. */
 static bool sema_rewrite_cxx_arrow_operator(Expr* expression,
                                             Type* object_type) {
     Type* aggregate;
@@ -13651,29 +13711,30 @@ static bool sema_rewrite_cxx_arrow_operator(Expr* expression,
     Expr* member;
     Expr* call;
     Expr* rewritten;
+    bool followed_class_result = false;
 
     if (!expression || expression->kind != EXPR_PTR_MEMBER ||
         !expression->member_base || !object_type) return false;
     receiver = expression->member_base;
     receiver_type = object_type;
-    for (unsigned depth = 0u; depth < 64u; ++depth) {
+    for (;;) {
         Type* returned_object_type;
-        aggregate = receiver_type;
-        if (aggregate->kind == TYPE_PTR && aggregate->is_reference) {
-            aggregate = aggregate->base;
-        }
-        aggregate = generic_selection_type(aggregate);
-        if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
-                           aggregate->kind != TYPE_UNION)) {
-            return false;
-        }
+        aggregate = sema_cxx_arrow_aggregate_type(receiver_type);
+        if (!aggregate) return false;
         method = sema_find_function_method(aggregate, "operator->");
         if (!method || !method->function_decl) {
-            if (depth != 0u) {
+            if (followed_class_result) {
                 rcc_error(expression->loc,
                           "class-returning operator-> has no next operator->");
                 expression->type = type_int;
             }
+            return false;
+        }
+        if (sema_cxx_arrow_chain_repeats(
+                receiver, aggregate, method)) {
+            rcc_error(expression->loc,
+                      "circular operator-> delegation does not reach a pointer");
+            expression->type = type_int;
             return false;
         }
         member = expr_member(receiver, "operator->", expression->loc);
@@ -13694,6 +13755,7 @@ static bool sema_rewrite_cxx_arrow_operator(Expr* expression,
              returned_object_type->kind == TYPE_UNION)) {
             receiver = call;
             receiver_type = call->type;
+            followed_class_result = true;
             continue;
         }
         if (call->type->kind != TYPE_PTR ||
@@ -13711,10 +13773,6 @@ static bool sema_rewrite_cxx_arrow_operator(Expr* expression,
         *expression = *rewritten;
         return true;
     }
-    rcc_error(expression->loc,
-              "operator-> chain exceeds 64 class-returning calls");
-    expression->type = type_int;
-    return false;
 }
 
 static bool sema_rewrite_cxx_call_operator(Expr* expression,

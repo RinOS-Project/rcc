@@ -8177,4 +8177,8 @@ remains a separate open item.
       destructor emits four functions with zero typed-SSA fallback on i686
       and AMD64 at `-O0` and `-O2`; GCC C++20 and RCC AMD64 execution verify
       exactly-once cleanup.
-- [ ] Chains beyond the bounded 64-step semantic limit remain open.
+- [x] Remove the fixed 64-call semantic limit and diagnose a repeated
+      `operator->` function/class/cv/value-category state as circular. A
+      65-class-return chain passes GCC and RCC x64 execution; i686/AMD64 typed
+      SSA emits with zero fallback at `-O0`/`-O2`, the i686 `-O2` object is
+      PE-i386, and circular-chain diagnostics pass for both target widths.

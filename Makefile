@@ -8617,6 +8617,33 @@ test-cxx-operator-arrow: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(GREP) -F -q "class-returning operator-> has no next operator->" $(TEST_OUT)/cxx-operator-arrow/invalid-chain-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_INVALID_CLASS_ARROW_CHAIN -c -o $(TEST_OUT)/cxx-operator-arrow/invalid-chain-x64.ro tests/cxx_operator_arrow_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/invalid-chain-x64.log)
 	$(GREP) -F -q "class-returning operator-> has no next operator->" $(TEST_OUT)/cxx-operator-arrow/invalid-chain-x64.log
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-operator-arrow/long-chain-gcc$(EXE_SUFFIX) tests/cxx_operator_arrow_long_chain.cpp
+	$(TEST_OUT)/cxx-operator-arrow/long-chain-gcc$(EXE_SUFFIX)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-operator-arrow-long-chain,cxx_operator_arrow_long_chain.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.s tests/cxx_operator_arrow_long_chain.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.o $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.s
+	objdump -f $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.o > $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.s tests/cxx_operator_arrow_long_chain.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.o $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.s
+	$(CC) -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2-host $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.o
+	$(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o0.ro tests/cxx_operator_arrow_long_chain.cpp >$(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o0.log
+	$(GREP) -F -q 'Verified backend:' $(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o0.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o2.ro tests/cxx_operator_arrow_long_chain.cpp >$(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o2.log
+	$(GREP) -F -q 'Verified backend:' $(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o2.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o0.ro tests/cxx_operator_arrow_long_chain.cpp >$(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o0.log
+	$(GREP) -F -q 'Verified backend:' $(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o0.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o2.ro tests/cxx_operator_arrow_long_chain.cpp >$(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o2.log
+	$(GREP) -F -q 'Verified backend:' $(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o2.log,0)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-operator-arrow/cycle-x86.ro tests/cxx_operator_arrow_cycle_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/cycle-x86.log)
+	$(GREP) -F -q "circular operator-> delegation does not reach a pointer" $(TEST_OUT)/cxx-operator-arrow/cycle-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-operator-arrow/cycle-x64.ro tests/cxx_operator_arrow_cycle_invalid.cpp,$(TEST_OUT)/cxx-operator-arrow/cycle-x64.log)
+	$(GREP) -F -q "circular operator-> delegation does not reach a pointer" $(TEST_OUT)/cxx-operator-arrow/cycle-x64.log
 
 test-cxx-requires-expression: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-requires-expression)
@@ -9246,6 +9273,71 @@ test-cxx-operator-arrow-posix: $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
 		$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/verified-cleanup-x64-o2.log,0)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-operator-arrow/long-chain-gcc \
+		tests/cxx_operator_arrow_long_chain.cpp
+	$(TEST_OUT)/cxx-operator-arrow/long-chain-gcc
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.s \
+		tests/cxx_operator_arrow_long_chain.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.o \
+		$(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.s
+	$(CC) -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2 \
+		$(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.o
+	$(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.s \
+		tests/cxx_operator_arrow_long_chain.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.o \
+		$(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.s
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o0.ro \
+		tests/cxx_operator_arrow_long_chain.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o0.log
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o0.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o2.ro \
+		tests/cxx_operator_arrow_long_chain.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o2.log
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/long-verified-x86-o2.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o0.ro \
+		tests/cxx_operator_arrow_long_chain.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o0.log
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o0.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o2.ro \
+		tests/cxx_operator_arrow_long_chain.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o2.log
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-operator-arrow/long-verified-x64-o2.log,0)
+	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/cycle-x86.ro \
+		tests/cxx_operator_arrow_cycle_invalid.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/cycle-x86.log 2>&1; then \
+		echo "circular operator-> unexpectedly compiled for i686"; exit 1; \
+	fi
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-operator-arrow/cycle-x64.ro \
+		tests/cxx_operator_arrow_cycle_invalid.cpp \
+		>$(TEST_OUT)/cxx-operator-arrow/cycle-x64.log 2>&1; then \
+		echo "circular operator-> unexpectedly compiled for AMD64"; exit 1; \
+	fi
+	$(GREP) -F -q "circular operator-> delegation does not reach a pointer" \
+		$(TEST_OUT)/cxx-operator-arrow/cycle-x86.log
+	$(GREP) -F -q "circular operator-> delegation does not reach a pointer" \
+		$(TEST_OUT)/cxx-operator-arrow/cycle-x64.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-operator-arrow/invalid-x86.ro \
 		tests/cxx_operator_arrow_invalid.cpp \
