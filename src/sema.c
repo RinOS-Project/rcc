@@ -11494,6 +11494,17 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     bool static_reference_temporary = false;
     bool xvalue_has_temporary = false;
     int cleanup_budget = 4096;
+    if (rcc_parser_is_cxx_mode() && declaration && declaration->type &&
+        declaration->var_init && declaration->var_is_static_local &&
+        declaration->type->cxx_class &&
+        (declaration->type->kind == TYPE_STRUCT ||
+         declaration->type->kind == TYPE_UNION) &&
+        declaration->var_init->kind == EXPR_COMPOUND &&
+        declaration->var_init->compound_paren_init &&
+        sema_cxx_trivially_copyable(declaration->type, 0) &&
+        !sema_attach_static_initializer_guard(declaration)) {
+        return;
+    }
     if (!rcc_parser_is_cxx_mode() || !declaration ||
         !declaration->type || declaration->var_cleanup ||
         declaration->var_cleanups) {
@@ -11502,7 +11513,10 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     object_type = declaration->type;
     if (object_type->kind == TYPE_PTR && object_type->is_reference) {
         bool prvalue_initializer;
-        if (!declaration->var_init) return;
+        /* DECL_PARAM stores param_index in the same union slot as a variable's
+         * var_init.  Reference-parameter lifetime is owned by the call site;
+         * never interpret that index as an initializer expression here. */
+        if (declaration->kind == DECL_PARAM || !declaration->var_init) return;
         materialized_xvalue_source =
             sema_cxx_reference_temporary_source(declaration->var_init);
         if (is_xvalue(declaration->var_init)) {

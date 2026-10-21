@@ -190,10 +190,17 @@ endef
 endif
 
 CXX_HOST_EXCEPTION_RUNTIME = $(TEST_OUT)/cxx-host-exception-runtime-x64.o
+CXX_STATIC_REFERENCE_GUARD_RUNTIME = \
+	$(TEST_OUT)/cxx-static-reference-guard-runtime-x64.o
 
 $(CXX_HOST_EXCEPTION_RUNTIME): tests/cxx_exceptions_x64_start.s
 	$(call MKDIR_P,$(TEST_OUT))
 	$(CC) -DRINOS_HOST_RUNTIME -x assembler-with-cpp -c -o $@ $<
+
+$(CXX_STATIC_REFERENCE_GUARD_RUNTIME): \
+	tests/cxx_static_reference_guard_runtime.c
+	$(call MKDIR_P,$(TEST_OUT))
+	$(CC) $(CFLAGS) -DRINOS_HOST_RUNTIME -c -o $@ $<
 
 ifeq ($(OS),Windows_NT)
 # Windows has no RinOS int 0x80/syscall runtime.  Compile the i686 image to a
@@ -8850,13 +8857,22 @@ test-cxx-selection-init: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-selection-init)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-selection-init,cxx_selection_init.cpp)
 
-test-cxx-aggregate-paren-init: $(RCXX_TARGET)
+test-cxx-aggregate-paren-init: $(RCXX_TARGET) \
+	$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-init)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-aggregate-paren-init,cxx_aggregate_paren_init.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-ref-lifetime)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-gcc$(EXE_SUFFIX) tests/cxx_aggregate_paren_ref_lifetime.cpp
 	$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-gcc$(EXE_SUFFIX)
-	$(call CXX_WINDOWS_ENTRY_TEST,cxx-aggregate-paren-ref-lifetime,cxx_aggregate_paren_ref_lifetime.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86.s tests/cxx_aggregate_paren_ref_lifetime.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86.o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86.s
+	objdump -f $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86.o > $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64.s tests/cxx_aggregate_paren_ref_lifetime.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64.o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2.s tests/cxx_aggregate_paren_ref_lifetime.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2.o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2.s
 	objdump -f $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2.o > $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2-arch.log
@@ -8864,7 +8880,7 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2.s tests/cxx_aggregate_paren_ref_lifetime.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2.o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2.o
-	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2.o $(CXX_WINDOWS_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2-host
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.ro tests/cxx_aggregate_paren_init_invalid.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.log)
 	$(GREP) -F -q "too many initializers for aggregate" $(TEST_OUT)/cxx-aggregate-paren-init/invalid-x86.log
@@ -10182,7 +10198,8 @@ test-cxx-selection-init-posix: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-selection-init/x64
 	@echo "C++ selection-statement initializer tests completed"
 
-test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET)
+test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET) \
+	$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-init)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -o \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-gcc \
@@ -10206,7 +10223,8 @@ test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64-host \
 		tests/cxx_language_core_host.c \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64.o \
-		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x86-o2.s \
@@ -10226,7 +10244,8 @@ test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64-o2-host \
 		tests/cxx_language_core_host.c \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64-o2.o \
-		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64-o2-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/x86.s \

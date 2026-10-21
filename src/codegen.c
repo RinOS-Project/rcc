@@ -2361,6 +2361,8 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         if (declaration->var_reference_temporary_guard &&
             (codegen_runtime_global_scalar(declaration->type) ||
              codegen_runtime_global_constructor(
+                 declaration->type, declaration->var_init) ||
+             codegen_runtime_global_paren_aggregate(
                  declaration->type, declaration->var_init))) {
             size = (uint32_t)declaration->type->size;
             memset(mod->data.data + offset, 0, size);

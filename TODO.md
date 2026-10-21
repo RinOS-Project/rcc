@@ -8198,6 +8198,18 @@ remains a separate open item.
       reference-member temporary cleanup above. Test global initialization
       order and full-expression cleanup against GCC; emit i686/AMD64 objects at
       default and `-O2`, verify PE-i386, and execute AMD64 at both levels.
-- [ ] Extend this to non-trivially-copyable aggregate targets, block-static and
-      thread-local cases, and verified-SSA lowering; other class-prvalue
-      contexts remain open.
+- [x] Extend guarded initialization to block-scope `static` trivially-copyable
+      class aggregates with C++20 parenthesized initializers. Verify one-time
+      initialization and repeat access with a different counter, generate
+      i686/AMD64 at `-O0`/`-O2`, and execute AMD64 at both levels.
+- [x] Preserve optimizer correctness when a side-effecting call appears in a
+      reference initializer: keep the lvalue address intact while invalidating
+      local scalar constant facts that the call may change indirectly. The
+      static aggregate lifetime counter regression passes at `-O2`.
+- [x] Do not interpret a reference parameter's union-backed `param_index` as a
+      variable initializer during callee-side lifetime analysis. Reference
+      temporary lifetime belongs to the call site; the dual-architecture
+      `test-optimize` cleanup compilation and execution checks pass.
+- [ ] Non-trivially-copyable aggregate targets, thread-local initialization,
+      and verified-SSA lowering for this cleanup case remain open; other
+      class-prvalue contexts remain open.

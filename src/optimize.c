@@ -5769,6 +5769,14 @@ static void propagate_block_constants(Stmt* statement) {
                          * lose the target ABI address. */
                         propagate_constant_lvalue(
                             current->decl->var_init, &state);
+                        /* The lvalue walker intentionally does not descend
+                         * into a call used to produce the referred-to object.
+                         * Such a call can still mutate any escaped local, so
+                         * do not carry scalar constants across it. */
+                        if (expression_has_side_effect(
+                                current->decl->var_init)) {
+                            clear_local_constants(&state);
+                        }
                     } else {
                         propagate_constant_expr(&current->decl->var_init,
                                                 &state);
