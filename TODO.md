@@ -2271,14 +2271,21 @@
         `DW_OP_div`/`DW_OP_neg`/`DW_OP_not` opcodes plus the full remainder
         expression for legacy and verified i686/AMD64 `-g -O1` objects in
         `test-debug-info`.
-        Remaining work includes arbitrary nonconstant argument expressions,
-        unsigned division and remainder expressions, mutable parameters,
+  - [x] Preserve unsigned `/` and `%` expressions when the operand width is
+        narrower than the target address width, so zero-extension keeps each
+        value within the signed range understood by generic DWARF stack
+        operations. Verify `unsigned int` `/ 3u` and `% 5u` on AMD64 in legacy
+        and verified `-g -O1` objects, including the 32-bit normalization,
+        exact `DW_OP_div`/synthesized remainder operations, and source frame
+        slot. Keep full-width unsigned operands out of signed `DW_OP_div`.
+  - [ ] Full-width unsigned division and remainder (including i686 address-
+        width operands and AMD64 64-bit operands), arbitrary nonconstant
+        argument expressions, mutable parameters,
         optimized-away/register-only sources, nested lexical locals, tracking
         optimized variables across register and piece locations, declaration
         lifetimes across every optimized CFG edge, and CFI/unwind coverage for
-        prologues and epilogues beyond current fixed-frame rules. The checked
-        entries distinguish these bounded cases from the still-incomplete
-        general variable-location implementation.
+        prologues and epilogues beyond current fixed-frame rules. General
+        variable-location implementation remains incomplete.
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および

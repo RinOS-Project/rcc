@@ -74,6 +74,18 @@ inline unsigned int debug_nonconstant_unsigned_integer_rshift_parameter_inline(
     return value;
 }
 
+inline unsigned int debug_nonconstant_unsigned_integer_divide_parameter_inline(
+    unsigned int value)
+{
+    return value;
+}
+
+inline unsigned int debug_nonconstant_unsigned_integer_remainder_parameter_inline(
+    unsigned int value)
+{
+    return value;
+}
+
 inline int debug_local_inline(int value)
 {
     const int inline_local_value = 7;

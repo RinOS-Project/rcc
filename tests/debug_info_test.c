@@ -8237,31 +8237,39 @@ static void verify_inline_integer_expression_parameter(
     verify_inline_integer_expression_normalization(
         info->data, expression_end, &expression_offset, architecture,
         is_unsigned);
-    /* 0x1d is a test-case marker: signed % is verified as a full synthesized
+    /* 0x1d is a test-case marker: % is verified as a full synthesized
        expression, never as the DW_OP_mod opcode itself. */
     if (expected_operation == 0x1du) {
         assert(expression_offset < expression_end &&
                info->data[expression_offset++] == 0x12u);
         for (size_t term = 0u; term < 2u; ++term) {
-            assert(expression_offset < expression_end &&
-                   info->data[expression_offset++] == 0x11u &&
-                   read_sleb(info->data, expression_end,
-                             &expression_offset) == expected_constant);
+            if (is_unsigned) {
+                assert(expression_offset < expression_end &&
+                       info->data[expression_offset++] == 0x10u &&
+                       read_uleb(info->data, expression_end,
+                                 &expression_offset) ==
+                           (uint64_t)expected_constant);
+            } else {
+                assert(expression_offset < expression_end &&
+                       info->data[expression_offset++] == 0x11u &&
+                       read_sleb(info->data, expression_end,
+                                 &expression_offset) == expected_constant);
+            }
             verify_inline_integer_expression_normalization(
                 info->data, expression_end, &expression_offset, architecture,
-                false);
+                is_unsigned);
             assert(expression_offset < expression_end &&
                    info->data[expression_offset++] ==
                        (term == 0u ? 0x1bu : 0x1eu));
             verify_inline_integer_expression_normalization(
                 info->data, expression_end, &expression_offset, architecture,
-                false);
+                is_unsigned);
         }
         assert(expression_offset < expression_end &&
                info->data[expression_offset++] == 0x1cu);
         verify_inline_integer_expression_normalization(
             info->data, expression_end, &expression_offset, architecture,
-            false);
+            is_unsigned);
     } else {
         if (expected_operation != 0x1fu && expected_operation != 0x20u) {
             if (is_unsigned) {
@@ -8332,10 +8340,19 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_integer_rshift_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 0x26u, 1},
         {"debug_nonconstant_unsigned_integer_rshift_parameter_inline",
-         "debug_inline_nonconstant_unsigned_integer_source", true, 0x25u, 1}
+         "debug_inline_nonconstant_unsigned_integer_source", true, 0x25u, 1},
+        {"debug_nonconstant_unsigned_integer_divide_parameter_inline",
+         "debug_inline_nonconstant_unsigned_integer_source", true, 0x1bu, 3},
+        {"debug_nonconstant_unsigned_integer_remainder_parameter_inline",
+         "debug_inline_nonconstant_unsigned_integer_source", true, 0x1du, 5}
     };
     for (size_t index = 0u; index < sizeof(cases) / sizeof(cases[0]);
          ++index) {
+        if (architecture == ARCH_X86 && cases[index].is_unsigned &&
+            (cases[index].operation == 0x1bu ||
+             cases[index].operation == 0x1du)) {
+            continue;
+        }
         verify_inline_integer_expression_parameter(
             path, architecture, cases[index].inline_name,
             cases[index].source_name, cases[index].is_unsigned,

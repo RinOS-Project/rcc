@@ -4965,6 +4965,20 @@ static bool debug_inline_integer_expression_normalize(
             expression, capacity, size, 0x26u); /* shra */
 }
 
+static bool debug_inline_integer_division_uses_signed_stack_safely(
+    const Type* type, int architecture) {
+    unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
+    if (!debug_inline_integer_expression_type(type) ||
+        type->kind == TYPE_BOOL) {
+        return false;
+    }
+    /* DWARF's generic DW_OP_div is signed. For a narrower unsigned type,
+       zero-extension makes every value nonnegative in the address-sized
+       signed stack representation. Full-width unsigned values need another
+       exact lowering and must not be interpreted as signed here. */
+    return !type->is_unsigned || (unsigned int)type->size < address_size;
+}
+
 static bool debug_inline_integer_literal_bits(
     const Expr* expression, uint64_t* bits, unsigned int depth) {
     if (!expression || !bits || depth >= 32u) return false;
@@ -5083,12 +5097,12 @@ static bool debug_build_inline_integer_value_expression(
     }
 
     /* DW_OP_mod's signed remainder rule is not sufficiently portable. Build
-       C's truncation-toward-zero remainder as lhs - (lhs / rhs) * rhs. */
+       the remainder as lhs - (lhs / rhs) * rhs. Unsigned operands are safe
+       only when they fit the positive range of the generic DWARF stack. */
     if (expression->kind == EXPR_MOD && expression->binary_lhs &&
         expression->binary_rhs &&
-        debug_inline_integer_expression_type(expression->type) &&
-        !(expression->type->is_unsigned ||
-          expression->type->kind == TYPE_BOOL) &&
+        debug_inline_integer_division_uses_signed_stack_safely(
+            expression->type, architecture) &&
         debug_inline_integer_expression_type(expression->binary_lhs->type) &&
         debug_inline_integer_expression_type(expression->binary_rhs->type) &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -5129,8 +5143,8 @@ static bool debug_build_inline_integer_value_expression(
          expression->kind == EXPR_RSHIFT) &&
         expression->binary_lhs && expression->binary_rhs &&
         (expression->kind != EXPR_DIV ||
-         !(expression->type->is_unsigned ||
-           expression->type->kind == TYPE_BOOL)) &&
+         debug_inline_integer_division_uses_signed_stack_safely(
+             expression->type, architecture)) &&
         debug_inline_integer_expression_type(expression->binary_lhs->type) &&
         debug_inline_integer_expression_type(expression->binary_rhs->type) &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv(
