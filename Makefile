@@ -8573,6 +8573,8 @@ test-cxx-iterator-range-for: $(RCXX_TARGET)
 
 test-cxx-operator-arrow: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-operator-arrow)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-operator-arrow/gcc-oracle$(EXE_SUFFIX) tests/cxx_operator_arrow.cpp
+	$(TEST_OUT)/cxx-operator-arrow/gcc-oracle$(EXE_SUFFIX)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-operator-arrow,cxx_operator_arrow.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-operator-arrow/x86-o2.s tests/cxx_operator_arrow.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-operator-arrow/x86-o2.o $(TEST_OUT)/cxx-operator-arrow/x86-o2.s
@@ -9113,6 +9115,10 @@ test-cxx-iterator-range-for-posix: $(RCXX_TARGET)
 
 test-cxx-operator-arrow-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-operator-arrow)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o \
+		$(TEST_OUT)/cxx-operator-arrow/gcc-oracle \
+		tests/cxx_operator_arrow.cpp
+	$(TEST_OUT)/cxx-operator-arrow/gcc-oracle
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-operator-arrow/x86.s \
 		tests/cxx_operator_arrow.cpp

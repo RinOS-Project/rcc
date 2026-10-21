@@ -8166,6 +8166,9 @@ remains a separate open item.
       The Windows make shell could not resolve its configured `objdump` path in
       this environment; all codegen, object-format, diagnostic, oracle, and
       runtime steps were run directly.
-- [ ] Ref-qualified/cv-overloaded proxy chains, chains beyond the bounded
-      64-step semantic limit, and verified-SSA lowering of nontrivial proxy
-      cleanup remain open.
+- [x] Select `&`, `const&`, and `&&` proxy `operator->` overloads correctly,
+      and follow an intermediate class lvalue-reference result without
+      inventing a temporary. GCC C++20, i686/AMD64 default/`-O2` object
+      generation, and AMD64 default/`-O2` execution pass.
+- [ ] Chains beyond the bounded 64-step semantic limit and verified-SSA
+      lowering of nontrivial proxy cleanup remain open.
