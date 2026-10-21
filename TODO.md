@@ -7904,6 +7904,22 @@ remains a separate open item.
 - [ ] Other atomic integer RMW operators, generic/aggregate builtin forms,
       floating/aggregate atomics, and general C++ atomic operations remain open.
 
+## RCC continuation (2026-10-21, typed-SSA bitwise atomic RMW)
+
+- [x] Lower `__atomic_fetch_and`, `__atomic_fetch_or`, `__atomic_fetch_xor`,
+      `__atomic_and_fetch`, `__atomic_or_fetch`, and `__atomic_xor_fetch` with
+      typed-SSA compare-exchange retry loops. Preserve old/new results and
+      evaluate runtime memory-order expressions exactly once. The locked
+      compare-exchange supplies sequential consistency for all valid orders.
+- [x] `test-verified-atomic-fetch-add` covers all six forms on 32-bit values,
+      plus 8/16-bit values on i686/AMD64 and 64-bit values on AMD64. Both
+      targets pass at `-O0`/`-O2` with zero verified-backend fallback; AMD64
+      objects execute and agree with the GCC C17 oracle. Atomic builtin,
+      language, and IR/MIR/x86 encoding suites pass.
+- [ ] Atomic NAND/min/max/uinc/udec RMW builtins, generic/aggregate builtin
+      forms, floating/aggregate atomics, and general C++ atomic operations
+      remain open.
+
 ## RCC continuation (2026-10-21, typed-SSA atomic test-and-set/clear)
 
 - [x] Lower `__atomic_test_and_set`, `__atomic_clear`, and

@@ -20,17 +20,23 @@ int main(void)
     volatile unsigned short compare_exchange16 = 0x1234u;
     volatile unsigned int compare_exchange32 = 0x10203040u;
     int * volatile compare_exchange_pointer;
+    volatile unsigned int bitwise_value = 0xf0f0u;
+    volatile unsigned char bitwise_byte = 0xf3u;
+    volatile unsigned short bitwise_word = 0xf0f3u;
 #if defined(__x86_64__)
     _Atomic unsigned long long builtin_wide = 0x10000000aULL;
     _Atomic unsigned long long exchange_wide = 0x123456789abcdef0ULL;
     volatile unsigned long long compare_exchange64 =
         0x123456789abcdef0ULL;
+    volatile unsigned long long bitwise_wide =
+        0xf0f0f0f0f0f0f0f0ULL;
     unsigned long long builtin_wide_old;
     unsigned long long builtin_wide_new;
     unsigned long long exchange_wide_old;
     unsigned long long compare_exchange64_expected =
         0x123456789abcdef0ULL;
     int compare_exchange64_succeeded;
+    unsigned long long bitwise_wide_old;
 #endif
     volatile int builtin_order = __ATOMIC_RELAXED;
     unsigned int builtin_fetch_sub;
@@ -55,6 +61,15 @@ int main(void)
     unsigned int compare_exchange_weak_evaluations = 0u;
     unsigned int compare_exchange_success_order_evaluations = 0u;
     unsigned int compare_exchange_failure_order_evaluations = 0u;
+    unsigned int bitwise_order_evaluations = 0u;
+    unsigned int bitwise_fetch_and;
+    unsigned int bitwise_fetch_or;
+    unsigned int bitwise_fetch_xor;
+    unsigned int bitwise_and_fetch;
+    unsigned int bitwise_or_fetch;
+    unsigned int bitwise_xor_fetch;
+    unsigned char bitwise_byte_old;
+    unsigned short bitwise_word_old;
     void *pointer_fetch_old;
     void *pointer_add_new;
     void *pointer_sub_old;
@@ -181,6 +196,32 @@ int main(void)
         &compare_exchange64, &compare_exchange64_expected,
         0xfedcba9876543210ULL, 0, __ATOMIC_SEQ_CST, __ATOMIC_ACQUIRE);
 #endif
+    bitwise_fetch_and = __atomic_fetch_and(
+        &bitwise_value, 0x0ff0u,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    bitwise_fetch_or = __atomic_fetch_or(
+        &bitwise_value, 0x8001u,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    bitwise_fetch_xor = __atomic_fetch_xor(
+        &bitwise_value, 0x00ffu,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    bitwise_and_fetch = __atomic_and_fetch(
+        &bitwise_value, 0x0f0fu,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    bitwise_or_fetch = __atomic_or_fetch(
+        &bitwise_value, 0x0100u,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    bitwise_xor_fetch = __atomic_xor_fetch(
+        &bitwise_value, 0xffffu,
+        (bitwise_order_evaluations++, __ATOMIC_SEQ_CST));
+    bitwise_byte_old = __atomic_fetch_xor(
+        &bitwise_byte, 0xffu, __ATOMIC_SEQ_CST);
+    bitwise_word_old = __atomic_fetch_and(
+        &bitwise_word, 0x0ff0u, __ATOMIC_SEQ_CST);
+#if defined(__x86_64__)
+    bitwise_wide_old = __atomic_fetch_xor(
+        &bitwise_wide, 0x0f0f0f0f0f0f0f0fULL, __ATOMIC_SEQ_CST);
+#endif
 
     return old8 == 250u && value8 == 5u && added8 == 5u &&
         old16 == 65530u && value16 == 5u && added16 == 5u &&
@@ -227,7 +268,15 @@ int main(void)
         compare_exchange_weak_evaluations == 2u &&
         compare_exchange_success_order_evaluations == 2u &&
         compare_exchange_failure_order_evaluations == 2u &&
+        bitwise_fetch_and == 0xf0f0u && bitwise_fetch_or == 0x00f0u &&
+        bitwise_fetch_xor == 0x80f1u && bitwise_and_fetch == 0x000eu &&
+        bitwise_or_fetch == 0x010eu && bitwise_xor_fetch == 0xfef1u &&
+        bitwise_value == 0xfef1u && bitwise_byte_old == 0xf3u &&
+        bitwise_byte == 0x0cu && bitwise_word_old == 0xf0f3u &&
+        bitwise_word == 0x00f0u && bitwise_order_evaluations == 6u &&
 #if defined(__x86_64__)
+        bitwise_wide_old == 0xf0f0f0f0f0f0f0f0ULL &&
+        bitwise_wide == 0xffffffffffffffffULL &&
         compare_exchange64_succeeded == 1 &&
         compare_exchange64 == 0xfedcba9876543210ULL &&
         compare_exchange64_expected == 0x123456789abcdef0ULL &&

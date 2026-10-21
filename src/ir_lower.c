@@ -9683,6 +9683,148 @@ static RccIrLowerValue lower_atomic_fetch_arithmetic_call(
         operation->result, atomic_type, object_type->is_unsigned);
 }
 
+static RccIrLowerValue lower_atomic_fetch_bitwise_call(
+    RccIrLowerContext* context, const Expr* expression,
+    const char* name) {
+    const ExprList* object_argument = expression->call_args;
+    const ExprList* operand_argument = object_argument
+        ? object_argument->next : NULL;
+    const ExprList* order_argument = operand_argument
+        ? operand_argument->next : NULL;
+    Type* object_pointer_type;
+    Type* object_type;
+    RccIrType atomic_type;
+    RccIrOpcode opcode;
+    RccIrBlock* entry;
+    RccIrBlock* loop;
+    RccIrBlock* done;
+    RccIrLowerValue address;
+    RccIrLowerValue operand;
+    RccIrLowerValue order;
+    RccIrLowerValue result;
+    RccIrValue phi_operands[2];
+    RccIrBlockId phi_targets[2];
+    RccIrValue binary_operands[2];
+    RccIrValue compare_exchange_operands[3];
+    RccIrValue compare_operands[2];
+    RccIrInstruction* initial_load;
+    RccIrInstruction* current_phi;
+    RccIrInstruction* binary;
+    RccIrInstruction* compare_exchange;
+    RccIrInstruction* compare;
+    bool return_new;
+
+    if (!object_argument || !operand_argument || !order_argument ||
+        order_argument->next || !object_argument->expr ||
+        !operand_argument->expr || !order_argument->expr) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_pointer_type = object_argument->expr->type;
+    object_type = object_pointer_type &&
+            object_pointer_type->kind == TYPE_PTR
+        ? object_pointer_type->base : NULL;
+    if (!object_type || !lower_type(object_type, &atomic_type) ||
+        atomic_type.kind != RCC_IR_TYPE_INTEGER ||
+        (atomic_type.bit_width != 8u && atomic_type.bit_width != 16u &&
+         atomic_type.bit_width != 32u &&
+         (atomic_type.bit_width != 64u || g_opts.target_arch != ARCH_X64))) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    if (strcmp(name, "__atomic_fetch_and") == 0 ||
+        strcmp(name, "__atomic_and_fetch") == 0) {
+        opcode = RCC_IR_AND;
+    } else if (strcmp(name, "__atomic_fetch_or") == 0 ||
+               strcmp(name, "__atomic_or_fetch") == 0) {
+        opcode = RCC_IR_OR;
+    } else if (strcmp(name, "__atomic_fetch_xor") == 0 ||
+               strcmp(name, "__atomic_xor_fetch") == 0) {
+        opcode = RCC_IR_XOR;
+    } else {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    return_new = strcmp(name, "__atomic_and_fetch") == 0 ||
+        strcmp(name, "__atomic_or_fetch") == 0 ||
+        strcmp(name, "__atomic_xor_fetch") == 0;
+
+    /* Evaluate every builtin argument before the first object access.  The
+     * CAS retry loop is sequentially consistent, stronger than every valid
+     * order; the runtime order expression is nevertheless evaluated once. */
+    address = lower_expression(context, object_argument->expr);
+    operand = lower_expression(context, operand_argument->expr);
+    order = lower_expression(context, order_argument->expr);
+    if (!address.valid || address.type.kind != RCC_IR_TYPE_POINTER ||
+        !operand.valid || operand.type.kind != RCC_IR_TYPE_INTEGER ||
+        !order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operand = lower_cast(context, operand, object_type);
+    if (!operand.valid || !rcc_ir_type_equal(operand.type, atomic_type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    entry = context->current;
+    loop = rcc_ir_block_add(context->function, "atomic.bitwise.loop");
+    done = rcc_ir_block_add(context->function, "atomic.bitwise.done");
+    if (!entry || !loop || !done) return lower_invalid_value();
+    initial_load = lower_append(
+        context, RCC_IR_LOAD, atomic_type, &address.value, 1u, NULL, 0u);
+    if (!initial_load) return lower_invalid_value();
+    /* A naturally aligned scalar load is atomic on these x86 targets.  Keep
+     * it observable so memory optimizations cannot reuse a stale value. */
+    rcc_ir_set_volatile_access(initial_load, true);
+    if (!lower_branch(context, loop->id)) return lower_invalid_value();
+
+    context->current = loop;
+    context->terminated = false;
+    phi_operands[0] = initial_load->result;
+    phi_operands[1] = RCC_IR_VALUE_NONE;
+    phi_targets[0] = entry->id;
+    phi_targets[1] = loop->id;
+    current_phi = lower_append(
+        context, RCC_IR_PHI, atomic_type, phi_operands, 2u,
+        phi_targets, 2u);
+    if (!current_phi) return lower_invalid_value();
+    binary_operands[0] = current_phi->result;
+    binary_operands[1] = operand.value;
+    binary = lower_append(
+        context, opcode, atomic_type, binary_operands, 2u, NULL, 0u);
+    if (!binary) return lower_invalid_value();
+    compare_exchange_operands[0] = address.value;
+    compare_exchange_operands[1] = current_phi->result;
+    compare_exchange_operands[2] = binary->result;
+    compare_exchange = lower_append(
+        context, RCC_IR_ATOMIC_COMPARE_EXCHANGE, atomic_type,
+        compare_exchange_operands, 3u, NULL, 0u);
+    if (!compare_exchange) return lower_invalid_value();
+    current_phi->operands[1] = compare_exchange->result;
+    compare_operands[0] = compare_exchange->result;
+    compare_operands[1] = current_phi->result;
+    compare = lower_append(
+        context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+        compare_operands, 2u, NULL, 0u);
+    if (!compare) return lower_invalid_value();
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_EQ);
+    if (!lower_conditional_branch(
+            context,
+            lower_value(compare->result, rcc_ir_type_integer(1u), true),
+            done->id, loop->id)) {
+        return lower_invalid_value();
+    }
+
+    context->current = done;
+    context->terminated = false;
+    result = lower_value(
+        return_new ? binary->result : current_phi->result,
+        atomic_type, object_type->is_unsigned);
+    return lower_cast(context, result, expression->type);
+}
+
 static RccIrLowerValue lower_atomic_exchange_call(
     RccIrLowerContext* context, const Expr* expression) {
     const ExprList* object_argument = expression->call_args;
@@ -10186,6 +10328,24 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
          strcmp(expression->call_func->ident_name,
                 "__atomic_sub_fetch") == 0)) {
         return lower_atomic_fetch_arithmetic_call(
+            context, expression, expression->call_func->ident_name);
+    }
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        (strcmp(expression->call_func->ident_name,
+                "__atomic_fetch_and") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_fetch_or") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_fetch_xor") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_and_fetch") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_or_fetch") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_xor_fetch") == 0)) {
+        return lower_atomic_fetch_bitwise_call(
             context, expression, expression->call_func->ident_name);
     }
     if (expression && expression->call_method &&
