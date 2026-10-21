@@ -3535,7 +3535,7 @@ static void verify_inline_parameter_frame_pointer_indices(
     const VerifyInlinePointerIndexTerm* index_terms, size_t index_count,
     int64_t address_addend, bool dereference_source,
     const uint8_t* cast_steps, size_t cast_step_count,
-    int64_t signed_divisor) {
+    int64_t signed_divisor, int64_t pointer_adjustment) {
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint64_t concrete_parameter;
     uint64_t expression_offset;
@@ -3770,6 +3770,19 @@ static void verify_inline_parameter_frame_pointer_indices(
         assert(index_has_location &&
                index_variable_offset == index_expression_offset);
         ++index;
+    }
+    if (pointer_adjustment > 0) {
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x23u &&
+               read_uleb(info->data, expression_end, &expression_offset) ==
+                   (uint64_t)pointer_adjustment);
+    } else if (pointer_adjustment < 0) {
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x11u &&
+               read_sleb(info->data, expression_end, &expression_offset) ==
+                   pointer_adjustment &&
+               expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x22u);
     }
     assert(expression_offset + 1u == expression_end &&
            info->data[expression_offset] == 0x9fu);
@@ -5515,7 +5528,7 @@ static void verify_cxx_inline_automatic_pointer_indices_impl(
     const VerifyInlinePointerIndexTerm* index_terms, size_t index_count,
     int64_t address_addend, bool dereference_source,
     const uint8_t* cast_steps, size_t cast_step_count,
-    int64_t signed_divisor)
+    int64_t signed_divisor, int64_t pointer_adjustment)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
@@ -5573,7 +5586,8 @@ static void verify_cxx_inline_automatic_pointer_indices_impl(
     verify_inline_parameter_frame_pointer_indices(
         info, strings, locations, call_die, architecture,
         pointer_name, index_terms, index_count, address_addend,
-        dereference_source, cast_steps, cast_step_count, signed_divisor);
+        dereference_source, cast_steps, cast_step_count, signed_divisor,
+        pointer_adjustment);
     objfile_free(object);
 }
 
@@ -5585,7 +5599,20 @@ static void verify_cxx_inline_automatic_pointer_indices(
 {
     verify_cxx_inline_automatic_pointer_indices_impl(
         path, architecture, entry_name, pointer_name, index_terms,
-        index_count, address_addend, dereference_source, NULL, 0u, 0);
+        index_count, address_addend, dereference_source, NULL, 0u, 0, 0);
+}
+
+static void verify_cxx_inline_automatic_pointer_indices_with_adjustment(
+    const char* path, uint16_t architecture, const char* entry_name,
+    const char* pointer_name,
+    const VerifyInlinePointerIndexTerm* index_terms, size_t index_count,
+    int64_t address_addend, bool dereference_source,
+    int64_t pointer_adjustment)
+{
+    verify_cxx_inline_automatic_pointer_indices_impl(
+        path, architecture, entry_name, pointer_name, index_terms,
+        index_count, address_addend, dereference_source, NULL, 0u, 0,
+        pointer_adjustment);
 }
 
 static void verify_cxx_inline_automatic_pointer_divided_index(
@@ -5597,7 +5624,7 @@ static void verify_cxx_inline_automatic_pointer_divided_index(
     };
     verify_cxx_inline_automatic_pointer_indices_impl(
         path, architecture, entry_name, pointer_name, &term, 1u,
-        0, true, NULL, 0u, signed_divisor);
+        0, true, NULL, 0u, signed_divisor, 0);
 }
 
 static void verify_cxx_inline_automatic_pointer_index(
@@ -8652,6 +8679,23 @@ int main(int argc, char** argv)
             {"debug_inline_automatic_nested_constant_column_row", 4u,
              false, 20u, false, 0u, 0u, false, 0u}
         };
+    const VerifyInlinePointerIndexTerm
+        pointer_nested_array_indices[] = {
+            {"debug_inline_automatic_pointer_nested_row_index", 4u,
+             false, 20u, false, 0u, 0u, false, 0u},
+            {"debug_inline_automatic_pointer_nested_column_index", 4u,
+             false, 4u, false, 0u, 0u, false, 0u}
+        };
+    const VerifyInlinePointerIndexTerm
+        pointer_nested_constant_row_index[] = {
+            {"debug_inline_automatic_pointer_constant_row_column", 4u,
+             false, 4u, false, 0u, 0u, false, 0u}
+        };
+    const VerifyInlinePointerIndexTerm
+        pointer_nested_constant_column_index[] = {
+            {"debug_inline_automatic_pointer_constant_column_row", 4u,
+             false, 20u, false, 0u, 0u, false, 0u}
+        };
     const VerifyInlinePointerIndexTerm mixed_width_x64_indices[] = {
         {"debug_inline_automatic_mixed_width_signed_index", 4u, false, 4u,
          false, 0u, 0u, false, 0u},
@@ -9323,7 +9367,7 @@ int main(int argc, char** argv)
         multiple_mask_x64_index, 1u, 0, true,
         multiple_mask_x64_steps,
         sizeof(multiple_mask_x64_steps) /
-            sizeof(multiple_mask_x64_steps[0]), 0);
+            sizeof(multiple_mask_x64_steps[0]), 0, 0);
     verify_cxx_inline_automatic_pointer_indices_impl(
         argv[43], ARCH_X64,
         "debug_inline_automatic_pointer_multiple_mask_index_entry",
@@ -9331,7 +9375,7 @@ int main(int argc, char** argv)
         multiple_mask_x64_index, 1u, 0, true,
         multiple_mask_x64_steps,
         sizeof(multiple_mask_x64_steps) /
-            sizeof(multiple_mask_x64_steps[0]), 0);
+            sizeof(multiple_mask_x64_steps[0]), 0, 0);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_unsigned_narrow_signed_index_entry",
@@ -9576,6 +9620,66 @@ int main(int argc, char** argv)
         "debug_inline_automatic_nested_array_constant_column_entry",
         "debug_inline_automatic_nested_constant_column_matrix",
         nested_array_constant_column_index, 1u, 8, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_nested_array_index_entry",
+        "debug_inline_automatic_pointer_nested_matrix",
+        pointer_nested_array_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_nested_array_index_entry",
+        "debug_inline_automatic_pointer_nested_matrix",
+        pointer_nested_array_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_nested_array_index_entry",
+        "debug_inline_automatic_pointer_nested_matrix",
+        pointer_nested_array_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_nested_array_index_entry",
+        "debug_inline_automatic_pointer_nested_matrix",
+        pointer_nested_array_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices_with_adjustment(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_nested_array_constant_row_entry",
+        "debug_inline_automatic_pointer_constant_row_matrix",
+        pointer_nested_constant_row_index, 1u, 0, true, 20);
+    verify_cxx_inline_automatic_pointer_indices_with_adjustment(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_nested_array_constant_row_entry",
+        "debug_inline_automatic_pointer_constant_row_matrix",
+        pointer_nested_constant_row_index, 1u, 0, true, 20);
+    verify_cxx_inline_automatic_pointer_indices_with_adjustment(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_nested_array_constant_row_entry",
+        "debug_inline_automatic_pointer_constant_row_matrix",
+        pointer_nested_constant_row_index, 1u, 0, true, 20);
+    verify_cxx_inline_automatic_pointer_indices_with_adjustment(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_nested_array_constant_row_entry",
+        "debug_inline_automatic_pointer_constant_row_matrix",
+        pointer_nested_constant_row_index, 1u, 0, true, 20);
+    verify_cxx_inline_automatic_pointer_indices_with_adjustment(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_nested_array_constant_column_entry",
+        "debug_inline_automatic_pointer_constant_column_matrix",
+        pointer_nested_constant_column_index, 1u, 0, true, 8);
+    verify_cxx_inline_automatic_pointer_indices_with_adjustment(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_nested_array_constant_column_entry",
+        "debug_inline_automatic_pointer_constant_column_matrix",
+        pointer_nested_constant_column_index, 1u, 0, true, 8);
+    verify_cxx_inline_automatic_pointer_indices_with_adjustment(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_nested_array_constant_column_entry",
+        "debug_inline_automatic_pointer_constant_column_matrix",
+        pointer_nested_constant_column_index, 1u, 0, true, 8);
+    verify_cxx_inline_automatic_pointer_indices_with_adjustment(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_nested_array_constant_column_entry",
+        "debug_inline_automatic_pointer_constant_column_matrix",
+        pointer_nested_constant_column_index, 1u, 0, true, 8);
     verify_cxx_inline_automatic_pointer_indices(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_unsigned_computed_index_entry",

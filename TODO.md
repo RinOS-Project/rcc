@@ -7278,7 +7278,8 @@ remains a separate open item.
       and verified optimized DWARF; native-Windows `test-debug-info` passes.
 - [ ] Register-only or optimized-away sources, virtual-base/member-pointer
       adjustments, nonconstant offsets, unbounded/mixed-type pointer
-      arithmetic chains, nested VLA/pointer-based dynamic subobject paths,
+      arithmetic chains, nested VLA and pointer-to-pointer/indirect dynamic
+      subobject paths,
       compound pointer expressions, mutable-parameter tracking, and optimized
       register/piece tracking remain open; this does not implement general
       variable-location tracking.
@@ -8344,7 +8345,13 @@ remains a separate open item.
       Verify the matrix frame slot, both dynamic-index slots, the row stride
       (20 bytes), and column stride (4 bytes) in i686/AMD64 legacy and verified
       optimized DWARF. `test-debug-info` passes.
-- [ ] VLA and pointer-based nested dynamic subobjects, target-adjusting casts,
-      dynamic pointer arithmetic beyond the separately covered bounded forms,
-      mutable parameter tracking, and optimized register/piece locations
+- [x] Preserve inline pointer arguments formed by subscripting a
+      frame-backed pointer-to-fixed-array through independently dynamic row and
+      column indexes, or a constant in either dimension. Verify the pointer
+      frame slot, both row/column scales (20/4 bytes), and constant byte
+      adjustments (20/8 bytes) in i686/AMD64 legacy and verified optimized
+      DWARF. Native-Windows `test-debug-info` passes.
+- [ ] VLA and pointer-to-pointer/indirect nested subobjects, target-adjusting
+      casts, dynamic pointer arithmetic beyond the separately covered bounded
+      forms, mutable parameter tracking, and optimized register/piece locations
       remain open.
