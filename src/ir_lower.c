@@ -9646,6 +9646,74 @@ static RccIrLowerValue lower_atomic_fetch_arithmetic_call(
         operation->result, atomic_type, object_type->is_unsigned);
 }
 
+static RccIrLowerValue lower_atomic_exchange_call(
+    RccIrLowerContext* context, const Expr* expression) {
+    const ExprList* object_argument = expression->call_args;
+    const ExprList* desired_argument = object_argument
+        ? object_argument->next : NULL;
+    const ExprList* order_argument = desired_argument
+        ? desired_argument->next : NULL;
+    Type* object_pointer_type;
+    Type* object_type;
+    RccIrType exchange_type;
+    RccIrLowerValue object_address;
+    RccIrLowerValue desired;
+    RccIrLowerValue order;
+    RccIrValue operands[2];
+    RccIrInstruction* exchange;
+
+    if (!object_argument || !desired_argument || !order_argument ||
+        order_argument->next || !object_argument->expr ||
+        !desired_argument->expr || !order_argument->expr) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_pointer_type = object_argument->expr->type;
+    object_type = object_pointer_type &&
+            object_pointer_type->kind == TYPE_PTR
+        ? object_pointer_type->base : NULL;
+    if (!object_type || !lower_type(object_type, &exchange_type) ||
+        (exchange_type.kind != RCC_IR_TYPE_INTEGER &&
+         exchange_type.kind != RCC_IR_TYPE_POINTER) ||
+        (exchange_type.kind == RCC_IR_TYPE_INTEGER &&
+         exchange_type.bit_width != 8u &&
+         exchange_type.bit_width != 16u &&
+         exchange_type.bit_width != 32u &&
+         (exchange_type.bit_width != 64u ||
+          g_opts.target_arch != ARCH_X64))) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    /* XCHG with a memory operand is implicitly locked and sequentially
+     * consistent. Evaluate the source order expression even though the
+     * instruction's stronger ordering makes its value unnecessary. */
+    object_address = lower_expression(context, object_argument->expr);
+    desired = lower_expression(context, desired_argument->expr);
+    order = lower_expression(context, order_argument->expr);
+    if (!object_address.valid ||
+        object_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !desired.valid || !order.valid ||
+        order.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    desired = lower_cast(context, desired, object_type);
+    if (!desired.valid || !rcc_ir_type_equal(desired.type, exchange_type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = object_address.value;
+    operands[1] = desired.value;
+    exchange = lower_append(
+        context, RCC_IR_ATOMIC_EXCHANGE, exchange_type,
+        operands, 2u, NULL, 0u);
+    if (!exchange) return lower_invalid_value();
+    return lower_value(
+        exchange->result, exchange_type,
+        object_type->kind == TYPE_PTR || object_type->is_unsigned);
+}
+
 static RccIrLowerValue lower_call(RccIrLowerContext* context,
                                   const Expr* expression) {
     const Decl* callee = NULL;
@@ -9682,6 +9750,13 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     bool register_temporary_cleanups = expression &&
         !expression->cxx_call_is_noexcept;
     RccIrInstruction* call;
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        strcmp(expression->call_func->ident_name,
+               "__atomic_exchange_n") == 0) {
+        return lower_atomic_exchange_call(context, expression);
+    }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
         expression->call_func->ident_name &&

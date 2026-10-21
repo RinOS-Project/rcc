@@ -231,6 +231,42 @@ static void verify_atomic_fetch_add(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_atomic_exchange(void)
+{
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType parameters[] = {pointer, i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "encoded_atomic_exchange", i32, parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrValue exchange_operands[] = {ir->parameters[0], ir->parameters[1]};
+    RccIrInstruction* exchange = rcc_ir_append(
+        entry, RCC_IR_ATOMIC_EXCHANGE, i32,
+        exchange_operands, 2u, NULL, 0u);
+    RccX86EncodedFunction x86;
+    RccX86EncodedFunction x64;
+    size_t mapping_size;
+    void* memory;
+    int (RCC_TEST_ABI *function)(int*, int);
+    int value = 12;
+    assert(exchange != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &exchange->result, 1u, NULL, 0u) != NULL);
+    x86 = encode_function_for_target(ir, RCC_X86_TARGET_I686);
+    x64 = encode_function_for_target(ir, RCC_X86_TARGET_X86_64);
+    assert(encoded_has_memory_xchg(&x86));
+    assert(encoded_has_memory_xchg(&x64));
+    rcc_x86_encoded_function_release(&x86);
+    memory = map_code(&x64, &mapping_size);
+    memcpy(&function, &memory, sizeof(function));
+    assert(function(&value, 37) == 12 && value == 37);
+    assert(function(&value, -9) == 37 && value == -9);
+    assert(executable_unmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&x64);
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_atomic_fetch_add_64(void)
 {
     RccIrType pointer = rcc_ir_type_pointer(0u);
@@ -917,6 +953,7 @@ int main(int argc, char** argv)
     verify_select_execution();
     verify_seq_cst_atomic_store();
     verify_atomic_fetch_add();
+    verify_atomic_exchange();
     verify_atomic_fetch_add_64();
     verify_atomic_fetch_add_8();
     verify_atomic_fetch_add_16();

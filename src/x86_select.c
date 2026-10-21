@@ -328,6 +328,7 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_LOAD: return RCC_X86_LOAD;
         case RCC_MIR_STORE: return RCC_X86_STORE;
         case RCC_MIR_ATOMIC_FETCH_ADD: return RCC_X86_ATOMIC_FETCH_ADD;
+        case RCC_MIR_ATOMIC_EXCHANGE: return RCC_X86_ATOMIC_EXCHANGE;
         case RCC_MIR_GEP: return RCC_X86_GEP;
         case RCC_MIR_SYMBOL_ADDRESS: return RCC_X86_SYMBOL_ADDRESS;
         case RCC_MIR_CALL: return RCC_X86_CALL;
@@ -609,6 +610,7 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
                 instruction->operand_count == 2u &&
                 instruction->target_count == 0u;
         case RCC_X86_ATOMIC_FETCH_ADD:
+        case RCC_X86_ATOMIC_EXCHANGE:
             return instruction->has_destination &&
                 instruction->operand_count == 2u &&
                 instruction->target_count == 0u;
@@ -753,6 +755,19 @@ bool rcc_x86_verify_function(
                       function->target) ||
                   instruction->operand_types[0].kind !=
                       RCC_MIR_TYPE_POINTER)) ||
+                (instruction->opcode == RCC_X86_ATOMIC_EXCHANGE &&
+                 ((instruction->type.kind != RCC_MIR_TYPE_INTEGER &&
+                   instruction->type.kind != RCC_MIR_TYPE_POINTER) ||
+                  (instruction->type.kind == RCC_MIR_TYPE_INTEGER &&
+                   instruction->type.bit_width != 8u &&
+                   instruction->type.bit_width != 16u &&
+                   instruction->type.bit_width != 32u &&
+                   (instruction->type.bit_width != 64u ||
+                    function->target != RCC_X86_TARGET_X86_64)) ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_POINTER ||
+                  !rcc_mir_type_equal(instruction->operand_types[1],
+                                      instruction->type))) ||
                 (instruction->sysv_variadic_call &&
                  (instruction->opcode != RCC_X86_CALL ||
                   function->target != RCC_X86_TARGET_X86_64)) ||

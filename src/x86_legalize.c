@@ -89,6 +89,18 @@ static bool x86_legal_atomic_fetch_add_supported(
         rcc_mir_type_equal(delta, type);
 }
 
+static bool x86_legal_atomic_exchange_supported(
+    RccMirType type, RccMirType desired, RccX86Target target) {
+    if (type.kind == RCC_MIR_TYPE_POINTER) {
+        return desired.kind == RCC_MIR_TYPE_POINTER;
+    }
+    return type.kind == RCC_MIR_TYPE_INTEGER &&
+        (type.bit_width == 8u || type.bit_width == 16u ||
+         type.bit_width == 32u ||
+         (type.bit_width == 64u && target == RCC_X86_TARGET_X86_64)) &&
+        rcc_mir_type_equal(desired, type);
+}
+
 static bool x86_legal_return_type_supported(
     RccMirType type, const RccX86Abi* abi) {
     if (type.kind == RCC_MIR_TYPE_FLOAT) {
@@ -1515,6 +1527,7 @@ static bool x86_legal_selected_shape(
         case RCC_X86_FMUL: case RCC_X86_FDIV:
         case RCC_X86_GEP:
         case RCC_X86_ATOMIC_FETCH_ADD:
+        case RCC_X86_ATOMIC_EXCHANGE:
             return instruction->has_destination &&
                 instruction->operand_count == 2u &&
                 instruction->target_count == 0u;
@@ -2051,6 +2064,14 @@ bool rcc_x86_verify_legal_function(
                  instruction->selected_opcode ==
                      RCC_X86_ATOMIC_FETCH_ADD &&
                  (!x86_legal_atomic_fetch_add_supported(
+                      instruction->type, instruction->operand_types[1],
+                      function->target) ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_POINTER)) ||
+                (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
+                 instruction->selected_opcode ==
+                     RCC_X86_ATOMIC_EXCHANGE &&
+                 (!x86_legal_atomic_exchange_supported(
                       instruction->type, instruction->operand_types[1],
                       function->target) ||
                   instruction->operand_types[0].kind !=

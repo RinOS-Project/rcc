@@ -442,6 +442,18 @@ static bool mir_verify_instruction_type(
             return instruction->type.kind == RCC_MIR_TYPE_POINTER &&
                 second.kind == RCC_MIR_TYPE_INTEGER &&
                 (second.bit_width == 32u || second.bit_width == 64u);
+        case RCC_MIR_ATOMIC_EXCHANGE:
+            return mir_shape(verifier, instruction, 2u, 0u) &&
+                ((instruction->type.kind == RCC_MIR_TYPE_INTEGER &&
+                  (instruction->type.bit_width == 8u ||
+                   instruction->type.bit_width == 16u ||
+                   instruction->type.bit_width == 32u ||
+                   instruction->type.bit_width == 64u)) ||
+                 instruction->type.kind == RCC_MIR_TYPE_POINTER) &&
+                mir_operand_type(verifier, instruction, 0u,
+                                 rcc_mir_type_pointer()) &&
+                mir_operand_type(verifier, instruction, 1u,
+                                 instruction->type);
         case RCC_MIR_GEP:
             if (!mir_shape(verifier, instruction, 2u, 0u) ||
                 instruction->type.kind != RCC_MIR_TYPE_POINTER ||

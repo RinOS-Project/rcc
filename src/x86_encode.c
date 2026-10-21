@@ -2141,6 +2141,58 @@ static bool x86_emit_atomic_fetch_add(
     return x86_emit_store(encoder, destination, RCC_X86_GPR_AX, size);
 }
 
+static bool x86_emit_atomic_exchange(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value address = instruction->operands[0];
+    RccX86Value desired = instruction->operands[1];
+    RccX86Value destination = instruction->destination;
+    bool pointer_operation =
+        instruction->type.kind == RCC_MIR_TYPE_POINTER;
+    uint16_t size = pointer_operation
+        ? encoder->function->pointer_size
+        : instruction->type.bit_width / 8u;
+    bool address_in_ax = address.kind == RCC_X86_VALUE_GPR &&
+        address.gpr == RCC_X86_GPR_AX;
+    RccX86HardwareGpr address_register =
+        address.kind == RCC_X86_VALUE_GPR && !address_in_ax
+            ? address.gpr : RCC_X86_GPR_CX;
+    if ((!pointer_operation &&
+         instruction->type.kind != RCC_MIR_TYPE_INTEGER) ||
+        (!pointer_operation &&
+         size != 1u && size != 2u && size != 4u &&
+         (size != 8u ||
+          encoder->function->target != RCC_X86_TARGET_X86_64)) ||
+        instruction->operand_types[0].kind != RCC_MIR_TYPE_POINTER ||
+        !rcc_mir_type_equal(instruction->operand_types[1],
+                            instruction->type)) {
+        return x86_encode_error(
+            encoder, "x86 atomic exchange contract is invalid");
+    }
+    if ((address_in_ax &&
+         !x86_emit_push(encoder, RCC_X86_GPR_AX))) return false;
+    if (desired.kind == RCC_X86_VALUE_GPR) {
+        if (!x86_emit_move_register_register(
+                encoder, RCC_X86_GPR_AX, desired.gpr, size)) return false;
+    } else if (!x86_emit_load(encoder, RCC_X86_GPR_AX, desired, size)) {
+        return false;
+    }
+    if (address_in_ax) {
+        if (!x86_emit_pop(encoder, address_register)) return false;
+    } else if (address.kind != RCC_X86_VALUE_GPR) {
+        if (!x86_emit_load(
+                encoder, address_register, address,
+                encoder->function->pointer_size)) return false;
+    }
+    if (!x86_emit_indirect_exchange(
+            encoder, address_register, RCC_X86_GPR_AX, size)) return false;
+    if (destination.kind == RCC_X86_VALUE_GPR) {
+        return x86_emit_move_register_register(
+            encoder, destination.gpr, RCC_X86_GPR_AX, size);
+    }
+    return x86_emit_store(encoder, destination, RCC_X86_GPR_AX, size);
+}
+
 static bool x86_emit_gep_index(
     RccX86Encoder* encoder, RccX86HardwareGpr destination,
     RccX86Value source, RccMirType type) {
@@ -3113,6 +3165,8 @@ static bool x86_emit_instruction(
             return x86_emit_pointer_store(encoder, instruction);
         case RCC_X86_ATOMIC_FETCH_ADD:
             return x86_emit_atomic_fetch_add(encoder, instruction);
+        case RCC_X86_ATOMIC_EXCHANGE:
+            return x86_emit_atomic_exchange(encoder, instruction);
         case RCC_X86_GEP:
             return x86_emit_gep(encoder, instruction);
         case RCC_X86_CAPTURE_RETURN_PAIR:

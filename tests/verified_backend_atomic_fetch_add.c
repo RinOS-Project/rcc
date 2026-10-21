@@ -8,10 +8,16 @@ int main(void)
     _Atomic int builtin_signed = -30;
     _Atomic unsigned short builtin_u16 = 65530u;
     _Atomic unsigned int builtin_value = 40u;
+    _Atomic unsigned char exchange_u8 = 7u;
+    _Atomic unsigned short exchange_u16 = 4660u;
+    _Atomic unsigned int exchange_value = 9u;
+    _Atomic(int *) exchange_cursor;
 #if defined(__x86_64__)
     _Atomic unsigned long long builtin_wide = 0x10000000aULL;
+    _Atomic unsigned long long exchange_wide = 0x123456789abcdef0ULL;
     unsigned long long builtin_wide_old;
     unsigned long long builtin_wide_new;
+    unsigned long long exchange_wide_old;
 #endif
     volatile int builtin_order = __ATOMIC_RELAXED;
     unsigned int builtin_fetch_sub;
@@ -22,6 +28,10 @@ int main(void)
     unsigned short builtin_u16_old;
     int builtin_signed_old;
     int builtin_signed_new;
+    unsigned int exchange_old;
+    unsigned char exchange_u8_old;
+    unsigned short exchange_u16_old;
+    int *exchange_pointer_old;
     int elements[8] = {0};
     _Atomic(int *) cursor = elements;
     int *old_pointer;
@@ -46,6 +56,7 @@ int main(void)
     prefix_pointer = ++cursor;
     if (prefix_pointer != &elements[3] || cursor != &elements[3]) return 6;
     decremented_pointer = --cursor;
+    exchange_cursor = elements;
     builtin_fetch_sub = __atomic_fetch_sub(
         &builtin_value, 7u, builtin_order++ % 6);
     builtin_sub_fetch = __atomic_sub_fetch(
@@ -62,11 +73,21 @@ int main(void)
         &builtin_signed, 5, builtin_order++ % 6);
     builtin_u16_old = __atomic_fetch_add(
         &builtin_u16, 10u, builtin_order++ % 6);
+    exchange_old = __atomic_exchange_n(
+        &exchange_value, 29u, builtin_order++ % 6);
+    exchange_u8_old = __atomic_exchange_n(
+        &exchange_u8, 19u, builtin_order++ % 6);
+    exchange_u16_old = __atomic_exchange_n(
+        &exchange_u16, 0xabcdU, builtin_order++ % 6);
+    exchange_pointer_old = __atomic_exchange_n(
+        &exchange_cursor, &elements[5], builtin_order++ % 6);
 #if defined(__x86_64__)
     builtin_wide_old = __atomic_fetch_sub(
         &builtin_wide, 0x100000000ULL, builtin_order++ % 6);
     builtin_wide_new = __atomic_add_fetch(
         &builtin_wide, 7ULL, builtin_order++ % 6);
+    exchange_wide_old = __atomic_exchange_n(
+        &exchange_wide, 0xfedcba9876543210ULL, builtin_order++ % 6);
 #endif
 
     return old8 == 250u && value8 == 5u && added8 == 5u &&
@@ -79,13 +100,20 @@ int main(void)
         builtin_fetch_add == 28u && builtin_add_fetch == 35u &&
         builtin_value == 35u &&
 #if defined(__x86_64__)
-        builtin_order == 10 && builtin_wide_old == 0x10000000aULL &&
+        builtin_order == 15 && builtin_wide_old == 0x10000000aULL &&
         builtin_wide_new == 17ULL && builtin_wide == 17ULL &&
+        exchange_wide_old == 0x123456789abcdef0ULL &&
+        exchange_wide == 0xfedcba9876543210ULL &&
 #else
-        builtin_order == 8 &&
+        builtin_order == 12 &&
 #endif
         builtin_narrow_old == 120 && builtin_signed8 == 110 &&
         builtin_u16_old == 65530u && builtin_u16 == 4u &&
+        exchange_old == 9u && exchange_value == 29u &&
+        exchange_u8_old == 7u && exchange_u8 == 19u &&
+        exchange_u16_old == 4660u && exchange_u16 == 0xabcdU &&
+        exchange_pointer_old == &elements[0] &&
+        exchange_cursor == &elements[5] &&
         builtin_signed_old == -30 && builtin_signed_new == -31 &&
         builtin_signed == -31
             ? 0 : 1;

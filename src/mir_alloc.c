@@ -121,8 +121,9 @@ static uint64_t mir_alloc_fixed_mask(
         case RCC_MIR_ASHR:
             return policy->shift_count_fixed_gpr_mask;
         case RCC_MIR_ATOMIC_FETCH_ADD:
-            /* The x86 encoder uses AX for the XADD value and CX for a
-             * spilled address; keep all live SSA values out of both. */
+        case RCC_MIR_ATOMIC_EXCHANGE:
+            /* The x86 encoder uses AX for the atomic value and CX for a
+             * spilled address; keep live SSA values out of both. */
             return policy->division_fixed_gpr_mask |
                 policy->shift_count_fixed_gpr_mask;
         case RCC_MIR_STACK_RESTORE:

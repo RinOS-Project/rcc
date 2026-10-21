@@ -85,6 +85,9 @@ typedef enum {
     /* Atomic integer/pointer fetch-add: returns the prior value and updates
      * memory; pointer deltas are byte offsets. */
     RCC_IR_ATOMIC_FETCH_ADD,
+    /* Atomic integer/pointer exchange: returns the prior value and updates
+     * memory with the desired value. */
+    RCC_IR_ATOMIC_EXCHANGE,
     RCC_IR_GEP,
     RCC_IR_SYMBOL_ADDRESS,
     RCC_IR_CALL,
