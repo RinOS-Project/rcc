@@ -145,6 +145,19 @@ public:
     }
 };
 
+class StandardSequenceRankedPointerConversion {
+public:
+    int mutable_value;
+    int const_value;
+
+    operator int*() { return &mutable_value; }
+    operator const int*() { return &const_value; }
+};
+
+int read_standard_sequence_ranked_pointer(const int* value) {
+    return *value;
+}
+
 int main() {
     ImplicitIntegerConversion implicit_value{7, 0};
     ExplicitIntegerConversion explicit_value{13, 0};
@@ -161,6 +174,7 @@ int main() {
     BaseMemberFunctionPointerConversion base_member_function_pointer;
     RankedConversion ranked_value{0, 0};
     StandardSequenceRankedConversion standard_sequence_ranked{0, 0};
+    StandardSequenceRankedPointerConversion pointer_sequence_ranked{17, 19};
     MemberPointerTargetValue member_pointer =
         static_cast<MemberPointerTargetValue>(explicit_member_pointer);
     int MemberPointerConversionDerived::*adjusted_member_pointer =
@@ -169,6 +183,8 @@ int main() {
     int (MemberPointerConversionDerived::*adjusted_member_function_pointer)(
         int) = static_cast<int (MemberPointerConversionDerived::*)(int)>(
         base_member_function_pointer);
+    const int* exact_pointer_sequence =
+        static_cast<const int*>(pointer_sequence_ranked);
 
     return static_cast<int>(implicit_value) == 9 &&
                    static_cast<unsigned>(implicit_value) == 9u &&
@@ -193,7 +209,12 @@ int main() {
                    ranked_value.floating_calls == 1 &&
                    static_cast<double>(standard_sequence_ranked) == 3.5 &&
                    standard_sequence_ranked.integer_calls == 0 &&
-                   standard_sequence_ranked.floating_calls == 1
+                   standard_sequence_ranked.floating_calls == 1 &&
+                   exact_pointer_sequence ==
+                       &pointer_sequence_ranked.const_value &&
+                   *exact_pointer_sequence == 19 &&
+                   read_standard_sequence_ranked_pointer(
+                       pointer_sequence_ranked) == 19
         ? 0
         : 1;
 }

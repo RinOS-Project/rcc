@@ -3247,6 +3247,36 @@ static int sema_cxx_pointer_result_source_relation(
     return 0;
 }
 
+static bool sema_cxx_qualification_targets_related(
+    Type* left, Type* right, bool ignore_current_qualification,
+    bool* left_subset, bool* right_subset, unsigned depth);
+
+/* A conversion-function result that already carries more of the target's
+ * pointee cv-qualification needs a shorter standard conversion sequence.
+ * In particular, `const T* -> const T*` is better than `T* -> const T*`,
+ * although both sequences have Exact Match rank. */
+static int sema_cxx_pointer_result_qualification_relation(
+    Type* left_result, Type* right_result, Type* target) {
+    bool left_subset = true;
+    bool right_subset = true;
+    if (!left_result || !right_result || !target ||
+        left_result->is_reference || right_result->is_reference ||
+        target->is_reference || left_result->kind != TYPE_PTR ||
+        right_result->kind != TYPE_PTR || target->kind != TYPE_PTR ||
+        left_result->cxx_is_member_pointer ||
+        right_result->cxx_is_member_pointer ||
+        target->cxx_is_member_pointer || !left_result->base ||
+        !right_result->base || !target->base ||
+        !sema_cxx_qualification_targets_related(
+            left_result->base, right_result->base, false,
+            &left_subset, &right_subset, 0u)) {
+        return 0;
+    }
+    if (left_subset && !right_subset) return -1;
+    if (right_subset && !left_subset) return 1;
+    return 0;
+}
+
 static void sema_register_materialized_member_templates(Type* aggregate) {
     if (!current_ast || !aggregate || !aggregate->cxx_class) return;
     for (TypeMethod* method = aggregate->methods; method;
@@ -3439,6 +3469,12 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                     relation = sema_cxx_pointer_result_source_relation(
                         candidates[other].result_type,
                         candidates[index].result_type, target);
+                    if (relation == 0) {
+                        relation =
+                            sema_cxx_pointer_result_qualification_relation(
+                                candidates[other].result_type,
+                                candidates[index].result_type, target);
+                    }
                     if (relation == 0) {
                         relation = sema_cxx_reference_conversion_source_relation(
                             candidates[other].result_type,

@@ -8303,5 +8303,14 @@ remains a separate open item.
       result and call counts against GCC, i686/AMD64 generation, AMD64
       execution at default/`-O2`, and all thirteen verified-SSA functions with
       zero fallback in the same target.
+- [x] Prefer an exact pointer result over one that needs a cv-qualification
+      conversion when both trailing sequences have Exact Match rank. For a
+      `const int*` target, select `operator const int*()` over `operator int*()`;
+      verify both `static_cast` and by-value argument conversion against GCC,
+      i686/AMD64 generation, AMD64 default/`-O2` execution, and all sixteen
+      verified-SSA functions with zero fallback at both targets/optimization
+      levels in `test-cxx-static-cast-conversion-operator`. The focused target
+      and aggregate `test-cxx-conversion-operator` pass.
 - [ ] Other pointer-to-member adjustment edge cases and standard conversion
-      sequence ordering beyond promotion-versus-conversion remain open.
+      sequence ordering beyond promotion-versus-conversion and
+      exact-versus-qualification remain open.
