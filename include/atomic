@@ -177,19 +177,37 @@ public:
     bool test_and_set(memory_order order) noexcept {
         return __atomic_test_and_set(&value_, order);
     }
+    bool test_and_set(memory_order order) volatile noexcept {
+        return __atomic_test_and_set(&value_, order);
+    }
     bool test_and_set() noexcept {
         return test_and_set(memory_order_seq_cst);
+    }
+    bool test_and_set() volatile noexcept {
+        return __atomic_test_and_set(&value_, memory_order_seq_cst);
     }
 
     void clear(memory_order order) noexcept {
         __atomic_clear(&value_, order);
     }
+    void clear(memory_order order) volatile noexcept {
+        __atomic_clear(&value_, order);
+    }
     void clear() noexcept { clear(memory_order_seq_cst); }
+    void clear() volatile noexcept {
+        __atomic_clear(&value_, memory_order_seq_cst);
+    }
 
     bool test(memory_order order) const noexcept {
         return __atomic_load_n(&value_, order) != 0u;
     }
+    bool test(memory_order order) const volatile noexcept {
+        return __atomic_load_n(&value_, order) != 0u;
+    }
     bool test() const noexcept { return test(memory_order_seq_cst); }
+    bool test() const volatile noexcept {
+        return __atomic_load_n(&value_, memory_order_seq_cst) != 0u;
+    }
 
 private:
     mutable unsigned char value_;
@@ -206,33 +224,64 @@ public:
     bool is_lock_free() const noexcept {
         return __atomic_is_lock_free(sizeof(T), &value_);
     }
+    bool is_lock_free() const volatile noexcept {
+        return __atomic_is_lock_free(sizeof(T), &value_);
+    }
 
     void store(T desired, memory_order order) noexcept {
+        this->store_impl(&value_, desired, order);
+    }
+    void store(T desired, memory_order order) volatile noexcept {
         this->store_impl(&value_, desired, order);
     }
     void store(T desired) noexcept {
         store(desired, memory_order_seq_cst);
     }
+    void store(T desired) volatile noexcept {
+        this->store_impl(&value_, desired, memory_order_seq_cst);
+    }
 
     T load(memory_order order) const noexcept {
         return this->load_impl(&value_, order);
     }
+    T load(memory_order order) const volatile noexcept {
+        return this->load_impl(&value_, order);
+    }
     T load() const noexcept { return load(memory_order_seq_cst); }
+    T load() const volatile noexcept {
+        return this->load_impl(&value_, memory_order_seq_cst);
+    }
 
     operator T() const noexcept {
         return load(memory_order_seq_cst);
+    }
+    operator T() const volatile noexcept {
+        return this->load_impl(&value_, memory_order_seq_cst);
     }
 
     T exchange(T desired, memory_order order) noexcept {
         return this->exchange_impl(&value_, desired, order);
     }
+    T exchange(T desired, memory_order order) volatile noexcept {
+        return this->exchange_impl(&value_, desired, order);
+    }
     T exchange(T desired) noexcept {
         return exchange(desired, memory_order_seq_cst);
+    }
+    T exchange(T desired) volatile noexcept {
+        return this->exchange_impl(&value_, desired,
+                                   memory_order_seq_cst);
     }
 
     bool compare_exchange_weak(T& expected, T desired,
                                memory_order success,
                                memory_order failure) noexcept {
+        return this->compare_exchange_impl(
+            &value_, &expected, desired, true, success, failure);
+    }
+    bool compare_exchange_weak(T& expected, T desired,
+                               memory_order success,
+                               memory_order failure) volatile noexcept {
         return this->compare_exchange_impl(
             &value_, &expected, desired, true, success, failure);
     }
@@ -242,16 +291,33 @@ public:
             expected, desired, memory_order_seq_cst,
             memory_order_seq_cst);
     }
+    bool compare_exchange_weak(T& expected, T desired) volatile noexcept {
+        return this->compare_exchange_impl(
+            &value_, &expected, desired, true, memory_order_seq_cst,
+            memory_order_seq_cst);
+    }
 
     bool compare_exchange_weak(T& expected, T desired,
                                memory_order order) noexcept {
         return compare_exchange_weak(
             expected, desired, order, default_failure_order(order));
     }
+    bool compare_exchange_weak(T& expected, T desired,
+                               memory_order order) volatile noexcept {
+        return this->compare_exchange_impl(
+            &value_, &expected, desired, true, order,
+            default_failure_order(order));
+    }
 
     bool compare_exchange_strong(T& expected, T desired,
                                  memory_order success,
                                  memory_order failure) noexcept {
+        return this->compare_exchange_impl(
+            &value_, &expected, desired, false, success, failure);
+    }
+    bool compare_exchange_strong(T& expected, T desired,
+                                 memory_order success,
+                                 memory_order failure) volatile noexcept {
         return this->compare_exchange_impl(
             &value_, &expected, desired, false, success, failure);
     }
@@ -261,11 +327,22 @@ public:
             expected, desired, memory_order_seq_cst,
             memory_order_seq_cst);
     }
+    bool compare_exchange_strong(T& expected, T desired) volatile noexcept {
+        return this->compare_exchange_impl(
+            &value_, &expected, desired, false, memory_order_seq_cst,
+            memory_order_seq_cst);
+    }
 
     bool compare_exchange_strong(T& expected, T desired,
                                  memory_order order) noexcept {
         return compare_exchange_strong(
             expected, desired, order, default_failure_order(order));
+    }
+    bool compare_exchange_strong(T& expected, T desired,
+                                 memory_order order) volatile noexcept {
+        return this->compare_exchange_impl(
+            &value_, &expected, desired, false, order,
+            default_failure_order(order));
     }
 
 protected:
@@ -290,19 +367,37 @@ public:
         this->store(desired, memory_order_seq_cst);
         return desired;
     }
+    T operator=(T desired) volatile noexcept {
+        this->store_impl(&this->value_, desired, memory_order_seq_cst);
+        return desired;
+    }
 
     T fetch_add(T operand, memory_order order) noexcept {
+        return this->fetch_add_impl(&this->value_, operand, order);
+    }
+    T fetch_add(T operand, memory_order order) volatile noexcept {
         return this->fetch_add_impl(&this->value_, operand, order);
     }
     T fetch_add(T operand) noexcept {
         return fetch_add(operand, memory_order_seq_cst);
     }
+    T fetch_add(T operand) volatile noexcept {
+        return this->fetch_add_impl(
+            &this->value_, operand, memory_order_seq_cst);
+    }
 
     T fetch_sub(T operand, memory_order order) noexcept {
         return this->fetch_sub_impl(&this->value_, operand, order);
     }
+    T fetch_sub(T operand, memory_order order) volatile noexcept {
+        return this->fetch_sub_impl(&this->value_, operand, order);
+    }
     T fetch_sub(T operand) noexcept {
         return fetch_sub(operand, memory_order_seq_cst);
+    }
+    T fetch_sub(T operand) volatile noexcept {
+        return this->fetch_sub_impl(
+            &this->value_, operand, memory_order_seq_cst);
     }
 
     template<class U>
@@ -310,7 +405,16 @@ public:
         return __atomic_fetch_and(&this->value_, operand, order);
     }
     template<class U>
+    T fetch_and(U operand, memory_order order) volatile noexcept {
+        return __atomic_fetch_and(&this->value_, operand, order);
+    }
+    template<class U>
     T fetch_and(U operand) noexcept {
+        return __atomic_fetch_and(
+            &this->value_, operand, memory_order_seq_cst);
+    }
+    template<class U>
+    T fetch_and(U operand) volatile noexcept {
         return __atomic_fetch_and(
             &this->value_, operand, memory_order_seq_cst);
     }
@@ -320,7 +424,16 @@ public:
         return __atomic_fetch_or(&this->value_, operand, order);
     }
     template<class U>
+    T fetch_or(U operand, memory_order order) volatile noexcept {
+        return __atomic_fetch_or(&this->value_, operand, order);
+    }
+    template<class U>
     T fetch_or(U operand) noexcept {
+        return __atomic_fetch_or(
+            &this->value_, operand, memory_order_seq_cst);
+    }
+    template<class U>
+    T fetch_or(U operand) volatile noexcept {
         return __atomic_fetch_or(
             &this->value_, operand, memory_order_seq_cst);
     }
@@ -330,24 +443,57 @@ public:
         return __atomic_fetch_xor(&this->value_, operand, order);
     }
     template<class U>
+    T fetch_xor(U operand, memory_order order) volatile noexcept {
+        return __atomic_fetch_xor(&this->value_, operand, order);
+    }
+    template<class U>
     T fetch_xor(U operand) noexcept {
+        return __atomic_fetch_xor(
+            &this->value_, operand, memory_order_seq_cst);
+    }
+    template<class U>
+    T fetch_xor(U operand) volatile noexcept {
         return __atomic_fetch_xor(
             &this->value_, operand, memory_order_seq_cst);
     }
 
     T operator++() noexcept { return fetch_add(1, memory_order_seq_cst) + 1; }
+    T operator++() volatile noexcept {
+        return this->fetch_add_impl(
+            &this->value_, 1, memory_order_seq_cst) + 1;
+    }
     T operator++(int) noexcept {
         return fetch_add(1, memory_order_seq_cst);
     }
+    T operator++(int) volatile noexcept {
+        return this->fetch_add_impl(
+            &this->value_, 1, memory_order_seq_cst);
+    }
     T operator--() noexcept { return fetch_sub(1, memory_order_seq_cst) - 1; }
+    T operator--() volatile noexcept {
+        return this->fetch_sub_impl(
+            &this->value_, 1, memory_order_seq_cst) - 1;
+    }
     T operator--(int) noexcept {
         return fetch_sub(1, memory_order_seq_cst);
+    }
+    T operator--(int) volatile noexcept {
+        return this->fetch_sub_impl(
+            &this->value_, 1, memory_order_seq_cst);
     }
     T operator+=(T operand) noexcept {
         return fetch_add(operand, memory_order_seq_cst) + operand;
     }
+    T operator+=(T operand) volatile noexcept {
+        return this->fetch_add_impl(
+            &this->value_, operand, memory_order_seq_cst) + operand;
+    }
     T operator-=(T operand) noexcept {
         return fetch_sub(operand, memory_order_seq_cst) - operand;
+    }
+    T operator-=(T operand) volatile noexcept {
+        return this->fetch_sub_impl(
+            &this->value_, operand, memory_order_seq_cst) - operand;
     }
 };
 
@@ -364,41 +510,89 @@ public:
         this->store(desired, memory_order_seq_cst);
         return desired;
     }
+    T* operator=(T* desired) volatile noexcept {
+        this->store_impl(&this->value_, desired, memory_order_seq_cst);
+        return desired;
+    }
 
     /* The builtin takes byte offsets; this API takes element offsets. */
     T* fetch_add(difference_type operand, memory_order order) noexcept {
         return __atomic_fetch_add(
             &this->value_, operand * sizeof(T), order);
     }
+    T* fetch_add(difference_type operand,
+                 memory_order order) volatile noexcept {
+        return __atomic_fetch_add(
+            &this->value_, operand * sizeof(T), order);
+    }
     T* fetch_add(difference_type operand) noexcept {
         return fetch_add(operand, memory_order_seq_cst);
+    }
+    T* fetch_add(difference_type operand) volatile noexcept {
+        return __atomic_fetch_add(
+            &this->value_, operand * sizeof(T), memory_order_seq_cst);
     }
 
     T* fetch_sub(difference_type operand, memory_order order) noexcept {
         return __atomic_fetch_sub(
             &this->value_, operand * sizeof(T), order);
     }
+    T* fetch_sub(difference_type operand,
+                 memory_order order) volatile noexcept {
+        return __atomic_fetch_sub(
+            &this->value_, operand * sizeof(T), order);
+    }
     T* fetch_sub(difference_type operand) noexcept {
         return fetch_sub(operand, memory_order_seq_cst);
+    }
+    T* fetch_sub(difference_type operand) volatile noexcept {
+        return __atomic_fetch_sub(
+            &this->value_, operand * sizeof(T), memory_order_seq_cst);
     }
 
     T* operator++() noexcept {
         return fetch_add(1, memory_order_seq_cst) + 1;
     }
+    T* operator++() volatile noexcept {
+        return __atomic_fetch_add(
+            &this->value_, sizeof(T), memory_order_seq_cst) + 1;
+    }
     T* operator++(int) noexcept {
         return fetch_add(1, memory_order_seq_cst);
+    }
+    T* operator++(int) volatile noexcept {
+        return __atomic_fetch_add(
+            &this->value_, sizeof(T), memory_order_seq_cst);
     }
     T* operator--() noexcept {
         return fetch_sub(1, memory_order_seq_cst) - 1;
     }
+    T* operator--() volatile noexcept {
+        return __atomic_fetch_sub(
+            &this->value_, sizeof(T), memory_order_seq_cst) - 1;
+    }
     T* operator--(int) noexcept {
         return fetch_sub(1, memory_order_seq_cst);
+    }
+    T* operator--(int) volatile noexcept {
+        return __atomic_fetch_sub(
+            &this->value_, sizeof(T), memory_order_seq_cst);
     }
     T* operator+=(difference_type operand) noexcept {
         return fetch_add(operand, memory_order_seq_cst) + operand;
     }
+    T* operator+=(difference_type operand) volatile noexcept {
+        return __atomic_fetch_add(
+            &this->value_, operand * sizeof(T), memory_order_seq_cst) +
+            operand;
+    }
     T* operator-=(difference_type operand) noexcept {
         return fetch_sub(operand, memory_order_seq_cst) - operand;
+    }
+    T* operator-=(difference_type operand) volatile noexcept {
+        return __atomic_fetch_sub(
+            &this->value_, operand * sizeof(T), memory_order_seq_cst) -
+            operand;
     }
 };
 

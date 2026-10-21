@@ -98,6 +98,142 @@ extern "C" unsigned cpp_standard_atomic_operations() {
             return 46u;
     }
 #endif
+    {
+        volatile std::atomic<unsigned> volatile_value(2u);
+        unsigned volatile_expected = 100u;
+        if (!volatile_value.is_lock_free()) return 50u;
+        if (volatile_value.load() != 2u) return 75u;
+        unsigned volatile_converted = volatile_value;
+        if (volatile_converted != 2u) return volatile_converted;
+        volatile_value.store(5u, std::memory_order_release);
+        if (volatile_value.exchange(7u, std::memory_order_acq_rel) != 5u)
+            return 51u;
+        if (volatile_value.compare_exchange_strong(
+                volatile_expected, 9u, std::memory_order_acq_rel,
+                std::memory_order_acquire) || volatile_expected != 7u)
+            return 52u;
+        volatile_expected = 7u;
+        if (!volatile_value.compare_exchange_weak(
+                volatile_expected, 8u, std::memory_order_release) ||
+            volatile_value.load() != 8u) return 53u;
+        if (volatile_value.fetch_add(2u) != 8u ||
+            volatile_value.fetch_sub(1u, std::memory_order_relaxed) != 10u)
+            return 54u;
+        if (volatile_value.fetch_and(7u) != 9u ||
+            volatile_value.fetch_or(8u, std::memory_order_relaxed) != 1u ||
+            volatile_value.fetch_xor(3u) != 9u) return 55u;
+        if (++volatile_value != 11u || volatile_value++ != 11u ||
+            --volatile_value != 11u || volatile_value-- != 11u)
+            return 56u;
+        if ((volatile_value += 4u) != 14u ||
+            (volatile_value -= 3u) != 11u ||
+            (volatile_value = 12u) != 12u)
+            return 57u;
+        volatile_value.store(12u);
+        volatile_expected = 12u;
+        if (!volatile_value.compare_exchange_strong(
+                volatile_expected, 13u)) return 67u;
+        volatile_expected = 13u;
+        if (!volatile_value.compare_exchange_weak(
+                volatile_expected, 14u)) return 72u;
+        volatile_expected = 14u;
+        if (!volatile_value.compare_exchange_strong(
+                volatile_expected, 15u, std::memory_order_seq_cst) ||
+            volatile_value.load() != 15u) return 73u;
+    }
+    {
+        int volatile_pointer_values[5];
+        volatile std::atomic<int*> volatile_pointer(
+            volatile_pointer_values);
+        int* volatile_pointer_expected = volatile_pointer_values + 2;
+        if (volatile_pointer.load() != volatile_pointer_values ||
+            volatile_pointer.fetch_add(2) != volatile_pointer_values ||
+            volatile_pointer.fetch_sub(1, std::memory_order_relaxed) !=
+                volatile_pointer_values + 2)
+            return 58u;
+        if (volatile_pointer.compare_exchange_strong(
+                volatile_pointer_expected, volatile_pointer_values + 3) ||
+            volatile_pointer_expected != volatile_pointer_values + 1)
+            return 59u;
+        volatile_pointer_expected = volatile_pointer_values + 1;
+        if (!volatile_pointer.compare_exchange_weak(
+                volatile_pointer_expected, volatile_pointer_values + 2,
+                std::memory_order_acq_rel) ||
+            volatile_pointer++ != volatile_pointer_values + 2 ||
+            volatile_pointer.load() != volatile_pointer_values + 3)
+            return 60u;
+        if ((volatile_pointer -= 2) != volatile_pointer_values + 1 ||
+            (volatile_pointer = volatile_pointer_values + 4) !=
+                volatile_pointer_values + 4 ||
+            volatile_pointer.exchange(volatile_pointer_values) !=
+                volatile_pointer_values + 4)
+            return 61u;
+        volatile_pointer.store(volatile_pointer_values + 1);
+        volatile_pointer_expected = volatile_pointer_values + 1;
+        if (!volatile_pointer.compare_exchange_strong(
+                volatile_pointer_expected, volatile_pointer_values + 2,
+                std::memory_order_seq_cst))
+            return 68u;
+        volatile_pointer_expected = volatile_pointer_values + 2;
+        if (!volatile_pointer.compare_exchange_weak(
+                volatile_pointer_expected, volatile_pointer_values + 3) ||
+            volatile_pointer.load() != volatile_pointer_values + 3)
+            return 74u;
+    }
+    {
+        volatile std::atomic<float> volatile_floating(1.0f);
+        float volatile_float_expected = 2.0f;
+        if (volatile_floating.fetch_add(1.5f) != 1.0f ||
+            volatile_floating.fetch_sub(0.5f,
+                std::memory_order_relaxed) != 2.5f)
+            return 62u;
+        if (!volatile_floating.compare_exchange_strong(
+                volatile_float_expected, 4.0f,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire) ||
+            volatile_floating.exchange(5.0f) != 4.0f ||
+            (volatile_floating = 6.0f) != 6.0f ||
+            volatile_floating.load() != 6.0f)
+            return 63u;
+        volatile_floating.store(7.0f, std::memory_order_release);
+        if (volatile_floating.load(std::memory_order_acquire) != 7.0f)
+            return 69u;
+    }
+#if defined(__x86_64__)
+    {
+        volatile std::atomic<double> volatile_floating_wide(2.0);
+        double volatile_double_expected = 2.0;
+        if (!volatile_floating_wide.compare_exchange_weak(
+                volatile_double_expected, 3.0,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire) ||
+            volatile_floating_wide.fetch_add(0.5) != 3.0 ||
+            volatile_floating_wide.fetch_sub(0.25) != 3.5 ||
+            (volatile_floating_wide = 4.0) != 4.0 ||
+            volatile_floating_wide.load() != 4.0)
+            return 64u;
+        volatile_floating_wide.store(5.0);
+        if (volatile_floating_wide.load() != 5.0) return 70u;
+    }
+#endif
+    {
+        volatile std::atomic_flag volatile_flag;
+        if (volatile_flag.test() || volatile_flag.test_and_set() ||
+            !volatile_flag.test(std::memory_order_relaxed))
+            return 65u;
+        volatile_flag.clear(std::memory_order_release);
+        if (volatile_flag.test_and_set(std::memory_order_acquire))
+            return 66u;
+        volatile_flag.clear();
+    }
+    {
+        const volatile std::atomic<unsigned> const_volatile_value(17u);
+        const volatile std::atomic_flag const_volatile_flag;
+        if (!const_volatile_value.is_lock_free() ||
+            const_volatile_value.load(std::memory_order_acquire) != 17u ||
+            const_volatile_flag.test())
+            return 71u;
+    }
     if (value.load(std::memory_order_relaxed) != 3u) return 1u;
     value.store(7u, std::memory_order_release);
     if (value.exchange(9u, std::memory_order_acq_rel) != 7u) return 2u;

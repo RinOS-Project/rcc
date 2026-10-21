@@ -8066,6 +8066,13 @@ remains a separate open item.
       same support for `double` on AMD64. Default initialization and arithmetic
       results compile on both targets and execute in AMD64 `-O0`/`-O2` runs via
       `test-atomic-builtins`.
+- [x] Add volatile-qualified `atomic_flag` and scalar/pointer/floating
+      `atomic<T>` overloads for the operations currently provided by the
+      header. Fix implicit-object overload ranking to count each added cv
+      qualifier so mutable objects prefer `const` over `const volatile`.
+      `test-atomic-builtins` executes integer, pointer, float, AMD64 double,
+      and flag operations through volatile objects; the existing volatile
+      member-overload tests pass on both target widths.
 - [ ] Full `<atomic>` conformance remains open: `double` operations on i686,
-      type constraints/traits and volatile overloads, complete constructor/API
-      overload sets, and C++20 wait/notify operations.
+      type constraints/traits, complete constructor/API overload sets, and
+      C++20 wait/notify operations.

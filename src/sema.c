@@ -12675,6 +12675,7 @@ static int cxx_member_object_conversion_rank(Type* object_type,
                                              TypeMethod* method) {
     Type* this_type;
     Type* this_object;
+    int rank = 0;
 
     if (!method || !method->function_decl ||
         !method->function_decl->func_is_cxx_method ||
@@ -12696,14 +12697,13 @@ static int cxx_member_object_conversion_rank(Type* object_type,
         (object_type->is_volatile && !this_object->is_volatile)) {
         return -1;
     }
-    /* Binding a mutable object to a const member is a qualification
-     * conversion.  The mutable overload is the better match when both are
-     * viable. */
-    if ((this_object->is_const && !object_type->is_const) ||
-        (this_object->is_volatile && !object_type->is_volatile)) {
-        return 1;
-    }
-    return 0;
+    /* Keep the implicit-object conversion rank sensitive to each added
+     * qualifier.  In particular, a mutable object binds better to `const`
+     * than to `const volatile`; treating both conversions as one step makes
+     * ordinary C++ calls ambiguous whenever both overloads are present. */
+    if (this_object->is_const && !object_type->is_const) ++rank;
+    if (this_object->is_volatile && !object_type->is_volatile) ++rank;
+    return rank;
 }
 
 /* Apply the implicit-object reference binding rules for member ref-
