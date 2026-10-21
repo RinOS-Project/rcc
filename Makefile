@@ -19858,6 +19858,20 @@ ifeq ($(OS),Windows_NT)
 		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64.o \
 		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-host
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2.s \
+		tests/cxx_static_cast_conversion_operator.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2.o \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2.o
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2.o \
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2-host
 	g++ -std=c++20 -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-host \
 		tests/cxx_static_cast_conversion_operator.cpp
@@ -19885,11 +19899,54 @@ else
 		$(TEST_OUT)/cxx-static-cast-conversion-operator/start-x64.o \
 		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64.o
 	$(TEST_OUT)/cxx-static-cast-conversion-operator/x64
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2.s \
+		tests/cxx_static_cast_conversion_operator.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2.o \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2 \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/start-x64.o \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2.o
+	$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-o2
 	g++ -std=c++20 -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-host \
 		tests/cxx_static_cast_conversion_operator.cpp
 	$(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-host
 endif
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x86.ro \
+		tests/cxx_static_cast_conversion_operator.cpp \
+		> $(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x86.log
+	$(GREP) -F -q "Verified backend: 9 function(s) emitted" \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x86.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x86-o2.ro \
+		tests/cxx_static_cast_conversion_operator.cpp \
+		> $(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x86-o2.log
+	$(GREP) -F -q "Verified backend: 9 function(s) emitted" \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x86-o2.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x64.ro \
+		tests/cxx_static_cast_conversion_operator.cpp \
+		> $(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x64.log
+	$(GREP) -F -q "Verified backend: 9 function(s) emitted" \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x64.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x64-o2.ro \
+		tests/cxx_static_cast_conversion_operator.cpp \
+		> $(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x64-o2.log
+	$(GREP) -F -q "Verified backend: 9 function(s) emitted" \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-static-cast-conversion-operator/verified-x64-o2.log,0)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -DTEST_IMPLICIT_CONVERSION_REJECTED -fsyntax-only tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-implicit-invalid.log)
 	$(GREP) -F -q "cannot convert" $(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-implicit-invalid.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_IMPLICIT_CONVERSION_REJECTED -c -o $(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x86.ro tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x86.log)

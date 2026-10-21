@@ -8213,3 +8213,14 @@ remains a separate open item.
 - [ ] Non-trivially-copyable aggregate targets, thread-local initialization,
       and verified-SSA lowering for this cleanup case remain open; other
       class-prvalue contexts remain open.
+
+## RCC continuation (2026-10-21, conversion-function member-pointer adjustment)
+
+- [x] Preserve the standard base-to-derived member-pointer conversion after a
+      class conversion function returns a base-owned member pointer in
+      `static_cast`. Verify GCC C++20 parity, i686/AMD64 legacy code generation,
+      AMD64 execution at default optimization and `-O2`, and verified-SSA
+      emission of all nine functions with zero fallback on i686/AMD64 at
+      `-O0`/`-O2` in `test-cxx-static-cast-conversion-operator`.
+- [ ] Other pointer-to-member adjustment edge cases and less-common explicit
+      cast conversion sequences remain open.

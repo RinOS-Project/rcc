@@ -15259,6 +15259,21 @@ static Type* sema_expr(Expr* expr) {
                     } else {
                         expr->is_cxx_nullptr =
                             expr->cast_expr->is_cxx_nullptr;
+                        if (class_source && expr->cast_expr->type &&
+                            !type_is_compatible(expr->cast_expr->type,
+                                                target)) {
+                            /* A conversion function returning a base-class
+                             * member pointer can be followed by the standard
+                             * base-to-derived member-pointer conversion. Keep
+                             * that second step explicit so code generation
+                             * applies the owner adjustment to the returned
+                             * member pointer. */
+                            Expr* adjusted = expr_cast(
+                                target, expr->cast_expr, expr->loc);
+                            adjusted->cxx_cast_kind = CXX_CAST_STATIC;
+                            sema_expr(adjusted);
+                            *expr = *adjusted;
+                        }
                     }
                     break;
                 }

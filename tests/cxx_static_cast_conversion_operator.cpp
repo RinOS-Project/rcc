@@ -58,6 +58,24 @@ public:
     }
 };
 
+struct MemberPointerConversionPrefix {
+    int prefix;
+};
+
+struct MemberPointerConversionBase {
+    int value;
+};
+
+struct MemberPointerConversionDerived : MemberPointerConversionPrefix,
+                                       MemberPointerConversionBase {};
+
+class BaseMemberPointerConversion {
+public:
+    operator int MemberPointerConversionBase::*() {
+        return &MemberPointerConversionBase::value;
+    }
+};
+
 #if defined(TEST_EXPLICIT_STANDARD_SEQUENCE_REJECTED)
 unsigned reject_explicit_standard_conversion(
     ExplicitIntegerConversion value) {
@@ -100,9 +118,16 @@ int main() {
     ExplicitPointerConversion explicit_pointer{&pointed_value, 0};
     MemberPointerTarget member_pointer_target{31};
     ExplicitMemberPointerConversion explicit_member_pointer{0};
+    MemberPointerConversionDerived member_pointer_derived;
+    member_pointer_derived.prefix = 5;
+    member_pointer_derived.value = 37;
+    BaseMemberPointerConversion base_member_pointer;
     RankedConversion ranked_value{0, 0};
     MemberPointerTargetValue member_pointer =
         static_cast<MemberPointerTargetValue>(explicit_member_pointer);
+    int MemberPointerConversionDerived::*adjusted_member_pointer =
+        static_cast<int MemberPointerConversionDerived::*>(
+            base_member_pointer);
 
     return static_cast<int>(implicit_value) == 9 &&
                    static_cast<unsigned>(implicit_value) == 9u &&
@@ -116,6 +141,7 @@ int main() {
                    explicit_pointer.calls == 1 &&
                    (member_pointer_target.*member_pointer) == 31 &&
                    explicit_member_pointer.calls == 1 &&
+                   (member_pointer_derived.*adjusted_member_pointer) == 37 &&
                    static_cast<double>(ranked_value) == 2.5 &&
                    ranked_value.integer_calls == 0 &&
                    ranked_value.floating_calls == 1 &&
