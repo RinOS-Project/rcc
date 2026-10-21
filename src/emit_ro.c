@@ -4972,10 +4972,12 @@ static bool debug_inline_integer_literal_bits(
         *bits = (uint64_t)expression->int_val;
         return true;
     }
-    if (expression->kind == EXPR_NEG && expression->unary_operand &&
+    if ((expression->kind == EXPR_NEG ||
+         expression->kind == EXPR_BITNOT) && expression->unary_operand &&
         debug_inline_integer_literal_bits(
             expression->unary_operand, bits, depth + 1u)) {
-        *bits = UINT64_C(0) - *bits;
+        *bits = expression->kind == EXPR_NEG
+            ? UINT64_C(0) - *bits : ~*bits;
         return true;
     }
     return false;
@@ -5063,7 +5065,8 @@ static bool debug_build_inline_integer_value_expression(
                 architecture);
     }
 
-    if (expression->kind == EXPR_NEG && expression->unary_operand &&
+    if ((expression->kind == EXPR_NEG ||
+         expression->kind == EXPR_BITNOT) && expression->unary_operand &&
         debug_inline_integer_expression_type(
             expression->unary_operand->type) &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -5072,7 +5075,8 @@ static bool debug_build_inline_integer_value_expression(
             mod, architecture, expression->unary_operand, output, capacity,
             output_size, depth + 1u) &&
         debug_inline_integer_expression_append_byte(
-            output, capacity, output_size, 0x1fu) && /* DW_OP_neg */
+            output, capacity, output_size,
+            expression->kind == EXPR_NEG ? 0x1fu : 0x20u) &&
         debug_inline_integer_expression_normalize(
             output, capacity, output_size, expression->type, architecture)) {
         return true;
@@ -5132,7 +5136,8 @@ static bool debug_inline_parameter_integer_expression(
          argument->expr->kind != EXPR_BITXOR &&
          argument->expr->kind != EXPR_LSHIFT &&
          argument->expr->kind != EXPR_RSHIFT &&
-         argument->expr->kind != EXPR_NEG) ||
+         argument->expr->kind != EXPR_NEG &&
+         argument->expr->kind != EXPR_BITNOT) ||
         !debug_inline_parameter_body_is_read_only(callee)) {
         return false;
     }

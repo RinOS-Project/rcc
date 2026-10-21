@@ -8153,6 +8153,7 @@ static void verify_inline_integer_expression_parameter(
            source_name &&
            (expected_operation == 0x22u || expected_operation == 0x1cu ||
             expected_operation == 0x1eu || expected_operation == 0x1fu ||
+            expected_operation == 0x20u ||
             expected_operation == 0x1au || expected_operation == 0x21u ||
             expected_operation == 0x27u || expected_operation == 0x24u ||
             expected_operation == 0x25u || expected_operation == 0x26u));
@@ -8211,7 +8212,7 @@ static void verify_inline_integer_expression_parameter(
     verify_inline_integer_expression_normalization(
         info->data, expression_end, &expression_offset, architecture,
         is_unsigned);
-    if (expected_operation != 0x1fu) {
+    if (expected_operation != 0x1fu && expected_operation != 0x20u) {
         if (is_unsigned) {
             assert(expression_offset < expression_end &&
                    info->data[expression_offset++] == 0x10u &&
@@ -8262,6 +8263,8 @@ static void verify_inline_integer_expression_cases(
          "debug_inline_nonconstant_integer_source", false, 0x1eu, 3},
         {"debug_nonconstant_integer_negate_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 0x1fu, 0},
+        {"debug_nonconstant_integer_bitnot_parameter_inline",
+         "debug_inline_nonconstant_integer_source", false, 0x20u, 0},
         {"debug_nonconstant_integer_bitand_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 0x1au, 7},
         {"debug_nonconstant_integer_bitor_parameter_inline",

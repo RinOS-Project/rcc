@@ -28,6 +28,11 @@ inline int debug_nonconstant_integer_negate_parameter_inline(int value)
     return value;
 }
 
+inline int debug_nonconstant_integer_bitnot_parameter_inline(int value)
+{
+    return value;
+}
+
 inline int debug_nonconstant_integer_bitand_parameter_inline(int value)
 {
     return value;
