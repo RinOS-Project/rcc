@@ -9831,6 +9831,55 @@ static RccIrLowerValue lower_atomic_load_store_call(
     }
 }
 
+static RccIrLowerValue lower_atomic_fence_call(
+    RccIrLowerContext* context, const Expr* expression) {
+    const ExprList* order_argument = expression->call_args;
+    RccIrType fence_type = rcc_ir_type_integer(32u);
+    RccIrLowerValue order;
+    RccIrLowerValue zero;
+    RccIrLowerValue address;
+    RccIrValue operands[2];
+    RccIrInstruction* allocation;
+    RccIrInstruction* fence;
+
+    if (!order_argument || !order_argument->expr || order_argument->next) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    order = lower_expression(context, order_argument->expr);
+    if (!order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    /* A locked memory XCHG is a sequentially consistent hardware barrier,
+     * stronger than all valid thread/signal fence orders on x86. Use an
+     * initialized, aligned stack word so the fence does not access source data. */
+    allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!allocation) return lower_invalid_value();
+    rcc_ir_set_immediate(allocation, 4u);
+    allocation->alignment = 4u;
+    address = lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
+    zero = lower_integer_constant(context, fence_type, true, 0u);
+    if (!zero.valid || !lower_store_address(context, address, zero)) {
+        return lower_invalid_value();
+    }
+    operands[0] = address.value;
+    operands[1] = zero.value;
+    fence = lower_append(
+        context, RCC_IR_ATOMIC_EXCHANGE, fence_type,
+        operands, 2u, NULL, 0u);
+    if (!fence) return lower_invalid_value();
+    {
+        RccIrLowerValue void_result = lower_invalid_value();
+        void_result.valid = true;
+        return void_result;
+    }
+}
+
 static RccIrLowerValue lower_call(RccIrLowerContext* context,
                                   const Expr* expression) {
     const Decl* callee = NULL;
@@ -9867,6 +9916,15 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     bool register_temporary_cleanups = expression &&
         !expression->cxx_call_is_noexcept;
     RccIrInstruction* call;
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        (strcmp(expression->call_func->ident_name,
+                "__atomic_thread_fence") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_signal_fence") == 0)) {
+        return lower_atomic_fence_call(context, expression);
+    }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
         expression->call_func->ident_name &&

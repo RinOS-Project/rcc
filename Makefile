@@ -17374,7 +17374,7 @@ test-verified-atomic-fetch-add: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/atomic-fetch-add-x64.ro
 	$(TEST_OUT)/verified-backend/atomic-fetch-add-run --entry \
 		$(TEST_OUT)/verified-backend/atomic-fetch-add-x64-o2.ro
-	@echo "Verified integer/pointer atomic load, store, and RMW tests completed"
+	@echo "Verified atomic load/store/fences and integer/pointer RMW tests completed"
 
 test-verified-vla-local-bound: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)

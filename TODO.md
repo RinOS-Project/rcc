@@ -7757,8 +7757,9 @@ remains a separate open item.
       subtraction, as recorded in the continuations below.
 - [ ] Additional VLA pointer forms beyond the covered offsets/subtraction,
       typed-SSA explicit-order atomic builtins beyond scalar integer/pointer
-      load, store, exchange, and fetch arithmetic; other atomic RMW operators,
-      floating/aggregate atomics, and general C++ atomic operations remain open.
+      load, store, exchange, fetch arithmetic, and fences; other atomic RMW
+      operators, floating/aggregate atomics, and general C++ atomic operations
+      remain open.
 
 ## RCC continuation (2026-10-21, VLA pointer offsets)
 
@@ -7884,5 +7885,17 @@ remains a separate open item.
       i686/AMD64 at `-O0`/`-O2` with zero fallback, executes AMD64 outputs, and
       agrees with the GCC C17 oracle. Atomic builtin, language, and IR suites
       pass; invalid pointer offset types receive a diagnostic.
+- [ ] Other atomic integer RMW operators, generic/aggregate builtin forms,
+      floating/aggregate atomics, and general C++ atomic operations remain open.
+
+## RCC continuation (2026-10-21, typed-SSA atomic fences)
+
+- [x] Lower `__atomic_thread_fence` and `__atomic_signal_fence` directly to a
+      locked memory `XCHG` on an initialized, aligned stack word. This supplies
+      an x86 sequentially consistent hardware/compiler barrier, stronger than
+      every valid fence order, and evaluates the runtime order expression once.
+- [x] `test-verified-atomic-fetch-add` covers side-effecting runtime orders,
+      zero fallback at `-O0`/`-O2` for i686/AMD64, AMD64 execution, and the GCC
+      C17 oracle; existing `test-ir` verifies the x86 XCHG encoding.
 - [ ] Other atomic integer RMW operators, generic/aggregate builtin forms,
       floating/aggregate atomics, and general C++ atomic operations remain open.

@@ -110,6 +110,8 @@ int main(void)
         &fetch_cursor, 2, builtin_order++ % 6);
     pointer_sub_new = __atomic_sub_fetch(
         &fetch_cursor, 1, builtin_order++ % 6);
+    __atomic_thread_fence(builtin_order++ % 6);
+    __atomic_signal_fence(builtin_order++ % 6);
 #if defined(__x86_64__)
     builtin_wide_old = __atomic_fetch_sub(
         &builtin_wide, 0x100000000ULL, builtin_order++ % 6);
@@ -129,12 +131,12 @@ int main(void)
         builtin_fetch_add == 28u && builtin_add_fetch == 35u &&
         builtin_value == 35u &&
 #if defined(__x86_64__)
-        builtin_order == 23 && builtin_wide_old == 0x10000000aULL &&
+        builtin_order == 25 && builtin_wide_old == 0x10000000aULL &&
         builtin_wide_new == 17ULL && builtin_wide == 17ULL &&
         exchange_wide_old == 0x123456789abcdef0ULL &&
         exchange_wide == 0xfedcba9876543210ULL &&
 #else
-        builtin_order == 20 &&
+        builtin_order == 22 &&
 #endif
         builtin_narrow_old == 120 && builtin_signed8 == 110 &&
         builtin_u16_old == 65530u && builtin_u16 == 4u &&
