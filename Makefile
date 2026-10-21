@@ -19523,4 +19523,78 @@ test-cxx-conversion-nested-pointer-qualification: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-nested-pointer-qualification/x64.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_NESTED_POINTER_QUALIFICATION_SAFE -c -o $(TEST_OUT)/cxx-conversion-nested-pointer-qualification/safe-x64.ro tests/cxx_conversion_nested_pointer_qualification.cpp
 
-test-cxx-conversion-operator: test-cxx-conversion-member-pointer-owner-path test-cxx-conversion-nested-pointer-qualification
+test-cxx-conversion-operator: test-cxx-conversion-member-pointer-owner-path test-cxx-conversion-nested-pointer-qualification test-cxx-static-cast-conversion-operator
+
+.PHONY: test-cxx-static-cast-conversion-operator
+test-cxx-static-cast-conversion-operator: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-cast-conversion-operator)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x86.s \
+		tests/cxx_static_cast_conversion_operator.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x86.o \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-S \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x64.s \
+		tests/cxx_static_cast_conversion_operator.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x64.o \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64.o
+ifeq ($(OS),Windows_NT)
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64.o \
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-static-cast-conversion-operator/x64-host
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-host \
+		tests/cxx_static_cast_conversion_operator.cpp
+	$(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-host
+else
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x86-runtime.s \
+		tests/cxx_static_cast_conversion_operator.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x86-runtime.o \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x86-runtime.s
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x86 \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/start-x86.o \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x86-runtime.o
+	$(TEST_OUT)/cxx-static-cast-conversion-operator/x86
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/x64 \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/start-x64.o \
+		$(TEST_OUT)/cxx-static-cast-conversion-operator/x64.o
+	$(TEST_OUT)/cxx-static-cast-conversion-operator/x64
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-host \
+		tests/cxx_static_cast_conversion_operator.cpp
+	$(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-host
+endif
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -DTEST_IMPLICIT_CONVERSION_REJECTED -fsyntax-only tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-implicit-invalid.log)
+	$(GREP) -F -q "cannot convert" $(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-implicit-invalid.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_IMPLICIT_CONVERSION_REJECTED -c -o $(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x86.ro tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x86.log)
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_IMPLICIT_CONVERSION_REJECTED -c -o $(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x64.ro tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x64.log)
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -DTEST_EXPLICIT_STANDARD_SEQUENCE_REJECTED -fsyntax-only tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-explicit-sequence-invalid.log)
+	$(GREP) -F -q "invalid 'static_cast'" $(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-explicit-sequence-invalid.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_EXPLICIT_STANDARD_SEQUENCE_REJECTED -c -o $(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x86.ro tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x86.log)
+	$(GREP) -F -q "static_cast requires a viable conversion function" $(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_EXPLICIT_STANDARD_SEQUENCE_REJECTED -c -o $(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.ro tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.log)
+	$(GREP) -F -q "static_cast requires a viable conversion function" $(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x64.ro)

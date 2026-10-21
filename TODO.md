@@ -8076,3 +8076,22 @@ remains a separate open item.
 - [ ] Full `<atomic>` conformance remains open: `double` operations on i686,
       type constraints/traits, complete constructor/API overload sets, and
       C++20 wait/notify operations.
+
+## RCC continuation (2026-10-21, C++ `static_cast` conversion functions)
+
+- [x] Resolve implicit and explicit conversion functions when a C++
+      `static_cast` converts a class object to an arithmetic or pointer target.
+      Explicit conversion functions participate only when their result is an
+      exact match for the cast target; ordinary initialization, return, and
+      overload conversion continue to reject explicit conversion functions.
+- [x] Add a focused regression with side-effecting conversion operators so
+      returning the source object's first field cannot pass accidentally;
+      verify ranking between exact explicit and standard-conversion implicit
+      results and an rvalue source. i686/AMD64 code generation, AMD64 native
+      execution, GCC C++20 execution, and i686/AMD64 rejection of implicit use
+      of an explicit operator or an extra conversion after an explicit
+      operator pass in
+      `test-cxx-static-cast-conversion-operator`.
+- [ ] Full C++ explicit-cast coverage remains open, including class targets,
+      pointer-to-member conversion functions, and less-common standard
+      conversion sequences.

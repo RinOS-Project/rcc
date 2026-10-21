@@ -3274,7 +3274,8 @@ static void sema_register_materialized_member_templates(Type* aggregate) {
 static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                                                    Type* target,
                                                    bool* ambiguous,
-                                                   Expr* source_expression) {
+                                                   Expr* source_expression,
+                                                   bool allow_explicit) {
     typedef struct {
         TypeMethod* method;
         Type* result_type;
@@ -3312,7 +3313,7 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         if (method->kind != TYPE_METHOD_FUNCTION ||
             !method->function_decl || !method->return_type ||
             !method->name || strcmp(method->name, "operator conversion") != 0 ||
-            method->is_explicit ||
+            (method->is_explicit && !allow_explicit) ||
             method->function_decl->func_params) {
             continue;
         }
@@ -3342,7 +3343,10 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
             }
         }
         rank = sema_cxx_conversion_result_rank(result_type, target);
-        if (rank < 0) continue;
+        if (rank < 0 ||
+            (method->is_explicit && allow_explicit && rank != 0)) {
+            continue;
+        }
         candidates[candidate_count].method = method;
         candidates[candidate_count].result_type = result_type;
         candidates[candidate_count].result_rank = rank;
@@ -3615,7 +3619,8 @@ static bool sema_cxx_apply_derived_to_base_value_cast(
     return true;
 }
 
-static Type* implicit_cast(Expr* e, Type* target) {
+static Type* implicit_cast_with_explicit_conversion(
+    Expr* e, Type* target, bool allow_explicit_conversion) {
     if (!e->type || !target) return NULL;
 
     /* nullptr has a zero machine representation, but it is not an integer.
@@ -3734,7 +3739,8 @@ reference_binding_source:
              source_object->kind == TYPE_UNION)) {
             bool ambiguous = false;
             TypeMethod* conversion = sema_find_cxx_conversion_method(
-                source_object, target, &ambiguous, e);
+                source_object, target, &ambiguous, e,
+                allow_explicit_conversion);
             if (!ambiguous && conversion) {
                 Type* conversion_result_object = conversion->return_type;
                 bool apply_standard_conversion;
@@ -3978,7 +3984,8 @@ reference_binding_validated:
              source_object->kind == TYPE_UNION)) {
             bool ambiguous = false;
             TypeMethod* conversion = sema_find_cxx_conversion_method(
-                source_object, target, &ambiguous, e);
+                source_object, target, &ambiguous, e,
+                allow_explicit_conversion);
             if (ambiguous) return NULL;
             if (conversion) {
                 Expr* source = ast_arena_alloc(sizeof(*source));
@@ -4079,6 +4086,10 @@ reference_binding_validated:
     }
 
     return NULL;
+}
+
+static Type* implicit_cast(Expr* e, Type* target) {
+    return implicit_cast_with_explicit_conversion(e, target, false);
 }
 
 static TypeMethod* sema_find_inline_method(Type* aggregate,
@@ -9219,7 +9230,7 @@ static int cxx_conversion_rank_detail_at_context(
             (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION)) {
             bool ambiguous = false;
             TypeMethod* conversion = sema_find_cxx_conversion_method(
-                source, target, &ambiguous, argument);
+                source, target, &ambiguous, argument, false);
             if (ambiguous) return -1;
             if (conversion) {
                 if (conversion_method) *conversion_method = conversion;
@@ -9282,7 +9293,7 @@ static int cxx_conversion_rank_detail_at_context(
         (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION)) {
         bool ambiguous = false;
         TypeMethod* conversion = sema_find_cxx_conversion_method(
-            source, target, &ambiguous, argument);
+            source, target, &ambiguous, argument, false);
         if (conversion) {
             if (conversion_method) *conversion_method = conversion;
             return 3 + sema_cxx_conversion_result_rank(
@@ -15073,6 +15084,30 @@ static Type* sema_expr(Expr* expr) {
                     }
                 }
                 break;
+            }
+            if (rcc_parser_is_cxx_mode() && source && expr->cast_type &&
+                expr->cxx_cast_kind == CXX_CAST_STATIC) {
+                Type* source_object = source->is_reference && source->base
+                    ? source->base : source;
+                if (source_object->kind == TYPE_STRUCT ||
+                    source_object->kind == TYPE_UNION) {
+                    Type* conversion_target = expr->cast_type->is_reference
+                        ? expr->cast_type->base : expr->cast_type;
+                    if (conversion_target &&
+                        (type_is_arithmetic(conversion_target) ||
+                         conversion_target->kind == TYPE_ENUM ||
+                         conversion_target->kind == TYPE_PTR)) {
+                        Type* converted =
+                            implicit_cast_with_explicit_conversion(
+                                expr->cast_expr, expr->cast_type, true);
+                        if (!converted) {
+                            rcc_error(expr->loc,
+                                      "static_cast requires a viable conversion function");
+                        } else {
+                            source = expr->cast_expr->type;
+                        }
+                    }
+                }
             }
             if (rcc_parser_is_cxx_mode() && source && expr->cast_type &&
                 expr->cxx_cast_kind == CXX_CAST_STATIC &&
