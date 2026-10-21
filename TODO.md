@@ -8325,7 +8325,12 @@ remains a separate open item.
       AMD64 default/`-O2` output, and retain ambiguity for unrelated base
       owners. The focused gate checks i686 PE object format and verifies that
       ambiguous `.ro` output is absent on both target widths.
-- [ ] The verified backend still falls back for this member-pointer selection
-      and adjustment expression. Other member-type qualification/noexcept
-      combinations, virtual/ambiguous owner paths, and broader standard
-      conversion-sequence ordering remain open.
+- [x] Preserve the selected conversion function's declared result type through
+      ABI lowering, then represent its required base-to-derived member-pointer
+      owner adjustment as a separate cast AST node for implicit by-value
+      arguments. The focused gate and `test-cxx-conversion-operator` pass; all
+      four functions emit with zero verified-backend fallback for i686/AMD64
+      at `-O0` and `-O2`.
+- [ ] Other member-type qualification/noexcept combinations,
+      virtual/ambiguous owner paths, and broader standard conversion-sequence
+      ordering remain open.

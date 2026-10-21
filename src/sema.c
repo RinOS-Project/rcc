@@ -4086,9 +4086,29 @@ reference_binding_validated:
                 *e = *call;
                 sema_expr(e);
                 if (sema_cxx_decay_array_reference(e, target)) return target;
-                return e->type &&
-                        sema_cxx_conversion_result_rank(e->type, target) >= 0
-                    ? target : NULL;
+                if (!e->type ||
+                    sema_cxx_conversion_result_rank(e->type, target) < 0) {
+                    return NULL;
+                }
+                if (e->type->kind == TYPE_PTR &&
+                    e->type->cxx_is_member_pointer &&
+                    target->kind == TYPE_PTR &&
+                    target->cxx_is_member_pointer &&
+                    !type_is_compatible(e->type, target)) {
+                    Expr* conversion_result =
+                        ast_arena_alloc(sizeof(*conversion_result));
+                    /* Keep the standard base-to-derived member-pointer
+                     * conversion after the selected conversion function as
+                     * an explicit AST step. The call's own type must remain
+                     * its declared result type for ABI lowering. */
+                    *conversion_result = *e;
+                    Expr* adjusted = expr_cast(
+                        target, conversion_result, e->loc);
+                    adjusted->cxx_cast_kind = CXX_CAST_STATIC;
+                    sema_expr(adjusted);
+                    *e = *adjusted;
+                }
+                return target;
             }
         }
     }

@@ -39,16 +39,16 @@ int read_member_pointer_value(
 
 int main() {
     MemberPointerRankingSource source;
-    MemberPointerRankingLeaf object{};
+    MemberPointerRankingLeaf object;
     object.root_value = 17;
     object.middle_value = 23;
 
     int MemberPointerRankingLeaf::*member =
         static_cast<int MemberPointerRankingLeaf::*>(source);
-    return object.*member == 23 &&
-                   read_member_pointer_value(object, source) == 23
-        ? 0
-        : 1;
+    if (object.*member != 23) return 1;
+    int argument_value = read_member_pointer_value(object, source);
+    if (argument_value != 23) return argument_value == 17 ? 2 : 3;
+    return 0;
 }
 
 #if defined(TEST_UNRELATED_MEMBER_POINTER_OWNERS_AMBIGUOUS)
