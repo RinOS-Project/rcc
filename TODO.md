@@ -8377,15 +8377,19 @@ remains a separate open item.
 ## RCC continuation (2026-10-22, i686 unsigned 64-bit inline bitwise DWARF)
 
 - [x] Preserve inline `unsigned long long` arguments formed by AND, OR, or XOR
-      with a same-typed integer constant on i686. Emit exact low/high four-byte
-      `DW_OP_piece` values from the stable source frame slot. Verify each opcode,
-      constant word, source offset, piece width, and eight boundary patterns in
-      legacy and verified-backend i686/AMD64 objects. Native-Windows
+      with a same-typed integer constant on i686, and unary `~` from a
+      frame-backed source. Emit exact low/high four-byte `DW_OP_piece` values.
+      Verify each opcode, constant word, source offset, piece width, and eight
+      boundary patterns in legacy and verified-backend i686/AMD64 objects.
+      Native-Windows
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [x] Lower frame-backed i686 `unsigned long long` subtraction by a same-typed
       constant into low/high pieces, with an exact unsigned borrow into the
       high word. Verify the DWARF expression and wrap/borrow boundary patterns;
       both inline-expression and full debug-info gates pass.
+- [x] Preserve i686 unary bitwise NOT on frame-backed `unsigned long long` as
+      two exact four-byte value pieces. Verify source offsets and piece widths
+      plus eight boundary values; both debug-info gates pass.
 - [ ] i686 unsigned 64-bit multiplication, division/remainder with nonconstant
-      operands, two-variable arithmetic, and broader optimized multi-piece
-      locations remain open.
+      operands, unary negation, two-variable arithmetic, and broader optimized
+      multi-piece locations remain open.

@@ -5784,6 +5784,52 @@ static bool debug_inline_parameter_i686_unsigned_u64_sub_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_unsigned_u64_bitnot_expression(
+    const Module* mod, const Type* parameter_type,
+    const Expr* source_expression, uint8_t* expression, size_t capacity,
+    size_t* expression_size) {
+    const Decl* source;
+    int64_t frame_offset;
+    size_t size = 0u;
+    if (!mod || !parameter_type || !source_expression || !expression ||
+        !expression_size || source_expression->kind != EXPR_BITNOT ||
+        !source_expression->unary_operand || !parameter_type->is_unsigned ||
+        parameter_type->size != 8u ||
+        source_expression->unary_operand->kind != EXPR_IDENT ||
+        !source_expression->unary_operand->ident_decl) {
+        return false;
+    }
+    source = source_expression->unary_operand->ident_decl;
+    if (!source || (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+        source->var_is_global || source->var_is_static_local ||
+        source->var_is_thread_local || source->var_is_vla || !source->type ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source->type, parameter_type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source_expression->unary_operand->type, parameter_type, 0u) ||
+        !debug_inline_parameter_frame_offset(mod, source, &frame_offset) ||
+        frame_offset > INT64_MAX - 4) {
+        return false;
+    }
+    for (unsigned int word = 0u; word < 2u; ++word) {
+        if (!debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, &size, ARCH_X86,
+                frame_offset + (int64_t)(word * 4u)) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x20u) || /* DW_OP_not */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) || /* stack_value */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u)) {
+            return false;
+        }
+    }
+    *expression_size = size;
+    return true;
+}
+
 static bool debug_inline_parameter_integer_expression(
     const Module* mod, int architecture, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
@@ -5880,6 +5926,16 @@ static bool debug_inline_parameter_integer_expression(
         (unsigned int)parameter_type->size == 8u &&
         source_expression->kind == EXPR_SUB &&
         debug_inline_parameter_i686_unsigned_u64_sub_expression(
+            mod, parameter_type, source_expression, expression,
+            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
+            expression_size)) {
+        return true;
+    }
+
+    if (architecture == ARCH_X86 && parameter_type->is_unsigned &&
+        (unsigned int)parameter_type->size == 8u &&
+        source_expression->kind == EXPR_BITNOT &&
+        debug_inline_parameter_i686_unsigned_u64_bitnot_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
             expression_size)) {
