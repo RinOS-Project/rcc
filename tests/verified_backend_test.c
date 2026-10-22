@@ -4912,6 +4912,7 @@ static void verify_cxx_throwing_temporary_object(
         assert(integer_argument(4) == 6421);
         assert(integer_argument(5) == 90221);
         assert(integer_argument(6) == 6621);
+        assert(integer_argument(7) == 6721);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

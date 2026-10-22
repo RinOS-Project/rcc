@@ -17447,15 +17447,42 @@ static bool lower_cxx_constructor_initializer_expression_supported(
     }
 }
 
+/* A scalar default-member initializer may be the first operation after the
+ * base subobjects are complete. Permit its direct scalar function call to
+ * throw so the already-registered bases are unwound, while keeping call
+ * arguments non-throwing and free of temporary cleanup obligations. */
+static bool lower_cxx_throwing_scalar_default_member_initializer_supported(
+    RccIrLowerContext* context, const Expr* expression) {
+    if (!context || !expression || expression->kind != EXPR_CALL ||
+        expression->call_is_new || expression->call_is_delete ||
+        !expression->type || !type_is_scalar(expression->type) ||
+        !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        !expression->call_func->ident_decl ||
+        expression->call_func->ident_decl->kind != DECL_FUNC) {
+        return false;
+    }
+    for (const ExprList* argument = expression->call_args;
+         argument; argument = argument->next) {
+        if (argument->cxx_temporary_owner ||
+            !lower_cxx_constructor_initializer_expression_supported(
+                context, argument->expr, 0u) ||
+            !lower_noexcept_expression(argument->expr)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* A potentially-throwing exception specification does not itself add a
  * throwing operation. Completed direct bases are registered before the body
- * is lowered, so body throws unwind those bases. Keep virtual bases,
- * default-member initializers, and non-scalar derived fields outside this
- * partial-construction path. */
+ * is lowered, so body throws unwind those bases. Scalar default-member
+ * initializers are checked individually; virtual bases and non-scalar
+ * derived fields remain outside this partial-construction path. */
 static bool lower_cxx_throwing_constructor_with_bases_supported(
     const CxxClass* cls, const Decl* declaration) {
     if (!cls || !declaration || declaration->func_is_noexcept) return true;
-    if (cls->has_field_initializer || cls->virtual_base_count != 0) {
+    if (cls->virtual_base_count != 0) {
         return false;
     }
     for (const TypeParam* member = cls->fields; member;
@@ -17494,7 +17521,7 @@ static bool lower_cxx_initialize_constructor_members(
          (!cls->bases || !cls->base_offsets ||
           !lower_cxx_throwing_constructor_with_bases_supported(
               cls, declaration))) ||
-        cls->has_field_initializer || !declaration->func_this_param ||
+        !declaration->func_this_param ||
         !(this_local = lower_find_local(
               context, declaration->func_this_param))) {
         if (context) context->unsupported = true;
@@ -17643,7 +17670,6 @@ static bool lower_cxx_initialize_constructor_members(
         }
         if (initializer->is_delegating_constructor ||
             initializer->is_virtual_base_initializer ||
-            initializer->is_default_member_initializer ||
             initializer->is_pack_expansion || !initializer->field) {
             context->unsupported = true;
             return false;
@@ -17691,9 +17717,20 @@ static bool lower_cxx_initialize_constructor_members(
             }
             continue;
         }
-        if (initializer->constructor || field->type->kind == TYPE_STRUCT ||
-            !argument || argument->next || !(source = argument->expr) ||
-            initializer->value != source) {
+        if (initializer->constructor || field->type->kind == TYPE_STRUCT) {
+            context->unsupported = true;
+            return false;
+        }
+        if (initializer->is_default_member_initializer) {
+            if (argument || !field->initializer ||
+                initializer->value != field->initializer ||
+                !(source = initializer->value)) {
+                context->unsupported = true;
+                return false;
+            }
+        } else if (!argument || argument->next ||
+                   !(source = argument->expr) ||
+                   initializer->value != source) {
             context->unsupported = true;
             return false;
         }
@@ -17704,9 +17741,12 @@ static bool lower_cxx_initialize_constructor_members(
             field->type->is_volatile || field->type->is_atomic ||
             lower_i686_wide_scalar_type(field->type) ||
             (!constant_initializer &&
-             (!lower_cxx_constructor_initializer_expression_supported(
-                  context, source, 0u) ||
-              !lower_noexcept_expression(source)))) {
+             (initializer->is_default_member_initializer
+                  ? !lower_cxx_throwing_scalar_default_member_initializer_supported(
+                        context, source)
+                  : (!lower_cxx_constructor_initializer_expression_supported(
+                         context, source, 0u) ||
+                     !lower_noexcept_expression(source))))) {
             context->unsupported = true;
             return false;
         }
@@ -17790,7 +17830,8 @@ static bool lower_cxx_initialize_constructor_members(
             }
             continue;
         }
-        source = initializer->arguments->expr;
+        source = initializer->is_default_member_initializer
+            ? initializer->value : initializer->arguments->expr;
         value = lower_expression(context, source);
         value = lower_cast(context, value, field->type);
         if (!address.valid || !value.valid ||

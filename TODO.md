@@ -488,12 +488,14 @@
         各baseの完了後にunwind cleanupを登録する。後続baseがthrowした場合、先行する
         完成済みbaseをreverse orderで破棄する。derived body内のnested/fallthrough switchを
         通常のstatement CFGへlowerし、body throwでも完成済みbaseをreverse orderでcleanup。
-        direct baseはnon-virtual leaf、後続member initializerはscalar/non-throwingに限定。
-        fixtureの44関数すべてがi686/AMD64の`-O0`/`-O2`でfallback 0となり、second-base throw、
-        switch fallthrough、body/loop throw、成功時の破棄順、完成後caller throw、first-base throwを
-        実行検証。`test-verified-cxx-throwing-temporary`と、この拡張を含む
+        direct baseはnon-virtual leafに限定。scalar default-member-initializerの直接callが
+        throwする場合も、完了済みbaseをreverse orderでcleanupし、call引数はnon-throwingで
+        temporary cleanup不要の形に限定。fixtureの45関数すべてがi686/AMD64の`-O0`/`-O2`で
+        fallback 0となり、second-base throw、switch fallthrough、body/loop/DMI throw、
+        成功時の破棄順、完成後caller throw、first-base throwを実行検証。
+        `test-verified-cxx-throwing-temporary`と、この拡張を含む
         `test-verified-backend`が成功。基底cleanup実装は`57f2d8d`、nested/fallthrough
-        switchとbody-throwへの拡張および追加回帰テストは`6646bb8`。
+        switchとbody-throwへの拡張は`6646bb8`。throwing scalar DMI拡張はこの変更に含める。
   - [ ] virtual base construction、nontrivial/deleted target copy constructor、call引数以外の
         full-expression cleanupと未検証の例外経路が残る。
         標準conversion subsequenceと

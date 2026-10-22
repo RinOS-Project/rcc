@@ -199,5 +199,12 @@ int main(void) {
                 result);
         return 22;
     }
+    result = verified_cxx_single_throwing_base_constructor(7);
+    if (result != 6721) {
+        fprintf(stderr,
+                "throwing scalar member initializer did not unwind both completed bases: %d, expected 6721\n",
+                result);
+        return 23;
+    }
     return rcc_test_main();
 }

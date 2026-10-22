@@ -245,10 +245,19 @@ struct VerifiedSecondPotentiallyThrowingBase {
     }
 };
 
+static int verified_multiple_base_member_initializer_mode;
+
+static int verified_multiple_base_member_initializer_value() {
+    if (verified_multiple_base_member_initializer_mode == 7) throw 67;
+    return 13;
+}
+
 struct VerifiedMultipleThrowingBaseDerived :
         VerifiedPotentiallyThrowingBase,
         VerifiedSecondPotentiallyThrowingBase {
     int tail;
+    int default_member_value =
+        verified_multiple_base_member_initializer_value();
 
     explicit VerifiedMultipleThrowingBaseDerived(
         int* cleanup_order, int first, int second, int body_mode)
@@ -659,6 +668,7 @@ extern "C" int verified_cxx_single_throwing_base_constructor(
     int mode) {
     int cleanup_order = 0;
     int result = 0;
+    verified_multiple_base_member_initializer_mode = mode;
     try {
         {
             VerifiedMultipleThrowingBaseDerived object(
