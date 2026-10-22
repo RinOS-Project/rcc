@@ -277,9 +277,15 @@ int debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry(int value)
         debug_nonconstant_unsigned_long_long_wide_remainder_inline(
             debug_inline_nonconstant_unsigned_long_long_wide_source %
                 65536ull);
+    int divided_wider = debug_nonconstant_unsigned_long_long_wider_divide_inline(
+        debug_inline_nonconstant_unsigned_long_long_wide_source / 65537ull);
+    int remainder_wider =
+        debug_nonconstant_unsigned_long_long_wider_remainder_inline(
+            debug_inline_nonconstant_unsigned_long_long_wide_source %
+                131072ull);
     debug_inline_nonconstant_unsigned_long_long_wide_escape =
         &debug_inline_nonconstant_unsigned_long_long_wide_source;
-    return divided + remainder;
+    return divided + remainder + divided_wider + remainder_wider;
 }
 
 int debug_inline_nonconstant_unsigned_long_long_add_two_variables_entry(

@@ -124,6 +124,20 @@ debug_nonconstant_unsigned_long_long_wide_remainder_inline(
     return value;
 }
 
+inline unsigned long long
+debug_nonconstant_unsigned_long_long_wider_divide_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
+inline unsigned long long
+debug_nonconstant_unsigned_long_long_wider_remainder_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
 inline unsigned long long debug_nonconstant_unsigned_long_long_high_divide_inline(
     unsigned long long value)
 {
