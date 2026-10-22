@@ -8492,7 +8492,7 @@ remains a separate open item.
       upper-word `>> 33` path against eight boundary bit patterns in legacy
       and verified-backend DWARF. Focused inline-expression and full
       native-Windows `test-debug-info` gates pass.
-- [ ] Nonconstant i686 64-bit shifts, division/remainder, and broader
+- [ ] Nonconstant i686 64-bit division/remainder and broader
       optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit constant shift DWARF)
@@ -8503,5 +8503,20 @@ remains a separate open item.
       negative/positive `>> 33` values, including exact `DW_OP_shra` sign
       propagation, in legacy and verified-backend DWARF. Focused and full
       native-Windows `test-debug-info` gates pass.
-- [ ] Nonconstant i686 64-bit shifts, division/remainder, and broader
+- [ ] Nonconstant i686 64-bit division/remainder and broader
       optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, i686 64-bit variable shift DWARF)
+
+- [x] Preserve frame-backed i686 signed and unsigned `long long` left/right
+      shifts with a frame-backed 32-bit runtime count. Emit separate DWARF
+      branches for count zero, counts 1–31, and counts 32–63, composing exact
+      low/high four-byte pieces; signed right shifts use arithmetic
+      sign-fill. The test evaluator executes emitted branch expressions for
+      counts 0, 1, 31, 32, 33, and 63 across unsigned boundary patterns and
+      signed negative/positive values. Signed-left cases with undefined
+      overflow are excluded. Focused inline-expression and full
+      native-Windows `test-debug-info` gates pass for legacy and verified
+      backends.
+- [ ] Other count types/locations, nonconstant i686 64-bit division/remainder,
+      and broader optimized multi-piece locations remain open.
