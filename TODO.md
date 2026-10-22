@@ -702,6 +702,12 @@
         TSD destructors. Host thread-exit regressions exist. Keep open until
         RinOS target execution and broader initializer/lifetime forms are
         verified.
+  - [x] Cover a namespace-scope thread-local reference temporary initialized
+        by a built-in comma expression. The POSIX regression checks one left-
+        operand evaluation per thread, stable repeated reference identity,
+        retained per-thread value, and exactly-once reverse destruction; GCC/
+        Clang C++20 syntax checks plus RCC i686/AMD64 generation and x64
+        pthread execution pass in WSL.
   - [x] Extend the TLS fixture with a function-local block-scope
         `static thread_local const Base&` bound to a class prvalue. Repeated
         calls with different initializer values verify the generated per-thread

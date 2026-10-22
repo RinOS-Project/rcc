@@ -12,6 +12,7 @@ int cxx_static_reference_tls_derived_destructions = 0;
 int cxx_static_reference_tls_conversions = 0;
 int cxx_static_reference_tls_member_constructions = 0;
 int cxx_static_reference_tls_member_destructions = 0;
+int cxx_static_reference_tls_comma_evaluations = 0;
 #endif
 }
 
@@ -119,6 +120,12 @@ thread_local int cxx_static_reference_thread_value;
 thread_local const ThreadLocalReferenceLifetime& thread_local_reference =
     ThreadLocalReferenceLifetime{cxx_static_reference_thread_value};
 
+thread_local const ThreadLocalReferenceLifetime&
+    thread_local_comma_reference =
+        (cxx_static_reference_tls_comma_evaluations++,
+         ThreadLocalReferenceLifetime{
+             cxx_static_reference_thread_value + 1});
+
 thread_local const ThreadLocalReferenceBase& thread_local_base_reference =
     static_cast<ThreadLocalReferenceBase&&>(
         ThreadLocalReferenceDerived{cxx_static_reference_thread_value + 10});
@@ -138,6 +145,13 @@ extern "C" int cxx_static_reference_tls_worker(int value) {
     const ThreadLocalReferenceLifetime* first = &thread_local_reference;
     const ThreadLocalReferenceLifetime* second = &thread_local_reference;
     if (first != second || first->value != value) return 1;
+    const ThreadLocalReferenceLifetime* comma_first =
+        &thread_local_comma_reference;
+    const ThreadLocalReferenceLifetime* comma_second =
+        &thread_local_comma_reference;
+    if (comma_first != comma_second || comma_first->value != value + 1) {
+        return 8;
+    }
     const ThreadLocalReferenceBase* base_first = &thread_local_base_reference;
     const ThreadLocalReferenceBase* base_second = &thread_local_base_reference;
     if (base_first != base_second || base_first->value != value + 10) return 2;
