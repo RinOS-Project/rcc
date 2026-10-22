@@ -9106,16 +9106,25 @@ static void verify_inline_unsigned_mul_expression(
     }
 }
 
-static void verify_inline_unsigned_bitnot_expression(
+static void verify_inline_u64_bitnot_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* source_name,
-    int64_t source_frame_offset) {
-    const uint64_t values[] = {
+    int64_t source_frame_offset, bool is_unsigned) {
+    static const uint64_t unsigned_values[] = {
         0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
         UINT64_C(0x1fffffffe), UINT64_C(0x7fffffffffffffff),
         UINT64_C(0xfffffffffffffffe), UINT64_MAX
     };
+    static const uint64_t signed_values[] = {
+        0u, 1u, UINT64_MAX, UINT64_C(0x7fffffffffffffff),
+        UINT64_C(0x8000000000000007), UINT64_C(0x8000000000000008),
+        UINT64_C(0xfffffffffffffff9), UINT64_C(0x8000000012345678)
+    };
+    const uint64_t* values = is_unsigned ? unsigned_values : signed_values;
+    size_t value_count = is_unsigned
+        ? sizeof(unsigned_values) / sizeof(unsigned_values[0])
+        : sizeof(signed_values) / sizeof(signed_values[0]);
     uint64_t offset = expression_start;
     bool has_variable_location;
     bool variable_is_location_list;
@@ -9137,8 +9146,7 @@ static void verify_inline_unsigned_bitnot_expression(
         &variable_frame_offset));
     assert(has_variable_location &&
            variable_frame_offset == source_frame_offset);
-    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
-         ++index) {
+    for (size_t index = 0u; index < value_count; ++index) {
         uint32_t low = ~(uint32_t)values[index];
         uint32_t high = ~(uint32_t)(values[index] >> 32u);
         uint64_t actual = ((uint64_t)high << 32u) | low;
@@ -9146,16 +9154,25 @@ static void verify_inline_unsigned_bitnot_expression(
     }
 }
 
-static void verify_inline_unsigned_negate_expression(
+static void verify_inline_u64_negate_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* source_name,
-    int64_t source_frame_offset) {
-    const uint64_t values[] = {
+    int64_t source_frame_offset, bool is_unsigned) {
+    static const uint64_t unsigned_values[] = {
         0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
         UINT64_C(0x1fffffffe), UINT64_C(0x7fffffffffffffff),
         UINT64_C(0xfffffffffffffffe), UINT64_MAX
     };
+    static const uint64_t signed_values[] = {
+        0u, 1u, UINT64_MAX, UINT64_C(0x7fffffffffffffff),
+        UINT64_C(0x8000000000000007), UINT64_C(0x8000000000000008),
+        UINT64_C(0xfffffffffffffff9), UINT64_C(0x8000000012345678)
+    };
+    const uint64_t* values = is_unsigned ? unsigned_values : signed_values;
+    size_t value_count = is_unsigned
+        ? sizeof(unsigned_values) / sizeof(unsigned_values[0])
+        : sizeof(signed_values) / sizeof(signed_values[0]);
     uint64_t offset = expression_start;
     bool has_variable_location;
     bool variable_is_location_list;
@@ -9191,8 +9208,7 @@ static void verify_inline_unsigned_negate_expression(
         &variable_frame_offset));
     assert(has_variable_location &&
            variable_frame_offset == source_frame_offset);
-    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
-         ++index) {
+    for (size_t index = 0u; index < value_count; ++index) {
         uint32_t low = (uint32_t)values[index];
         uint32_t high = (uint32_t)(values[index] >> 32u);
         uint32_t low_result = 0u - low;
@@ -9227,7 +9243,11 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
-    const char* call_site_name = expected_operation == 0xe2u
+    const char* call_site_name = expected_operation == 0xebu
+        ? "debug_inline_nonconstant_signed_long_long_bitnot_entry"
+        : expected_operation == 0xecu
+            ? "debug_inline_nonconstant_signed_long_long_negate_entry"
+            : expected_operation == 0xe2u
         ? "debug_inline_nonconstant_signed_long_long_and_constant_entry"
         : expected_operation == 0xe3u
             ? "debug_inline_nonconstant_signed_long_long_or_constant_entry"
@@ -9266,7 +9286,8 @@ static void verify_inline_integer_expression_parameter(
            source_name &&
            (expected_operation == 0xe0u || expected_operation == 0xe1u ||
             expected_operation == 0xe2u || expected_operation == 0xe3u ||
-            expected_operation == 0xeau ||
+            expected_operation == 0xeau || expected_operation == 0xebu ||
+            expected_operation == 0xecu ||
             expected_operation == 0xe4u || expected_operation == 0xe5u ||
             expected_operation == 0xe6u || expected_operation == 0xe7u ||
             expected_operation == 0xe8u || expected_operation == 0xe9u ||
@@ -9374,11 +9395,13 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (expected_operation == 0xfbu) {
-        assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u);
-        verify_inline_unsigned_bitnot_expression(
+    if (expected_operation == 0xfbu || expected_operation == 0xebu) {
+        bool expected_unsigned = expected_operation == 0xfbu;
+        assert(architecture == ARCH_X86 && is_unsigned == expected_unsigned &&
+               value_size == 8u);
+        verify_inline_u64_bitnot_expression(
             info->data, expression_end, expression_start, info, strings,
-            locations, source_name, frame_offset);
+            locations, source_name, frame_offset, is_unsigned);
         objfile_free(object);
         return;
     }
@@ -9392,11 +9415,13 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (expected_operation == 0xf9u) {
-        assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u);
-        verify_inline_unsigned_negate_expression(
+    if (expected_operation == 0xf9u || expected_operation == 0xecu) {
+        bool expected_unsigned = expected_operation == 0xf9u;
+        assert(architecture == ARCH_X86 && is_unsigned == expected_unsigned &&
+               value_size == 8u);
+        verify_inline_u64_negate_expression(
             info->data, expression_end, expression_start, info, strings,
-            locations, source_name, frame_offset);
+            locations, source_name, frame_offset, is_unsigned);
         objfile_free(object);
         return;
     }
@@ -9728,6 +9753,14 @@ static void verify_inline_integer_expression_cases(
          "debug_inline_nonconstant_signed_long_long_xor_constant_source",
          false, 8u,
          0xeau, -INT64_C(0x100000001), NULL, false},
+        {"debug_nonconstant_signed_long_long_bitnot_inline",
+         "debug_inline_nonconstant_signed_long_long_bitnot_source",
+         false, 8u,
+         0xebu, 0, NULL, false},
+        {"debug_nonconstant_signed_long_long_negate_inline",
+         "debug_inline_nonconstant_signed_long_long_negate_source",
+         false, 8u,
+         0xecu, 0, NULL, false},
         {"debug_nonconstant_unsigned_long_long_multiply_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0xfau, INT64_C(0x0f0ff0f00ff00ff0), NULL, false},
@@ -9766,6 +9799,8 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xe2u ||
              cases[index].operation == 0xe3u ||
              cases[index].operation == 0xeau ||
+             cases[index].operation == 0xebu ||
+             cases[index].operation == 0xecu ||
              cases[index].operation == 0xe4u ||
              cases[index].operation == 0xe5u ||
              cases[index].operation == 0xe6u ||
@@ -9791,6 +9826,8 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xe2u &&
             cases[index].operation != 0xe3u &&
             cases[index].operation != 0xeau &&
+            cases[index].operation != 0xebu &&
+            cases[index].operation != 0xecu &&
             cases[index].operation != 0xe4u &&
             cases[index].operation != 0xe5u &&
             cases[index].operation != 0xe6u &&

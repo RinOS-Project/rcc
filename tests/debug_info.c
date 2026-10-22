@@ -519,6 +519,26 @@ int debug_inline_nonconstant_signed_long_long_xor_constant_entry(int value)
             (-0x100000001ll));
 }
 
+int debug_inline_nonconstant_signed_long_long_bitnot_entry(int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_bitnot_source =
+        (long long)value;
+    debug_inline_nonconstant_signed_long_long_escape =
+        &debug_inline_nonconstant_signed_long_long_bitnot_source;
+    return (int)debug_nonconstant_signed_long_long_bitnot_inline(
+        ~debug_inline_nonconstant_signed_long_long_bitnot_source);
+}
+
+int debug_inline_nonconstant_signed_long_long_negate_entry(int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_negate_source =
+        (long long)value;
+    debug_inline_nonconstant_signed_long_long_escape =
+        &debug_inline_nonconstant_signed_long_long_negate_source;
+    return (int)debug_nonconstant_signed_long_long_negate_inline(
+        -debug_inline_nonconstant_signed_long_long_negate_source);
+}
+
 int debug_inline_local_entry(int value)
 {
     return debug_local_inline(value);

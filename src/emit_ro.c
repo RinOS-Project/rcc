@@ -6359,7 +6359,7 @@ static bool debug_inline_parameter_i686_u64_sub_constant_expression(
     return true;
 }
 
-static bool debug_inline_parameter_i686_unsigned_u64_bitnot_expression(
+static bool debug_inline_parameter_i686_u64_bitnot_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size) {
@@ -6368,7 +6368,7 @@ static bool debug_inline_parameter_i686_unsigned_u64_bitnot_expression(
     size_t size = 0u;
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || source_expression->kind != EXPR_BITNOT ||
-        !source_expression->unary_operand || !parameter_type->is_unsigned ||
+        !source_expression->unary_operand ||
         parameter_type->size != 8u ||
         source_expression->unary_operand->kind != EXPR_IDENT ||
         !source_expression->unary_operand->ident_decl) {
@@ -6405,7 +6405,7 @@ static bool debug_inline_parameter_i686_unsigned_u64_bitnot_expression(
     return true;
 }
 
-static bool debug_inline_parameter_i686_unsigned_u64_negate_expression(
+static bool debug_inline_parameter_i686_u64_negate_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size) {
@@ -6414,7 +6414,7 @@ static bool debug_inline_parameter_i686_unsigned_u64_negate_expression(
     size_t size = 0u;
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || source_expression->kind != EXPR_NEG ||
-        !source_expression->unary_operand || !parameter_type->is_unsigned ||
+        !source_expression->unary_operand ||
         parameter_type->size != 8u ||
         source_expression->unary_operand->kind != EXPR_IDENT ||
         !source_expression->unary_operand->ident_decl) {
@@ -6613,20 +6613,20 @@ static bool debug_inline_parameter_integer_expression(
         return true;
     }
 
-    if (architecture == ARCH_X86 && parameter_type->is_unsigned &&
+    if (architecture == ARCH_X86 &&
         (unsigned int)parameter_type->size == 8u &&
         source_expression->kind == EXPR_BITNOT &&
-        debug_inline_parameter_i686_unsigned_u64_bitnot_expression(
+        debug_inline_parameter_i686_u64_bitnot_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
             expression_size)) {
         return true;
     }
 
-    if (architecture == ARCH_X86 && parameter_type->is_unsigned &&
+    if (architecture == ARCH_X86 &&
         (unsigned int)parameter_type->size == 8u &&
         source_expression->kind == EXPR_NEG &&
-        debug_inline_parameter_i686_unsigned_u64_negate_expression(
+        debug_inline_parameter_i686_u64_negate_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
             expression_size)) {

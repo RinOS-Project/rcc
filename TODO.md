@@ -8461,3 +8461,14 @@ remains a separate open item.
       `test-debug-info` gates pass.
 - [ ] Nonconstant i686 64-bit division/remainder and broader optimized
       multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, i686 signed 64-bit unary inline DWARF)
+
+- [x] Preserve frame-backed i686 signed `long long` bitwise NOT and unary
+      negation as exact low/high four-byte `DW_OP_piece` values. Verify the
+      source frame location, opcode sequence, and eight signed boundary bit
+      patterns; exclude `LLONG_MIN` from negation inputs because its signed
+      negation is undefined. Focused inline-expression and full native-Windows
+      `test-debug-info` gates pass for legacy and verified-backend output.
+- [ ] Nonconstant i686 64-bit division/remainder and broader optimized
+      multi-piece locations remain open.
