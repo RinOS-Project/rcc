@@ -6296,13 +6296,16 @@ static void emit_atomic_store64_i686(Module* mod) {
 static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
                                       const char* name) {
     int retry_label;
+    const Type* value_type = atomic_value_type(call);
+    bool floating_double = value_type && value_type->kind == TYPE_DOUBLE &&
+                           value_type->size == 8;
     AtomicMinMaxOp minmax_operation = atomic_minmax_operation(name);
     AtomicWrapOp wrap_operation = atomic_wrap_operation(name);
 
     if ((strncmp(name, "__atomic_", 9) != 0 &&
          strncmp(name, "__sync_", 7) != 0) ||
         g_opts.target_arch != ARCH_X86 ||
-        !gen_is_integer64(atomic_value_type(call))) {
+        (!gen_is_integer64(value_type) && !floating_double)) {
         return false;
     }
 

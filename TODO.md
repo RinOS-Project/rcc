@@ -8149,9 +8149,21 @@ remains a separate open item.
       `test-atomic-builtins` executes integer, pointer, float, AMD64 double,
       and flag operations through volatile objects; the existing volatile
       member-overload tests pass on both target widths.
-- [ ] Full `<atomic>` conformance remains open: `double` operations on i686,
-      type constraints/traits, complete constructor/API overload sets, and
-      C++20 wait/notify operations.
+- [ ] Full `<atomic>` conformance remains open: type constraints/traits,
+      complete constructor/API overload sets, and C++20 wait/notify operations.
+
+## RCC continuation (2026-10-22, C++20 i686 `std::atomic<double>`)
+
+- [x] Enable generic 64-bit floating atomic load/store/exchange/compare-exchange
+      on i686 through the existing `CMPXCHG8B` lowering; C++ CAS loops then
+      provide `double` fetch-add/sub without integer or floating representation
+      aliasing. Regressions cover default initialization, lock-free query,
+      volatile/nonvolatile load/store/exchange/CAS/fetch-add/fetch-sub and
+      assignment. `make test-atomic-builtins` compiles C++20 i686/AMD64 at
+      `-O0`/`-O2`, executes both i686 and AMD64 objects with their native host
+      runners, and passes the existing invalid-builtin diagnostic checks.
+- [ ] C++20 `<atomic>` constraints/traits, complete constructor/API overload
+      sets, and wait/notify operations remain open.
 
 ## RCC continuation (2026-10-21, C++ `static_cast` conversion functions)
 

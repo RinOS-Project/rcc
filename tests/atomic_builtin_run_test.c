@@ -289,7 +289,15 @@ static void verify_cpp_standard_atomic(ObjectFile* object) {
     assert(mprotect(mapping, mapping_size, PROT_READ | PROT_EXEC) == 0);
     LOAD_FUNCTION(operations, object, mapping,
                   "cpp_standard_atomic_operations");
-    assert(operations() == 12u);
+    {
+        unsigned int result = operations();
+        if (result != 12u) {
+            fprintf(stderr,
+                    "cpp_standard_atomic_operations returned %u for %s\n",
+                    result, object->arch == ARCH_X86 ? "i686" : "AMD64");
+        }
+        assert(result == 12u);
+    }
     assert(munmap(mapping, mapping_size) == 0);
 }
 #endif

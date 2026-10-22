@@ -80,16 +80,19 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (floating.exchange(5.5f, std::memory_order_relaxed) != 4.0f ||
         floating.load() != 5.5f) return 41u;
     if ((floating = 7.0f) != 7.0f || floating.load() != 7.0f) return 42u;
-#if defined(__x86_64__)
     {
         std::atomic<double> floating_wide;
         double floating_wide_expected = 3.0;
+        if (!floating_wide.is_lock_free()) return 77u;
         if (floating_wide.load() != 0.0) return 47u;
         floating_wide.store(2.25);
         if (floating_wide.fetch_add(1.5) != 2.25 ||
             floating_wide.load() != 3.75) return 43u;
         if (floating_wide.fetch_sub(0.75, std::memory_order_relaxed) !=
                 3.75 || floating_wide.load() != 3.0) return 44u;
+        if (floating_wide.exchange(4.0, std::memory_order_acq_rel) != 3.0 ||
+            floating_wide.load() != 4.0) return 49u;
+        floating_wide_expected = 4.0;
         if (!floating_wide.compare_exchange_strong(
                 floating_wide_expected, 4.5, std::memory_order_acq_rel,
                 std::memory_order_acquire) || floating_wide.load() != 4.5)
@@ -97,7 +100,6 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         if ((floating_wide = 6.25) != 6.25 || floating_wide.load() != 6.25)
             return 46u;
     }
-#endif
     {
         volatile std::atomic<unsigned> volatile_value(2u);
         unsigned volatile_expected = 100u;
@@ -199,10 +201,10 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         if (volatile_floating.load(std::memory_order_acquire) != 7.0f)
             return 69u;
     }
-#if defined(__x86_64__)
     {
         volatile std::atomic<double> volatile_floating_wide(2.0);
         double volatile_double_expected = 2.0;
+        if (!volatile_floating_wide.is_lock_free()) return 78u;
         if (!volatile_floating_wide.compare_exchange_weak(
                 volatile_double_expected, 3.0,
                 std::memory_order_acq_rel,
@@ -212,10 +214,11 @@ extern "C" unsigned cpp_standard_atomic_operations() {
             (volatile_floating_wide = 4.0) != 4.0 ||
             volatile_floating_wide.load() != 4.0)
             return 64u;
+        if (volatile_floating_wide.exchange(4.5) != 4.0 ||
+            volatile_floating_wide.load() != 4.5) return 76u;
         volatile_floating_wide.store(5.0);
         if (volatile_floating_wide.load() != 5.0) return 70u;
     }
-#endif
     {
         volatile std::atomic_flag volatile_flag;
         if (volatile_flag.test() || volatile_flag.test_and_set() ||

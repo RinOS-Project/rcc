@@ -116,7 +116,6 @@ struct __rcc_atomic_ops<float> {
     }
 };
 
-#if defined(__x86_64__)
 template<>
 struct __rcc_atomic_ops<double> {
     static void store_impl(volatile double* object, double desired,
@@ -166,7 +165,6 @@ struct __rcc_atomic_ops<double> {
         }
     }
 };
-#endif
 
 class atomic_flag {
 public:
