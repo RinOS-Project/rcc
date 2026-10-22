@@ -8204,6 +8204,13 @@ remains a separate open item.
 - [ ] C++ atomic type constraints/traits, remaining API overloads, and C++20
       wait/notify operations remain open.
 
+## RCC continuation (2026-10-23, legacy atomic initialization compatibility)
+
+- [x] Provide deprecated-source-compatible `ATOMIC_VAR_INIT` and
+      `atomic_init` forms for scalar and pointer atomics. Verify initialization
+      and relaxed reinitialization through RCC native execution and the GCC
+      C++20 standard-library syntax oracle in `test-atomic-builtins`.
+
 ## RCC continuation (2026-10-22, C++20 i686 `std::atomic<double>`)
 
 - [x] Enable generic 64-bit floating atomic load/store/exchange/compare-exchange

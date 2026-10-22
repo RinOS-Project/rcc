@@ -80,6 +80,7 @@ extern "C" bool cpp_atomic_generic_compare(unsigned* value,
 
 extern "C" unsigned cpp_standard_atomic_operations() {
     std::atomic<unsigned> zero;
+    std::atomic<unsigned> compatibility_init = ATOMIC_VAR_INIT(1u);
     std::atomic<unsigned> value(3u);
     std::atomic<unsigned long long> wide(4ULL);
     int pointer_values[5];
@@ -95,6 +96,8 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     float floating_expected = 9.0f;
     unsigned expected = 9u;
     unsigned api_expected = 3u;
+    std::atomic_init(&compatibility_init, 2u);
+    if (std::atomic_load(&compatibility_init) != 2u) return 103u;
     if (!zero.is_always_lock_free) return 80u;
     if (!pointer.is_always_lock_free) return 81u;
 #ifndef RCC_STDLIB_REFERENCE
@@ -128,6 +131,9 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (atomic_value_type != 1u) return 79u;
     if (wide.fetch_add(3ULL) != 4ULL || wide.load() != 7ULL) return 21u;
     if (initialized_pointer.load() != pointer_values + 1) return 29u;
+    pointer.store(pointer_values);
+    std::atomic_init(&pointer, pointer_values + 1);
+    if (std::atomic_load(&pointer) != pointer_values + 1) return 105u;
     pointer.store(pointer_values);
     if (!std::atomic_is_lock_free(&pointer) ||
         std::atomic_load(&pointer) != pointer_values)
@@ -199,7 +205,11 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     }
     {
         volatile std::atomic<unsigned> volatile_value(2u);
+        volatile std::atomic<unsigned> volatile_compatibility_init(0u);
         unsigned volatile_expected = 100u;
+        std::atomic_init(&volatile_compatibility_init, 3u);
+        if (std::atomic_load(&volatile_compatibility_init) != 3u)
+            return 104u;
         if (!volatile_value.is_lock_free()) return 50u;
         if (!std::atomic_is_lock_free(&volatile_value) ||
             std::atomic_load(&volatile_value) != 2u)

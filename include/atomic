@@ -631,6 +631,12 @@ bool atomic_is_lock_free(const volatile Atomic* object) noexcept {
 }
 
 template<class Atomic>
+void atomic_init(volatile Atomic* object,
+                 typename Atomic::value_type desired) noexcept {
+    object->store(desired, memory_order_relaxed);
+}
+
+template<class Atomic>
 typename Atomic::value_type
 atomic_load(const volatile Atomic* object) noexcept {
     return object->load();
@@ -715,5 +721,8 @@ inline void atomic_flag_clear_explicit(
 }
 
 #define ATOMIC_FLAG_INIT {}
+#ifndef ATOMIC_VAR_INIT
+#define ATOMIC_VAR_INIT(value) { value }
+#endif
 
 #endif
