@@ -9557,6 +9557,14 @@ static void verify_inline_integer_expression_parameter(
                 ? "debug_inline_nonconstant_signed_long_long_lshift_variable_entry"
                 : expected_operation == 0xd5u
                     ? "debug_inline_nonconstant_signed_long_long_rshift_variable_entry"
+            : expected_operation == 0xd6u
+                ? "debug_inline_nonconstant_unsigned_long_long_lshift_wide_count_entry"
+                : expected_operation == 0xd7u
+                    ? "debug_inline_nonconstant_unsigned_long_long_rshift_wide_count_entry"
+                    : expected_operation == 0xd8u
+                        ? "debug_inline_nonconstant_signed_long_long_lshift_wide_count_entry"
+                        : expected_operation == 0xd9u
+                            ? "debug_inline_nonconstant_signed_long_long_rshift_wide_count_entry"
             : expected_operation == 0xd0u
         ? "debug_inline_nonconstant_signed_long_long_lshift_entry"
         : expected_operation == 0xd1u
@@ -9631,6 +9639,8 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0xd0u || expected_operation == 0xd1u ||
             expected_operation == 0xd2u || expected_operation == 0xd3u ||
             expected_operation == 0xd4u || expected_operation == 0xd5u ||
+            expected_operation == 0xd6u || expected_operation == 0xd7u ||
+            expected_operation == 0xd8u || expected_operation == 0xd9u ||
             expected_operation == 0xeeu || expected_operation == 0xefu ||
             expected_operation == 0x24u ||
             expected_operation == 0x25u || expected_operation == 0x26u ||
@@ -9746,15 +9756,17 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (expected_operation >= 0xd2u && expected_operation <= 0xd5u) {
+    if (expected_operation >= 0xd2u && expected_operation <= 0xd9u) {
         bool expected_unsigned = expected_operation == 0xd2u ||
-            expected_operation == 0xd3u;
+            expected_operation == 0xd3u || expected_operation == 0xd6u ||
+            expected_operation == 0xd7u;
         assert(architecture == ARCH_X86 && is_unsigned == expected_unsigned &&
                value_size == 8u && divisor_source_name);
         verify_inline_u64_variable_shift_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, divisor_source_name,
-            expected_operation == 0xd2u || expected_operation == 0xd4u,
+            expected_operation == 0xd2u || expected_operation == 0xd4u ||
+                expected_operation == 0xd6u || expected_operation == 0xd8u,
             is_unsigned);
         objfile_free(object);
         return;
@@ -10181,6 +10193,26 @@ static void verify_inline_integer_expression_cases(
          "debug_inline_nonconstant_signed_long_long_rshift_variable_source",
          false, 8u, 0xd5u, 0,
          "debug_inline_nonconstant_signed_long_long_rshift_variable_count",
+         false},
+        {"debug_nonconstant_unsigned_long_long_lshift_variable_inline",
+         "debug_inline_nonconstant_unsigned_long_long_lshift_wide_count_source",
+         true, 8u, 0xd6u, 0,
+         "debug_inline_nonconstant_unsigned_long_long_lshift_wide_count_count",
+         false},
+        {"debug_nonconstant_unsigned_long_long_rshift_variable_inline",
+         "debug_inline_nonconstant_unsigned_long_long_rshift_wide_count_source",
+         true, 8u, 0xd7u, 0,
+         "debug_inline_nonconstant_unsigned_long_long_rshift_wide_count_count",
+         false},
+        {"debug_nonconstant_signed_long_long_lshift_variable_inline",
+         "debug_inline_nonconstant_signed_long_long_lshift_wide_count_source",
+         false, 8u, 0xd8u, 0,
+         "debug_inline_nonconstant_signed_long_long_lshift_wide_count_count",
+         false},
+        {"debug_nonconstant_signed_long_long_rshift_variable_inline",
+         "debug_inline_nonconstant_signed_long_long_rshift_wide_count_source",
+         false, 8u, 0xd9u, 0,
+         "debug_inline_nonconstant_signed_long_long_rshift_wide_count_count",
          false}
     };
     uint8_t address_size = architecture == ARCH_X64 ? 8u : 4u;
@@ -10208,6 +10240,10 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xd3u ||
              cases[index].operation == 0xd4u ||
              cases[index].operation == 0xd5u ||
+             cases[index].operation == 0xd6u ||
+             cases[index].operation == 0xd7u ||
+             cases[index].operation == 0xd8u ||
+             cases[index].operation == 0xd9u ||
              cases[index].operation == 0xeeu ||
              cases[index].operation == 0xefu ||
              cases[index].operation == 0xe4u ||
@@ -10244,6 +10280,10 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xd3u &&
             cases[index].operation != 0xd4u &&
             cases[index].operation != 0xd5u &&
+            cases[index].operation != 0xd6u &&
+            cases[index].operation != 0xd7u &&
+            cases[index].operation != 0xd8u &&
+            cases[index].operation != 0xd9u &&
             cases[index].operation != 0xeeu &&
             cases[index].operation != 0xefu &&
             cases[index].operation != 0xe4u &&

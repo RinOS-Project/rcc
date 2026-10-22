@@ -6565,7 +6565,8 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source->type, parameter_type, 0u) ||
         !debug_inline_integer_expression_type(shift_count_source->type) ||
-        shift_count_source->type->size != 4u ||
+        (shift_count_source->type->size != 4u &&
+         shift_count_source->type->size != 8u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             shift_count_expression->type, shift_count_source->type, 0u) ||
         !debug_inline_parameter_frame_offset(
@@ -6578,8 +6579,10 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
     is_left_shift = source_expression->kind == EXPR_LSHIFT;
     is_unsigned = parameter_type->is_unsigned;
 
-    /* Split each result word at the 32-bit boundary. Count zero has its own
-       path so no DWARF shift is asked to use the invalid width 32. */
+    /* For a defined 64-bit shift, an 8-byte count is necessarily in 0..63,
+       so its low word contains the full count. Split each result word at the
+       32-bit boundary; count zero has its own path so no DWARF shift is asked
+       to use the invalid width 32. */
     for (unsigned int word = 0u; word < 2u; ++word) {
         size_t zero_count_branch_operand;
         size_t high_count_branch_operand;

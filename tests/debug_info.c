@@ -667,6 +667,82 @@ int debug_inline_nonconstant_signed_long_long_rshift_variable_entry(
                 >> debug_inline_nonconstant_signed_long_long_rshift_variable_count);
 }
 
+int debug_inline_nonconstant_unsigned_long_long_lshift_wide_count_entry(
+    int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_lshift_wide_count_source =
+            (unsigned long long)(unsigned int)value;
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_lshift_wide_count_count =
+            1ull;
+    debug_inline_nonconstant_unsigned_long_long_escape =
+        &debug_inline_nonconstant_unsigned_long_long_lshift_wide_count_source;
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+        &debug_inline_nonconstant_unsigned_long_long_lshift_wide_count_count;
+    return (int)
+        debug_nonconstant_unsigned_long_long_lshift_variable_inline(
+            debug_inline_nonconstant_unsigned_long_long_lshift_wide_count_source
+                << debug_inline_nonconstant_unsigned_long_long_lshift_wide_count_count);
+}
+
+int debug_inline_nonconstant_unsigned_long_long_rshift_wide_count_entry(
+    int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_rshift_wide_count_source =
+            (unsigned long long)(unsigned int)value;
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_rshift_wide_count_count =
+            1ull;
+    debug_inline_nonconstant_unsigned_long_long_escape =
+        &debug_inline_nonconstant_unsigned_long_long_rshift_wide_count_source;
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+        &debug_inline_nonconstant_unsigned_long_long_rshift_wide_count_count;
+    return (int)
+        debug_nonconstant_unsigned_long_long_rshift_variable_inline(
+            debug_inline_nonconstant_unsigned_long_long_rshift_wide_count_source
+                >> debug_inline_nonconstant_unsigned_long_long_rshift_wide_count_count);
+}
+
+int debug_inline_nonconstant_signed_long_long_lshift_wide_count_entry(
+    int value)
+{
+    long long
+        debug_inline_nonconstant_signed_long_long_lshift_wide_count_source =
+            (long long)value;
+    unsigned long long
+        debug_inline_nonconstant_signed_long_long_lshift_wide_count_count =
+            1ull;
+    debug_inline_nonconstant_signed_long_long_escape =
+        &debug_inline_nonconstant_signed_long_long_lshift_wide_count_source;
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+        &debug_inline_nonconstant_signed_long_long_lshift_wide_count_count;
+    return (int)
+        debug_nonconstant_signed_long_long_lshift_variable_inline(
+            debug_inline_nonconstant_signed_long_long_lshift_wide_count_source
+                << debug_inline_nonconstant_signed_long_long_lshift_wide_count_count);
+}
+
+int debug_inline_nonconstant_signed_long_long_rshift_wide_count_entry(
+    int value)
+{
+    long long
+        debug_inline_nonconstant_signed_long_long_rshift_wide_count_source =
+            (long long)value;
+    unsigned long long
+        debug_inline_nonconstant_signed_long_long_rshift_wide_count_count =
+            1ull;
+    debug_inline_nonconstant_signed_long_long_escape =
+        &debug_inline_nonconstant_signed_long_long_rshift_wide_count_source;
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+        &debug_inline_nonconstant_signed_long_long_rshift_wide_count_count;
+    return (int)
+        debug_nonconstant_signed_long_long_rshift_variable_inline(
+            debug_inline_nonconstant_signed_long_long_rshift_wide_count_source
+                >> debug_inline_nonconstant_signed_long_long_rshift_wide_count_count);
+}
+
 int debug_inline_local_entry(int value)
 {
     return debug_local_inline(value);

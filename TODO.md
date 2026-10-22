@@ -8520,3 +8520,16 @@ remains a separate open item.
       backends.
 - [ ] Other count types/locations, nonconstant i686 64-bit division/remainder,
       and broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, i686 64-bit wide shift-count DWARF)
+
+- [x] Extend frame-backed i686 signed and unsigned 64-bit variable shifts to
+      frame-backed 64-bit integer count identifiers. For defined C shift
+      counts (0–63), the low count word is the full value. Regressions cover
+      signed and unsigned left/right operations with both 32-bit and 64-bit
+      count variables, evaluating counts 0, 1, 31, 32, 33, and 63 against the
+      emitted DWARF expression in legacy and verified-backend objects. The
+      focused and full native-Windows `test-debug-info` gates pass.
+- [ ] Non-frame-backed count locations, nonconstant i686 64-bit
+      division/remainder, and broader optimized multi-piece locations remain
+      open.
