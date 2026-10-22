@@ -5620,6 +5620,113 @@ static bool debug_inline_parameter_i686_unsigned_u64_add_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_unsigned_u64_add_variables_expression(
+    const Module* mod, const Type* parameter_type,
+    const Expr* source_expression, uint8_t* expression, size_t capacity,
+    size_t* expression_size) {
+    const Expr* left_expression;
+    const Expr* right_expression;
+    const Decl* left_source;
+    const Decl* right_source;
+    int64_t left_frame_offset;
+    int64_t right_frame_offset;
+    size_t size = 0u;
+    const uint64_t sign_bit = UINT64_C(0x80000000);
+    if (!mod || !parameter_type || !source_expression || !expression ||
+        !expression_size || source_expression->kind != EXPR_ADD ||
+        !parameter_type->is_unsigned || parameter_type->size != 8u ||
+        !source_expression->binary_lhs || !source_expression->binary_rhs) {
+        return false;
+    }
+    left_expression = source_expression->binary_lhs;
+    right_expression = source_expression->binary_rhs;
+    if (left_expression->kind != EXPR_IDENT ||
+        !left_expression->ident_decl || right_expression->kind != EXPR_IDENT ||
+        !right_expression->ident_decl ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            left_expression->type, parameter_type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            right_expression->type, parameter_type, 0u)) {
+        return false;
+    }
+    left_source = left_expression->ident_decl;
+    right_source = right_expression->ident_decl;
+    if (!left_source || !right_source ||
+        (left_source->kind != DECL_VAR && left_source->kind != DECL_PARAM) ||
+        (right_source->kind != DECL_VAR && right_source->kind != DECL_PARAM) ||
+        left_source->var_is_global || left_source->var_is_static_local ||
+        left_source->var_is_thread_local || left_source->var_is_vla ||
+        right_source->var_is_global || right_source->var_is_static_local ||
+        right_source->var_is_thread_local || right_source->var_is_vla ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            left_source->type, parameter_type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            right_source->type, parameter_type, 0u) ||
+        !debug_inline_parameter_frame_offset(
+            mod, left_source, &left_frame_offset) ||
+        !debug_inline_parameter_frame_offset(
+            mod, right_source, &right_frame_offset) ||
+        left_frame_offset > INT64_MAX - 4 ||
+        right_frame_offset > INT64_MAX - 4) {
+        return false;
+    }
+
+    /* Emit the low sum, then compare it with the left low word using a
+       sign-bit-flipped signed comparison to derive the unsigned carry. */
+    if (!debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, left_frame_offset) ||
+        !debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, right_frame_offset) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x22u) || /* low sum */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x9fu) || /* stack_value */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 4u) ||
+        !debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, left_frame_offset + 4) ||
+        !debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, right_frame_offset + 4) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x22u) || /* high base */
+        !debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, left_frame_offset) ||
+        !debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, right_frame_offset) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x22u) || /* wrapped low sum */
+        !debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, &size, ARCH_X86, left_frame_offset) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, sign_bit) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x27u) || /* left low ^ sign */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x16u) || /* swap */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, sign_bit) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x27u) || /* sum ^ sign */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x16u) || /* swap */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x2du) || /* DW_OP_lt */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x22u) || /* add carry */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x9fu) || /* stack_value */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 4u)) {
+        return false;
+    }
+    *expression_size = size;
+    return true;
+}
+
 static bool debug_inline_parameter_i686_unsigned_u64_bitwise_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
@@ -6176,6 +6283,16 @@ static bool debug_inline_parameter_integer_expression(
         *expression_size = debug_build_expr_breg(
             expression, architecture, frame_offset, 0u, false);
         return *expression_size != 0u;
+    }
+
+    if (architecture == ARCH_X86 && parameter_type->is_unsigned &&
+        (unsigned int)parameter_type->size == 8u &&
+        source_expression->kind == EXPR_ADD &&
+        debug_inline_parameter_i686_unsigned_u64_add_variables_expression(
+            mod, parameter_type, source_expression, expression,
+            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
+            expression_size)) {
+        return true;
     }
 
     if (architecture != ARCH_X64 && parameter_type->is_unsigned &&

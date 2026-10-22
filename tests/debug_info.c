@@ -54,6 +54,8 @@ int* debug_inline_nonconstant_integer_escape;
 unsigned int* debug_inline_nonconstant_unsigned_integer_escape;
 unsigned int* debug_inline_nonconstant_unsigned_high_divisor_escape;
 unsigned long long* debug_inline_nonconstant_unsigned_long_long_escape;
+unsigned long long*
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape;
 unsigned long long* debug_inline_nonconstant_unsigned_long_long_high_divisor_escape;
 
 static void debug_inline_object_address_sink(int* value)
@@ -255,6 +257,24 @@ int debug_inline_nonconstant_integer_entry(int value)
         (int)unsigned_long_long_negate_value +
         debug_nonconstant_integer_subtract_parameter_inline(
             debug_inline_nonconstant_integer_source - 3);
+}
+
+int debug_inline_nonconstant_unsigned_long_long_add_two_variables_entry(
+    unsigned int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_add_left_source =
+            (unsigned long long)value;
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_rhs_source =
+            ~debug_inline_nonconstant_unsigned_long_long_add_left_source;
+    debug_inline_nonconstant_unsigned_long_long_escape =
+        &debug_inline_nonconstant_unsigned_long_long_add_left_source;
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+        &debug_inline_nonconstant_unsigned_long_long_rhs_source;
+    return (int)debug_nonconstant_unsigned_long_long_add_two_variables_inline(
+        debug_inline_nonconstant_unsigned_long_long_add_left_source +
+            debug_inline_nonconstant_unsigned_long_long_rhs_source);
 }
 
 int debug_inline_local_entry(int value)

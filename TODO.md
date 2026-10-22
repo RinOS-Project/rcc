@@ -8401,6 +8401,12 @@ remains a separate open item.
       high-word borrow. Verify the opcode stream, source frame slot, piece
       widths, and eight boundary values in legacy and verified i686/AMD64
       objects; both native-Windows debug-info gates pass.
+- [x] Preserve i686 unsigned 64-bit addition between two frame-backed locals
+      as low/high four-byte pieces. Derive the low-word carry with a
+      sign-bit-flipped comparison and add it to the high-word sum. Verify exact
+      opcodes, both source frame slots, piece widths, and eight carry/wrap
+      patterns in legacy and verified-backend objects; the focused and full
+      native-Windows debug-info gates pass.
 - [ ] i686 unsigned 64-bit division/remainder with nonconstant operands,
-      multiplication by another runtime value, two-variable arithmetic, and
-      broader optimized multi-piece locations remain open.
+      multiplication by another runtime value, and broader optimized
+      multi-piece locations remain open.

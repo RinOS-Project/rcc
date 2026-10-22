@@ -8469,6 +8469,99 @@ static void verify_inline_unsigned_add_expression(
     }
 }
 
+static void verify_inline_unsigned_add_two_variables_expression(
+    const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, const char* left_source_name,
+    const char* right_source_name, int64_t left_frame_offset) {
+    static const struct {
+        uint64_t left;
+        uint64_t right;
+    } values[] = {
+        {0u, 0u},
+        {1u, 0u},
+        {0u, 1u},
+        {UINT64_C(0xffffffff), 1u},
+        {UINT64_C(0xffffffff), UINT64_C(0xffffffff)},
+        {UINT64_C(0x100000000), UINT64_C(0xffffffff)},
+        {UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000001)},
+        {UINT64_MAX, 1u}
+    };
+    const uint64_t sign_bit = UINT64_C(0x80000000);
+    uint64_t offset = expression_start;
+    int64_t right_frame_offset;
+    bool has_variable_location;
+    bool variable_is_location_list;
+    int64_t variable_frame_offset;
+    assert(left_source_name && right_source_name &&
+           left_frame_offset <= INT64_MAX - 4);
+
+    assert(find_variable_location(
+        info, strings, locations, right_source_name, ARCH_X86,
+        &has_variable_location, &variable_is_location_list,
+        &right_frame_offset));
+    assert(has_variable_location && right_frame_offset <= INT64_MAX - 4);
+
+    verify_inline_expression_frame_u32(
+        data, expression_end, &offset, left_frame_offset);
+    verify_inline_expression_frame_u32(
+        data, expression_end, &offset, right_frame_offset);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x22u);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
+    assert(read_uleb(data, expression_end, &offset) == 4u);
+
+    verify_inline_expression_frame_u32(
+        data, expression_end, &offset, left_frame_offset + 4);
+    verify_inline_expression_frame_u32(
+        data, expression_end, &offset, right_frame_offset + 4);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x22u);
+    verify_inline_expression_frame_u32(
+        data, expression_end, &offset, left_frame_offset);
+    verify_inline_expression_frame_u32(
+        data, expression_end, &offset, right_frame_offset);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x22u);
+    verify_inline_expression_frame_u32(
+        data, expression_end, &offset, left_frame_offset);
+    verify_inline_expression_constu(data, expression_end, &offset, sign_bit);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x27u);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x16u);
+    verify_inline_expression_constu(data, expression_end, &offset, sign_bit);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x27u);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x16u);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x2du);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x22u);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
+    assert(read_uleb(data, expression_end, &offset) == 4u);
+    assert(offset == expression_end);
+
+    assert(find_variable_location(
+        info, strings, locations, left_source_name, ARCH_X86,
+        &has_variable_location, &variable_is_location_list,
+        &variable_frame_offset));
+    assert(has_variable_location &&
+           variable_frame_offset == left_frame_offset);
+    assert(find_variable_location(
+        info, strings, locations, right_source_name, ARCH_X86,
+        &has_variable_location, &variable_is_location_list,
+        &variable_frame_offset));
+    assert(has_variable_location &&
+           variable_frame_offset == right_frame_offset);
+
+    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
+         ++index) {
+        uint64_t left = values[index].left;
+        uint64_t right = values[index].right;
+        uint64_t low_sum = (uint64_t)(uint32_t)left + (uint32_t)right;
+        uint32_t low_result = (uint32_t)low_sum;
+        uint32_t high_result = (uint32_t)(left >> 32u) +
+            (uint32_t)(right >> 32u) + (uint32_t)(low_sum >> 32u);
+        uint64_t actual = ((uint64_t)high_result << 32u) | low_result;
+        assert(actual == left + right);
+    }
+}
+
 static void verify_inline_unsigned_bitwise_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
@@ -8860,9 +8953,13 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
+    const char* call_site_name = expected_operation == 0xf8u
+        ? "debug_inline_nonconstant_unsigned_long_long_add_two_variables_entry"
+        : "debug_inline_nonconstant_integer_entry";
     assert(object != NULL && object->arch == architecture && inline_name &&
            source_name &&
-           (expected_operation == 0xf9u || expected_operation == 0xfau ||
+           (expected_operation == 0xf8u || expected_operation == 0xf9u ||
+            expected_operation == 0xfau ||
             expected_operation == 0x22u || expected_operation == 0x1cu ||
             expected_operation == 0x1eu || expected_operation == 0x1fu ||
             expected_operation == 0x20u ||
@@ -8898,8 +8995,7 @@ static void verify_inline_integer_expression_parameter(
              relocation = relocation->next) {
             if (relocation->offset == low_pc_offset &&
                 relocation->symbol_name &&
-                strcmp(relocation->symbol_name,
-                       "debug_inline_nonconstant_integer_entry") == 0) {
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
                 matches_call = true;
                 break;
             }
@@ -8981,6 +9077,15 @@ static void verify_inline_integer_expression_parameter(
         verify_inline_unsigned_negate_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, frame_offset);
+        objfile_free(object);
+        return;
+    }
+    if (expected_operation == 0xf8u) {
+        assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
+               divisor_source_name && expected_constant == 0);
+        verify_inline_unsigned_add_two_variables_expression(
+            info->data, expression_end, expression_start, info, strings,
+            locations, source_name, divisor_source_name, frame_offset);
         objfile_free(object);
         return;
     }
@@ -9177,6 +9282,11 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_unsigned_long_long_add_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0xfdu, INT64_C(0x100000005), NULL, false},
+        {"debug_nonconstant_unsigned_long_long_add_two_variables_inline",
+         "debug_inline_nonconstant_unsigned_long_long_add_left_source",
+         true, 8u,
+         0xf8u, 0,
+         "debug_inline_nonconstant_unsigned_long_long_rhs_source", false},
         {"debug_nonconstant_unsigned_long_long_multiply_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0xfau, INT64_C(0x0f0ff0f00ff00ff0), NULL, false},
@@ -9211,6 +9321,7 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xfdu ||
              cases[index].operation == 0xfcu ||
              cases[index].operation == 0xfbu ||
+             cases[index].operation == 0xf8u ||
              cases[index].operation == 0xf9u ||
              cases[index].operation == 0xfau) && architecture != ARCH_X86)
             continue;
@@ -9219,6 +9330,7 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xfdu &&
             cases[index].operation != 0xfcu &&
             cases[index].operation != 0xfbu &&
+            cases[index].operation != 0xf8u &&
             cases[index].operation != 0xf9u &&
             cases[index].operation != 0xfau && !i686_u64_bitwise) continue;
         verify_inline_integer_expression_parameter(
