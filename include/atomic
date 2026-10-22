@@ -14,6 +14,18 @@ enum memory_order {
     memory_order_seq_cst = __ATOMIC_SEQ_CST
 };
 
+inline void atomic_thread_fence(memory_order order) noexcept {
+    __atomic_thread_fence(order);
+}
+inline void atomic_signal_fence(memory_order order) noexcept {
+    __atomic_signal_fence(order);
+}
+
+template<class T>
+T kill_dependency(T value) noexcept {
+    return value;
+}
+
 template<class T>
 struct __rcc_atomic_ops {
     static void store_impl(volatile T* object, T desired,

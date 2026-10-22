@@ -8210,6 +8210,11 @@ remains a separate open item.
       `atomic_init` forms for scalar and pointer atomics. Verify initialization
       and relaxed reinitialization through RCC native execution and the GCC
       C++20 standard-library syntax oracle in `test-atomic-builtins`.
+- [x] Expose `atomic_thread_fence`, `atomic_signal_fence`, and
+      `kill_dependency`; fence functions forward to implemented compiler atomic
+      fence builtins and `kill_dependency` preserves its value. Verify scalar
+      and pointer use in both RCC target builds, native execution, and the GCC
+      C++20 standard-library syntax oracle.
 
 ## RCC continuation (2026-10-22, C++20 i686 `std::atomic<double>`)
 

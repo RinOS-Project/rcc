@@ -98,6 +98,11 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     unsigned api_expected = 3u;
     std::atomic_init(&compatibility_init, 2u);
     if (std::atomic_load(&compatibility_init) != 2u) return 103u;
+    std::atomic_thread_fence(std::memory_order_acq_rel);
+    std::atomic_signal_fence(std::memory_order_acquire);
+    if (std::kill_dependency(7u) != 7u ||
+        std::kill_dependency(pointer_values) != pointer_values)
+        return 106u;
     if (!zero.is_always_lock_free) return 80u;
     if (!pointer.is_always_lock_free) return 81u;
 #ifndef RCC_STDLIB_REFERENCE
