@@ -172,6 +172,9 @@ typedef struct {
      * constructor throws, the active exception frame then destroys only the
      * completed prefix instead of the not-yet-constructed complete object. */
     const Decl* partial_construction_owner;
+    /* The verified backend handles bound temporary cleanup inside a local
+     * C++20 aggregate parenthesized initializer as one full-expression. */
+    const Expr* aggregate_paren_initializer;
     int aggregate_return_kind;
     bool allow_nontrivial_temporary_conditional;
     bool terminated;
@@ -15990,8 +15993,20 @@ static bool lower_storage_type_supported_internal(
         for (field = type->fields; field; field = field->next) {
             if (!field->type || field->offset < 0 ||
                 field->offset > type->size ||
-                field->type->size > type->size - field->offset ||
-                !lower_storage_type_supported_internal(
+                field->type->size > type->size - field->offset) {
+                return false;
+            }
+            if (field->type->is_reference) {
+                int pointer_size =
+                    g_opts.target_arch == ARCH_X64 ? 8 : 4;
+                if (field->type->kind != TYPE_PTR ||
+                    field->type->size != pointer_size ||
+                    field->type->cxx_is_member_pointer) {
+                    return false;
+                }
+                continue;
+            }
+            if (!lower_storage_type_supported_internal(
                     field->type, depth + 1u)) return false;
         }
         return true;
@@ -19587,10 +19602,13 @@ static bool lower_cxx_emit_constructor_call(
 
 static bool lower_initialize_struct_field(
     RccIrLowerContext* context, RccIrValue base,
-    const TypeField* field, const Expr* initializer) {
+    const TypeField* field, const ExprList* initializer_item,
+    const Expr* containing_initializer) {
     RccIrLowerValue base_value;
     RccIrLowerValue address;
     bool initialized;
+    const Expr* initializer = initializer_item
+        ? initializer_item->expr : NULL;
     if (!context || !field || !field->type || !initializer) {
         if (context) context->unsupported = true;
         return false;
@@ -19599,6 +19617,54 @@ static bool lower_initialize_struct_field(
     address = lower_byte_offset_address(
         context, base_value, (uint64_t)field->offset);
     if (!address.valid) return false;
+    if (initializer_item->cxx_temporary_owner ||
+        initializer_item->cxx_temporary_cleanups) {
+        const Type* reference_type = field->type;
+        const Type* object_type = initializer->type;
+        RccIrInstruction* allocation;
+        RccIrLowerValue object_address;
+        if (!containing_initializer ||
+            containing_initializer != context->aggregate_paren_initializer ||
+            !containing_initializer->compound_paren_init ||
+            !lower_noexcept_expression_list(
+                containing_initializer->compound_init) ||
+            !initializer_item->cxx_temporary_owner ||
+            !initializer_item->cxx_temporary_cleanups ||
+            reference_type->kind != TYPE_PTR ||
+            !reference_type->is_reference || !reference_type->base ||
+            !object_type || object_type->kind != TYPE_STRUCT ||
+            initializer->kind != EXPR_COMPOUND ||
+            initializer->compound_constructor ||
+            !type_is_compatible(
+                (Type*)reference_type->base, (Type*)object_type) ||
+            !type_is_compatible(
+                (Type*)object_type, (Type*)reference_type->base) ||
+            !lower_temporary_cleanup_plan_supported(
+                initializer_item, false) ||
+            object_type->size <= 0 || object_type->align <= 0) {
+            context->unsupported = true;
+            return false;
+        }
+        allocation = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!allocation) return false;
+        rcc_ir_set_immediate(allocation, (uint64_t)object_type->size);
+        allocation->alignment = (uint32_t)object_type->align;
+        object_address = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
+        if (!lower_initialize_struct_storage(
+                context, allocation->result, object_type, initializer) ||
+            !lower_cxx_initialize_object_vtables(
+                context, allocation->result, object_type) ||
+            !lower_bind_temporary_owner(
+                context, initializer_item->cxx_temporary_owner,
+                object_address) ||
+            !lower_store_address(context, address, object_address)) {
+            return false;
+        }
+        return true;
+    }
     if (field->type->kind == TYPE_ARRAY) {
         initialized = lower_array_initializer(
             context, address.value, field->type, initializer);
@@ -20188,7 +20254,7 @@ static bool lower_struct_initializer(
                   !item->designator_field ||
                   strcmp(item->designator_field, member->name) != 0)) ||
                 !lower_initialize_struct_field(
-                    context, base, field, item->expr)) {
+                    context, base, field, item, initializer)) {
                 context->unsupported = true;
                 return false;
             }
@@ -20203,8 +20269,6 @@ static bool lower_struct_initializer(
     cursor = type->fields;
     for (item = initializer->compound_init; item; item = item->next) {
         const TypeField* field = cursor;
-        RccIrLowerValue base_value;
-        RccIrLowerValue address;
         if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
             context->unsupported = true;
             return false;
@@ -20216,35 +20280,53 @@ static bool lower_struct_initializer(
             context->unsupported = true;
             return false;
         }
-        base_value = lower_value(base, rcc_ir_type_pointer(0u), true);
-        address = lower_byte_offset_address(
-            context, base_value, (uint64_t)field->offset);
-        if (field->type->kind == TYPE_ARRAY) {
-            if (!address.valid || !lower_array_initializer(
-                    context, address.value, field->type,
-                    item->expr)) return false;
-            cursor = field->next;
-            continue;
-        }
-        if (field->type->kind == TYPE_STRUCT) {
-            if (!address.valid || !lower_initialize_struct_storage(
-                    context, address.value, field->type,
-                    item->expr)) return false;
-            cursor = field->next;
-            continue;
-        }
-        if (field->type->kind == TYPE_UNION) {
-            if (!address.valid || !lower_initialize_union_storage(
-                    context, address.value, field->type,
-                    item->expr)) return false;
-            cursor = field->next;
-            continue;
-        }
-        if (!address.valid || !lower_initialize_scalar_storage(
-                context, address.value, field->type, item->expr)) {
+        if (!lower_initialize_struct_field(
+                context, base, field, item, initializer)) {
             return false;
         }
         cursor = field->next;
+    }
+    return true;
+}
+
+static bool lower_emit_aggregate_paren_temporary_cleanups(
+    RccIrLowerContext* context, const Expr* initializer) {
+    const ExprList** temporaries;
+    size_t count = 0u;
+    size_t index = 0u;
+    if (!context || !initializer || !initializer->compound_paren_init) {
+        return true;
+    }
+    for (const ExprList* item = initializer->compound_init;
+         item; item = item->next) {
+        if (!item->cxx_temporary_owner && !item->cxx_temporary_cleanups) {
+            continue;
+        }
+        if (++count > 4096u ||
+            count > SIZE_MAX / sizeof(*temporaries)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    if (count == 0u) return true;
+    temporaries = lower_scratch_alloc(
+        context, count * sizeof(*temporaries));
+    if (!temporaries) return false;
+    for (const ExprList* item = initializer->compound_init;
+         item; item = item->next) {
+        if (item->cxx_temporary_owner || item->cxx_temporary_cleanups) {
+            temporaries[index++] = item;
+        }
+    }
+    while (index > 0u) {
+        const ExprList* item = temporaries[--index];
+        if (!item->cxx_temporary_owner ||
+            !item->cxx_temporary_cleanups ||
+            !lower_temporary_cleanup_plan_supported(item, false) ||
+            !lower_emit_temporary_cleanup_plan(context, item, false)) {
+            context->unsupported = true;
+            return false;
+        }
     }
     return true;
 }
@@ -21112,9 +21194,17 @@ static bool lower_declaration(RccIrLowerContext* context,
     if (is_struct && declaration->var_init) {
         const Decl* previous_partial_owner =
             context->partial_construction_owner;
+        const Expr* previous_aggregate_paren_initializer =
+            context->aggregate_paren_initializer;
+        bool aggregate_paren_initializer =
+            declaration->var_init->kind == EXPR_COMPOUND &&
+            declaration->var_init->compound_paren_init;
         bool track_partial_members = declaration->var_cleanups != NULL &&
             lower_cleanup_initializer_may_throw(declaration->var_init);
         bool initialized;
+        if (aggregate_paren_initializer) {
+            context->aggregate_paren_initializer = declaration->var_init;
+        }
         if (track_partial_members) {
             context->partial_construction_owner = declaration;
         }
@@ -21124,9 +21214,16 @@ static bool lower_declaration(RccIrLowerContext* context,
             lower_cxx_initialize_object_vtables(
                 context, allocation->result, declaration->type);
         context->partial_construction_owner = previous_partial_owner;
+        context->aggregate_paren_initializer =
+            previous_aggregate_paren_initializer;
         if (!initialized ||
             (track_partial_members &&
              !lower_unregister_partial_member_cleanups(context, declaration))) {
+            return false;
+        }
+        if (aggregate_paren_initializer &&
+            !lower_emit_aggregate_paren_temporary_cleanups(
+                context, declaration->var_init)) {
             return false;
         }
         return !declaration->var_cleanups ||

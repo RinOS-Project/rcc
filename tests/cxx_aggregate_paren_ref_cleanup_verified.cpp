@@ -1,0 +1,29 @@
+struct LifetimeProbe {
+    int* destructions;
+
+    ~LifetimeProbe() noexcept {
+        ++*destructions;
+    }
+};
+
+struct ReferenceAggregate {
+    const LifetimeProbe& value;
+    int observed_before_cleanup;
+};
+
+static int observe_before_cleanup(const int* destructions) noexcept {
+    return *destructions == 0 ? 73 : -1;
+}
+
+int main() {
+    int destructions = 0;
+    {
+        ReferenceAggregate aggregate(
+            LifetimeProbe{&destructions},
+            observe_before_cleanup(&destructions));
+        if (destructions != 1 || aggregate.observed_before_cleanup != 73) {
+            return 1;
+        }
+    }
+    return destructions == 1 ? 0 : 2;
+}
