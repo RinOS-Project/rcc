@@ -6522,6 +6522,25 @@ static bool debug_inline_parameter_i686_u64_shift_constant_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_u64_append_shift_count(
+    const Module* mod, const Expr* count_expression,
+    const Decl* count_source, int64_t count_frame_offset,
+    uint8_t* expression, size_t capacity, size_t* size) {
+    if (!mod || !count_expression || !expression || !size) return false;
+    /* A direct 64-bit count is safe to read from its low word for defined
+       64-bit shifts (0..63). Other count values must fit the i686 DWARF
+       stack and are evaluated from their source expression. */
+    if (count_source && count_source->type &&
+        count_source->type->size == 8) {
+        return debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, size, ARCH_X86, count_frame_offset);
+    }
+    return count_expression->type &&
+        (unsigned int)count_expression->type->size <= 4u &&
+        debug_build_inline_integer_value_expression(
+            mod, ARCH_X86, count_expression, expression, capacity, size, 0u);
+}
+
 static bool debug_inline_parameter_i686_u64_shift_variable_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
@@ -6531,7 +6550,7 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
     const Decl* source;
     const Decl* shift_count_source;
     int64_t source_frame_offset;
-    int64_t shift_count_frame_offset;
+    int64_t shift_count_frame_offset = 0;
     size_t size = 0u;
     bool is_left_shift;
     bool is_unsigned;
@@ -6540,8 +6559,6 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         !source_expression->binary_lhs || !source_expression->binary_rhs ||
         source_expression->binary_lhs->kind != EXPR_IDENT ||
         !source_expression->binary_lhs->ident_decl ||
-        source_expression->binary_rhs->kind != EXPR_IDENT ||
-        !source_expression->binary_rhs->ident_decl ||
         (source_expression->kind != EXPR_LSHIFT &&
          source_expression->kind != EXPR_RSHIFT) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -6553,29 +6570,34 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
     source_value_expression = source_expression->binary_lhs;
     shift_count_expression = source_expression->binary_rhs;
     source = source_value_expression->ident_decl;
-    shift_count_source = shift_count_expression->ident_decl;
-    if (!source || !shift_count_source ||
+    shift_count_source = shift_count_expression->kind == EXPR_IDENT
+        ? shift_count_expression->ident_decl : NULL;
+    if (!source ||
         (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
-        (shift_count_source->kind != DECL_VAR &&
-         shift_count_source->kind != DECL_PARAM) ||
         source->var_is_global || source->var_is_static_local ||
         source->var_is_thread_local || source->var_is_vla ||
-        shift_count_source->var_is_global ||
-        shift_count_source->var_is_static_local ||
-        shift_count_source->var_is_thread_local ||
-        shift_count_source->var_is_vla || !source->type ||
-        !shift_count_source->type ||
+        !source->type ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source->type, parameter_type, 0u) ||
-        !debug_inline_integer_expression_type(shift_count_source->type) ||
-        (shift_count_source->type->size != 4u &&
-         shift_count_source->type->size != 8u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-            shift_count_expression->type, shift_count_source->type, 0u) ||
+        !debug_inline_integer_expression_type(shift_count_expression->type) ||
+        (shift_count_source &&
+         ((shift_count_source->kind != DECL_VAR &&
+           shift_count_source->kind != DECL_PARAM) ||
+          shift_count_source->var_is_global ||
+          shift_count_source->var_is_static_local ||
+          shift_count_source->var_is_thread_local ||
+          shift_count_source->var_is_vla || !shift_count_source->type ||
+          (shift_count_source->type->size != 4u &&
+           shift_count_source->type->size != 8u) ||
+          !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+              shift_count_expression->type,
+              shift_count_source->type, 0u))) ||
+        (!shift_count_source &&
+         (unsigned int)shift_count_expression->type->size > 4u) ||
         !debug_inline_parameter_frame_offset(
             mod, source, &source_frame_offset) ||
-        !debug_inline_parameter_frame_offset(
-            mod, shift_count_source, &shift_count_frame_offset) ||
+        (shift_count_source && !debug_inline_parameter_frame_offset(
+            mod, shift_count_source, &shift_count_frame_offset)) ||
         source_frame_offset > INT64_MAX - 4) {
         return false;
     }
@@ -6595,9 +6617,9 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         size_t zero_count_path_offset;
         int64_t source_word_offset =
             source_frame_offset + (int64_t)(word * 4u);
-        if (!debug_inline_integer_expression_append_frame_u32(
-                expression, capacity, &size, ARCH_X86,
-                shift_count_frame_offset) ||
+        if (!debug_inline_parameter_i686_u64_append_shift_count(
+                mod, shift_count_expression, shift_count_source,
+                shift_count_frame_offset, expression, capacity, &size) ||
             !debug_inline_integer_expression_append_constu(
                 expression, capacity, &size, 0u) ||
             !debug_inline_integer_expression_append_byte(
@@ -6605,9 +6627,9 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
             !debug_inline_integer_expression_append_branch(
                 expression, capacity, &size, 0x28u,
                 &zero_count_branch_operand) || /* DW_OP_bra */
-            !debug_inline_integer_expression_append_frame_u32(
-                expression, capacity, &size, ARCH_X86,
-                shift_count_frame_offset) ||
+            !debug_inline_parameter_i686_u64_append_shift_count(
+                mod, shift_count_expression, shift_count_source,
+                shift_count_frame_offset, expression, capacity, &size) ||
             !debug_inline_integer_expression_append_constu(
                 expression, capacity, &size, 32u) ||
             !debug_inline_integer_expression_append_byte(
@@ -6623,9 +6645,10 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
                 if (!debug_inline_integer_expression_append_frame_u32(
                         expression, capacity, &size, ARCH_X86,
                         source_frame_offset) ||
-                    !debug_inline_integer_expression_append_frame_u32(
-                        expression, capacity, &size, ARCH_X86,
-                        shift_count_frame_offset) ||
+                    !debug_inline_parameter_i686_u64_append_shift_count(
+                        mod, shift_count_expression, shift_count_source,
+                        shift_count_frame_offset, expression, capacity,
+                        &size) ||
                     !debug_inline_integer_expression_append_byte(
                         expression, capacity, &size, 0x24u)) { /* DW_OP_shl */
                     return false;
@@ -6633,9 +6656,10 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
             } else if (!debug_inline_integer_expression_append_frame_u32(
                            expression, capacity, &size, ARCH_X86,
                            source_frame_offset + 4) ||
-                       !debug_inline_integer_expression_append_frame_u32(
-                           expression, capacity, &size, ARCH_X86,
-                           shift_count_frame_offset) ||
+                       !debug_inline_parameter_i686_u64_append_shift_count(
+                           mod, shift_count_expression, shift_count_source,
+                           shift_count_frame_offset, expression, capacity,
+                           &size) ||
                        !debug_inline_integer_expression_append_byte(
                            expression, capacity, &size, 0x24u) || /* DW_OP_shl */
                        !debug_inline_integer_expression_append_frame_u32(
@@ -6643,9 +6667,10 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
                            source_frame_offset) ||
                        !debug_inline_integer_expression_append_constu(
                            expression, capacity, &size, 32u) ||
-                       !debug_inline_integer_expression_append_frame_u32(
-                           expression, capacity, &size, ARCH_X86,
-                           shift_count_frame_offset) ||
+                       !debug_inline_parameter_i686_u64_append_shift_count(
+                           mod, shift_count_expression, shift_count_source,
+                           shift_count_frame_offset, expression, capacity,
+                           &size) ||
                        !debug_inline_integer_expression_append_byte(
                            expression, capacity, &size, 0x1cu) || /* 32-count */
                        !debug_inline_integer_expression_append_byte(
@@ -6658,9 +6683,9 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
             if (!debug_inline_integer_expression_append_frame_u32(
                     expression, capacity, &size, ARCH_X86,
                     source_frame_offset) ||
-                !debug_inline_integer_expression_append_frame_u32(
-                    expression, capacity, &size, ARCH_X86,
-                    shift_count_frame_offset) ||
+                !debug_inline_parameter_i686_u64_append_shift_count(
+                    mod, shift_count_expression, shift_count_source,
+                    shift_count_frame_offset, expression, capacity, &size) ||
                 !debug_inline_integer_expression_append_byte(
                     expression, capacity, &size, 0x25u) || /* DW_OP_shr */
                 !debug_inline_integer_expression_append_frame_u32(
@@ -6668,9 +6693,9 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
                     source_frame_offset + 4) ||
                 !debug_inline_integer_expression_append_constu(
                     expression, capacity, &size, 32u) ||
-                !debug_inline_integer_expression_append_frame_u32(
-                    expression, capacity, &size, ARCH_X86,
-                    shift_count_frame_offset) ||
+                !debug_inline_parameter_i686_u64_append_shift_count(
+                    mod, shift_count_expression, shift_count_source,
+                    shift_count_frame_offset, expression, capacity, &size) ||
                 !debug_inline_integer_expression_append_byte(
                     expression, capacity, &size, 0x1cu) || /* 32-count */
                 !debug_inline_integer_expression_append_byte(
@@ -6682,9 +6707,10 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         } else if (!debug_inline_integer_expression_append_frame_u32(
                        expression, capacity, &size, ARCH_X86,
                        source_frame_offset + 4) ||
-                   !debug_inline_integer_expression_append_frame_u32(
-                       expression, capacity, &size, ARCH_X86,
-                       shift_count_frame_offset) ||
+                   !debug_inline_parameter_i686_u64_append_shift_count(
+                       mod, shift_count_expression, shift_count_source,
+                       shift_count_frame_offset, expression, capacity,
+                       &size) ||
                    !debug_inline_integer_expression_append_byte(
                        expression, capacity, &size,
                        is_unsigned ? 0x25u : 0x26u)) { /* shr/shra */
@@ -6711,9 +6737,10 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
             } else if (!debug_inline_integer_expression_append_frame_u32(
                            expression, capacity, &size, ARCH_X86,
                            source_frame_offset) ||
-                       !debug_inline_integer_expression_append_frame_u32(
-                           expression, capacity, &size, ARCH_X86,
-                           shift_count_frame_offset) ||
+                       !debug_inline_parameter_i686_u64_append_shift_count(
+                           mod, shift_count_expression, shift_count_source,
+                           shift_count_frame_offset, expression, capacity,
+                           &size) ||
                        !debug_inline_integer_expression_append_constu(
                            expression, capacity, &size, 32u) ||
                        !debug_inline_integer_expression_append_byte(
@@ -6726,9 +6753,9 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
             if (!debug_inline_integer_expression_append_frame_u32(
                     expression, capacity, &size, ARCH_X86,
                     source_frame_offset + 4) ||
-                !debug_inline_integer_expression_append_frame_u32(
-                    expression, capacity, &size, ARCH_X86,
-                    shift_count_frame_offset) ||
+                !debug_inline_parameter_i686_u64_append_shift_count(
+                    mod, shift_count_expression, shift_count_source,
+                    shift_count_frame_offset, expression, capacity, &size) ||
                 !debug_inline_integer_expression_append_constu(
                     expression, capacity, &size, 32u) ||
                 !debug_inline_integer_expression_append_byte(

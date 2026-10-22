@@ -665,6 +665,26 @@ int debug_inline_nonconstant_unsigned_long_long_rshift_variable_entry(
                 >> debug_inline_nonconstant_unsigned_long_long_rshift_variable_count);
 }
 
+int debug_inline_nonconstant_unsigned_long_long_lshift_computed_count_entry(
+    int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_lshift_computed_count_source =
+            (unsigned long long)(unsigned int)value;
+    unsigned int
+        debug_inline_nonconstant_unsigned_long_long_lshift_computed_count_count =
+            1u;
+    debug_inline_nonconstant_unsigned_long_long_escape =
+        &debug_inline_nonconstant_unsigned_long_long_lshift_computed_count_source;
+    debug_inline_nonconstant_shift_count_escape =
+        &debug_inline_nonconstant_unsigned_long_long_lshift_computed_count_count;
+    return (int)
+        debug_nonconstant_unsigned_long_long_lshift_variable_inline(
+            debug_inline_nonconstant_unsigned_long_long_lshift_computed_count_source
+                << (debug_inline_nonconstant_unsigned_long_long_lshift_computed_count_count +
+                    1u));
+}
+
 int debug_inline_nonconstant_signed_long_long_lshift_variable_entry(
     int value)
 {

@@ -8628,3 +8628,18 @@ remains a separate open item.
       symbol/template-parameter names in the AST arena that owns their
       declarations. The complete GCC ASan/UBSan/LeakSanitizer
       `test-debug-info` target passed on Ubuntu-24.04 with no leak report.
+
+## RCC continuation (2026-10-22, i686 computed inline shift counts)
+
+- [x] Emit frame-backed i686 DWARF values for a bounded side-effect-free
+      integer expression used as the dynamic count of a 64-bit inline shift.
+      Computed counts must fit the 32-bit expression stack and their variable
+      inputs must have stable frame locations. A `count + 1u` regression
+      semantically evaluates shifts 0, 1, 31, 32, 33, and 63, including the
+      defined unsigned wrap from `UINT32_MAX` to zero. Direct 32-bit and
+      64-bit count cases remain covered. Focused and full `test-debug-info`,
+      plus the complete ASan/UBSan `test-sanitize` suite, pass on Linux for
+      legacy and verified-backend output.
+- [ ] Non-frame-backed count operands, computed 64-bit count expressions,
+      variable i686 64-bit division/remainder, and broader optimized
+      multi-piece locations remain open.
