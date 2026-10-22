@@ -11,6 +11,22 @@ struct ExceptionAggregate {
     int value;
 };
 
+#if !defined(TEST_VERIFIED_BACKEND)
+struct ThrowingCleanupProbe {
+    int* destructions;
+
+    ~ThrowingCleanupProbe() noexcept(false) {
+        ++*destructions;
+        throw 79;
+    }
+};
+
+struct ThrowingCleanupAggregate {
+    const ThrowingCleanupProbe& probe;
+    int value;
+};
+#endif
+
 static int throw_from_later_initializer() {
     throw 67;
 }
@@ -27,5 +43,23 @@ int main() {
     } catch (int value) {
         caught = value;
     }
-    return caught == 67 && destructions == 1 ? 0 : 2;
+    if (caught != 67 || destructions != 1) {
+        return 2;
+    }
+
+#if !defined(TEST_VERIFIED_BACKEND)
+    int throwing_destructions = 0;
+    caught = 0;
+    try {
+        ThrowingCleanupAggregate aggregate(
+            ThrowingCleanupProbe{&throwing_destructions}, 83);
+        (void)aggregate;
+        return 3;
+    } catch (int value) {
+        caught = value;
+    }
+    return caught == 79 && throwing_destructions == 1 ? 0 : 4;
+#else
+    return 0;
+#endif
 }

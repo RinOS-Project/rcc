@@ -8979,14 +8979,14 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET) \
 		tests/cxx_aggregate_paren_ref_exception.cpp
 	$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-gcc$(EXE_SUFFIX)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-aggregate-paren-ref-exception,cxx_aggregate_paren_ref_exception.cpp)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_VERIFIED_BACKEND -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86.ro \
 		tests/cxx_aggregate_paren_ref_exception.cpp \
 		>$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86.log
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_VERIFIED_BACKEND -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x64.ro \
 		tests/cxx_aggregate_paren_ref_exception.cpp \
 		>$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x64.log
@@ -10439,7 +10439,7 @@ test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET) \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-x64-o2-start.o \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-x64-o2.o
 	$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-x64-o2
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_VERIFIED_BACKEND \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86.ro \
 		tests/cxx_aggregate_paren_ref_exception.cpp \
@@ -10447,7 +10447,7 @@ test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET) \
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_VERIFIED_BACKEND \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x64.ro \
 		tests/cxx_aggregate_paren_ref_exception.cpp \
@@ -10455,7 +10455,7 @@ test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET) \
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x64.log,0)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_VERIFIED_BACKEND -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86-o2.ro \
 		tests/cxx_aggregate_paren_ref_exception.cpp \
@@ -10463,7 +10463,7 @@ test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET) \
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86-o2.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_VERIFIED_BACKEND -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x64-o2.ro \
 		tests/cxx_aggregate_paren_ref_exception.cpp \
