@@ -8942,6 +8942,20 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET) \
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-aggregate-paren-init/aggregate-gcc$(EXE_SUFFIX) tests/cxx_aggregate_paren_init.cpp
 	$(TEST_OUT)/cxx-aggregate-paren-init/aggregate-gcc$(EXE_SUFFIX)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-aggregate-paren-init,cxx_aggregate_paren_init.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-aggregate-paren-init/verified-x86.ro \
+		tests/cxx_aggregate_paren_init.cpp \
+		>$(TEST_OUT)/cxx-aggregate-paren-init/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/cxx-aggregate-paren-init/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-aggregate-paren-init/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-aggregate-paren-init/verified-x64.ro \
+		tests/cxx_aggregate_paren_init.cpp \
+		>$(TEST_OUT)/cxx-aggregate-paren-init/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/cxx-aggregate-paren-init/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-aggregate-paren-init/verified-x64.log,0)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-ref-lifetime)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-gcc$(EXE_SUFFIX) tests/cxx_aggregate_paren_ref_lifetime.cpp
 	$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-gcc$(EXE_SUFFIX)
