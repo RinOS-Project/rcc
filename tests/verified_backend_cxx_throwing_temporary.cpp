@@ -214,19 +214,47 @@ struct VerifiedThrowingConstructorTemporary {
 };
 
 struct VerifiedPotentiallyThrowingBase {
-    int value;
+    int* cleanup_order;
+    int first_value;
 
-    explicit VerifiedPotentiallyThrowingBase(int initial) {
+    explicit VerifiedPotentiallyThrowingBase(
+        int* cleanup_order, int initial)
+        : cleanup_order(cleanup_order), first_value(0) {
         if (initial < 0) throw 61;
-        value = initial;
+        first_value = initial;
+    }
+
+    ~VerifiedPotentiallyThrowingBase() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 1;
     }
 };
 
-struct VerifiedSingleThrowingBaseDerived : VerifiedPotentiallyThrowingBase {
+struct VerifiedSecondPotentiallyThrowingBase {
+    int* cleanup_order;
+    int second_value;
+
+    explicit VerifiedSecondPotentiallyThrowingBase(
+        int* cleanup_order, int initial)
+        : cleanup_order(cleanup_order), second_value(0) {
+        if (initial < 0) throw 62;
+        second_value = initial;
+    }
+
+    ~VerifiedSecondPotentiallyThrowingBase() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 2;
+    }
+};
+
+struct VerifiedMultipleThrowingBaseDerived :
+        VerifiedPotentiallyThrowingBase,
+        VerifiedSecondPotentiallyThrowingBase {
     int tail;
 
-    explicit VerifiedSingleThrowingBaseDerived(int initial)
-        : VerifiedPotentiallyThrowingBase(initial), tail(7) {}
+    explicit VerifiedMultipleThrowingBaseDerived(
+        int* cleanup_order, int first, int second)
+        : VerifiedPotentiallyThrowingBase(cleanup_order, first),
+          VerifiedSecondPotentiallyThrowingBase(cleanup_order, second),
+          tail(7) {}
 };
 
 VerifiedThrowingTemporary make_verified_throwing_temporary(
@@ -599,13 +627,22 @@ extern "C" int verified_cxx_throwing_constructor_reference_cleanup(
 }
 
 extern "C" int verified_cxx_single_throwing_base_constructor(
-    int should_throw) {
+    int mode) {
+    int cleanup_order = 0;
+    int result = 0;
     try {
-        VerifiedSingleThrowingBaseDerived object(should_throw ? -1 : 8);
-        return object.value * 10 + object.tail;
+        {
+            VerifiedMultipleThrowingBaseDerived object(
+                &cleanup_order, mode == 3 ? -1 : 8,
+                mode == 1 ? -1 : 9);
+            if (mode == 2) throw 64;
+            result = object.first_value * 100 +
+                object.second_value * 10 + object.tail;
+        }
     } catch (int value) {
-        return value;
+        return value * 100 + cleanup_order;
     }
+    return result * 100 + cleanup_order;
 }
 
 extern "C" int main() {

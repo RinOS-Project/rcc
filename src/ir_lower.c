@@ -17568,14 +17568,14 @@ static bool lower_cxx_initialize_constructor_members(
             const Decl* base_declaration =
                 base_initializer->constructor->method
                     ? base_initializer->constructor->method->decl : NULL;
-            /* A throwing call is safe here only when it is the sole direct
-             * base. It runs before scalar member stores, and the surrounding
-             * support checks reject any later throwing initializer/body, so
-             * a failed base call leaves no completed derived subobject. */
-            bool single_throwing_base = base_declaration &&
+            /* Each potentially throwing base is accepted only when earlier
+             * completed bases can be registered for unwind cleanup. The
+             * enclosing checks keep the constructor body empty, prohibit
+             * virtual bases, and restrict later member initialization to
+             * non-throwing scalar stores. */
+            bool throwing_base_supported = base_declaration &&
                 !base_declaration->func_is_noexcept &&
-                !declaration->func_is_noexcept && cls->base_count == 1 &&
-                base_index == 0;
+                !declaration->func_is_noexcept;
             memset(&base_expression, 0, sizeof(base_expression));
             base_expression.kind = EXPR_COMPOUND;
             base_expression.type = base->type;
@@ -17584,7 +17584,7 @@ static bool lower_cxx_initialize_constructor_members(
             base_expression.compound_init = base_initializer->arguments;
             if (!base_declaration ||
                 (!base_declaration->func_is_noexcept &&
-                 !single_throwing_base) ||
+                 !throwing_base_supported) ||
                 !lower_noexcept_expression_list(
                     base_initializer->arguments) ||
                 !lower_cleanup_constructor_call_supported(&base_expression)) {
@@ -17744,7 +17744,10 @@ static bool lower_cxx_initialize_constructor_members(
         base_expression.compound_init = base_initializer->arguments;
         if (!base_address.valid ||
             !lower_cxx_emit_constructor_call(
-                context, &base_expression, base_address.value)) {
+                context, &base_expression, base_address.value) ||
+            !lower_cxx_delete_subobject_cleanup_change(
+                context, cls->bases[base_index].base->type, base_address,
+                true, 0u)) {
             context->unsupported = true;
             return false;
         }
@@ -17835,6 +17838,33 @@ static bool lower_cxx_unregister_constructor_partial_member_cleanups(
     if (!object.valid || object.type.kind != RCC_IR_TYPE_POINTER) {
         context->unsupported = true;
         return false;
+    }
+    for (int base_index = cls->base_count; base_index > 0; --base_index) {
+        int index = base_index - 1;
+        bool duplicate_initializer = false;
+        const CxxClass* base = cls->bases
+            ? cls->bases[index].base : NULL;
+        const CxxConstructorInitializer* initializer =
+            lower_cxx_find_base_initializer(
+                cls, constructor, index, &duplicate_initializer);
+        RccIrLowerValue address;
+        if (duplicate_initializer || !base || !cls->base_offsets ||
+            cls->base_offsets[index] < 0) {
+            context->unsupported = true;
+            return false;
+        }
+        if (cls->bases[index].is_virtual || !initializer ||
+            !initializer->constructor) {
+            continue;
+        }
+        address = lower_byte_offset_address(
+            context, object, (uint64_t)cls->base_offsets[index]);
+        if (!address.valid ||
+            !lower_cxx_delete_subobject_cleanup_change(
+                context, base->type, address, false, 0u)) {
+            context->unsupported = true;
+            return false;
+        }
     }
     for (const TypeParam* member = cls->fields; member; member = member->next) {
         const CxxConstructorInitializer* initializer = NULL;

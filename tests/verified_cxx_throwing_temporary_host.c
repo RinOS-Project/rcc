@@ -151,18 +151,32 @@ int main(void) {
         return 15;
     }
     result = verified_cxx_single_throwing_base_constructor(1);
-    if (result != 61) {
+    if (result != 6201) {
         fprintf(stderr,
-                "throwing single-base constructor returned %d, expected 61\n",
+                "second throwing base did not unwind the completed first base: %d, expected 6201\n",
                 result);
         return 16;
     }
     result = verified_cxx_single_throwing_base_constructor(0);
-    if (result != 87) {
+    if (result != 89721) {
         fprintf(stderr,
-                "nonthrowing single-base construction returned %d, expected 87\n",
+                "multiple-base construction/destruction returned %d, expected 89721\n",
                 result);
         return 17;
+    }
+    result = verified_cxx_single_throwing_base_constructor(2);
+    if (result != 6421) {
+        fprintf(stderr,
+                "post-construction throw double-destroyed bases: %d, expected 6421\n",
+                result);
+        return 18;
+    }
+    result = verified_cxx_single_throwing_base_constructor(3);
+    if (result != 6100) {
+        fprintf(stderr,
+                "throwing first base destroyed an incomplete base: %d, expected 6100\n",
+                result);
+        return 19;
     }
     return rcc_test_main();
 }
