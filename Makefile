@@ -17090,7 +17090,7 @@ test-sanitize:
 		CFLAGS="$(CFLAGS) $(SANITIZER_CFLAGS)" \
 		LDFLAGS="$(LDFLAGS) -fsanitize=address,undefined" \
 		all test-ir test-ir-lowering test-verified-backend test-manifest \
-		test-signing test-executable-imports test-tls
+		test-signing test-executable-imports test-tls test-debug-info
 	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -c \
 		-o $(SANITIZER_ROOT)/tests/class.ro tests/class_test.cpp
 	$(SANITIZER_ROOT)/bin/rcc++ --target x86_64-unknown-rinos -std=c++20 -c \

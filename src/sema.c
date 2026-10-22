@@ -11556,7 +11556,9 @@ static const char* sema_reference_temporary_symbol(
     size_t suffix_length = suffix ? strlen(suffix) : 0u;
     char* symbol;
     if (base_length > SIZE_MAX - suffix_length - 1u) return NULL;
-    symbol = rcc_alloc(base_length + suffix_length + 1u);
+    /* The generated name is retained by AST declarations for the whole
+       translation unit. Keep it in the AST arena with its owner. */
+    symbol = ast_arena_alloc(base_length + suffix_length + 1u);
     if (base_length) memcpy(symbol, base, base_length);
     if (suffix_length) memcpy(symbol + base_length, suffix, suffix_length);
     symbol[base_length + suffix_length] = '\0';

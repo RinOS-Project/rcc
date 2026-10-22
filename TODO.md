@@ -8561,7 +8561,9 @@ remains a separate open item.
 - [ ] Variable divisors, signed 64-bit division/remainder, larger constants,
       non-frame-backed operands, and broader optimized multi-piece locations
       remain open.
-- [ ] Add the debug-info corpus to the leak-sanitizer gate and resolve the
-      existing compiler-lifetime leaks before claiming that gate: the focused
-      ASan/UBSan invocation with LeakSanitizer enabled reports 8,000 bytes in
-      409 allocations from `codegen.c` label/function-reference allocations.
+- [x] Include the full `test-debug-info` corpus in `test-sanitize` and resolve
+      the compiler-lifetime leaks it exposed: release label/function-resolution
+      lists after patching on both backends, and allocate semantic temporary
+      symbol/template-parameter names in the AST arena that owns their
+      declarations. The complete GCC ASan/UBSan/LeakSanitizer
+      `test-debug-info` target passed on Ubuntu-24.04 with no leak report.

@@ -4252,6 +4252,29 @@ static void resolve_labels64(Module* mod) {
     }
 }
 
+static void codegen_release_resolution_lists64(void) {
+    while (label_refs64) {
+        LabelRef64* next = label_refs64->next;
+        rcc_free(label_refs64);
+        label_refs64 = next;
+    }
+    while (label_defs64) {
+        LabelDef64* next = label_defs64->next;
+        rcc_free(label_defs64);
+        label_defs64 = next;
+    }
+    while (func_call_refs64) {
+        FuncCallRef64* next = func_call_refs64->next;
+        rcc_free(func_call_refs64);
+        func_call_refs64 = next;
+    }
+    while (func_defs64) {
+        FuncDef64* next = func_defs64->next;
+        rcc_free(func_defs64);
+        func_defs64 = next;
+    }
+}
+
 /* ═══════════════════════════════════════
  * Expression Code Generation (64-bit)
  * ═══════════════════════════════════════ */
@@ -14104,6 +14127,9 @@ Module* rcc_codegen64(AST* ast) {
 
     /* Resolve label references */
     resolve_labels64(mod);
+
+    /* These temporary lists are needed only while patching this module. */
+    codegen_release_resolution_lists64();
 
     return mod;
 }

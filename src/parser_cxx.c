@@ -13068,7 +13068,7 @@ static void cxx_template_add_template_param(CxxTemplate* tmpl,
     parameter = &tmpl->params[tmpl->param_count++];
     memset(parameter, 0, sizeof(*parameter));
     parameter->kind = TPARAM_TEMPLATE;
-    parameter->name = name ? rcc_strdup(name) : NULL;
+    parameter->name = name ? ast_arena_strdup(name) : NULL;
     parameter->template_signature = signature;
     parameter->is_pack = is_pack;
 }

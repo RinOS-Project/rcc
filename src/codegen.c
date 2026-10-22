@@ -4274,6 +4274,29 @@ static void resolve_labels(Module* mod) {
     }
 }
 
+static void codegen_release_resolution_lists(void) {
+    while (label_refs) {
+        LabelRef* next = label_refs->next;
+        rcc_free(label_refs);
+        label_refs = next;
+    }
+    while (label_defs) {
+        LabelDef* next = label_defs->next;
+        rcc_free(label_defs);
+        label_defs = next;
+    }
+    while (func_call_refs) {
+        FuncCallRef* next = func_call_refs->next;
+        rcc_free(func_call_refs);
+        func_call_refs = next;
+    }
+    while (func_defs) {
+        FuncDef* next = func_defs->next;
+        rcc_free(func_defs);
+        func_defs = next;
+    }
+}
+
 /* ═══════════════════════════════════════
  * Expression Code Generation
  * ═══════════════════════════════════════ */
@@ -20169,6 +20192,9 @@ Module* rcc_codegen(AST* ast) {
 
     /* Resolve label references */
     resolve_labels(mod);
+
+    /* These temporary lists are needed only while patching this module. */
+    codegen_release_resolution_lists();
 
     return mod;
 }
