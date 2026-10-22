@@ -14760,7 +14760,9 @@ static Type* sema_expr(Expr* expr) {
         sema_expand_cxx_lambda_captures(expr);
         if (expr->call_func->kind == EXPR_MEMBER ||
             expr->call_func->kind == EXPR_PTR_MEMBER) {
-            object_type = sema_expr(expr->call_func->member_base);
+            object_type = expr->call_func->cxx_member_qualified_type
+                ? expr->call_func->member_base->type
+                : sema_expr(expr->call_func->member_base);
             if (expr->call_func->kind == EXPR_PTR_MEMBER) {
                 if (sema_rewrite_cxx_arrow_operator(
                         expr->call_func, object_type)) {
@@ -16847,7 +16849,9 @@ static Type* sema_expr(Expr* expr) {
                 (expr->call_func->kind == EXPR_MEMBER ||
                  expr->call_func->kind == EXPR_PTR_MEMBER)) {
                 Expr* member = expr->call_func;
-                Type* owner = sema_expr(member->member_base);
+                Type* owner = member->cxx_member_qualified_type
+                    ? member->member_base->type
+                    : sema_expr(member->member_base);
                 TypeMethod* method;
                 TypeMethod* member_template_candidates[32] = { NULL };
                 int member_template_candidate_count = 0;
@@ -17014,6 +17018,14 @@ static Type* sema_expr(Expr* expr) {
                     method->function_decl) {
                     Expr* function_expression;
                     arguments_analyzed = true;
+                    if (member->cxx_member_qualified_type &&
+                        method->function_decl->func_this_param) {
+                        rcc_error(expr->loc,
+                                  "non-static member function '%s' requires an object",
+                                  member->member_name);
+                        expr->type = type_int;
+                        break;
+                    }
                     if (!sema_cxx_member_accessible(
                             sema_cxx_method_owner(owner, method),
                             method->cxx_access)) {

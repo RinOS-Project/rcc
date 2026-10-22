@@ -8190,8 +8190,11 @@ remains a separate open item.
 - [x] Keep AST-arena `this` expressions out of the temporary malloc cleanup
       list in both code generators. `test-cxx-dependent-dmi-call-argument`
       now generates and executes i686/AMD64 binaries without invalid frees.
-- [ ] Static inherited-member overload sets and the remaining `<atomic>` API
-      conformance work remain open.
+- [x] Resolve inherited static-function overloads through object and
+      class-qualified class-template expressions without inventing an object
+      parameter; the atomic fixture executes both one- and two-argument
+      overloads on i686 and AMD64 at `-O0` and compiles at `-O2`.
+- [ ] The remaining `<atomic>` API conformance work remains open.
 
 ## RCC continuation (2026-10-21, C++ `static_cast` conversion functions)
 

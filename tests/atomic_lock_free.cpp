@@ -11,6 +11,10 @@ public:
     constexpr InheritedStaticTemplateBase() noexcept : value_(0) {}
     constexpr InheritedStaticTemplateBase(T value) noexcept : value_(value) {}
     constexpr T value() const noexcept { return value_; }
+    static constexpr T doubled(T value) noexcept { return value * 2; }
+    static constexpr T doubled(T value, T multiplier) noexcept {
+        return value * multiplier;
+    }
 
 private:
     T value_;
@@ -83,7 +87,10 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (!pointer.is_always_lock_free) return 81u;
     if (!flag.is_always_lock_free) return 82u;
     if (!InheritedStaticTemplateDerived<unsigned>::is_always_lock_free ||
-        !inherited.is_always_lock_free || inherited.value() != 3u)
+        !inherited.is_always_lock_free || inherited.value() != 3u ||
+        InheritedStaticTemplateDerived<unsigned>::doubled(3u) != 6u ||
+        InheritedStaticTemplateDerived<unsigned>::doubled(3u, 2u) != 6u ||
+        inherited.doubled(3u) != 6u || inherited.doubled(3u, 2u) != 6u)
         return 83u;
     if (zero.load() != 0u || !zero.is_always_lock_free ||
         !zero.is_lock_free()) return 20u;
