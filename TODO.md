@@ -8660,3 +8660,16 @@ remains a separate open item.
       division/remainder in DWARF.
 - [ ] General 64-bit computed count division/remainder, non-frame-backed
       operands, and broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, i686 signed wide shift-count remainder)
+
+- [x] Preserve a signed frame-backed i686 `long long` shift-count expression
+      reduced by a power-of-two remainder after optimizer strength reduction.
+      Recognize the exact sign-corrected quotient/remainder tree and lower its
+      low word to the corresponding mask; this is exact for defined shift
+      counts, while negative results are already undefined as shift counts.
+      The `% 64ll` regression checks legacy and verified-backend DWARF. The
+      focused inline-expression test and full native-Windows `test-debug-info`
+      pass; the focused Linux ASan/UBSan inline-expression test passes.
+- [ ] General computed 64-bit count division/remainder, non-frame-backed
+      operands, and broader optimized multi-piece locations remain open.

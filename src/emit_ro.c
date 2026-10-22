@@ -6522,10 +6522,102 @@ static bool debug_inline_parameter_i686_u64_shift_constant_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_signed_u64_node(
+    const Expr* expression) {
+    return expression &&
+        debug_inline_integer_expression_type(expression->type) &&
+        expression->type->size == 8u && !expression->type->is_unsigned;
+}
+
+static bool debug_inline_parameter_i686_u64_signed_modulo_rewrite(
+    const Expr* expression, const Expr** operand, uint64_t* modulus) {
+    const Expr* product;
+    const Expr* quotient;
+    const Expr* adjusted;
+    const Expr* bias;
+    const Expr* sign_mask;
+    const Expr* source_expression;
+    const Decl* source;
+    uint64_t divisor_bits;
+    uint64_t quotient_shift;
+    uint64_t bias_bits;
+    uint64_t sign_shift;
+
+    if (!expression || !operand || !modulus ||
+        expression->kind != EXPR_SUB || !expression->binary_lhs ||
+        expression->binary_lhs->kind != EXPR_IDENT ||
+        !expression->binary_lhs->ident_decl || !expression->binary_rhs ||
+        expression->binary_rhs->kind != EXPR_MUL ||
+        !expression->binary_rhs->binary_lhs ||
+        !expression->binary_rhs->binary_rhs ||
+        !debug_inline_parameter_i686_signed_u64_node(expression) ||
+        !debug_inline_parameter_i686_signed_u64_node(
+            expression->binary_lhs)) {
+        return false;
+    }
+
+    source_expression = expression->binary_lhs;
+    source = source_expression->ident_decl;
+    product = expression->binary_rhs;
+    quotient = product->binary_lhs;
+    if (quotient->kind != EXPR_RSHIFT || !quotient->binary_lhs ||
+        !quotient->binary_rhs ||
+        !debug_inline_parameter_i686_signed_u64_node(product) ||
+        !debug_inline_parameter_i686_signed_u64_node(quotient) ||
+        !debug_inline_integer_literal_bits(
+            product->binary_rhs, &divisor_bits, 0u) ||
+        divisor_bits < 2u || divisor_bits > UINT64_C(0x100000000) ||
+        (divisor_bits & (divisor_bits - 1u)) != 0u ||
+        !debug_inline_integer_literal_bits(
+            quotient->binary_rhs, &quotient_shift, 0u) ||
+        quotient_shift == 0u || quotient_shift >= 63u ||
+        divisor_bits != (UINT64_C(1) << quotient_shift)) {
+        return false;
+    }
+
+    adjusted = quotient->binary_lhs;
+    if (adjusted->kind != EXPR_ADD || !adjusted->binary_lhs ||
+        adjusted->binary_lhs->kind != EXPR_IDENT ||
+        adjusted->binary_lhs->ident_decl != source ||
+        !adjusted->binary_rhs || adjusted->binary_rhs->kind != EXPR_BITAND ||
+        !adjusted->binary_rhs->binary_lhs ||
+        !adjusted->binary_rhs->binary_rhs ||
+        !debug_inline_parameter_i686_signed_u64_node(adjusted) ||
+        !debug_inline_parameter_i686_signed_u64_node(
+            adjusted->binary_lhs) ||
+        !debug_inline_parameter_i686_signed_u64_node(adjusted->binary_rhs) ||
+        !debug_inline_integer_literal_bits(
+            adjusted->binary_rhs->binary_rhs, &bias_bits, 0u) ||
+        bias_bits != divisor_bits - 1u) {
+        return false;
+    }
+
+    bias = adjusted->binary_rhs;
+    sign_mask = bias->binary_lhs;
+    if (sign_mask->kind != EXPR_RSHIFT || !sign_mask->binary_lhs ||
+        sign_mask->binary_lhs->kind != EXPR_IDENT ||
+        sign_mask->binary_lhs->ident_decl != source ||
+        !sign_mask->binary_rhs ||
+        !debug_inline_parameter_i686_signed_u64_node(sign_mask) ||
+        !debug_inline_parameter_i686_signed_u64_node(
+            sign_mask->binary_lhs) ||
+        !debug_inline_integer_literal_bits(
+            sign_mask->binary_rhs, &sign_shift, 0u) ||
+        sign_shift != 63u) {
+        return false;
+    }
+
+    *operand = source_expression;
+    *modulus = divisor_bits;
+    return true;
+}
+
 static bool debug_inline_parameter_i686_u64_append_low_word_expression(
     const Module* mod, const Expr* expression, uint8_t* output,
     size_t capacity, size_t* size, unsigned int depth) {
     uint64_t literal_bits;
+    const Expr* modulo_operand = NULL;
+    uint64_t modulo_divisor = 0u;
     if (!mod || !expression || !output || !size || depth >= 32u ||
         !debug_inline_integer_expression_type(expression->type) ||
         expression->type->size != 8) {
@@ -6535,6 +6627,19 @@ static bool debug_inline_parameter_i686_u64_append_low_word_expression(
             expression, &literal_bits, 0u)) {
         return debug_inline_integer_expression_append_constu(
             output, capacity, size, (uint32_t)literal_bits);
+    }
+    if (debug_inline_parameter_i686_u64_signed_modulo_rewrite(
+            expression, &modulo_operand, &modulo_divisor) &&
+        debug_inline_parameter_i686_u64_append_low_word_expression(
+            mod, modulo_operand, output, capacity, size, depth + 1u) &&
+        debug_inline_integer_expression_append_constu(
+            output, capacity, size, modulo_divisor - 1u) &&
+        debug_inline_integer_expression_append_byte(
+            output, capacity, size, 0x1au)) { /* DW_OP_and */
+        /* The optimizer expands signed x % 2^n into a truncating quotient
+           correction. On a defined shift count (0..63), the remainder's low
+           bits are exactly x & (2^n - 1). */
+        return true;
     }
     if (expression->kind == EXPR_IDENT && expression->ident_decl) {
         const Decl* source = expression->ident_decl;
@@ -7476,12 +7581,13 @@ static bool debug_inline_parameter_integer_expression(
     if (architecture == ARCH_X86 &&
         (unsigned int)parameter_type->size == 8u &&
         (source_expression->kind == EXPR_LSHIFT ||
-         source_expression->kind == EXPR_RSHIFT) &&
-        debug_inline_parameter_i686_u64_shift_variable_expression(
-            mod, parameter_type, source_expression, expression,
-            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
-            expression_size)) {
-        return true;
+         source_expression->kind == EXPR_RSHIFT)) {
+        if (debug_inline_parameter_i686_u64_shift_variable_expression(
+                mod, parameter_type, source_expression, expression,
+                DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
+                expression_size)) {
+            return true;
+        }
     }
 
     if (architecture == ARCH_X86 &&
