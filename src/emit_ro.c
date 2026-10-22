@@ -5632,16 +5632,26 @@ static bool debug_inline_parameter_i686_unsigned_u64_variables_expression(
     int64_t right_frame_offset;
     size_t size = 0u;
     const uint64_t sign_bit = UINT64_C(0x80000000);
+    uint8_t bitwise_operation = 0u;
     bool is_subtract;
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size ||
         (source_expression->kind != EXPR_ADD &&
-         source_expression->kind != EXPR_SUB) ||
+         source_expression->kind != EXPR_SUB &&
+         source_expression->kind != EXPR_BITAND &&
+         source_expression->kind != EXPR_BITOR &&
+         source_expression->kind != EXPR_BITXOR) ||
         !parameter_type->is_unsigned || parameter_type->size != 8u ||
         !source_expression->binary_lhs || !source_expression->binary_rhs) {
         return false;
     }
     is_subtract = source_expression->kind == EXPR_SUB;
+    switch (source_expression->kind) {
+    case EXPR_BITAND: bitwise_operation = 0x1au; break; /* DW_OP_and */
+    case EXPR_BITOR: bitwise_operation = 0x21u; break; /* DW_OP_or */
+    case EXPR_BITXOR: bitwise_operation = 0x27u; break; /* DW_OP_xor */
+    default: break;
+    }
     left_expression = source_expression->binary_lhs;
     right_expression = source_expression->binary_rhs;
     if (left_expression->kind != EXPR_IDENT ||
@@ -5673,6 +5683,30 @@ static bool debug_inline_parameter_i686_unsigned_u64_variables_expression(
         left_frame_offset > INT64_MAX - 4 ||
         right_frame_offset > INT64_MAX - 4) {
         return false;
+    }
+
+    if (bitwise_operation != 0u) {
+        for (unsigned int word = 0u; word < 2u; ++word) {
+            int64_t word_offset = (int64_t)(word * 4u);
+            if (!debug_inline_integer_expression_append_frame_u32(
+                    expression, capacity, &size, ARCH_X86,
+                    left_frame_offset + word_offset) ||
+                !debug_inline_integer_expression_append_frame_u32(
+                    expression, capacity, &size, ARCH_X86,
+                    right_frame_offset + word_offset) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, bitwise_operation) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x9fu) || /* stack_value */
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 4u)) {
+                return false;
+            }
+        }
+        *expression_size = size;
+        return true;
     }
 
     /* Emit the low word and the high-word base before deriving carry/borrow. */
@@ -6318,7 +6352,10 @@ static bool debug_inline_parameter_integer_expression(
     if (architecture == ARCH_X86 && parameter_type->is_unsigned &&
         (unsigned int)parameter_type->size == 8u &&
         (source_expression->kind == EXPR_ADD ||
-         source_expression->kind == EXPR_SUB) &&
+         source_expression->kind == EXPR_SUB ||
+         source_expression->kind == EXPR_BITAND ||
+         source_expression->kind == EXPR_BITOR ||
+         source_expression->kind == EXPR_BITXOR) &&
         debug_inline_parameter_i686_unsigned_u64_variables_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,

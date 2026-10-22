@@ -8413,6 +8413,11 @@ remains a separate open item.
       difference. Verify exact opcodes, both source frame slots, piece widths,
       and eight borrow/wrap patterns in legacy and verified-backend objects;
       the focused and full native-Windows debug-info gates pass.
+- [x] Preserve frame-backed i686 unsigned 64-bit AND, OR, and XOR between two
+      locals as separate low/high four-byte pieces. Verify the exact operation
+      per word, both source frame locations, piece widths, and eight
+      reconstructed boundary values in legacy and verified-backend objects;
+      the focused and full native-Windows debug-info gates pass.
 - [ ] i686 unsigned 64-bit division/remainder with nonconstant operands,
       multiplication by another runtime value, and broader optimized
       multi-piece locations remain open.
