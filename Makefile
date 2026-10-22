@@ -11,6 +11,7 @@ ifeq ($(origin CXX),default)
 CXX = g++
 endif
 CLANG ?= clang
+GCC ?= gcc
 CFLAGS = -Wall -Wextra -std=c11 -g -O2 -MMD -MP \
 	-I$(RINOS_SDK_ROOT)/include
 LDFLAGS =
@@ -56,6 +57,13 @@ RINRESOURCE_ROOT ?= ../../libs/rinresource
 TEST_OUT = build/tests
 SIGN_TEST_DIR = $(TEST_OUT)/signing
 SANITIZER_ROOT = build/sanitizers
+SANITIZER_CFLAGS = -O1 -fsanitize=address,undefined -fno-omit-frame-pointer
+ifneq ($(findstring clang,$(notdir $(CC))),)
+# Clang's function UBSan requires type metadata before an indirect call target.
+# RCC's host runners call raw, uninstrumented machine code emitted into mmap'd
+# pages, which has no such metadata; keep ASan and the remaining UBSan checks.
+SANITIZER_CFLAGS += -fno-sanitize=function
+endif
 BOOTSTRAP_ROOT = build/bootstrap
 ifeq ($(OS),Windows_NT)
 # Override this when the checkout is mounted at a different WSL path.
@@ -115,6 +123,9 @@ endef
 # object, so do not make the whole production gate depend on unavailable
 # 32-bit Windows CRT libraries.
 VERIFIED_BACKEND_X86_HOST_CFLAGS = $(CFLAGS)
+VERIFIED_BACKEND_X86_RUNTIME_DEPS = \
+	$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+VERIFIED_BACKEND_X86_HOST_LINK_FLAGS =
 COMPARE_FILES = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_compare_files.ps1" "$(1)" "$(2)"
 CHECK_COUNT = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "$(3)" "$(1)" "$(2)"
 else
@@ -122,6 +133,10 @@ MKDIR_P = mkdir -p "$(1)"
 EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
 CHECK_NONEMPTY = test -s "$(1)"
 VERIFIED_BACKEND_X86_HOST_CFLAGS = -m32 $(CFLAGS)
+VERIFIED_BACKEND_X86_RUNTIME_DEPS = \
+	$(CXX_HOST_EXCEPTION_RUNTIME_I686) \
+	$(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686)
+VERIFIED_BACKEND_X86_HOST_LINK_FLAGS = -no-pie
 COMPARE_FILES = cmp "$(1)" "$(2)"
 COPY_FILE = cp "$(1)" "$(2)"
 ASSERT_ABSENT = test ! -e "$(1)"
@@ -192,6 +207,10 @@ endif
 CXX_HOST_EXCEPTION_RUNTIME = $(TEST_OUT)/cxx-host-exception-runtime-x64.o
 CXX_STATIC_REFERENCE_GUARD_RUNTIME = \
 	$(TEST_OUT)/cxx-static-reference-guard-runtime-x64.o
+CXX_HOST_EXCEPTION_RUNTIME_I686 = \
+	$(TEST_OUT)/cxx-host-exception-runtime-i686.o
+CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686 = \
+	$(TEST_OUT)/cxx-static-reference-guard-runtime-i686.o
 
 $(CXX_HOST_EXCEPTION_RUNTIME): tests/cxx_exceptions_x64_start.s
 	$(call MKDIR_P,$(TEST_OUT))
@@ -201,6 +220,17 @@ $(CXX_STATIC_REFERENCE_GUARD_RUNTIME): \
 	tests/cxx_static_reference_guard_runtime.c
 	$(call MKDIR_P,$(TEST_OUT))
 	$(CC) $(CFLAGS) -DRINOS_HOST_RUNTIME -c -o $@ $<
+
+ifneq ($(OS),Windows_NT)
+$(CXX_HOST_EXCEPTION_RUNTIME_I686): tests/cxx_exceptions_i686_start.s
+	$(call MKDIR_P,$(TEST_OUT))
+	$(CC) -m32 -DRINOS_HOST_RUNTIME -x assembler-with-cpp -c -o $@ $<
+
+$(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686): \
+	tests/cxx_static_reference_guard_runtime.c
+	$(call MKDIR_P,$(TEST_OUT))
+	$(CC) -m32 $(CFLAGS) -DRINOS_HOST_RUNTIME -c -o $@ $<
+endif
 
 ifeq ($(OS),Windows_NT)
 # Windows has no RinOS int 0x80/syscall runtime.  Compile the i686 image to a
@@ -17057,7 +17087,7 @@ test-global-finalizers: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 test-sanitize:
 	$(MAKE) OBJDIR=$(SANITIZER_ROOT)/obj BINDIR=$(SANITIZER_ROOT)/bin \
 		TEST_OUT=$(SANITIZER_ROOT)/tests \
-		CFLAGS="$(CFLAGS) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer" \
+		CFLAGS="$(CFLAGS) $(SANITIZER_CFLAGS)" \
 		LDFLAGS="$(LDFLAGS) -fsanitize=address,undefined" \
 		all test-ir test-ir-lowering test-verified-backend test-manifest \
 		test-signing test-executable-imports test-tls
@@ -17643,7 +17673,7 @@ test-verified-goto: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/goto-x64.ro
 	$(TEST_OUT)/verified-backend/goto-run \
 		$(TEST_OUT)/verified-backend/goto-x64-o2.ro
-	$(CC) -std=c17 -Wall -Wextra -Werror \
+	$(GCC) -std=c17 -Wall -Wextra -Werror \
 		-Wno-unused-but-set-variable -O2 \
 		-o $(TEST_OUT)/verified-backend/goto-gcc \
 		tests/verified_backend_goto.c
@@ -17794,15 +17824,15 @@ test-verified-atomic-fetch-add: $(RCC_TARGET)
 	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/atomic-floating-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-floating-x64-o2.log,0)
-	$(CC) -std=c17 -Wall -Wextra -Werror \
+	$(GCC) -std=c17 -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/verified-backend/atomic-fetch-add-gcc \
 		tests/verified_backend_atomic_fetch_add.c
 	$(TEST_OUT)/verified-backend/atomic-fetch-add-gcc
-	$(CC) -std=c17 -Wall -Wextra -Werror \
+	$(GCC) -std=c17 -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/verified-backend/atomic-generic-load-store-gcc \
 		tests/verified_backend_atomic_generic_load_store.c
 	$(TEST_OUT)/verified-backend/atomic-generic-load-store-gcc
-	$(CC) -std=c17 -Wall -Wextra -Werror \
+	$(GCC) -std=c17 -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/verified-backend/atomic-floating-gcc \
 		tests/verified_backend_atomic_floating.c
 	$(TEST_OUT)/verified-backend/atomic-floating-gcc
@@ -17886,7 +17916,7 @@ test-verified-vla-local-bound: $(RCC_TARGET)
 		tests/verified_backend_vla_local_bound.c
 	$(TEST_OUT)/verified-backend/vla-local-bound-run --entry \
 		$(TEST_OUT)/verified-backend/vla-local-bound-legacy-x64.ro
-	$(CC) -std=c17 -Wall -Wextra -Werror -O2 \
+	$(GCC) -std=c17 -Wall -Wextra -Werror -O2 \
 		-o $(TEST_OUT)/verified-backend/vla-local-bound-gcc.exe \
 		tests/verified_backend_vla_local_bound.c
 	$(TEST_OUT)/verified-backend/vla-local-bound-gcc.exe
@@ -19049,11 +19079,11 @@ ifeq ($(OS),Windows_NT)
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.o \
 		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 else
-	$(CC) -Wl,--allow-multiple-definition -no-pie -o \
+	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -no-pie -o \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-host \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64.o \
 		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
-	$(CC) -Wl,--allow-multiple-definition -no-pie -o \
+	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -no-pie -o \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2-host \
 		$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2.o \
 		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
@@ -19062,7 +19092,7 @@ endif
 	$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2-host
 	@echo "C++ dynamic function-static scalar initialization tests completed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) test-rinvalidate-dynamic-tls test-verified-goto test-verified-atomic-vla-rmw test-verified-atomic-fetch-add test-verified-vla-local-bound test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-partial-array-init test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested test-verified-sysv-sse-pair-return test-verified-cxx-static-local-scalar
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) $(VERIFIED_BACKEND_X86_RUNTIME_DEPS) test-rinvalidate-dynamic-tls test-verified-goto test-verified-atomic-vla-rmw test-verified-atomic-fetch-add test-verified-vla-local-bound test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-partial-array-init test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested test-verified-sysv-sse-pair-return test-verified-cxx-static-local-scalar
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \
@@ -19462,10 +19492,11 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(GREP) -F -q 'Verified backend: 14 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/virtual-dispatch-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/virtual-dispatch-x64.log,0)
-	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) -I$(INCDIR) \
+	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) \
+		$(VERIFIED_BACKEND_X86_HOST_LINK_FLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/verify-x86 \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c \
-		$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+		$(VERIFIED_BACKEND_X86_RUNTIME_DEPS)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/verify-x64 \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c \

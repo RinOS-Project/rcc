@@ -1,5 +1,12 @@
 .text
+#ifndef RINOS_HOST_RUNTIME
 .globl _start
+.globl rin_malloc
+.globl rin_free
+.globl abort
+.extern _rcc_entry
+.weak rin_test_setup_tls
+#endif
 .globl setjmp
 .globl longjmp
 .globl rin_cpp_exception_install
@@ -15,11 +22,6 @@
 .globl rin_cpp_exception_register_current_cleanup
 .globl rin_cpp_exception_unregister_current_cleanup
 .globl rin_cpp_exception_unwind_cleanups
-.globl rin_malloc
-.globl rin_free
-.globl abort
-.extern _rcc_entry
-.weak rin_test_setup_tls
 
 .bss
 .align 4
@@ -435,6 +437,7 @@ rin_cpp_exception_release_frame:
     int $0x80
     ud2
 
+#ifndef RINOS_HOST_RUNTIME
 rin_malloc:
     mov $rin_exception_test_heap, %eax
     ret
@@ -473,5 +476,6 @@ _start:
     mov $125, %ebx
     mov $1, %eax
     int $0x80
+#endif
 
 .section .note.GNU-stack,"",@progbits

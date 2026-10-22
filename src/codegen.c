@@ -2241,7 +2241,11 @@ static bool codegen_attach_static_initializer_guard(Decl* declaration) {
                   "static initialization guard symbol is too large");
         return false;
     }
-    guard_name = rcc_alloc(base_length + suffix_length + 1u);
+    /* The synthetic declaration remains attached to the AST until the
+     * compilation context is released.  Keep its generated link name in the
+     * same arena instead of leaking a standalone allocation per guarded
+     * static local. */
+    guard_name = ast_arena_alloc(base_length + suffix_length + 1u);
     if (base_length) memcpy(guard_name, base, base_length);
     memcpy(guard_name + base_length, suffix, suffix_length + 1u);
     guard = decl_var("__rcc_static_guard", type_llong, NULL,
