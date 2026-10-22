@@ -49,6 +49,23 @@ public:
         : InheritedStaticTemplateBase<T>(value) {}
 };
 
+template<class T>
+struct CxxVolatileTemplateClass {
+    T value;
+};
+
+template<class T>
+T cxx_volatile_class_template_deduction(
+    volatile CxxVolatileTemplateClass<T>* object) {
+    return object->value;
+}
+
+template<class T>
+T cxx_volatile_atomic_template_deduction(
+    volatile std::atomic<T>* object) {
+    return object->load();
+}
+
 extern "C" int cpp_atomic_always_lock_free_value() {
     return __atomic_always_lock_free(8, nullptr) &&
            __atomic_is_lock_free(4, nullptr);
@@ -104,6 +121,8 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     float floating_expected = 9.0f;
     unsigned expected = 9u;
     unsigned api_expected = 3u;
+    volatile CxxVolatileTemplateClass<unsigned> volatile_template_value =
+        { 17u };
     std::atomic_init(&compatibility_init, 2u);
     if (std::atomic_load(&compatibility_init) != 2u) return 103u;
     std::atomic_thread_fence(std::memory_order_acq_rel);
@@ -111,6 +130,9 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (std::kill_dependency(7u) != 7u ||
         std::kill_dependency(pointer_values) != pointer_values)
         return 106u;
+    if (cxx_volatile_class_template_deduction(
+            &volatile_template_value) != 17u)
+        return 108u;
     if (!zero.is_always_lock_free) return 80u;
     if (!pointer.is_always_lock_free) return 81u;
 #ifndef RCC_STDLIB_REFERENCE
@@ -220,6 +242,8 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         volatile std::atomic<unsigned> volatile_value(2u);
         volatile std::atomic<unsigned> volatile_compatibility_init(0u);
         unsigned volatile_expected = 100u;
+        if (cxx_volatile_atomic_template_deduction(&volatile_value) != 2u)
+            return 107u;
         std::atomic_init(&volatile_compatibility_init, 3u);
         if (std::atomic_load(&volatile_compatibility_init) != 3u)
             return 104u;

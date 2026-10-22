@@ -9204,7 +9204,10 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                   nested_class_template, nested_arguments, nested_values,
                   nested_value_present, nested_count,
                   (SourceLoc){"<template>", 0, 0});
-        return instantiated ? instantiated->type : NULL;
+        /* Class instantiation returns an unqualified specialization; preserve
+         * qualifiers carried by the dependent class-template-id itself. */
+        return template_apply_pattern_qualifiers(
+            type, instantiated ? instantiated->type : NULL);
     }
     if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
         type->cxx_template_arg_count > 0) {

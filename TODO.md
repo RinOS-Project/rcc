@@ -8783,3 +8783,18 @@ remains a separate open item.
       target list passed on Windows when split at the separately passing
       structural-array-NTTP target; no compiler-generated target ABI spelling
       was changed.
+
+## RCC continuation (2026-10-23, dependent class-template cv substitution)
+
+- [x] Preserve `const`/`volatile`/`restrict`/`atomic` qualifiers when a
+      dependent class-template-id is instantiated in both parser deduction
+      and AST function-template specialization. A function taking
+      `volatile Box<T>*` now accepts a volatile specialization and deduces
+      `T`; the regression also exercises `volatile std::atomic<T>*`.
+      `test-atomic-builtins` passes both architectures at `-O0`/`-O2`, runs
+      the AMD64 objects, and `test-cxx-function-template-overloads` passes.
+- [ ] Replace the currently generic `template<class Atomic>` non-member
+      `<atomic>` wrappers with the standard `atomic<T>`-constrained signatures.
+      An exact-signature experiment currently exposes duplicate instantiation
+      diagnostics for the `atomic<T*>` specialization; retain the working
+      callable API until that compiler issue is resolved.

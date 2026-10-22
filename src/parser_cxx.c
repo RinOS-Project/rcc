@@ -16464,15 +16464,30 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             return substituted;
         }
         if (nested_owner_type) {
-            return cxx_instantiate_dependent_class_template(
+            base = cxx_instantiate_dependent_class_template(
                 nested_class_template, nested_owner_class, nested_arguments,
                 nested_values, nested_value_present, nested_count,
                 (SourceLoc){"<template>", 0, 0});
+        } else {
+            base = cxx_instantiate_dependent_class_template(
+                nested_class_template, NULL, nested_arguments, nested_values,
+                nested_value_present, nested_count,
+                (SourceLoc){"<template>", 0, 0});
         }
-        return cxx_instantiate_dependent_class_template(
-            nested_class_template, NULL, nested_arguments, nested_values,
-            nested_value_present, nested_count,
-            (SourceLoc){"<template>", 0, 0});
+        if (!base) return NULL;
+        /* Dependent class-id cv qualifiers apply to the specialization itself,
+         * not its template arguments; instantiation returns the bare class. */
+        if (type->is_const || type->is_volatile || type->is_atomic ||
+            type->is_restrict) {
+            substituted = ast_arena_alloc(sizeof(*substituted));
+            *substituted = *base;
+            substituted->is_const = type->is_const;
+            substituted->is_volatile = type->is_volatile;
+            substituted->is_atomic = type->is_atomic;
+            substituted->is_restrict = type->is_restrict;
+            return substituted;
+        }
+        return base;
     }
     if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
         type->cxx_template_arg_count > 0) {
