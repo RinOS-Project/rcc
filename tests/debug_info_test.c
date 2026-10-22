@@ -8819,16 +8819,26 @@ static void verify_inline_u64_mul_two_variables_expression(
     }
 }
 
-static void verify_inline_unsigned_bitwise_expression(
+static void verify_inline_u64_bitwise_constant_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* source_name,
-    int64_t source_frame_offset, uint64_t constant, uint8_t operation) {
-    const uint64_t values[] = {
+    int64_t source_frame_offset, uint64_t constant, uint8_t operation,
+    bool is_unsigned) {
+    static const uint64_t unsigned_values[] = {
         0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
         UINT64_C(0x1fffffffe), UINT64_C(0x7fffffffffffffff),
         UINT64_C(0xfffffffffffffffe), UINT64_MAX
     };
+    static const uint64_t signed_values[] = {
+        0u, 1u, UINT64_MAX, UINT64_C(0x7fffffffffffffff),
+        UINT64_C(0x8000000000000007), UINT64_C(0x8000000000000008),
+        UINT64_C(0xfffffffffffffff9), UINT64_C(0x8000000012345678)
+    };
+    const uint64_t* values = is_unsigned ? unsigned_values : signed_values;
+    size_t value_count = is_unsigned
+        ? sizeof(unsigned_values) / sizeof(unsigned_values[0])
+        : sizeof(signed_values) / sizeof(signed_values[0]);
     uint64_t offset = expression_start;
     bool has_variable_location;
     bool variable_is_location_list;
@@ -8857,8 +8867,7 @@ static void verify_inline_unsigned_bitwise_expression(
         &variable_frame_offset));
     assert(has_variable_location &&
            variable_frame_offset == source_frame_offset);
-    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
-         ++index) {
+    for (size_t index = 0u; index < value_count; ++index) {
         uint64_t expected = operation == 0x1au ? values[index] & constant :
             operation == 0x21u ? values[index] | constant :
             values[index] ^ constant;
@@ -9218,7 +9227,13 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
-    const char* call_site_name = expected_operation == 0xe1u
+    const char* call_site_name = expected_operation == 0xe2u
+        ? "debug_inline_nonconstant_signed_long_long_and_constant_entry"
+        : expected_operation == 0xe3u
+            ? "debug_inline_nonconstant_signed_long_long_or_constant_entry"
+            : expected_operation == 0xeau
+                ? "debug_inline_nonconstant_signed_long_long_xor_constant_entry"
+                : expected_operation == 0xe1u
         ? "debug_inline_nonconstant_signed_long_long_add_constant_entry"
         : expected_operation == 0xe0u
             ? "debug_inline_nonconstant_signed_long_long_sub_constant_entry"
@@ -9250,6 +9265,8 @@ static void verify_inline_integer_expression_parameter(
     assert(object != NULL && object->arch == architecture && inline_name &&
            source_name &&
            (expected_operation == 0xe0u || expected_operation == 0xe1u ||
+            expected_operation == 0xe2u || expected_operation == 0xe3u ||
+            expected_operation == 0xeau ||
             expected_operation == 0xe4u || expected_operation == 0xe5u ||
             expected_operation == 0xe6u || expected_operation == 0xe7u ||
             expected_operation == 0xe8u || expected_operation == 0xe9u ||
@@ -9429,13 +9446,20 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
-        (expected_operation == 0x1au || expected_operation == 0x21u ||
-         expected_operation == 0x27u)) {
-        verify_inline_unsigned_bitwise_expression(
+    if (architecture == ARCH_X86 && value_size == 8u &&
+        ((is_unsigned &&
+          (expected_operation == 0x1au || expected_operation == 0x21u ||
+           expected_operation == 0x27u)) ||
+         (!is_unsigned &&
+          (expected_operation == 0xe2u || expected_operation == 0xe3u ||
+           expected_operation == 0xeau)))) {
+        uint8_t operation = expected_operation == 0xe2u ? 0x1au :
+            expected_operation == 0xe3u ? 0x21u :
+            expected_operation == 0xeau ? 0x27u : expected_operation;
+        verify_inline_u64_bitwise_constant_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, frame_offset,
-            (uint64_t)expected_constant, expected_operation);
+            (uint64_t)expected_constant, operation, is_unsigned);
         objfile_free(object);
         return;
     }
@@ -9692,6 +9716,18 @@ static void verify_inline_integer_expression_cases(
          false, 8u,
          0xe0u, 7,
          NULL, false},
+        {"debug_nonconstant_signed_long_long_and_constant_inline",
+         "debug_inline_nonconstant_signed_long_long_and_constant_source",
+         false, 8u,
+         0xe2u, -INT64_C(0x0f0ff0f00ff00ff0), NULL, false},
+        {"debug_nonconstant_signed_long_long_or_constant_inline",
+         "debug_inline_nonconstant_signed_long_long_or_constant_source",
+         false, 8u,
+         0xe3u, INT64_C(0x4000000100000001), NULL, false},
+        {"debug_nonconstant_signed_long_long_xor_constant_inline",
+         "debug_inline_nonconstant_signed_long_long_xor_constant_source",
+         false, 8u,
+         0xeau, -INT64_C(0x100000001), NULL, false},
         {"debug_nonconstant_unsigned_long_long_multiply_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0xfau, INT64_C(0x0f0ff0f00ff00ff0), NULL, false},
@@ -9721,9 +9757,15 @@ static void verify_inline_integer_expression_cases(
             cases[index].value_size == 8u &&
             (cases[index].operation == 0x1au ||
              cases[index].operation == 0x21u ||
-             cases[index].operation == 0x27u);
+             cases[index].operation == 0x27u ||
+             cases[index].operation == 0xe2u ||
+             cases[index].operation == 0xe3u ||
+             cases[index].operation == 0xeau);
         if ((cases[index].operation == 0xe0u ||
              cases[index].operation == 0xe1u ||
+             cases[index].operation == 0xe2u ||
+             cases[index].operation == 0xe3u ||
+             cases[index].operation == 0xeau ||
              cases[index].operation == 0xe4u ||
              cases[index].operation == 0xe5u ||
              cases[index].operation == 0xe6u ||
@@ -9746,6 +9788,9 @@ static void verify_inline_integer_expression_cases(
         if (cases[index].value_size > address_size &&
             cases[index].operation != 0xe0u &&
             cases[index].operation != 0xe1u &&
+            cases[index].operation != 0xe2u &&
+            cases[index].operation != 0xe3u &&
+            cases[index].operation != 0xeau &&
             cases[index].operation != 0xe4u &&
             cases[index].operation != 0xe5u &&
             cases[index].operation != 0xe6u &&

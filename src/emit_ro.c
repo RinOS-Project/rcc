@@ -5791,7 +5791,7 @@ static bool debug_inline_parameter_i686_u64_variables_expression(
     return true;
 }
 
-static bool debug_inline_parameter_i686_unsigned_u64_bitwise_expression(
+static bool debug_inline_parameter_i686_u64_bitwise_constant_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size) {
@@ -5803,8 +5803,8 @@ static bool debug_inline_parameter_i686_unsigned_u64_bitwise_expression(
     uint8_t operation;
     size_t size = 0u;
     if (!mod || !parameter_type || !source_expression || !expression ||
-        !expression_size || !parameter_type->is_unsigned ||
-        parameter_type->size != 8u || !source_expression->binary_lhs ||
+        !expression_size || parameter_type->size != 8u ||
+        !source_expression->binary_lhs ||
         !source_expression->binary_rhs) {
         return false;
     }
@@ -6591,12 +6591,12 @@ static bool debug_inline_parameter_integer_expression(
         return true;
     }
 
-    if (architecture == ARCH_X86 && parameter_type->is_unsigned &&
+    if (architecture == ARCH_X86 &&
         (unsigned int)parameter_type->size == 8u &&
         (source_expression->kind == EXPR_BITAND ||
          source_expression->kind == EXPR_BITOR ||
          source_expression->kind == EXPR_BITXOR) &&
-        debug_inline_parameter_i686_unsigned_u64_bitwise_expression(
+        debug_inline_parameter_i686_u64_bitwise_constant_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
             expression_size)) {

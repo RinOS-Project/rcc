@@ -8439,6 +8439,17 @@ remains a separate open item.
 - [ ] Nonconstant i686 64-bit division/remainder and broader optimized
       multi-piece locations remain open.
 
+## RCC continuation (2026-10-22, i686 signed 64-bit constant bitwise DWARF)
+
+- [x] Preserve a frame-backed i686 signed `long long` AND, OR, or XOR with a
+      same-typed constant as exact low/high four-byte `DW_OP_piece` values.
+      Verify signed type metadata, frame location, per-word opcodes, negative
+      masks, and eight signed boundary patterns in legacy and verified-backend
+      objects. The focused inline-expression and full native-Windows
+      `test-debug-info` gates pass.
+- [ ] Nonconstant i686 64-bit division/remainder and broader optimized
+      multi-piece locations remain open.
+
 ## RCC continuation (2026-10-22, i686 signed 64-bit constant inline DWARF)
 
 - [x] Preserve a frame-backed i686 signed `long long` plus or minus a typed

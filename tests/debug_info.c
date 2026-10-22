@@ -486,6 +486,39 @@ int debug_inline_nonconstant_signed_long_long_sub_constant_entry(int value)
         debug_inline_nonconstant_signed_long_long_sub_constant_source - 7ll);
 }
 
+int debug_inline_nonconstant_signed_long_long_and_constant_entry(int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_and_constant_source =
+        (long long)value;
+    debug_inline_nonconstant_signed_long_long_escape =
+        &debug_inline_nonconstant_signed_long_long_and_constant_source;
+    return (int)debug_nonconstant_signed_long_long_and_constant_inline(
+        debug_inline_nonconstant_signed_long_long_and_constant_source &
+            (-0x0f0ff0f00ff00ff0ll));
+}
+
+int debug_inline_nonconstant_signed_long_long_or_constant_entry(int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_or_constant_source =
+        (long long)value;
+    debug_inline_nonconstant_signed_long_long_escape =
+        &debug_inline_nonconstant_signed_long_long_or_constant_source;
+    return (int)debug_nonconstant_signed_long_long_or_constant_inline(
+        debug_inline_nonconstant_signed_long_long_or_constant_source |
+            0x4000000100000001ll);
+}
+
+int debug_inline_nonconstant_signed_long_long_xor_constant_entry(int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_xor_constant_source =
+        (long long)value;
+    debug_inline_nonconstant_signed_long_long_escape =
+        &debug_inline_nonconstant_signed_long_long_xor_constant_source;
+    return (int)debug_nonconstant_signed_long_long_xor_constant_inline(
+        debug_inline_nonconstant_signed_long_long_xor_constant_source ^
+            (-0x100000001ll));
+}
+
 int debug_inline_local_entry(int value)
 {
     return debug_local_inline(value);
