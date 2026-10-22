@@ -251,10 +251,33 @@ struct VerifiedMultipleThrowingBaseDerived :
     int tail;
 
     explicit VerifiedMultipleThrowingBaseDerived(
-        int* cleanup_order, int first, int second)
+        int* cleanup_order, int first, int second, int body_mode)
         : VerifiedPotentiallyThrowingBase(cleanup_order, first),
           VerifiedSecondPotentiallyThrowingBase(cleanup_order, second),
-          tail(7) {}
+          tail(7) {
+        switch (body_mode) {
+        case 0:
+            switch (first_value) {
+            case 8:
+                tail += 1;
+            case 9:
+                tail += 2;
+                break;
+            default:
+                break;
+            }
+            break;
+        case 2:
+            tail += 20;
+            break;
+        case 5:
+            tail += 5;
+            break;
+        default:
+            break;
+        }
+        if (body_mode == 2) throw 65;
+    }
 };
 
 VerifiedThrowingTemporary make_verified_throwing_temporary(
@@ -634,8 +657,8 @@ extern "C" int verified_cxx_single_throwing_base_constructor(
         {
             VerifiedMultipleThrowingBaseDerived object(
                 &cleanup_order, mode == 3 ? -1 : 8,
-                mode == 1 ? -1 : 9);
-            if (mode == 2) throw 64;
+                mode == 1 ? -1 : 9, mode);
+            if (mode == 4) throw 64;
             result = object.first_value * 100 +
                 object.second_value * 10 + object.tail;
         }

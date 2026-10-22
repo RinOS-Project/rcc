@@ -17447,20 +17447,15 @@ static bool lower_cxx_constructor_initializer_expression_supported(
     }
 }
 
-static bool lower_cxx_constructor_body_is_empty(const Decl* declaration) {
-    const Stmt* body = declaration ? declaration->func_body : NULL;
-    return body && body->kind == STMT_BLOCK && body->block_stmts == NULL;
-}
-
 /* A potentially-throwing exception specification does not itself add a
- * throwing operation. When a constructor has an empty body, no field
- * initializers, and only scalar data members, the validated base/member
- * initializers below are the complete operation set. */
-static bool lower_cxx_empty_body_constructor_with_bases_supported(
+ * throwing operation. Completed direct bases are registered before the body
+ * is lowered, so body throws unwind those bases. Keep virtual bases,
+ * default-member initializers, and non-scalar derived fields outside this
+ * partial-construction path. */
+static bool lower_cxx_throwing_constructor_with_bases_supported(
     const CxxClass* cls, const Decl* declaration) {
     if (!cls || !declaration || declaration->func_is_noexcept) return true;
-    if (!lower_cxx_constructor_body_is_empty(declaration) ||
-        cls->has_field_initializer || cls->virtual_base_count != 0) {
+    if (cls->has_field_initializer || cls->virtual_base_count != 0) {
         return false;
     }
     for (const TypeParam* member = cls->fields; member;
@@ -17497,7 +17492,7 @@ static bool lower_cxx_initialize_constructor_members(
         cls->vtable_size != 0 ||
         (cls->base_count != 0 &&
          (!cls->bases || !cls->base_offsets ||
-          !lower_cxx_empty_body_constructor_with_bases_supported(
+          !lower_cxx_throwing_constructor_with_bases_supported(
               cls, declaration))) ||
         cls->has_field_initializer || !declaration->func_this_param ||
         !(this_local = lower_find_local(

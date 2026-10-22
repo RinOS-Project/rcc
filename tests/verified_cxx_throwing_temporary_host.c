@@ -158,16 +158,16 @@ int main(void) {
         return 16;
     }
     result = verified_cxx_single_throwing_base_constructor(0);
-    if (result != 89721) {
+    if (result != 90021) {
         fprintf(stderr,
-                "multiple-base construction/destruction returned %d, expected 89721\n",
+                "nested fallthrough switch construction/destruction returned %d, expected 90021\n",
                 result);
         return 17;
     }
     result = verified_cxx_single_throwing_base_constructor(2);
-    if (result != 6421) {
+    if (result != 6521) {
         fprintf(stderr,
-                "post-construction throw double-destroyed bases: %d, expected 6421\n",
+                "constructor-body throw did not unwind both completed bases: %d, expected 6521\n",
                 result);
         return 18;
     }
@@ -177,6 +177,20 @@ int main(void) {
                 "throwing first base destroyed an incomplete base: %d, expected 6100\n",
                 result);
         return 19;
+    }
+    result = verified_cxx_single_throwing_base_constructor(4);
+    if (result != 6421) {
+        fprintf(stderr,
+                "post-construction throw double-destroyed bases: %d, expected 6421\n",
+                result);
+        return 20;
+    }
+    result = verified_cxx_single_throwing_base_constructor(5);
+    if (result != 90221) {
+        fprintf(stderr,
+                "constructor body switch case returned %d, expected 90221\n",
+                result);
+        return 21;
     }
     return rcc_test_main();
 }

@@ -486,13 +486,16 @@
         に統合し、legacy x64 executionでもthrow propagationを検証。
   - [x] bounded constructorで複数の明示direct non-virtual base initializerをlowerし、
         各baseの完了後にunwind cleanupを登録する。後続baseがthrowした場合、先行する
-        完成済みbaseをreverse orderで破棄する。derived bodyは空、direct baseはnon-virtual
-        leaf、後続member initializerはscalar/non-throwingに限定。fixtureの44関数すべてが
-        i686/AMD64の`-O0`/`-O2`でfallback 0となり、second-base throw、成功時の破棄順、
-        完成後caller throw、first-base throwを実行検証。`test-verified-cxx-throwing-temporary`,
-        `test-verified-backend`, `test-cxx`が成功し、RCC実装commitは`57f2d8d`。
-  - [ ] constructor bodyのnested/fallthrough switch、virtual base construction、nontrivial/deleted
-        target copy constructor、call引数以外のfull-expression cleanupと未検証の例外経路が残る。
+        完成済みbaseをreverse orderで破棄する。derived body内のnested/fallthrough switchを
+        通常のstatement CFGへlowerし、body throwでも完成済みbaseをreverse orderでcleanup。
+        direct baseはnon-virtual leaf、後続member initializerはscalar/non-throwingに限定。
+        fixtureの44関数すべてがi686/AMD64の`-O0`/`-O2`でfallback 0となり、second-base throw、
+        switch fallthrough、body throw、成功時の破棄順、完成後caller throw、first-base throwを
+        実行検証。`test-verified-cxx-throwing-temporary`と、この拡張を含む
+        `test-verified-backend`が成功。基底cleanup実装は`57f2d8d`で、constructor body
+        拡張・追加回帰テスト・TODO更新は本変更に含める。
+  - [ ] virtual base construction、nontrivial/deleted target copy constructor、call引数以外の
+        full-expression cleanupと未検証の例外経路が残る。
         標準conversion subsequenceと
         pointer-to-memberを含む全rank/partial orderingも未完了
   - [x] Namespace extension compatibility: verify reopened named and
