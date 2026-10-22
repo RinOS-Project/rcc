@@ -8939,6 +8939,8 @@ test-cxx-selection-init: $(RCXX_TARGET)
 test-cxx-aggregate-paren-init: $(RCXX_TARGET) \
 	$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-init)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-aggregate-paren-init/aggregate-gcc$(EXE_SUFFIX) tests/cxx_aggregate_paren_init.cpp
+	$(TEST_OUT)/cxx-aggregate-paren-init/aggregate-gcc$(EXE_SUFFIX)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-aggregate-paren-init,cxx_aggregate_paren_init.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-ref-lifetime)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-gcc$(EXE_SUFFIX) tests/cxx_aggregate_paren_ref_lifetime.cpp
