@@ -4721,6 +4721,14 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                        expr->member_field->offset > 0) {
                 emit64_add_reg_imm(mod, RAX, expr->member_field->offset);
             }
+            /* Reference data members store an address in the object, but
+             * member access denotes the referred-to object.  Lvalue users
+             * (including assignment and address-of) need that address, not
+             * the slot that contains it. */
+            if (expr->member_field && expr->member_field->type &&
+                expr->member_field->type->is_reference) {
+                emit64_mov_reg_mem(mod, RAX, RAX, 0);
+            }
             break;
 
         case EXPR_CXX_MEMBER_PTR_DOT:
@@ -9611,14 +9619,20 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_MEMBER:
-        case EXPR_PTR_MEMBER:
+        case EXPR_PTR_MEMBER: {
+            Type* value_type = expr->type;
+            if (expr->member_field && expr->member_field->type &&
+                expr->member_field->type->is_reference) {
+                value_type = expr->member_field->type->base;
+            }
             gen64_lvalue(mod, expr);
             if (expr->member_field && expr->member_field->is_bitfield) {
                 gen64_bitfield_load(mod, expr->member_field);
-            } else if (!expr->type || expr->type->kind != TYPE_ARRAY) {
-                emit64_load_typed(mod, RAX, RAX, 0, expr->type);
+            } else if (!value_type || value_type->kind != TYPE_ARRAY) {
+                emit64_load_typed(mod, RAX, RAX, 0, value_type);
             }
             break;
+        }
 
         case EXPR_CXX_MEMBER_PTR_DOT:
         case EXPR_CXX_MEMBER_PTR_ARROW:

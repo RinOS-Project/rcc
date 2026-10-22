@@ -6494,6 +6494,24 @@ test-cxx-class-template-methods-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-methods/start-x64.o \
 		$(TEST_OUT)/cxx-class-template-methods/x64.o
 	$(TEST_OUT)/cxx-class-template-methods/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-class-template-methods/x86-o2.s \
+		tests/cxx_class_template_methods.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-methods/x86-o2.o \
+		$(TEST_OUT)/cxx-class-template-methods/x86-o2.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-methods/start-x86-o2.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-class-template-methods/x86-o2 \
+		$(TEST_OUT)/cxx-class-template-methods/start-x86-o2.o \
+		$(TEST_OUT)/cxx-class-template-methods/x86-o2.o
+	$(TEST_OUT)/cxx-class-template-methods/x86-o2
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-class-template-methods/x64-o2.s \
+		tests/cxx_class_template_methods.cpp
+	$(CC) -no-pie -o $(TEST_OUT)/cxx-class-template-methods/x64-o2 \
+		$(TEST_OUT)/cxx-class-template-methods/x64-o2.s
+	$(TEST_OUT)/cxx-class-template-methods/x64-o2
 	@echo "RCC++ substituted class-template member and constructor test completed"
 
 test-cxx-class-template-specialization-posix: $(RCXX_TARGET)
@@ -6528,6 +6546,15 @@ ifeq ($(OS),Windows_NT)
 test-cxx-class-template-methods: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-methods)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-methods,cxx_class_template_methods.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-class-template-methods/x86-o2.s tests/cxx_class_template_methods.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-methods/x86-o2.o $(TEST_OUT)/cxx-class-template-methods/x86-o2.s
+	objdump -f $(TEST_OUT)/cxx-class-template-methods/x86-o2.o > $(TEST_OUT)/cxx-class-template-methods/x86-o2-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-class-template-methods/x86-o2-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-class-template-methods/x64-o2.s tests/cxx_class_template_methods.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-class-template-methods/x64-o2.o $(TEST_OUT)/cxx-class-template-methods/x64-o2.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-class-template-methods/x64-o2.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-class-template-methods/x64-o2-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-class-template-methods/x64-o2.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-class-template-methods/x64-o2-host
 
 test-cxx-class-template-specialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization)

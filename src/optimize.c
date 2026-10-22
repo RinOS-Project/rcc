@@ -4,6 +4,7 @@
 
 #include "optimize.h"
 #include "ir_lower.h"
+#include "ast_cxx.h"
 
 #include <limits.h>
 #include <string.h>
@@ -5731,7 +5732,29 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
             propagate_constant_expr(&value->member_base, state);
             return;
         case EXPR_COMPOUND:
-            propagate_constant_expr_list(value->compound_init, state);
+            if (value->compound_constructor) {
+                const TypeParam* parameter =
+                    value->compound_constructor->parameters;
+                ExprList* argument = value->compound_init;
+                for (; argument; argument = argument->next) {
+                    /* A constructor reference parameter binds to the
+                     * argument's storage. Replacing a known scalar lvalue
+                     * with its value loses that storage before the
+                     * constructor initializes reference members. */
+                    if (parameter && parameter->type &&
+                        parameter->type->is_reference) {
+                        propagate_constant_lvalue(argument->expr, state);
+                    } else {
+                        propagate_constant_expr(&argument->expr, state);
+                    }
+                    if (parameter) parameter = parameter->next;
+                }
+                /* Constructor initialization can retain references and can
+                 * observe or mutate state through them. */
+                clear_local_constants(state);
+            } else {
+                propagate_constant_expr_list(value->compound_init, state);
+            }
             return;
         case EXPR_VA_START:
         case EXPR_VA_END:
@@ -6122,7 +6145,22 @@ static void mark_address_escapes_expr(const Expr* expression,
             mark_address_escapes_expr(expression->binary_rhs, locals);
             return;
         case EXPR_COMPOUND:
-            mark_address_escapes_expr_list(expression->compound_init, locals);
+            if (expression->compound_constructor) {
+                const TypeParam* parameter =
+                    expression->compound_constructor->parameters;
+                const ExprList* argument = expression->compound_init;
+                for (; argument; argument = argument->next) {
+                    if (parameter && parameter->type &&
+                        parameter->type->is_reference) {
+                        mark_reference_escape(argument->expr, locals);
+                    }
+                    mark_address_escapes_expr(argument->expr, locals);
+                    if (parameter) parameter = parameter->next;
+                }
+            } else {
+                mark_address_escapes_expr_list(expression->compound_init,
+                                               locals);
+            }
             return;
         case EXPR_GENERIC:
             mark_address_escapes_expr(expression->generic_control, locals);

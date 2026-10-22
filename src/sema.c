@@ -15080,7 +15080,12 @@ static Type* sema_expr(Expr* expr) {
                             qualified->is_const = true;
                             field_type = qualified;
                         }
-                        expr->type = field_type;
+                        /* A reference data member denotes its referent as an
+                         * lvalue expression. Keep the reference type on the
+                         * field declaration for storage/layout, but expose
+                         * the referred object type to expression checking. */
+                        expr->type = field_type && field_type->is_reference
+                            ? field_type->base : field_type;
                         break;
                     }
                 }
@@ -17725,7 +17730,10 @@ static Type* sema_expr(Expr* expr) {
                      sema_cxx_field_matches_using_base(
                          bt, using_base, using_base_field, field)))) {
                     expr->member_field = field;
-                    expr->type = field->type;
+                    /* Reference members are pointer-shaped in object
+                     * storage, but member access has the referred-to type. */
+                    expr->type = field->type && field->type->is_reference
+                        ? field->type->base : field->type;
                     if (rcc_parser_is_cxx_mode() &&
                         field->from_virtual_base) {
                         CxxClass* source_class = bt->cxx_class;

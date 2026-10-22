@@ -1016,6 +1016,11 @@
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference
         returns and execution in `test-cxx-function-template-references`.
+  - [x] Lower reference data-member access through its stored referent address
+        and use the referred-to type for reads and scalar writes. A templated
+        reference-member constructor/read/write regression passes i686/AMD64
+        generation and execution at default optimization and `-O2` in
+        `test-cxx-class-template-methods`.
   - [x] Preserve a named class xvalue through explicit `static_cast<T&&>` and
         cv-qualified virtual-base reference binding; apply the vbtable adjustment
         exactly once through local initialization and reference-parameter calls.
@@ -1572,6 +1577,10 @@
   - [x] `-O1..3`での型範囲を守るAST整数constant foldingと短絡式除去
   - [x] 8/16/32/64-bit unsigned modulo演算・shift・比較・narrow cast folding
   - [x] alias/control-flow barrier付きblock-local整数constant propagation
+  - [x] Preserve lvalue arguments bound to reference parameters of constructor
+        compound initializers during constant propagation, and mark those
+        locals escaped for dead-store analysis. The class-template reference
+        member regression passes at `-O2` in `test-cxx-class-template-methods`.
   - [x] typed SSA整数演算・比較・castのconstant folding
   - [x] typed SSAの同一定数PHI／定数条件SELECT foldingとverifier/native回帰
   - [x] 変更・escapeのない局所整数に限定したwhile/do-while/forの

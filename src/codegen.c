@@ -8117,6 +8117,10 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                        expr->member_field->offset > 0) {
                 emit_add_reg_imm(mod, EAX, expr->member_field->offset);
             }
+            if (expr->member_field && expr->member_field->type &&
+                expr->member_field->type->is_reference) {
+                emit_mov_reg_mem(mod, EAX, EAX, 0);
+            }
             break;
 
         case EXPR_CXX_MEMBER_PTR_DOT:
@@ -9099,7 +9103,14 @@ static void gen_expr_as_integer64(Module* mod, Expr* expr) {
 
 static void gen_expr_as_scalar_field32(Module* mod, Expr* expr,
                                        Type* field_type) {
-    if (gen_is_integer64(field_type)) {
+    if (field_type && field_type->is_reference) {
+        if (gen_expr_is_lvalue(expr) || gen_expr_is_xvalue(expr)) {
+            gen_lvalue(mod, expr);
+        } else {
+            gen_expr(mod, expr);
+        }
+        gen_cxx_reference_adjustment32(mod, expr);
+    } else if (gen_is_integer64(field_type)) {
         gen_expr_as_integer64(mod, expr);
     } else {
         gen_expr_as_type(mod, expr, field_type);
@@ -10257,7 +10268,8 @@ static Expr* gen_cxx_bind_constructor_expression32(
                     if (field->name &&
                         strcmp(field->name, copy->member_name) == 0) {
                         copy->member_field = field;
-                        copy->type = field->type;
+                        copy->type = field->type && field->type->is_reference
+                            ? field->type->base : field->type;
                         break;
                     }
                 }
@@ -14746,18 +14758,24 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_MEMBER:
-        case EXPR_PTR_MEMBER:
+        case EXPR_PTR_MEMBER: {
+            Type* value_type = expr->type;
+            if (expr->member_field && expr->member_field->type &&
+                expr->member_field->type->is_reference) {
+                value_type = expr->member_field->type->base;
+            }
             gen_lvalue(mod, expr);
             if (expr->member_field && expr->member_field->is_bitfield) {
                 gen_bitfield_load32(mod, expr->member_field);
-            } else if (!expr->type || expr->type->kind != TYPE_ARRAY) {
-                if (gen_is_floating(expr->type)) {
-                    emit_load_floating_raw(mod, expr->type, EAX, 0);
+            } else if (!value_type || value_type->kind != TYPE_ARRAY) {
+                if (gen_is_floating(value_type)) {
+                    emit_load_floating_raw(mod, value_type, EAX, 0);
                 } else {
-                    emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                    emit_load_typed32(mod, EAX, EAX, 0, value_type);
                 }
             }
             break;
+        }
 
         case EXPR_CXX_MEMBER_PTR_DOT:
         case EXPR_CXX_MEMBER_PTR_ARROW:
