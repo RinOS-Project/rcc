@@ -8382,6 +8382,10 @@ remains a separate open item.
       constant word, source offset, piece width, and eight boundary patterns in
       legacy and verified-backend i686/AMD64 objects. Native-Windows
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] i686 unsigned 64-bit subtraction, multiplication, division/remainder with
-      nonconstant operands, and broader optimized multi-piece locations remain
-      open.
+- [x] Lower frame-backed i686 `unsigned long long` subtraction by a same-typed
+      constant into low/high pieces, with an exact unsigned borrow into the
+      high word. Verify the DWARF expression and wrap/borrow boundary patterns;
+      both inline-expression and full debug-info gates pass.
+- [ ] i686 unsigned 64-bit multiplication, division/remainder with nonconstant
+      operands, two-variable arithmetic, and broader optimized multi-piece
+      locations remain open.

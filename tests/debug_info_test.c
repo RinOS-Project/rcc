@@ -8522,6 +8522,73 @@ static void verify_inline_unsigned_bitwise_expression(
     }
 }
 
+static void verify_inline_unsigned_sub_expression(
+    const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, const char* source_name,
+    int64_t source_frame_offset, uint64_t constant) {
+    const uint64_t values[] = {
+        0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
+        UINT64_C(0x1fffffffe), UINT64_C(0x7fffffffffffffff),
+        UINT64_C(0xfffffffffffffffe), UINT64_MAX
+    };
+    uint64_t offset = expression_start;
+    uint32_t low_constant = (uint32_t)constant;
+    uint32_t high_constant = (uint32_t)(constant >> 32u);
+    const uint64_t sign_bit = UINT64_C(0x80000000);
+    bool has_variable_location;
+    bool variable_is_location_list;
+    int64_t variable_frame_offset;
+
+    assert(source_frame_offset <= INT64_MAX - 4);
+    verify_inline_expression_frame_u32(
+        data, expression_end, &offset, source_frame_offset);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x10u);
+    assert(read_uleb(data, expression_end, &offset) == low_constant);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x1cu);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
+    assert(read_uleb(data, expression_end, &offset) == 4u);
+
+    verify_inline_expression_frame_u32(
+        data, expression_end, &offset, source_frame_offset + 4);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x10u);
+    assert(read_uleb(data, expression_end, &offset) == high_constant);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x1cu);
+    verify_inline_expression_frame_u32(
+        data, expression_end, &offset, source_frame_offset);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x10u);
+    assert(read_uleb(data, expression_end, &offset) == sign_bit);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x27u);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x10u);
+    assert(read_uleb(data, expression_end, &offset) == low_constant);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x10u);
+    assert(read_uleb(data, expression_end, &offset) == sign_bit);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x27u);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x2du);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x1cu);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
+    assert(read_uleb(data, expression_end, &offset) == 4u);
+    assert(offset == expression_end);
+
+    assert(find_variable_location(
+        info, strings, locations, source_name, ARCH_X86,
+        &has_variable_location, &variable_is_location_list,
+        &variable_frame_offset));
+    assert(has_variable_location &&
+           variable_frame_offset == source_frame_offset);
+    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
+         ++index) {
+        uint32_t low_result = (uint32_t)values[index] - low_constant;
+        uint32_t borrow = (uint32_t)values[index] < low_constant;
+        uint32_t high_result =
+            (uint32_t)(values[index] >> 32u) - high_constant - borrow;
+        uint64_t actual = ((uint64_t)high_result << 32u) | low_result;
+        assert(actual == values[index] - constant);
+    }
+}
+
 static void verify_inline_integer_expression_parameter(
     const char* path, uint16_t architecture, const char* inline_name,
     const char* source_name, bool is_unsigned, uint8_t expected_operation,
@@ -8557,7 +8624,8 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0x1du ||
             expected_operation == 0x24u ||
             expected_operation == 0x25u || expected_operation == 0x26u ||
-            expected_operation == 0xfdu || expected_operation == 0xfeu));
+            expected_operation == 0xfcu || expected_operation == 0xfdu ||
+            expected_operation == 0xfeu));
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
@@ -8627,6 +8695,16 @@ static void verify_inline_integer_expression_parameter(
         assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
                expected_constant >= 0);
         verify_inline_unsigned_add_expression(
+            info->data, expression_end, expression_start, info, strings,
+            locations, source_name, frame_offset,
+            (uint64_t)expected_constant);
+        objfile_free(object);
+        return;
+    }
+    if (expected_operation == 0xfcu) {
+        assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
+               expected_constant >= 0);
+        verify_inline_unsigned_sub_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, frame_offset,
             (uint64_t)expected_constant);
@@ -8834,7 +8912,10 @@ static void verify_inline_integer_expression_cases(
          0x21u, INT64_C(0x4000000100000001), NULL, false},
         {"debug_nonconstant_unsigned_long_long_bitxor_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
-         0x27u, INT64_MAX, NULL, false}
+         0x27u, INT64_MAX, NULL, false},
+        {"debug_nonconstant_unsigned_long_long_sub_inline",
+         "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
+         0xfcu, INT64_C(0x100000005), NULL, false}
     };
     uint8_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     for (size_t index = 0u; index < sizeof(cases) / sizeof(cases[0]);
@@ -8845,11 +8926,13 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0x21u ||
              cases[index].operation == 0x27u);
         if ((cases[index].operation == 0xfeu ||
-             cases[index].operation == 0xfdu) && architecture != ARCH_X86)
+             cases[index].operation == 0xfdu ||
+             cases[index].operation == 0xfcu) && architecture != ARCH_X86)
             continue;
         if (cases[index].value_size > address_size &&
             cases[index].operation != 0xfeu &&
-            cases[index].operation != 0xfdu && !i686_u64_bitwise) continue;
+            cases[index].operation != 0xfdu &&
+            cases[index].operation != 0xfcu && !i686_u64_bitwise) continue;
         verify_inline_integer_expression_parameter(
             path, architecture, cases[index].inline_name,
             cases[index].source_name, cases[index].is_unsigned,

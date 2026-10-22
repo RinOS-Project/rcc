@@ -155,6 +155,13 @@ debug_nonconstant_unsigned_long_long_bitxor_inline(
     return value;
 }
 
+inline unsigned long long
+debug_nonconstant_unsigned_long_long_sub_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
 inline int debug_local_inline(int value)
 {
     const int inline_local_value = 7;

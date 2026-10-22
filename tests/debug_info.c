@@ -132,6 +132,7 @@ int debug_inline_nonconstant_integer_entry(int value)
     unsigned long long unsigned_long_long_bitand_value;
     unsigned long long unsigned_long_long_bitor_value;
     unsigned long long unsigned_long_long_bitxor_value;
+    unsigned long long unsigned_long_long_sub_value;
     debug_inline_nonconstant_integer_escape =
         &debug_inline_nonconstant_integer_source;
     debug_inline_nonconstant_unsigned_integer_escape =
@@ -214,6 +215,10 @@ int debug_inline_nonconstant_integer_entry(int value)
         debug_nonconstant_unsigned_long_long_bitxor_inline(
             debug_inline_nonconstant_unsigned_long_long_source ^
                 0x7fffffffffffffffull);
+    unsigned_long_long_sub_value =
+        debug_nonconstant_unsigned_long_long_sub_inline(
+            debug_inline_nonconstant_unsigned_long_long_source -
+                0x100000005ull);
     return added_value + multiplied_value + divided_value + remainder_value +
         negated_value +
         bitnot_value +
@@ -231,6 +236,7 @@ int debug_inline_nonconstant_integer_entry(int value)
         (int)unsigned_long_long_bitand_value +
         (int)unsigned_long_long_bitor_value +
         (int)unsigned_long_long_bitxor_value +
+        (int)unsigned_long_long_sub_value +
         debug_nonconstant_integer_subtract_parameter_inline(
             debug_inline_nonconstant_integer_source - 3);
 }
