@@ -8193,7 +8193,9 @@ remains a separate open item.
 - [x] Resolve inherited static-function overloads through object and
       class-qualified class-template expressions without inventing an object
       parameter; the atomic fixture executes both one- and two-argument
-      overloads on i686 and AMD64 at `-O0` and compiles at `-O2`.
+      overloads on i686 and AMD64 at `-O0` and compiles at `-O2`. The focused
+      invalid fixture rejects class-qualified inherited non-static calls with
+      an object-required diagnostic on both targets.
 - [ ] The remaining `<atomic>` API conformance work remains open.
 
 ## RCC continuation (2026-10-21, C++ `static_cast` conversion functions)

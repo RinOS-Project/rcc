@@ -14925,6 +14925,18 @@ endif
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-pointer.ro \
 		tests/invalid_pointer_atomic.c,$(TEST_OUT)/atomic-x64/invalid-pointer.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x86/qualified-nonstatic.ro \
+		tests/cxx_inherited_nonstatic_member_qualified_invalid.cpp,\
+		$(TEST_OUT)/atomic-cxx-x86/qualified-nonstatic.log)
+	$(GREP) -F -q "non-static member function 'read' requires an object" \
+		$(TEST_OUT)/atomic-cxx-x86/qualified-nonstatic.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x64/qualified-nonstatic.ro \
+		tests/cxx_inherited_nonstatic_member_qualified_invalid.cpp,\
+		$(TEST_OUT)/atomic-cxx-x64/qualified-nonstatic.log)
+	$(GREP) -F -q "non-static member function 'read' requires an object" \
+		$(TEST_OUT)/atomic-cxx-x64/qualified-nonstatic.log
 	@echo "Dual-architecture integer/pointer atomic tests completed"
 
 test-atomic-language: $(RCC_TARGET)
