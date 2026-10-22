@@ -8699,6 +8699,20 @@ remains a separate open item.
       constants above `INT32_MAX`, non-frame-backed operands, and broader
       optimized multi-piece locations remain open.
 
+## RCC continuation (2026-10-23, i686 unsigned 64-bit divmod through UINT32_MAX)
+
+- [x] Extend frame-backed i686 `unsigned long long` constant division and
+      remainder through `UINT32_MAX`. Preserve the 33rd partial-dividend bit
+      across each one-bit long-division step, and use sign-biased signed
+      comparison for exact unsigned `DW_OP_ge` behavior when the divisor exceeds
+      `INT32_MAX`. Evaluate ten full-width boundary values for `/2147483649`
+      and `%4294967295` in legacy and verified output. Native-Windows and Linux
+      focused inline-expression tests, Linux full `test-debug-info`, and GCC
+      ASan/UBSan full `test-debug-info` pass.
+- [ ] Constant divisors above `UINT32_MAX`, variable i686 64-bit divisors,
+      signed 64-bit division/remainder, non-frame-backed operands, and broader
+      optimized multi-piece locations remain open.
+
 ## RCC continuation (2026-10-23, Windows MinGW structural NTTP host ABI)
 
 - [x] Keep the structural inherited member-function-pointer NTTP comparison

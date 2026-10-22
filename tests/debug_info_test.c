@@ -8284,7 +8284,7 @@ static int64_t verify_inline_integer_signed_bits(
 static unsigned int inline_i686_u64_constant_division_chunk_width(
     uint32_t divisor) {
     unsigned int width = 16u;
-    assert(divisor != 0u && divisor <= INT32_MAX);
+    assert(divisor != 0u && divisor <= UINT32_MAX);
     while (width > 1u &&
            divisor > (UINT64_C(2147483648) / (UINT64_C(1) << width))) {
         --width;
@@ -8310,7 +8310,7 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
         data[expression_offset] == 0x10u &&
         data[expression_offset + 1u] == 0u
         ? chunk_count + 1u : 1u;
-    assert(divisor != 0u && divisor <= INT32_MAX &&
+    assert(divisor != 0u && divisor <= UINT32_MAX &&
            source_frame_offset <= INT64_MAX - 6);
     while (expression_offset < expression_end) {
         uint8_t opcode = data[expression_offset++];
@@ -8373,7 +8373,7 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
             stack[stack_size - 1u] = middle;
         } else if (opcode == 0x1au || opcode == 0x1bu ||
                    opcode == 0x1cu || opcode == 0x1du ||
-                   opcode == 0x1eu ||
+                   opcode == 0x1eu || opcode == 0x27u ||
                    opcode == 0x21u || opcode == 0x22u ||
                    opcode == 0x24u || opcode == 0x25u ||
                    opcode == 0x2au || opcode == 0x2eu) {
@@ -8392,9 +8392,14 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
                     ? lhs / rhs : lhs % rhs;
             } else if (opcode == 0x1cu) {
                 stack[stack_size++] = lhs - rhs;
+            } else if (opcode == 0x27u) {
+                stack[stack_size++] = lhs ^ rhs;
             } else if (opcode == 0x2au) {
-                assert(lhs <= INT32_MAX && rhs <= INT32_MAX);
-                stack[stack_size++] = lhs >= rhs;
+                int64_t signed_lhs = lhs <= INT32_MAX
+                    ? (int64_t)lhs : (int64_t)lhs - INT64_C(0x100000000);
+                int64_t signed_rhs = rhs <= INT32_MAX
+                    ? (int64_t)rhs : (int64_t)rhs - INT64_C(0x100000000);
+                stack[stack_size++] = signed_lhs >= signed_rhs;
             } else if (opcode == 0x2eu) {
                 stack[stack_size++] = lhs != rhs;
             } else if (opcode == 0x1eu) {
@@ -8467,7 +8472,7 @@ static void verify_inline_i686_u64_constant_division_expression(
     bool variable_is_location_list;
     int64_t variable_frame_offset;
     int64_t source_frame_offset;
-    assert(source_name && divisor != 0u && divisor <= INT32_MAX);
+    assert(source_name && divisor != 0u && divisor <= UINT32_MAX);
     assert(find_variable_location(
         info, strings, locations, source_name, ARCH_X86,
         &has_variable_location, &variable_is_location_list,
@@ -10081,7 +10086,7 @@ static void verify_inline_integer_expression_parameter(
     assert(expression_end <= info->size && expression_size > 0u);
     if (architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
         !divisor_source_name && expected_constant > 0 &&
-        expected_constant <= INT64_C(2147483647) &&
+        expected_constant <= INT64_C(4294967295) &&
         (expected_operation == 0x1bu || expected_operation == 0x1du ||
          (expected_operation >= 0xdau && expected_operation <= 0xdfu))) {
         verify_inline_i686_u64_constant_division_expression(
@@ -10465,6 +10470,12 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_unsigned_long_long_widest_remainder_inline",
          "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
          0xdfu, INT64_C(2147483647), NULL, true},
+        {"debug_nonconstant_unsigned_long_long_u32_divide_inline",
+         "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
+         0xdeu, INT64_C(2147483649), NULL, true},
+        {"debug_nonconstant_unsigned_long_long_u32_remainder_inline",
+         "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
+         0xdfu, INT64_C(4294967295), NULL, true},
         {"debug_nonconstant_unsigned_long_long_high_divide_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0x1bu, 0,
