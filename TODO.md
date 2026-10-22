@@ -484,8 +484,14 @@
         未完成のderived subobject cleanupを誤登録しない。実throw/catchと成功値をx64で実行し、
         i686/AMD64の`-O0`/`-O2`で41関数・fallback 0を確認。`test-verified-cxx-throwing-temporary`
         に統合し、legacy x64 executionでもthrow propagationを検証。
-  - [ ] 複数base間で先行subobjectの破棄を要するpotentially-throwing base constructor、
-        constructor bodyのnested/fallthrough switch、virtual base construction、nontrivial/deleted
+  - [x] bounded constructorで複数の明示direct non-virtual base initializerをlowerし、
+        各baseの完了後にunwind cleanupを登録する。後続baseがthrowした場合、先行する
+        完成済みbaseをreverse orderで破棄する。derived bodyは空、direct baseはnon-virtual
+        leaf、後続member initializerはscalar/non-throwingに限定。fixtureの44関数すべてが
+        i686/AMD64の`-O0`/`-O2`でfallback 0となり、second-base throw、成功時の破棄順、
+        完成後caller throw、first-base throwを実行検証。`test-verified-cxx-throwing-temporary`,
+        `test-verified-backend`, `test-cxx`が成功し、RCC実装commitは`57f2d8d`。
+  - [ ] constructor bodyのnested/fallthrough switch、virtual base construction、nontrivial/deleted
         target copy constructor、call引数以外のfull-expression cleanupと未検証の例外経路が残る。
         標準conversion subsequenceと
         pointer-to-memberを含む全rank/partial orderingも未完了
