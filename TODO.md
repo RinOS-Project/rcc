@@ -8390,6 +8390,12 @@ remains a separate open item.
 - [x] Preserve i686 unary bitwise NOT on frame-backed `unsigned long long` as
       two exact four-byte value pieces. Verify source offsets and piece widths
       plus eight boundary values; both debug-info gates pass.
-- [ ] i686 unsigned 64-bit multiplication, division/remainder with nonconstant
-      operands, unary negation, two-variable arithmetic, and broader optimized
-      multi-piece locations remain open.
+- [x] Preserve i686 `unsigned long long` multiplication by a same-typed integer
+      constant as low/high four-byte pieces. Compute the low-word product carry
+      with exact 16-bit partial products, then combine both cross-products and
+      the carry modulo 64 bits. Verify the emitted opcode stream, source frame
+      slot, piece widths, and eight boundary values in legacy and verified
+      i686/AMD64 objects; both native-Windows debug-info gates pass.
+- [ ] i686 unsigned 64-bit division/remainder with nonconstant operands, unary
+      negation, multiplication by another runtime value, two-variable
+      arithmetic, and broader optimized multi-piece locations remain open.

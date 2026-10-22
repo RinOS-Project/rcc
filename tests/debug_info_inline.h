@@ -135,6 +135,12 @@ debug_nonconstant_unsigned_long_long_add_inline(unsigned long long value)
 }
 
 inline unsigned long long
+debug_nonconstant_unsigned_long_long_multiply_inline(unsigned long long value)
+{
+    return value;
+}
+
+inline unsigned long long
 debug_nonconstant_unsigned_long_long_bitand_inline(
     unsigned long long value)
 {
