@@ -1246,19 +1246,16 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         memset(&encoded, 0, sizeof(encoded));
         if (!declaration || declaration->kind != DECL_FUNC ||
             !declaration->func_body) continue;
-        if (g_opts.debug_info) {
-            verified_clear_statement_debug_ranges(declaration->func_body);
-        }
+        verified_clear_statement_debug_ranges(declaration->func_body);
         lower_status = rcc_ir_lower_function(
             declaration, &module, pipeline_error,
             sizeof(pipeline_error));
         if (lower_status != RCC_IR_LOWER_OK) {
             rcc_free(debug_variable_locations);
+            codegen_free(data_module);
             objfile_free(object);
+            verified_clear_ast_debug_ranges(ast);
             if (lower_status == RCC_IR_LOWER_UNSUPPORTED) {
-                if (g_opts.debug_info) {
-                    verified_clear_ast_debug_ranges(ast);
-                }
                 return verified_reason(
                     RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
                     "function '%s' is outside the typed SSA subset",
@@ -1276,11 +1273,10 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
                 pipeline_error, sizeof(pipeline_error))) {
             rcc_free(debug_variable_locations);
             rcc_ir_module_destroy(module);
+            codegen_free(data_module);
             objfile_free(object);
             rcc_x86_encoded_function_release(&encoded);
-            if (g_opts.debug_info) {
-                verified_clear_ast_debug_ranges(ast);
-            }
+            verified_clear_ast_debug_ranges(ast);
             return verified_reason(
                 RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
                 "function '%s' is not encoded yet: %s",
@@ -1297,7 +1293,9 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             rcc_free(debug_variable_locations);
             rcc_x86_encoded_function_release(&encoded);
             rcc_ir_module_destroy(module);
+            codegen_free(data_module);
             objfile_free(object);
+            verified_clear_ast_debug_ranges(ast);
             return verified_reason(
                 RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
                 "function '%s' constant emission failed: %s",
@@ -1325,7 +1323,9 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             rcc_free(scoped_name);
             rcc_x86_encoded_function_release(&encoded);
             rcc_ir_module_destroy(module);
+            codegen_free(data_module);
             objfile_free(object);
+            verified_clear_ast_debug_ranges(ast);
             return verified_reason(
                 RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
                 "function '%s' object emission failed: %s",
@@ -1340,7 +1340,9 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             rcc_free(scoped_name);
             rcc_x86_encoded_function_release(&encoded);
             rcc_ir_module_destroy(module);
+            codegen_free(data_module);
             objfile_free(object);
+            verified_clear_ast_debug_ranges(ast);
             return verified_reason(
                 RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
                 "function '%s' debug inline recording failed: %s",
@@ -1357,15 +1359,18 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             rcc_free(scoped_name);
             rcc_x86_encoded_function_release(&encoded);
             rcc_ir_module_destroy(module);
+            codegen_free(data_module);
             objfile_free(object);
+            verified_clear_ast_debug_ranges(ast);
             return verified_reason(
                 RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
                 "function '%s' debug epilogue recording failed: %s",
                 declaration->name, pipeline_error);
         }
-        verified_apply_statement_debug_ranges(object, object_name, &encoded);
-        verified_propagate_block_debug_ranges(declaration->func_body);
         if (g_opts.debug_info) {
+            verified_apply_statement_debug_ranges(
+                object, object_name, &encoded);
+            verified_propagate_block_debug_ranges(declaration->func_body);
             verified_anchor_empty_declaration_locations(
                 declaration->func_body);
         }
@@ -1378,9 +1383,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         rcc_free(debug_variable_locations);
         codegen_free(data_module);
         objfile_free(object);
-        if (g_opts.debug_info) {
-            verified_clear_ast_debug_ranges(ast);
-        }
+        verified_clear_ast_debug_ranges(ast);
         return verified_reason(
             RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
             "translation unit has no supported function definitions");
@@ -1388,6 +1391,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
     verified_emit_debug_sections(
         object, data_module, ast, translation_unit,
         debug_variable_locations, debug_variable_location_count);
+    verified_clear_ast_debug_ranges(ast);
     rcc_free(debug_variable_locations);
     codegen_free(data_module);
     if (!objfile_write(object, output_path)) {

@@ -29,6 +29,9 @@ typedef struct CxxStaticReferenceExitEntry {
 
 static CxxStaticReferenceExitEntry cxx_static_reference_exit_entries[8];
 static size_t cxx_static_reference_exit_count;
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak))
+#endif
 void* __dso_handle;
 
 int RIN_SYSV __cxa_atexit(CxxStaticReferenceExitCallback callback,
