@@ -9391,7 +9391,8 @@ static void verify_inline_u64_variable_shift_expression(
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* source_name,
     const char* shift_count_source_name, bool is_left_shift,
-    bool is_unsigned, uint32_t shift_count_adjustment) {
+    bool is_unsigned, uint32_t shift_count_adjustment,
+    bool wide_shift_count) {
     static const uint64_t unsigned_values[] = {
         0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
         UINT64_C(0x1fffffffe), UINT64_C(0x7fffffffffffffff),
@@ -9410,6 +9411,9 @@ static void verify_inline_u64_variable_shift_expression(
     static const uint32_t plus_one_shift_counts[] = {
         UINT32_MAX, 0u, 30u, 31u, 32u, 62u
     };
+    static const uint64_t plus_one_wide_shift_counts[] = {
+        UINT64_MAX, 0u, 30u, 31u, 32u, 62u
+    };
     bool has_location;
     bool is_location_list;
     int64_t source_frame_offset;
@@ -9425,10 +9429,13 @@ static void verify_inline_u64_variable_shift_expression(
     for (size_t count_index = 0u;
          count_index < sizeof(shift_counts) / sizeof(shift_counts[0]);
          ++count_index) {
-        uint32_t input_shift_count = shift_count_adjustment == 0u
+        uint64_t input_shift_count = shift_count_adjustment == 0u
             ? shift_counts[count_index]
-            : plus_one_shift_counts[count_index];
-        uint32_t shift_count = input_shift_count + shift_count_adjustment;
+            : wide_shift_count
+                ? plus_one_wide_shift_counts[count_index]
+                : plus_one_shift_counts[count_index];
+        uint64_t shift_count = input_shift_count + shift_count_adjustment;
+        if (!wide_shift_count) shift_count = (uint32_t)shift_count;
         if (shift_count >= 64u) continue;
         for (size_t value_index = 0u; value_index < value_count;
              ++value_index) {
@@ -9442,7 +9449,7 @@ static void verify_inline_u64_variable_shift_expression(
                 evaluate_inline_u64_variable_shift_expression(
                     data, expression_end, expression_start,
                     source_frame_offset, shift_count_frame_offset,
-                    value, input_shift_count);
+                    value, (uint32_t)input_shift_count);
             uint64_t expected;
             if (is_left_shift) {
                 expected = value << shift_count;
@@ -9821,7 +9828,9 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
-    const char* call_site_name = expected_operation == 0xc0u
+    const char* call_site_name = expected_operation == 0xc1u
+        ? "debug_inline_nonconstant_unsigned_long_long_lshift_wide_computed_count_entry"
+        : expected_operation == 0xc0u
         ? "debug_inline_nonconstant_unsigned_long_long_lshift_computed_count_entry"
         : (expected_operation >= 0xdau && expected_operation <= 0xdfu)
         ? "debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry"
@@ -9897,6 +9906,7 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0xeau || expected_operation == 0xedu ||
             expected_operation == 0xebu ||
             expected_operation == 0xecu || expected_operation == 0xc0u ||
+            expected_operation == 0xc1u ||
             (expected_operation >= 0xdau && expected_operation <= 0xdfu) ||
             expected_operation == 0xe4u || expected_operation == 0xe5u ||
             expected_operation == 0xe6u || expected_operation == 0xe7u ||
@@ -10046,9 +10056,10 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (expected_operation == 0xc0u ||
+    if (expected_operation == 0xc0u || expected_operation == 0xc1u ||
         (expected_operation >= 0xd2u && expected_operation <= 0xd9u)) {
         bool expected_unsigned = expected_operation == 0xc0u ||
+            expected_operation == 0xc1u ||
             expected_operation == 0xd2u ||
             expected_operation == 0xd3u || expected_operation == 0xd6u ||
             expected_operation == 0xd7u;
@@ -10057,10 +10068,16 @@ static void verify_inline_integer_expression_parameter(
         verify_inline_u64_variable_shift_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, divisor_source_name,
-            expected_operation == 0xc0u || expected_operation == 0xd2u ||
+            expected_operation == 0xc0u || expected_operation == 0xc1u ||
+                expected_operation == 0xd2u ||
                 expected_operation == 0xd4u || expected_operation == 0xd6u ||
                 expected_operation == 0xd8u,
-            is_unsigned, expected_operation == 0xc0u ? 1u : 0u);
+            is_unsigned,
+            expected_operation == 0xc0u || expected_operation == 0xc1u
+                ? 1u : 0u,
+            expected_operation == 0xc1u || expected_operation == 0xd6u ||
+                expected_operation == 0xd7u || expected_operation == 0xd8u ||
+                expected_operation == 0xd9u);
         objfile_free(object);
         return;
     }
@@ -10495,6 +10512,11 @@ static void verify_inline_integer_expression_cases(
          true, 8u, 0xc0u, 0,
          "debug_inline_nonconstant_unsigned_long_long_lshift_computed_count_count",
          false},
+        {"debug_nonconstant_unsigned_long_long_lshift_variable_inline",
+         "debug_inline_nonconstant_unsigned_long_long_lshift_wide_computed_count_source",
+         true, 8u, 0xc1u, 0,
+         "debug_inline_nonconstant_unsigned_long_long_lshift_wide_computed_count_count",
+         false},
         {"debug_nonconstant_unsigned_long_long_rshift_variable_inline",
          "debug_inline_nonconstant_unsigned_long_long_rshift_variable_source",
          true, 8u, 0xd3u, 0,
@@ -10558,6 +10580,7 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xebu ||
              cases[index].operation == 0xecu ||
              cases[index].operation == 0xc0u ||
+             cases[index].operation == 0xc1u ||
              cases[index].operation == 0xd0u ||
              cases[index].operation == 0xd1u ||
              cases[index].operation == 0xd2u ||
@@ -10601,6 +10624,7 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xebu &&
             cases[index].operation != 0xecu &&
             cases[index].operation != 0xc0u &&
+            cases[index].operation != 0xc1u &&
             cases[index].operation != 0xd0u &&
             cases[index].operation != 0xd1u &&
             cases[index].operation != 0xd2u &&

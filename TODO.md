@@ -8633,13 +8633,17 @@ remains a separate open item.
 
 - [x] Emit frame-backed i686 DWARF values for a bounded side-effect-free
       integer expression used as the dynamic count of a 64-bit inline shift.
-      Computed counts must fit the 32-bit expression stack and their variable
-      inputs must have stable frame locations. A `count + 1u` regression
-      semantically evaluates shifts 0, 1, 31, 32, 33, and 63, including the
-      defined unsigned wrap from `UINT32_MAX` to zero. Direct 32-bit and
-      64-bit count cases remain covered. Focused and full `test-debug-info`,
-      plus the complete ASan/UBSan `test-sanitize` suite, pass on Linux for
-      legacy and verified-backend output.
-- [ ] Non-frame-backed count operands, computed 64-bit count expressions,
-      variable i686 64-bit division/remainder, and broader optimized
-      multi-piece locations remain open.
+      32-bit count expressions use the bounded scalar DWARF builder; computed
+      64-bit counts support frame-backed identifiers, literals, unary negation
+      and complement, plus/subtract/multiply, and bitwise operations by
+      emitting their exact low word. Variable inputs require stable frame
+      locations. `count + 1u` and `count + 1ull` regressions semantically
+      evaluate shifts 0, 1, 31, 32, 33, and 63, including defined unsigned
+      wrap from `UINT32_MAX`/`UINT64_MAX` to zero. Direct 32-bit and 64-bit
+      count cases remain covered. Focused and full `test-debug-info`, plus
+      ASan/UBSan `test-debug-info`, pass on Linux for legacy and verified
+      output.
+- [ ] Non-frame-backed count operands, 64-bit count expressions outside the
+      low-word-preserving subset above, variable i686 64-bit
+      division/remainder, and broader optimized multi-piece locations remain
+      open.

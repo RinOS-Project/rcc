@@ -685,6 +685,26 @@ int debug_inline_nonconstant_unsigned_long_long_lshift_computed_count_entry(
                     1u));
 }
 
+int debug_inline_nonconstant_unsigned_long_long_lshift_wide_computed_count_entry(
+    int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_lshift_wide_computed_count_source =
+            (unsigned long long)(unsigned int)value;
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_lshift_wide_computed_count_count =
+            1ull;
+    debug_inline_nonconstant_unsigned_long_long_escape =
+        &debug_inline_nonconstant_unsigned_long_long_lshift_wide_computed_count_source;
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+        &debug_inline_nonconstant_unsigned_long_long_lshift_wide_computed_count_count;
+    return (int)
+        debug_nonconstant_unsigned_long_long_lshift_variable_inline(
+            debug_inline_nonconstant_unsigned_long_long_lshift_wide_computed_count_source
+                << (debug_inline_nonconstant_unsigned_long_long_lshift_wide_computed_count_count +
+                    1ull));
+}
+
 int debug_inline_nonconstant_signed_long_long_lshift_variable_entry(
     int value)
 {

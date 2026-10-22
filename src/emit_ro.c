@@ -6522,18 +6522,87 @@ static bool debug_inline_parameter_i686_u64_shift_constant_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_u64_append_low_word_expression(
+    const Module* mod, const Expr* expression, uint8_t* output,
+    size_t capacity, size_t* size, unsigned int depth) {
+    uint64_t literal_bits;
+    if (!mod || !expression || !output || !size || depth >= 32u ||
+        !debug_inline_integer_expression_type(expression->type) ||
+        expression->type->size != 8) {
+        return false;
+    }
+    if (debug_inline_integer_literal_bits(
+            expression, &literal_bits, 0u)) {
+        return debug_inline_integer_expression_append_constu(
+            output, capacity, size, (uint32_t)literal_bits);
+    }
+    if (expression->kind == EXPR_IDENT && expression->ident_decl) {
+        const Decl* source = expression->ident_decl;
+        int64_t frame_offset;
+        if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+            source->var_is_global || source->var_is_static_local ||
+            source->var_is_thread_local || source->var_is_vla ||
+            !source->type ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                source->type, expression->type, 0u) ||
+            !debug_inline_parameter_frame_offset(
+                mod, source, &frame_offset)) {
+            return false;
+        }
+        return debug_inline_integer_expression_append_frame_u32(
+            output, capacity, size, ARCH_X86, frame_offset);
+    }
+    if ((expression->kind == EXPR_NEG ||
+         expression->kind == EXPR_BITNOT) && expression->unary_operand &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->unary_operand->type, expression->type, 0u) &&
+        debug_inline_parameter_i686_u64_append_low_word_expression(
+            mod, expression->unary_operand, output, capacity, size,
+            depth + 1u)) {
+        return debug_inline_integer_expression_append_byte(
+            output, capacity, size,
+            expression->kind == EXPR_NEG ? 0x1fu : 0x20u);
+    }
+    if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
+         expression->kind == EXPR_MUL || expression->kind == EXPR_BITAND ||
+         expression->kind == EXPR_BITOR || expression->kind == EXPR_BITXOR) &&
+        expression->binary_lhs && expression->binary_rhs &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_lhs->type, expression->type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_rhs->type, expression->type, 0u) &&
+        debug_inline_parameter_i686_u64_append_low_word_expression(
+            mod, expression->binary_lhs, output, capacity, size, depth + 1u) &&
+        debug_inline_parameter_i686_u64_append_low_word_expression(
+            mod, expression->binary_rhs, output, capacity, size, depth + 1u)) {
+        uint8_t opcode = expression->kind == EXPR_ADD ? 0x22u :
+            expression->kind == EXPR_SUB ? 0x1cu :
+            expression->kind == EXPR_MUL ? 0x1eu :
+            expression->kind == EXPR_BITAND ? 0x1au :
+            expression->kind == EXPR_BITOR ? 0x21u : 0x27u;
+        return debug_inline_integer_expression_append_byte(
+            output, capacity, size, opcode);
+    }
+    return false;
+}
+
 static bool debug_inline_parameter_i686_u64_append_shift_count(
     const Module* mod, const Expr* count_expression,
     const Decl* count_source, int64_t count_frame_offset,
     uint8_t* expression, size_t capacity, size_t* size) {
     if (!mod || !count_expression || !expression || !size) return false;
     /* A direct 64-bit count is safe to read from its low word for defined
-       64-bit shifts (0..63). Other count values must fit the i686 DWARF
-       stack and are evaluated from their source expression. */
+       64-bit shifts (0..63). Computed 64-bit arithmetic has the same low
+       32-bit result as its full-width value; defined shift counts therefore
+       retain their exact value on the 32-bit DWARF stack. */
     if (count_source && count_source->type &&
         count_source->type->size == 8) {
         return debug_inline_integer_expression_append_frame_u32(
             expression, capacity, size, ARCH_X86, count_frame_offset);
+    }
+    if (count_expression->type && count_expression->type->size == 8) {
+        return debug_inline_parameter_i686_u64_append_low_word_expression(
+            mod, count_expression, expression, capacity, size, 0u);
     }
     return count_expression->type &&
         (unsigned int)count_expression->type->size <= 4u &&
@@ -6593,7 +6662,8 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
               shift_count_expression->type,
               shift_count_source->type, 0u))) ||
         (!shift_count_source &&
-         (unsigned int)shift_count_expression->type->size > 4u) ||
+         (unsigned int)shift_count_expression->type->size > 4u &&
+         shift_count_expression->type->size != 8) ||
         !debug_inline_parameter_frame_offset(
             mod, source, &source_frame_offset) ||
         (shift_count_source && !debug_inline_parameter_frame_offset(
