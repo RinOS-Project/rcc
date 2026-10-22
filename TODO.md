@@ -495,7 +495,7 @@
         成功時の破棄順、完成後caller throw、first-base throwを実行検証。
         `test-verified-cxx-throwing-temporary`と、この拡張を含む
         `test-verified-backend`が成功。基底cleanup実装は`57f2d8d`、nested/fallthrough
-        switchとbody-throwへの拡張は`6646bb8`。throwing scalar DMI拡張はこの変更に含める。
+        switchとbody-throwへの拡張は`6646bb8`。throwing scalar DMI拡張は`88e0aff`。
   - [ ] virtual base construction、nontrivial/deleted target copy constructor、call引数以外の
         full-expression cleanupと未検証の例外経路が残る。
         標準conversion subsequenceと
