@@ -8163,7 +8163,13 @@ remains a separate open item.
       `-O0`/`-O2`, executes both i686 and AMD64 objects with their native host
       runners, and passes the existing invalid-builtin diagnostic checks.
 - [ ] C++20 `<atomic>` constraints/traits, complete constructor/API overload
-      sets, and wait/notify operations remain open.
+      sets, and wait/notify operations remain open. In particular, add
+      `value_type` and `is_always_lock_free` only after static constexpr data
+      members declared in an inherited class-template base are instantiated
+      and found correctly: adding these members to `__rcc_atomic_base<T>`
+      currently breaks derived `std::atomic<T>` constructor lowering and
+      member lookup. The attempted header/test change was removed after
+      `test-atomic-builtins` reproduced the failure; the unchanged suite passes.
 
 ## RCC continuation (2026-10-21, C++ `static_cast` conversion functions)
 
