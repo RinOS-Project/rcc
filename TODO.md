@@ -8472,3 +8472,14 @@ remains a separate open item.
       `test-debug-info` gates pass for legacy and verified-backend output.
 - [ ] Nonconstant i686 64-bit division/remainder and broader optimized
       multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, i686 signed 64-bit constant multiplication DWARF)
+
+- [x] Preserve a frame-backed signed `long long` multiplied by a same-typed
+      constant as exact low/high four-byte `DW_OP_piece` values. Reuse the
+      16-bit partial-product high-word calculation, test a negative constant,
+      and evaluate eight signed inputs whose products remain representable.
+      Focused inline-expression and full native-Windows `test-debug-info`
+      gates pass for legacy and verified-backend objects.
+- [ ] Nonconstant i686 64-bit division/remainder and broader optimized
+      multi-piece locations remain open.

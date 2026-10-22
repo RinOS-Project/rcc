@@ -8963,16 +8963,25 @@ static void verify_inline_u64_sub_constant_expression(
     }
 }
 
-static void verify_inline_unsigned_mul_expression(
+static void verify_inline_u64_mul_constant_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* source_name,
-    int64_t source_frame_offset, uint64_t constant) {
-    const uint64_t values[] = {
+    int64_t source_frame_offset, uint64_t constant, bool is_unsigned) {
+    static const uint64_t unsigned_values[] = {
         0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
         UINT64_C(0x1fffffffe), UINT64_C(0x7fffffffffffffff),
         UINT64_C(0xfffffffffffffffe), UINT64_MAX
     };
+    static const uint64_t signed_values[] = {
+        0u, 1u, UINT64_MAX, (uint64_t)(INT64_MAX / 3),
+        (uint64_t)(INT64_MIN / 3), UINT64_C(0x100000000),
+        (uint64_t)(-INT64_C(0x100000000)), UINT64_C(0xfffffffffffffff9)
+    };
+    const uint64_t* values = is_unsigned ? unsigned_values : signed_values;
+    size_t value_count = is_unsigned
+        ? sizeof(unsigned_values) / sizeof(unsigned_values[0])
+        : sizeof(signed_values) / sizeof(signed_values[0]);
     const uint32_t mask16 = UINT32_C(0xffff);
     const uint32_t low_constant = (uint32_t)constant;
     const uint32_t high_constant = (uint32_t)(constant >> 32u);
@@ -9080,8 +9089,7 @@ static void verify_inline_unsigned_mul_expression(
         &variable_frame_offset));
     assert(has_variable_location &&
            variable_frame_offset == source_frame_offset);
-    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
-         ++index) {
+    for (size_t index = 0u; index < value_count; ++index) {
         uint32_t low = (uint32_t)values[index];
         uint32_t high = (uint32_t)(values[index] >> 32u);
         uint32_t multiplier_low = low_constant;
@@ -9243,7 +9251,9 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
-    const char* call_site_name = expected_operation == 0xebu
+    const char* call_site_name = expected_operation == 0xedu
+        ? "debug_inline_nonconstant_signed_long_long_mul_constant_entry"
+        : expected_operation == 0xebu
         ? "debug_inline_nonconstant_signed_long_long_bitnot_entry"
         : expected_operation == 0xecu
             ? "debug_inline_nonconstant_signed_long_long_negate_entry"
@@ -9286,7 +9296,8 @@ static void verify_inline_integer_expression_parameter(
            source_name &&
            (expected_operation == 0xe0u || expected_operation == 0xe1u ||
             expected_operation == 0xe2u || expected_operation == 0xe3u ||
-            expected_operation == 0xeau || expected_operation == 0xebu ||
+            expected_operation == 0xeau || expected_operation == 0xedu ||
+            expected_operation == 0xebu ||
             expected_operation == 0xecu ||
             expected_operation == 0xe4u || expected_operation == 0xe5u ||
             expected_operation == 0xe6u || expected_operation == 0xe7u ||
@@ -9405,13 +9416,15 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (expected_operation == 0xfau) {
-        assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
-               expected_constant >= 0);
-        verify_inline_unsigned_mul_expression(
+    if (expected_operation == 0xfau || expected_operation == 0xedu) {
+        bool expected_unsigned = expected_operation == 0xfau;
+        assert(architecture == ARCH_X86 && is_unsigned == expected_unsigned &&
+               value_size == 8u &&
+               (!expected_unsigned || expected_constant >= 0));
+        verify_inline_u64_mul_constant_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, frame_offset,
-            (uint64_t)expected_constant);
+            (uint64_t)expected_constant, is_unsigned);
         objfile_free(object);
         return;
     }
@@ -9761,6 +9774,10 @@ static void verify_inline_integer_expression_cases(
          "debug_inline_nonconstant_signed_long_long_negate_source",
          false, 8u,
          0xecu, 0, NULL, false},
+        {"debug_nonconstant_signed_long_long_mul_constant_inline",
+         "debug_inline_nonconstant_signed_long_long_mul_constant_source",
+         false, 8u,
+         0xedu, -3, NULL, false},
         {"debug_nonconstant_unsigned_long_long_multiply_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0xfau, INT64_C(0x0f0ff0f00ff00ff0), NULL, false},
@@ -9799,6 +9816,7 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xe2u ||
              cases[index].operation == 0xe3u ||
              cases[index].operation == 0xeau ||
+             cases[index].operation == 0xedu ||
              cases[index].operation == 0xebu ||
              cases[index].operation == 0xecu ||
              cases[index].operation == 0xe4u ||
@@ -9826,6 +9844,7 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xe2u &&
             cases[index].operation != 0xe3u &&
             cases[index].operation != 0xeau &&
+            cases[index].operation != 0xedu &&
             cases[index].operation != 0xebu &&
             cases[index].operation != 0xecu &&
             cases[index].operation != 0xe4u &&

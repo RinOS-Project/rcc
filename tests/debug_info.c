@@ -539,6 +539,17 @@ int debug_inline_nonconstant_signed_long_long_negate_entry(int value)
         -debug_inline_nonconstant_signed_long_long_negate_source);
 }
 
+int debug_inline_nonconstant_signed_long_long_mul_constant_entry(int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_mul_constant_source =
+        (long long)value;
+    debug_inline_nonconstant_signed_long_long_escape =
+        &debug_inline_nonconstant_signed_long_long_mul_constant_source;
+    return (int)debug_nonconstant_signed_long_long_mul_constant_inline(
+        debug_inline_nonconstant_signed_long_long_mul_constant_source *
+            (-3ll));
+}
+
 int debug_inline_local_entry(int value)
 {
     return debug_local_inline(value);
