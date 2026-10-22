@@ -8545,3 +8545,23 @@ remains a separate open item.
 - [ ] Dynamic floating expressions/conversions beyond same-type
       frame-backed identifiers, `long double`, register-only locations, and
       general optimized inline-variable tracking remain open.
+
+## RCC continuation (2026-10-22, i686 unsigned 64-bit constant divmod DWARF)
+
+- [x] Preserve frame-backed i686 `unsigned long long` division by constants
+      1 through 32768 and remainder by the same range as exact low/high
+      four-byte `DW_OP_piece` values. Convert the dividend into four base-2^16
+      digits; each partial dividend stays within positive signed 32-bit range,
+      so DWARF's signed `DW_OP_div`/`DW_OP_mod` has defined exact behavior.
+      The regression semantically evaluates ten boundary values for `/3` and
+      `%5` in legacy and verified-backend i686 objects. Both focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass on
+      Ubuntu-24.04. The focused ASan/UBSan run also passes with LeakSanitizer
+      disabled.
+- [ ] Variable divisors, signed 64-bit division/remainder, larger constants,
+      non-frame-backed operands, and broader optimized multi-piece locations
+      remain open.
+- [ ] Add the debug-info corpus to the leak-sanitizer gate and resolve the
+      existing compiler-lifetime leaks before claiming that gate: the focused
+      ASan/UBSan invocation with LeakSanitizer enabled reports 8,000 bytes in
+      409 allocations from `codegen.c` label/function-reference allocations.
