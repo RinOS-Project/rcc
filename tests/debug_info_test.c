@@ -8888,16 +8888,34 @@ static void verify_inline_u64_bitwise_constant_expression(
     }
 }
 
-static void verify_inline_unsigned_u64_shift_constant_expression(
+static void verify_inline_u64_shift_constant_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* source_name,
-    int64_t source_frame_offset, uint64_t shift_count, bool is_left_shift) {
-    static const uint64_t values[] = {
+    int64_t source_frame_offset, bool is_unsigned, uint64_t shift_count,
+    bool is_left_shift) {
+    static const uint64_t unsigned_values[] = {
         0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
         UINT64_C(0x1fffffffe), UINT64_C(0x7fffffffffffffff),
         UINT64_C(0xfffffffffffffffe), UINT64_MAX
     };
+    static const uint64_t signed_left_values[] = {
+        0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
+        UINT64_C(0x1fffffffe), UINT64_C(0x123456789abcdef),
+        UINT64_C(0x2000000000000000), UINT64_C(0x3fffffffffffffff)
+    };
+    static const uint64_t signed_right_values[] = {
+        0u, 1u, UINT64_MAX, UINT64_C(0x7fffffffffffffff),
+        UINT64_C(0x8000000000000000), UINT64_C(0x8000000000000007),
+        UINT64_C(0xfffffffffffffff9), UINT64_C(0xffffffff00000000)
+    };
+    const uint64_t* values = is_unsigned ? unsigned_values
+        : is_left_shift ? signed_left_values : signed_right_values;
+    size_t value_count = is_unsigned
+        ? sizeof(unsigned_values) / sizeof(unsigned_values[0])
+        : is_left_shift
+            ? sizeof(signed_left_values) / sizeof(signed_left_values[0])
+            : sizeof(signed_right_values) / sizeof(signed_right_values[0]);
     uint64_t offset = expression_start;
     bool has_variable_location;
     bool variable_is_location_list;
@@ -8938,16 +8956,25 @@ static void verify_inline_unsigned_u64_shift_constant_expression(
         verify_inline_expression_frame_u32(
             data, expression_end, &offset, source_frame_offset + 4);
         verify_inline_expression_constu(data, expression_end, &offset, 1u);
-        verify_inline_expression_byte(data, expression_end, &offset, 0x25u);
+        verify_inline_expression_byte(
+            data, expression_end, &offset, is_unsigned ? 0x25u : 0x26u);
     } else {
         verify_inline_expression_frame_u32(
             data, expression_end, &offset, source_frame_offset + 4);
         verify_inline_expression_constu(data, expression_end, &offset, 1u);
-        verify_inline_expression_byte(data, expression_end, &offset, 0x25u);
+        verify_inline_expression_byte(
+            data, expression_end, &offset, is_unsigned ? 0x25u : 0x26u);
         verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
         verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
         assert(read_uleb(data, expression_end, &offset) == 4u);
-        verify_inline_expression_constu(data, expression_end, &offset, 0u);
+        if (is_unsigned) {
+            verify_inline_expression_constu(data, expression_end, &offset, 0u);
+        } else {
+            verify_inline_expression_frame_u32(
+                data, expression_end, &offset, source_frame_offset + 4);
+            verify_inline_expression_constu(data, expression_end, &offset, 31u);
+            verify_inline_expression_byte(data, expression_end, &offset, 0x26u);
+        }
     }
     verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
     verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
@@ -8960,19 +8987,36 @@ static void verify_inline_unsigned_u64_shift_constant_expression(
         &variable_frame_offset));
     assert(has_variable_location &&
            variable_frame_offset == source_frame_offset);
-    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
-         ++index) {
+    for (size_t index = 0u; index < value_count; ++index) {
         uint32_t low = (uint32_t)values[index];
         uint32_t high = (uint32_t)(values[index] >> 32u);
-        uint32_t low_result = is_left_shift
-            ? low << 1u
-            : shift_count == 1u ? (low >> 1u) | (high << 31u) : high >> 1u;
-        uint32_t high_result = is_left_shift
-            ? (high << 1u) | (low >> 31u)
-            : shift_count == 1u ? high >> 1u : 0u;
+        uint32_t low_result;
+        uint32_t high_result;
+        if (is_left_shift) {
+            low_result = low << 1u;
+            high_result = (high << 1u) | (low >> 31u);
+        } else if (shift_count == 1u) {
+            low_result = (low >> 1u) | (high << 31u);
+            high_result = (high >> 1u) |
+                (!is_unsigned ? high & UINT32_C(0x80000000) : 0u);
+        } else {
+            low_result = (high >> 1u) |
+                (!is_unsigned ? high & UINT32_C(0x80000000) : 0u);
+            high_result = !is_unsigned &&
+                    (high & UINT32_C(0x80000000)) != 0u
+                ? UINT32_MAX : 0u;
+        }
         uint64_t actual = ((uint64_t)high_result << 32u) | low_result;
-        uint64_t expected = is_left_shift
-            ? values[index] << shift_count : values[index] >> shift_count;
+        uint64_t expected;
+        if (is_left_shift) {
+            expected = values[index] << shift_count;
+        } else if (is_unsigned ||
+                   (values[index] & UINT64_C(0x8000000000000000)) == 0u) {
+            expected = values[index] >> shift_count;
+        } else {
+            expected = (values[index] >> shift_count) |
+                (UINT64_MAX << (64u - shift_count));
+        }
         assert(actual == expected);
     }
 }
@@ -9340,10 +9384,14 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
-    const char* call_site_name = expected_operation == 0xeeu
-        ? "debug_inline_nonconstant_unsigned_long_long_lshift_entry"
-        : expected_operation == 0xefu
-            ? "debug_inline_nonconstant_unsigned_long_long_rshift_entry"
+    const char* call_site_name = expected_operation == 0xd0u
+        ? "debug_inline_nonconstant_signed_long_long_lshift_entry"
+        : expected_operation == 0xd1u
+            ? "debug_inline_nonconstant_signed_long_long_rshift_entry"
+            : expected_operation == 0xeeu
+                ? "debug_inline_nonconstant_unsigned_long_long_lshift_entry"
+                : expected_operation == 0xefu
+                    ? "debug_inline_nonconstant_unsigned_long_long_rshift_entry"
             : expected_operation == 0xedu
         ? "debug_inline_nonconstant_signed_long_long_mul_constant_entry"
         : expected_operation == 0xebu
@@ -9407,6 +9455,7 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0x1au || expected_operation == 0x21u ||
             expected_operation == 0x27u || expected_operation == 0x1bu ||
             expected_operation == 0x1du ||
+            expected_operation == 0xd0u || expected_operation == 0xd1u ||
             expected_operation == 0xeeu || expected_operation == 0xefu ||
             expected_operation == 0x24u ||
             expected_operation == 0x25u || expected_operation == 0x26u ||
@@ -9522,21 +9571,23 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (expected_operation == 0xeeu || expected_operation == 0xefu) {
+    if (expected_operation == 0xd0u || expected_operation == 0xd1u ||
+        expected_operation == 0xeeu || expected_operation == 0xefu) {
         bool has_shift_source_location;
         bool shift_source_is_location_list;
         int64_t shift_source_frame_offset;
-        assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
+        assert(architecture == ARCH_X86 && value_size == 8u &&
                expected_constant >= 0);
         assert(find_variable_location(
             info, strings, locations, source_name, architecture,
             &has_shift_source_location, &shift_source_is_location_list,
             &shift_source_frame_offset));
         assert(has_shift_source_location);
-        verify_inline_unsigned_u64_shift_constant_expression(
+        verify_inline_u64_shift_constant_expression(
             info->data, expression_end, expression_start, info, strings,
-            locations, source_name, shift_source_frame_offset,
-            (uint64_t)expected_constant, expected_operation == 0xeeu);
+            locations, source_name, shift_source_frame_offset, is_unsigned,
+            (uint64_t)expected_constant,
+            expected_operation == 0xd0u || expected_operation == 0xeeu);
         objfile_free(object);
         return;
     }
@@ -9916,7 +9967,13 @@ static void verify_inline_integer_expression_cases(
          0xeeu, 1, NULL, false},
         {"debug_nonconstant_unsigned_long_long_rshift_inline",
          "debug_inline_nonconstant_unsigned_long_long_rshift_source", true, 8u,
-         0xefu, 33, NULL, false}
+         0xefu, 33, NULL, false},
+        {"debug_nonconstant_signed_long_long_lshift_inline",
+         "debug_inline_nonconstant_signed_long_long_lshift_source", false, 8u,
+         0xd0u, 1, NULL, false},
+        {"debug_nonconstant_signed_long_long_rshift_inline",
+         "debug_inline_nonconstant_signed_long_long_rshift_source", false, 8u,
+         0xd1u, 33, NULL, false}
     };
     uint8_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     for (size_t index = 0u; index < sizeof(cases) / sizeof(cases[0]);
@@ -9937,6 +9994,8 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xedu ||
              cases[index].operation == 0xebu ||
              cases[index].operation == 0xecu ||
+             cases[index].operation == 0xd0u ||
+             cases[index].operation == 0xd1u ||
              cases[index].operation == 0xeeu ||
              cases[index].operation == 0xefu ||
              cases[index].operation == 0xe4u ||
@@ -9967,6 +10026,8 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xedu &&
             cases[index].operation != 0xebu &&
             cases[index].operation != 0xecu &&
+            cases[index].operation != 0xd0u &&
+            cases[index].operation != 0xd1u &&
             cases[index].operation != 0xeeu &&
             cases[index].operation != 0xefu &&
             cases[index].operation != 0xe4u &&

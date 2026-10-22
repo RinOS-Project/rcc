@@ -8494,3 +8494,14 @@ remains a separate open item.
       native-Windows `test-debug-info` gates pass.
 - [ ] Nonconstant i686 64-bit shifts, division/remainder, and broader
       optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, i686 signed 64-bit constant shift DWARF)
+
+- [x] Preserve frame-backed signed `long long` left shifts and arithmetic
+      right shifts by constant counts from 0 through 63 as low/high four-byte
+      `DW_OP_piece` values. Regressions verify a representable `<< 1` and
+      negative/positive `>> 33` values, including exact `DW_OP_shra` sign
+      propagation, in legacy and verified-backend DWARF. Focused and full
+      native-Windows `test-debug-info` gates pass.
+- [ ] Nonconstant i686 64-bit shifts, division/remainder, and broader
+      optimized multi-piece locations remain open.

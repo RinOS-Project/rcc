@@ -260,6 +260,18 @@ inline long long debug_nonconstant_signed_long_long_mul_constant_inline(
     return value;
 }
 
+inline long long debug_nonconstant_signed_long_long_lshift_inline(
+    long long value)
+{
+    return value;
+}
+
+inline long long debug_nonconstant_signed_long_long_rshift_inline(
+    long long value)
+{
+    return value;
+}
+
 inline unsigned long long
 debug_nonconstant_unsigned_long_long_multiply_inline(unsigned long long value)
 {
