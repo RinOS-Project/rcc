@@ -7817,9 +7817,17 @@ remains a separate open item.
       builtins plus scalar `__atomic_exchange_n` are lowered directly, with
       their explicit-order expressions evaluated once. See the continuations
       below.
-- [ ] Other atomic integer RMW operators,
-      generic/aggregate builtin variants, floating/aggregate atomics, and
-      general C++ atomic operations remain open.
+- [x] Typed-SSA integer atomic RMW beyond fetch-add/sub now lowers bitwise
+      fetch-and/or/xor/nand, signed/unsigned fetch-min/max, and unsigned
+      fetch-uinc/udec through an observable-load/CAS retry loop. The gate
+      checks zero fallback for i686/AMD64 at `-O0`/`-O2`, executes AMD64
+      objects, and compares the C17 source with GCC via
+      `make SHELL=cmd.exe test-verified-atomic-fetch-add`.
+- [ ] Aggregate generic builtin operands, atomic aggregate operations,
+      floating-point RMW, and complete C++ atomic API/concurrency semantics
+      remain open. Scalar generic load/store/exchange/compare-exchange and
+      floating load/store/exchange/compare-exchange are covered separately by
+      the same verified-backend test gate.
 - [x] Fix optimized VLA-bound dead-store elimination: runtime array
       declarator bounds and variably-modified types in `sizeof` are now reads
       (including nested pointer/array types), so an initializer such as
@@ -7845,11 +7853,16 @@ remains a separate open item.
 - [x] Typed-SSA lowering for the covered dynamic VLA pointer strides is
       implemented for local objects and formal parameters, including pointer
       subtraction, as recorded in the continuations below.
+- [x] Extend typed-SSA explicit-order scalar integer atomics beyond fetch
+      arithmetic: bitwise/NAND/min/max/wraparound RMW builtins use CAS retry
+      loops, evaluate each explicit order expression once, and have zero-
+      fallback i686/AMD64 `-O0`/`-O2` compile checks plus AMD64 execution and a
+      GCC C17 oracle in `test-verified-atomic-fetch-add`.
 - [ ] Additional VLA pointer forms beyond the covered offsets/subtraction,
-      typed-SSA explicit-order atomic builtins beyond scalar integer/pointer
-      load, store, exchange, fetch arithmetic, test-and-set/clear, and fences;
-      other atomic RMW operators, floating/aggregate atomics, and general C++
-      atomic operations remain open.
+      aggregate generic atomic builtins and operations, floating-point RMW,
+      and complete C++ atomic operations remain open. Scalar generic/floating
+      load/store/exchange/compare-exchange, integer RMW, test-and-set/clear,
+      and fences have dedicated coverage.
 
 ## RCC continuation (2026-10-21, VLA pointer offsets)
 
@@ -7867,10 +7880,10 @@ remains a separate open item.
 - [x] Typed-SSA lowering for dynamic VLA pointer strides and subtraction of
       two pointers to compatible complete VLA objects is implemented in the
       continuation below.
-- [ ] Typed-SSA lowering for explicit-order atomic builtins beyond scalar
-      integer/pointer load, store, exchange, and integer fetch arithmetic;
-      other RMW operators, generic/aggregate and floating atomics, and general
-      C++ atomic operations remain open.
+- [ ] Typed-SSA lowering for aggregate generic atomics, floating-point RMW,
+      and complete C++ atomic operations remains open. Scalar generic and
+      floating load/store/exchange/compare-exchange plus integral bitwise,
+      min/max, and wraparound RMW are implemented and tested.
 
 ## RCC continuation (2026-10-21, typed-SSA pointer-to-VLA extents)
 
