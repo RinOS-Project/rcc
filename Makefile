@@ -579,6 +579,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-variadic-nontrivial-ellipsis
 .PHONY: test-cxx-variadic-scalar-promotions
 .PHONY: test-cxx-variadic-aggregate
+.PHONY: test-tls-runtime-posix
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -964,6 +965,12 @@ TEST_CI_TARGETS = \
 	test-bootstrap-link \
 	test-bootstrap-execute \
 	test-bootstrap-stage2
+
+ifneq ($(OS),Windows_NT)
+ifeq ($(shell uname -s),Linux)
+TEST_CI_TARGETS += test-tls-runtime-posix
+endif
+endif
 
 test-ci: $(TEST_CI_TARGETS)
 	@echo "RCC production C17/C++20, IR, ABI, image, and bootstrap regression gate completed"
@@ -17359,6 +17366,28 @@ test-tls: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -driver \
 		--emit-unsigned-v3 -o $(TEST_OUT)/tls/invalid.drv tests/tls.c,$(TEST_OUT)/tls/invalid-driver.log)
 	@echo "C17/C++20 local-exec TLS tests completed"
+
+test-tls-runtime-posix: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/tls-runtime)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/tls-runtime/tls-runtime-x86.s tests/tls_runtime.c
+	$(CC) $(CFLAGS) -m32 -pthread -Wa,--noexecstack -c \
+		-o $(TEST_OUT)/tls-runtime/tls-runtime-x86.o \
+		$(TEST_OUT)/tls-runtime/tls-runtime-x86.s
+	$(CC) $(CFLAGS) -m32 -pthread -no-pie \
+		-o $(TEST_OUT)/tls-runtime/tls-runtime-test-x86 \
+		tests/tls_runtime_test.c $(TEST_OUT)/tls-runtime/tls-runtime-x86.o
+	$(TEST_OUT)/tls-runtime/tls-runtime-test-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/tls-runtime/tls-runtime-x64.s tests/tls_runtime.c
+	$(CC) $(CFLAGS) -pthread -Wa,--noexecstack -c \
+		-o $(TEST_OUT)/tls-runtime/tls-runtime-x64.o \
+		$(TEST_OUT)/tls-runtime/tls-runtime-x64.s
+	$(CC) $(CFLAGS) -pthread -no-pie \
+		-o $(TEST_OUT)/tls-runtime/tls-runtime-test-x64 \
+		tests/tls_runtime_test.c $(TEST_OUT)/tls-runtime/tls-runtime-x64.o
+	$(TEST_OUT)/tls-runtime/tls-runtime-test-x64
+	@echo "RCC-generated local-exec TLS thread-isolation runtime test passed"
 
 test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/direct)
