@@ -6359,6 +6359,150 @@ static bool debug_inline_parameter_i686_u64_sub_constant_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_unsigned_u64_shift_constant_expression(
+    const Module* mod, const Type* parameter_type,
+    const Expr* source_expression, uint8_t* expression, size_t capacity,
+    size_t* expression_size) {
+    const Decl* source;
+    int64_t frame_offset;
+    uint64_t shift_count;
+    size_t size = 0u;
+    bool is_left_shift;
+    if (!mod || !parameter_type || !source_expression || !expression ||
+        !expression_size || !parameter_type->is_unsigned ||
+        parameter_type->size != 8u || !source_expression->binary_lhs ||
+        !source_expression->binary_rhs ||
+        source_expression->binary_lhs->kind != EXPR_IDENT ||
+        !source_expression->binary_lhs->ident_decl ||
+        (source_expression->kind != EXPR_LSHIFT &&
+         source_expression->kind != EXPR_RSHIFT) ||
+        !debug_inline_integer_literal_bits(
+            source_expression->binary_rhs, &shift_count, 0u) ||
+        shift_count >= 64u ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source_expression->type, parameter_type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source_expression->binary_lhs->type, parameter_type, 0u)) {
+        return false;
+    }
+    source = source_expression->binary_lhs->ident_decl;
+    if (!source || (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+        source->var_is_global || source->var_is_static_local ||
+        source->var_is_thread_local || source->var_is_vla || !source->type ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source->type, parameter_type, 0u) ||
+        !debug_inline_parameter_frame_offset(mod, source, &frame_offset) ||
+        frame_offset > INT64_MAX - 4) {
+        return false;
+    }
+    is_left_shift = source_expression->kind == EXPR_LSHIFT;
+
+    /* A 32-bit DWARF stack entry cannot hold the full value. Split logical
+       shifts across the two storage words, including the cross-word bits. */
+    for (unsigned int word = 0u; word < 2u; ++word) {
+        int64_t word_offset = frame_offset + (int64_t)(word * 4u);
+        if (shift_count == 0u) {
+            if (!debug_inline_integer_expression_append_frame_u32(
+                    expression, capacity, &size, ARCH_X86, word_offset)) {
+                return false;
+            }
+        } else if (is_left_shift) {
+            if (shift_count < 32u) {
+                if (!debug_inline_integer_expression_append_frame_u32(
+                        expression, capacity, &size, ARCH_X86,
+                        word == 0u ? frame_offset : frame_offset + 4) ||
+                    !debug_inline_integer_expression_append_constu(
+                        expression, capacity, &size, shift_count) ||
+                    !debug_inline_integer_expression_append_byte(
+                        expression, capacity, &size, 0x24u)) { /* shl */
+                    return false;
+                }
+                if (word == 1u &&
+                    (!debug_inline_integer_expression_append_frame_u32(
+                         expression, capacity, &size, ARCH_X86, frame_offset) ||
+                     !debug_inline_integer_expression_append_constu(
+                         expression, capacity, &size, 32u - shift_count) ||
+                     !debug_inline_integer_expression_append_byte(
+                         expression, capacity, &size, 0x25u) || /* shr */
+                     !debug_inline_integer_expression_append_byte(
+                         expression, capacity, &size, 0x21u))) { /* or */
+                    return false;
+                }
+            } else if (word == 0u) {
+                if (!debug_inline_integer_expression_append_constu(
+                        expression, capacity, &size, 0u)) {
+                    return false;
+                }
+            } else if (!debug_inline_integer_expression_append_frame_u32(
+                           expression, capacity, &size, ARCH_X86,
+                           frame_offset) ||
+                       !debug_inline_integer_expression_append_constu(
+                           expression, capacity, &size, shift_count - 32u) ||
+                       !debug_inline_integer_expression_append_byte(
+                           expression, capacity, &size, 0x24u)) { /* shl */
+                return false;
+            }
+        } else if (shift_count < 32u) {
+            if (word == 0u) {
+                if (!debug_inline_integer_expression_append_frame_u32(
+                        expression, capacity, &size, ARCH_X86, frame_offset) ||
+                    !debug_inline_integer_expression_append_constu(
+                        expression, capacity, &size, shift_count) ||
+                    !debug_inline_integer_expression_append_byte(
+                        expression, capacity, &size, 0x25u) || /* shr */
+                    !debug_inline_integer_expression_append_frame_u32(
+                        expression, capacity, &size, ARCH_X86,
+                        frame_offset + 4) ||
+                    !debug_inline_integer_expression_append_constu(
+                        expression, capacity, &size, 32u - shift_count) ||
+                    !debug_inline_integer_expression_append_byte(
+                        expression, capacity, &size, 0x24u) || /* shl */
+                    !debug_inline_integer_expression_append_byte(
+                        expression, capacity, &size, 0x21u)) { /* or */
+                    return false;
+                }
+            } else if (!debug_inline_integer_expression_append_frame_u32(
+                           expression, capacity, &size, ARCH_X86,
+                           frame_offset + 4) ||
+                       !debug_inline_integer_expression_append_constu(
+                           expression, capacity, &size, shift_count) ||
+                       !debug_inline_integer_expression_append_byte(
+                           expression, capacity, &size, 0x25u)) { /* shr */
+                return false;
+            }
+        } else if (word == 0u && shift_count == 32u) {
+            if (!debug_inline_integer_expression_append_frame_u32(
+                    expression, capacity, &size, ARCH_X86,
+                    frame_offset + 4)) {
+                return false;
+            }
+        } else if (word == 0u &&
+                   (!debug_inline_integer_expression_append_frame_u32(
+                        expression, capacity, &size, ARCH_X86,
+                        frame_offset + 4) ||
+                    !debug_inline_integer_expression_append_constu(
+                        expression, capacity, &size, shift_count - 32u) ||
+                    !debug_inline_integer_expression_append_byte(
+                        expression, capacity, &size, 0x25u))) { /* shr */
+            return false;
+        } else if (word == 1u && !debug_inline_integer_expression_append_constu(
+                       expression, capacity, &size, 0u)) {
+            return false;
+        }
+
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) || /* stack_value */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u)) {
+            return false;
+        }
+    }
+    *expression_size = size;
+    return true;
+}
+
 static bool debug_inline_parameter_i686_u64_bitnot_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
@@ -6607,6 +6751,17 @@ static bool debug_inline_parameter_integer_expression(
         (unsigned int)parameter_type->size == 8u &&
         source_expression->kind == EXPR_SUB &&
         debug_inline_parameter_i686_u64_sub_constant_expression(
+            mod, parameter_type, source_expression, expression,
+            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
+            expression_size)) {
+        return true;
+    }
+
+    if (architecture == ARCH_X86 &&
+        (unsigned int)parameter_type->size == 8u &&
+        (source_expression->kind == EXPR_LSHIFT ||
+         source_expression->kind == EXPR_RSHIFT) &&
+        debug_inline_parameter_i686_unsigned_u64_shift_constant_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
             expression_size)) {

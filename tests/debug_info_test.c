@@ -8888,6 +8888,95 @@ static void verify_inline_u64_bitwise_constant_expression(
     }
 }
 
+static void verify_inline_unsigned_u64_shift_constant_expression(
+    const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, const char* source_name,
+    int64_t source_frame_offset, uint64_t shift_count, bool is_left_shift) {
+    static const uint64_t values[] = {
+        0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
+        UINT64_C(0x1fffffffe), UINT64_C(0x7fffffffffffffff),
+        UINT64_C(0xfffffffffffffffe), UINT64_MAX
+    };
+    uint64_t offset = expression_start;
+    bool has_variable_location;
+    bool variable_is_location_list;
+    int64_t variable_frame_offset;
+
+    assert(source_frame_offset <= INT64_MAX - 4);
+    assert(shift_count == 1u || (!is_left_shift && shift_count == 33u));
+    if (is_left_shift) {
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, source_frame_offset);
+        verify_inline_expression_constu(data, expression_end, &offset, 1u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x24u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
+        assert(read_uleb(data, expression_end, &offset) == 4u);
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, source_frame_offset + 4);
+        verify_inline_expression_constu(data, expression_end, &offset, 1u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x24u);
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, source_frame_offset);
+        verify_inline_expression_constu(data, expression_end, &offset, 31u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x25u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x21u);
+    } else if (shift_count == 1u) {
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, source_frame_offset);
+        verify_inline_expression_constu(data, expression_end, &offset, 1u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x25u);
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, source_frame_offset + 4);
+        verify_inline_expression_constu(data, expression_end, &offset, 31u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x24u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x21u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
+        assert(read_uleb(data, expression_end, &offset) == 4u);
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, source_frame_offset + 4);
+        verify_inline_expression_constu(data, expression_end, &offset, 1u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x25u);
+    } else {
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, source_frame_offset + 4);
+        verify_inline_expression_constu(data, expression_end, &offset, 1u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x25u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
+        assert(read_uleb(data, expression_end, &offset) == 4u);
+        verify_inline_expression_constu(data, expression_end, &offset, 0u);
+    }
+    verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
+    verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
+    assert(read_uleb(data, expression_end, &offset) == 4u);
+    assert(offset == expression_end);
+
+    assert(find_variable_location(
+        info, strings, locations, source_name, ARCH_X86,
+        &has_variable_location, &variable_is_location_list,
+        &variable_frame_offset));
+    assert(has_variable_location &&
+           variable_frame_offset == source_frame_offset);
+    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
+         ++index) {
+        uint32_t low = (uint32_t)values[index];
+        uint32_t high = (uint32_t)(values[index] >> 32u);
+        uint32_t low_result = is_left_shift
+            ? low << 1u
+            : shift_count == 1u ? (low >> 1u) | (high << 31u) : high >> 1u;
+        uint32_t high_result = is_left_shift
+            ? (high << 1u) | (low >> 31u)
+            : shift_count == 1u ? high >> 1u : 0u;
+        uint64_t actual = ((uint64_t)high_result << 32u) | low_result;
+        uint64_t expected = is_left_shift
+            ? values[index] << shift_count : values[index] >> shift_count;
+        assert(actual == expected);
+    }
+}
+
 static void verify_inline_u64_sub_constant_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
@@ -9251,7 +9340,11 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
-    const char* call_site_name = expected_operation == 0xedu
+    const char* call_site_name = expected_operation == 0xeeu
+        ? "debug_inline_nonconstant_unsigned_long_long_lshift_entry"
+        : expected_operation == 0xefu
+            ? "debug_inline_nonconstant_unsigned_long_long_rshift_entry"
+            : expected_operation == 0xedu
         ? "debug_inline_nonconstant_signed_long_long_mul_constant_entry"
         : expected_operation == 0xebu
         ? "debug_inline_nonconstant_signed_long_long_bitnot_entry"
@@ -9314,6 +9407,7 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0x1au || expected_operation == 0x21u ||
             expected_operation == 0x27u || expected_operation == 0x1bu ||
             expected_operation == 0x1du ||
+            expected_operation == 0xeeu || expected_operation == 0xefu ||
             expected_operation == 0x24u ||
             expected_operation == 0x25u || expected_operation == 0x26u ||
             expected_operation == 0xfbu || expected_operation == 0xfcu ||
@@ -9425,6 +9519,24 @@ static void verify_inline_integer_expression_parameter(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, frame_offset,
             (uint64_t)expected_constant, is_unsigned);
+        objfile_free(object);
+        return;
+    }
+    if (expected_operation == 0xeeu || expected_operation == 0xefu) {
+        bool has_shift_source_location;
+        bool shift_source_is_location_list;
+        int64_t shift_source_frame_offset;
+        assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
+               expected_constant >= 0);
+        assert(find_variable_location(
+            info, strings, locations, source_name, architecture,
+            &has_shift_source_location, &shift_source_is_location_list,
+            &shift_source_frame_offset));
+        assert(has_shift_source_location);
+        verify_inline_unsigned_u64_shift_constant_expression(
+            info->data, expression_end, expression_start, info, strings,
+            locations, source_name, shift_source_frame_offset,
+            (uint64_t)expected_constant, expected_operation == 0xeeu);
         objfile_free(object);
         return;
     }
@@ -9798,7 +9910,13 @@ static void verify_inline_integer_expression_cases(
          0xfbu, 0, NULL, false},
         {"debug_nonconstant_unsigned_long_long_negate_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
-         0xf9u, 0, NULL, false}
+         0xf9u, 0, NULL, false},
+        {"debug_nonconstant_unsigned_long_long_lshift_inline",
+         "debug_inline_nonconstant_unsigned_long_long_lshift_source", true, 8u,
+         0xeeu, 1, NULL, false},
+        {"debug_nonconstant_unsigned_long_long_rshift_inline",
+         "debug_inline_nonconstant_unsigned_long_long_rshift_source", true, 8u,
+         0xefu, 33, NULL, false}
     };
     uint8_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     for (size_t index = 0u; index < sizeof(cases) / sizeof(cases[0]);
@@ -9819,6 +9937,8 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xedu ||
              cases[index].operation == 0xebu ||
              cases[index].operation == 0xecu ||
+             cases[index].operation == 0xeeu ||
+             cases[index].operation == 0xefu ||
              cases[index].operation == 0xe4u ||
              cases[index].operation == 0xe5u ||
              cases[index].operation == 0xe6u ||
@@ -9847,6 +9967,8 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xedu &&
             cases[index].operation != 0xebu &&
             cases[index].operation != 0xecu &&
+            cases[index].operation != 0xeeu &&
+            cases[index].operation != 0xefu &&
             cases[index].operation != 0xe4u &&
             cases[index].operation != 0xe5u &&
             cases[index].operation != 0xe6u &&

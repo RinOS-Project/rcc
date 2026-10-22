@@ -8483,3 +8483,14 @@ remains a separate open item.
       gates pass for legacy and verified-backend objects.
 - [ ] Nonconstant i686 64-bit division/remainder and broader optimized
       multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, i686 unsigned 64-bit constant shift DWARF)
+
+- [x] Preserve frame-backed i686 unsigned `long long` left/right shifts by a
+      constant count from 0 through 63 as exact low/high four-byte
+      `DW_OP_piece` values. Regressions verify the cross-word `<< 1` path and
+      upper-word `>> 33` path against eight boundary bit patterns in legacy
+      and verified-backend DWARF. Focused inline-expression and full
+      native-Windows `test-debug-info` gates pass.
+- [ ] Nonconstant i686 64-bit shifts, division/remainder, and broader
+      optimized multi-piece locations remain open.
