@@ -8684,3 +8684,14 @@ remains a separate open item.
       Linux ASan/UBSan inline-expression tests pass.
 - [ ] General computed 64-bit count division/remainder, non-frame-backed
       operands, and broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-23, Windows MinGW structural NTTP host ABI)
+
+- [x] Keep the structural inherited member-function-pointer NTTP comparison
+      ABI-correct on Windows: MinGW x86-64 is LLP64 and emits an `x`-width
+      ptrdiff adjustment for host GCC, while RinOS x86-64 remains LP64 and
+      correctly emits the target `l`-width adjustment. Separate the host-GCC
+      oracle symbol from the RinOS target symbol. The complete `test-cxx`
+      target list passed on Windows when split at the separately passing
+      structural-array-NTTP target; no compiler-generated target ABI spelling
+      was changed.
