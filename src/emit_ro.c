@@ -5511,7 +5511,7 @@ static bool debug_inline_integer_expression_append_frame_u32(
             expression, capacity, size, 4u);
 }
 
-static bool debug_inline_parameter_i686_unsigned_u64_add_expression(
+static bool debug_inline_parameter_i686_u64_add_constant_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size) {
@@ -5526,7 +5526,7 @@ static bool debug_inline_parameter_i686_unsigned_u64_add_expression(
     const uint64_t sign_bit = UINT64_C(0x80000000);
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || source_expression->kind != EXPR_ADD ||
-        !parameter_type->is_unsigned || parameter_type->size != 8u ||
+        parameter_type->size != 8u ||
         !source_expression->binary_lhs || !source_expression->binary_rhs) {
         return false;
     }
@@ -6270,7 +6270,7 @@ static bool debug_inline_parameter_i686_unsigned_u64_mul_expression(
     return true;
 }
 
-static bool debug_inline_parameter_i686_unsigned_u64_sub_expression(
+static bool debug_inline_parameter_i686_u64_sub_constant_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size) {
@@ -6285,7 +6285,7 @@ static bool debug_inline_parameter_i686_unsigned_u64_sub_expression(
     const uint64_t sign_bit = UINT64_C(0x80000000);
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || source_expression->kind != EXPR_SUB ||
-        !parameter_type->is_unsigned || parameter_type->size != 8u ||
+        parameter_type->size != 8u ||
         !source_expression->binary_lhs || !source_expression->binary_rhs ||
         source_expression->binary_lhs->kind != EXPR_IDENT ||
         !source_expression->binary_lhs->ident_decl) {
@@ -6561,10 +6561,10 @@ static bool debug_inline_parameter_integer_expression(
         return true;
     }
 
-    if (architecture != ARCH_X64 && parameter_type->is_unsigned &&
+    if (architecture == ARCH_X86 &&
         (unsigned int)parameter_type->size == 8u &&
         source_expression->kind == EXPR_ADD &&
-        debug_inline_parameter_i686_unsigned_u64_add_expression(
+        debug_inline_parameter_i686_u64_add_constant_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
             expression_size)) {
@@ -6603,10 +6603,10 @@ static bool debug_inline_parameter_integer_expression(
         return true;
     }
 
-    if (architecture == ARCH_X86 && parameter_type->is_unsigned &&
+    if (architecture == ARCH_X86 &&
         (unsigned int)parameter_type->size == 8u &&
         source_expression->kind == EXPR_SUB &&
-        debug_inline_parameter_i686_unsigned_u64_sub_expression(
+        debug_inline_parameter_i686_u64_sub_constant_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
             expression_size)) {

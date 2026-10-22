@@ -8438,3 +8438,15 @@ remains a separate open item.
       native-Windows debug-info test gates pass.
 - [ ] Nonconstant i686 64-bit division/remainder and broader optimized
       multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, i686 signed 64-bit constant inline DWARF)
+
+- [x] Preserve a frame-backed i686 signed `long long` plus or minus a typed
+      constant as exact low/high four-byte `DW_OP_piece` values. Verify the
+      original frame location, opcode stream, piece widths, and eight
+      signed-safe boundary patterns for negative addition and positive
+      subtraction in legacy and verified-backend objects. The focused
+      `test-debug-info-inline-expression` and full native-Windows
+      `test-debug-info` gates pass.
+- [ ] Nonconstant i686 64-bit division/remainder and broader optimized
+      multi-piece locations remain open.
