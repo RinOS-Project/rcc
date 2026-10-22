@@ -11003,7 +11003,7 @@ static void sema_cxx_cleanup_append(CxxCleanupPlan** cleanups,
 
 static void sema_cxx_cleanup_append_expression(CxxCleanupPlan** cleanups,
                                               Expr* expression) {
-    CxxCleanupPlan* item = rcc_alloc(sizeof(*item));
+    CxxCleanupPlan* item = ast_arena_alloc(sizeof(*item));
     memset(item, 0, sizeof(*item));
     item->kind = CXX_CLEANUP_EXPRESSION;
     item->expression = expression;

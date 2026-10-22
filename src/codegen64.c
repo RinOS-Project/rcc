@@ -5419,6 +5419,48 @@ static void gen64_cxx_call_constructor(Module* mod,
  * source expressions refer to constructor parameters, while this lowering
  * path has no ordinary parameter frame; substitute the actual arguments at
  * each nested initialization boundary. */
+typedef struct CxxConstructorBindingAllocation64 {
+    void* allocation;
+    struct CxxConstructorBindingAllocation64* next;
+} CxxConstructorBindingAllocation64;
+
+typedef struct CxxConstructorBindingArena64 {
+    CxxConstructorBindingAllocation64* allocations;
+} CxxConstructorBindingArena64;
+
+static CxxConstructorBindingArena64* active_cxx_constructor_binding_arena64;
+
+static void gen64_cxx_constructor_binding_track(void* allocation) {
+    CxxConstructorBindingArena64* arena =
+        active_cxx_constructor_binding_arena64;
+    CxxConstructorBindingAllocation64* item;
+    if (!allocation || !arena) return;
+    item = rcc_alloc(sizeof(*item));
+    item->allocation = allocation;
+    item->next = arena->allocations;
+    arena->allocations = item;
+}
+
+static void* gen64_cxx_constructor_binding_alloc(size_t size) {
+    void* allocation = rcc_alloc(size);
+    gen64_cxx_constructor_binding_track(allocation);
+    return allocation;
+}
+
+static void gen64_cxx_constructor_binding_arena_release(
+    CxxConstructorBindingArena64* arena) {
+    CxxConstructorBindingAllocation64* item;
+    if (!arena) return;
+    item = arena->allocations;
+    while (item) {
+        CxxConstructorBindingAllocation64* next = item->next;
+        rcc_free(item->allocation);
+        rcc_free(item);
+        item = next;
+    }
+    arena->allocations = NULL;
+}
+
 static Expr* gen64_cxx_bind_constructor_argument(
     CxxConstructorInfo* constructor, Expr* expression, ExprList* arguments) {
     TypeParam* parameter = constructor ? constructor->parameters : NULL;
@@ -5429,6 +5471,7 @@ static Expr* gen64_cxx_bind_constructor_argument(
     if (!expression) return NULL;
     if (expression->kind == EXPR_CXX_THIS) {
         Expr* this_expression = expr_cxx_this(expression->loc);
+        gen64_cxx_constructor_binding_track(this_expression);
         this_expression->cxx_this_stack_offset = 0;
         this_expression->type = expression->type;
         return this_expression;
@@ -5437,6 +5480,7 @@ static Expr* gen64_cxx_bind_constructor_argument(
     if (expression->ident_name &&
         strcmp(expression->ident_name, "this") == 0) {
         Expr* this_expression = expr_cxx_this(expression->loc);
+        gen64_cxx_constructor_binding_track(this_expression);
         this_expression->cxx_this_stack_offset = 0;
         this_expression->type = expression->type;
         return this_expression;
@@ -5483,7 +5527,7 @@ static ExprList* gen64_cxx_bind_constructor_expression_list(
     ExprList* bound = NULL;
     ExprList** tail = &bound;
     for (ExprList* item = expressions; item; item = item->next) {
-        ExprList* copy = rcc_alloc(sizeof(*copy));
+        ExprList* copy = gen64_cxx_constructor_binding_alloc(sizeof(*copy));
         *copy = *item;
         copy->expr = gen64_cxx_bind_constructor_expression(
             constructor, item->expr, arguments);
@@ -5504,7 +5548,7 @@ static CxxCleanupPlan* gen64_cxx_bind_constructor_cleanup_plan(
     CxxCleanupPlan* bound = NULL;
     CxxCleanupPlan** tail = &bound;
     for (CxxCleanupPlan* item = plan; item; item = item->next) {
-        CxxCleanupPlan* copy = rcc_alloc(sizeof(*copy));
+        CxxCleanupPlan* copy = gen64_cxx_constructor_binding_alloc(sizeof(*copy));
         *copy = *item;
         copy->expression = gen64_cxx_bind_constructor_expression(
             constructor, item->expression, arguments);
@@ -5548,7 +5592,7 @@ static GenericAssociation* gen64_cxx_bind_constructor_generic(
     GenericAssociation* bound = NULL;
     GenericAssociation** tail = &bound;
     for (GenericAssociation* item = associations; item; item = item->next) {
-        GenericAssociation* copy = rcc_alloc(sizeof(*copy));
+        GenericAssociation* copy = gen64_cxx_constructor_binding_alloc(sizeof(*copy));
         *copy = *item;
         copy->expr = gen64_cxx_bind_constructor_expression(
             constructor, item->expr, arguments);
@@ -5567,7 +5611,8 @@ gen64_cxx_bind_constructor_compound_requirements(
     CxxCompoundRequirement** tail = &bound;
     for (CxxCompoundRequirement* item = requirements; item;
          item = item->next) {
-        CxxCompoundRequirement* copy = rcc_alloc(sizeof(*copy));
+        CxxCompoundRequirement* copy =
+            gen64_cxx_constructor_binding_alloc(sizeof(*copy));
         *copy = *item;
         copy->expr = gen64_cxx_bind_constructor_expression(
             constructor, item->expr, arguments);
@@ -5607,7 +5652,8 @@ static void gen64_cxx_bind_constructor_expression_metadata(
         constructor, expression->cxx_temporary_cleanups, arguments);
     copy->cxx_move_assignment = NULL;
     if (expression->cxx_move_assignment) {
-        CxxMoveAssignment* move = rcc_alloc(sizeof(*move));
+        CxxMoveAssignment* move =
+            gen64_cxx_constructor_binding_alloc(sizeof(*move));
         *move = *expression->cxx_move_assignment;
         move->source = gen64_cxx_bind_constructor_expression(
             constructor, move->source, arguments);
@@ -5619,7 +5665,8 @@ static void gen64_cxx_bind_constructor_expression_metadata(
     }
     copy->cxx_close_call = NULL;
     if (expression->cxx_close_call) {
-        CxxCloseCall* close = rcc_alloc(sizeof(*close));
+        CxxCloseCall* close =
+            gen64_cxx_constructor_binding_alloc(sizeof(*close));
         *close = *expression->cxx_close_call;
         close->object = gen64_cxx_bind_constructor_expression(
             constructor, close->object, arguments);
@@ -5659,7 +5706,7 @@ static Expr* gen64_cxx_bind_constructor_expression(
             !expression->cxx_close_call) {
             return expression;
         }
-        copy = rcc_alloc(sizeof(*copy));
+        copy = gen64_cxx_constructor_binding_alloc(sizeof(*copy));
         *copy = *expression;
         gen64_cxx_bind_constructor_expression_metadata(
             constructor, copy, expression, arguments);
@@ -5672,7 +5719,7 @@ static Expr* gen64_cxx_bind_constructor_expression(
         expression->kind == EXPR_STRING_LIT) {
         return expression;
     }
-    copy = rcc_alloc(sizeof(*copy));
+    copy = gen64_cxx_constructor_binding_alloc(sizeof(*copy));
     *copy = *expression;
     switch (expression->kind) {
         case EXPR_NEG:
@@ -5826,7 +5873,6 @@ static Expr* gen64_cxx_bind_constructor_expression(
             rcc_error(expression->loc,
                       "constructor initializer expression kind %d cannot be rebound",
                       (int)expression->kind);
-            rcc_free(copy);
             return expression;
     }
     gen64_cxx_bind_constructor_expression_metadata(
@@ -5842,6 +5888,9 @@ static ExprList* gen64_cxx_bind_constructor_arguments(
 }
 
 static void gen64_cxx_initialize_object_mode(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments, bool initialize_virtual_bases);
+static void gen64_cxx_initialize_object_mode_impl(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
     ExprList* arguments, bool initialize_virtual_bases);
 static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
@@ -6226,7 +6275,7 @@ static void gen64_cxx_initialize_member_initializers(
     }
 }
 
-static void gen64_cxx_initialize_object_mode(
+static void gen64_cxx_initialize_object_mode_impl(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
     ExprList* arguments, bool initialize_virtual_bases) {
     TypeField* field;
@@ -6516,6 +6565,19 @@ static void gen64_cxx_initialize_object_mode(
         emit64_store_typed(mod, address_reg, field->offset,
                            RAX, field->type);
     }
+}
+
+static void gen64_cxx_initialize_object_mode(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    ExprList* arguments, bool initialize_virtual_bases) {
+    CxxConstructorBindingArena64 arena = {0};
+    CxxConstructorBindingArena64* previous_arena =
+        active_cxx_constructor_binding_arena64;
+    active_cxx_constructor_binding_arena64 = &arena;
+    gen64_cxx_initialize_object_mode_impl(
+        mod, object_type, constructor, arguments, initialize_virtual_bases);
+    active_cxx_constructor_binding_arena64 = previous_arena;
+    gen64_cxx_constructor_binding_arena_release(&arena);
 }
 
 static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
@@ -10907,7 +10969,7 @@ static Expr* gen64_static_reference_subobject_rebase(
     switch (expression->kind) {
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
-            copy = rcc_alloc(sizeof(*copy));
+            copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
             copy->member_base = gen64_static_reference_subobject_rebase(
                 expression->member_base, complete_object, owner,
@@ -10916,7 +10978,7 @@ static Expr* gen64_static_reference_subobject_rebase(
             *replaced = true;
             return copy;
         case EXPR_CXX_MEMBER_PTR_DOT:
-            copy = rcc_alloc(sizeof(*copy));
+            copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
             copy->binary_lhs = gen64_static_reference_subobject_rebase(
                 expression->binary_lhs, complete_object, owner,
@@ -10925,7 +10987,7 @@ static Expr* gen64_static_reference_subobject_rebase(
             *replaced = true;
             return copy;
         case EXPR_CAST:
-            copy = rcc_alloc(sizeof(*copy));
+            copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
             copy->cast_expr = gen64_static_reference_subobject_rebase(
                 expression->cast_expr, complete_object, owner,
@@ -10934,7 +10996,7 @@ static Expr* gen64_static_reference_subobject_rebase(
             *replaced = true;
             return copy;
         case EXPR_COMMA:
-            copy = rcc_alloc(sizeof(*copy));
+            copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
             copy->binary_lhs = gen64_static_reference_subobject_rebase(
                 expression->binary_lhs, complete_object, owner,
@@ -10950,7 +11012,7 @@ static Expr* gen64_static_reference_subobject_rebase(
             }
             return copy;
         case EXPR_COND:
-            copy = rcc_alloc(sizeof(*copy));
+            copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
             {
                 bool then_replaced = false;

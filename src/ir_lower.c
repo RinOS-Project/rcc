@@ -134,6 +134,10 @@ typedef struct RccIrLowerVlaAllocation {
     struct RccIrLowerVlaAllocation* allocated_next;
 } RccIrLowerVlaAllocation;
 
+typedef struct RccIrLowerScratchAllocation {
+    struct RccIrLowerScratchAllocation* next;
+} RccIrLowerScratchAllocation;
+
 typedef struct {
     RccIrModule* module;
     RccIrFunction* function;
@@ -146,6 +150,7 @@ typedef struct {
     RccIrLowerScopeCleanup* allocated_scope_cleanups;
     RccIrLowerVlaAllocation* vla_allocations;
     RccIrLowerVlaAllocation* allocated_vla_allocations;
+    RccIrLowerScratchAllocation* allocated_scratch;
     RccIrLowerLabel* labels;
     RccIrLowerSwitch* current_switch;
     RccIrBlockId break_target;
@@ -9061,6 +9066,24 @@ static void lower_release_scope_cleanups(RccIrLowerScopeCleanup* cleanups) {
     }
 }
 
+static void* lower_scratch_alloc(RccIrLowerContext* context, size_t size) {
+    RccIrLowerScratchAllocation* allocation;
+    if (!context || size > SIZE_MAX - sizeof(*allocation)) return NULL;
+    allocation = rcc_alloc(sizeof(*allocation) + size);
+    allocation->next = context->allocated_scratch;
+    context->allocated_scratch = allocation;
+    return allocation + 1;
+}
+
+static void lower_release_scratch(
+    RccIrLowerScratchAllocation* allocations) {
+    while (allocations) {
+        RccIrLowerScratchAllocation* next = allocations->next;
+        rcc_free(allocations);
+        allocations = next;
+    }
+}
+
 static bool lower_statement_subscope(
     RccIrLowerContext* context, const Stmt* statement) {
     RccIrLowerScopeCleanup* marker;
@@ -11076,8 +11099,12 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             context->unsupported = true;
             return lower_invalid_value();
         }
-        temporary_cleanups = rcc_alloc(
-            cleanup_count * sizeof(*temporary_cleanups));
+        temporary_cleanups = lower_scratch_alloc(
+            context, cleanup_count * sizeof(*temporary_cleanups));
+        if (!temporary_cleanups) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
         cleanup_count = 0u;
     } else {
         for (argument = expression->call_args; argument;
@@ -20764,7 +20791,7 @@ static Expr* lower_rebase_reference_temporary_subobject(
     switch (expression->kind) {
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
-            copy = rcc_alloc(sizeof(*copy));
+            copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
             copy->member_base = lower_rebase_reference_temporary_subobject(
                 expression->member_base, complete_object, owner,
@@ -20775,7 +20802,7 @@ static Expr* lower_rebase_reference_temporary_subobject(
             *replaced = true;
             return copy;
         case EXPR_CXX_MEMBER_PTR_DOT:
-            copy = rcc_alloc(sizeof(*copy));
+            copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
             copy->binary_lhs = lower_rebase_reference_temporary_subobject(
                 expression->binary_lhs, complete_object, owner,
@@ -20786,7 +20813,7 @@ static Expr* lower_rebase_reference_temporary_subobject(
             *replaced = true;
             return copy;
         case EXPR_CAST:
-            copy = rcc_alloc(sizeof(*copy));
+            copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
             copy->cast_expr = lower_rebase_reference_temporary_subobject(
                 expression->cast_expr, complete_object, owner,
@@ -20798,7 +20825,7 @@ static Expr* lower_rebase_reference_temporary_subobject(
             return copy;
         case EXPR_COMMA: {
             bool right_replaced = false;
-            copy = rcc_alloc(sizeof(*copy));
+            copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
             copy->binary_lhs = lower_rebase_reference_temporary_subobject(
                 expression->binary_lhs, complete_object, owner,
@@ -20816,7 +20843,7 @@ static Expr* lower_rebase_reference_temporary_subobject(
         case EXPR_COND: {
             bool then_replaced = false;
             bool else_replaced = false;
-            copy = rcc_alloc(sizeof(*copy));
+            copy = ast_arena_alloc(sizeof(*copy));
             *copy = *expression;
             copy->cond_then = lower_rebase_reference_temporary_subobject(
                 expression->cond_then, complete_object, owner,
@@ -22500,6 +22527,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         !lower_cxx_initialize_constructor_members(&context, declaration) ||
         !lower_statement(&context, declaration->func_body) ||
         !lower_finalize_label_phis(&context)) {
+        lower_release_scratch(context.allocated_scratch);
         lower_release_scope_cleanups(context.allocated_scope_cleanups);
         lower_release_vla_allocations(context.allocated_vla_allocations);
         lower_release_locals(context.locals);
@@ -22513,6 +22541,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
             !lower_cxx_unregister_constructor_partial_member_cleanups(
                 &context) ||
             !lower_cxx_emit_current_destructor_subobjects(&context)) {
+            lower_release_scratch(context.allocated_scratch);
             lower_release_scope_cleanups(context.allocated_scope_cleanups);
             lower_release_vla_allocations(context.allocated_vla_allocations);
             lower_release_locals(context.locals);
@@ -22526,6 +22555,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
                 return_type.kind == RCC_IR_TYPE_VOID
                     ? RCC_IR_RETURN : RCC_IR_UNREACHABLE,
                 rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
+            lower_release_scratch(context.allocated_scratch);
             lower_release_scope_cleanups(context.allocated_scope_cleanups);
             lower_release_vla_allocations(context.allocated_vla_allocations);
             lower_release_locals(context.locals);
@@ -22535,6 +22565,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         }
         context.terminated = true;
     }
+    lower_release_scratch(context.allocated_scratch);
     lower_release_scope_cleanups(context.allocated_scope_cleanups);
     lower_release_vla_allocations(context.allocated_vla_allocations);
     lower_release_locals(context.locals);

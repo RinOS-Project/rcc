@@ -164,7 +164,9 @@ static bool collect_symbols(ObjectFile* object, ObjSection* section,
         if (!symbol->name || symbol->value > section->size) return false;
         list->items[list->count++] = symbol;
     }
-    qsort(list->items, list->count, sizeof(*list->items), compare_symbols);
+    if (list->count > 1u) {
+        qsort(list->items, list->count, sizeof(*list->items), compare_symbols);
+    }
     return true;
 }
 
@@ -184,7 +186,10 @@ static bool collect_relocations(ObjSection* text, RelocList* list)
             relocation->offset > text->size - 4u) return false;
         list->items[list->count++] = relocation;
     }
-    qsort(list->items, list->count, sizeof(*list->items), compare_relocations);
+    if (list->count > 1u) {
+        qsort(list->items, list->count, sizeof(*list->items),
+              compare_relocations);
+    }
     return true;
 }
 
