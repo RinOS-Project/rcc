@@ -58,6 +58,8 @@ float* debug_inline_nonconstant_float_escape;
 double* debug_inline_nonconstant_double_escape;
 unsigned long long* debug_inline_nonconstant_unsigned_long_long_escape;
 unsigned long long*
+    debug_inline_nonconstant_unsigned_long_long_wide_escape;
+unsigned long long*
     debug_inline_nonconstant_unsigned_long_long_rhs_escape;
 unsigned long long* debug_inline_nonconstant_unsigned_long_long_high_divisor_escape;
 long long* debug_inline_nonconstant_signed_long_long_escape;
@@ -262,6 +264,22 @@ int debug_inline_nonconstant_integer_entry(int value)
         (int)unsigned_long_long_negate_value +
         debug_nonconstant_integer_subtract_parameter_inline(
             debug_inline_nonconstant_integer_source - 3);
+}
+
+int debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry(int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_wide_source =
+            (unsigned long long)(unsigned int)value;
+    int divided = debug_nonconstant_unsigned_long_long_wide_divide_inline(
+        debug_inline_nonconstant_unsigned_long_long_wide_source / 32769ull);
+    int remainder =
+        debug_nonconstant_unsigned_long_long_wide_remainder_inline(
+            debug_inline_nonconstant_unsigned_long_long_wide_source %
+                65536ull);
+    debug_inline_nonconstant_unsigned_long_long_wide_escape =
+        &debug_inline_nonconstant_unsigned_long_long_wide_source;
+    return divided + remainder;
 }
 
 int debug_inline_nonconstant_unsigned_long_long_add_two_variables_entry(

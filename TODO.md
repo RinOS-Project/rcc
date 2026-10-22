@@ -8549,18 +8549,17 @@ remains a separate open item.
 ## RCC continuation (2026-10-22, i686 unsigned 64-bit constant divmod DWARF)
 
 - [x] Preserve frame-backed i686 `unsigned long long` division by constants
-      1 through 32768 and remainder by the same range as exact low/high
-      four-byte `DW_OP_piece` values. Convert the dividend into four base-2^16
-      digits; each partial dividend stays within positive signed 32-bit range,
-      so DWARF's signed `DW_OP_div`/`DW_OP_mod` has defined exact behavior.
-      The regression semantically evaluates ten boundary values for `/3` and
-      `%5` in legacy and verified-backend i686 objects. Both focused
-      `test-debug-info-inline-expression` and full `test-debug-info` pass on
-      Ubuntu-24.04. The focused ASan/UBSan run also passes with LeakSanitizer
-      disabled.
-- [ ] Variable divisors, signed 64-bit division/remainder, larger constants,
-      non-frame-backed operands, and broader optimized multi-piece locations
-      remain open.
+      1 through 65536 and remainder by the same range as exact low/high
+      four-byte `DW_OP_piece` values. Use four base-2^16 digits through 32768
+      and five base-2^15 digits through 65536; each partial dividend stays in
+      positive signed 32-bit range, so DWARF's signed `DW_OP_div`/`DW_OP_mod`
+      is exact. Regressions semantically evaluate ten 64-bit boundary values
+      for `/32769` and `%65536` in legacy and verified-backend i686 objects.
+      The focused native-Windows gate and full GCC ASan/UBSan/LeakSanitizer
+      `test-debug-info` gate pass on their respective hosts.
+- [ ] Variable divisors, signed 64-bit division/remainder, constants above
+      65536, non-frame-backed operands, and broader optimized multi-piece
+      locations remain open.
 - [x] Include the full `test-debug-info` corpus in `test-sanitize` and resolve
       the compiler-lifetime leaks it exposed: release label/function-resolution
       lists after patching on both backends, and allocate semantic temporary

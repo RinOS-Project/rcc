@@ -8290,7 +8290,7 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
     bool has_pending_frame_offset = false;
     uint64_t result = 0u;
     unsigned int piece_count = 0u;
-    assert(divisor != 0u && divisor <= 32768u &&
+    assert(divisor != 0u && divisor <= 65536u &&
            source_frame_offset <= INT64_MAX - 6);
     while (expression_offset < expression_end) {
         uint8_t opcode = data[expression_offset++];
@@ -8379,7 +8379,7 @@ static void verify_inline_i686_u64_constant_division_expression(
     bool variable_is_location_list;
     int64_t variable_frame_offset;
     int64_t source_frame_offset;
-    assert(source_name && divisor != 0u && divisor <= 32768u);
+    assert(source_name && divisor != 0u && divisor <= 65536u);
     assert(find_variable_location(
         info, strings, locations, source_name, ARCH_X86,
         &has_variable_location, &variable_is_location_list,
@@ -9762,7 +9762,10 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
-    const char* call_site_name = expected_operation == 0xd2u
+    const char* call_site_name =
+        (expected_operation == 0xdau || expected_operation == 0xdbu)
+        ? "debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry"
+        : expected_operation == 0xd2u
         ? "debug_inline_nonconstant_unsigned_long_long_lshift_variable_entry"
         : expected_operation == 0xd3u
             ? "debug_inline_nonconstant_unsigned_long_long_rshift_variable_entry"
@@ -9834,6 +9837,7 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0xeau || expected_operation == 0xedu ||
             expected_operation == 0xebu ||
             expected_operation == 0xecu ||
+            expected_operation == 0xdau || expected_operation == 0xdbu ||
             expected_operation == 0xe4u || expected_operation == 0xe5u ||
             expected_operation == 0xe6u || expected_operation == 0xe7u ||
             expected_operation == 0xe8u || expected_operation == 0xe9u ||
@@ -9911,12 +9915,13 @@ static void verify_inline_integer_expression_parameter(
     assert(expression_end <= info->size && expression_size > 0u);
     if (architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
         !divisor_source_name && expected_constant > 0 &&
-        expected_constant <= 32768 &&
-        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        expected_constant <= 65536 &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du ||
+         expected_operation == 0xdau || expected_operation == 0xdbu)) {
         verify_inline_i686_u64_constant_division_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, (uint32_t)expected_constant,
-            expected_operation == 0x1du);
+            expected_operation == 0x1du || expected_operation == 0xdbu);
         objfile_free(object);
         return;
     }
@@ -10255,6 +10260,12 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_unsigned_long_long_remainder_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0x1du, 5, NULL, true},
+        {"debug_nonconstant_unsigned_long_long_wide_divide_inline",
+         "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
+         0xdau, 32769, NULL, true},
+        {"debug_nonconstant_unsigned_long_long_wide_remainder_inline",
+         "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
+         0xdbu, 65536, NULL, true},
         {"debug_nonconstant_unsigned_long_long_high_divide_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0x1bu, 0,
@@ -10454,7 +10465,9 @@ static void verify_inline_integer_expression_cases(
             cases[index].value_size == 8u && cases[index].is_unsigned &&
             !cases[index].divisor_source_name &&
             (cases[index].operation == 0x1bu ||
-             cases[index].operation == 0x1du);
+             cases[index].operation == 0x1du ||
+             cases[index].operation == 0xdau ||
+             cases[index].operation == 0xdbu);
         if ((cases[index].operation == 0xe0u ||
              cases[index].operation == 0xe1u ||
              cases[index].operation == 0xe2u ||
@@ -10492,7 +10505,9 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xf7u ||
              cases[index].operation == 0xf8u ||
              cases[index].operation == 0xf9u ||
-             cases[index].operation == 0xfau) && architecture != ARCH_X86)
+             cases[index].operation == 0xfau ||
+             cases[index].operation == 0xdau ||
+             cases[index].operation == 0xdbu) && architecture != ARCH_X86)
             continue;
         if (cases[index].value_size > address_size &&
             cases[index].operation != 0xe0u &&
@@ -10532,7 +10547,9 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xf7u &&
             cases[index].operation != 0xf8u &&
             cases[index].operation != 0xf9u &&
-            cases[index].operation != 0xfau && !i686_u64_bitwise &&
+            cases[index].operation != 0xfau &&
+            cases[index].operation != 0xdau &&
+            cases[index].operation != 0xdbu && !i686_u64_bitwise &&
             !i686_u64_constant_divmod) continue;
         verify_inline_integer_expression_parameter(
             path, architecture, cases[index].inline_name,
