@@ -1,5 +1,31 @@
 #include <atomic>
 
+template<class T>
+class InheritedStaticTemplateBase {
+public:
+    using value_type = T;
+    static constexpr bool is_always_lock_free =
+        sizeof(T) == 1 || sizeof(T) == 2 ||
+        sizeof(T) == 4 || sizeof(T) == 8;
+
+    constexpr InheritedStaticTemplateBase() noexcept : value_(0) {}
+    constexpr InheritedStaticTemplateBase(T value) noexcept : value_(value) {}
+    constexpr T value() const noexcept { return value_; }
+
+private:
+    T value_;
+};
+
+template<class T>
+class InheritedStaticTemplateDerived :
+    public InheritedStaticTemplateBase<T> {
+public:
+    constexpr InheritedStaticTemplateDerived() noexcept
+        : InheritedStaticTemplateBase<T>() {}
+    constexpr InheritedStaticTemplateDerived(T value) noexcept
+        : InheritedStaticTemplateBase<T>(value) {}
+};
+
 extern "C" int cpp_atomic_always_lock_free_value() {
     return __atomic_always_lock_free(8, nullptr) &&
            __atomic_is_lock_free(4, nullptr);
@@ -46,12 +72,21 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     std::atomic<int*> initialized_pointer(pointer_values + 1);
     std::atomic<int*>::difference_type offset = 2;
     std::atomic_flag flag = ATOMIC_FLAG_INIT;
+    InheritedStaticTemplateDerived<unsigned>::value_type inherited_value = 3u;
+    InheritedStaticTemplateDerived<unsigned> inherited(inherited_value);
     int* pointer_expected;
     std::atomic<float> floating;
     std::atomic<unsigned>::value_type atomic_value_type = 1u;
     float floating_expected = 9.0f;
     unsigned expected = 9u;
-    if (zero.load() != 0u || !zero.is_lock_free()) return 20u;
+    if (!zero.is_always_lock_free) return 80u;
+    if (!pointer.is_always_lock_free) return 81u;
+    if (!flag.is_always_lock_free) return 82u;
+    if (!InheritedStaticTemplateDerived<unsigned>::is_always_lock_free ||
+        !inherited.is_always_lock_free || inherited.value() != 3u)
+        return 83u;
+    if (zero.load() != 0u || !zero.is_always_lock_free ||
+        !zero.is_lock_free()) return 20u;
     if (atomic_value_type != 1u) return 79u;
     if (wide.fetch_add(3ULL) != 4ULL || wide.load() != 7ULL) return 21u;
     if (initialized_pointer.load() != pointer_values + 1) return 29u;
@@ -85,7 +120,8 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     {
         std::atomic<double> floating_wide;
         double floating_wide_expected = 3.0;
-        if (!floating_wide.is_lock_free()) return 77u;
+        if (!floating_wide.is_always_lock_free ||
+            !floating_wide.is_lock_free()) return 77u;
         if (floating_wide.load() != 0.0) return 47u;
         floating_wide.store(2.25);
         if (floating_wide.fetch_add(1.5) != 2.25 ||
@@ -206,7 +242,8 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     {
         volatile std::atomic<double> volatile_floating_wide(2.0);
         double volatile_double_expected = 2.0;
-        if (!volatile_floating_wide.is_lock_free()) return 78u;
+        if (!volatile_floating_wide.is_always_lock_free ||
+            !volatile_floating_wide.is_lock_free()) return 78u;
         if (!volatile_floating_wide.compare_exchange_weak(
                 volatile_double_expected, 3.0,
                 std::memory_order_acq_rel,

@@ -8165,13 +8165,33 @@ remains a separate open item.
 - [x] Expose `std::atomic<T>::value_type` through the shared atomic base and
       verify the dependent nested type on i686/AMD64 C++20 builds plus both
       native atomic execution runners in `test-atomic-builtins`.
-- [ ] C++20 `<atomic>` constraints/traits, complete constructor/API overload
-      sets, and wait/notify operations remain open. In particular,
-      `is_always_lock_free` requires correct instantiation and lookup of
-      inherited static constexpr data members in class-template bases: adding
-      it to `__rcc_atomic_base<T>` currently breaks derived `std::atomic<T>`
-      constructor lowering and member lookup. Keep the working `value_type`
-      alias and regression while addressing this separate compiler limitation.
+- [x] Expose `is_always_lock_free` on `std::atomic<T>` and `atomic_flag`;
+      resolve inherited static constexpr data members through both object and
+      class-qualified class-template expressions. Constructor lowering now
+      skips static fields when checking instance initializer lists. The
+      dual-architecture `test-atomic-builtins` execution regression exercises
+      these paths at `-O0` and `-O2`.
+- [x] Keep constructor-binding temporary cleanup from freeing AST-arena
+      expressions. The i686 and AMD64 `test-cxx-dependent-dmi-call-argument`
+      executable regression covers dependent default-member-initializer calls.
+- [ ] C++20 `<atomic>` constraints/type traits, complete constructor/API
+      overload sets, and wait/notify operations remain open.
+
+## RCC continuation (2026-10-22, inherited C++ static data members)
+
+- [x] Resolve inherited static constexpr data-member lookup in class-template
+      bases for both object access and `ClassTemplate<T>::member` access, and
+      fold integral constexpr initializers without overwriting the value in
+      the shared expression union. The C++20 atomic regression executes both
+      forms on i686 and AMD64 at `-O0` and compiles them at `-O2`.
+- [x] Ignore static members when deciding whether constructor member
+      initializers match instance storage; preserve real diagnostics for
+      unsupported instance constructors.
+- [x] Keep AST-arena `this` expressions out of the temporary malloc cleanup
+      list in both code generators. `test-cxx-dependent-dmi-call-argument`
+      now generates and executes i686/AMD64 binaries without invalid frees.
+- [ ] Static inherited-member overload sets and the remaining `<atomic>` API
+      conformance work remain open.
 
 ## RCC continuation (2026-10-21, C++ `static_cast` conversion functions)
 

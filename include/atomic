@@ -168,6 +168,7 @@ struct __rcc_atomic_ops<double> {
 
 class atomic_flag {
 public:
+    static constexpr bool is_always_lock_free = true;
     constexpr atomic_flag() noexcept : value_(0u) {}
     atomic_flag(const atomic_flag&) = delete;
     atomic_flag& operator=(const atomic_flag&) = delete;
@@ -215,6 +216,9 @@ template<class T>
 class __rcc_atomic_base : public __rcc_atomic_ops<T> {
 public:
     using value_type = T;
+    static constexpr bool is_always_lock_free =
+        sizeof(T) == 1u || sizeof(T) == 2u ||
+        sizeof(T) == 4u || sizeof(T) == 8u;
 
     constexpr __rcc_atomic_base() noexcept : value_(0) {}
     constexpr __rcc_atomic_base(T desired) noexcept : value_(desired) {}

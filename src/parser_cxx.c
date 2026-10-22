@@ -8382,7 +8382,6 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             !polymorphic_layout
         ? UINT32_C(1) << 1 : 0u;
     if (!cls || !cls->type->is_complete ||
-        cls->has_static_field ||
         (class_has_destructor(cls) && !cls->type->cleanup_function &&
          (!cls->destructor_method || !cls->destructor_method->decl ||
          !cls->destructor_method->decl->func_body))) {
@@ -8479,6 +8478,11 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
         }
         if (!supported) continue;
         while (field && initializer) {
+            while (field && field->is_static) field = field->next;
+            if (!field) {
+                supported = false;
+                break;
+            }
             if (!initializer->field ||
                 strcmp(initializer->field, field->name) != 0 ||
                 (!initializer->value && !initializer->arguments &&
@@ -8626,6 +8630,7 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             field = field->next;
             initializer = initializer->next;
         }
+        while (field && field->is_static) field = field->next;
         if (!supported || field || initializer) {
             continue;
         }
@@ -34275,8 +34280,10 @@ Expr* rcc_parse_cxx_qualified_template_member(void) {
         break;
     }
     if (!result) {
-        parser.cur = saved_cur;
-        parser.prev = saved_prev;
+        Expr* base = expr_ident(name, loc);
+        base->type = type;
+        result = expr_member(base, member_name, loc);
+        result->cxx_member_qualified_type = true;
     }
     return result;
 }

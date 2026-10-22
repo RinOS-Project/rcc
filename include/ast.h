@@ -608,6 +608,9 @@ struct Expr {
     /* A non-reference data member selected through a C++ dot-expression on
      * an xvalue object is itself an xvalue. */
     bool cxx_member_xvalue;
+    /* The left side of a class-qualified member expression names a type,
+     * not a runtime object. */
+    bool cxx_member_qualified_type;
     /* C++20 u8 character/string literal mapped to the RinOS byte ABI. */
     bool is_cxx_utf8_literal;
     /* L-prefixed literal. RinOS wide literals use 32-bit UTF-32 code units. */

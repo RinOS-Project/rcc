@@ -12,6 +12,7 @@
 #include <float.h>
 #include <limits.h>
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 /* The C compiler intentionally omits the C++ AST object.  Keep the namespace
@@ -13033,6 +13034,102 @@ static bool sema_cxx_class_declares_member_name(Type* aggregate,
     return false;
 }
 
+typedef struct {
+    Decl* declaration;
+    bool accessible;
+    bool ambiguous;
+} SemaCxxStaticMemberLookup;
+
+static Decl* sema_cxx_direct_static_member_declaration(
+    CxxClass* cls, const char* name, unsigned char* access_out) {
+    if (!cls || !name) return NULL;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        Decl* declaration = member->decl;
+        const char* final_name;
+        if (!member->is_static || member->method || !declaration ||
+            declaration->kind != DECL_VAR || !declaration->name) {
+            continue;
+        }
+        final_name = sema_cxx_unqualified_name(declaration->name);
+        if (final_name && strcmp(final_name, name) == 0) {
+            if (access_out) *access_out = member->access;
+            return declaration;
+        }
+    }
+    return NULL;
+}
+
+static bool sema_cxx_fold_static_constexpr_integer_member(
+    Expr* expression, Decl* declaration) {
+    SemaConstexprScalar value;
+    int64_t integer_value;
+    if (!expression || !declaration || declaration->kind != DECL_VAR ||
+        !declaration->var_is_constexpr || !declaration->var_init ||
+        !sema_constexpr_integer_type(declaration->type)) {
+        return false;
+    }
+    bool parser_constant = expr_eval_integer_constant(
+        declaration->var_init, &integer_value);
+    if (!parser_constant ||
+        !sema_constexpr_convert(integer_value, declaration->type,
+                                &integer_value)) {
+        if (!sema_eval_constexpr_scalar_expr(
+                declaration->var_init, NULL, 0, &value) ||
+            !sema_constexpr_scalar_convert(
+                &value, declaration->type, &value) ||
+            value.is_floating || value.is_pointer) {
+            return false;
+        }
+        integer_value = value.integer_value;
+    }
+
+    /* All expression payloads share a union.  Do not clear the former
+     * member/identifier fields after writing int_val: those writes would
+     * overwrite the folded integer value. */
+    expression->kind = EXPR_INT_LIT;
+    expression->int_val = integer_value;
+    expression->type = declaration->type;
+    return true;
+}
+
+static void sema_cxx_lookup_static_member_in_bases(
+    CxxClass* cls, const char* name, bool path_accessible,
+    SemaCxxStaticMemberLookup* result) {
+    unsigned char member_access = ACCESS_PUBLIC;
+    Decl* declaration;
+    if (!cls || !name || !result || result->ambiguous) {
+        return;
+    }
+    declaration = sema_cxx_direct_static_member_declaration(
+        cls, name, &member_access);
+    if (declaration) {
+        bool accessible = path_accessible &&
+            sema_cxx_member_accessible(cls, member_access);
+        if (!result->declaration) {
+            result->declaration = declaration;
+            result->accessible = accessible;
+        } else if (result->declaration != declaration) {
+            result->ambiguous = true;
+        } else if (accessible) {
+            result->accessible = true;
+        }
+        return;
+    }
+
+    /* A declaration in this class hides names from all of its bases, even
+     * when that declaration is not itself a static data member. */
+    if (sema_cxx_class_declares_member_name(cls->type, name)) return;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        bool accessible = path_accessible &&
+            sema_cxx_member_accessible(cls, cls->bases[index].access);
+        sema_cxx_lookup_static_member_in_bases(
+            base, name, accessible, result);
+        if (result->ambiguous) return;
+    }
+}
+
 /* Resolve the single direct base selected by `using Base::member`.  Class
  * template instantiation substitutes the dependent base spelling before
  * semantic lookup, so this path intentionally accepts only a unique direct
@@ -17468,52 +17565,48 @@ static Type* sema_expr(Expr* expr) {
                 break;
             }
 
-            /* Static C++ data members are represented in the class field
-             * metadata and published as declarations, not as object-layout
-             * TypeFields.  Resolve the declaration on the substituted class
-             * and rewrite the expression to the same identifier form used by
-             * direct static-member lookup, which also lets constexpr folding
-             * consume its initializer. */
+            /* Static C++ data members are published as declarations, not as
+             * object-layout TypeFields.  Resolve them through the current
+             * class and its accessible base paths; the resulting identifier
+             * form also lets constexpr folding consume the initializer. */
             if (expr->kind == EXPR_MEMBER && bt->cxx_class) {
-                TypeParam* static_field;
-                for (static_field = bt->cxx_class->fields;
-                     static_field; static_field = static_field->next) {
-                    if (!static_field->is_static || !static_field->name ||
-                        strcmp(static_field->name, expr->member_name) != 0) {
-                        continue;
-                    }
-                    for (struct CxxMember* member = bt->cxx_class->members;
-                         member; member = member->next) {
-                        Decl* declaration = member->decl;
-                        const char* final_name;
-                        if (!member->is_static || member->method ||
-                            !declaration || declaration->kind != DECL_VAR ||
-                            !declaration->name) {
-                            continue;
-                        }
-                        final_name = strrchr(declaration->name, ':');
-                        final_name = final_name ? final_name + 1
-                                                : declaration->name;
-                        if (strcmp(final_name, expr->member_name) != 0) {
-                            continue;
-                        }
-                        if (!sema_cxx_member_accessible(
-                                bt->cxx_class, static_field->cxx_access)) {
-                            rcc_error(expr->loc,
-                                      "member '%s' is not accessible",
-                                      expr->member_name);
-                        }
-                        expr->member_base = NULL;
-                        expr->member_name = NULL;
-                        expr->member_field = NULL;
-                        expr->kind = EXPR_IDENT;
-                        expr->ident_name = declaration->name;
-                        expr->ident_decl = declaration;
-                        expr->type = declaration->type;
-                        return expr->type;
-                    }
+                SemaCxxStaticMemberLookup lookup = { 0 };
+                sema_cxx_lookup_static_member_in_bases(
+                    bt->cxx_class, expr->member_name, true, &lookup);
+                if (lookup.ambiguous) {
+                    rcc_error(expr->loc,
+                              "static member '%s' is ambiguous in base classes",
+                              expr->member_name);
+                    expr->type = type_int;
                     break;
                 }
+                if (lookup.declaration) {
+                    if (!lookup.accessible) {
+                        rcc_error(expr->loc,
+                                  "member '%s' is not accessible",
+                                  expr->member_name);
+                    }
+                    if (sema_cxx_fold_static_constexpr_integer_member(
+                            expr, lookup.declaration)) {
+                        return expr->type;
+                    }
+                    expr->member_base = NULL;
+                    expr->member_name = NULL;
+                    expr->member_field = NULL;
+                    expr->kind = EXPR_IDENT;
+                    expr->ident_name = lookup.declaration->name;
+                    expr->ident_decl = lookup.declaration;
+                    expr->type = lookup.declaration->type;
+                    return expr->type;
+                }
+            }
+
+            if (expr->cxx_member_qualified_type) {
+                rcc_error(expr->loc,
+                          "class-qualified member '%s' is not an accessible static data member",
+                          expr->member_name ? expr->member_name : "<unnamed>");
+                expr->type = type_int;
+                break;
             }
 
             if (sema_cxx_class_declares_method_name(

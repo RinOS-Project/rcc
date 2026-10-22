@@ -9912,7 +9912,6 @@ static Expr* gen_cxx_bind_constructor_argument32(
     if (!expression) return NULL;
     if (expression->kind == EXPR_CXX_THIS) {
         Expr* this_expression = expr_cxx_this(expression->loc);
-        gen_cxx_constructor_binding_track32(this_expression);
         this_expression->cxx_this_stack_offset = 0;
         this_expression->type = expression->type;
         return this_expression;
@@ -9921,7 +9920,6 @@ static Expr* gen_cxx_bind_constructor_argument32(
     if (expression->ident_name &&
         strcmp(expression->ident_name, "this") == 0) {
         Expr* this_expression = expr_cxx_this(expression->loc);
-        gen_cxx_constructor_binding_track32(this_expression);
         this_expression->cxx_this_stack_offset = 0;
         this_expression->type = expression->type;
         return this_expression;
