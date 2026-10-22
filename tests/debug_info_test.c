@@ -3415,6 +3415,82 @@ static void verify_inline_frame_parameter_die(const ObjSection* info,
     assert(*cursor == expression_end && frame_offset != 0);
 }
 
+static void verify_inline_dynamic_scalar_parameter(
+    const char* path, uint16_t architecture, const char* inline_name,
+    const char* call_site_name, const char* source_name) {
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* locations;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t call_die = UINT64_MAX;
+    bool has_location;
+    bool is_location_list;
+    int64_t source_frame_offset;
+    assert(object && object->arch == architecture && inline_name &&
+           call_site_name && source_name);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    locations = objfile_get_section(object, ".debug_loc");
+    assert(info && strings && locations);
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 4u + 12u <= info->size; ++die) {
+        uint32_t origin;
+        uint32_t name_offset;
+        uint64_t low_pc_offset;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        origin = read_u32(info->data, die + 1u);
+        if (origin >= info->size || info->data[origin] != 40u) continue;
+        name_offset = read_u32(info->data, origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   inline_name) != 0) {
+            continue;
+        }
+        low_pc_offset = die + 1u + 4u;
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == low_pc_offset &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+    }
+    assert(call_die != UINT64_MAX);
+    assert(find_variable_location(
+        info, strings, locations, source_name, architecture, &has_location,
+        &is_location_list, &source_frame_offset));
+    assert(has_location && source_frame_offset != 0);
+    {
+        uint64_t concrete_parameter = call_die + 1u + 4u + address_size +
+            4u + 12u;
+        uint64_t expression_offset = concrete_parameter + 5u;
+        uint64_t expression_size;
+        uint64_t expression_end;
+        uint32_t abstract_parameter = read_u32(info->data, call_die + 1u) +
+            27u;
+        assert(info->data[concrete_parameter] == 67u &&
+               read_u32(info->data, concrete_parameter + 1u) ==
+                   abstract_parameter);
+        expression_size = read_uleb(
+            info->data, info->size, &expression_offset);
+        expression_end = expression_offset + expression_size;
+        assert(expression_size >= 2u && expression_end <= info->size &&
+               info->data[expression_offset++] ==
+                   (architecture == ARCH_X64 ? 0x76u : 0x75u) &&
+               read_sleb(info->data, expression_end, &expression_offset) ==
+                   source_frame_offset &&
+               expression_offset == expression_end);
+    }
+    objfile_free(object);
+}
+
 static void verify_inline_parameter_address_constant(
     const ObjSection* info, uint64_t call_die, uint16_t architecture,
     const char* symbol_name, int64_t expected_addend) {
@@ -4180,6 +4256,11 @@ static void verify_inline_debug_object(const char* path,
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_float_expression_constant_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_nonconstant_float_entry") == 0 ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_nonconstant_double_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_null_pointer_entry") == 0;
@@ -10673,6 +10754,38 @@ int main(int argc, char** argv)
     verify_inline_debug_object(argv[25], ARCH_X64);
     verify_inline_debug_object(argv[38], ARCH_X86);
     verify_inline_debug_object(argv[39], ARCH_X64);
+    verify_inline_dynamic_scalar_parameter(
+        argv[24], ARCH_X86, "debug_float_parameter_inline",
+        "debug_inline_nonconstant_float_entry",
+        "debug_inline_nonconstant_float_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[25], ARCH_X64, "debug_float_parameter_inline",
+        "debug_inline_nonconstant_float_entry",
+        "debug_inline_nonconstant_float_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[24], ARCH_X86, "debug_double_parameter_inline",
+        "debug_inline_nonconstant_double_entry",
+        "debug_inline_nonconstant_double_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[25], ARCH_X64, "debug_double_parameter_inline",
+        "debug_inline_nonconstant_double_entry",
+        "debug_inline_nonconstant_double_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[38], ARCH_X86, "debug_float_parameter_inline",
+        "debug_inline_nonconstant_float_entry",
+        "debug_inline_nonconstant_float_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[39], ARCH_X64, "debug_float_parameter_inline",
+        "debug_inline_nonconstant_float_entry",
+        "debug_inline_nonconstant_float_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[38], ARCH_X86, "debug_double_parameter_inline",
+        "debug_inline_nonconstant_double_entry",
+        "debug_inline_nonconstant_double_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[39], ARCH_X64, "debug_double_parameter_inline",
+        "debug_inline_nonconstant_double_entry",
+        "debug_inline_nonconstant_double_source");
     verify_inline_integer_expression_cases(argv[24], ARCH_X86);
     verify_inline_integer_expression_cases(argv[25], ARCH_X64);
     verify_inline_integer_expression_cases(argv[38], ARCH_X86);

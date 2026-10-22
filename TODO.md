@@ -7150,8 +7150,9 @@ remains a separate open item.
       `test-optimize` and `test-debug-info` validate i686/AMD64, legacy and
       verified optimized DWARF; `1.1f`→`double` and `1.1`→`float` values match
       exact expected bits.
-- [ ] Long-double conversions, nonconstant floating expressions, dynamic
-      pointer values, symbolic addresses outside the supported direct
+- [ ] Long-double conversions, nonconstant floating expressions beyond
+      same-type frame-backed identifiers, dynamic pointer values, symbolic
+      addresses outside the supported direct
       global/static-data and function-address forms, additional C/C++ enum
       conversions, nonliteral enum-value attribution, mutable parameter
       locations, and general optimized inline-variable tracking remain open.
@@ -8533,3 +8534,14 @@ remains a separate open item.
 - [ ] Non-frame-backed count locations, nonconstant i686 64-bit
       division/remainder, and broader optimized multi-piece locations remain
       open.
+
+## RCC continuation (2026-10-22, dynamic inline floating parameters)
+
+- [x] Preserve direct same-type `float` and `double` identifiers as
+      frame-backed locations for inlined parameters. Regressions verify the
+      call-specific parameter DIE points to the exact source frame offset in
+      legacy and verified i686/AMD64 optimized objects; full native-Windows
+      `test-debug-info` passes.
+- [ ] Dynamic floating expressions/conversions beyond same-type
+      frame-backed identifiers, `long double`, register-only locations, and
+      general optimized inline-variable tracking remain open.

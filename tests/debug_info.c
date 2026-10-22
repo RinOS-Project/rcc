@@ -54,6 +54,8 @@ int* debug_inline_nonconstant_integer_escape;
 unsigned int* debug_inline_nonconstant_unsigned_integer_escape;
 unsigned int* debug_inline_nonconstant_unsigned_high_divisor_escape;
 unsigned int* debug_inline_nonconstant_shift_count_escape;
+float* debug_inline_nonconstant_float_escape;
+double* debug_inline_nonconstant_double_escape;
 unsigned long long* debug_inline_nonconstant_unsigned_long_long_escape;
 unsigned long long*
     debug_inline_nonconstant_unsigned_long_long_rhs_escape;
@@ -796,6 +798,24 @@ float debug_inline_double_to_float_constant_entry(void)
 double debug_inline_float_expression_constant_entry(void)
 {
     return debug_float_expression_parameter_inline(1.1f + 2.2f);
+}
+
+float debug_inline_nonconstant_float_entry(float input)
+{
+    float debug_inline_nonconstant_float_source = input + 0.25f;
+    debug_inline_nonconstant_float_escape =
+        &debug_inline_nonconstant_float_source;
+    return debug_float_parameter_inline(
+        debug_inline_nonconstant_float_source);
+}
+
+double debug_inline_nonconstant_double_entry(double input)
+{
+    double debug_inline_nonconstant_double_source = input + 0.25;
+    debug_inline_nonconstant_double_escape =
+        &debug_inline_nonconstant_double_source;
+    return debug_double_parameter_inline(
+        debug_inline_nonconstant_double_source);
 }
 
 int debug_inline_null_pointer_entry(int* other)
