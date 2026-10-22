@@ -8193,6 +8193,17 @@ remains a separate open item.
 - [ ] C++ atomic type constraints/traits, remaining API overloads, and
       C++20 wait/notify operations remain open.
 
+## RCC continuation (2026-10-23, C++ atomic non-member operations)
+
+- [x] Add the standard non-member `atomic_is_lock_free`, load/store,
+      exchange, weak/strong compare-exchange, and `atomic_flag` test-and-set/
+      clear operation families, including explicit memory-order forms. Verify
+      mutable, volatile, const-volatile scalar, and pointer objects with the
+      C++ atomic regression on i686/AMD64 at `-O0`/`-O2`, native execution, and
+      a GCC C++20 standard-library syntax oracle.
+- [ ] C++ atomic type constraints/traits, remaining API overloads, and C++20
+      wait/notify operations remain open.
+
 ## RCC continuation (2026-10-22, C++20 i686 `std::atomic<double>`)
 
 - [x] Enable generic 64-bit floating atomic load/store/exchange/compare-exchange

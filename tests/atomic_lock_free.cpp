@@ -94,9 +94,12 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     std::atomic<unsigned>::value_type atomic_value_type = 1u;
     float floating_expected = 9.0f;
     unsigned expected = 9u;
+    unsigned api_expected = 3u;
     if (!zero.is_always_lock_free) return 80u;
     if (!pointer.is_always_lock_free) return 81u;
+#ifndef RCC_STDLIB_REFERENCE
     if (!flag.is_always_lock_free) return 82u;
+#endif
     if (!InheritedStaticTemplateDerived<unsigned>::is_always_lock_free ||
         !inherited.is_always_lock_free || inherited.value() != 3u ||
         InheritedStaticTemplateDerived<unsigned>::doubled(3u) != 6u ||
@@ -105,9 +108,40 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         return 83u;
     if (zero.load() != 0u || !zero.is_always_lock_free ||
         !zero.is_lock_free()) return 20u;
+    if (!std::atomic_is_lock_free(&zero) ||
+        std::atomic_load(&zero) != 0u)
+        return 90u;
+    std::atomic_store_explicit(&zero, 2u, std::memory_order_relaxed);
+    if (std::atomic_load_explicit(&zero, std::memory_order_acquire) != 2u ||
+        std::atomic_exchange(&zero, 3u) != 2u ||
+        std::atomic_load(&zero) != 3u)
+        return 91u;
+    api_expected = 3u;
+    if (!std::atomic_compare_exchange_weak_explicit(
+            &zero, &api_expected, 4u, std::memory_order_acq_rel,
+            std::memory_order_acquire) || std::atomic_load(&zero) != 4u)
+        return 92u;
+    api_expected = 2u;
+    if (std::atomic_compare_exchange_strong(&zero, &api_expected, 5u) ||
+        api_expected != 4u || std::atomic_load(&zero) != 4u)
+        return 93u;
     if (atomic_value_type != 1u) return 79u;
     if (wide.fetch_add(3ULL) != 4ULL || wide.load() != 7ULL) return 21u;
     if (initialized_pointer.load() != pointer_values + 1) return 29u;
+    pointer.store(pointer_values);
+    if (!std::atomic_is_lock_free(&pointer) ||
+        std::atomic_load(&pointer) != pointer_values)
+        return 100u;
+    if (std::atomic_exchange_explicit(
+            &pointer, pointer_values + 1,
+            std::memory_order_seq_cst) != pointer_values)
+        return 101u;
+    pointer_expected = pointer_values + 1;
+    if (!std::atomic_compare_exchange_strong_explicit(
+            &pointer, &pointer_expected, pointer_values + 2,
+            std::memory_order_acq_rel, std::memory_order_acquire) ||
+        std::atomic_load(&pointer) != pointer_values + 2)
+        return 102u;
     pointer.store(pointer_values);
     if (flag.test(std::memory_order_relaxed)) return 30u;
     if (flag.test_and_set(std::memory_order_acquire)) return 31u;
@@ -117,6 +151,13 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (flag.test()) return 34u;
     if (flag.test_and_set()) return 35u;
     flag.clear();
+    if (std::atomic_flag_test_and_set_explicit(
+            &flag, std::memory_order_acquire))
+        return 94u;
+    if (!std::atomic_flag_test_and_set(&flag)) return 95u;
+    std::atomic_flag_clear_explicit(&flag, std::memory_order_release);
+    if (std::atomic_flag_test_and_set(&flag)) return 96u;
+    std::atomic_flag_clear(&flag);
     if (floating.load() != 0.0f) return 36u;
     floating.store(1.5f);
     if (floating.load(std::memory_order_relaxed) != 1.5f) return 48u;
@@ -160,6 +201,20 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         volatile std::atomic<unsigned> volatile_value(2u);
         unsigned volatile_expected = 100u;
         if (!volatile_value.is_lock_free()) return 50u;
+        if (!std::atomic_is_lock_free(&volatile_value) ||
+            std::atomic_load(&volatile_value) != 2u)
+            return 97u;
+        std::atomic_store(&volatile_value, 4u);
+        if (std::atomic_exchange_explicit(
+                &volatile_value, 5u, std::memory_order_acq_rel) != 4u)
+            return 98u;
+        volatile_expected = 5u;
+        if (!std::atomic_compare_exchange_strong(
+                &volatile_value, &volatile_expected, 6u) ||
+            std::atomic_load_explicit(
+                &volatile_value, std::memory_order_relaxed) != 6u)
+            return 99u;
+        std::atomic_store(&volatile_value, 2u);
         if (volatile_value.load() != 2u) return 75u;
         unsigned volatile_converted = volatile_value;
         if (volatile_converted != 2u) return volatile_converted;
@@ -296,6 +351,9 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         const volatile std::atomic_flag const_volatile_flag;
         if (!const_volatile_value.is_lock_free() ||
             const_volatile_value.load(std::memory_order_acquire) != 17u ||
+            !std::atomic_is_lock_free(&const_volatile_value) ||
+            std::atomic_load_explicit(
+                &const_volatile_value, std::memory_order_acquire) != 17u ||
             const_volatile_flag.test())
             return 71u;
     }
