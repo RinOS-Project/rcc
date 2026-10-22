@@ -8179,6 +8179,20 @@ remains a separate open item.
 - [ ] Full `<atomic>` conformance remains open: type constraints/traits,
       complete constructor/API overload sets, and C++20 wait/notify operations.
 
+## RCC continuation (2026-10-23, C++20 atomic bitwise compound assignment)
+
+- [x] Add `std::atomic<T>::operator&=`, `operator|=`, and `operator^=` for
+      mutable and volatile objects. Return the post-operation value from the
+      existing fetch operations; cover native-width, byte-width, and volatile
+      values. Extend C++ compound-assignment rewriting to route member-template
+      operators through the existing member-call overload-resolution path,
+      instead of misclassifying class operands as built-in integer operations.
+      `test-atomic-builtins` compiles i686/AMD64 at `-O0`/`-O2` and executes
+      AMD64 outputs; `test-cxx-assignment-operator` verifies existing
+      non-template assignment operators and i686/AMD64 code generation.
+- [ ] C++ atomic type constraints/traits, remaining API overloads, and
+      C++20 wait/notify operations remain open.
+
 ## RCC continuation (2026-10-22, C++20 i686 `std::atomic<double>`)
 
 - [x] Enable generic 64-bit floating atomic load/store/exchange/compare-exchange

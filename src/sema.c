@@ -13772,6 +13772,9 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
     const char* name;
     Type* aggregate;
     TypeMethod* method;
+    TypeMethod* template_candidates[32];
+    int template_candidate_count = 0;
+    bool template_constraint_unsupported = false;
     Expr* member;
     Expr* call;
     if (!expression || !left_type || !expression->binary_rhs) return false;
@@ -13789,11 +13792,30 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
          * lookup. */
         return false;
     }
-    method = sema_find_function_method(aggregate, name);
-    if (!method || !method->function_decl) return false;
     member = expr_member(expression->binary_lhs, name, expression->loc);
     call = expr_call(member, exprlist_new(expression->binary_rhs),
                      expression->loc);
+    (void)sema_expr(expression->binary_rhs);
+#if defined(__GNUC__) || defined(__clang__)
+    if (rcc_parser_cxx_materialize_member_function_templates) {
+        template_candidate_count =
+            rcc_parser_cxx_materialize_member_function_templates(
+                aggregate, name, call->call_args, NULL, 0, false,
+                template_candidates,
+                (int)(sizeof(template_candidates) /
+                      sizeof(template_candidates[0])),
+                &template_constraint_unsupported);
+    }
+#endif
+    if (template_constraint_unsupported) return false;
+    if (template_candidate_count > 0) {
+        sema_register_materialized_member_templates(aggregate);
+    }
+    method = sema_find_function_method(aggregate, name);
+    if ((!method || !method->function_decl) &&
+        template_candidate_count == 0) {
+        return false;
+    }
     *expression = *call;
     return true;
 }

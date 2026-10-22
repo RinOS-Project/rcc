@@ -461,6 +461,31 @@ public:
             &this->value_, operand, memory_order_seq_cst);
     }
 
+    template<class U = T>
+    T operator&=(T operand) noexcept {
+        return this->fetch_and(operand) & operand;
+    }
+    template<class U = T>
+    T operator&=(T operand) volatile noexcept {
+        return this->fetch_and(operand) & operand;
+    }
+    template<class U = T>
+    T operator|=(T operand) noexcept {
+        return this->fetch_or(operand) | operand;
+    }
+    template<class U = T>
+    T operator|=(T operand) volatile noexcept {
+        return this->fetch_or(operand) | operand;
+    }
+    template<class U = T>
+    T operator^=(T operand) noexcept {
+        return this->fetch_xor(operand) ^ operand;
+    }
+    template<class U = T>
+    T operator^=(T operand) volatile noexcept {
+        return this->fetch_xor(operand) ^ operand;
+    }
+
     T operator++() noexcept { return fetch_add(1, memory_order_seq_cst) + 1; }
     T operator++() volatile noexcept {
         return this->fetch_add_impl(

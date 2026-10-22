@@ -180,6 +180,11 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         if (volatile_value.fetch_and(7u) != 9u ||
             volatile_value.fetch_or(8u, std::memory_order_relaxed) != 1u ||
             volatile_value.fetch_xor(3u) != 9u) return 55u;
+        if ((volatile_value &= 6u) != 2u ||
+            (volatile_value |= 1u) != 3u ||
+            (volatile_value ^= 2u) != 1u)
+            return 89u;
+        volatile_value.store(10u);
         if (++volatile_value != 11u || volatile_value++ != 11u ||
             --volatile_value != 11u || volatile_value-- != 11u)
             return 56u;
@@ -304,6 +309,11 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (value.fetch_and(7u) != 15u) return 5u;
     if (value.fetch_or(8u) != 7u) return 6u;
     if (value.fetch_xor(3u) != 15u) return 7u;
+    if ((value &= 10u) != 8u || value.load() != 8u ||
+        (value |= 5u) != 13u || value.load() != 13u ||
+        (value ^= 3u) != 14u || value.load() != 14u)
+        return 87u;
+    value.store(12u);
     {
         std::atomic<unsigned char> byte_bits(0xf0u);
         unsigned wide_bitwise_operand = 0x101u;
@@ -316,6 +326,13 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         if (byte_bits.fetch_xor(wide_bitwise_operand) != 0x11u ||
             byte_bits.load() != 0x10u)
             return 86u;
+        if ((byte_bits &= 0x11u) != 0x10u ||
+            byte_bits.load() != 0x10u ||
+            (byte_bits |= 0x104u) != 0x14u ||
+            byte_bits.load() != 0x14u ||
+            (byte_bits ^= 0x105u) != 0x11u ||
+            byte_bits.load() != 0x11u)
+            return 88u;
     }
     if (value++ != 12u || value.load() != 13u) return 8u;
     if (--value != 12u || value.load() != 12u) return 9u;
