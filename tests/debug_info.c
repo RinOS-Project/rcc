@@ -349,6 +349,24 @@ int debug_inline_nonconstant_unsigned_long_long_xor_two_variables_entry(
             debug_inline_nonconstant_unsigned_long_long_xor_rhs_source);
 }
 
+int debug_inline_nonconstant_unsigned_long_long_mul_two_variables_entry(
+    unsigned int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_mul_left_source =
+            ((unsigned long long)value << 32u) | 0xfffffff1ull;
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_mul_rhs_source =
+            ((unsigned long long)value << 16u) | 0x12345ull;
+    debug_inline_nonconstant_unsigned_long_long_escape =
+        &debug_inline_nonconstant_unsigned_long_long_mul_left_source;
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+        &debug_inline_nonconstant_unsigned_long_long_mul_rhs_source;
+    return (int)debug_nonconstant_unsigned_long_long_mul_two_variables_inline(
+        debug_inline_nonconstant_unsigned_long_long_mul_left_source *
+            debug_inline_nonconstant_unsigned_long_long_mul_rhs_source);
+}
+
 int debug_inline_local_entry(int value)
 {
     return debug_local_inline(value);

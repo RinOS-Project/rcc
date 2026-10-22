@@ -8418,6 +8418,12 @@ remains a separate open item.
       per word, both source frame locations, piece widths, and eight
       reconstructed boundary values in legacy and verified-backend objects;
       the focused and full native-Windows debug-info gates pass.
+- [x] Preserve frame-backed i686 unsigned 64-bit multiplication between two
+      locals. Emit the low 32-bit product, derive the exact high word of the
+      low-word product from 16-bit partial products (including middle carry),
+      then add both cross-products. A test-side DWARF evaluator runs eight
+      high-bit and wraparound operand pairs against the emitted two-piece
+      expression in legacy and verified-backend objects; both debug-info gates
+      pass.
 - [ ] i686 unsigned 64-bit division/remainder with nonconstant operands,
-      multiplication by another runtime value, and broader optimized
-      multi-piece locations remain open.
+      and broader optimized multi-piece locations remain open.
