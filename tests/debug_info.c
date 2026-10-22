@@ -285,11 +285,11 @@ int debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry(int value)
                 131072ull);
     int divided_widest = debug_nonconstant_unsigned_long_long_widest_divide_inline(
         debug_inline_nonconstant_unsigned_long_long_wide_source /
-            1073741823ull);
+            1073741825ull);
     int remainder_widest =
         debug_nonconstant_unsigned_long_long_widest_remainder_inline(
             debug_inline_nonconstant_unsigned_long_long_wide_source %
-                1073741823ull);
+                2147483647ull);
     debug_inline_nonconstant_unsigned_long_long_wide_escape =
         &debug_inline_nonconstant_unsigned_long_long_wide_source;
     return divided + remainder + divided_wider + remainder_wider +

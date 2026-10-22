@@ -8685,6 +8685,20 @@ remains a separate open item.
 - [ ] General computed 64-bit count division/remainder, non-frame-backed
       operands, and broader optimized multi-piece locations remain open.
 
+## RCC continuation (2026-10-23, i686 unsigned 64-bit constant divmod DWARF)
+
+- [x] Extend frame-backed i686 `unsigned long long` division and remainder
+      constants from `2^30 + 1` through `INT32_MAX`. Use one-bit long-division
+      digits with a high-bit test and a signed comparison only for nonnegative
+      partial dividends, preserving exact quotient/remainder pieces without
+      signed-32 overflow. Evaluate ten full-width boundary inputs for
+      `/1073741825` and `%2147483647` in legacy and verified DWARF. Focused
+      native-Windows and Linux inline-expression tests, full native-Windows
+      `test-debug-info`, and GCC ASan/UBSan full `test-debug-info` pass.
+- [ ] Variable i686 64-bit divisors, signed 64-bit division/remainder,
+      constants above `INT32_MAX`, non-frame-backed operands, and broader
+      optimized multi-piece locations remain open.
+
 ## RCC continuation (2026-10-23, Windows MinGW structural NTTP host ABI)
 
 - [x] Keep the structural inherited member-function-pointer NTTP comparison

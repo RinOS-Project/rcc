@@ -4915,7 +4915,7 @@ static bool debug_inline_parameter_frame_offset(
 
 enum {
     DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY = 512,
-    DEBUG_INLINE_I686_U64_DIVMOD_EXPRESSION_CAPACITY = 4096
+    DEBUG_INLINE_I686_U64_DIVMOD_EXPRESSION_CAPACITY = 8192
 };
 
 static bool debug_inline_integer_expression_type(const Type* type) {
@@ -7206,6 +7206,76 @@ static bool debug_inline_parameter_i686_u64_quotient_piece(
     return true;
 }
 
+static bool debug_inline_parameter_i686_u64_division_digit_large_divisor(
+    uint32_t divisor, uint8_t* expression, size_t capacity, size_t* size) {
+    size_t high_bit_branch_operand;
+    size_t at_least_divisor_branch_operand;
+    size_t zero_digit_end_operand;
+    size_t subtract_path_offset;
+    size_t done_offset;
+    if (divisor <= UINT32_C(1073741824) || divisor > INT32_MAX ||
+        !expression || !size) {
+        return false;
+    }
+
+    /* A one-bit radix makes each quotient digit zero or one. A set sign bit
+       proves the partial dividend is greater than this positive divisor;
+       otherwise signed DW_OP_ge is an exact unsigned comparison. */
+    if (!debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x12u) || /* dup partial */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, UINT32_C(0x80000000)) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1au) || /* and */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x2eu) || /* ne */
+        !debug_inline_integer_expression_append_branch(
+            expression, capacity, size, 0x28u,
+            &high_bit_branch_operand) || /* bra */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x12u) || /* dup partial */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, divisor) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x2au) || /* signed ge */
+        !debug_inline_integer_expression_append_branch(
+            expression, capacity, size, 0x28u,
+            &at_least_divisor_branch_operand) || /* bra */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x16u) || /* [0, partial] */
+        !debug_inline_integer_expression_append_branch(
+            expression, capacity, size, 0x2fu,
+            &zero_digit_end_operand)) { /* skip */
+        return false;
+    }
+
+    subtract_path_offset = *size;
+    if (!debug_inline_integer_expression_patch_branch(
+            expression, *size, high_bit_branch_operand,
+            subtract_path_offset) ||
+        !debug_inline_integer_expression_patch_branch(
+            expression, *size, at_least_divisor_branch_operand,
+            subtract_path_offset) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 1u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x16u) || /* [1, partial] */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, size, divisor) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x1cu)) { /* minus */
+        return false;
+    }
+
+    done_offset = *size;
+    return debug_inline_integer_expression_patch_branch(
+        expression, *size, zero_digit_end_operand, done_offset);
+}
+
 static bool debug_inline_parameter_i686_u64_div_constant_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
@@ -7229,7 +7299,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         !source_expression->binary_lhs->ident_decl ||
         !debug_inline_integer_literal_bits(
             source_expression->binary_rhs, &divisor, 0u) ||
-        divisor == 0u || divisor > UINT64_C(1073741824) ||
+        divisor == 0u || divisor > (uint64_t)INT32_MAX ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source_expression->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -7251,12 +7321,17 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         return false;
     }
     is_remainder = source_expression->kind == EXPR_MOD;
+    bool large_divisor = divisor > UINT64_C(1073741824);
     chunk_width = 16u;
     while (chunk_width > 1u && divisor >
            ((uint64_t)INT32_MAX + 1u) / (UINT64_C(1) << chunk_width)) {
         --chunk_width;
     }
-    if (divisor > ((uint64_t)INT32_MAX + 1u) / 2u) return false;
+    if (large_divisor) {
+        chunk_width = 1u;
+    } else if (divisor > ((uint64_t)INT32_MAX + 1u) / 2u) {
+        return false;
+    }
     radix = UINT64_C(1) << chunk_width;
     chunk_count = (64u + chunk_width - 1u) / chunk_width;
 
@@ -7293,18 +7368,21 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
                 expression, capacity, &size, 0x16u) || /* swap */
             !debug_inline_integer_expression_append_byte(
                 expression, capacity, &size, 0x13u) || /* drop old rem */
-            !debug_inline_integer_expression_append_byte(
-                expression, capacity, &size, 0x12u) || /* dup partial */
-            !debug_inline_integer_expression_append_constu(
-                expression, capacity, &size, divisor) ||
-            !debug_inline_integer_expression_append_byte(
-                expression, capacity, &size, 0x1bu) || /* signed-safe div */
-            !debug_inline_integer_expression_append_byte(
-                expression, capacity, &size, 0x16u) || /* swap */
-            !debug_inline_integer_expression_append_constu(
-                expression, capacity, &size, divisor) ||
-            !debug_inline_integer_expression_append_byte(
-                expression, capacity, &size, 0x1du)) { /* signed-safe mod */
+            (large_divisor
+                ? !debug_inline_parameter_i686_u64_division_digit_large_divisor(
+                      (uint32_t)divisor, expression, capacity, &size)
+                : (!debug_inline_integer_expression_append_byte(
+                       expression, capacity, &size, 0x12u) ||
+                   !debug_inline_integer_expression_append_constu(
+                       expression, capacity, &size, divisor) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, &size, 0x1bu) || /* div */
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, &size, 0x16u) || /* swap */
+                   !debug_inline_integer_expression_append_constu(
+                       expression, capacity, &size, divisor) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, &size, 0x1du)))) { /* mod */
             return false;
         }
     }
