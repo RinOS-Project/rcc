@@ -17487,9 +17487,25 @@ static bool lower_cxx_throwing_constructor_with_bases_supported(
     }
     for (const TypeParam* member = cls->fields; member;
          member = member->next) {
-        if (!member->is_static &&
-            (!member->type || !type_is_scalar(member->type))) {
+        const CxxClass* member_class;
+        if (member->is_static) continue;
+        if (member->type && type_is_scalar(member->type)) continue;
+        member_class = member->type &&
+                member->type->kind == TYPE_STRUCT
+            ? member->type->cxx_class : NULL;
+        if (!member_class || member_class->has_field_initializer ||
+            member_class->base_count != 0 ||
+            member_class->virtual_base_count != 0 ||
+            member_class->vtable_size != 0 ||
+            member_class->secondary_vtable_count != 0) {
             return false;
+        }
+        for (const TypeParam* submember = member_class->fields;
+             submember; submember = submember->next) {
+            if (!submember->is_static &&
+                (!submember->type || !type_is_scalar(submember->type))) {
+                return false;
+            }
         }
     }
     return true;

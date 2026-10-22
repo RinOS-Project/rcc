@@ -4906,13 +4906,15 @@ static void verify_cxx_throwing_temporary_object(
         address = symbol_address(memory, throwing_base_constructor_symbol);
         memcpy(&integer_argument, &address, sizeof(integer_argument));
         assert(integer_argument(1) == 6201);
-        assert(integer_argument(0) == 90021);
-        assert(integer_argument(2) == 6521);
+        assert(integer_argument(0) == 90321);
+        assert(integer_argument(2) == 6821);
         assert(integer_argument(3) == 6100);
-        assert(integer_argument(4) == 6421);
-        assert(integer_argument(5) == 90221);
-        assert(integer_argument(6) == 6621);
-        assert(integer_argument(7) == 6721);
+        assert(integer_argument(4) == 6721);
+        assert(integer_argument(5) == 90521);
+        assert(integer_argument(6) == 6921);
+        assert(integer_argument(7) == 7021);
+        assert(integer_argument(8) == 7121);
+        assert(integer_argument(9) == 6821);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

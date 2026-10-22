@@ -158,16 +158,16 @@ int main(void) {
         return 16;
     }
     result = verified_cxx_single_throwing_base_constructor(0);
-    if (result != 90021) {
+    if (result != 90321) {
         fprintf(stderr,
-                "nested fallthrough switch construction/destruction returned %d, expected 90021\n",
+                "nested fallthrough switch construction/destruction returned %d, expected 90321\n",
                 result);
         return 17;
     }
     result = verified_cxx_single_throwing_base_constructor(2);
-    if (result != 6521) {
+    if (result != 6821) {
         fprintf(stderr,
-                "constructor-body throw did not unwind both completed bases: %d, expected 6521\n",
+                "constructor-body throw did not unwind the completed member and bases: %d, expected 6821\n",
                 result);
         return 18;
     }
@@ -179,32 +179,46 @@ int main(void) {
         return 19;
     }
     result = verified_cxx_single_throwing_base_constructor(4);
-    if (result != 6421) {
+    if (result != 6721) {
         fprintf(stderr,
-                "post-construction throw double-destroyed bases: %d, expected 6421\n",
+                "post-construction throw double-destroyed subobjects: %d, expected 6721\n",
                 result);
         return 20;
     }
     result = verified_cxx_single_throwing_base_constructor(5);
-    if (result != 90221) {
+    if (result != 90521) {
         fprintf(stderr,
-                "constructor body switch case returned %d, expected 90221\n",
+                "constructor body switch case returned %d, expected 90521\n",
                 result);
         return 21;
     }
     result = verified_cxx_single_throwing_base_constructor(6);
-    if (result != 6621) {
+    if (result != 6921) {
         fprintf(stderr,
-                "constructor loop throw did not unwind both completed bases: %d, expected 6621\n",
+                "constructor loop throw did not unwind the completed member and bases: %d, expected 6921\n",
                 result);
         return 22;
     }
     result = verified_cxx_single_throwing_base_constructor(7);
-    if (result != 6721) {
+    if (result != 7021) {
         fprintf(stderr,
-                "throwing scalar member initializer did not unwind both completed bases: %d, expected 6721\n",
+                "throwing scalar member initializer did not unwind the completed member and bases: %d, expected 7021\n",
                 result);
         return 23;
+    }
+    result = verified_cxx_single_throwing_base_constructor(8);
+    if (result != 7121) {
+        fprintf(stderr,
+                "throwing member constructor destroyed an incomplete member: %d, expected 7121\n",
+                result);
+        return 24;
+    }
+    result = verified_cxx_single_throwing_base_constructor(9);
+    if (result != 6821) {
+        fprintf(stderr,
+                "constructor-body throw did not unwind the completed member exactly once: %d, expected 6821\n",
+                result);
+        return 25;
     }
     return rcc_test_main();
 }
