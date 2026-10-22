@@ -818,6 +818,24 @@ double debug_inline_nonconstant_double_entry(double input)
         debug_inline_nonconstant_double_source);
 }
 
+float debug_inline_nonconstant_float_identity_cast_entry(float input)
+{
+    float debug_inline_nonconstant_float_cast_source = input + 0.5f;
+    debug_inline_nonconstant_float_escape =
+        &debug_inline_nonconstant_float_cast_source;
+    return debug_float_parameter_inline(
+        (float)debug_inline_nonconstant_float_cast_source);
+}
+
+double debug_inline_nonconstant_double_identity_cast_entry(double input)
+{
+    double debug_inline_nonconstant_double_cast_source = input + 0.5;
+    debug_inline_nonconstant_double_escape =
+        &debug_inline_nonconstant_double_cast_source;
+    return debug_double_parameter_inline(
+        (double)debug_inline_nonconstant_double_cast_source);
+}
+
 int debug_inline_null_pointer_entry(int* other)
 {
     return debug_null_pointer_parameter_inline((int*)0, other);

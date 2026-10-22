@@ -8265,32 +8265,56 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
     const Decl* parameter;
     const Decl* source;
     const ModuleSymbol* symbol;
+    const Expr* source_expression;
     Type* parameter_type;
     Type* argument_type;
     if (scoped_symbol) *scoped_symbol = NULL;
     if (frame_based) *frame_based = false;
     if (frame_offset) *frame_offset = 0;
     if (!mod || !value || !value->declaration || !argument ||
-        !argument->expr || argument->cxx_temporary_owner ||
-        argument->expr->kind != EXPR_IDENT ||
-        !argument->expr->ident_decl || !scoped_symbol) {
+        !argument->expr || argument->cxx_temporary_owner || !scoped_symbol) {
         return NULL;
     }
     parameter = value->declaration;
-    source = argument->expr->ident_decl;
     parameter_type = parameter->type;
     argument_type = argument->expr->type;
+    source_expression = argument->expr;
+    if (parameter_type &&
+        (parameter_type->kind == TYPE_FLOAT ||
+         parameter_type->kind == TYPE_DOUBLE)) {
+        while (source_expression &&
+               source_expression->kind == EXPR_CAST) {
+            const Expr* operand = source_expression->cast_expr;
+            if (!operand || !operand->type || !source_expression->type ||
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    source_expression->type, operand->type, 0u)) {
+                return NULL;
+            }
+            source_expression = operand;
+        }
+    }
+    if (!source_expression || source_expression->kind != EXPR_IDENT ||
+        !source_expression->ident_decl) {
+        return NULL;
+    }
+    source = source_expression->ident_decl;
     if (parameter->kind != DECL_PARAM ||
         (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
         !parameter_type || !argument_type ||
         !debug_inline_parameter_storage_type(parameter_type) ||
         !debug_inline_parameter_storage_type_equal(
             parameter_type, argument_type, 0u) ||
+        !source_expression->type ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, source_expression->type, 0u) ||
         parameter_type->size == 0u ||
         parameter_type->size != argument_type->size ||
         parameter_type->is_volatile || parameter_type->is_reference ||
         parameter_type->is_atomic || argument_type->is_volatile ||
-        argument_type->is_reference || argument_type->is_atomic) {
+        argument_type->is_reference || argument_type->is_atomic ||
+        source_expression->type->is_volatile ||
+        source_expression->type->is_reference ||
+        source_expression->type->is_atomic) {
         return NULL;
     }
     if (!debug_inline_parameter_body_is_read_only(callee)) return NULL;

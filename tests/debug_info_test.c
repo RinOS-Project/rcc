@@ -4260,7 +4260,13 @@ static void verify_inline_debug_object(const char* path,
                 strcmp(relocation->symbol_name,
                        "debug_inline_nonconstant_float_entry") == 0 ||
                 strcmp(relocation->symbol_name,
-                       "debug_inline_nonconstant_double_entry") == 0;
+                       "debug_inline_nonconstant_double_entry") == 0 ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_nonconstant_float_identity_cast_entry") ==
+                    0 ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_nonconstant_double_identity_cast_entry") ==
+                    0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_null_pointer_entry") == 0;
@@ -10786,6 +10792,38 @@ int main(int argc, char** argv)
         argv[39], ARCH_X64, "debug_double_parameter_inline",
         "debug_inline_nonconstant_double_entry",
         "debug_inline_nonconstant_double_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[24], ARCH_X86, "debug_float_parameter_inline",
+        "debug_inline_nonconstant_float_identity_cast_entry",
+        "debug_inline_nonconstant_float_cast_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[25], ARCH_X64, "debug_float_parameter_inline",
+        "debug_inline_nonconstant_float_identity_cast_entry",
+        "debug_inline_nonconstant_float_cast_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[24], ARCH_X86, "debug_double_parameter_inline",
+        "debug_inline_nonconstant_double_identity_cast_entry",
+        "debug_inline_nonconstant_double_cast_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[25], ARCH_X64, "debug_double_parameter_inline",
+        "debug_inline_nonconstant_double_identity_cast_entry",
+        "debug_inline_nonconstant_double_cast_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[38], ARCH_X86, "debug_float_parameter_inline",
+        "debug_inline_nonconstant_float_identity_cast_entry",
+        "debug_inline_nonconstant_float_cast_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[39], ARCH_X64, "debug_float_parameter_inline",
+        "debug_inline_nonconstant_float_identity_cast_entry",
+        "debug_inline_nonconstant_float_cast_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[38], ARCH_X86, "debug_double_parameter_inline",
+        "debug_inline_nonconstant_double_identity_cast_entry",
+        "debug_inline_nonconstant_double_cast_source");
+    verify_inline_dynamic_scalar_parameter(
+        argv[39], ARCH_X64, "debug_double_parameter_inline",
+        "debug_inline_nonconstant_double_identity_cast_entry",
+        "debug_inline_nonconstant_double_cast_source");
     verify_inline_integer_expression_cases(argv[24], ARCH_X86);
     verify_inline_integer_expression_cases(argv[25], ARCH_X64);
     verify_inline_integer_expression_cases(argv[38], ARCH_X86);
