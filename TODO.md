@@ -8647,3 +8647,16 @@ remains a separate open item.
       low-word-preserving subset above, variable i686 64-bit
       division/remainder, and broader optimized multi-piece locations remain
       open.
+
+## RCC continuation (2026-10-22, i686 wide shift-count power-of-two remainder)
+
+- [x] Preserve a frame-backed 64-bit shift-count expression reduced modulo a
+      power-of-two constant through 2^32 by masking its exact low word. The
+      `count % 64ull` regression uses nonzero high-word inputs and evaluates
+      defined shift counts 0, 1, 31, 32, 33, and 63 from emitted DWARF in both
+      legacy and verified i686 objects; the focused
+      `test-debug-info-inline-expression` gate passes. This applies only to
+      low-word-preserving remainders; it does not implement general 64-bit
+      division/remainder in DWARF.
+- [ ] General 64-bit computed count division/remainder, non-frame-backed
+      operands, and broader optimized multi-piece locations remain open.

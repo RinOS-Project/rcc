@@ -6563,6 +6563,32 @@ static bool debug_inline_parameter_i686_u64_append_low_word_expression(
             output, capacity, size,
             expression->kind == EXPR_NEG ? 0x1fu : 0x20u);
     }
+    if (expression->kind == EXPR_MOD && expression->binary_lhs &&
+        expression->binary_rhs &&
+        debug_inline_integer_literal_bits(
+            expression->binary_rhs, &literal_bits, 0u) &&
+        literal_bits != 0u &&
+        (literal_bits & (literal_bits - 1u)) == 0u &&
+        literal_bits <= UINT64_C(0x100000000) &&
+        (expression->type->is_unsigned ||
+         literal_bits <= (uint64_t)INT64_MAX) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_lhs->type, expression->type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_rhs->type, expression->type, 0u) &&
+        debug_inline_parameter_i686_u64_append_low_word_expression(
+            mod, expression->binary_lhs, output, capacity, size,
+            depth + 1u) &&
+        debug_inline_integer_expression_append_constu(
+            output, capacity, size, literal_bits - 1u) &&
+        debug_inline_integer_expression_append_byte(
+            output, capacity, size, 0x1au)) { /* low word & (modulus-1) */
+        /* In two's-complement arithmetic, the low n bits of x % 2^n are
+           exactly x's low n bits. For a defined 64-bit shift the resulting
+           count is 0..63, so the 32-bit DWARF stack value is exact. A
+           negative count would make the source shift undefined. */
+        return true;
+    }
     if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
          expression->kind == EXPR_MUL || expression->kind == EXPR_BITAND ||
          expression->kind == EXPR_BITOR || expression->kind == EXPR_BITXOR) &&
