@@ -614,6 +614,12 @@
   - [x] Reject non-template `int&` returns from prvalues and `int&&` returns
         from lvalues as hard C++ semantic errors; verify both cases, invalid
         reference initializers, and invalid ordinary calls for i686/AMD64.
+  - [x] Apply fixed derived-to-base adjustment to direct non-template
+        lvalue-reference returns, including `const` references, after lvalue
+        address generation in both backends. A multiple-inheritance fixture
+        places the returned public base at a nonzero offset; the regression
+        checks pointer identity, alias mutation, direct xvalue returns, and
+        indirect callback returns on i686/AMD64 generated host executables.
   - [x] Parse namespace and class-scope function-pointer alias type-ids with
         reference return/parameter types, then preserve `int&`/`int&&` return
         categories through indirect calls. GCC C++20 accepts the fixture;

@@ -289,6 +289,19 @@ struct ConversionReferenceDerived : ConversionReferencePrefix,
     int derived_value;
 };
 
+using ConversionBaseLvalueReferenceFunction =
+    ConversionReferenceBase& (*)(ConversionReferenceDerived&);
+using ConversionBaseRvalueReferenceFunction =
+    ConversionReferenceBase&& (*)(ConversionReferenceDerived&&);
+using ConversionConstBaseLvalueReferenceFunction =
+    const ConversionReferenceBase& (*)(const ConversionReferenceDerived&);
+
+struct ConversionBaseReferenceCallbacks {
+    ConversionBaseLvalueReferenceFunction lvalue;
+    ConversionBaseRvalueReferenceFunction xvalue;
+    ConversionConstBaseLvalueReferenceFunction const_lvalue;
+};
+
 struct ConversionLvalueSource {
     ConversionReferenceValue* value;
 
@@ -340,6 +353,21 @@ struct ConversionDerivedXvalueSource {
         return static_cast<ConversionReferenceDerived&&>(*value);
     }
 };
+
+ConversionReferenceBase& return_derived_base_lvalue_reference(
+    ConversionReferenceDerived& value) {
+    return value;
+}
+
+ConversionReferenceBase&& return_derived_base_xvalue_reference(
+    ConversionReferenceDerived&& value) {
+    return static_cast<ConversionReferenceDerived&&>(value);
+}
+
+const ConversionReferenceBase& return_const_derived_base_lvalue_reference(
+    const ConversionReferenceDerived& value) {
+    return value;
+}
 
 ConversionReferenceDerived global_conversion_reference_derived{
     {73}, {74}, 75};
@@ -891,6 +919,39 @@ int main() {
         return 67;
     returned_converted_derived_xvalue.value = 68;
     if (converted_derived_xvalue_value.value != 68) return 68;
+    ConversionReferenceBase& direct_returned_base_lvalue =
+        return_derived_base_lvalue_reference(
+            converted_derived_xvalue_value);
+    if (&direct_returned_base_lvalue != expected_converted_base) return 90;
+    if (direct_returned_base_lvalue.value != 68) return 91;
+    direct_returned_base_lvalue.value = 69;
+    if (converted_derived_xvalue_value.value != 69) return 80;
+    const ConversionReferenceDerived& const_conversion_derived =
+        converted_derived_xvalue_value;
+    const ConversionReferenceBase& direct_returned_const_base_lvalue =
+        return_const_derived_base_lvalue_reference(
+            const_conversion_derived);
+    if (&direct_returned_const_base_lvalue != expected_converted_base)
+        return 92;
+    if (direct_returned_const_base_lvalue.value != 69) return 93;
+    ConversionBaseReferenceCallbacks base_reference_callbacks = {
+        &return_derived_base_lvalue_reference,
+        &return_derived_base_xvalue_reference,
+        &return_const_derived_base_lvalue_reference};
+    ConversionReferenceBase&& indirect_returned_base_xvalue =
+        base_reference_callbacks.xvalue(
+            static_cast<ConversionReferenceDerived&&>(
+                converted_derived_xvalue_value));
+    if (&indirect_returned_base_xvalue != expected_converted_base ||
+        indirect_returned_base_xvalue.value != 69) return 81;
+    indirect_returned_base_xvalue.value = 70;
+    if (converted_derived_xvalue_value.value != 70) return 82;
+    const ConversionReferenceBase& indirect_returned_const_base_lvalue =
+        base_reference_callbacks.const_lvalue(
+            static_cast<const ConversionReferenceDerived&>(
+                converted_derived_xvalue_value));
+    if (&indirect_returned_const_base_lvalue != expected_converted_base ||
+        indirect_returned_const_base_lvalue.value != 70) return 83;
     if (global_conversion_reference_derived.prefix != 73 ||
         global_conversion_reference_derived.value != 74 ||
         global_conversion_reference_derived.derived_value != 75) return 73;

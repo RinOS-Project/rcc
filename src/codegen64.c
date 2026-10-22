@@ -13252,6 +13252,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                                    stmt->return_reference_temporary_offset);
                     } else {
                         gen64_lvalue(mod, stmt->return_val);
+                        gen64_cxx_reference_adjustment(
+                            mod, stmt->return_val);
                     }
                 } else if (current_function_return_type64 &&
                     (current_function_return_type64->kind == TYPE_STRUCT ||

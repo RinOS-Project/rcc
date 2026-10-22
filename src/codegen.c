@@ -19676,6 +19676,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                             stmt->return_reference_temporary_offset);
                     } else {
                         gen_lvalue(mod, stmt->return_val);
+                        gen_cxx_reference_adjustment32(
+                            mod, stmt->return_val);
                     }
                 } else if (gen_is_floating(current_function_return_type) ||
                            gen_is_floating(stmt->return_val->type)) {
