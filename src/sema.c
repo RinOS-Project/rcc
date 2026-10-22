@@ -5754,6 +5754,10 @@ static bool sema_constexpr_scalar_convert(
     return true;
 }
 
+static bool sema_atomic_always_lock_free_size(uint64_t size) {
+    return size == 1u || size == 2u || size == 4u || size == 8u;
+}
+
 static bool sema_eval_constexpr_scalar_expr(
     Expr* expression, SemaConstexprBinding* bindings,
     int binding_count, SemaConstexprScalar* value);
@@ -8755,6 +8759,35 @@ static bool sema_eval_constexpr_scalar_expr(
                 ? right.floating_value != 0.0 : right.integer_value != 0;
             return true;
         case EXPR_CALL:
+            if (expression->call_func &&
+                expression->call_func->kind == EXPR_IDENT &&
+                expression->call_func->ident_name &&
+                strcmp(expression->call_func->ident_name,
+                       "__atomic_always_lock_free") == 0) {
+                ExprList* size_argument = expression->call_args;
+                ExprList* pointer_argument = size_argument
+                    ? size_argument->next : NULL;
+                SemaConstexprScalar size_value;
+                SemaConstexprScalar pointer_value;
+                uint64_t size_bits;
+                if (!size_argument || !pointer_argument ||
+                    pointer_argument->next ||
+                    !sema_eval_constexpr_scalar_expr(
+                        size_argument->expr, bindings, binding_count,
+                        &size_value) ||
+                    size_value.is_floating || size_value.is_pointer ||
+                    !sema_constexpr_integer_type(size_value.type) ||
+                    !sema_eval_constexpr_scalar_expr(
+                        pointer_argument->expr, bindings, binding_count,
+                        &pointer_value)) {
+                    return false;
+                }
+                size_bits = sema_constexpr_integer_bits(&size_value);
+                value->type = expression->type ? expression->type : type_bool;
+                value->integer_value = sema_atomic_always_lock_free_size(
+                    size_bits) ? 1 : 0;
+                return true;
+            }
             if (expression->call_is_new || expression->call_is_delete) {
                 return sema_eval_constexpr_dynamic_call(
                     expression, bindings, &binding_count, value);

@@ -1,5 +1,16 @@
 #include <atomic>
 
+static_assert(__atomic_always_lock_free(sizeof(unsigned), nullptr),
+              "four-byte atomics are always lock-free");
+static_assert(__atomic_always_lock_free(8u, nullptr),
+              "eight-byte atomics are always lock-free");
+static_assert(!__atomic_always_lock_free(3u, nullptr),
+              "unsupported atomic widths are not lock-free");
+static_assert(std::atomic<unsigned>::is_always_lock_free,
+              "std::atomic exposes its lock-free property as a constant");
+static_assert(std::atomic<unsigned long long>::is_always_lock_free,
+              "wide atomics expose their lock-free property as a constant");
+
 template<class T>
 class InheritedStaticTemplateBase {
 public:
