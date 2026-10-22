@@ -5620,6 +5620,81 @@ static bool debug_inline_parameter_i686_unsigned_u64_add_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_unsigned_u64_bitwise_expression(
+    const Module* mod, const Type* parameter_type,
+    const Expr* source_expression, uint8_t* expression, size_t capacity,
+    size_t* expression_size) {
+    const Expr* source_expression_value;
+    const Expr* constant_expression;
+    const Decl* source;
+    int64_t frame_offset;
+    uint64_t constant;
+    uint8_t operation;
+    size_t size = 0u;
+    if (!mod || !parameter_type || !source_expression || !expression ||
+        !expression_size || !parameter_type->is_unsigned ||
+        parameter_type->size != 8u || !source_expression->binary_lhs ||
+        !source_expression->binary_rhs) {
+        return false;
+    }
+    switch (source_expression->kind) {
+    case EXPR_BITAND: operation = 0x1au; break; /* DW_OP_and */
+    case EXPR_BITOR: operation = 0x21u; break; /* DW_OP_or */
+    case EXPR_BITXOR: operation = 0x27u; break; /* DW_OP_xor */
+    default: return false;
+    }
+    if (source_expression->binary_lhs->kind == EXPR_IDENT &&
+        source_expression->binary_lhs->ident_decl) {
+        source_expression_value = source_expression->binary_lhs;
+        constant_expression = source_expression->binary_rhs;
+    } else if (source_expression->binary_rhs->kind == EXPR_IDENT &&
+               source_expression->binary_rhs->ident_decl) {
+        source_expression_value = source_expression->binary_rhs;
+        constant_expression = source_expression->binary_lhs;
+    } else {
+        return false;
+    }
+    source = source_expression_value->ident_decl;
+    if (!source || (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+        source->var_is_global || source->var_is_static_local ||
+        source->var_is_thread_local || source->var_is_vla || !source->type ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source->type, parameter_type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source_expression_value->type, parameter_type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            constant_expression->type, parameter_type, 0u) ||
+        !debug_inline_integer_literal_bits(constant_expression, &constant, 0u) ||
+        !debug_inline_parameter_frame_offset(mod, source, &frame_offset) ||
+        frame_offset > INT64_MAX - 4) {
+        return false;
+    }
+
+    /* A 32-bit DWARF stack entry cannot represent the value as a whole.
+       Emit each storage-ordered word independently, retaining all 64 bits. */
+    for (unsigned int word = 0u; word < 2u; ++word) {
+        uint32_t word_constant = word == 0u
+            ? (uint32_t)constant : (uint32_t)(constant >> 32u);
+        if (!debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, &size, ARCH_X86,
+                frame_offset + (int64_t)(word * 4u)) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, word_constant) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, operation) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) || /* stack_value */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u)) {
+            return false;
+        }
+    }
+    *expression_size = size;
+    return true;
+}
+
 static bool debug_inline_parameter_integer_expression(
     const Module* mod, int architecture, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
@@ -5694,6 +5769,18 @@ static bool debug_inline_parameter_integer_expression(
         (unsigned int)parameter_type->size == 8u &&
         source_expression->kind == EXPR_ADD &&
         debug_inline_parameter_i686_unsigned_u64_add_expression(
+            mod, parameter_type, source_expression, expression,
+            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
+            expression_size)) {
+        return true;
+    }
+
+    if (architecture == ARCH_X86 && parameter_type->is_unsigned &&
+        (unsigned int)parameter_type->size == 8u &&
+        (source_expression->kind == EXPR_BITAND ||
+         source_expression->kind == EXPR_BITOR ||
+         source_expression->kind == EXPR_BITXOR) &&
+        debug_inline_parameter_i686_unsigned_u64_bitwise_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
             expression_size)) {

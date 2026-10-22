@@ -129,6 +129,9 @@ int debug_inline_nonconstant_integer_entry(int value)
     unsigned long long unsigned_long_long_high_remainder_value;
     unsigned long long unsigned_long_long_identity_value;
     unsigned long long unsigned_long_long_added_value;
+    unsigned long long unsigned_long_long_bitand_value;
+    unsigned long long unsigned_long_long_bitor_value;
+    unsigned long long unsigned_long_long_bitxor_value;
     debug_inline_nonconstant_integer_escape =
         &debug_inline_nonconstant_integer_source;
     debug_inline_nonconstant_unsigned_integer_escape =
@@ -199,6 +202,18 @@ int debug_inline_nonconstant_integer_entry(int value)
         debug_nonconstant_unsigned_long_long_add_inline(
             debug_inline_nonconstant_unsigned_long_long_source +
                 0x100000005ull);
+    unsigned_long_long_bitand_value =
+        debug_nonconstant_unsigned_long_long_bitand_inline(
+            debug_inline_nonconstant_unsigned_long_long_source &
+                0x0f0ff0f00ff00ff0ull);
+    unsigned_long_long_bitor_value =
+        debug_nonconstant_unsigned_long_long_bitor_inline(
+            debug_inline_nonconstant_unsigned_long_long_source |
+                0x4000000100000001ull);
+    unsigned_long_long_bitxor_value =
+        debug_nonconstant_unsigned_long_long_bitxor_inline(
+            debug_inline_nonconstant_unsigned_long_long_source ^
+                0x7fffffffffffffffull);
     return added_value + multiplied_value + divided_value + remainder_value +
         negated_value +
         bitnot_value +
@@ -213,6 +228,9 @@ int debug_inline_nonconstant_integer_entry(int value)
         (int)unsigned_long_long_high_remainder_value +
         (int)unsigned_long_long_identity_value +
         (int)unsigned_long_long_added_value +
+        (int)unsigned_long_long_bitand_value +
+        (int)unsigned_long_long_bitor_value +
+        (int)unsigned_long_long_bitxor_value +
         debug_nonconstant_integer_subtract_parameter_inline(
             debug_inline_nonconstant_integer_source - 3);
 }

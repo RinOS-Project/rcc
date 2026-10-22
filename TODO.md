@@ -8373,3 +8373,15 @@ remains a separate open item.
       `test-debug-info` pass.
 - [ ] General i686 unsigned 64-bit arithmetic, nonconstant operands, and other
       optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, i686 unsigned 64-bit inline bitwise DWARF)
+
+- [x] Preserve inline `unsigned long long` arguments formed by AND, OR, or XOR
+      with a same-typed integer constant on i686. Emit exact low/high four-byte
+      `DW_OP_piece` values from the stable source frame slot. Verify each opcode,
+      constant word, source offset, piece width, and eight boundary patterns in
+      legacy and verified-backend i686/AMD64 objects. Native-Windows
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [ ] i686 unsigned 64-bit subtraction, multiplication, division/remainder with
+      nonconstant operands, and broader optimized multi-piece locations remain
+      open.
