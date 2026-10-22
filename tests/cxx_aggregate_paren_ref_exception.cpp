@@ -11,7 +11,6 @@ struct ExceptionAggregate {
     int value;
 };
 
-#if !defined(TEST_VERIFIED_BACKEND)
 struct ThrowingCleanupProbe {
     int* destructions;
 
@@ -25,7 +24,6 @@ struct ThrowingCleanupAggregate {
     const ThrowingCleanupProbe& probe;
     int value;
 };
-#endif
 
 static int throw_from_later_initializer() {
     throw 67;
@@ -47,7 +45,6 @@ int main() {
         return 2;
     }
 
-#if !defined(TEST_VERIFIED_BACKEND)
     int throwing_destructions = 0;
     caught = 0;
     try {
@@ -59,7 +56,4 @@ int main() {
         caught = value;
     }
     return caught == 79 && throwing_destructions == 1 ? 0 : 4;
-#else
-    return 0;
-#endif
 }

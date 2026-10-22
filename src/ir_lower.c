@@ -19639,7 +19639,7 @@ static bool lower_initialize_struct_field(
             !type_is_compatible(
                 (Type*)object_type, (Type*)reference_type->base) ||
             !lower_temporary_cleanup_plan_supported(
-                initializer_item, false) ||
+                initializer_item, true) ||
             object_type->size <= 0 || object_type->align <= 0) {
             context->unsupported = true;
             return false;
