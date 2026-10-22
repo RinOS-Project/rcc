@@ -192,5 +192,12 @@ int main(void) {
                 result);
         return 21;
     }
+    result = verified_cxx_single_throwing_base_constructor(6);
+    if (result != 6621) {
+        fprintf(stderr,
+                "constructor loop throw did not unwind both completed bases: %d, expected 6621\n",
+                result);
+        return 22;
+    }
     return rcc_test_main();
 }

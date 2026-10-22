@@ -490,7 +490,7 @@
         通常のstatement CFGへlowerし、body throwでも完成済みbaseをreverse orderでcleanup。
         direct baseはnon-virtual leaf、後続member initializerはscalar/non-throwingに限定。
         fixtureの44関数すべてがi686/AMD64の`-O0`/`-O2`でfallback 0となり、second-base throw、
-        switch fallthrough、body throw、成功時の破棄順、完成後caller throw、first-base throwを
+        switch fallthrough、body/loop throw、成功時の破棄順、完成後caller throw、first-base throwを
         実行検証。`test-verified-cxx-throwing-temporary`と、この拡張を含む
         `test-verified-backend`が成功。基底cleanup実装は`57f2d8d`、nested/fallthrough
         switchとbody-throwへの拡張および追加回帰テストは`6646bb8`。

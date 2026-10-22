@@ -273,6 +273,12 @@ struct VerifiedMultipleThrowingBaseDerived :
         case 5:
             tail += 5;
             break;
+        case 6:
+            for (int iteration = 0; iteration < 2; ++iteration) {
+                if (iteration == 1) throw 66;
+                tail += 1;
+            }
+            break;
         default:
             break;
         }
