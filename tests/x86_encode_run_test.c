@@ -105,6 +105,13 @@ static RccX86EncodedFunction encode_function(RccIrFunction* ir)
     return encode_function_for_target(ir, host_target());
 }
 
+static const RccX86EncodedFunction* host_encoded_function(
+    const RccX86EncodedFunction* x86,
+    const RccX86EncodedFunction* x64)
+{
+    return host_target() == RCC_X86_TARGET_X86_64 ? x64 : x86;
+}
+
 static void* map_code(const RccX86EncodedFunction* encoded,
                       size_t* mapping_size);
 
@@ -170,6 +177,7 @@ static void verify_seq_cst_atomic_store(void)
         store_operands, 2u, NULL, 0u);
     RccX86EncodedFunction x86;
     RccX86EncodedFunction x64;
+    const RccX86EncodedFunction* host_encoded;
     size_t mapping_size;
     void* memory;
     void (RCC_TEST_ABI *function)(int*, int);
@@ -183,14 +191,15 @@ static void verify_seq_cst_atomic_store(void)
     x64 = encode_function_for_target(ir, RCC_X86_TARGET_X86_64);
     assert(encoded_has_memory_xchg(&x86));
     assert(encoded_has_memory_xchg(&x64));
-    rcc_x86_encoded_function_release(&x86);
-    memory = map_code(&x64, &mapping_size);
+    host_encoded = host_encoded_function(&x86, &x64);
+    memory = map_code(host_encoded, &mapping_size);
     memcpy(&function, &memory, sizeof(function));
     function(&value, 0x12345678);
     assert(value == 0x12345678);
     function(&value, -137);
     assert(value == -137);
     assert(executable_unmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&x86);
     rcc_x86_encoded_function_release(&x64);
     rcc_ir_module_destroy(module);
 }
@@ -210,6 +219,7 @@ static void verify_atomic_fetch_add(void)
         rmw_operands, 2u, NULL, 0u);
     RccX86EncodedFunction x86;
     RccX86EncodedFunction x64;
+    const RccX86EncodedFunction* host_encoded;
     size_t mapping_size;
     void* memory;
     int (RCC_TEST_ABI *function)(int*, int);
@@ -221,12 +231,13 @@ static void verify_atomic_fetch_add(void)
     x64 = encode_function_for_target(ir, RCC_X86_TARGET_X86_64);
     assert(encoded_has_lock_xadd(&x86));
     assert(encoded_has_lock_xadd(&x64));
-    rcc_x86_encoded_function_release(&x86);
-    memory = map_code(&x64, &mapping_size);
+    host_encoded = host_encoded_function(&x86, &x64);
+    memory = map_code(host_encoded, &mapping_size);
     memcpy(&function, &memory, sizeof(function));
     assert(function(&value, 7) == 12 && value == 19);
     assert(function(&value, -5) == 19 && value == 14);
     assert(executable_unmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&x86);
     rcc_x86_encoded_function_release(&x64);
     rcc_ir_module_destroy(module);
 }
@@ -246,6 +257,7 @@ static void verify_atomic_exchange(void)
         exchange_operands, 2u, NULL, 0u);
     RccX86EncodedFunction x86;
     RccX86EncodedFunction x64;
+    const RccX86EncodedFunction* host_encoded;
     size_t mapping_size;
     void* memory;
     int (RCC_TEST_ABI *function)(int*, int);
@@ -257,12 +269,13 @@ static void verify_atomic_exchange(void)
     x64 = encode_function_for_target(ir, RCC_X86_TARGET_X86_64);
     assert(encoded_has_memory_xchg(&x86));
     assert(encoded_has_memory_xchg(&x64));
-    rcc_x86_encoded_function_release(&x86);
-    memory = map_code(&x64, &mapping_size);
+    host_encoded = host_encoded_function(&x86, &x64);
+    memory = map_code(host_encoded, &mapping_size);
     memcpy(&function, &memory, sizeof(function));
     assert(function(&value, 37) == 12 && value == 37);
     assert(function(&value, -9) == 37 && value == -9);
     assert(executable_unmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&x86);
     rcc_x86_encoded_function_release(&x64);
     rcc_ir_module_destroy(module);
 }
@@ -281,21 +294,22 @@ static void verify_atomic_fetch_add_64(void)
         entry, RCC_IR_ATOMIC_FETCH_ADD, i64,
         rmw_operands, 2u, NULL, 0u);
     RccX86EncodedFunction encoded;
-    size_t mapping_size;
-    void* memory;
-    int64_t (RCC_TEST_ABI *function)(int64_t*, int64_t);
     int64_t value = INT64_C(0x123456789);
     assert(fetch_add != NULL);
     assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
                          &fetch_add->result, 1u, NULL, 0u) != NULL);
     encoded = encode_function_for_target(ir, RCC_X86_TARGET_X86_64);
     assert(encoded_has_lock_xadd(&encoded));
-    memory = map_code(&encoded, &mapping_size);
-    memcpy(&function, &memory, sizeof(function));
-    assert(function(&value, INT64_C(0x234567891)) ==
-           INT64_C(0x123456789));
-    assert(value == INT64_C(0x3579be01a));
-    assert(executable_unmap(memory, mapping_size) == 0);
+    if (host_target() == RCC_X86_TARGET_X86_64) {
+        size_t mapping_size;
+        void* memory = map_code(&encoded, &mapping_size);
+        int64_t (RCC_TEST_ABI *function)(int64_t*, int64_t);
+        memcpy(&function, &memory, sizeof(function));
+        assert(function(&value, INT64_C(0x234567891)) ==
+               INT64_C(0x123456789));
+        assert(value == INT64_C(0x3579be01a));
+        assert(executable_unmap(memory, mapping_size) == 0);
+    }
     rcc_x86_encoded_function_release(&encoded);
     rcc_ir_module_destroy(module);
 }
@@ -315,6 +329,7 @@ static void verify_atomic_fetch_add_8(void)
         rmw_operands, 2u, NULL, 0u);
     RccX86EncodedFunction x86;
     RccX86EncodedFunction x64;
+    const RccX86EncodedFunction* host_encoded;
     size_t mapping_size;
     void* memory;
     uint8_t (RCC_TEST_ABI *function)(uint8_t*, uint8_t);
@@ -326,12 +341,13 @@ static void verify_atomic_fetch_add_8(void)
     x64 = encode_function_for_target(ir, RCC_X86_TARGET_X86_64);
     assert(encoded_has_lock_xadd(&x86));
     assert(encoded_has_lock_xadd(&x64));
-    rcc_x86_encoded_function_release(&x86);
-    memory = map_code(&x64, &mapping_size);
+    host_encoded = host_encoded_function(&x86, &x64);
+    memory = map_code(host_encoded, &mapping_size);
     memcpy(&function, &memory, sizeof(function));
     assert(function(&value, 10u) == 250u && value == 4u);
     assert(function(&value, 3u) == 4u && value == 7u);
     assert(executable_unmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&x86);
     rcc_x86_encoded_function_release(&x64);
     rcc_ir_module_destroy(module);
 }
@@ -351,6 +367,7 @@ static void verify_atomic_fetch_add_16(void)
         rmw_operands, 2u, NULL, 0u);
     RccX86EncodedFunction x86;
     RccX86EncodedFunction x64;
+    const RccX86EncodedFunction* host_encoded;
     size_t mapping_size;
     void* memory;
     uint16_t (RCC_TEST_ABI *function)(uint16_t*, uint16_t);
@@ -362,12 +379,13 @@ static void verify_atomic_fetch_add_16(void)
     x64 = encode_function_for_target(ir, RCC_X86_TARGET_X86_64);
     assert(encoded_has_lock_xadd(&x86));
     assert(encoded_has_lock_xadd(&x64));
-    rcc_x86_encoded_function_release(&x86);
-    memory = map_code(&x64, &mapping_size);
+    host_encoded = host_encoded_function(&x86, &x64);
+    memory = map_code(host_encoded, &mapping_size);
     memcpy(&function, &memory, sizeof(function));
     assert(function(&value, 10u) == UINT16_C(65530) && value == 4u);
     assert(function(&value, 3u) == 4u && value == 7u);
     assert(executable_unmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&x86);
     rcc_x86_encoded_function_release(&x64);
     rcc_ir_module_destroy(module);
 }
@@ -407,18 +425,20 @@ static void verify_atomic_pointer_fetch_add(void)
     void* memory;
     uint32_t values[4] = {0u, 0u, 0u, 0u};
     uint32_t* current = values;
-    uint32_t* (RCC_TEST_ABI *fetch_add)(uint32_t**, uint64_t);
+    uint32_t* (RCC_TEST_ABI *fetch_add)(uint32_t**, uintptr_t);
+    const RccX86EncodedFunction* host_encoded;
     assert(encoded_has_lock_xadd(&x86));
     assert(encoded_has_lock_xadd(&x64));
-    rcc_x86_encoded_function_release(&x86);
-    memory = map_code(&x64, &mapping_size);
+    host_encoded = host_encoded_function(&x86, &x64);
+    memory = map_code(host_encoded, &mapping_size);
     memcpy(&fetch_add, &memory, sizeof(fetch_add));
-    assert(fetch_add(&current, sizeof(uint32_t) * 2u) == values);
+    assert(fetch_add(&current, (uintptr_t)(sizeof(uint32_t) * 2u)) == values);
     assert(current == values + 2u);
-    assert(fetch_add(&current, 0u - (uint64_t)sizeof(uint32_t)) ==
+    assert(fetch_add(&current, (uintptr_t)0u - (uintptr_t)sizeof(uint32_t)) ==
            values + 2u);
     assert(current == values + 1u);
     assert(executable_unmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&x86);
     rcc_x86_encoded_function_release(&x64);
 }
 
