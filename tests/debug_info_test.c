@@ -8469,16 +8469,18 @@ static void verify_inline_unsigned_add_expression(
     }
 }
 
-static void verify_inline_unsigned_arithmetic_two_variables_expression(
+typedef struct InlineU64Pair {
+    uint64_t left;
+    uint64_t right;
+} InlineU64Pair;
+
+static void verify_inline_u64_arithmetic_two_variables_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* left_source_name,
     const char* right_source_name, int64_t left_frame_offset,
-    bool is_subtract) {
-    static const struct {
-        uint64_t left;
-        uint64_t right;
-    } values[] = {
+    bool is_unsigned, bool is_subtract) {
+    static const InlineU64Pair unsigned_values[] = {
         {0u, 0u},
         {1u, 0u},
         {0u, 1u},
@@ -8488,6 +8490,21 @@ static void verify_inline_unsigned_arithmetic_two_variables_expression(
         {UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000001)},
         {UINT64_MAX, 1u}
     };
+    static const InlineU64Pair signed_values[] = {
+        {0u, 0u},
+        {1u, 0u},
+        {0u, 1u},
+        {UINT64_C(0xffffffff), 1u},
+        {UINT64_C(0xffffffff), UINT64_C(0xffffffff)},
+        {UINT64_C(0x100000000), UINT64_C(0xffffffff)},
+        {UINT64_C(0x7fffffffffffffff), 0u},
+        {UINT64_C(0x8000000000000000), 0u},
+        {UINT64_C(0x8000000000000001), 1u}
+    };
+    const InlineU64Pair* values = is_unsigned ? unsigned_values : signed_values;
+    size_t value_count = is_unsigned
+        ? sizeof(unsigned_values) / sizeof(unsigned_values[0])
+        : sizeof(signed_values) / sizeof(signed_values[0]);
     const uint64_t sign_bit = UINT64_C(0x80000000);
     uint64_t offset = expression_start;
     int64_t right_frame_offset;
@@ -8569,8 +8586,7 @@ static void verify_inline_unsigned_arithmetic_two_variables_expression(
     assert(has_variable_location &&
            variable_frame_offset == right_frame_offset);
 
-    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
-         ++index) {
+    for (size_t index = 0u; index < value_count; ++index) {
         uint64_t left = values[index].left;
         uint64_t right = values[index].right;
         uint32_t left_low = (uint32_t)left;
@@ -8587,16 +8603,13 @@ static void verify_inline_unsigned_arithmetic_two_variables_expression(
     }
 }
 
-static void verify_inline_unsigned_bitwise_two_variables_expression(
+static void verify_inline_u64_bitwise_two_variables_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* left_source_name,
     const char* right_source_name, int64_t left_frame_offset,
     uint8_t operation) {
-    static const struct {
-        uint64_t left;
-        uint64_t right;
-    } values[] = {
+    static const InlineU64Pair values[] = {
         {0u, 0u},
         {1u, 0u},
         {0u, 1u},
@@ -8669,7 +8682,7 @@ static void verify_inline_unsigned_bitwise_two_variables_expression(
     }
 }
 
-static uint64_t evaluate_inline_unsigned_u64_mul_two_variables_expression(
+static uint64_t evaluate_inline_u64_mul_two_variables_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     int64_t left_frame_offset, int64_t right_frame_offset,
     uint64_t left_value, uint64_t right_value) {
@@ -8739,15 +8752,13 @@ static uint64_t evaluate_inline_unsigned_u64_mul_two_variables_expression(
     return result;
 }
 
-static void verify_inline_unsigned_mul_two_variables_expression(
+static void verify_inline_u64_mul_two_variables_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* left_source_name,
-    const char* right_source_name, int64_t left_frame_offset) {
-    static const struct {
-        uint64_t left;
-        uint64_t right;
-    } values[] = {
+    const char* right_source_name, int64_t left_frame_offset,
+    bool is_unsigned) {
+    static const InlineU64Pair unsigned_values[] = {
         {0u, 0u},
         {1u, UINT64_MAX},
         {UINT64_C(0xffffffff), 1u},
@@ -8757,6 +8768,20 @@ static void verify_inline_unsigned_mul_two_variables_expression(
         {UINT64_MAX, UINT64_MAX},
         {UINT64_MAX, 2u}
     };
+    static const InlineU64Pair signed_values[] = {
+        {0u, 0u},
+        {1u, UINT64_MAX},
+        {UINT64_MAX, 1u},
+        {2u, 3u},
+        {UINT64_MAX, 2u},
+        {UINT64_C(0x8000000000000000), 1u},
+        {UINT64_C(0x7fffffffffffffff), 1u},
+        {UINT64_C(0x8000000000000000), 0u}
+    };
+    const InlineU64Pair* values = is_unsigned ? unsigned_values : signed_values;
+    size_t value_count = is_unsigned
+        ? sizeof(unsigned_values) / sizeof(unsigned_values[0])
+        : sizeof(signed_values) / sizeof(signed_values[0]);
     bool has_variable_location;
     bool variable_is_location_list;
     int64_t left_location_offset;
@@ -8777,10 +8802,9 @@ static void verify_inline_unsigned_mul_two_variables_expression(
     assert(has_variable_location && right_location_offset <= INT64_MAX - 4);
     right_frame_offset = right_location_offset;
 
-    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
-         ++index) {
+    for (size_t index = 0u; index < value_count; ++index) {
         uint64_t actual =
-            evaluate_inline_unsigned_u64_mul_two_variables_expression(
+            evaluate_inline_u64_mul_two_variables_expression(
                 data, expression_end, expression_start, left_frame_offset,
                 right_frame_offset, values[index].left, values[index].right);
         assert(actual == values[index].left * values[index].right);
@@ -9178,22 +9202,37 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
-    const char* call_site_name = expected_operation == 0xf8u
-        ? "debug_inline_nonconstant_unsigned_long_long_add_two_variables_entry"
-        : expected_operation == 0xf7u
-            ? "debug_inline_nonconstant_unsigned_long_long_sub_two_variables_entry"
-            : expected_operation == 0xf6u
-                ? "debug_inline_nonconstant_unsigned_long_long_and_two_variables_entry"
-                : expected_operation == 0xf5u
-                    ? "debug_inline_nonconstant_unsigned_long_long_or_two_variables_entry"
-                    : expected_operation == 0xf4u
-                        ? "debug_inline_nonconstant_unsigned_long_long_xor_two_variables_entry"
-                        : expected_operation == 0xf3u
-                            ? "debug_inline_nonconstant_unsigned_long_long_mul_two_variables_entry"
-                            : "debug_inline_nonconstant_integer_entry";
+    const char* call_site_name = expected_operation == 0xe9u
+        ? "debug_inline_nonconstant_signed_long_long_add_two_variables_entry"
+        : expected_operation == 0xe8u
+            ? "debug_inline_nonconstant_signed_long_long_sub_two_variables_entry"
+            : expected_operation == 0xe7u
+                ? "debug_inline_nonconstant_signed_long_long_and_two_variables_entry"
+                : expected_operation == 0xe6u
+                    ? "debug_inline_nonconstant_signed_long_long_or_two_variables_entry"
+                    : expected_operation == 0xe5u
+                        ? "debug_inline_nonconstant_signed_long_long_xor_two_variables_entry"
+                        : expected_operation == 0xe4u
+                            ? "debug_inline_nonconstant_signed_long_long_mul_two_variables_entry"
+                            : expected_operation == 0xf8u
+                                ? "debug_inline_nonconstant_unsigned_long_long_add_two_variables_entry"
+                                : expected_operation == 0xf7u
+                                    ? "debug_inline_nonconstant_unsigned_long_long_sub_two_variables_entry"
+                                    : expected_operation == 0xf6u
+                                        ? "debug_inline_nonconstant_unsigned_long_long_and_two_variables_entry"
+                                        : expected_operation == 0xf5u
+                                            ? "debug_inline_nonconstant_unsigned_long_long_or_two_variables_entry"
+                                            : expected_operation == 0xf4u
+                                                ? "debug_inline_nonconstant_unsigned_long_long_xor_two_variables_entry"
+                                                : expected_operation == 0xf3u
+                                                    ? "debug_inline_nonconstant_unsigned_long_long_mul_two_variables_entry"
+                                                    : "debug_inline_nonconstant_integer_entry";
     assert(object != NULL && object->arch == architecture && inline_name &&
            source_name &&
-           (expected_operation == 0xf3u || expected_operation == 0xf4u ||
+           (expected_operation == 0xe4u || expected_operation == 0xe5u ||
+            expected_operation == 0xe6u || expected_operation == 0xe7u ||
+            expected_operation == 0xe8u || expected_operation == 0xe9u ||
+            expected_operation == 0xf3u || expected_operation == 0xf4u ||
             expected_operation == 0xf5u ||
             expected_operation == 0xf6u || expected_operation == 0xf7u ||
             expected_operation == 0xf8u ||
@@ -9319,35 +9358,49 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (expected_operation == 0xf8u || expected_operation == 0xf7u) {
-        assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
-               divisor_source_name && expected_constant == 0);
-        verify_inline_unsigned_arithmetic_two_variables_expression(
+    if (expected_operation == 0xf8u || expected_operation == 0xf7u ||
+        expected_operation == 0xe9u || expected_operation == 0xe8u) {
+        bool expected_unsigned = expected_operation == 0xf8u ||
+            expected_operation == 0xf7u;
+        assert(architecture == ARCH_X86 && is_unsigned == expected_unsigned &&
+               value_size == 8u && divisor_source_name &&
+               expected_constant == 0);
+        verify_inline_u64_arithmetic_two_variables_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, divisor_source_name, frame_offset,
-            expected_operation == 0xf7u);
+            is_unsigned,
+            expected_operation == 0xf7u || expected_operation == 0xe8u);
         objfile_free(object);
         return;
     }
     if (expected_operation == 0xf6u || expected_operation == 0xf5u ||
-        expected_operation == 0xf4u) {
-        uint8_t operation = expected_operation == 0xf6u ? 0x1au
-            : expected_operation == 0xf5u ? 0x21u : 0x27u;
-        assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
-               divisor_source_name && expected_constant == 0);
-        verify_inline_unsigned_bitwise_two_variables_expression(
+        expected_operation == 0xf4u || expected_operation == 0xe7u ||
+        expected_operation == 0xe6u || expected_operation == 0xe5u) {
+        bool expected_unsigned = expected_operation == 0xf6u ||
+            expected_operation == 0xf5u || expected_operation == 0xf4u;
+        uint8_t operation = expected_operation == 0xf6u ||
+            expected_operation == 0xe7u ? 0x1au
+            : expected_operation == 0xf5u || expected_operation == 0xe6u
+                ? 0x21u : 0x27u;
+        assert(architecture == ARCH_X86 && is_unsigned == expected_unsigned &&
+               value_size == 8u && divisor_source_name &&
+               expected_constant == 0);
+        verify_inline_u64_bitwise_two_variables_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, divisor_source_name, frame_offset,
             operation);
         objfile_free(object);
         return;
     }
-    if (expected_operation == 0xf3u) {
-        assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
-               divisor_source_name && expected_constant == 0);
-        verify_inline_unsigned_mul_two_variables_expression(
+    if (expected_operation == 0xf3u || expected_operation == 0xe4u) {
+        bool expected_unsigned = expected_operation == 0xf3u;
+        assert(architecture == ARCH_X86 && is_unsigned == expected_unsigned &&
+               value_size == 8u && divisor_source_name &&
+               expected_constant == 0);
+        verify_inline_u64_mul_two_variables_expression(
             info->data, expression_end, expression_start, info, strings,
-            locations, source_name, divisor_source_name, frame_offset);
+            locations, source_name, divisor_source_name, frame_offset,
+            is_unsigned);
         objfile_free(object);
         return;
     }
@@ -9574,6 +9627,36 @@ static void verify_inline_integer_expression_cases(
          true, 8u,
          0xf3u, 0,
          "debug_inline_nonconstant_unsigned_long_long_mul_rhs_source", false},
+        {"debug_nonconstant_signed_long_long_add_two_variables_inline",
+         "debug_inline_nonconstant_signed_long_long_add_left_source",
+         false, 8u,
+         0xe9u, 0,
+         "debug_inline_nonconstant_signed_long_long_add_rhs_source", false},
+        {"debug_nonconstant_signed_long_long_sub_two_variables_inline",
+         "debug_inline_nonconstant_signed_long_long_sub_left_source",
+         false, 8u,
+         0xe8u, 0,
+         "debug_inline_nonconstant_signed_long_long_sub_rhs_source", false},
+        {"debug_nonconstant_signed_long_long_and_two_variables_inline",
+         "debug_inline_nonconstant_signed_long_long_and_left_source",
+         false, 8u,
+         0xe7u, 0,
+         "debug_inline_nonconstant_signed_long_long_and_rhs_source", false},
+        {"debug_nonconstant_signed_long_long_or_two_variables_inline",
+         "debug_inline_nonconstant_signed_long_long_or_left_source",
+         false, 8u,
+         0xe6u, 0,
+         "debug_inline_nonconstant_signed_long_long_or_rhs_source", false},
+        {"debug_nonconstant_signed_long_long_xor_two_variables_inline",
+         "debug_inline_nonconstant_signed_long_long_xor_left_source",
+         false, 8u,
+         0xe5u, 0,
+         "debug_inline_nonconstant_signed_long_long_xor_rhs_source", false},
+        {"debug_nonconstant_signed_long_long_mul_two_variables_inline",
+         "debug_inline_nonconstant_signed_long_long_mul_left_source",
+         false, 8u,
+         0xe4u, 0,
+         "debug_inline_nonconstant_signed_long_long_mul_rhs_source", false},
         {"debug_nonconstant_unsigned_long_long_multiply_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0xfau, INT64_C(0x0f0ff0f00ff00ff0), NULL, false},
@@ -9604,7 +9687,13 @@ static void verify_inline_integer_expression_cases(
             (cases[index].operation == 0x1au ||
              cases[index].operation == 0x21u ||
              cases[index].operation == 0x27u);
-        if ((cases[index].operation == 0xfeu ||
+        if ((cases[index].operation == 0xe4u ||
+             cases[index].operation == 0xe5u ||
+             cases[index].operation == 0xe6u ||
+             cases[index].operation == 0xe7u ||
+             cases[index].operation == 0xe8u ||
+             cases[index].operation == 0xe9u ||
+             cases[index].operation == 0xfeu ||
              cases[index].operation == 0xfdu ||
              cases[index].operation == 0xfcu ||
              cases[index].operation == 0xfbu ||
@@ -9618,6 +9707,12 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xfau) && architecture != ARCH_X86)
             continue;
         if (cases[index].value_size > address_size &&
+            cases[index].operation != 0xe4u &&
+            cases[index].operation != 0xe5u &&
+            cases[index].operation != 0xe6u &&
+            cases[index].operation != 0xe7u &&
+            cases[index].operation != 0xe8u &&
+            cases[index].operation != 0xe9u &&
             cases[index].operation != 0xfeu &&
             cases[index].operation != 0xfdu &&
             cases[index].operation != 0xfcu &&

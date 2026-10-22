@@ -8427,3 +8427,14 @@ remains a separate open item.
       pass.
 - [ ] i686 unsigned 64-bit division/remainder with nonconstant operands,
       and broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
+
+- [x] Preserve frame-backed i686 signed `long long` addition, subtraction,
+      AND, OR, XOR, and multiplication between two variables as exact low/high
+      four-byte `DW_OP_piece` values. The regression checks both source frame
+      locations and evaluates emitted expressions over signed-safe boundary
+      operands in legacy and verified-backend objects. Focused and full
+      native-Windows debug-info test gates pass.
+- [ ] Nonconstant i686 64-bit division/remainder and broader optimized
+      multi-piece locations remain open.
