@@ -5620,7 +5620,7 @@ static bool debug_inline_parameter_i686_unsigned_u64_add_expression(
     return true;
 }
 
-static bool debug_inline_parameter_i686_unsigned_u64_add_variables_expression(
+static bool debug_inline_parameter_i686_unsigned_u64_variables_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size) {
@@ -5632,12 +5632,16 @@ static bool debug_inline_parameter_i686_unsigned_u64_add_variables_expression(
     int64_t right_frame_offset;
     size_t size = 0u;
     const uint64_t sign_bit = UINT64_C(0x80000000);
+    bool is_subtract;
     if (!mod || !parameter_type || !source_expression || !expression ||
-        !expression_size || source_expression->kind != EXPR_ADD ||
+        !expression_size ||
+        (source_expression->kind != EXPR_ADD &&
+         source_expression->kind != EXPR_SUB) ||
         !parameter_type->is_unsigned || parameter_type->size != 8u ||
         !source_expression->binary_lhs || !source_expression->binary_rhs) {
         return false;
     }
+    is_subtract = source_expression->kind == EXPR_SUB;
     left_expression = source_expression->binary_lhs;
     right_expression = source_expression->binary_rhs;
     if (left_expression->kind != EXPR_IDENT ||
@@ -5671,14 +5675,13 @@ static bool debug_inline_parameter_i686_unsigned_u64_add_variables_expression(
         return false;
     }
 
-    /* Emit the low sum, then compare it with the left low word using a
-       sign-bit-flipped signed comparison to derive the unsigned carry. */
+    /* Emit the low word and the high-word base before deriving carry/borrow. */
     if (!debug_inline_integer_expression_append_frame_u32(
             expression, capacity, &size, ARCH_X86, left_frame_offset) ||
         !debug_inline_integer_expression_append_frame_u32(
             expression, capacity, &size, ARCH_X86, right_frame_offset) ||
         !debug_inline_integer_expression_append_byte(
-            expression, capacity, &size, 0x22u) || /* low sum */
+            expression, capacity, &size, is_subtract ? 0x1cu : 0x22u) ||
         !debug_inline_integer_expression_append_byte(
             expression, capacity, &size, 0x9fu) || /* stack_value */
         !debug_inline_integer_expression_append_byte(
@@ -5690,32 +5693,59 @@ static bool debug_inline_parameter_i686_unsigned_u64_add_variables_expression(
         !debug_inline_integer_expression_append_frame_u32(
             expression, capacity, &size, ARCH_X86, right_frame_offset + 4) ||
         !debug_inline_integer_expression_append_byte(
-            expression, capacity, &size, 0x22u) || /* high base */
-        !debug_inline_integer_expression_append_frame_u32(
-            expression, capacity, &size, ARCH_X86, left_frame_offset) ||
-        !debug_inline_integer_expression_append_frame_u32(
-            expression, capacity, &size, ARCH_X86, right_frame_offset) ||
-        !debug_inline_integer_expression_append_byte(
-            expression, capacity, &size, 0x22u) || /* wrapped low sum */
-        !debug_inline_integer_expression_append_frame_u32(
-            expression, capacity, &size, ARCH_X86, left_frame_offset) ||
-        !debug_inline_integer_expression_append_constu(
-            expression, capacity, &size, sign_bit) ||
-        !debug_inline_integer_expression_append_byte(
-            expression, capacity, &size, 0x27u) || /* left low ^ sign */
-        !debug_inline_integer_expression_append_byte(
-            expression, capacity, &size, 0x16u) || /* swap */
-        !debug_inline_integer_expression_append_constu(
-            expression, capacity, &size, sign_bit) ||
-        !debug_inline_integer_expression_append_byte(
-            expression, capacity, &size, 0x27u) || /* sum ^ sign */
-        !debug_inline_integer_expression_append_byte(
-            expression, capacity, &size, 0x16u) || /* swap */
-        !debug_inline_integer_expression_append_byte(
-            expression, capacity, &size, 0x2du) || /* DW_OP_lt */
-        !debug_inline_integer_expression_append_byte(
-            expression, capacity, &size, 0x22u) || /* add carry */
-        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, is_subtract ? 0x1cu : 0x22u)) {
+        return false;
+    }
+    if (is_subtract) {
+        /* lhs.low < rhs.low, comparing unsigned words via sign-bit flipping. */
+        if (!debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, &size, ARCH_X86, left_frame_offset) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, sign_bit) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x27u) || /* lhs low ^ sign */
+            !debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, &size, ARCH_X86, right_frame_offset) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, sign_bit) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x27u) || /* rhs low ^ sign */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x2du) || /* DW_OP_lt */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1cu)) { /* subtract borrow */
+            return false;
+        }
+    } else {
+        /* Compare the wrapped low sum with lhs.low to derive unsigned carry. */
+        if (!debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, &size, ARCH_X86, left_frame_offset) ||
+            !debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, &size, ARCH_X86, right_frame_offset) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x22u) || /* wrapped low sum */
+            !debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, &size, ARCH_X86, left_frame_offset) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, sign_bit) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x27u) || /* left low ^ sign */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x16u) || /* swap */
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, sign_bit) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x27u) || /* sum ^ sign */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x16u) || /* swap */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x2du) || /* DW_OP_lt */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x22u)) { /* add carry */
+            return false;
+        }
+    }
+    if (!debug_inline_integer_expression_append_byte(
             expression, capacity, &size, 0x9fu) || /* stack_value */
         !debug_inline_integer_expression_append_byte(
             expression, capacity, &size, 0x93u) || /* DW_OP_piece */
@@ -6287,8 +6317,9 @@ static bool debug_inline_parameter_integer_expression(
 
     if (architecture == ARCH_X86 && parameter_type->is_unsigned &&
         (unsigned int)parameter_type->size == 8u &&
-        source_expression->kind == EXPR_ADD &&
-        debug_inline_parameter_i686_unsigned_u64_add_variables_expression(
+        (source_expression->kind == EXPR_ADD ||
+         source_expression->kind == EXPR_SUB) &&
+        debug_inline_parameter_i686_unsigned_u64_variables_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
             expression_size)) {

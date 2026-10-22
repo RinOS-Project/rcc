@@ -8407,6 +8407,12 @@ remains a separate open item.
       opcodes, both source frame slots, piece widths, and eight carry/wrap
       patterns in legacy and verified-backend objects; the focused and full
       native-Windows debug-info gates pass.
+- [x] Preserve i686 unsigned 64-bit subtraction between two frame-backed
+      locals as low/high four-byte pieces. Derive the low-word borrow with a
+      sign-bit-flipped unsigned comparison and subtract it from the high-word
+      difference. Verify exact opcodes, both source frame slots, piece widths,
+      and eight borrow/wrap patterns in legacy and verified-backend objects;
+      the focused and full native-Windows debug-info gates pass.
 - [ ] i686 unsigned 64-bit division/remainder with nonconstant operands,
       multiplication by another runtime value, and broader optimized
       multi-piece locations remain open.

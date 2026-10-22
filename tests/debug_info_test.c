@@ -8469,11 +8469,12 @@ static void verify_inline_unsigned_add_expression(
     }
 }
 
-static void verify_inline_unsigned_add_two_variables_expression(
+static void verify_inline_unsigned_arithmetic_two_variables_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* left_source_name,
-    const char* right_source_name, int64_t left_frame_offset) {
+    const char* right_source_name, int64_t left_frame_offset,
+    bool is_subtract) {
     static const struct {
         uint64_t left;
         uint64_t right;
@@ -8506,7 +8507,8 @@ static void verify_inline_unsigned_add_two_variables_expression(
         data, expression_end, &offset, left_frame_offset);
     verify_inline_expression_frame_u32(
         data, expression_end, &offset, right_frame_offset);
-    verify_inline_expression_byte(data, expression_end, &offset, 0x22u);
+    verify_inline_expression_byte(
+        data, expression_end, &offset, is_subtract ? 0x1cu : 0x22u);
     verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
     verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
     assert(read_uleb(data, expression_end, &offset) == 4u);
@@ -8515,22 +8517,40 @@ static void verify_inline_unsigned_add_two_variables_expression(
         data, expression_end, &offset, left_frame_offset + 4);
     verify_inline_expression_frame_u32(
         data, expression_end, &offset, right_frame_offset + 4);
-    verify_inline_expression_byte(data, expression_end, &offset, 0x22u);
-    verify_inline_expression_frame_u32(
-        data, expression_end, &offset, left_frame_offset);
-    verify_inline_expression_frame_u32(
-        data, expression_end, &offset, right_frame_offset);
-    verify_inline_expression_byte(data, expression_end, &offset, 0x22u);
-    verify_inline_expression_frame_u32(
-        data, expression_end, &offset, left_frame_offset);
-    verify_inline_expression_constu(data, expression_end, &offset, sign_bit);
-    verify_inline_expression_byte(data, expression_end, &offset, 0x27u);
-    verify_inline_expression_byte(data, expression_end, &offset, 0x16u);
-    verify_inline_expression_constu(data, expression_end, &offset, sign_bit);
-    verify_inline_expression_byte(data, expression_end, &offset, 0x27u);
-    verify_inline_expression_byte(data, expression_end, &offset, 0x16u);
-    verify_inline_expression_byte(data, expression_end, &offset, 0x2du);
-    verify_inline_expression_byte(data, expression_end, &offset, 0x22u);
+    verify_inline_expression_byte(
+        data, expression_end, &offset, is_subtract ? 0x1cu : 0x22u);
+    if (is_subtract) {
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, left_frame_offset);
+        verify_inline_expression_constu(data, expression_end, &offset,
+                                       sign_bit);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x27u);
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, right_frame_offset);
+        verify_inline_expression_constu(data, expression_end, &offset,
+                                       sign_bit);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x27u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x2du);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x1cu);
+    } else {
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, left_frame_offset);
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, right_frame_offset);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x22u);
+        verify_inline_expression_frame_u32(
+            data, expression_end, &offset, left_frame_offset);
+        verify_inline_expression_constu(data, expression_end, &offset,
+                                       sign_bit);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x27u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x16u);
+        verify_inline_expression_constu(data, expression_end, &offset,
+                                       sign_bit);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x27u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x16u);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x2du);
+        verify_inline_expression_byte(data, expression_end, &offset, 0x22u);
+    }
     verify_inline_expression_byte(data, expression_end, &offset, 0x9fu);
     verify_inline_expression_byte(data, expression_end, &offset, 0x93u);
     assert(read_uleb(data, expression_end, &offset) == 4u);
@@ -8553,12 +8573,17 @@ static void verify_inline_unsigned_add_two_variables_expression(
          ++index) {
         uint64_t left = values[index].left;
         uint64_t right = values[index].right;
-        uint64_t low_sum = (uint64_t)(uint32_t)left + (uint32_t)right;
-        uint32_t low_result = (uint32_t)low_sum;
-        uint32_t high_result = (uint32_t)(left >> 32u) +
-            (uint32_t)(right >> 32u) + (uint32_t)(low_sum >> 32u);
+        uint32_t left_low = (uint32_t)left;
+        uint32_t right_low = (uint32_t)right;
+        uint32_t low_result = is_subtract
+            ? left_low - right_low : left_low + right_low;
+        uint32_t high_result = is_subtract
+            ? (uint32_t)(left >> 32u) - (uint32_t)(right >> 32u) -
+                (uint32_t)(left_low < right_low)
+            : (uint32_t)(left >> 32u) + (uint32_t)(right >> 32u) +
+                (uint32_t)(((uint64_t)left_low + right_low) >> 32u);
         uint64_t actual = ((uint64_t)high_result << 32u) | low_result;
-        assert(actual == left + right);
+        assert(actual == (is_subtract ? left - right : left + right));
     }
 }
 
@@ -8955,10 +8980,13 @@ static void verify_inline_integer_expression_parameter(
     bool divisor_is_location_list = false;
     const char* call_site_name = expected_operation == 0xf8u
         ? "debug_inline_nonconstant_unsigned_long_long_add_two_variables_entry"
-        : "debug_inline_nonconstant_integer_entry";
+        : expected_operation == 0xf7u
+            ? "debug_inline_nonconstant_unsigned_long_long_sub_two_variables_entry"
+            : "debug_inline_nonconstant_integer_entry";
     assert(object != NULL && object->arch == architecture && inline_name &&
            source_name &&
-           (expected_operation == 0xf8u || expected_operation == 0xf9u ||
+           (expected_operation == 0xf7u || expected_operation == 0xf8u ||
+            expected_operation == 0xf9u ||
             expected_operation == 0xfau ||
             expected_operation == 0x22u || expected_operation == 0x1cu ||
             expected_operation == 0x1eu || expected_operation == 0x1fu ||
@@ -9080,12 +9108,13 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (expected_operation == 0xf8u) {
+    if (expected_operation == 0xf8u || expected_operation == 0xf7u) {
         assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
                divisor_source_name && expected_constant == 0);
-        verify_inline_unsigned_add_two_variables_expression(
+        verify_inline_unsigned_arithmetic_two_variables_expression(
             info->data, expression_end, expression_start, info, strings,
-            locations, source_name, divisor_source_name, frame_offset);
+            locations, source_name, divisor_source_name, frame_offset,
+            expected_operation == 0xf7u);
         objfile_free(object);
         return;
     }
@@ -9287,6 +9316,11 @@ static void verify_inline_integer_expression_cases(
          true, 8u,
          0xf8u, 0,
          "debug_inline_nonconstant_unsigned_long_long_rhs_source", false},
+        {"debug_nonconstant_unsigned_long_long_sub_two_variables_inline",
+         "debug_inline_nonconstant_unsigned_long_long_sub_left_source",
+         true, 8u,
+         0xf7u, 0,
+         "debug_inline_nonconstant_unsigned_long_long_sub_rhs_source", false},
         {"debug_nonconstant_unsigned_long_long_multiply_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0xfau, INT64_C(0x0f0ff0f00ff00ff0), NULL, false},
@@ -9321,6 +9355,7 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xfdu ||
              cases[index].operation == 0xfcu ||
              cases[index].operation == 0xfbu ||
+             cases[index].operation == 0xf7u ||
              cases[index].operation == 0xf8u ||
              cases[index].operation == 0xf9u ||
              cases[index].operation == 0xfau) && architecture != ARCH_X86)
@@ -9330,6 +9365,7 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xfdu &&
             cases[index].operation != 0xfcu &&
             cases[index].operation != 0xfbu &&
+            cases[index].operation != 0xf7u &&
             cases[index].operation != 0xf8u &&
             cases[index].operation != 0xf9u &&
             cases[index].operation != 0xfau && !i686_u64_bitwise) continue;
