@@ -8709,9 +8709,15 @@ remains a separate open item.
       and `%4294967295` in legacy and verified output. Native-Windows and Linux
       focused inline-expression tests, Linux full `test-debug-info`, and GCC
       ASan/UBSan full `test-debug-info` pass.
-- [ ] Constant divisors above `UINT32_MAX`, variable i686 64-bit divisors,
-      signed 64-bit division/remainder, non-frame-backed operands, and broader
-      optimized multi-piece locations remain open.
+- [x] Preserve frame-backed i686 unsigned 64-bit division/remainder by
+      power-of-two constants from `2^32` through `2^62` as exact low/high
+      `DW_OP_piece` values. Verify division and remainder at `2^32`, division
+      at `2^40`, remainder at `2^62`, and ten full-width boundary dividends in
+      legacy and verified output. Focused and full native-Windows
+      `test-debug-info` pass.
+- [ ] Other constant divisors above `UINT32_MAX`, variable i686 64-bit
+      divisors, signed 64-bit division/remainder, non-frame-backed operands,
+      and broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-23, Windows MinGW structural NTTP host ABI)
 

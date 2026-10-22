@@ -8295,23 +8295,24 @@ static unsigned int inline_i686_u64_constant_division_chunk_width(
 
 static uint64_t evaluate_inline_i686_u64_constant_division(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_offset,
-    int64_t source_frame_offset, uint64_t dividend, uint32_t divisor) {
+    int64_t source_frame_offset, uint64_t dividend, uint64_t divisor) {
     uint32_t stack[128];
     size_t stack_size = 0u;
     int64_t pending_frame_offset = 0;
     bool has_pending_frame_offset = false;
     uint64_t result = 0u;
     unsigned int piece_count = 0u;
-    unsigned int chunk_width =
-        inline_i686_u64_constant_division_chunk_width(divisor);
-    unsigned int chunk_count = (64u + chunk_width - 1u) / chunk_width;
+    unsigned int chunk_width = divisor <= UINT32_MAX
+        ? inline_i686_u64_constant_division_chunk_width((uint32_t)divisor)
+        : 1u;
+    unsigned int chunk_count = divisor <= UINT32_MAX
+        ? (64u + chunk_width - 1u) / chunk_width : 1u;
     size_t expected_stack_size =
         expression_offset + 1u < expression_end &&
         data[expression_offset] == 0x10u &&
         data[expression_offset + 1u] == 0u
         ? chunk_count + 1u : 1u;
-    assert(divisor != 0u && divisor <= UINT32_MAX &&
-           source_frame_offset <= INT64_MAX - 6);
+    assert(divisor != 0u && source_frame_offset <= INT64_MAX - 6);
     while (expression_offset < expression_end) {
         uint8_t opcode = data[expression_offset++];
         if (opcode == 0x75u) { /* DW_OP_breg5 */
@@ -8435,9 +8436,10 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
         } else if (opcode == 0x9fu) { /* DW_OP_stack_value */
             if (stack_size != expected_stack_size) {
                 fprintf(stderr,
-                        "i686 u64 divmod stack mismatch: divisor=%u "
+                        "i686 u64 divmod stack mismatch: divisor=%llu "
                         "stack=%zu expected=%zu pieces=%u\n",
-                        divisor, stack_size, expected_stack_size,
+                        (unsigned long long)divisor, stack_size,
+                        expected_stack_size,
                         piece_count);
             }
             assert(stack_size == expected_stack_size);
@@ -8461,7 +8463,7 @@ static void verify_inline_i686_u64_constant_division_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* source_name,
-    uint32_t divisor, bool remainder) {
+    uint64_t divisor, bool remainder) {
     static const uint64_t values[] = {
         0u, 1u, 2u, 3u, 4u, UINT64_C(0xffffffff),
         UINT64_C(0x100000000), UINT64_C(0x7fffffffffffffff),
@@ -8472,7 +8474,7 @@ static void verify_inline_i686_u64_constant_division_expression(
     bool variable_is_location_list;
     int64_t variable_frame_offset;
     int64_t source_frame_offset;
-    assert(source_name && divisor != 0u && divisor <= UINT32_MAX);
+    assert(source_name && divisor != 0u);
     assert(find_variable_location(
         info, strings, locations, source_name, ARCH_X86,
         &has_variable_location, &variable_is_location_list,
@@ -8489,10 +8491,11 @@ static void verify_inline_i686_u64_constant_division_expression(
             ? values[index] % divisor : values[index] / divisor;
         if (actual != expected) {
             fprintf(stderr,
-                    "i686 u64 %s mismatch: value=%#llx divisor=%u "
+                    "i686 u64 %s mismatch: value=%#llx divisor=%llu "
                     "actual=%#llx expected=%#llx\n",
                     remainder ? "remainder" : "divide",
-                    (unsigned long long)values[index], divisor,
+                    (unsigned long long)values[index],
+                    (unsigned long long)divisor,
                     (unsigned long long)actual,
                     (unsigned long long)expected);
         }
@@ -10086,12 +10089,12 @@ static void verify_inline_integer_expression_parameter(
     assert(expression_end <= info->size && expression_size > 0u);
     if (architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
         !divisor_source_name && expected_constant > 0 &&
-        expected_constant <= INT64_C(4294967295) &&
+        expected_constant <= INT64_MAX &&
         (expected_operation == 0x1bu || expected_operation == 0x1du ||
          (expected_operation >= 0xdau && expected_operation <= 0xdfu))) {
         verify_inline_i686_u64_constant_division_expression(
             info->data, expression_end, expression_start, info, strings,
-            locations, source_name, (uint32_t)expected_constant,
+            locations, source_name, (uint64_t)expected_constant,
             expected_operation == 0x1du || expected_operation == 0xdbu ||
             expected_operation == 0xddu || expected_operation == 0xdfu);
         objfile_free(object);
@@ -10476,6 +10479,18 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_unsigned_long_long_u32_remainder_inline",
          "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
          0xdfu, INT64_C(4294967295), NULL, true},
+        {"debug_nonconstant_unsigned_long_long_power_divide_inline",
+         "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
+         0xdau, INT64_C(4294967296), NULL, true},
+        {"debug_nonconstant_unsigned_long_long_power_remainder_inline",
+         "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
+         0xdbu, INT64_C(4294967296), NULL, true},
+        {"debug_nonconstant_unsigned_long_long_wide_power_divide_inline",
+         "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
+         0xdau, INT64_C(1099511627776), NULL, true},
+        {"debug_nonconstant_unsigned_long_long_wide_power_remainder_inline",
+         "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
+         0xdbu, INT64_C(4611686018427387904), NULL, true},
         {"debug_nonconstant_unsigned_long_long_high_divide_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0x1bu, 0,

@@ -298,10 +298,28 @@ int debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry(int value)
         debug_nonconstant_unsigned_long_long_u32_remainder_inline(
             debug_inline_nonconstant_unsigned_long_long_wide_source %
                 4294967295ull);
+    int divided_power =
+        debug_nonconstant_unsigned_long_long_power_divide_inline(
+            debug_inline_nonconstant_unsigned_long_long_wide_source /
+                4294967296ull);
+    int remainder_power =
+        debug_nonconstant_unsigned_long_long_power_remainder_inline(
+            debug_inline_nonconstant_unsigned_long_long_wide_source %
+                4294967296ull);
+    int divided_wide_power =
+        debug_nonconstant_unsigned_long_long_wide_power_divide_inline(
+            debug_inline_nonconstant_unsigned_long_long_wide_source /
+                1099511627776ull);
+    int remainder_wide_power =
+        debug_nonconstant_unsigned_long_long_wide_power_remainder_inline(
+            debug_inline_nonconstant_unsigned_long_long_wide_source %
+                4611686018427387904ull);
     debug_inline_nonconstant_unsigned_long_long_wide_escape =
         &debug_inline_nonconstant_unsigned_long_long_wide_source;
     return divided + remainder + divided_wider + remainder_wider +
-        divided_widest + remainder_widest + divided_u32 + remainder_u32;
+        divided_widest + remainder_widest + divided_u32 + remainder_u32 +
+        divided_power + remainder_power + divided_wide_power +
+        remainder_wide_power;
 }
 
 int debug_inline_nonconstant_unsigned_long_long_add_two_variables_entry(

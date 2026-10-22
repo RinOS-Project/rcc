@@ -125,6 +125,34 @@ debug_nonconstant_unsigned_long_long_wide_remainder_inline(
 }
 
 inline unsigned long long
+debug_nonconstant_unsigned_long_long_power_divide_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
+inline unsigned long long
+debug_nonconstant_unsigned_long_long_power_remainder_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
+inline unsigned long long
+debug_nonconstant_unsigned_long_long_wide_power_divide_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
+inline unsigned long long
+debug_nonconstant_unsigned_long_long_wide_power_remainder_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
+inline unsigned long long
 debug_nonconstant_unsigned_long_long_wider_divide_inline(
     unsigned long long value)
 {
