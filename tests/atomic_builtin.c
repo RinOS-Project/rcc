@@ -1,6 +1,11 @@
 #include <stdint.h>
 #include <stdatomic.h>
 
+_Static_assert(__atomic_always_lock_free(sizeof(uint32_t), (void*)0),
+               "four-byte lock-free queries are integer constant expressions");
+_Static_assert(!__atomic_always_lock_free(3u, (void*)0),
+               "unsupported-width lock-free queries are constant expressions");
+
 int atomic_always_lock_free_byte_value(void) {
     return __atomic_always_lock_free(1, (void*)0);
 }
