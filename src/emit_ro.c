@@ -4913,7 +4913,10 @@ static bool debug_inline_parameter_frame_offset(
     return true;
 }
 
-enum { DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY = 512 };
+enum {
+    DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY = 512,
+    DEBUG_INLINE_I686_U64_DIVMOD_EXPRESSION_CAPACITY = 4096
+};
 
 static bool debug_inline_integer_expression_type(const Type* type) {
     return type && !type->is_volatile && !type->is_reference &&
@@ -6791,57 +6794,6 @@ static bool debug_inline_integer_expression_append_raw(
     return true;
 }
 
-static bool debug_inline_parameter_i686_u64_division_chunk(
-    const uint8_t* previous_remainder, size_t previous_remainder_size,
-    const uint8_t* dividend_chunk, size_t dividend_chunk_size,
-    uint64_t divisor, uint64_t radix,
-    uint8_t quotient[DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY],
-    size_t* quotient_size,
-    uint8_t next_remainder[DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY],
-    size_t* next_remainder_size) {
-    uint8_t partial[DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
-    size_t partial_size = 0u;
-    size_t remainder_size = 0u;
-    if (!previous_remainder || !dividend_chunk || !quotient ||
-        !quotient_size || !next_remainder || !next_remainder_size ||
-        divisor == 0u || radix == 0u || radix > UINT64_C(65536) ||
-        divisor > ((uint64_t)INT32_MAX + 1u) / radix ||
-        !debug_inline_integer_expression_append_raw(
-            partial, sizeof(partial), &partial_size,
-            previous_remainder, previous_remainder_size) ||
-        !debug_inline_integer_expression_append_constu(
-            partial, sizeof(partial), &partial_size, radix) ||
-        !debug_inline_integer_expression_append_byte(
-            partial, sizeof(partial), &partial_size, 0x1eu) || /* mul */
-        !debug_inline_integer_expression_append_raw(
-            partial, sizeof(partial), &partial_size,
-            dividend_chunk, dividend_chunk_size) ||
-        !debug_inline_integer_expression_append_byte(
-            partial, sizeof(partial), &partial_size, 0x22u) || /* plus */
-        !debug_inline_integer_expression_append_raw(
-            quotient, DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
-            quotient_size, partial, partial_size) ||
-        !debug_inline_integer_expression_append_constu(
-            quotient, DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
-            quotient_size, divisor) ||
-        !debug_inline_integer_expression_append_byte(
-            quotient, DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
-            quotient_size, 0x1bu) || /* signed-safe div */
-        !debug_inline_integer_expression_append_raw(
-            next_remainder, DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
-            &remainder_size, partial, partial_size) ||
-        !debug_inline_integer_expression_append_constu(
-            next_remainder, DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
-            &remainder_size, divisor) ||
-        !debug_inline_integer_expression_append_byte(
-            next_remainder, DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
-            &remainder_size, 0x1du)) { /* signed-safe mod */
-        return false;
-    }
-    *next_remainder_size = remainder_size;
-    return true;
-}
-
 static bool debug_inline_parameter_i686_u64_division_input_chunk(
     int64_t frame_offset, unsigned int bit_offset, unsigned int bit_width,
     uint8_t* expression, size_t capacity, size_t* expression_size) {
@@ -6899,17 +6851,15 @@ static bool debug_inline_parameter_i686_u64_division_input_chunk(
 }
 
 static bool debug_inline_parameter_i686_u64_quotient_piece(
-    const uint8_t quotient[5][DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY],
-    const size_t quotient_sizes[5], unsigned int chunk_width,
-    unsigned int chunk_count, unsigned int word, uint8_t* expression,
-    size_t capacity, size_t* expression_size) {
+    unsigned int chunk_width, unsigned int chunk_count, unsigned int word,
+    uint8_t* expression, size_t capacity, size_t* expression_size) {
     unsigned int word_start = word * 32u;
     unsigned int word_end = word_start + 32u;
     size_t size;
     bool has_value = false;
-    if (!quotient || !quotient_sizes || chunk_width == 0u ||
-        chunk_width > 16u || chunk_count == 0u || chunk_count > 5u ||
-        word > 1u || !expression || !expression_size) {
+    if (chunk_width == 0u || chunk_width > 16u || chunk_count == 0u ||
+        chunk_count > 64u || word > 1u || !expression ||
+        !expression_size) {
         return false;
     }
     size = *expression_size;
@@ -6931,9 +6881,11 @@ static bool debug_inline_parameter_i686_u64_quotient_piece(
         fragment_width = fragment_end - fragment_start;
         source_shift = fragment_start - digit_start;
         destination_shift = fragment_start - word_start;
-        if (!debug_inline_integer_expression_append_raw(
-                expression, capacity, &size, quotient[quotient_index],
-                quotient_sizes[quotient_index])) {
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x15u) || /* DW_OP_pick */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size,
+                (uint8_t)(digit_index + (has_value ? 1u : 0u)))) {
             return false;
         }
         if (source_shift != 0u &&
@@ -6987,14 +6939,6 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     const Decl* dividend;
     int64_t frame_offset;
     uint64_t divisor;
-    uint8_t remainder_expression[
-        DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
-    uint8_t next_remainder[
-        DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
-    size_t remainder_size = 0u;
-    size_t next_remainder_size = 0u;
-    uint8_t quotient[5][DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
-    size_t quotient_sizes[5] = {0u, 0u, 0u, 0u, 0u};
     size_t size = 0u;
     uint64_t radix;
     unsigned int chunk_width;
@@ -7010,7 +6954,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         !source_expression->binary_lhs->ident_decl ||
         !debug_inline_integer_literal_bits(
             source_expression->binary_rhs, &divisor, 0u) ||
-        divisor == 0u || divisor > UINT64_C(131072) ||
+        divisor == 0u || divisor > UINT64_C(1073741824) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source_expression->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -7032,16 +6976,21 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         return false;
     }
     is_remainder = source_expression->kind == EXPR_MOD;
-    chunk_width = divisor <= UINT64_C(32768) ? 16u
-        : divisor <= UINT64_C(65536) ? 15u : 14u;
+    chunk_width = 16u;
+    while (chunk_width > 1u && divisor >
+           ((uint64_t)INT32_MAX + 1u) / (UINT64_C(1) << chunk_width)) {
+        --chunk_width;
+    }
+    if (divisor > ((uint64_t)INT32_MAX + 1u) / 2u) return false;
     radix = UINT64_C(1) << chunk_width;
     chunk_count = (64u + chunk_width - 1u) / chunk_width;
 
-    /* Select the largest supported power-of-two radix that keeps every
-       partial dividend <= INT32_MAX. */
+    /* Keep each quotient digit and the running remainder on the DWARF stack.
+       The largest radix satisfying divisor*radix-1 <= INT32_MAX makes every
+       signed DW_OP_div/mod exact, while avoiding exponential expression
+       duplication as the number of digits grows. */
     if (!debug_inline_integer_expression_append_constu(
-            remainder_expression, sizeof(remainder_expression),
-            &remainder_size, 0u)) {
+            expression, capacity, &size, 0u)) {
         return false;
     }
     for (unsigned int chunk_index = 0u;
@@ -7052,25 +7001,41 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
             (chunk_count - 1u - chunk_index) * chunk_width;
         unsigned int bit_width = 64u - bit_offset;
         if (bit_width > chunk_width) bit_width = chunk_width;
-        if (!debug_inline_parameter_i686_u64_division_input_chunk(
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x12u) || /* dup remainder */
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, radix) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1eu) || /* mul */
+            !debug_inline_parameter_i686_u64_division_input_chunk(
                 frame_offset, bit_offset, bit_width,
                 chunk_expression, sizeof(chunk_expression), &chunk_size) ||
-            !debug_inline_parameter_i686_u64_division_chunk(
-                remainder_expression, remainder_size,
-                chunk_expression, chunk_size, divisor, radix,
-                quotient[chunk_index], &quotient_sizes[chunk_index],
-                next_remainder, &next_remainder_size)) {
+            !debug_inline_integer_expression_append_raw(
+                expression, capacity, &size, chunk_expression, chunk_size) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x22u) || /* plus */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x16u) || /* swap */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x13u) || /* drop old rem */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x12u) || /* dup partial */
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, divisor) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1bu) || /* signed-safe div */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x16u) || /* swap */
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, divisor) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1du)) { /* signed-safe mod */
             return false;
         }
-        memcpy(remainder_expression, next_remainder, next_remainder_size);
-        remainder_size = next_remainder_size;
     }
 
     if (is_remainder) {
-        if (!debug_inline_integer_expression_append_raw(
-                expression, capacity, &size, remainder_expression,
-                remainder_size) ||
-            !debug_inline_integer_expression_append_byte(
+        if (!debug_inline_integer_expression_append_byte(
                 expression, capacity, &size, 0x9fu) || /* stack_value */
             !debug_inline_integer_expression_append_byte(
                 expression, capacity, &size, 0x93u) || /* piece */
@@ -7087,12 +7052,22 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
             return false;
         }
     } else {
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x13u)) { /* drop remainder */
+            return false;
+        }
         for (unsigned int word = 0u; word < 2u; ++word) {
             if (!debug_inline_parameter_i686_u64_quotient_piece(
-                    quotient, quotient_sizes, chunk_width, chunk_count,
-                    word, expression, capacity, &size)) {
+                    chunk_width, chunk_count, word, expression,
+                    capacity, &size)) {
                 return false;
             }
+        }
+    }
+    for (unsigned int digit = 0u; digit < chunk_count; ++digit) {
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x13u)) { /* drop quotient */
+            return false;
         }
     }
     *expression_size = size;
@@ -7220,7 +7195,7 @@ static bool debug_inline_parameter_i686_u64_negate_expression(
 static bool debug_inline_parameter_integer_expression(
     const Module* mod, int architecture, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
-    uint8_t expression[DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY],
+    uint8_t* expression, size_t expression_capacity,
     size_t* expression_size) {
     const Type* parameter_type;
     const Expr* source_expression;
@@ -7267,7 +7242,7 @@ static bool debug_inline_parameter_integer_expression(
          source_expression->kind == EXPR_MOD) &&
         debug_inline_parameter_i686_u64_div_constant_expression(
             mod, parameter_type, source_expression, expression,
-            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
+            expression_capacity,
             expression_size)) {
         return true;
     }
@@ -9124,7 +9099,7 @@ static void debug_emit_inline_parameter_instances(
         bool source_frame_dereference = false;
         DebugInlineDynamicPointerIndex source_dynamic_index = {0};
         uint8_t integer_value_expression[
-            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
+            DEBUG_INLINE_I686_U64_DIVMOD_EXPRESSION_CAPACITY];
         size_t integer_value_expression_size = 0u;
         int64_t address_addend = 0;
         if (value->has_signed_integer_constant && value->declaration &&
@@ -9210,6 +9185,7 @@ static void debug_emit_inline_parameter_instances(
                    debug_inline_parameter_integer_expression(
                        mod, architecture, call->callee, value, argument,
                        integer_value_expression,
+                       sizeof(integer_value_expression),
                        &integer_value_expression_size)) {
             section_add_byte(info, 67u);
             debug_line_u32(info, origin->die_offset);

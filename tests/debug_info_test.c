@@ -8281,16 +8281,35 @@ static int64_t verify_inline_integer_signed_bits(
     return -1 - (int64_t)(mask ^ value);
 }
 
+static unsigned int inline_i686_u64_constant_division_chunk_width(
+    uint32_t divisor) {
+    unsigned int width = 16u;
+    assert(divisor != 0u && divisor <= UINT32_C(1073741824));
+    while (width > 1u &&
+           divisor > (UINT64_C(2147483648) / (UINT64_C(1) << width))) {
+        --width;
+    }
+    return width;
+}
+
 static uint64_t evaluate_inline_i686_u64_constant_division(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_offset,
     int64_t source_frame_offset, uint64_t dividend, uint32_t divisor) {
-    uint32_t stack[8];
+    uint32_t stack[128];
     size_t stack_size = 0u;
     int64_t pending_frame_offset = 0;
     bool has_pending_frame_offset = false;
     uint64_t result = 0u;
     unsigned int piece_count = 0u;
-    assert(divisor != 0u && divisor <= 131072u &&
+    unsigned int chunk_width =
+        inline_i686_u64_constant_division_chunk_width(divisor);
+    unsigned int chunk_count = (64u + chunk_width - 1u) / chunk_width;
+    size_t expected_stack_size =
+        expression_offset + 1u < expression_end &&
+        data[expression_offset] == 0x10u &&
+        data[expression_offset + 1u] == 0u
+        ? chunk_count + 1u : 1u;
+    assert(divisor != 0u && divisor <= UINT32_C(1073741824) &&
            source_frame_offset <= INT64_MAX - 6);
     while (expression_offset < expression_end) {
         uint8_t opcode = data[expression_offset++];
@@ -8317,6 +8336,29 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
             assert(stack_size < sizeof(stack) / sizeof(stack[0]));
             stack[stack_size++] = (uint32_t)read_uleb(
                 data, expression_end, &expression_offset);
+        } else if (opcode == 0x12u) { /* DW_OP_dup */
+            assert(stack_size > 0u &&
+                   stack_size < sizeof(stack) / sizeof(stack[0]));
+            stack[stack_size] = stack[stack_size - 1u];
+            ++stack_size;
+        } else if (opcode == 0x13u) { /* DW_OP_drop */
+            assert(stack_size > 0u);
+            --stack_size;
+        } else if (opcode == 0x15u) { /* DW_OP_pick */
+            unsigned int index;
+            uint32_t value;
+            assert(expression_offset < expression_end &&
+                   stack_size < sizeof(stack) / sizeof(stack[0]));
+            index = data[expression_offset++];
+            assert(index < stack_size);
+            value = stack[stack_size - 1u - index];
+            stack[stack_size++] = value;
+        } else if (opcode == 0x16u) { /* DW_OP_swap */
+            uint32_t temporary;
+            assert(stack_size >= 2u);
+            temporary = stack[stack_size - 1u];
+            stack[stack_size - 1u] = stack[stack_size - 2u];
+            stack[stack_size - 2u] = temporary;
         } else if (opcode == 0x1au || opcode == 0x1bu ||
                    opcode == 0x1du || opcode == 0x1eu ||
                    opcode == 0x21u || opcode == 0x22u ||
@@ -8347,10 +8389,17 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
                 stack[stack_size++] = lhs >> rhs;
             }
         } else if (opcode == 0x9fu) { /* DW_OP_stack_value */
-            assert(stack_size == 1u);
+            if (stack_size != expected_stack_size) {
+                fprintf(stderr,
+                        "i686 u64 divmod stack mismatch: divisor=%u "
+                        "stack=%zu expected=%zu pieces=%u\n",
+                        divisor, stack_size, expected_stack_size,
+                        piece_count);
+            }
+            assert(stack_size == expected_stack_size);
         } else if (opcode == 0x93u) { /* DW_OP_piece */
             assert(read_uleb(data, expression_end, &expression_offset) == 4u &&
-                   stack_size == 1u && piece_count < 2u);
+                   stack_size == expected_stack_size && piece_count < 2u);
             result |= (uint64_t)stack[--stack_size] << (piece_count * 32u);
             ++piece_count;
         } else {
@@ -8379,7 +8428,8 @@ static void verify_inline_i686_u64_constant_division_expression(
     bool variable_is_location_list;
     int64_t variable_frame_offset;
     int64_t source_frame_offset;
-    assert(source_name && divisor != 0u && divisor <= 131072u);
+    assert(source_name && divisor != 0u &&
+           divisor <= UINT32_C(1073741824));
     assert(find_variable_location(
         info, strings, locations, source_name, ARCH_X86,
         &has_variable_location, &variable_is_location_list,
@@ -9763,7 +9813,7 @@ static void verify_inline_integer_expression_parameter(
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
     const char* call_site_name =
-        (expected_operation >= 0xdau && expected_operation <= 0xddu)
+        (expected_operation >= 0xdau && expected_operation <= 0xdfu)
         ? "debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry"
         : expected_operation == 0xd2u
         ? "debug_inline_nonconstant_unsigned_long_long_lshift_variable_entry"
@@ -9837,7 +9887,7 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0xeau || expected_operation == 0xedu ||
             expected_operation == 0xebu ||
             expected_operation == 0xecu ||
-            (expected_operation >= 0xdau && expected_operation <= 0xddu) ||
+            (expected_operation >= 0xdau && expected_operation <= 0xdfu) ||
             expected_operation == 0xe4u || expected_operation == 0xe5u ||
             expected_operation == 0xe6u || expected_operation == 0xe7u ||
             expected_operation == 0xe8u || expected_operation == 0xe9u ||
@@ -9915,14 +9965,14 @@ static void verify_inline_integer_expression_parameter(
     assert(expression_end <= info->size && expression_size > 0u);
     if (architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
         !divisor_source_name && expected_constant > 0 &&
-        expected_constant <= 131072 &&
+        expected_constant <= INT64_C(1073741824) &&
         (expected_operation == 0x1bu || expected_operation == 0x1du ||
-         (expected_operation >= 0xdau && expected_operation <= 0xddu))) {
+         (expected_operation >= 0xdau && expected_operation <= 0xdfu))) {
         verify_inline_i686_u64_constant_division_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, (uint32_t)expected_constant,
             expected_operation == 0x1du || expected_operation == 0xdbu ||
-            expected_operation == 0xddu);
+            expected_operation == 0xddu || expected_operation == 0xdfu);
         objfile_free(object);
         return;
     }
@@ -10273,6 +10323,12 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_unsigned_long_long_wider_remainder_inline",
          "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
          0xddu, 131072, NULL, true},
+        {"debug_nonconstant_unsigned_long_long_widest_divide_inline",
+         "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
+         0xdeu, INT64_C(1073741823), NULL, true},
+        {"debug_nonconstant_unsigned_long_long_widest_remainder_inline",
+         "debug_inline_nonconstant_unsigned_long_long_wide_source", true, 8u,
+         0xdfu, INT64_C(1073741823), NULL, true},
         {"debug_nonconstant_unsigned_long_long_high_divide_inline",
          "debug_inline_nonconstant_unsigned_long_long_source", true, 8u,
          0x1bu, 0,
@@ -10474,7 +10530,7 @@ static void verify_inline_integer_expression_cases(
             (cases[index].operation == 0x1bu ||
              cases[index].operation == 0x1du ||
              (cases[index].operation >= 0xdau &&
-              cases[index].operation <= 0xddu));
+              cases[index].operation <= 0xdfu));
         if ((cases[index].operation == 0xe0u ||
              cases[index].operation == 0xe1u ||
              cases[index].operation == 0xe2u ||
@@ -10514,7 +10570,7 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xf9u ||
              cases[index].operation == 0xfau ||
              (cases[index].operation >= 0xdau &&
-              cases[index].operation <= 0xddu)) && architecture != ARCH_X86)
+              cases[index].operation <= 0xdfu)) && architecture != ARCH_X86)
             continue;
         if (cases[index].value_size > address_size &&
             cases[index].operation != 0xe0u &&
@@ -10556,7 +10612,7 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xf9u &&
             cases[index].operation != 0xfau &&
             !(cases[index].operation >= 0xdau &&
-              cases[index].operation <= 0xddu) && !i686_u64_bitwise &&
+              cases[index].operation <= 0xdfu) && !i686_u64_bitwise &&
             !i686_u64_constant_divmod) continue;
         verify_inline_integer_expression_parameter(
             path, architecture, cases[index].inline_name,
