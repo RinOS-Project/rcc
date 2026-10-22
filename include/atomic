@@ -214,6 +214,8 @@ private:
 template<class T>
 class __rcc_atomic_base : public __rcc_atomic_ops<T> {
 public:
+    using value_type = T;
+
     constexpr __rcc_atomic_base() noexcept : value_(0) {}
     constexpr __rcc_atomic_base(T desired) noexcept : value_(desired) {}
     __rcc_atomic_base(const __rcc_atomic_base&) = delete;

@@ -8162,14 +8162,16 @@ remains a separate open item.
       assignment. `make test-atomic-builtins` compiles C++20 i686/AMD64 at
       `-O0`/`-O2`, executes both i686 and AMD64 objects with their native host
       runners, and passes the existing invalid-builtin diagnostic checks.
+- [x] Expose `std::atomic<T>::value_type` through the shared atomic base and
+      verify the dependent nested type on i686/AMD64 C++20 builds plus both
+      native atomic execution runners in `test-atomic-builtins`.
 - [ ] C++20 `<atomic>` constraints/traits, complete constructor/API overload
-      sets, and wait/notify operations remain open. In particular, add
-      `value_type` and `is_always_lock_free` only after static constexpr data
-      members declared in an inherited class-template base are instantiated
-      and found correctly: adding these members to `__rcc_atomic_base<T>`
-      currently breaks derived `std::atomic<T>` constructor lowering and
-      member lookup. The attempted header/test change was removed after
-      `test-atomic-builtins` reproduced the failure; the unchanged suite passes.
+      sets, and wait/notify operations remain open. In particular,
+      `is_always_lock_free` requires correct instantiation and lookup of
+      inherited static constexpr data members in class-template bases: adding
+      it to `__rcc_atomic_base<T>` currently breaks derived `std::atomic<T>`
+      constructor lowering and member lookup. Keep the working `value_type`
+      alias and regression while addressing this separate compiler limitation.
 
 ## RCC continuation (2026-10-21, C++ `static_cast` conversion functions)
 

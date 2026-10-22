@@ -48,9 +48,11 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     std::atomic_flag flag = ATOMIC_FLAG_INIT;
     int* pointer_expected;
     std::atomic<float> floating;
+    std::atomic<unsigned>::value_type atomic_value_type = 1u;
     float floating_expected = 9.0f;
     unsigned expected = 9u;
     if (zero.load() != 0u || !zero.is_lock_free()) return 20u;
+    if (atomic_value_type != 1u) return 79u;
     if (wide.fetch_add(3ULL) != 4ULL || wide.load() != 7ULL) return 21u;
     if (initialized_pointer.load() != pointer_values + 1) return 29u;
     pointer.store(pointer_values);
