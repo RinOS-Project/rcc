@@ -8215,6 +8215,10 @@ remains a separate open item.
       fence builtins and `kill_dependency` preserves its value. Verify scalar
       and pointer use in both RCC target builds, native execution, and the GCC
       C++20 standard-library syntax oracle.
+- [x] Define the standard `ATOMIC_*_LOCK_FREE` macros for fundamental and
+      pointer types as always-lock-free on the supported i686/AMD64 targets;
+      compile-time assertions in `test-atomic-builtins` check all published
+      values against GCC's C++20 standard header and both RCC targets.
 
 ## RCC continuation (2026-10-22, C++20 i686 `std::atomic<double>`)
 

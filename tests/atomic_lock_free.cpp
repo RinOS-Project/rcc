@@ -6,6 +6,14 @@ static_assert(__atomic_always_lock_free(8u, nullptr),
               "eight-byte atomics are always lock-free");
 static_assert(!__atomic_always_lock_free(3u, nullptr),
               "unsupported atomic widths are not lock-free");
+static_assert(ATOMIC_BOOL_LOCK_FREE == 2 && ATOMIC_CHAR_LOCK_FREE == 2 &&
+                  ATOMIC_CHAR16_T_LOCK_FREE == 2 &&
+                  ATOMIC_CHAR32_T_LOCK_FREE == 2 &&
+                  ATOMIC_WCHAR_T_LOCK_FREE == 2 &&
+                  ATOMIC_SHORT_LOCK_FREE == 2 && ATOMIC_INT_LOCK_FREE == 2 &&
+                  ATOMIC_LONG_LOCK_FREE == 2 && ATOMIC_LLONG_LOCK_FREE == 2 &&
+                  ATOMIC_POINTER_LOCK_FREE == 2,
+              "RinOS x86 atomic lock-free macros match the supported widths");
 static_assert(std::atomic<unsigned>::is_always_lock_free,
               "std::atomic exposes its lock-free property as a constant");
 static_assert(std::atomic<unsigned long long>::is_always_lock_free,
