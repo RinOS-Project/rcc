@@ -404,59 +404,59 @@ public:
             &this->value_, operand, memory_order_seq_cst);
     }
 
-    template<class U>
-    T fetch_and(U operand, memory_order order) noexcept {
+    template<class U = T>
+    T fetch_and(T operand, memory_order order) noexcept {
         return __atomic_fetch_and(&this->value_, operand, order);
     }
-    template<class U>
-    T fetch_and(U operand, memory_order order) volatile noexcept {
+    template<class U = T>
+    T fetch_and(T operand, memory_order order) volatile noexcept {
         return __atomic_fetch_and(&this->value_, operand, order);
     }
-    template<class U>
-    T fetch_and(U operand) noexcept {
+    template<class U = T>
+    T fetch_and(T operand) noexcept {
         return __atomic_fetch_and(
             &this->value_, operand, memory_order_seq_cst);
     }
-    template<class U>
-    T fetch_and(U operand) volatile noexcept {
+    template<class U = T>
+    T fetch_and(T operand) volatile noexcept {
         return __atomic_fetch_and(
             &this->value_, operand, memory_order_seq_cst);
     }
 
-    template<class U>
-    T fetch_or(U operand, memory_order order) noexcept {
+    template<class U = T>
+    T fetch_or(T operand, memory_order order) noexcept {
         return __atomic_fetch_or(&this->value_, operand, order);
     }
-    template<class U>
-    T fetch_or(U operand, memory_order order) volatile noexcept {
+    template<class U = T>
+    T fetch_or(T operand, memory_order order) volatile noexcept {
         return __atomic_fetch_or(&this->value_, operand, order);
     }
-    template<class U>
-    T fetch_or(U operand) noexcept {
+    template<class U = T>
+    T fetch_or(T operand) noexcept {
         return __atomic_fetch_or(
             &this->value_, operand, memory_order_seq_cst);
     }
-    template<class U>
-    T fetch_or(U operand) volatile noexcept {
+    template<class U = T>
+    T fetch_or(T operand) volatile noexcept {
         return __atomic_fetch_or(
             &this->value_, operand, memory_order_seq_cst);
     }
 
-    template<class U>
-    T fetch_xor(U operand, memory_order order) noexcept {
+    template<class U = T>
+    T fetch_xor(T operand, memory_order order) noexcept {
         return __atomic_fetch_xor(&this->value_, operand, order);
     }
-    template<class U>
-    T fetch_xor(U operand, memory_order order) volatile noexcept {
+    template<class U = T>
+    T fetch_xor(T operand, memory_order order) volatile noexcept {
         return __atomic_fetch_xor(&this->value_, operand, order);
     }
-    template<class U>
-    T fetch_xor(U operand) noexcept {
+    template<class U = T>
+    T fetch_xor(T operand) noexcept {
         return __atomic_fetch_xor(
             &this->value_, operand, memory_order_seq_cst);
     }
-    template<class U>
-    T fetch_xor(U operand) volatile noexcept {
+    template<class U = T>
+    T fetch_xor(T operand) volatile noexcept {
         return __atomic_fetch_xor(
             &this->value_, operand, memory_order_seq_cst);
     }

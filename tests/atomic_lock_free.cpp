@@ -304,6 +304,19 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (value.fetch_and(7u) != 15u) return 5u;
     if (value.fetch_or(8u) != 7u) return 6u;
     if (value.fetch_xor(3u) != 15u) return 7u;
+    {
+        std::atomic<unsigned char> byte_bits(0xf0u);
+        unsigned wide_bitwise_operand = 0x101u;
+        if (byte_bits.fetch_and(0x0fu) != 0xf0u || byte_bits.load() != 0u)
+            return 84u;
+        byte_bits.store(0x10u);
+        if (byte_bits.fetch_or(wide_bitwise_operand) != 0x10u ||
+            byte_bits.load() != 0x11u)
+            return 85u;
+        if (byte_bits.fetch_xor(wide_bitwise_operand) != 0x11u ||
+            byte_bits.load() != 0x10u)
+            return 86u;
+    }
     if (value++ != 12u || value.load() != 13u) return 8u;
     if (--value != 12u || value.load() != 12u) return 9u;
     expected = 0u;
