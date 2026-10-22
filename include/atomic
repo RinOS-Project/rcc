@@ -637,79 +637,66 @@ public:
     }
 };
 
-template<class Atomic>
-bool atomic_is_lock_free(const volatile Atomic* object) noexcept {
+template<class T>
+bool atomic_is_lock_free(const volatile atomic<T>* object) noexcept {
     return object->is_lock_free();
 }
 
-template<class Atomic>
-void atomic_init(volatile Atomic* object,
-                 typename Atomic::value_type desired) noexcept {
+template<class T>
+void atomic_init(volatile atomic<T>* object, T desired) noexcept {
     object->store(desired, memory_order_relaxed);
 }
 
-template<class Atomic>
-typename Atomic::value_type
-atomic_load(const volatile Atomic* object) noexcept {
+template<class T>
+T atomic_load(const volatile atomic<T>* object) noexcept {
     return object->load();
 }
-template<class Atomic>
-typename Atomic::value_type
-atomic_load_explicit(const volatile Atomic* object,
-                     memory_order order) noexcept {
+template<class T>
+T atomic_load_explicit(const volatile atomic<T>* object,
+                       memory_order order) noexcept {
     return object->load(order);
 }
 
-template<class Atomic>
-void atomic_store(volatile Atomic* object,
-                  typename Atomic::value_type desired) noexcept {
+template<class T>
+void atomic_store(volatile atomic<T>* object, T desired) noexcept {
     object->store(desired);
 }
-template<class Atomic>
-void atomic_store_explicit(volatile Atomic* object,
-                           typename Atomic::value_type desired,
+template<class T>
+void atomic_store_explicit(volatile atomic<T>* object, T desired,
                            memory_order order) noexcept {
     object->store(desired, order);
 }
 
-template<class Atomic>
-typename Atomic::value_type
-atomic_exchange(volatile Atomic* object,
-                typename Atomic::value_type desired) noexcept {
+template<class T>
+T atomic_exchange(volatile atomic<T>* object, T desired) noexcept {
     return object->exchange(desired);
 }
-template<class Atomic>
-typename Atomic::value_type
-atomic_exchange_explicit(volatile Atomic* object,
-                         typename Atomic::value_type desired,
-                         memory_order order) noexcept {
+template<class T>
+T atomic_exchange_explicit(volatile atomic<T>* object, T desired,
+                           memory_order order) noexcept {
     return object->exchange(desired, order);
 }
 
-template<class Atomic>
-bool atomic_compare_exchange_weak(
-    volatile Atomic* object, typename Atomic::value_type* expected,
-    typename Atomic::value_type desired) noexcept {
+template<class T>
+bool atomic_compare_exchange_weak(volatile atomic<T>* object, T* expected,
+                                  T desired) noexcept {
     return object->compare_exchange_weak(*expected, desired);
 }
-template<class Atomic>
+template<class T>
 bool atomic_compare_exchange_weak_explicit(
-    volatile Atomic* object, typename Atomic::value_type* expected,
-    typename Atomic::value_type desired,
+    volatile atomic<T>* object, T* expected, T desired,
     memory_order success, memory_order failure) noexcept {
     return object->compare_exchange_weak(
         *expected, desired, success, failure);
 }
-template<class Atomic>
-bool atomic_compare_exchange_strong(
-    volatile Atomic* object, typename Atomic::value_type* expected,
-    typename Atomic::value_type desired) noexcept {
+template<class T>
+bool atomic_compare_exchange_strong(volatile atomic<T>* object, T* expected,
+                                    T desired) noexcept {
     return object->compare_exchange_strong(*expected, desired);
 }
-template<class Atomic>
+template<class T>
 bool atomic_compare_exchange_strong_explicit(
-    volatile Atomic* object, typename Atomic::value_type* expected,
-    typename Atomic::value_type desired,
+    volatile atomic<T>* object, T* expected, T desired,
     memory_order success, memory_order failure) noexcept {
     return object->compare_exchange_strong(
         *expected, desired, success, failure);

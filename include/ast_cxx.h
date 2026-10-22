@@ -486,6 +486,10 @@ bool rcc_parser_cxx_template_template_argument_matches(
 Type* rcc_cxx_template_substitute_type(
     CxxTemplate* tmpl, Type* type, Type** arguments, int argument_count,
     const int64_t* value_args, const bool* value_present);
+Type* rcc_parser_cxx_instantiate_dependent_class_template(
+    CxxTemplate* tmpl, CxxClass* owner_class, Type** arguments,
+    const int64_t* value_args, const bool* value_present,
+    int argument_count, SourceLoc loc);
 
 /* Name mangling */
 char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls);

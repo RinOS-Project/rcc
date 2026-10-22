@@ -8793,8 +8793,12 @@ remains a separate open item.
       `T`; the regression also exercises `volatile std::atomic<T>*`.
       `test-atomic-builtins` passes both architectures at `-O0`/`-O2`, runs
       the AMD64 objects, and `test-cxx-function-template-overloads` passes.
-- [ ] Replace the currently generic `template<class Atomic>` non-member
-      `<atomic>` wrappers with the standard `atomic<T>`-constrained signatures.
-      An exact-signature experiment currently exposes duplicate instantiation
-      diagnostics for the `atomic<T*>` specialization; retain the working
-      callable API until that compiler issue is resolved.
+- [x] Use the standard `atomic<T>`-constrained signatures for all non-member
+      `<atomic>` operations. Route dependent class-template substitution
+      through the parser's partial-specialization selector, so function
+      templates instantiate `atomic<T*>` rather than the primary `atomic<T>`;
+      pointer constructors, arithmetic, and free-function APIs compile and
+      execute again. `test-atomic-builtins` passes i686/AMD64 at `-O0`/`-O2`,
+      AMD64 execution, and the GCC C++20 syntax oracle.
+- [ ] Full `<atomic>` type constraints/traits, remaining constructor/API
+      overloads, and C++20 wait/notify operations remain open.

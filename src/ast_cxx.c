@@ -8719,7 +8719,6 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         int nested_count = 0;
         int pack_index = -1;
         bool still_dependent = false;
-        CxxClass* instantiated;
         if (type->cxx_dependent_class_template_owner) {
             CxxNestedClassTemplate* nested_entry;
             nested_owner_type = template_substitute_type(
@@ -9195,19 +9194,15 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 nested_owner_type;
             return dependent_type;
         }
-        instantiated = nested_owner_type
-            ? rcc_cxx_instantiate_class_template_for_owner(
-                  nested_class_template, nested_arguments, nested_values,
-                  nested_value_present, nested_count, nested_owner_class,
-                  (SourceLoc){"<template>", 0, 0})
-            : rcc_cxx_instantiate_class_template(
-                  nested_class_template, nested_arguments, nested_values,
-                  nested_value_present, nested_count,
-                  (SourceLoc){"<template>", 0, 0});
+        Type* instantiated_type =
+            rcc_parser_cxx_instantiate_dependent_class_template(
+                nested_class_template, nested_owner_class, nested_arguments,
+                nested_values, nested_value_present, nested_count,
+                (SourceLoc){"<template>", 0, 0});
         /* Class instantiation returns an unqualified specialization; preserve
          * qualifiers carried by the dependent class-template-id itself. */
         return template_apply_pattern_qualifiers(
-            type, instantiated ? instantiated->type : NULL);
+            type, instantiated_type);
     }
     if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
         type->cxx_template_arg_count > 0) {

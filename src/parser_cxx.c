@@ -20131,6 +20131,15 @@ static Type* cxx_instantiate_dependent_class_template(
         loc);
 }
 
+Type* rcc_parser_cxx_instantiate_dependent_class_template(
+    CxxTemplate* tmpl, CxxClass* owner_class, Type** arguments,
+    const int64_t* value_args, const bool* value_present,
+    int argument_count, SourceLoc loc) {
+    return cxx_instantiate_dependent_class_template(
+        tmpl, owner_class, arguments, value_args, value_present,
+        argument_count, loc);
+}
+
 static Type* parse_class_template_specialization_with_owner_type(
     CxxTemplate* tmpl, CxxClass* owner_class, Type* owner_type,
     SourceLoc loc) {
