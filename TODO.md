@@ -8673,3 +8673,14 @@ remains a separate open item.
       pass; the focused Linux ASan/UBSan inline-expression test passes.
 - [ ] General computed 64-bit count division/remainder, non-frame-backed
       operands, and broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-22, computed signed wide shift-count remainder)
+
+- [x] Extend signed power-of-two remainder lowering to bounded pure computed
+      operands by matching the optimizer's duplicated sign-corrected expression
+      trees. The `(count + 1ll) % 64ll` regression supplies nonzero high-word
+      count values and evaluates defined results across legacy and verified
+      i686 DWARF. Focused and full native-Windows `test-debug-info` plus focused
+      Linux ASan/UBSan inline-expression tests pass.
+- [ ] General computed 64-bit count division/remainder, non-frame-backed
+      operands, and broader optimized multi-piece locations remain open.

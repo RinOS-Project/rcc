@@ -6529,6 +6529,56 @@ static bool debug_inline_parameter_i686_signed_u64_node(
         expression->type->size == 8u && !expression->type->is_unsigned;
 }
 
+static bool debug_inline_parameter_i686_expression_equal(
+    const Expr* lhs, const Expr* rhs, unsigned int depth) {
+    uint64_t lhs_literal;
+    uint64_t rhs_literal;
+    bool lhs_is_literal;
+    bool rhs_is_literal;
+
+    if (lhs == rhs) return true;
+    if (!lhs || !rhs || depth >= 32u || lhs->kind != rhs->kind ||
+        lhs->type != rhs->type) {
+        return false;
+    }
+    lhs_is_literal = debug_inline_integer_literal_bits(
+        lhs, &lhs_literal, 0u);
+    rhs_is_literal = debug_inline_integer_literal_bits(
+        rhs, &rhs_literal, 0u);
+    if (lhs_is_literal || rhs_is_literal) {
+        return lhs_is_literal && rhs_is_literal &&
+            lhs_literal == rhs_literal;
+    }
+    switch (lhs->kind) {
+        case EXPR_IDENT:
+            return lhs->ident_decl && lhs->ident_decl == rhs->ident_decl;
+        case EXPR_NEG:
+        case EXPR_BITNOT:
+            return debug_inline_parameter_i686_expression_equal(
+                lhs->unary_operand, rhs->unary_operand, depth + 1u);
+        case EXPR_CAST:
+            return lhs->cast_type == rhs->cast_type &&
+                debug_inline_parameter_i686_expression_equal(
+                    lhs->cast_expr, rhs->cast_expr, depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+            return debug_inline_parameter_i686_expression_equal(
+                       lhs->binary_lhs, rhs->binary_lhs, depth + 1u) &&
+                debug_inline_parameter_i686_expression_equal(
+                    lhs->binary_rhs, rhs->binary_rhs, depth + 1u);
+        default:
+            return false;
+    }
+}
+
 static bool debug_inline_parameter_i686_u64_signed_modulo_rewrite(
     const Expr* expression, const Expr** operand, uint64_t* modulus) {
     const Expr* product;
@@ -6537,7 +6587,6 @@ static bool debug_inline_parameter_i686_u64_signed_modulo_rewrite(
     const Expr* bias;
     const Expr* sign_mask;
     const Expr* source_expression;
-    const Decl* source;
     uint64_t divisor_bits;
     uint64_t quotient_shift;
     uint64_t bias_bits;
@@ -6545,8 +6594,7 @@ static bool debug_inline_parameter_i686_u64_signed_modulo_rewrite(
 
     if (!expression || !operand || !modulus ||
         expression->kind != EXPR_SUB || !expression->binary_lhs ||
-        expression->binary_lhs->kind != EXPR_IDENT ||
-        !expression->binary_lhs->ident_decl || !expression->binary_rhs ||
+        !expression->binary_rhs ||
         expression->binary_rhs->kind != EXPR_MUL ||
         !expression->binary_rhs->binary_lhs ||
         !expression->binary_rhs->binary_rhs ||
@@ -6557,7 +6605,6 @@ static bool debug_inline_parameter_i686_u64_signed_modulo_rewrite(
     }
 
     source_expression = expression->binary_lhs;
-    source = source_expression->ident_decl;
     product = expression->binary_rhs;
     quotient = product->binary_lhs;
     if (quotient->kind != EXPR_RSHIFT || !quotient->binary_lhs ||
@@ -6577,8 +6624,8 @@ static bool debug_inline_parameter_i686_u64_signed_modulo_rewrite(
 
     adjusted = quotient->binary_lhs;
     if (adjusted->kind != EXPR_ADD || !adjusted->binary_lhs ||
-        adjusted->binary_lhs->kind != EXPR_IDENT ||
-        adjusted->binary_lhs->ident_decl != source ||
+        !debug_inline_parameter_i686_expression_equal(
+            adjusted->binary_lhs, source_expression, 0u) ||
         !adjusted->binary_rhs || adjusted->binary_rhs->kind != EXPR_BITAND ||
         !adjusted->binary_rhs->binary_lhs ||
         !adjusted->binary_rhs->binary_rhs ||
@@ -6595,8 +6642,8 @@ static bool debug_inline_parameter_i686_u64_signed_modulo_rewrite(
     bias = adjusted->binary_rhs;
     sign_mask = bias->binary_lhs;
     if (sign_mask->kind != EXPR_RSHIFT || !sign_mask->binary_lhs ||
-        sign_mask->binary_lhs->kind != EXPR_IDENT ||
-        sign_mask->binary_lhs->ident_decl != source ||
+        !debug_inline_parameter_i686_expression_equal(
+            sign_mask->binary_lhs, source_expression, 0u) ||
         !sign_mask->binary_rhs ||
         !debug_inline_parameter_i686_signed_u64_node(sign_mask) ||
         !debug_inline_parameter_i686_signed_u64_node(
