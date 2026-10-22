@@ -19600,6 +19600,38 @@ static bool lower_cxx_emit_constructor_call(
     return true;
 }
 
+/* The complete object's destructor is registered only after initialization
+ * finishes. A throwing initializer may therefore unwind only subobjects
+ * whose initialization already completed; keep this path to trivial ones. */
+static bool lower_aggregate_prvalue_partial_init_supported(
+    const Type* type, unsigned depth, bool root_object) {
+    if (!type || depth > 32u) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->base &&
+            lower_aggregate_prvalue_partial_init_supported(
+                type->base, depth + 1u, false);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (!root_object &&
+        (type->cxx_nontrivial || type->cleanup_function ||
+         type->cleanup_field)) {
+        return false;
+    }
+    if (type->cxx_class &&
+        (type->cxx_class->base_count != 0 ||
+         type->cxx_class->virtual_base_count != 0)) {
+        return false;
+    }
+    for (const TypeField* field = type->fields; field; field = field->next) {
+        if (!field->type ||
+            !lower_aggregate_prvalue_partial_init_supported(
+                field->type, depth + 1u, false)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool lower_initialize_struct_field(
     RccIrLowerContext* context, RccIrValue base,
     const TypeField* field, const ExprList* initializer_item,
@@ -19626,7 +19658,6 @@ static bool lower_initialize_struct_field(
         if (!containing_initializer ||
             containing_initializer != context->aggregate_paren_initializer ||
             !containing_initializer->compound_paren_init ||
-            !lower_noexcept_expression(initializer) ||
             !initializer_item->cxx_temporary_owner ||
             !initializer_item->cxx_temporary_cleanups ||
             reference_type->kind != TYPE_PTR ||
@@ -19638,6 +19669,8 @@ static bool lower_initialize_struct_field(
                 (Type*)reference_type->base, (Type*)object_type) ||
             !type_is_compatible(
                 (Type*)object_type, (Type*)reference_type->base) ||
+            !lower_aggregate_prvalue_partial_init_supported(
+                object_type, 0u, true) ||
             !lower_temporary_cleanup_plan_supported(
                 initializer_item, true) ||
             object_type->size <= 0 || object_type->align <= 0) {

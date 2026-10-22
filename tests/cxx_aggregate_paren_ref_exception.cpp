@@ -13,6 +13,7 @@ struct ExceptionAggregate {
 
 struct ThrowingCleanupProbe {
     int* destructions;
+    int value;
 
     ~ThrowingCleanupProbe() noexcept(false) {
         ++*destructions;
@@ -45,15 +46,31 @@ int main() {
         return 2;
     }
 
-    int throwing_destructions = 0;
+    int incomplete_destructions = 0;
     caught = 0;
     try {
         ThrowingCleanupAggregate aggregate(
-            ThrowingCleanupProbe{&throwing_destructions}, 83);
+            ThrowingCleanupProbe{
+                &incomplete_destructions, throw_from_later_initializer()},
+            81);
         (void)aggregate;
         return 3;
     } catch (int value) {
         caught = value;
     }
-    return caught == 79 && throwing_destructions == 1 ? 0 : 4;
+    if (caught != 67 || incomplete_destructions != 0) {
+        return 4;
+    }
+
+    int throwing_destructions = 0;
+    caught = 0;
+    try {
+        ThrowingCleanupAggregate aggregate(
+            ThrowingCleanupProbe{&throwing_destructions, 0}, 83);
+        (void)aggregate;
+        return 5;
+    } catch (int value) {
+        caught = value;
+    }
+    return caught == 79 && throwing_destructions == 1 ? 0 : 6;
 }
