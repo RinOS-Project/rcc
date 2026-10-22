@@ -87,6 +87,16 @@ GREP = grep
 endif
 
 ifeq ($(OS),Windows_NT)
+define CXX_PORTABLE_ENTRY_TEST
+$(call CXX_WINDOWS_ENTRY_TEST,$(1),$(2))
+endef
+else
+define CXX_PORTABLE_ENTRY_TEST
+$(call CXX_POSIX_ENTRY_TEST,$(1),$(2))
+endef
+endif
+
+ifeq ($(OS),Windows_NT)
 DATE_TIME_ENV = set SOURCE_DATE_EPOCH=0&&
 DATE_TIME_INVALID = set SOURCE_DATE_EPOCH=not-a-timestamp&& $(call EXPECT_FAILURE,$(RCC_TARGET) -E tests/preprocessor_date_time.c,$(TEST_OUT)/preprocessor-date-time/invalid.log)
 else
@@ -2782,7 +2792,7 @@ else
 	gcc -m32 -c -o $(TEST_OUT)/cxx-destructor-body/x86.o \
 		$(TEST_OUT)/cxx-destructor-body/x86.s
 	gcc -m32 -c -o $(TEST_OUT)/cxx-destructor-body/start-x86.o \
-		tests/cxx_new_delete_i686_start.s
+		tests/cxx_exceptions_i686_start.s
 	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-destructor-body/x86 \
 		$(TEST_OUT)/cxx-destructor-body/start-x86.o \
@@ -2793,8 +2803,9 @@ else
 		tests/cxx_destructor_body.cpp
 	gcc -c -o $(TEST_OUT)/cxx-destructor-body/x64.o \
 		$(TEST_OUT)/cxx-destructor-body/x64.s
-	gcc -c -o $(TEST_OUT)/cxx-destructor-body/start-x64.o \
-		tests/cxx_new_delete_x64_start.s
+	gcc -x assembler-with-cpp -c \
+		-o $(TEST_OUT)/cxx-destructor-body/start-x64.o \
+		tests/cxx_exceptions_x64_start.s
 	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-destructor-body/x64 \
 		$(TEST_OUT)/cxx-destructor-body/start-x64.o \
@@ -4002,13 +4013,15 @@ STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_PACK_SYMBOL = _ZN46StructuralFunctionM
 STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL = _ZN46StructuralFunctionMemberPointerMatrixValuePackIJXtl40StructuralFunctionMemberPointerMatrixKeyEEEE10null_countEv
 STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_ARRAY_PACK_SYMBOL = _ZN50StructuralInheritedDataMemberPointerArrayValuePackIJXtl44StructuralInheritedDataMemberPointerArrayKeytlA2_M35StructuralMemberPointerArrayDerivediLS2_4ELS2_8EEEEEE8combinedERKS1_
 STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL = _ZN50StructuralInheritedDataMemberPointerArrayValuePackIJXtl44StructuralInheritedDataMemberPointerArrayKeyEEEE10null_countEv
-STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL = _ZN54StructuralInheritedFunctionMemberPointerArrayValuePackIJXtl48StructuralInheritedFunctionMemberPointerArrayKeytlA2_M35StructuralMemberPointerArrayDerivedKFiiEtlS3_adL_ZNK32StructuralMemberPointerArrayBase9add_firstEiELx4EEtlS3_adL_ZNKS5_10add_secondEiELx4EEEEEEE8combinedERKS1_
+STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL_X86 = _ZN54StructuralInheritedFunctionMemberPointerArrayValuePackIJXtl48StructuralInheritedFunctionMemberPointerArrayKeytlA2_M35StructuralMemberPointerArrayDerivedKFiiEtlS3_adL_ZNK32StructuralMemberPointerArrayBase9add_firstEiELi4EEtlS3_adL_ZNKS5_10add_secondEiELi4EEEEEEE8combinedERKS1_
+STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL_X64 = _ZN54StructuralInheritedFunctionMemberPointerArrayValuePackIJXtl48StructuralInheritedFunctionMemberPointerArrayKeytlA2_M35StructuralMemberPointerArrayDerivedKFiiEtlS3_adL_ZNK32StructuralMemberPointerArrayBase9add_firstEiELl4EEtlS3_adL_ZNKS5_10add_secondEiELl4EEEEEEE8combinedERKS1_
 STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL = _ZN54StructuralInheritedFunctionMemberPointerArrayValuePackIJXtl48StructuralInheritedFunctionMemberPointerArrayKeyEEEE10null_countEv
 
 test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-array-nttp)
-	$(call CXX_WINDOWS_ENTRY_TEST,cxx-structural-array-nttp,cxx_structural_class_array_value_pack.cpp)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-structural-array-nttp,cxx_structural_class_array_value_pack.cpp)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-structural-array-nttp/gcc.s tests/cxx_structural_class_array_value_pack.cpp
+	g++ -m32 -std=c++20 -S -o $(TEST_OUT)/cxx-structural-array-nttp/gcc-x86.s tests/cxx_structural_class_array_value_pack.cpp
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
@@ -4034,7 +4047,8 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
-	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL_X64),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL_X86),$(TEST_OUT)/cxx-structural-array-nttp/gcc-x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
@@ -4061,7 +4075,7 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
-	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL_X86),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
@@ -4088,7 +4102,7 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
-	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL_X64),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-structural-array-nttp/gcc-host tests/cxx_structural_class_array_value_pack.cpp
 	$(TEST_OUT)/cxx-structural-array-nttp/gcc-host
@@ -10264,7 +10278,7 @@ test-cxx-selection-init-posix: $(RCXX_TARGET)
 	@echo "C++ selection-statement initializer tests completed"
 
 test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET) \
-	$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(CXX_STATIC_REFERENCE_GUARD_RUNTIME) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-init)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -o \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-gcc \
@@ -10288,7 +10302,7 @@ test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET) \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64-host \
 		tests/cxx_language_core_host.c \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64.o \
-		$(CXX_WINDOWS_EXCEPTION_RUNTIME) \
+		$(if $(CXX_WINDOWS_EXCEPTION_RUNTIME),$(CXX_WINDOWS_EXCEPTION_RUNTIME),$(CXX_HOST_EXCEPTION_RUNTIME)) \
 		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S \
@@ -10309,7 +10323,7 @@ test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET) \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64-o2-host \
 		tests/cxx_language_core_host.c \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64-o2.o \
-		$(CXX_WINDOWS_EXCEPTION_RUNTIME) \
+		$(if $(CXX_WINDOWS_EXCEPTION_RUNTIME),$(CXX_WINDOWS_EXCEPTION_RUNTIME),$(CXX_HOST_EXCEPTION_RUNTIME)) \
 		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-x64-o2-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -13475,21 +13489,24 @@ test-cxx-delegating-constructor-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-delegating-constructor/invalid-x64.log
 	@echo "C++ delegating constructor tests completed"
 
-test-cxx-converting-constructor-posix: $(RCXX_TARGET)
+test-cxx-converting-constructor-posix: $(RCXX_TARGET) \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-converting-constructor)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-converting-constructor/x86.s \
 		tests/cxx_converting_constructor.cpp
 	$(CC) -m32 -o $(TEST_OUT)/cxx-converting-constructor/x86 \
 		tests/cxx_converting_constructor_run_test.c \
-		$(TEST_OUT)/cxx-converting-constructor/x86.s
+		$(TEST_OUT)/cxx-converting-constructor/x86.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686)
 	$(TEST_OUT)/cxx-converting-constructor/x86
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-converting-constructor/x64.s \
 		tests/cxx_converting_constructor.cpp
 	$(CC) -o $(TEST_OUT)/cxx-converting-constructor/x64 \
 		tests/cxx_converting_constructor_run_test.c \
-		$(TEST_OUT)/cxx-converting-constructor/x64.s
+		$(TEST_OUT)/cxx-converting-constructor/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-converting-constructor/x64
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-converting-constructor/invalid-x86.ro \
@@ -20059,8 +20076,9 @@ test-cxx-conversion-reference-ranking-ambiguous: $(RCXX_TARGET)
 	$(GREP) -F -q "incompatible type for argument 1 to 'consume_reference_base'" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_private_conversion_function_access_invalid.cpp,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-gcc.log)
-	$(GREP) -F -q "operator ConversionAccessBase*()' is private within this context" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-gcc.log
-	$(GREP) -F -q "operator bool() const' is private within this context" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-gcc.log
+	$(GREP) -F -q "operator ConversionAccessBase*()" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-gcc.log
+	$(GREP) -F -q "operator bool() const" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-gcc.log
+	$(GREP) -F -q "private within this context" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-gcc.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-x86.ro tests/cxx_private_conversion_function_access_invalid.cpp,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-x86.log)
 	$(call CHECK_COUNT,method 'operator conversion' is not accessible,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/private-access-x86.log,2)
@@ -20120,7 +20138,7 @@ test-cxx-conversion-member-pointer-owner-ranking: $(RCXX_TARGET) $(CXX_HOST_EXCE
 		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86.s
 	objdump -f $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86.o \
 		> $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86-arch.log
-	$(GREP) -F -q "pe-i386" \
+	$(GREP) -F -q "$(if $(filter Windows_NT,$(OS)),pe-i386,elf32-i386)" \
 		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x64.s \
@@ -20332,7 +20350,8 @@ endif
 	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-static-cast-conversion-operator/implicit-invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -DTEST_EXPLICIT_STANDARD_SEQUENCE_REJECTED -fsyntax-only tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-explicit-sequence-invalid.log)
-	$(GREP) -F -q "invalid 'static_cast'" $(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-explicit-sequence-invalid.log
+	$(GREP) -F -q "invalid" $(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-explicit-sequence-invalid.log
+	$(GREP) -F -q "static_cast" $(TEST_OUT)/cxx-static-cast-conversion-operator/gcc-explicit-sequence-invalid.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_EXPLICIT_STANDARD_SEQUENCE_REJECTED -c -o $(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x86.ro tests/cxx_static_cast_conversion_operator.cpp,$(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x86.log)
 	$(GREP) -F -q "static_cast requires a viable conversion function" $(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-static-cast-conversion-operator/explicit-sequence-invalid-x86.ro)
@@ -20343,7 +20362,7 @@ endif
 test-cxx-converting-constructor: test-cxx-static-cast-constructor
 
 .PHONY: test-cxx-static-cast-constructor
-test-cxx-static-cast-constructor: $(RCXX_TARGET)
+test-cxx-static-cast-constructor: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-cast-constructor)
 	$(CC) -c -o $(TEST_OUT)/cxx-static-cast-constructor/gcc-runner.o \
 		tests/cxx_converting_constructor_run_test.c
@@ -20368,7 +20387,7 @@ test-cxx-static-cast-constructor: $(RCXX_TARGET)
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-host \
 		tests/cxx_converting_constructor_run_test.c \
 		$(TEST_OUT)/cxx-static-cast-constructor/rcc-x64.o \
-		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+		$(if $(CXX_WINDOWS_EXCEPTION_RUNTIME),$(CXX_WINDOWS_EXCEPTION_RUNTIME),$(CXX_HOST_EXCEPTION_RUNTIME))
 	$(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-host
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
 		-o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-o2.s \
@@ -20378,7 +20397,7 @@ test-cxx-static-cast-constructor: $(RCXX_TARGET)
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-o2-host \
 		tests/cxx_converting_constructor_run_test.c \
 		$(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-o2.o \
-		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+		$(if $(CXX_WINDOWS_EXCEPTION_RUNTIME),$(CXX_WINDOWS_EXCEPTION_RUNTIME),$(CXX_HOST_EXCEPTION_RUNTIME))
 	$(TEST_OUT)/cxx-static-cast-constructor/rcc-x64-o2-host
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -DTEST_INVALID_CLASS_TARGET_STATIC_CAST -fsyntax-only tests/cxx_converting_constructor.cpp,$(TEST_OUT)/cxx-static-cast-constructor/gcc-invalid.log)
 	$(GREP) -F -q "too many initializers" $(TEST_OUT)/cxx-static-cast-constructor/gcc-invalid.log

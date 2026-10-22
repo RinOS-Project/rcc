@@ -287,7 +287,7 @@ rin_cpp_exception_leave:
     push %eax
     call rin_cpp_exception_unwind_cleanups
     add $4, %esp
-    pop %eax
+    mov 4(%esp), %eax
     cmp %eax, rin_cpp_exception_top
     jne 2f
     mov 24(%eax), %edx

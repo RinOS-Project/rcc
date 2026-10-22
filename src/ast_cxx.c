@@ -815,10 +815,13 @@ static bool cxx_mangle_structural_member_pointer_value(
             return false;
         }
         if (designating_owner && designating_owner != owner) {
+            Type* adjustment_type = g_opts.target_arch == ARCH_X64
+                ? type_long : type_int;
             cxx_mangle_type_char(buf, pos, 'L');
-            cxx_mangle_type_append_context(buf, pos, type_llong, context);
+            cxx_mangle_type_append_context(
+                buf, pos, adjustment_type, context);
             cxx_mangle_template_value_suffix(
-                buf, pos, type_llong, offset);
+                buf, pos, adjustment_type, offset);
         }
         cxx_mangle_type_char(buf, pos, 'E');
         return true;

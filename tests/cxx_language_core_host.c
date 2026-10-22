@@ -22,6 +22,8 @@ extern void RIN_SYSV __rcc_global_init(void) __attribute__((weak));
 
 int main(void)
 {
+#if defined(_WIN32)
     if (__rcc_global_init) __rcc_global_init();
+#endif
     return _rcc_entry();
 }

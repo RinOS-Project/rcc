@@ -13090,6 +13090,12 @@ static void gen_call(Module* mod, Expr* expr) {
                     mod, args[i]->cxx_temporary_owner,
                     args[i]->cxx_temporary_cleanups);
             }
+            /* Cleanup registration may call into the exception runtime,
+             * which is free to clobber EAX.  The pointer argument itself
+             * must still be passed after that call. */
+            emit_mov_reg_mem(
+                mod, EAX, EBP,
+                args[i]->cxx_temporary_owner->var_offset);
         }
         if (gen_is_integer64(passed_type)) {
             if (!gen_is_integer64(argument->type)) {
