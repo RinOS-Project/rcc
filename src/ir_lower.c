@@ -19626,8 +19626,7 @@ static bool lower_initialize_struct_field(
         if (!containing_initializer ||
             containing_initializer != context->aggregate_paren_initializer ||
             !containing_initializer->compound_paren_init ||
-            !lower_noexcept_expression_list(
-                containing_initializer->compound_init) ||
+            !lower_noexcept_expression(initializer) ||
             !initializer_item->cxx_temporary_owner ||
             !initializer_item->cxx_temporary_cleanups ||
             reference_type->kind != TYPE_PTR ||
@@ -19660,7 +19659,9 @@ static bool lower_initialize_struct_field(
             !lower_bind_temporary_owner(
                 context, initializer_item->cxx_temporary_owner,
                 object_address) ||
-            !lower_store_address(context, address, object_address)) {
+            !lower_store_address(context, address, object_address) ||
+            !lower_push_scope_cleanup_plan(
+                context, initializer_item->cxx_temporary_cleanups)) {
             return false;
         }
         return true;
@@ -20290,44 +20291,14 @@ static bool lower_struct_initializer(
 }
 
 static bool lower_emit_aggregate_paren_temporary_cleanups(
-    RccIrLowerContext* context, const Expr* initializer) {
-    const ExprList** temporaries;
-    size_t count = 0u;
-    size_t index = 0u;
+    RccIrLowerContext* context, const Expr* initializer,
+    RccIrLowerScopeCleanup* marker) {
     if (!context || !initializer || !initializer->compound_paren_init) {
         return true;
     }
-    for (const ExprList* item = initializer->compound_init;
-         item; item = item->next) {
-        if (!item->cxx_temporary_owner && !item->cxx_temporary_cleanups) {
-            continue;
-        }
-        if (++count > 4096u ||
-            count > SIZE_MAX / sizeof(*temporaries)) {
-            context->unsupported = true;
-            return false;
-        }
-    }
-    if (count == 0u) return true;
-    temporaries = lower_scratch_alloc(
-        context, count * sizeof(*temporaries));
-    if (!temporaries) return false;
-    for (const ExprList* item = initializer->compound_init;
-         item; item = item->next) {
-        if (item->cxx_temporary_owner || item->cxx_temporary_cleanups) {
-            temporaries[index++] = item;
-        }
-    }
-    while (index > 0u) {
-        const ExprList* item = temporaries[--index];
-        if (!item->cxx_temporary_owner ||
-            !item->cxx_temporary_cleanups ||
-            !lower_temporary_cleanup_plan_supported(item, false) ||
-            !lower_emit_temporary_cleanup_plan(context, item, false)) {
-            context->unsupported = true;
-            return false;
-        }
-    }
+    if (context->scope_cleanups == marker) return true;
+    if (!lower_emit_scope_cleanups_until(context, marker)) return false;
+    context->scope_cleanups = marker;
     return true;
 }
 
@@ -21196,6 +21167,8 @@ static bool lower_declaration(RccIrLowerContext* context,
             context->partial_construction_owner;
         const Expr* previous_aggregate_paren_initializer =
             context->aggregate_paren_initializer;
+        RccIrLowerScopeCleanup* aggregate_cleanup_marker =
+            context->scope_cleanups;
         bool aggregate_paren_initializer =
             declaration->var_init->kind == EXPR_COMPOUND &&
             declaration->var_init->compound_paren_init;
@@ -21223,7 +21196,8 @@ static bool lower_declaration(RccIrLowerContext* context,
         }
         if (aggregate_paren_initializer &&
             !lower_emit_aggregate_paren_temporary_cleanups(
-                context, declaration->var_init)) {
+                context, declaration->var_init,
+                aggregate_cleanup_marker)) {
             return false;
         }
         return !declaration->var_cleanups ||
