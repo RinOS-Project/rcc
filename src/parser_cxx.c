@@ -82,6 +82,21 @@ static CxxNamespace* cxx_namespace_find_typeinfo_identity(
     return NULL;
 }
 
+bool rcc_parser_cxx_type_namespace_matches_qualified_name(
+    const char* declaration_identity, const char* qualified_name) {
+    CxxNamespace* declaration_namespace;
+    CxxNamespace* qualified_namespace;
+    if (!g_global_namespace || !declaration_identity || !qualified_name) {
+        return false;
+    }
+    declaration_namespace = cxx_namespace_find_typeinfo_identity(
+        g_global_namespace, declaration_identity);
+    qualified_namespace = cxx_namespace_find(g_global_namespace,
+                                               qualified_name);
+    return declaration_namespace && declaration_namespace ==
+        qualified_namespace;
+}
+
 typedef struct CxxNamespaceTypeLookupPath {
     CxxNamespace* ns;
     const struct CxxNamespaceTypeLookupPath* parent;

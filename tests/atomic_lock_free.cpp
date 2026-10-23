@@ -104,6 +104,24 @@ extern "C" bool cpp_atomic_generic_compare(unsigned* value,
 }
 
 extern "C" unsigned cpp_standard_atomic_operations() {
+    std::atomic_bool alias_bool(true);
+    std::atomic_char alias_char('A');
+    std::atomic_schar alias_schar(-2);
+    std::atomic_uchar alias_uchar(3u);
+    std::atomic_short alias_short(-4);
+    std::atomic_ushort alias_ushort(5u);
+    std::atomic_int alias_int(-6);
+    std::atomic_uint alias_uint(7u);
+    std::atomic_long alias_long(-8L);
+    std::atomic_ulong alias_ulong(9UL);
+    std::atomic_llong alias_llong(-10LL);
+    std::atomic_ullong alias_ullong(11ULL);
+    std::atomic_char16_t alias_char16(u'B');
+    std::atomic_char32_t alias_char32(U'C');
+    std::atomic_wchar_t alias_wchar(L'D');
+#if defined(__cpp_char8_t)
+    std::atomic_char8_t alias_char8(u8'E');
+#endif
     std::atomic<unsigned> zero;
     std::atomic<unsigned> compatibility_init = ATOMIC_VAR_INIT(1u);
     std::atomic<unsigned> value(3u);
@@ -127,6 +145,18 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (std::atomic_load(&compatibility_init) != 2u) return 103u;
     std::atomic_thread_fence(std::memory_order_acq_rel);
     std::atomic_signal_fence(std::memory_order_acquire);
+    if (!alias_bool.load() || alias_char.load() != 'A' ||
+        alias_schar.load() != -2 || alias_uchar.load() != 3u ||
+        alias_short.load() != -4 || alias_ushort.load() != 5u ||
+        alias_int.load() != -6 || alias_uint.load() != 7u ||
+        alias_long.load() != -8L || alias_ulong.load() != 9UL ||
+        alias_llong.load() != -10LL || alias_ullong.load() != 11ULL ||
+        alias_char16.load() != u'B' || alias_char32.load() != U'C' ||
+        alias_wchar.load() != L'D')
+        return 109u;
+#if defined(__cpp_char8_t)
+    if (alias_char8.load() != u8'E') return 110u;
+#endif
     if (std::kill_dependency(7u) != 7u ||
         std::kill_dependency(pointer_values) != pointer_values)
         return 106u;

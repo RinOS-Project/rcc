@@ -8823,3 +8823,16 @@ remains a separate open item.
       AMD64 execution, and the GCC C++20 syntax oracle.
 - [ ] Full `<atomic>` type constraints/traits, remaining constructor/API
       overloads, and C++20 wait/notify operations remain open.
+
+## RCC continuation (2026-10-23, C++20 atomic typedef aliases)
+
+- [x] Provide the standard `std::atomic_bool`, integer, and character aliases,
+      including C++20 `std::atomic_char8_t`. Add runtime checks for each alias
+      and resolve qualified namespace-scope typedef names through direct and
+      aliased namespace qualifiers. `test-atomic-builtins` passes i686/AMD64
+      generation at `-O0`/`-O2`, GCC C++20 standard-library syntax checking,
+      and AMD64 runtime execution at both optimization levels;
+      `test-cxx-qualified-namespaces`, `test-cxx-alias-templates`, and
+      `test-cxx-using` pass.
+- [ ] Atomic type constraints/traits, remaining constructor/API overloads,
+      and C++20 wait/notify operations remain open.

@@ -98,6 +98,8 @@ extern bool rcc_parser_cxx_type_namespace_is_visible(
     const char*, const char*) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_type_namespace_lookup_depths(
     const char*, const char*, int*, int*) RCC_OPTIONAL_CXX;
+extern bool rcc_parser_cxx_type_namespace_matches_qualified_name(
+    const char*, const char*) RCC_OPTIONAL_CXX;
 extern bool rcc_parser_cxx_enum_namespace_is_visible(
     Type* enum_type, const char* namespace_name) RCC_OPTIONAL_CXX;
 
@@ -1343,6 +1345,30 @@ Type* rcc_parser_lookup_type(const char* name) {
             size_t namespace_length =
                 (size_t)(final_separator - qualified_name - 1);
             const char* type_name = final_separator + 1;
+            char namespace_name[512];
+            if (namespace_length < sizeof(namespace_name)) {
+                memcpy(namespace_name, qualified_name, namespace_length);
+                namespace_name[namespace_length] = '\0';
+                for (ParserTypeName* entry = parser_type_names; entry;
+                     entry = entry->next) {
+                    bool namespace_matches = false;
+                    if (entry->scope != parser_tag_root_scope ||
+                        !entry->name ||
+                        strcmp(entry->name, type_name) != 0) {
+                        continue;
+                    }
+                    if (namespace_length == 0u) {
+                        namespace_matches = !entry->cxx_namespace ||
+                            !*entry->cxx_namespace;
+                    } else if (entry->cxx_namespace &&
+                               rcc_parser_cxx_type_namespace_matches_qualified_name) {
+                        namespace_matches =
+                            rcc_parser_cxx_type_namespace_matches_qualified_name(
+                                entry->cxx_namespace, namespace_name);
+                    }
+                    if (namespace_matches) return entry->type;
+                }
+            }
             for (tag = parser_tag_names; tag; tag = tag->next) {
                 if (tag->kind == TYPE_ENUM && tag->name &&
                     tag->cxx_namespace &&
