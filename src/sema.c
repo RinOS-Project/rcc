@@ -10725,6 +10725,159 @@ bool rcc_sema_cxx_trivial(Type* type) {
     return sema_cxx_trivial(type, 0u);
 }
 
+typedef struct {
+    CxxClass** items;
+    size_t count;
+    size_t capacity;
+} SemaCxxBaseSubobjects;
+
+static bool sema_cxx_collect_unique_base_subobjects(
+    CxxClass* cls, SemaCxxBaseSubobjects* bases, unsigned depth) {
+    if (!cls || depth > 32u) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (cls->bases[index].is_virtual || !base || !base->type) {
+            return false;
+        }
+        for (size_t previous = 0; previous < bases->count; ++previous) {
+            if (bases->items[previous] == base) return false;
+        }
+        if (bases->count == bases->capacity) {
+            size_t next_capacity = bases->capacity
+                ? bases->capacity * 2u : 8u;
+            if (next_capacity < bases->capacity ||
+                next_capacity > SIZE_MAX / sizeof(*bases->items)) {
+                rcc_fatal("C++ base-subobject graph is too large");
+            }
+            bases->items = ast_arena_grow(
+                bases->items, bases->capacity * sizeof(*bases->items),
+                next_capacity * sizeof(*bases->items));
+            bases->capacity = next_capacity;
+        }
+        bases->items[bases->count++] = base;
+        if (!sema_cxx_collect_unique_base_subobjects(base, bases,
+                                                     depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sema_cxx_count_data_member_owners(CxxClass* cls,
+                                             unsigned* owner_count,
+                                             unsigned depth) {
+    bool has_data_members = false;
+    if (!cls || !owner_count || depth > 32u) return false;
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (!field->is_static) {
+            has_data_members = true;
+            break;
+        }
+    }
+    if (has_data_members && ++(*owner_count) > 1u) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (!sema_cxx_count_data_member_owners(cls->bases[index].base,
+                                               owner_count, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sema_cxx_standard_layout_m_contains(Type* type,
+                                                CxxClass* target,
+                                                unsigned depth) {
+    TypeField* field;
+    bool first_member = true;
+    if (!type || !target || depth > 32u) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->base &&
+               (type->base->cxx_class == target ||
+                sema_cxx_standard_layout_m_contains(
+                    type->base, target, depth + 1u));
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return false;
+    for (field = type->fields; field; field = field->next) {
+        bool member_is_in_m = type->kind == TYPE_UNION || first_member ||
+                              field->cxx_no_unique_address ||
+                              (field->type && field->type->size == 0);
+        first_member = false;
+        if (!member_is_in_m || !field->type) continue;
+        if (field->type->cxx_class == target ||
+            sema_cxx_standard_layout_m_contains(
+                field->type, target, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sema_cxx_standard_layout(Type* type, unsigned depth) {
+    CxxClass* cls;
+    unsigned data_member_owners = 0u;
+    bool access_seen = false;
+    unsigned char member_access = ACCESS_PUBLIC;
+    if (!type || depth > 32u) return false;
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC ||
+        (type->kind == TYPE_PTR && type->is_reference)) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY || type->kind == TYPE_VECTOR) {
+        return type->base &&
+               sema_cxx_standard_layout(type->base, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (!type_is_complete(type) || type->size <= 0) return false;
+    cls = type->cxx_class;
+    if (!cls) {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            if (!field->type ||
+                (field->type->kind == TYPE_PTR &&
+                 field->type->is_reference) ||
+                !sema_cxx_standard_layout(field->type, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (cls->vtable_size > 0 || cls->virtual_base_count > 0) return false;
+    for (struct CxxMember* member = cls->members;
+         member; member = member->next) {
+        if (member->is_virtual) return false;
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!access_seen) {
+            member_access = field->cxx_access;
+            access_seen = true;
+        } else if (member_access != field->cxx_access) {
+            return false;
+        }
+        if (!field->type ||
+            (field->type->kind == TYPE_PTR && field->type->is_reference) ||
+            !sema_cxx_standard_layout(field->type, depth + 1u)) {
+            return false;
+        }
+    }
+
+    SemaCxxBaseSubobjects bases = {0};
+    if (!sema_cxx_collect_unique_base_subobjects(cls, &bases, 0u) ||
+        !sema_cxx_count_data_member_owners(cls, &data_member_owners, 0u)) {
+        return false;
+    }
+    for (size_t index = 0; index < bases.count; ++index) {
+        if (sema_cxx_standard_layout_m_contains(
+                type, bases.items[index], 0u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool rcc_sema_cxx_standard_layout(Type* type) {
+    return sema_cxx_standard_layout(type, 0u);
+}
+
 static Decl* sema_cxx_destructor_function(Type* object_type);
 static bool sema_cxx_type_has_destructor_cleanup(Type* object_type,
                                                  int depth);

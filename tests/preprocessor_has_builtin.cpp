@@ -22,6 +22,10 @@
 #error RCC must report the implemented triviality type-trait builtin
 #endif
 
+#if !__has_builtin(__is_standard_layout)
+#error RCC must report the implemented standard-layout type-trait builtin
+#endif
+
 #if !__has_builtin(__has_virtual_destructor)
 #error RCC must report implemented virtual-destructor type-trait builtins
 #endif

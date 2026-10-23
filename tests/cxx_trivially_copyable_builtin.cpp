@@ -164,6 +164,60 @@ struct HasDeletedDefaultConstructorMember {
     DeletedDefaultConstructor member;
 };
 
+struct StandardLayoutBase {
+    int value;
+};
+
+struct StandardLayoutDerived : StandardLayoutBase {
+};
+
+struct NonStandardLayoutDerivedData : StandardLayoutBase {
+    int extra;
+};
+
+struct StandardLayoutPrivateData {
+private:
+    int first;
+    long second;
+};
+
+struct NonStandardLayoutMixedAccess {
+public:
+    int first;
+private:
+    int second;
+};
+
+struct NonStandardLayoutReferenceMember {
+    int& value;
+};
+
+struct NonStandardLayoutVirtualMember {
+    VirtualType value;
+};
+
+struct StandardLayoutRepeatedBaseRoot {
+};
+
+struct StandardLayoutRepeatedBaseLeft : StandardLayoutRepeatedBaseRoot {
+};
+
+struct StandardLayoutRepeatedBaseRight : StandardLayoutRepeatedBaseRoot {
+};
+
+struct NonStandardLayoutRepeatedBase : StandardLayoutRepeatedBaseLeft,
+                                       StandardLayoutRepeatedBaseRight {
+};
+
+struct NonStandardLayoutBaseMember : StandardLayoutRepeatedBaseRoot {
+    [[no_unique_address]] StandardLayoutRepeatedBaseRoot value;
+};
+
+union StandardLayoutUnion {
+    int integer;
+    char character;
+};
+
 struct HasNontriviallyDestructibleMember {
     NontriviallyDestructibleUserProvided member;
 };
@@ -237,6 +291,7 @@ struct BaseOfAmbiguousDerived : BaseOfLeft, BaseOfRight {
 template<typename T>
 struct DeferredTraitResults {
 #ifdef __RCC__
+    static constexpr bool standard_layout = __is_standard_layout(T);
     static constexpr bool trivial = __is_trivial(T);
     static constexpr bool class_type = __is_class(T);
     static constexpr bool copyable = __is_trivially_copyable(T);
@@ -250,6 +305,7 @@ struct DeferredTraitResults {
     static constexpr bool empty = __is_empty(T);
     static constexpr bool polymorphic = __is_polymorphic(T);
 #else
+    static constexpr bool standard_layout = std::is_standard_layout_v<T>;
     static constexpr bool trivial = std::is_trivial_v<T>;
     static constexpr bool class_type = std::is_class_v<T>;
     static constexpr bool copyable = std::is_trivially_copyable_v<T>;
@@ -301,6 +357,18 @@ int deferred_trivial_constraint(T*);
 #endif
 template<typename T>
 long deferred_trivial_constraint(T*);
+
+#ifdef __RCC__
+template<typename T>
+requires __is_standard_layout(T)
+int deferred_standard_layout_constraint(T*);
+#else
+template<typename T>
+requires std::is_standard_layout_v<T>
+int deferred_standard_layout_constraint(T*);
+#endif
+template<typename T>
+long deferred_standard_layout_constraint(T*);
 
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
 static_assert(__is_trivial(int), "scalar types are trivial");
@@ -372,6 +440,22 @@ static_assert(DeferredTraitResults<TypeCategoryEnum>::trivial, "enumerations are
 static_assert(!DeferredTraitResults<TypeCategoryAbstractClass>::trivial, "polymorphic classes are not trivial");
 static_assert(DeferredTraitResults<int[3]>::trivial, "triviality propagates through arrays");
 static_assert(!DeferredTraitResults<int&>::trivial, "references are not trivial types");
+static_assert(DeferredTraitResults<StandardLayoutBase>::standard_layout, "plain classes have standard layout");
+static_assert(DeferredTraitResults<int>::standard_layout, "scalar types have standard layout");
+static_assert(DeferredTraitResults<int[3]>::standard_layout, "arrays of standard-layout types retain standard layout");
+static_assert(DeferredTraitResults<VirtualType*>::standard_layout, "pointers remain standard-layout independently of pointee type");
+static_assert(!DeferredTraitResults<int&>::standard_layout, "reference types are not standard-layout");
+static_assert(DeferredTraitResults<StandardLayoutDerived>::standard_layout, "standard-layout bases without derived data retain standard layout");
+static_assert(!DeferredTraitResults<NonStandardLayoutDerivedData>::standard_layout, "data in both a base and derived class breaks standard layout");
+static_assert(DeferredTraitResults<StandardLayoutPrivateData>::standard_layout, "uniform private data access preserves standard layout");
+static_assert(!DeferredTraitResults<NonStandardLayoutMixedAccess>::standard_layout, "mixed data-member access breaks standard layout");
+static_assert(!DeferredTraitResults<NonStandardLayoutReferenceMember>::standard_layout, "reference members break standard layout");
+static_assert(!DeferredTraitResults<NonStandardLayoutVirtualMember>::standard_layout, "non-standard-layout members propagate");
+static_assert(!DeferredTraitResults<NonStandardLayoutRepeatedBase>::standard_layout, "repeated base subobjects break standard layout");
+static_assert(!DeferredTraitResults<NonStandardLayoutBaseMember>::standard_layout, "a base type in the zero-offset member set breaks standard layout");
+static_assert(DeferredTraitResults<StandardLayoutUnion>::standard_layout, "plain unions have standard layout");
+static_assert(sizeof(deferred_standard_layout_constraint(static_cast<StandardLayoutBase*>(nullptr))) == sizeof(int), "dependent standard-layout traits participate in constrained overload resolution");
+static_assert(sizeof(deferred_standard_layout_constraint(static_cast<NonStandardLayoutMixedAccess*>(nullptr))) == sizeof(long), "false dependent standard-layout traits remove constrained overloads");
 static_assert(sizeof(deferred_trivial_constraint(static_cast<TriviallyCopyable*>(nullptr))) == sizeof(int), "dependent triviality participates in constrained overload resolution");
 static_assert(sizeof(deferred_trivial_constraint(static_cast<HasUserDefaultConstructor*>(nullptr))) == sizeof(long), "false dependent triviality removes constrained overloads");
 static_assert(DeferredTraitResults<TriviallyCopyable>::copyable, "dependent copyability traits are resolved after specialization");

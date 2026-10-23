@@ -9088,3 +9088,15 @@ remains a separate open item.
       broader constructibility/assignability traits remain open; the
       `libcxx/type_traits.h` direct-compilation blocker is not resolved by this
       builtin alone.
+
+## RCC continuation (2026-10-23, C++ `__is_standard_layout` builtin)
+
+- [x] Implement `__is_standard_layout(T)` for scalar and array types, classes,
+      and unions. Check member types/access, virtual bases/functions, unique
+      base subobjects, declaration ownership of data members, and the C++20
+      zero-offset member/base type rule. Defer dependent operands through
+      template substitution and advertise the builtin with `__has_builtin`.
+      The GCC C++20 oracle and RCC i686/AMD64 tests cover positive and negative
+      base/member/access/reference/union cases plus dependent constraints.
+- [ ] Remaining broader type traits and full direct compilation of
+      `libcxx/type_traits.h` remain open.

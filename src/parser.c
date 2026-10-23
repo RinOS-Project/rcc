@@ -1688,7 +1688,9 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
 static bool parser_cxx_type_trait_kind(const char* name,
                                       CxxTypeTraitKind* kind) {
     if (!name || !kind) return false;
-    if (strcmp(name, "__is_trivial") == 0) {
+    if (strcmp(name, "__is_standard_layout") == 0) {
+        *kind = CXX_TYPE_TRAIT_STANDARD_LAYOUT;
+    } else if (strcmp(name, "__is_trivial") == 0) {
         *kind = CXX_TYPE_TRAIT_TRIVIAL;
     } else if (strcmp(name, "__is_trivially_copyable") == 0) {
         *kind = CXX_TYPE_TRAIT_TRIVIALLY_COPYABLE;
@@ -1815,6 +1817,9 @@ static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
         return false;
     }
     switch (kind) {
+        case CXX_TYPE_TRAIT_STANDARD_LAYOUT:
+            *value = rcc_sema_cxx_standard_layout(type);
+            break;
         case CXX_TYPE_TRAIT_TRIVIAL:
             *value = rcc_sema_cxx_trivial(type);
             break;
@@ -2199,7 +2204,8 @@ static Expr* parse_primary(void) {
         return parse_builtin_types_compatible(loc);
     }
     if (parser_cxx_mode &&
-        (parser_builtin_name("__is_trivial") ||
+        (parser_builtin_name("__is_standard_layout") ||
+         parser_builtin_name("__is_trivial") ||
          parser_builtin_name("__is_trivially_copyable") ||
          parser_builtin_name("__is_trivially_destructible") ||
          parser_builtin_name("__has_virtual_destructor") ||
