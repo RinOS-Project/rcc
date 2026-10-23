@@ -3297,7 +3297,8 @@ static void parse_enum_body(Type* enum_type, bool scoped,
     parser_complete_enum_constant_types(enum_type);
 }
 
-static void parser_append_field(Type* aggregate, const char* name, Type* type) {
+static TypeField* parser_append_field(Type* aggregate, const char* name,
+                                      Type* type) {
     TypeField* field = ast_arena_alloc(sizeof(*field));
     TypeField** tail = &aggregate->fields;
     int alignment = type && type->align > 0 ? type->align : 1;
@@ -3330,6 +3331,7 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     }
     if (alignment > aggregate->align) aggregate->align = alignment;
     *tail = field;
+    return field;
 }
 
 typedef struct ParserBitfieldLayout {
@@ -3593,6 +3595,7 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
         field->virtual_base_owner = source->virtual_base_owner;
         field->virtual_base_member_offset =
             source->virtual_base_member_offset;
+        field->initializer = source->initializer;
         field->cxx_access = source->cxx_access;
         field->cxx_declaring_class = source->cxx_declaring_class;
         field->is_deprecated = source->is_deprecated;
@@ -3760,6 +3763,7 @@ static void parser_apply_aggregate_attributes(
 
 static void parse_aggregate_body(Type* aggregate) {
     ParserBitfieldLayout bitfield_layout;
+    bool union_has_default_member_initializer = false;
     aggregate->size = 0;
     aggregate->align = 1;
     aggregate->fields = NULL;
@@ -3792,6 +3796,7 @@ static void parse_aggregate_body(Type* aggregate) {
         do {
             const char* field_name = NULL;
             Type* field_type = parse_declarator(field_base, &field_name, NULL);
+            Expr* field_initializer = NULL;
             if (explicit_alignment != 0) {
                 field_type = rcc_parser_apply_explicit_alignment(
                     field_type, explicit_alignment, alignment_loc);
@@ -3828,7 +3833,21 @@ static void parse_aggregate_body(Type* aggregate) {
                 break;
             }
             parser_reset_bitfield_layout(&bitfield_layout);
-            parser_append_field(aggregate, field_name, field_type);
+            if (parser_cxx_mode && aggregate->kind == TYPE_UNION) {
+                if (match(TOK_ASSIGN) || check(TOK_LBRACE)) {
+                    field_initializer = rcc_parser_parse_initializer();
+                    if (union_has_default_member_initializer) {
+                        rcc_error(field_initializer
+                                      ? field_initializer->loc
+                                      : peek()->loc,
+                                  "a union may have only one default member initializer");
+                    }
+                    union_has_default_member_initializer = true;
+                }
+            }
+            TypeField* field = parser_append_field(
+                aggregate, field_name, field_type);
+            field->initializer = field_initializer;
         } while (match(TOK_COMMA));
         expect(TOK_SEMICOLON, ";");
     }

@@ -15061,6 +15061,16 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		-Wno-deprecated-declarations \
 		-DRCC_STDLIB_REFERENCE -fsyntax-only tests/atomic_lock_free.cpp
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-union-dmi.ro \
+		tests/invalid_union_multiple_default_member_initializers.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-union-dmi.log)
+	$(GREP) -F -q "a union may have only one default member initializer" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-union-dmi.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-union-dmi.ro \
+		tests/invalid_union_multiple_default_member_initializers.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-union-dmi.log)
+	$(GREP) -F -q "a union may have only one default member initializer" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-union-dmi.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-type.ro \
 		tests/invalid_atomic_type.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-type.log)
 	$(GREP) -F -q "atomic requires trivially copyable type" \

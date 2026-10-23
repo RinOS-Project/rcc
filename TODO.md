@@ -8991,7 +8991,13 @@ remains a separate open item.
       be zero-initialized. `test-atomic-builtins` passes both target widths and
       optimization levels, executes AMD64 at `-O0`/`-O2`, and agrees with the
       GCC C++20 syntax oracle; `test-cxx-inline-aggregates` remains green.
-- [ ] Aggregate/union default-member-initializer corner cases, widths above
-      eight bytes, broader implicit special-member viability, complete type
-      traits, and C++20 wait/notify remain open. Union support remains limited
-      to the validated trivial-copyable aggregate subset.
+- [x] Support the validated C++20 union default-member-initializer subset in
+      the shared aggregate parser and value-initialization path: one active
+      member initialized with either `= expr` or braced syntax. Diagnose more
+      than one initialized union member. `test-atomic-builtins` covers both
+      target widths, both optimization levels, AMD64 runtime at `-O0`/`-O2`,
+      and the GCC C++20 syntax oracle; `test-cxx-inline-aggregates` passes.
+- [ ] Remaining aggregate/union default-member-initializer corners, widths
+      above eight bytes, broader implicit special-member viability, complete
+      type traits, and C++20 wait/notify remain open. Union atomic operations
+      remain limited to the validated trivial-copyable subset.

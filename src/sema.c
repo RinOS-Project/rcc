@@ -21713,20 +21713,32 @@ static int sema_cxx_field_index(Type* type, const char* name) {
 static Expr* sema_cxx_default_member_initializer(Type* type, Expr* source,
                                                 SourceLoc loc) {
     CxxClass* cls = type ? type->cxx_class : NULL;
+    bool plain_union = type && type->kind == TYPE_UNION && !cls;
+    bool has_default_member_initializer = cls && cls->has_field_initializer;
     ExprList* items = NULL;
     unsigned char* initialized = NULL;
+    bool union_has_explicit_member = false;
     int field_count;
     int cursor = 0;
     int index;
 
-    if (!type || !cls || !cls->has_field_initializer ||
+    if (plain_union) {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            if (field->initializer) {
+                has_default_member_initializer = true;
+                break;
+            }
+        }
+    }
+    if (!type || (!cls && !plain_union) ||
+        !has_default_member_initializer ||
         !type->fields || (source && source->kind != EXPR_COMPOUND)) {
         return NULL;
     }
     /* User constructors consume the original initializer through the C++
      * constructor-selection path below.  This aggregate-only helper must not
      * rewrite their argument list before that selection occurs. */
-    if (cls->has_user_constructor) return NULL;
+    if (cls && cls->has_user_constructor) return NULL;
 
     field_count = sema_cxx_field_count(type);
     if (field_count <= 0) return NULL;
@@ -21735,6 +21747,8 @@ static Expr* sema_cxx_default_member_initializer(Type* type, Expr* source,
     /* `{}` is represented as a value-init `{0}` node.  It is not an explicit
      * initializer for the first member in C++, so defaults replace it. */
     if (source && !source->compound_value_init) {
+        union_has_explicit_member = plain_union &&
+            source->compound_init != NULL;
         for (ExprList* item = source->compound_init; item;
              item = item->next) {
             if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
@@ -21779,7 +21793,8 @@ static Expr* sema_cxx_default_member_initializer(Type* type, Expr* source,
 
     index = 0;
     for (TypeField* field = type->fields; field; field = field->next, ++index) {
-        if (!initialized[index] && field->initializer) {
+        if (!initialized[index] && field->initializer &&
+            !union_has_explicit_member) {
             exprlist_append_designated(&items, field->initializer,
                                        INIT_DESIGNATOR_FIELD, 0,
                                        field->name);

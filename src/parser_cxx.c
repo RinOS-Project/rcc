@@ -8651,22 +8651,16 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             }
             if (arity == 0u) {
                 bool empty_value_init = !initializer->value &&
-                    !initializer->arguments && field->type &&
-                    (type_is_scalar(field->type) ||
-                     ((field->type->kind == TYPE_STRUCT ||
-                       field->type->kind == TYPE_UNION) &&
-                      cxx_type_is_aggregate(field->type)));
+                    !initializer->arguments;
+                bool trivial_aggregate_value_init = empty_value_init &&
+                    cxx_constructor_trivial_aggregate_type(field->type);
                 if ((!empty_value_init &&
                      !cxx_constructor_scalar_constant(initializer->value) &&
                      !cxx_constructor_static_address(
                          constructor, initializer->value)) ||
                     !field->type ||
-                    !(type_is_integer(field->type) ||
-                      field->type->kind == TYPE_ENUM ||
-                      field->type->kind == TYPE_PTR ||
-                      field->type->kind == TYPE_NULLPTR ||
-                      field->type->kind == TYPE_FLOAT ||
-                      field->type->kind == TYPE_DOUBLE) ||
+                    (!cxx_constructor_scalar_type(field->type) &&
+                     !trivial_aggregate_value_init) ||
                     field->type->size <= 0 ||
                     (g_opts.target_arch == ARCH_X86 && field->type->size > 8) ||
                     (g_opts.target_arch == ARCH_X64 && field->type->size > 8)) {
