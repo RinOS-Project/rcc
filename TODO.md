@@ -9048,6 +9048,12 @@ remains a separate open item.
       detection, and advertise the implemented C++ type-trait queries through
       `__has_builtin`. RCC i686/AMD64 trait tests, the GCC C++20 standard-trait
       oracle, and the C++ preprocessing feature-query suite pass.
+- [x] Implement C++17 `__is_aggregate(T)` for complete aggregate classes,
+      unions, and bounded arrays, using the shared aggregate semantic
+      classifier. Tests cover C++20 default-member-initializers and public
+      bases, private members, user-declared constructors, virtual functions,
+      pointers, and enums; RCC i686/AMD64, GCC C++20, and `__has_builtin`
+      checks pass.
 - [x] Implement the C++ type-category intrinsics `__is_enum(T)`,
       `__is_class(T)`, `__is_union(T)`, `__is_final(T)`, `__is_abstract(T)`,
       `__is_polymorphic(T)`, and `__is_empty(T)`. Regressions cover positive,

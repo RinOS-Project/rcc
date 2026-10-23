@@ -145,6 +145,36 @@ struct VirtualMethodOnly {
     virtual void run();
 };
 
+struct AggregateTypeTrait {
+    int value;
+};
+
+struct AggregateWithDefaultMemberInitializer {
+    int value = 1;
+};
+
+struct AggregateWithPublicBase : AggregateTypeTrait {
+    int extra;
+};
+
+struct NonAggregatePrivateMember {
+private:
+    int value;
+};
+
+struct NonAggregateDefaultedConstructor {
+    NonAggregateDefaultedConstructor() = default;
+};
+
+struct NonAggregateVirtualFunction {
+    virtual void run();
+};
+
+union AggregateTypeTraitUnion {
+    int integer;
+    unsigned bits;
+};
+
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
 static_assert(__is_trivially_copyable(int*), "object pointers are trivially copyable");
 static_assert(__is_trivially_copyable(int[3]), "bounded arrays are trivially copyable");
@@ -216,6 +246,16 @@ static_assert(__has_virtual_destructor(InheritedVirtualDestructor), "virtual des
 static_assert(!__has_virtual_destructor(VirtualMethodOnly), "unrelated virtual methods do not make the destructor virtual");
 static_assert(!__has_virtual_destructor(TriviallyCopyableUnion), "unions do not have virtual destructors");
 static_assert(!__has_virtual_destructor(VirtualDestructor*), "pointers do not have virtual destructors");
+static_assert(__is_aggregate(AggregateTypeTrait), "plain classes are aggregates");
+static_assert(__is_aggregate(AggregateWithDefaultMemberInitializer), "default member initializers are allowed in C++20 aggregates");
+static_assert(__is_aggregate(AggregateWithPublicBase), "public non-virtual bases are allowed in C++20 aggregates");
+static_assert(__is_aggregate(AggregateTypeTraitUnion), "plain unions are aggregates");
+static_assert(__is_aggregate(AggregateTypeTrait[2]), "bounded arrays are aggregates");
+static_assert(!__is_aggregate(NonAggregatePrivateMember), "private data members disqualify aggregates");
+static_assert(!__is_aggregate(NonAggregateDefaultedConstructor), "user-declared constructors disqualify aggregates");
+static_assert(!__is_aggregate(NonAggregateVirtualFunction), "virtual functions disqualify aggregates");
+static_assert(!__is_aggregate(AggregateTypeTrait*), "pointers are not aggregates");
+static_assert(!__is_aggregate(TypeCategoryEnum), "enumerations are not aggregates");
 #else
 static_assert(std::is_trivially_destructible_v<int>, "scalar types are trivially destructible");
 static_assert(std::is_trivially_destructible_v<int&>, "references are trivially destructible");
@@ -237,4 +277,14 @@ static_assert(std::has_virtual_destructor_v<InheritedVirtualDestructor>, "virtua
 static_assert(!std::has_virtual_destructor_v<VirtualMethodOnly>, "unrelated virtual methods do not make the destructor virtual");
 static_assert(!std::has_virtual_destructor_v<TriviallyCopyableUnion>, "unions do not have virtual destructors");
 static_assert(!std::has_virtual_destructor_v<VirtualDestructor*>, "pointers do not have virtual destructors");
+static_assert(std::is_aggregate_v<AggregateTypeTrait>, "plain classes are aggregates");
+static_assert(std::is_aggregate_v<AggregateWithDefaultMemberInitializer>, "default member initializers are allowed in C++20 aggregates");
+static_assert(std::is_aggregate_v<AggregateWithPublicBase>, "public non-virtual bases are allowed in C++20 aggregates");
+static_assert(std::is_aggregate_v<AggregateTypeTraitUnion>, "plain unions are aggregates");
+static_assert(std::is_aggregate_v<AggregateTypeTrait[2]>, "bounded arrays are aggregates");
+static_assert(!std::is_aggregate_v<NonAggregatePrivateMember>, "private data members disqualify aggregates");
+static_assert(!std::is_aggregate_v<NonAggregateDefaultedConstructor>, "user-declared constructors disqualify aggregates");
+static_assert(!std::is_aggregate_v<NonAggregateVirtualFunction>, "virtual functions disqualify aggregates");
+static_assert(!std::is_aggregate_v<AggregateTypeTrait*>, "pointers are not aggregates");
+static_assert(!std::is_aggregate_v<TypeCategoryEnum>, "enumerations are not aggregates");
 #endif
