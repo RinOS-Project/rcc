@@ -10465,6 +10465,17 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             } else break;
         }
 
+        Expr* trailing_constraint = parse_cxx_trailing_requires_clause(loc);
+        if (trailing_constraint) {
+            if (active_template->constraint) {
+                active_template->constraint = expr_binary(
+                    EXPR_AND, active_template->constraint,
+                    trailing_constraint, trailing_constraint->loc);
+            } else {
+                active_template->constraint = trailing_constraint;
+            }
+        }
+
         /* Pure virtual and explicitly defaulted/deleted functions. */
         bool is_pure = false;
         bool is_deleted = false;

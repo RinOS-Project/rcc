@@ -8896,3 +8896,12 @@ remains a separate open item.
       12-byte aggregate remains rejected with a diagnostic.
       `test-atomic-builtins` passes i686/AMD64 generation at `-O0`/`-O2`,
       AMD64 execution at both levels, and GCC C++20 syntax checking.
+
+## RCC continuation (2026-10-23, in-class trailing requires clauses)
+
+- [x] Parse and retain trailing requires clauses on in-class member function
+      templates, combining them with any template-head constraint before
+      overload resolution. Regressions prove constrained class-template member
+      calls are available for `Box<int>` and unavailable for `Box<char>`.
+      i686/AMD64 code generation passes at `-O0` and `-O2`; AMD64 host-runtime
+      execution passes at both levels, and GCC C++20 syntax checking passes.
