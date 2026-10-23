@@ -283,7 +283,11 @@ public:
         sizeof(T) == 1u || sizeof(T) == 2u ||
         sizeof(T) == 4u || sizeof(T) == 8u;
 
-    constexpr __rcc_atomic_base() noexcept : value_(0) {}
+#if __cplusplus >= 202002L
+    constexpr __rcc_atomic_base() noexcept : value_() {}
+#else
+    __rcc_atomic_base() noexcept = default;
+#endif
     constexpr __rcc_atomic_base(T desired) noexcept : value_(desired) {}
     __rcc_atomic_base(const __rcc_atomic_base&) = delete;
     __rcc_atomic_base& operator=(const __rcc_atomic_base&) = delete;

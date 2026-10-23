@@ -6252,18 +6252,32 @@ static void gen64_cxx_initialize_member_initializers(
               ast_cxx_is_aggregate(field->type) &&
               rcc_sema_cxx_trivially_copyable(field->type)))) {
             if (!initializer->constructor) {
+                Expr* copy_expression = NULL;
                 if (ast_cxx_is_aggregate(field->type) &&
-                    rcc_sema_cxx_trivially_copyable(field->type) &&
-                    initializer->arguments &&
-                    !initializer->arguments->next &&
-                    initializer->arguments->expr &&
-                    initializer->arguments->expr->type &&
-                    type_is_compatible(
-                        field->type,
-                        initializer->arguments->expr->type)) {
+                    rcc_sema_cxx_trivially_copyable(field->type)) {
+                    Type* value_type = initializer->value
+                        ? (initializer->value->type
+                               ? initializer->value->type
+                               : initializer->value->compound_type)
+                        : NULL;
+                    if (initializer->value &&
+                        initializer->value->kind == EXPR_COMPOUND &&
+                        value_type &&
+                        type_is_compatible(field->type, value_type)) {
+                        copy_expression = initializer->value;
+                    } else if (initializer->arguments &&
+                               !initializer->arguments->next &&
+                               initializer->arguments->expr &&
+                               initializer->arguments->expr->type &&
+                               type_is_compatible(
+                                   field->type,
+                                   initializer->arguments->expr->type)) {
+                        copy_expression = initializer->arguments->expr;
+                    }
+                }
+                if (copy_expression) {
                     Expr* source = gen64_cxx_bind_constructor_expression(
-                        constructor, initializer->arguments->expr,
-                        arguments);
+                        constructor, copy_expression, arguments);
                     emit64_push_reg(mod, RCX);
                     gen64_lvalue(mod, source);
                     emit64_push_reg(mod, RAX);
@@ -6284,7 +6298,8 @@ static void gen64_cxx_initialize_member_initializers(
                     continue;
                 }
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
-                          "validated C++ member constructor is missing");
+                          "validated C++ member constructor is missing for member '%s'",
+                          field->name ? field->name : "<unnamed>");
                 return;
             }
             emit64_push_reg(mod, RCX);
@@ -6541,18 +6556,33 @@ static void gen64_cxx_initialize_object_mode_impl(
                   ast_cxx_is_aggregate(field->type) &&
                   rcc_sema_cxx_trivially_copyable(field->type)))) {
                 if (!initializer->constructor) {
+                    Expr* copy_expression = NULL;
                     if (ast_cxx_is_aggregate(field->type) &&
-                        rcc_sema_cxx_trivially_copyable(field->type) &&
-                        initializer->arguments &&
-                        !initializer->arguments->next &&
-                        initializer->arguments->expr &&
-                        initializer->arguments->expr->type &&
-                        type_is_compatible(
-                            field->type,
-                            initializer->arguments->expr->type)) {
+                        rcc_sema_cxx_trivially_copyable(field->type)) {
+                        Type* value_type = initializer->value
+                            ? (initializer->value->type
+                                   ? initializer->value->type
+                                   : initializer->value->compound_type)
+                            : NULL;
+                        if (initializer->value &&
+                            initializer->value->kind == EXPR_COMPOUND &&
+                            value_type &&
+                            type_is_compatible(field->type,
+                                               value_type)) {
+                            copy_expression = initializer->value;
+                        } else if (initializer->arguments &&
+                                   !initializer->arguments->next &&
+                                   initializer->arguments->expr &&
+                                   initializer->arguments->expr->type &&
+                                   type_is_compatible(
+                                       field->type,
+                                       initializer->arguments->expr->type)) {
+                            copy_expression = initializer->arguments->expr;
+                        }
+                    }
+                    if (copy_expression) {
                         Expr* source = gen64_cxx_bind_constructor_expression(
-                            constructor, initializer->arguments->expr,
-                            arguments);
+                            constructor, copy_expression, arguments);
                         emit64_push_reg(mod, address_reg);
                         gen64_lvalue(mod, source);
                         emit64_push_reg(mod, RAX);
@@ -6573,7 +6603,8 @@ static void gen64_cxx_initialize_object_mode_impl(
                         continue;
                     }
                     rcc_error((SourceLoc){"<constructor>", 0, 0},
-                              "validated C++ member constructor is missing");
+                              "validated C++ member constructor is missing for member '%s'",
+                              field->name ? field->name : "<unnamed>");
                     return;
                 }
                 emit64_push_reg(mod, address_reg);
@@ -13853,6 +13884,8 @@ static void gen64_function(Module* mod, Decl* decl) {
         decl->func_body, stack_size, 8);
     stack_size = codegen_assign_compound_storage(decl->func_body, stack_size,
                                                  8);
+    stack_size = codegen_assign_cxx_constructor_storage(
+        decl, stack_size, 8);
     if (stack_size > INT_MAX - 15) {
         rcc_error(decl->loc, "function stack frame exceeds compiler limits");
         return;

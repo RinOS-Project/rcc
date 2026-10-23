@@ -64,6 +64,16 @@ union AtomicRefUnion {
     float floating;
 };
 
+struct AtomicDefaultMemberAggregate {
+    unsigned first = 3u;
+    unsigned second = 5u;
+};
+
+struct AtomicZeroDefaultAggregate {
+    unsigned zero;
+    unsigned initialized = 7u;
+};
+
 struct AtomicRefWordAggregate {
     unsigned value;
 };
@@ -708,6 +718,18 @@ extern "C" unsigned cpp_standard_atomic_operations() {
             atomic_union_expected, AtomicRefUnion{37u}) ||
         atomic_union_expected.value != 29u)
         return 156u;
+    std::atomic<AtomicDefaultMemberAggregate> member_default_atomic;
+    AtomicDefaultMemberAggregate member_default_value =
+        member_default_atomic.load();
+    if (member_default_value.first != 3u ||
+        member_default_value.second != 5u)
+        return 157u;
+    std::atomic<AtomicZeroDefaultAggregate> zero_default_atomic;
+    AtomicZeroDefaultAggregate zero_default_value =
+        zero_default_atomic.load();
+    if (zero_default_value.zero != 0u ||
+        zero_default_value.initialized != 7u)
+        return 158u;
     AtomicRefWordAggregate atomic_word_initial{7u};
     std::atomic<AtomicRefWordAggregate> word_atomic{atomic_word_initial};
     AtomicRefWordAggregate atomic_word_value = word_atomic.load();

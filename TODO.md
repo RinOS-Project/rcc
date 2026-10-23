@@ -8985,7 +8985,13 @@ remains a separate open item.
       load/store/exchange/compare-exchange regressions pass for i686/AMD64
       `-O0`/`-O2` generation and AMD64 runtime at both levels; the inline
       aggregate C++ regression target also passes.
-- [ ] Aggregate default construction (including default-member initializers),
-      widths above eight bytes, broader implicit special-member viability,
-      complete type traits, and C++20 wait/notify remain open. Union support
-      remains limited to the validated trivial-copyable aggregate subset.
+- [x] Follow the C++20 `std::atomic<T>` default-constructor rule by
+      value-initializing the contained object. Cover trivial 8-byte aggregates
+      with all default-member initializers and with an omitted member that must
+      be zero-initialized. `test-atomic-builtins` passes both target widths and
+      optimization levels, executes AMD64 at `-O0`/`-O2`, and agrees with the
+      GCC C++20 syntax oracle; `test-cxx-inline-aggregates` remains green.
+- [ ] Aggregate/union default-member-initializer corner cases, widths above
+      eight bytes, broader implicit special-member viability, complete type
+      traits, and C++20 wait/notify remain open. Union support remains limited
+      to the validated trivial-copyable aggregate subset.

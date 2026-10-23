@@ -12478,6 +12478,37 @@ static void sema_resolve_cxx_constructor_initializers(
             member_type->base->cxx_class) {
             member_type = member_type->base;
         }
+        /* Empty parenthesized member-initializers value-initialize scalar
+         * members and C++ aggregate members.  Keep the latter on the shared
+         * aggregate initializer path so omitted fields are zeroed and
+         * default-member initializers are applied in declaration order. */
+        if (!initializer->value && !initializer->arguments &&
+            type_is_scalar(member_type)) {
+            Expr* zero = expr_int(0, loc);
+            Type* zero_type = sema_expr(zero);
+            if (!zero_type || !implicit_cast(zero, field->type)) {
+                rcc_error(loc,
+                          "empty C++ member initializer cannot value-initialize its scalar type");
+            } else {
+                initializer->value = zero;
+            }
+        } else if (!initializer->value && !initializer->arguments &&
+                   (member_type->kind == TYPE_STRUCT ||
+                    member_type->kind == TYPE_UNION) &&
+                   ast_cxx_is_aggregate(member_type)) {
+            Expr* aggregate_value = expr_initializer_list(NULL, loc);
+            aggregate_value->compound_type = member_type;
+            aggregate_value->compound_value_init = true;
+            aggregate_value = sema_cxx_default_member_initializer(
+                member_type, aggregate_value, loc);
+            if (!aggregate_value) {
+                aggregate_value = expr_initializer_list(NULL, loc);
+                aggregate_value->compound_type = member_type;
+                aggregate_value->compound_value_init = true;
+            }
+            sema_initializer(member_type, aggregate_value);
+            initializer->value = aggregate_value;
+        }
         bool trivial_aggregate_copy =
             member_type->cxx_class && ast_cxx_is_aggregate(member_type) &&
             sema_cxx_trivially_copyable(member_type, 0) &&
@@ -12486,7 +12517,15 @@ static void sema_resolve_cxx_constructor_initializers(
             initializer->arguments->expr->type &&
             type_is_compatible(member_type,
                                initializer->arguments->expr->type);
-        if (member_type->cxx_class && !trivial_aggregate_copy) {
+        bool aggregate_value_init = initializer->value &&
+            initializer->value->kind == EXPR_COMPOUND &&
+            initializer->value->type &&
+            (member_type->kind == TYPE_STRUCT ||
+             member_type->kind == TYPE_UNION) &&
+            ast_cxx_is_aggregate(member_type) &&
+            type_is_compatible(member_type, initializer->value->type);
+        if (member_type->cxx_class && !trivial_aggregate_copy &&
+            !aggregate_value_init) {
             initializer->constructor = sema_select_cxx_new_constructor(
                 member_type, &initializer->arguments, initializer->value
                     ? initializer->value->loc : loc);

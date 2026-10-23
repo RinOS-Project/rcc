@@ -8533,7 +8533,11 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                    (field->type->cxx_class ||
                     (field->type->kind == TYPE_ARRAY &&
                      field->type->base &&
-                     field->type->base->cxx_class))))) {
+                     field->type->base->cxx_class) ||
+                    type_is_scalar(field->type) ||
+                    ((field->type->kind == TYPE_STRUCT ||
+                      field->type->kind == TYPE_UNION) &&
+                     cxx_type_is_aggregate(field->type)))))) {
                 supported = false;
                 break;
             }
@@ -8646,7 +8650,14 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 continue;
             }
             if (arity == 0u) {
-                if ((!cxx_constructor_scalar_constant(initializer->value) &&
+                bool empty_value_init = !initializer->value &&
+                    !initializer->arguments && field->type &&
+                    (type_is_scalar(field->type) ||
+                     ((field->type->kind == TYPE_STRUCT ||
+                       field->type->kind == TYPE_UNION) &&
+                      cxx_type_is_aggregate(field->type)));
+                if ((!empty_value_init &&
+                     !cxx_constructor_scalar_constant(initializer->value) &&
                      !cxx_constructor_static_address(
                          constructor, initializer->value)) ||
                     !field->type ||

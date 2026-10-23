@@ -10685,18 +10685,33 @@ static void gen_cxx_initialize_member_initializers32(
               ast_cxx_is_aggregate(field->type) &&
               rcc_sema_cxx_trivially_copyable(field->type)))) {
             if (!initializer->constructor) {
+                Expr* copy_expression = NULL;
                 if (ast_cxx_is_aggregate(field->type) &&
-                    rcc_sema_cxx_trivially_copyable(field->type) &&
-                    initializer->arguments &&
-                    !initializer->arguments->next &&
-                    initializer->arguments->expr &&
-                    initializer->arguments->expr->type &&
-                    type_is_compatible(
-                        field->type,
-                        initializer->arguments->expr->type)) {
+                    rcc_sema_cxx_trivially_copyable(field->type)) {
+                    Type* value_type = initializer->value
+                        ? (initializer->value->type
+                               ? initializer->value->type
+                               : initializer->value->compound_type)
+                        : NULL;
+                    if (initializer->value &&
+                        initializer->value->kind == EXPR_COMPOUND &&
+                        value_type &&
+                        type_is_compatible(field->type,
+                                           value_type)) {
+                        copy_expression = initializer->value;
+                    } else if (initializer->arguments &&
+                               !initializer->arguments->next &&
+                               initializer->arguments->expr &&
+                               initializer->arguments->expr->type &&
+                               type_is_compatible(
+                                   field->type,
+                                   initializer->arguments->expr->type)) {
+                        copy_expression = initializer->arguments->expr;
+                    }
+                }
+                if (copy_expression) {
                     Expr* source = gen_cxx_bind_constructor_expression32(
-                        constructor, initializer->arguments->expr,
-                        arguments);
+                        constructor, copy_expression, arguments);
                     emit_push_reg(mod, ECX);
                     gen_lvalue(mod, source);
                     emit_push_reg(mod, EAX);
@@ -10716,7 +10731,8 @@ static void gen_cxx_initialize_member_initializers32(
                     continue;
                 }
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
-                          "validated C++ member constructor is missing");
+                          "validated C++ member constructor is missing for member '%s'",
+                          field->name ? field->name : "<unnamed>");
                 return;
             }
             emit_push_reg(mod, ECX);
@@ -10977,18 +10993,32 @@ static void gen_cxx_initialize_object32_mode_impl(
                   ast_cxx_is_aggregate(field->type) &&
                   rcc_sema_cxx_trivially_copyable(field->type)))) {
                 if (!initializer->constructor) {
+                    Expr* copy_expression = NULL;
                     if (ast_cxx_is_aggregate(field->type) &&
-                        rcc_sema_cxx_trivially_copyable(field->type) &&
-                        initializer->arguments &&
-                        !initializer->arguments->next &&
-                        initializer->arguments->expr &&
-                        initializer->arguments->expr->type &&
-                        type_is_compatible(
-                            field->type,
-                            initializer->arguments->expr->type)) {
+                        rcc_sema_cxx_trivially_copyable(field->type)) {
+                        Type* value_type = initializer->value
+                            ? (initializer->value->type
+                                   ? initializer->value->type
+                                   : initializer->value->compound_type)
+                            : NULL;
+                        if (initializer->value &&
+                            initializer->value->kind == EXPR_COMPOUND &&
+                            value_type &&
+                            type_is_compatible(field->type, value_type)) {
+                            copy_expression = initializer->value;
+                        } else if (initializer->arguments &&
+                                   !initializer->arguments->next &&
+                                   initializer->arguments->expr &&
+                                   initializer->arguments->expr->type &&
+                                   type_is_compatible(
+                                       field->type,
+                                       initializer->arguments->expr->type)) {
+                            copy_expression = initializer->arguments->expr;
+                        }
+                    }
+                    if (copy_expression) {
                         Expr* source = gen_cxx_bind_constructor_expression32(
-                            constructor, initializer->arguments->expr,
-                            arguments);
+                            constructor, copy_expression, arguments);
                         emit_push_reg(mod, ECX);
                         gen_lvalue(mod, source);
                         emit_push_reg(mod, EAX);
@@ -11009,7 +11039,8 @@ static void gen_cxx_initialize_object32_mode_impl(
                         continue;
                     }
                     rcc_error((SourceLoc){"<constructor>", 0, 0},
-                              "validated C++ member constructor is missing");
+                              "validated C++ member constructor is missing for member '%s'",
+                              field->name ? field->name : "<unnamed>");
                     return;
                 }
                 emit_push_reg(mod, address_reg);
@@ -17133,6 +17164,37 @@ int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
     return bytes;
 }
 
+int codegen_assign_cxx_constructor_storage(Decl* declaration,
+                                          int initial_bytes,
+                                          int stack_alignment) {
+    int bytes = initial_bytes < 0 ? INT_MAX : initial_bytes;
+    CxxClass* cls = declaration && declaration->func_is_cxx_constructor &&
+            declaration->func_method_owner
+        ? declaration->func_method_owner->cxx_class : NULL;
+    if (stack_alignment < 1) stack_alignment = 1;
+    if (!cls || bytes == INT_MAX) return bytes;
+    for (CxxConstructorInfo* constructor = cls->constructors; constructor;
+         constructor = constructor->next) {
+        if (!constructor->method || constructor->method->decl != declaration) {
+            continue;
+        }
+        for (CxxConstructorInitializer* initializer =
+                 constructor->initializers;
+             initializer; initializer = initializer->next) {
+            codegen_assign_compound_expr(initializer->value, &bytes,
+                                         stack_alignment);
+            for (ExprList* argument = initializer->arguments; argument;
+                 argument = argument->next) {
+                codegen_assign_compound_expr(argument->expr, &bytes,
+                                             stack_alignment);
+                codegen_assign_initializer_temporary_storage(
+                    argument, &bytes, stack_alignment);
+            }
+        }
+    }
+    return bytes;
+}
+
 int codegen_assign_global_initializer_storage(
     GlobalInitializer* initializers, int stack_alignment) {
     int bytes = 0;
@@ -20111,6 +20173,8 @@ static void gen_function(Module* mod, Decl* decl) {
         decl->func_body, stack_size, 4);
     stack_size = codegen_assign_compound_storage(decl->func_body, stack_size,
                                                  4);
+    stack_size = codegen_assign_cxx_constructor_storage(
+        decl, stack_size, 4);
     frame_alignment = codegen_required_frame_alignment(decl->func_body);
     codegen_assign_vla_parameter_slots(decl, &stack_size);
     if (stack_size > INT_MAX - 15) {

@@ -325,6 +325,9 @@ int codegen_assign_local_vla_extent_slots(Stmt* statement, int initial_bytes,
                                           int word_size);
 int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
                                     int stack_alignment);
+int codegen_assign_cxx_constructor_storage(Decl* declaration,
+                                          int initial_bytes,
+                                          int stack_alignment);
 int codegen_assign_global_initializer_storage(
     GlobalInitializer* initializers, int stack_alignment);
 ExprList* codegen_call_temporary_owners(void);
