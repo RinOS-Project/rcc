@@ -8880,3 +8880,7 @@ remains a separate open item.
       objects, and passes the GCC C++20 syntax oracle.
 - [ ] `atomic_ref` still needs complete type constraints; broader `<atomic>`
       constructors/APIs and C++20 wait/notify operations remain open.
+- [ ] `atomic_ref<T>` load/store/exchange/compare-exchange for trivially
+      copyable aggregate `T` remain unsupported: the current generic atomic
+      builtins require supported scalar object pointers. Add real target-backed
+      semantics and runtime coverage before claiming aggregate support.
