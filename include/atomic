@@ -724,6 +724,13 @@ bool atomic_compare_exchange_strong_explicit(
 inline bool atomic_flag_test_and_set(volatile atomic_flag* object) noexcept {
     return object->test_and_set();
 }
+inline bool atomic_flag_test(const volatile atomic_flag* object) noexcept {
+    return object->test();
+}
+inline bool atomic_flag_test_explicit(
+    const volatile atomic_flag* object, memory_order order) noexcept {
+    return object->test(order);
+}
 inline bool atomic_flag_test_and_set_explicit(
     volatile atomic_flag* object, memory_order order) noexcept {
     return object->test_and_set(order);

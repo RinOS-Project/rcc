@@ -8836,3 +8836,14 @@ remains a separate open item.
       `test-cxx-using` pass.
 - [ ] Atomic type constraints/traits, remaining constructor/API overloads,
       and C++20 wait/notify operations remain open.
+
+## RCC continuation (2026-10-23, C++20 atomic_flag test free functions)
+
+- [x] Add `std::atomic_flag_test` and `std::atomic_flag_test_explicit` with
+      the standard const-volatile object parameter and sequentially-consistent
+      default. Exercise clear/set state transitions and relaxed/acquire reads
+      in `test-atomic-builtins`; i686/AMD64 `-O0`/`-O2` generation, AMD64
+      execution at both optimization levels, and GCC C++20 syntax checking
+      pass.
+- [ ] Atomic type constraints/traits, remaining constructor/API overloads,
+      and C++20 wait/notify operations remain open.

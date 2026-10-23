@@ -229,6 +229,13 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     std::atomic_flag_clear_explicit(&flag, std::memory_order_release);
     if (std::atomic_flag_test_and_set(&flag)) return 96u;
     std::atomic_flag_clear(&flag);
+    if (std::atomic_flag_test(&flag) ||
+        std::atomic_flag_test_explicit(&flag, std::memory_order_relaxed))
+        return 111u;
+    if (std::atomic_flag_test_and_set(&flag) ||
+        !std::atomic_flag_test_explicit(&flag, std::memory_order_acquire))
+        return 112u;
+    std::atomic_flag_clear(&flag);
     if (floating.load() != 0.0f) return 36u;
     floating.store(1.5f);
     if (floating.load(std::memory_order_relaxed) != 1.5f) return 48u;
