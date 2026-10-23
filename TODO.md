@@ -8876,11 +8876,15 @@ remains a separate open item.
       operators. Runtime regressions cover successful CAS, memory-order
       overloads, signed wraparound, floating updates, bitwise transitions,
       and pointer scaling/operator results. `test-atomic-builtins` passes
-      i686/AMD64 generation at `-O0` and `-O2`, executes both target-width
-      objects, and passes the GCC C++20 syntax oracle.
+      i686/AMD64 generation at `-O0` and `-O2`, AMD64 execution at both
+      optimization levels, and the GCC C++20 syntax oracle.
 - [ ] `atomic_ref` still needs complete type constraints; broader `<atomic>`
       constructors/APIs and C++20 wait/notify operations remain open.
-- [ ] `atomic_ref<T>` load/store/exchange/compare-exchange for trivially
-      copyable aggregate `T` remain unsupported: the current generic atomic
-      builtins require supported scalar object pointers. Add real target-backed
-      semantics and runtime coverage before claiming aggregate support.
+- [x] Support generic `atomic_ref<T>` load/store/exchange/compare-exchange for
+      4-byte and 8-byte aggregates. The i686 8-byte path uses `CMPXCHG8B`; both
+      target backends use their existing atomic-width lowering. Runtime checks
+      exercise the full 8-byte operation sequence, including successful and
+      failed compare-exchange, plus 4-byte load/exchange/compare-exchange. A
+      12-byte aggregate remains rejected with a diagnostic.
+      `test-atomic-builtins` passes i686/AMD64 generation at `-O0`/`-O2`,
+      AMD64 execution at both levels, and GCC C++20 syntax checking.

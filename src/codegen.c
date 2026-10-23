@@ -6297,6 +6297,12 @@ static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
                                       const char* name) {
     int retry_label;
     const Type* value_type = atomic_value_type(call);
+    bool generic_aggregate = value_type && value_type->size == 8 &&
+        (value_type->kind == TYPE_STRUCT || value_type->kind == TYPE_UNION) &&
+        (strcmp(name, "__atomic_load") == 0 ||
+         strcmp(name, "__atomic_store") == 0 ||
+         strcmp(name, "__atomic_exchange") == 0 ||
+         strcmp(name, "__atomic_compare_exchange") == 0);
     bool floating_double = value_type && value_type->kind == TYPE_DOUBLE &&
                            value_type->size == 8;
     AtomicMinMaxOp minmax_operation = atomic_minmax_operation(name);
@@ -6305,7 +6311,8 @@ static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
     if ((strncmp(name, "__atomic_", 9) != 0 &&
          strncmp(name, "__sync_", 7) != 0) ||
         g_opts.target_arch != ARCH_X86 ||
-        (!gen_is_integer64(value_type) && !floating_double)) {
+        (!gen_is_integer64(value_type) && !floating_double &&
+         !generic_aggregate)) {
         return false;
     }
 

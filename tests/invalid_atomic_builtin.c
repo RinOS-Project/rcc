@@ -2,6 +2,8 @@
 
 struct generic_atomic_aggregate {
     uint32_t value;
+    uint32_t tag;
+    uint32_t guard;
 };
 
 void invalid_generic_aggregate(struct generic_atomic_aggregate* value,

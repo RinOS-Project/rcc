@@ -733,45 +733,45 @@ public:
     atomic_ref& operator=(const atomic_ref&) = delete;
 
     bool is_lock_free() const noexcept {
-        return __atomic_is_lock_free(sizeof(T), &object_);
+        return __atomic_is_lock_free(sizeof(T), &this->object_);
     }
     void store(T desired, memory_order order) const noexcept {
-        __atomic_store(&object_, &desired, order);
+        __atomic_store(&this->object_, &desired, order);
     }
     void store(T desired) const noexcept {
-        __atomic_store(&object_, &desired, memory_order_seq_cst);
+        __atomic_store(&this->object_, &desired, memory_order_seq_cst);
     }
     T load(memory_order order) const noexcept {
         T result;
-        __atomic_load(&object_, &result, order);
+        __atomic_load(&this->object_, &result, order);
         return result;
     }
     T load() const noexcept {
         T result;
-        __atomic_load(&object_, &result, memory_order_seq_cst);
+        __atomic_load(&this->object_, &result, memory_order_seq_cst);
         return result;
     }
     operator T() const noexcept {
         T result;
-        __atomic_load(&object_, &result, memory_order_seq_cst);
+        __atomic_load(&this->object_, &result, memory_order_seq_cst);
         return result;
     }
     T exchange(T desired, memory_order order) const noexcept {
         T previous;
-        __atomic_exchange(&object_, &desired, &previous, order);
+        __atomic_exchange(&this->object_, &desired, &previous, order);
         return previous;
     }
     T exchange(T desired) const noexcept {
         T previous;
         __atomic_exchange(
-            &object_, &desired, &previous, memory_order_seq_cst);
+            &this->object_, &desired, &previous, memory_order_seq_cst);
         return previous;
     }
     bool compare_exchange_weak(T& expected, T desired,
                                memory_order success,
                                memory_order failure) const noexcept {
         return __atomic_compare_exchange(
-            &object_, &expected, &desired, true, success, failure);
+            &this->object_, &expected, &desired, true, success, failure);
     }
     bool compare_exchange_weak(T& expected, T desired,
                                memory_order order) const noexcept {
@@ -779,18 +779,18 @@ public:
         if (order == memory_order_release) failure = memory_order_relaxed;
         if (order == memory_order_acq_rel) failure = memory_order_acquire;
         return __atomic_compare_exchange(
-            &object_, &expected, &desired, true, order, failure);
+            &this->object_, &expected, &desired, true, order, failure);
     }
     bool compare_exchange_weak(T& expected, T desired) const noexcept {
         return __atomic_compare_exchange(
-            &object_, &expected, &desired, true, memory_order_seq_cst,
+            &this->object_, &expected, &desired, true, memory_order_seq_cst,
             memory_order_seq_cst);
     }
     bool compare_exchange_strong(T& expected, T desired,
                                  memory_order success,
                                  memory_order failure) const noexcept {
         return __atomic_compare_exchange(
-            &object_, &expected, &desired, false, success, failure);
+            &this->object_, &expected, &desired, false, success, failure);
     }
     bool compare_exchange_strong(T& expected, T desired,
                                  memory_order order) const noexcept {
@@ -798,33 +798,36 @@ public:
         if (order == memory_order_release) failure = memory_order_relaxed;
         if (order == memory_order_acq_rel) failure = memory_order_acquire;
         return __atomic_compare_exchange(
-            &object_, &expected, &desired, false, order, failure);
+            &this->object_, &expected, &desired, false, order, failure);
     }
     bool compare_exchange_strong(T& expected, T desired) const noexcept {
         return __atomic_compare_exchange(
-            &object_, &expected, &desired, false, memory_order_seq_cst,
+            &this->object_, &expected, &desired, false, memory_order_seq_cst,
             memory_order_seq_cst);
     }
     T operator=(T desired) const noexcept {
-        __atomic_store(&object_, &desired, memory_order_seq_cst);
+        __atomic_store(&this->object_, &desired, memory_order_seq_cst);
         return desired;
     }
 
+    template<class U = T>
     T fetch_add(T operand, memory_order order) const noexcept {
         return __rcc_atomic_ref_fetch_add(&object_, operand, order);
     }
+    template<class U = T>
     T fetch_add(T operand) const noexcept {
         return __rcc_atomic_ref_fetch_add(
             &object_, operand, memory_order_seq_cst);
     }
+    template<class U = T>
     T fetch_sub(T operand, memory_order order) const noexcept {
         return __rcc_atomic_ref_fetch_sub(&object_, operand, order);
     }
+    template<class U = T>
     T fetch_sub(T operand) const noexcept {
         return __rcc_atomic_ref_fetch_sub(
             &object_, operand, memory_order_seq_cst);
     }
-
     template<class U = T>
     T fetch_and(T operand, memory_order order) const noexcept {
         return __atomic_fetch_and(&object_, operand, order);
@@ -850,34 +853,15 @@ public:
     T fetch_xor(T operand) const noexcept {
         return __atomic_fetch_xor(&object_, operand, memory_order_seq_cst);
     }
-
+    template<class U = T>
     T operator+=(T operand) const noexcept {
         return __rcc_atomic_ref_fetch_add(
                    &object_, operand, memory_order_seq_cst) + operand;
     }
+    template<class U = T>
     T operator-=(T operand) const noexcept {
         return __rcc_atomic_ref_fetch_sub(
                    &object_, operand, memory_order_seq_cst) - operand;
-    }
-    T operator++() const noexcept {
-        T one = 1;
-        return __rcc_atomic_ref_fetch_add(
-                   &object_, one, memory_order_seq_cst) + one;
-    }
-    T operator++(int) const noexcept {
-        T one = 1;
-        return __rcc_atomic_ref_fetch_add(
-            &object_, one, memory_order_seq_cst);
-    }
-    T operator--() const noexcept {
-        T one = 1;
-        return __rcc_atomic_ref_fetch_sub(
-                   &object_, one, memory_order_seq_cst) - one;
-    }
-    T operator--(int) const noexcept {
-        T one = 1;
-        return __rcc_atomic_ref_fetch_sub(
-            &object_, one, memory_order_seq_cst);
     }
     template<class U = T>
     T operator&=(T operand) const noexcept {
@@ -898,6 +882,44 @@ public:
 private:
     T& object_;
 };
+
+#define __RCC_ATOMIC_REF_INTEGER_OPERATORS(T) \
+    inline T operator++(const atomic_ref<T>& reference) noexcept { \
+        T one = 1; \
+        return reference.fetch_add(one, memory_order_seq_cst) + one; \
+    } \
+    inline T operator++(const atomic_ref<T>& reference, int) noexcept { \
+        T one = 1; \
+        return reference.fetch_add(one, memory_order_seq_cst); \
+    } \
+    inline T operator--(const atomic_ref<T>& reference) noexcept { \
+        T one = 1; \
+        return reference.fetch_sub(one, memory_order_seq_cst) - one; \
+    } \
+    inline T operator--(const atomic_ref<T>& reference, int) noexcept { \
+        T one = 1; \
+        return reference.fetch_sub(one, memory_order_seq_cst); \
+    }
+
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(char)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(signed char)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(unsigned char)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(short)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(unsigned short)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(int)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(unsigned int)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(long)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(unsigned long)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(long long)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(unsigned long long)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(char16_t)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(char32_t)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(wchar_t)
+#if defined(__cpp_char8_t)
+__RCC_ATOMIC_REF_INTEGER_OPERATORS(char8_t)
+#endif
+
+#undef __RCC_ATOMIC_REF_INTEGER_OPERATORS
 
 template<class T>
 class atomic_ref<T*> {

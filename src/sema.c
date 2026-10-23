@@ -2023,6 +2023,13 @@ static bool atomic_allows_floating_value(const char* name) {
            strcmp(name, "__atomic_compare_exchange") == 0;
 }
 
+static bool atomic_allows_aggregate_value(const char* name) {
+    return strcmp(name, "__atomic_load") == 0 ||
+           strcmp(name, "__atomic_store") == 0 ||
+           strcmp(name, "__atomic_exchange") == 0 ||
+           strcmp(name, "__atomic_compare_exchange") == 0;
+}
+
 static bool sema_is_opencl_scoped_atomic(const char* name,
                                         int argument_count) {
     if (!name) return false;
@@ -19680,6 +19687,7 @@ static bool sema_atomic_builtin_call(Expr* expr) {
         bool pointer_value;
         bool integer_value;
         bool floating_value;
+        bool aggregate_value;
         pointer_type = expr->call_args ? expr->call_args->expr->type : NULL;
         pointer_value = pointer_type && pointer_type->kind == TYPE_PTR &&
             pointer_type->base && pointer_type->base->kind == TYPE_PTR &&
@@ -19697,8 +19705,18 @@ static bool sema_atomic_builtin_call(Expr* expr) {
             atomic_allows_floating_value(name) &&
             (pointer_type->base->size == 4u ||
              pointer_type->base->size == 8u);
+        aggregate_value = pointer_type && pointer_type->kind == TYPE_PTR &&
+            pointer_type->base &&
+            (pointer_type->base->kind == TYPE_STRUCT ||
+             pointer_type->base->kind == TYPE_UNION) &&
+            (pointer_type->base->size == 1u ||
+             pointer_type->base->size == 2u ||
+             pointer_type->base->size == 4u ||
+             pointer_type->base->size == 8u) &&
+            atomic_allows_aggregate_value(name);
         if (!pointer_type || pointer_type->kind != TYPE_PTR ||
-            (!integer_value && !pointer_value && !floating_value)) {
+            (!integer_value && !pointer_value && !floating_value &&
+             !aggregate_value)) {
             if (pointer_type && pointer_type->kind == TYPE_PTR &&
                 pointer_type->base && type_is_vector(pointer_type->base)) {
                 rcc_error(expr->loc,
@@ -19728,7 +19746,7 @@ static bool sema_atomic_builtin_call(Expr* expr) {
                    (!pointer_type->base ||
                     (!type_is_integer(pointer_type->base) &&
                      pointer_type->base->kind != TYPE_PTR &&
-                     !floating_value))) {
+                     !floating_value && !aggregate_value))) {
             rcc_error(expr->loc,
                       "%s requires a supported lock-free scalar object type",
                       name);

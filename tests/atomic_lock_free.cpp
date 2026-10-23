@@ -54,6 +54,15 @@ struct CxxVolatileTemplateClass {
     T value;
 };
 
+struct AtomicRefAggregate {
+    unsigned first;
+    unsigned second;
+};
+
+struct AtomicRefWordAggregate {
+    unsigned value;
+};
+
 template<class T>
 T cxx_volatile_class_template_deduction(
     volatile CxxVolatileTemplateClass<T>* object) {
@@ -169,6 +178,44 @@ static unsigned test_atomic_ref() {
         --pointer_reference != values + 4 ||
         (pointer_reference -= 2) != values + 2 || pointer != values + 2)
         return 125u;
+
+    alignas(8) AtomicRefAggregate aggregate_storage{2u, 3u};
+    std::atomic_ref<AtomicRefAggregate> aggregate_reference{aggregate_storage};
+    AtomicRefAggregate aggregate_value = aggregate_reference.load();
+    if (aggregate_value.first != 2u || aggregate_value.second != 3u)
+        return 135u;
+    AtomicRefAggregate aggregate_stored{5u, 8u};
+    aggregate_reference.store(aggregate_stored, std::memory_order_release);
+    AtomicRefAggregate aggregate_exchanged{13u, 21u};
+    aggregate_value = aggregate_reference.exchange(aggregate_exchanged);
+    if (aggregate_value.first != 5u || aggregate_value.second != 8u)
+        return 136u;
+    AtomicRefAggregate aggregate_expected{13u, 21u};
+    AtomicRefAggregate aggregate_desired{34u, 55u};
+    if (!aggregate_reference.compare_exchange_strong(
+            aggregate_expected, aggregate_desired, std::memory_order_acq_rel,
+            std::memory_order_acquire))
+        return 137u;
+    aggregate_expected = AtomicRefAggregate{1u, 1u};
+    AtomicRefAggregate aggregate_mismatch_desired{89u, 144u};
+    if (aggregate_reference.compare_exchange_weak(
+            aggregate_expected, aggregate_mismatch_desired,
+            std::memory_order_relaxed) ||
+        aggregate_expected.first != 34u || aggregate_expected.second != 55u)
+        return 138u;
+
+    alignas(4) AtomicRefWordAggregate word_storage{7u};
+    std::atomic_ref<AtomicRefWordAggregate> word_reference{word_storage};
+    AtomicRefWordAggregate word_exchanged{9u};
+    AtomicRefWordAggregate word_value = word_reference.exchange(word_exchanged);
+    if (word_value.value != 7u || word_storage.value != 9u)
+        return 139u;
+    AtomicRefWordAggregate word_expected{9u};
+    AtomicRefWordAggregate word_desired{11u};
+    if (!word_reference.compare_exchange_strong(
+            word_expected, word_desired, std::memory_order_acq_rel,
+            std::memory_order_acquire) || word_reference.load().value != 11u)
+        return 140u;
     return 0u;
 }
 
