@@ -9093,10 +9093,22 @@ remains a separate open item.
 
 - [x] Implement `__is_standard_layout(T)` for scalar and array types, classes,
       and unions. Check member types/access, virtual bases/functions, unique
-      base subobjects, declaration ownership of data members, and the C++20
-      zero-offset member/base type rule. Defer dependent operands through
-      template substitution and advertise the builtin with `__has_builtin`.
+      base subobjects and standard-layout base types, declaration ownership of
+      data members, and the C++20 zero-offset member/base type rule. Defer
+      dependent operands through template substitution and advertise the
+      builtin with `__has_builtin`.
       The GCC C++20 oracle and RCC i686/AMD64 tests cover positive and negative
       base/member/access/reference/union cases plus dependent constraints.
 - [ ] Remaining broader type traits and full direct compilation of
+      `libcxx/type_traits.h` remain open.
+
+## RCC continuation (2026-10-23, C++ `__is_pod` builtin)
+
+- [x] Implement the deprecated C++ POD type trait as a recursive semantic
+      check over scalar, array, class, and union types, requiring trivial and
+      standard-layout properties and POD data members. Preserve dependent
+      operands through specialization and advertise the builtin through
+      `__has_builtin`; GCC C++20 and RCC dual-target tests cover positive and
+      negative scalar, array, enum, union, constructor, access, and member cases.
+- [ ] Broader constructibility/assignability traits and direct compilation of
       `libcxx/type_traits.h` remain open.

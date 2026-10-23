@@ -179,6 +179,7 @@ void rcc_parser_set_cxx_mode(bool enabled);
 struct AST* rcc_parse(struct TokenList* tokens);
 bool rcc_sema(struct AST* ast);
 bool rcc_sema_cxx_requires_satisfied(struct Expr* expression);
+bool rcc_sema_cxx_pod(struct Type* type);
 bool rcc_sema_cxx_standard_layout(struct Type* type);
 bool rcc_sema_cxx_trivial(struct Type* type);
 bool rcc_sema_cxx_trivially_copyable(struct Type* type);

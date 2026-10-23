@@ -171,6 +171,16 @@ struct StandardLayoutBase {
 struct StandardLayoutDerived : StandardLayoutBase {
 };
 
+struct NonStandardLayoutBaseClass {
+public:
+    int first;
+private:
+    int second;
+};
+
+struct DerivedFromNonStandardLayoutBase : NonStandardLayoutBaseClass {
+};
+
 struct NonStandardLayoutDerivedData : StandardLayoutBase {
     int extra;
 };
@@ -220,6 +230,15 @@ union StandardLayoutUnion {
 
 struct HasNontriviallyDestructibleMember {
     NontriviallyDestructibleUserProvided member;
+};
+
+struct NonPODMember {
+    NonPODMember() {}
+    int value;
+};
+
+struct HasNonPODMember {
+    NonPODMember member;
 };
 
 struct HasInaccessibleMemberDestructor {
@@ -291,6 +310,7 @@ struct BaseOfAmbiguousDerived : BaseOfLeft, BaseOfRight {
 template<typename T>
 struct DeferredTraitResults {
 #ifdef __RCC__
+    static constexpr bool pod = __is_pod(T);
     static constexpr bool standard_layout = __is_standard_layout(T);
     static constexpr bool trivial = __is_trivial(T);
     static constexpr bool class_type = __is_class(T);
@@ -305,6 +325,7 @@ struct DeferredTraitResults {
     static constexpr bool empty = __is_empty(T);
     static constexpr bool polymorphic = __is_polymorphic(T);
 #else
+    static constexpr bool pod = __is_pod(T);
     static constexpr bool standard_layout = std::is_standard_layout_v<T>;
     static constexpr bool trivial = std::is_trivial_v<T>;
     static constexpr bool class_type = std::is_class_v<T>;
@@ -441,6 +462,19 @@ static_assert(!DeferredTraitResults<TypeCategoryAbstractClass>::trivial, "polymo
 static_assert(DeferredTraitResults<int[3]>::trivial, "triviality propagates through arrays");
 static_assert(!DeferredTraitResults<int&>::trivial, "references are not trivial types");
 static_assert(DeferredTraitResults<StandardLayoutBase>::standard_layout, "plain classes have standard layout");
+static_assert(DeferredTraitResults<int>::pod, "scalar types are POD");
+static_assert(DeferredTraitResults<int*>::pod, "object pointers are POD");
+static_assert(DeferredTraitResults<int[3]>::pod, "arrays of POD types remain POD");
+static_assert(DeferredTraitResults<FixedUnderlyingTypeTrait>::pod, "enumerations are POD");
+static_assert(DeferredTraitResults<StandardLayoutBase>::pod, "trivial standard-layout classes are POD");
+static_assert(DeferredTraitResults<StandardLayoutUnion>::pod, "trivial standard-layout unions are POD");
+static_assert(!DeferredTraitResults<NonStandardLayoutMixedAccess>::pod, "non-standard-layout classes are not POD");
+static_assert(!DeferredTraitResults<DerivedFromNonStandardLayoutBase>::standard_layout, "a derived class cannot have a non-standard-layout base");
+static_assert(!DeferredTraitResults<DerivedFromNonStandardLayoutBase>::pod, "a derived class with a non-standard-layout base is not POD");
+static_assert(!DeferredTraitResults<HasUserDefaultConstructor>::pod, "user-provided constructors make a class non-POD");
+static_assert(!DeferredTraitResults<HasNonPODMember>::pod, "a non-POD data member makes its containing class non-POD");
+static_assert(!DeferredTraitResults<void>::pod, "void is not a POD type");
+static_assert(!DeferredTraitResults<int&>::pod, "references are not POD types");
 static_assert(DeferredTraitResults<int>::standard_layout, "scalar types have standard layout");
 static_assert(DeferredTraitResults<int[3]>::standard_layout, "arrays of standard-layout types retain standard layout");
 static_assert(DeferredTraitResults<VirtualType*>::standard_layout, "pointers remain standard-layout independently of pointee type");

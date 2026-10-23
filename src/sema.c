@@ -10859,6 +10859,13 @@ static bool sema_cxx_standard_layout(Type* type, unsigned depth) {
             return false;
         }
     }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || !base->type ||
+            !sema_cxx_standard_layout(base->type, depth + 1u)) {
+            return false;
+        }
+    }
 
     SemaCxxBaseSubobjects bases = {0};
     if (!sema_cxx_collect_unique_base_subobjects(cls, &bases, 0u) ||
@@ -10876,6 +10883,38 @@ static bool sema_cxx_standard_layout(Type* type, unsigned depth) {
 
 bool rcc_sema_cxx_standard_layout(Type* type) {
     return sema_cxx_standard_layout(type, 0u);
+}
+
+static bool sema_cxx_pod(Type* type, unsigned depth) {
+    CxxClass* cls;
+    if (!type || depth > 32u || !sema_cxx_trivial(type, depth + 1u) ||
+        !sema_cxx_standard_layout(type, depth + 1u)) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->base && sema_cxx_pod(type->base, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    cls = type->cxx_class;
+    if (cls) {
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            if (field->is_static) continue;
+            if (!field->type || !sema_cxx_pod(field->type, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!field->type || !sema_cxx_pod(field->type, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool rcc_sema_cxx_pod(Type* type) {
+    return sema_cxx_pod(type, 0u);
 }
 
 static Decl* sema_cxx_destructor_function(Type* object_type);
