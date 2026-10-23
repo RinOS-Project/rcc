@@ -15074,6 +15074,14 @@ test-preprocessor-va-opt: $(RCC_TARGET)
 
 test-cxx-type-trait-builtins: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-type-trait-builtins)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-type-trait-builtins/cxx17-x86.ro \
+		tests/cxx_trivially_constructible_cxx17.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c \
+		-o $(TEST_OUT)/cxx-type-trait-builtins/cxx17-x64.ro \
+		tests/cxx_trivially_constructible_cxx17.cpp
+	$(CXX) -std=c++17 -pedantic-errors -fsyntax-only \
+		tests/cxx_trivially_constructible_cxx17.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-type-trait-builtins/x86.ro \
 		tests/cxx_trivially_copyable_builtin.cpp
