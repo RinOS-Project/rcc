@@ -145,6 +145,16 @@ concept AtomicHasFetchAnd = requires(std::atomic<T> value, T operand) {
 };
 
 template<class T>
+concept AtomicHasFetchAdd = requires(std::atomic<T> value, T operand) {
+    value.fetch_add(operand);
+};
+
+template<class T>
+concept AtomicHasFetchSub = requires(std::atomic<T> value, T operand) {
+    value.fetch_sub(operand);
+};
+
+template<class T>
 concept AtomicHasFetchOr = requires(std::atomic<T> value, T operand) {
     value.fetch_or(operand);
 };
@@ -157,6 +167,16 @@ concept AtomicHasFetchXor = requires(std::atomic<T> value, T operand) {
 template<class T>
 concept AtomicHasAndAssign = requires(std::atomic<T> value, T operand) {
     value &= operand;
+};
+
+template<class T>
+concept AtomicHasAddAssign = requires(std::atomic<T> value, T operand) {
+    value += operand;
+};
+
+template<class T>
+concept AtomicHasSubAssign = requires(std::atomic<T> value, T operand) {
+    value -= operand;
 };
 
 template<class T>
@@ -225,6 +245,14 @@ static_assert(AtomicHasFetchAnd<unsigned>);
 static_assert(!AtomicHasFetchAnd<float>);
 static_assert(!AtomicHasFetchAnd<AtomicRefAggregate>);
 static_assert(!AtomicHasFetchAnd<AtomicRefOverloadedBitwise>);
+static_assert(AtomicHasFetchAdd<int>);
+static_assert(AtomicHasFetchAdd<float>);
+static_assert(!AtomicHasFetchAdd<bool>);
+static_assert(!AtomicHasFetchAdd<AtomicRefAggregate>);
+static_assert(!AtomicHasFetchAdd<AtomicRefOverloadedArithmetic>);
+static_assert(AtomicHasFetchSub<int>);
+static_assert(AtomicHasFetchSub<float>);
+static_assert(!AtomicHasFetchSub<AtomicRefAggregate>);
 static_assert(AtomicHasFetchOr<unsigned>);
 static_assert(!AtomicHasFetchOr<float>);
 static_assert(!AtomicHasFetchOr<AtomicRefAggregate>);
@@ -234,6 +262,13 @@ static_assert(!AtomicHasFetchXor<AtomicRefAggregate>);
 static_assert(AtomicHasAndAssign<unsigned>);
 static_assert(!AtomicHasAndAssign<float>);
 static_assert(!AtomicHasAndAssign<AtomicRefOverloadedBitwise>);
+static_assert(AtomicHasAddAssign<int>);
+static_assert(AtomicHasAddAssign<float>);
+static_assert(!AtomicHasAddAssign<AtomicRefAggregate>);
+static_assert(!AtomicHasAddAssign<AtomicRefOverloadedArithmetic>);
+static_assert(AtomicHasSubAssign<int>);
+static_assert(AtomicHasSubAssign<float>);
+static_assert(!AtomicHasSubAssign<AtomicRefAggregate>);
 static_assert(AtomicHasOrAssign<unsigned>);
 static_assert(!AtomicHasOrAssign<float>);
 static_assert(AtomicHasXorAssign<unsigned>);
