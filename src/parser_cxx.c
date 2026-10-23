@@ -17326,6 +17326,20 @@ static bool cxx_active_class_template_instance_matches(
     CxxTemplate* tmpl, CxxClass* owner_class, Type** arguments,
     const int64_t* values, const bool* value_present, int argument_count);
 
+static const char* cxx_standard_atomic_template_name(CxxTemplate* tmpl) {
+    const char* namespace_name;
+    if (!tmpl || tmpl->kind != TMPL_CLASS || !tmpl->name || !tmpl->ns) {
+        return NULL;
+    }
+    namespace_name = cxx_namespace_qualified_name(tmpl->ns);
+    if (!namespace_name || strcmp(namespace_name, "std") != 0) return NULL;
+    if (strcmp(tmpl->name, "atomic") == 0 ||
+        strcmp(tmpl->name, "atomic_ref") == 0) {
+        return tmpl->name;
+    }
+    return NULL;
+}
+
 static Type* instantiate_class_template_for_owner(
     CxxTemplate* tmpl, Type** arguments, const int64_t* value_args,
     const bool* value_present, int argument_count, CxxClass* owner_class,
@@ -17352,6 +17366,18 @@ static Type* instantiate_class_template_for_owner(
          (argument_count < pack_index || argument_count > 32))) {
         rcc_error(loc, "class template argument count mismatch");
         return type_struct(tmpl && tmpl->name ? tmpl->name : "template");
+    }
+    {
+        const char* atomic_template =
+            cxx_standard_atomic_template_name(tmpl);
+        if (atomic_template && !tmpl->primary_template &&
+            argument_count == 1 && arguments && arguments[0] &&
+            !arguments[0]->cxx_dependent &&
+            !rcc_sema_cxx_trivially_copyable(arguments[0])) {
+            rcc_error(loc, "std::%s requires trivially copyable type",
+                      atomic_template);
+            return type_struct(tmpl->name);
+        }
     }
     if (cxx_active_class_template_instance_matches(
             tmpl, owner_class, arguments, value_args, value_present,

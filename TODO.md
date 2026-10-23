@@ -8878,8 +8878,11 @@ remains a separate open item.
       and pointer scaling/operator results. `test-atomic-builtins` passes
       i686/AMD64 generation at `-O0` and `-O2`, AMD64 execution at both
       optimization levels, and the GCC C++20 syntax oracle.
-- [ ] `atomic_ref` still needs complete type constraints; broader `<atomic>`
-      constructors/APIs and C++20 wait/notify operations remain open.
+- [x] Enforce the trivially-copyable type requirement when instantiating
+      `std::atomic<T>` and `std::atomic_ref<T>`. Compile-fail regressions verify
+      both diagnostics on i686 and AMD64.
+- [ ] Remaining type/API constraints, broader `<atomic>` constructor/API
+      coverage, and C++20 wait/notify operations remain open.
 - [x] Support generic `atomic_ref<T>` load/store/exchange/compare-exchange for
       4-byte and 8-byte aggregates. The i686 8-byte path uses `CMPXCHG8B`; both
       target backends use their existing atomic-width lowering. Runtime checks

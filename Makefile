@@ -15060,6 +15060,20 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -Wno-overflow \
 		-Wno-deprecated-declarations \
 		-DRCC_STDLIB_REFERENCE -fsyntax-only tests/atomic_lock_free.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-type.ro \
+		tests/invalid_atomic_type.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-type.log)
+	$(GREP) -F -q "atomic requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
+	$(GREP) -F -q "atomic_ref requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-type.ro \
+		tests/invalid_atomic_type.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-type.log)
+	$(GREP) -F -q "atomic requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
+	$(GREP) -F -q "atomic_ref requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
 
 ifeq ($(OS),Windows_NT)
 	$(CC) $(CFLAGS) -I$(INCDIR) \

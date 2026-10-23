@@ -63,6 +63,13 @@ struct AtomicRefWordAggregate {
     unsigned value;
 };
 
+struct AtomicRefNonTrivial {
+    explicit AtomicRefNonTrivial(unsigned initial) : value(initial) {}
+    AtomicRefNonTrivial(const AtomicRefNonTrivial& other)
+        : value(other.value) {}
+    unsigned value;
+};
+
 template<class T>
 T cxx_volatile_class_template_deduction(
     volatile CxxVolatileTemplateClass<T>* object) {
@@ -216,6 +223,15 @@ static unsigned test_atomic_ref() {
             word_expected, word_desired, std::memory_order_acq_rel,
             std::memory_order_acquire) || word_reference.load().value != 11u)
         return 140u;
+
+    AtomicRefNonTrivial nontrivial_object{17u};
+    AtomicRefNonTrivial* nontrivial_pointer = &nontrivial_object;
+    std::atomic<AtomicRefNonTrivial*> atomic_pointer{nontrivial_pointer};
+    std::atomic_ref<AtomicRefNonTrivial*> nontrivial_pointer_reference{
+        nontrivial_pointer};
+    if (atomic_pointer.load() != &nontrivial_object ||
+        nontrivial_pointer_reference.load() != &nontrivial_object)
+        return 141u;
     return 0u;
 }
 
