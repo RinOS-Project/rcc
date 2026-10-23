@@ -129,6 +129,10 @@ static unsigned test_atomic_ref() {
     reference = 6u;
     unsigned converted = reference;
     if (converted != 6u || reference.load() != 6u) return 126u;
+    if ((reference += 3u) != 9u || (reference -= 2u) != 7u ||
+        (reference &= 3u) != 3u || (reference |= 8u) != 11u ||
+        (reference ^= 1u) != 10u || reference.load() != 10u)
+        return 129u;
 
     int signed_storage = 2147483647;
     std::atomic_ref<int> signed_reference{signed_storage};
@@ -140,7 +144,9 @@ static unsigned test_atomic_ref() {
     std::atomic_ref<float> floating_reference{floating_storage};
     if (floating_reference.fetch_add(0.75f) != 1.25f ||
         floating_reference.fetch_sub(0.5f) != 2.0f ||
-        floating_reference.load() != 1.5f)
+        floating_reference.load() != 1.5f ||
+        (floating_reference += 0.5f) != 2.0f ||
+        (floating_reference -= 0.25f) != 1.75f)
         return 128u;
 
     int values[5];
@@ -153,7 +159,11 @@ static unsigned test_atomic_ref() {
     if (!pointer_reference.compare_exchange_strong(
             pointer_expected, values + 4, std::memory_order_release,
             std::memory_order_relaxed) ||
-        pointer_reference.fetch_sub(1) != values + 4 || pointer != values + 3)
+        pointer_reference.fetch_sub(1) != values + 4 || pointer != values + 3 ||
+        (pointer_reference += 1) != values + 4 ||
+        pointer_reference++ != values + 4 || pointer != values + 5 ||
+        --pointer_reference != values + 4 ||
+        (pointer_reference -= 2) != values + 2 || pointer != values + 2)
         return 125u;
     return 0u;
 }

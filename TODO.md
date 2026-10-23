@@ -8871,11 +8871,13 @@ remains a separate open item.
       and required-alignment properties, load/store/conversion/assignment,
       exchange, weak/strong compare-exchange, integer fetch arithmetic and
       bitwise RMW, floating fetch-add/sub, and element-scaled pointer
-      fetch-add/sub. Runtime regressions cover successful CAS, memory-order
-      overloads, signed wraparound, floating updates, and pointer scaling.
-      `test-atomic-builtins` passes i686/AMD64 generation at `-O0` and `-O2`,
-      executes both target-width objects, and passes the GCC C++20 syntax
-      oracle.
-- [ ] `atomic_ref` still needs full type constraints and the remaining
-      compound/increment API; the broader `<atomic>` constructor/API and
-      C++20 wait/notify work remains open.
+      fetch-add/sub. Add integer/float arithmetic compound assignments,
+      integer bitwise compound assignments, and pointer compound/increment
+      operators. Runtime regressions cover successful CAS, memory-order
+      overloads, signed wraparound, floating updates, bitwise transitions,
+      and pointer scaling/operator results. `test-atomic-builtins` passes
+      i686/AMD64 generation at `-O0` and `-O2`, executes both target-width
+      objects, and passes the GCC C++20 syntax oracle.
+- [ ] `atomic_ref` still needs complete type constraints and integer
+      pre/post-increment/decrement; broader `<atomic>` constructors/APIs and
+      C++20 wait/notify operations remain open.
