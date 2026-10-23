@@ -9033,3 +9033,8 @@ remains a separate open item.
       verify their widths against `sizeof(void*)`, the fixed-width integer ABI,
       and RinOS UTF character widths on i686 and AMD64; the
       `test-preprocessor-standard-macros` gate passes.
+- [x] Implement the C++ `__is_trivially_copyable(T)` type intrinsic using RCC's
+      semantic classifier. C++20 static assertions cover scalar, pointer,
+      array, cv-qualified, ordinary-constructor, union, user-copy-constructor,
+      polymorphic, void, function, and reference types; the C++ regression
+      aggregate runs both target widths and a GCC syntax oracle.

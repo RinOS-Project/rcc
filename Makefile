@@ -539,6 +539,7 @@ endif
 .PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix test-cxx-nested-class-template-specializations test-cxx-nested-class-template-template-owner-specialization test-cxx-nested-class-template-owner-partial-specialization test-cxx-nested-class-template-owner test-cxx-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner test-cxx-dependent-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner-chain test-cxx-dependent-nested-class-template-owner-chain-posix
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
+.PHONY: test-cxx-type-trait-builtins
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
 .PHONY: test-cxx-designated-initializer
@@ -625,6 +626,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-compiler-builtins \
 	test-atomic-builtins \
+	test-cxx-type-trait-builtins \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
 	test-preprocessor-has-include \
@@ -15069,6 +15071,18 @@ test-preprocessor-va-opt: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-va-opt-x64.ro tests/preprocessor_va_opt.c
 	@echo "C++20 __VA_OPT__ replacement-list tests completed"
+
+test-cxx-type-trait-builtins: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-type-trait-builtins)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-type-trait-builtins/x86.ro \
+		tests/cxx_trivially_copyable_builtin.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-type-trait-builtins/x64.ro \
+		tests/cxx_trivially_copyable_builtin.cpp
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_trivially_copyable_builtin.cpp
+	@echo "C++20 trivially-copyable type intrinsic tests completed"
 
 test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x86)

@@ -1619,6 +1619,28 @@ static Expr* parse_builtin_types_compatible(SourceLoc loc) {
     return result;
 }
 
+static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
+    const char* name = advance()->value.str_val;
+    Type* type = NULL;
+    bool value = false;
+
+    expect(TOK_LPAREN, "(");
+    if (!is_type_start()) {
+        rcc_error(peek()->loc, "%s requires a type name", name);
+    } else {
+        type = parse_type_spec();
+        type = parse_declarator(type, NULL, NULL);
+    }
+    expect(TOK_RPAREN, ")");
+
+    if (type && strcmp(name, "__is_trivially_copyable") == 0) {
+        value = rcc_sema_cxx_trivially_copyable(type);
+    }
+    Expr* result = expr_int(value ? 1 : 0, loc);
+    result->type = type_bool;
+    return result;
+}
+
 static bool parser_builtin_name(const char* name) {
     return check(TOK_IDENT) &&
            strcmp(peek()->value.str_val, name) == 0;
@@ -1953,6 +1975,9 @@ static Expr* parse_primary(void) {
     if (check(TOK_IDENT) &&
         strcmp(peek()->value.str_val, "__builtin_types_compatible_p") == 0) {
         return parse_builtin_types_compatible(loc);
+    }
+    if (parser_cxx_mode && parser_builtin_name("__is_trivially_copyable")) {
+        return parse_builtin_cxx_type_trait(loc);
     }
     if (parser_builtin_name("__builtin_va_start") ||
         parser_builtin_name("__builtin_va_end") ||
