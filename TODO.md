@@ -9025,9 +9025,10 @@ remains a separate open item.
 - [ ] Direct compilation of the libcxx `type_traits.h` remains open: after
       preprocessing, its runtime header still uses unsupported GNU attributes,
       an ABI-incompatible `long double` member, and global allocation-operator
-      declarations not yet accepted by RCC. C++ type-trait intrinsic coverage
-      and remaining target-specific builtin queries also need implementation
-      and tests.
+      declarations not yet accepted by RCC. The C++20
+      `__is_trivially_copyable(T)` intrinsic and its dual-target regression
+      coverage are implemented; remaining target-specific builtin queries
+      still need implementation and tests.
 - [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
       fixed-width, fast-width, and character type macros. C and C++ regressions
       verify their widths against `sizeof(void*)`, the fixed-width integer ABI,
