@@ -521,7 +521,7 @@ static bool pp_has_builtin(const char* name) {
         "__atomic_store_n", "__atomic_sub_fetch", "__atomic_test_and_set",
         "__atomic_thread_fence", "__atomic_xor_fetch",
         "__has_virtual_destructor", "__is_abstract", "__is_aggregate",
-        "__is_class",
+        "__is_base_of", "__is_class",
         "__is_empty", "__is_enum", "__is_final", "__is_polymorphic",
         "__is_trivially_copyable", "__is_trivially_destructible",
         "__is_union"

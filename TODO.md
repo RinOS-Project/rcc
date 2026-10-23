@@ -9054,6 +9054,10 @@ remains a separate open item.
       bases, private members, user-declared constructors, virtual functions,
       pointers, and enums; RCC i686/AMD64, GCC C++20, and `__has_builtin`
       checks pass.
+- [x] Implement two-type `__is_base_of(Base, Derived)` using class ancestry
+      independent of access or ambiguity, with identical-class and non-class
+      cases checked. RCC i686/AMD64, GCC C++20 `std::is_base_of`, and the
+      `__has_builtin` query suite pass.
 - [x] Implement the C++ type-category intrinsics `__is_enum(T)`,
       `__is_class(T)`, `__is_union(T)`, `__is_final(T)`, `__is_abstract(T)`,
       `__is_polymorphic(T)`, and `__is_empty(T)`. Regressions cover positive,

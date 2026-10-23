@@ -1623,6 +1623,7 @@ static Expr* parse_builtin_types_compatible(SourceLoc loc) {
 static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
     const char* name = advance()->value.str_val;
     Type* type = NULL;
+    Type* other_type = NULL;
     bool value = false;
 
     expect(TOK_LPAREN, "(");
@@ -1631,6 +1632,15 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
     } else {
         type = parse_type_spec();
         type = parse_declarator(type, NULL, NULL);
+    }
+    if (strcmp(name, "__is_base_of") == 0) {
+        expect(TOK_COMMA, ",");
+        if (!is_type_start()) {
+            rcc_error(peek()->loc, "%s requires two type names", name);
+        } else {
+            other_type = parse_type_spec();
+            other_type = parse_declarator(other_type, NULL, NULL);
+        }
     }
     expect(TOK_RPAREN, ")");
 
@@ -1643,6 +1653,12 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
     } else if (type && strcmp(name, "__is_aggregate") == 0) {
         value = type->kind == TYPE_ARRAY ? type->array_len >= 0
                                          : ast_cxx_is_aggregate(type);
+    } else if (type && other_type && strcmp(name, "__is_base_of") == 0) {
+        value = type->kind == TYPE_STRUCT &&
+                other_type->kind == TYPE_STRUCT && type->cxx_class &&
+                other_type->cxx_class &&
+                cxx_class_is_same_or_derived_from(other_type->cxx_class,
+                                                  type->cxx_class);
     } else if (type && strcmp(name, "__is_enum") == 0) {
         value = type->kind == TYPE_ENUM;
     } else if (type && strcmp(name, "__is_class") == 0) {
@@ -2003,6 +2019,7 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__is_trivially_destructible") ||
          parser_builtin_name("__has_virtual_destructor") ||
          parser_builtin_name("__is_aggregate") ||
+         parser_builtin_name("__is_base_of") ||
          parser_builtin_name("__is_enum") ||
          parser_builtin_name("__is_class") ||
          parser_builtin_name("__is_union") ||

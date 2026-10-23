@@ -175,6 +175,21 @@ union AggregateTypeTraitUnion {
     unsigned bits;
 };
 
+struct BaseOfRoot {
+};
+
+struct BaseOfPrivateDerived : private BaseOfRoot {
+};
+
+struct BaseOfLeft : BaseOfRoot {
+};
+
+struct BaseOfRight : BaseOfRoot {
+};
+
+struct BaseOfAmbiguousDerived : BaseOfLeft, BaseOfRight {
+};
+
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
 static_assert(__is_trivially_copyable(int*), "object pointers are trivially copyable");
 static_assert(__is_trivially_copyable(int[3]), "bounded arrays are trivially copyable");
@@ -256,6 +271,13 @@ static_assert(!__is_aggregate(NonAggregateDefaultedConstructor), "user-declared 
 static_assert(!__is_aggregate(NonAggregateVirtualFunction), "virtual functions disqualify aggregates");
 static_assert(!__is_aggregate(AggregateTypeTrait*), "pointers are not aggregates");
 static_assert(!__is_aggregate(TypeCategoryEnum), "enumerations are not aggregates");
+static_assert(__is_base_of(BaseOfRoot, BaseOfRoot), "a class is its own base");
+static_assert(__is_base_of(BaseOfRoot, BaseOfPrivateDerived), "private bases still satisfy base_of");
+static_assert(__is_base_of(BaseOfRoot, BaseOfAmbiguousDerived), "ambiguous bases still satisfy base_of");
+static_assert(!__is_base_of(BaseOfPrivateDerived, BaseOfRoot), "base_of direction is derived from its second type");
+static_assert(!__is_base_of(BaseOfRoot, int), "non-class derived types are not related");
+static_assert(!__is_base_of(int, int), "identical non-class types are not base classes");
+static_assert(!__is_base_of(AggregateTypeTraitUnion, AggregateTypeTraitUnion), "unions are not base classes");
 #else
 static_assert(std::is_trivially_destructible_v<int>, "scalar types are trivially destructible");
 static_assert(std::is_trivially_destructible_v<int&>, "references are trivially destructible");
@@ -287,4 +309,11 @@ static_assert(!std::is_aggregate_v<NonAggregateDefaultedConstructor>, "user-decl
 static_assert(!std::is_aggregate_v<NonAggregateVirtualFunction>, "virtual functions disqualify aggregates");
 static_assert(!std::is_aggregate_v<AggregateTypeTrait*>, "pointers are not aggregates");
 static_assert(!std::is_aggregate_v<TypeCategoryEnum>, "enumerations are not aggregates");
+static_assert(std::is_base_of_v<BaseOfRoot, BaseOfRoot>, "a class is its own base");
+static_assert(std::is_base_of_v<BaseOfRoot, BaseOfPrivateDerived>, "private bases still satisfy base_of");
+static_assert(std::is_base_of_v<BaseOfRoot, BaseOfAmbiguousDerived>, "ambiguous bases still satisfy base_of");
+static_assert(!std::is_base_of_v<BaseOfPrivateDerived, BaseOfRoot>, "base_of direction is derived from its second type");
+static_assert(!std::is_base_of_v<BaseOfRoot, int>, "non-class derived types are not related");
+static_assert(!std::is_base_of_v<int, int>, "identical non-class types are not base classes");
+static_assert(!std::is_base_of_v<AggregateTypeTraitUnion, AggregateTypeTraitUnion>, "unions are not base classes");
 #endif
