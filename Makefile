@@ -15079,6 +15079,16 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'NonMoveAssignableAtomicValue'" \
 		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
+	$(GREP) -F -q "std::atomic requires trivially copyable type 'NonTrivialAssignmentAtomicValue'" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicNestedCopyDeletedOwner'" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicBaseCopyDeletedOwner'" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicArrayAssignDeletedOwner'" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicNestedMoveOnlyOwner'" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-type.ro \
 		tests/invalid_atomic_type.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-type.log)
@@ -15097,6 +15107,16 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'NonMoveConstructibleAtomicValue'" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'NonMoveAssignableAtomicValue'" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
+	$(GREP) -F -q "std::atomic requires trivially copyable type 'NonTrivialAssignmentAtomicValue'" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicNestedCopyDeletedOwner'" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicBaseCopyDeletedOwner'" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicArrayAssignDeletedOwner'" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicNestedMoveOnlyOwner'" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
 
 ifeq ($(OS),Windows_NT)

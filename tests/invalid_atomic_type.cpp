@@ -7,6 +7,18 @@ struct NonTrivialAtomicValue {
     unsigned value;
 };
 
+struct NonTrivialAssignmentAtomicValue {
+    NonTrivialAssignmentAtomicValue() = default;
+    NonTrivialAssignmentAtomicValue(
+        const NonTrivialAssignmentAtomicValue&) = default;
+    NonTrivialAssignmentAtomicValue& operator=(
+        const NonTrivialAssignmentAtomicValue& other) {
+        value = other.value;
+        return *this;
+    }
+    unsigned value;
+};
+
 struct NonConstructibleAtomicValue {
     NonConstructibleAtomicValue() = default;
     NonConstructibleAtomicValue(const NonConstructibleAtomicValue&) = delete;
@@ -37,10 +49,47 @@ struct NonMoveAssignableAtomicValue {
         delete;
 };
 
+struct AtomicNestedCopyDeletedValue {
+    AtomicNestedCopyDeletedValue() = default;
+    AtomicNestedCopyDeletedValue(const AtomicNestedCopyDeletedValue&) = delete;
+};
+
+struct AtomicNestedCopyDeletedOwner {
+    AtomicNestedCopyDeletedValue member;
+};
+
+struct AtomicBaseCopyDeletedValue {
+    AtomicBaseCopyDeletedValue() = default;
+    AtomicBaseCopyDeletedValue(const AtomicBaseCopyDeletedValue&) = delete;
+};
+
+struct AtomicBaseCopyDeletedOwner : AtomicBaseCopyDeletedValue {};
+
+struct AtomicArrayAssignDeletedValue {
+    AtomicArrayAssignDeletedValue() = default;
+    AtomicArrayAssignDeletedValue& operator=(
+        const AtomicArrayAssignDeletedValue&) = delete;
+};
+
+struct AtomicArrayAssignDeletedOwner {
+    AtomicArrayAssignDeletedValue members[2];
+};
+
+struct AtomicNestedMoveOnlyValue {
+    AtomicNestedMoveOnlyValue() = default;
+    AtomicNestedMoveOnlyValue(AtomicNestedMoveOnlyValue&&) = default;
+};
+
+struct AtomicNestedMoveOnlyOwner {
+    AtomicNestedMoveOnlyValue member;
+};
+
 void invalid_atomic_type() {
     NonTrivialAtomicValue value{};
     std::atomic<NonTrivialAtomicValue> atomic_value{value};
     std::atomic_ref<NonTrivialAtomicValue> reference{value};
+    std::atomic<NonTrivialAssignmentAtomicValue>
+        invalid_nontrivial_assignment_atomic;
     const unsigned immutable_value = 0;
     std::atomic<const unsigned> invalid_const_atomic{immutable_value};
     std::atomic<unsigned[2]> invalid_array_atomic;
@@ -51,8 +100,17 @@ void invalid_atomic_type() {
     std::atomic<NonMoveConstructibleAtomicValue>
         invalid_nonmove_constructible_atomic;
     std::atomic<NonMoveAssignableAtomicValue> invalid_nonmove_assignable_atomic;
+    std::atomic<AtomicNestedCopyDeletedOwner>
+        invalid_nested_copy_deleted_atomic;
+    std::atomic<AtomicBaseCopyDeletedOwner>
+        invalid_base_copy_deleted_atomic;
+    std::atomic<AtomicArrayAssignDeletedOwner>
+        invalid_array_assign_deleted_atomic;
+    std::atomic<AtomicNestedMoveOnlyOwner>
+        invalid_nested_move_only_atomic;
     (void)atomic_value;
     (void)reference;
+    (void)invalid_nontrivial_assignment_atomic;
     (void)invalid_const_atomic;
     (void)invalid_array_atomic;
     (void)invalid_void_atomic;
@@ -61,4 +119,8 @@ void invalid_atomic_type() {
     (void)invalid_nonassignable_atomic;
     (void)invalid_nonmove_constructible_atomic;
     (void)invalid_nonmove_assignable_atomic;
+    (void)invalid_nested_copy_deleted_atomic;
+    (void)invalid_base_copy_deleted_atomic;
+    (void)invalid_array_assign_deleted_atomic;
+    (void)invalid_nested_move_only_atomic;
 }

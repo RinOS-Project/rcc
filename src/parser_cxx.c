@@ -17359,48 +17359,119 @@ static bool cxx_atomic_parameter_is_same_type_reference(Type* parameter_type,
 }
 
 /* GCC's std::atomic primary template checks copy/move construction and
- * assignment in addition to trivial copyability.  Deleted special members
+ * assignment in addition to trivial copyability. Deleted special members
  * can leave a type trivially copyable while making one of those operations
- * unavailable; inspect the explicit declarations retained by the C++ AST
- * before instantiating atomic's members.  Implicit/member-subobject trait
- * propagation is intentionally kept separate as a broader trait task. */
-static bool cxx_atomic_has_deleted_copy_move_special_member(Type* value_type) {
-    CxxClass* cls = value_type ? value_type->cxx_class : NULL;
-    if (!cls) return false;
+ * unavailable. For a subobject, deleted copy operations propagate through
+ * defaulted/implicit special members; a deleted move operation matters there
+ * only when it suppresses the implicit copy operations. A defaulted deleted
+ * move of the enclosing class is ignored by overload resolution, allowing
+ * its copy operation to service rvalues. */
+static bool cxx_atomic_has_deleted_copy_move_special_member_impl(
+    Type* value_type, bool check_root_move_members) {
+    CxxClass* cls;
+    bool has_move_member = false;
+    bool has_copy_constructor = false;
+    bool has_const_copy_constructor = false;
+    bool has_copy_assignment = false;
+    bool has_const_copy_assignment = false;
 
-    for (CxxConstructorInfo* constructor = cls->constructors; constructor;
-         constructor = constructor->next) {
-        TypeParam* parameter = constructor->parameters;
-        if (!constructor->is_deleted || constructor->parameter_count != 1 ||
-            !parameter || parameter->next ||
-            !cxx_atomic_parameter_is_same_type_reference(parameter->type,
-                                                        value_type)) {
-            continue;
+    if (!value_type) return false;
+    if (value_type->kind == TYPE_ARRAY) {
+        return cxx_atomic_has_deleted_copy_move_special_member_impl(
+            value_type->base, false);
+    }
+    if (value_type->kind != TYPE_STRUCT && value_type->kind != TYPE_UNION) {
+        return false;
+    }
+    cls = value_type->cxx_class;
+    if (cls) {
+        for (CxxConstructorInfo* constructor = cls->constructors;
+             constructor; constructor = constructor->next) {
+            TypeParam* parameter = constructor->parameters;
+            Type* parameter_type = parameter ? parameter->type : NULL;
+            if (constructor->parameter_count != 1 || !parameter ||
+                parameter->next ||
+                !cxx_atomic_parameter_is_same_type_reference(parameter_type,
+                                                            value_type)) {
+                continue;
+            }
+            if (parameter_type->is_rvalue_reference) {
+                has_move_member = true;
+                if (check_root_move_members && constructor->is_deleted) {
+                    return true;
+                }
+            } else {
+                has_copy_constructor = true;
+                if (parameter_type->base->is_const ||
+                    parameter_type->base->is_volatile) {
+                    has_const_copy_constructor = true;
+                }
+                if (constructor->is_deleted) return true;
+            }
         }
-        return true;
+
+        for (struct CxxMember* member = cls->members; member;
+             member = member->next) {
+            CxxMethod* method = member->method;
+            DeclList* parameter;
+            Type* parameter_type;
+            if (!method || !method->decl || !method->decl->type ||
+                !method->source_name ||
+                strcmp(method->source_name, "operator=") != 0) {
+                continue;
+            }
+            parameter = method->decl->func_params;
+            parameter_type = parameter && parameter->decl
+                ? parameter->decl->type : NULL;
+            if (!parameter || parameter->next ||
+                !cxx_atomic_parameter_is_same_type_reference(parameter_type,
+                                                            value_type)) {
+                continue;
+            }
+            if (parameter_type->is_rvalue_reference) {
+                has_move_member = true;
+                if (check_root_move_members && method->is_deleted) {
+                    return true;
+                }
+            } else {
+                has_copy_assignment = true;
+                if (parameter_type->base->is_const ||
+                    parameter_type->base->is_volatile) {
+                    has_const_copy_assignment = true;
+                }
+                if (method->is_deleted) return true;
+            }
+        }
+
+        if (!check_root_move_members && has_move_member &&
+            ((!has_copy_constructor || !has_const_copy_constructor) ||
+             (!has_copy_assignment || !has_const_copy_assignment))) {
+            return true;
+        }
     }
 
-    for (struct CxxMember* member = cls->members; member;
-         member = member->next) {
-        CxxMethod* method = member->method;
-        TypeParam* parameter;
-        if (!method || !method->is_deleted || !method->decl ||
-            !method->decl->type) {
-            continue;
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (base && base->type &&
+                cxx_atomic_has_deleted_copy_move_special_member_impl(
+                    base->type, false)) {
+                return true;
+            }
         }
-        parameter = method->decl->type->params;
-        if (!parameter || parameter->next ||
-            !cxx_atomic_parameter_is_same_type_reference(parameter->type,
-                                                        value_type)) {
-            continue;
-        }
-        if (method->is_constructor ||
-            (method->source_name &&
-             strcmp(method->source_name, "operator=") == 0)) {
+    }
+    for (TypeField* field = value_type->fields; field; field = field->next) {
+        if (cxx_atomic_has_deleted_copy_move_special_member_impl(
+                field->type, false)) {
             return true;
         }
     }
     return false;
+}
+
+static bool cxx_atomic_has_deleted_copy_move_special_member(Type* value_type) {
+    return cxx_atomic_has_deleted_copy_move_special_member_impl(value_type,
+                                                                true);
 }
 
 static Type* instantiate_class_template_for_owner(
@@ -17462,8 +17533,16 @@ static Type* instantiate_class_template_for_owner(
                 return type_struct(tmpl->name);
             }
             if (!rcc_sema_cxx_trivially_copyable(arguments[0])) {
-                rcc_error(loc, "std::%s requires trivially copyable type",
-                          atomic_template);
+                CxxClass* value_class = arguments[0]->cxx_class;
+                if (value_class && value_class->name) {
+                    rcc_error(loc,
+                              "std::%s requires trivially copyable type '%s'",
+                              atomic_template, value_class->name);
+                } else {
+                    rcc_error(loc,
+                              "std::%s requires trivially copyable type",
+                              atomic_template);
+                }
                 return type_struct(tmpl->name);
             }
         }

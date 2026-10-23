@@ -10441,10 +10441,9 @@ static bool sema_cxx_trivially_destructible(Type* type, int depth) {
 
 /* A bytewise copy is valid for a trivially copyable aggregate. An ordinary
  * user constructor does not make the implicit copy constructor non-trivial;
- * only an eligible, non-deleted, non-defaulted copy/move constructor, a
- * virtual layout, or a user-defined destructor changes the copy semantics
- * represented here. A deleted special member is not eligible. */
-static bool sema_cxx_has_user_copy_constructor(Type* type) {
+ * an eligible user-provided copy/move constructor or assignment does. A
+ * deleted or explicitly defaulted special member is not user-provided. */
+static bool sema_cxx_has_user_copy_move_constructor(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     if (!cls) return false;
     for (CxxConstructorInfo* constructor = cls->constructors;
@@ -10463,6 +10462,33 @@ static bool sema_cxx_has_user_copy_constructor(Type* type) {
     return false;
 }
 
+static bool sema_cxx_has_user_copy_move_assignment(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!cls) return false;
+    for (struct CxxMember* member = cls->members;
+         member; member = member->next) {
+        CxxMethod* method = member->method;
+        DeclList* parameter;
+        Type* parameter_type;
+        if (!method || method->is_deleted || method->is_defaulted ||
+            !method->source_name ||
+            strcmp(method->source_name, "operator=") != 0 ||
+            !method->decl || !method->decl->type) {
+            continue;
+        }
+        parameter = method->decl->func_params;
+        parameter_type = parameter && parameter->decl
+            ? parameter->decl->type : NULL;
+        if (parameter && !parameter->next && parameter_type &&
+            parameter_type->kind == TYPE_PTR && parameter_type->is_reference &&
+            parameter_type->base &&
+            type_is_compatible(parameter_type->base, type)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool sema_cxx_trivially_copyable(Type* type, int depth) {
     CxxClass* cls;
     if (!type || depth > 32) return false;
@@ -10475,7 +10501,8 @@ static bool sema_cxx_trivially_copyable(Type* type, int depth) {
         return false;
     }
     cls = type->cxx_class;
-    if (cls && (sema_cxx_has_user_copy_constructor(type) ||
+    if (cls && (sema_cxx_has_user_copy_move_constructor(type) ||
+                sema_cxx_has_user_copy_move_assignment(type) ||
                 cls->vtable_size > 0 || cls->destructor_method)) {
         return false;
     }

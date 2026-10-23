@@ -8956,6 +8956,15 @@ remains a separate open item.
       host GCC C++20 oracle confirms all four corresponding type traits are
       false; `test-atomic-builtins` passes i686/AMD64 generation at `-O0` and
       `-O2`, AMD64 runtime at both levels, and valid GCC C++20 syntax checks.
-- [ ] Propagating constructibility/assignability through bases and fields,
-      access/overload viability, complete type-trait support, and C++20
-      `atomic::wait`/`notify` remain open.
+- [x] Include user-provided copy/move assignment operators in the
+      trivially-copyable check. Propagate explicitly deleted copy constructors
+      and assignments through implicit/defaulted base, data-member, and fixed
+      array-member subobjects before accepting `std::atomic<T>`. Also reject a
+      nested subobject whose declared move member suppresses its implicit copy
+      operations. GCC 13.2 rejects the same nested cases;
+      `test-atomic-builtins` checks named RCC diagnostics for both target
+      architectures.
+- [ ] Complete subobject constructibility/assignability beyond these explicit
+      deleted-copy cases, including access control, overload viability, and all
+      implicit special-member deletion interactions. Complete type-trait
+      support and C++20 `atomic::wait`/`notify` also remain open.
