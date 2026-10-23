@@ -2023,6 +2023,36 @@ static bool atomic_allows_floating_value(const char* name) {
            strcmp(name, "__atomic_compare_exchange") == 0;
 }
 
+static bool sema_is_opencl_scoped_atomic(const char* name,
+                                        int argument_count) {
+    if (!name) return false;
+    if (strncmp(name, "__opencl_atomic_", 16u) == 0) return true;
+    if (strcmp(name, "atomic_work_item_fence") == 0) return true;
+    if (strcmp(name, "atomic_load_explicit") == 0) {
+        return argument_count >= 3;
+    }
+    if (strcmp(name, "atomic_flag_test_and_set_explicit") == 0 ||
+        strcmp(name, "atomic_flag_clear_explicit") == 0) {
+        return argument_count >= 3;
+    }
+    if (strcmp(name, "atomic_store_explicit") == 0 ||
+        strcmp(name, "atomic_exchange_explicit") == 0 ||
+        strcmp(name, "atomic_fetch_add_explicit") == 0 ||
+        strcmp(name, "atomic_fetch_sub_explicit") == 0 ||
+        strcmp(name, "atomic_fetch_and_explicit") == 0 ||
+        strcmp(name, "atomic_fetch_or_explicit") == 0 ||
+        strcmp(name, "atomic_fetch_xor_explicit") == 0 ||
+        strcmp(name, "atomic_fetch_min_explicit") == 0 ||
+        strcmp(name, "atomic_fetch_max_explicit") == 0) {
+        return argument_count >= 4;
+    }
+    if (strcmp(name, "atomic_compare_exchange_strong_explicit") == 0 ||
+        strcmp(name, "atomic_compare_exchange_weak_explicit") == 0) {
+        return argument_count >= 6;
+    }
+    return false;
+}
+
 /* ═══════════════════════════════════════
  * Type Checking Helpers
  * ═══════════════════════════════════════ */
@@ -19469,6 +19499,21 @@ static bool sema_atomic_builtin_call(Expr* expr) {
 
     if (!function || function->kind != EXPR_IDENT) return false;
     name = function->ident_name;
+    for (argument = expr->call_args; argument; argument = argument->next) {
+        ++argument_count;
+    }
+    if (sema_is_opencl_scoped_atomic(name, argument_count)) {
+        for (argument = expr->call_args; argument; argument = argument->next) {
+            sema_expr(argument->expr);
+        }
+        rcc_error(expr->loc,
+                  "%s requires the OpenCL execution and address-space model, which this target does not implement",
+                  name);
+        function->type = type_ptr(type_void);
+        expr->type = type_void;
+        return true;
+    }
+    argument_count = 0;
     if (strcmp(name, "__atomic_load") == 0) {
         expected_count = 3;
         returns_void = true;
@@ -19623,9 +19668,28 @@ static bool sema_atomic_builtin_call(Expr* expr) {
              pointer_type->base->size == 8u);
         if (!pointer_type || pointer_type->kind != TYPE_PTR ||
             (!integer_value && !pointer_value && !floating_value)) {
-            rcc_error(expr->loc,
-                      "%s requires a supported lock-free object pointer",
-                      name);
+            if (pointer_type && pointer_type->kind == TYPE_PTR &&
+                pointer_type->base && type_is_vector(pointer_type->base)) {
+                rcc_error(expr->loc,
+                          "%s does not support vector atomic objects; supported atomics are scalar widths 1, 2, 4, and 8 bytes",
+                          name);
+            } else if (pointer_type && pointer_type->kind == TYPE_PTR &&
+                       pointer_type->base &&
+                       (type_is_integer(pointer_type->base) ||
+                        pointer_type->base->kind == TYPE_FLOAT ||
+                        pointer_type->base->kind == TYPE_DOUBLE) &&
+                       pointer_type->base->size != 1u &&
+                       pointer_type->base->size != 2u &&
+                       pointer_type->base->size != 4u &&
+                       pointer_type->base->size != 8u) {
+                rcc_error(expr->loc,
+                          "%s does not support %d-byte scalar atomic objects; supported widths are 1, 2, 4, and 8 bytes",
+                          name, pointer_type->base->size);
+            } else {
+                rcc_error(expr->loc,
+                          "%s requires a supported lock-free scalar object pointer",
+                          name);
+            }
         } else if ((strcmp(name, "__atomic_load") == 0 ||
                     strcmp(name, "__atomic_store") == 0 ||
                     strcmp(name, "__atomic_exchange") == 0 ||
