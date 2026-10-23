@@ -6293,6 +6293,14 @@ bool cxx_class_is_abstract(const CxxClass* cls) {
     return cls && cls->is_abstract;
 }
 
+bool cxx_class_is_final(const CxxClass* cls) {
+    return cls && cls->is_final;
+}
+
+bool cxx_class_is_polymorphic(const CxxClass* cls) {
+    return cls && cls->vtable_size > 0;
+}
+
 void cxx_class_build_vtable(CxxClass* cls) {
     CxxClass* primary_base;
     int vtable_size;

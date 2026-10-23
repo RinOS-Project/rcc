@@ -596,6 +596,8 @@ void cxx_class_apply_explicit_alignment(CxxClass* cls, int alignment,
 bool cxx_class_virtual_base_offset(CxxClass* cls, CxxClass* base,
                                    int* offset);
 bool cxx_class_is_abstract(const CxxClass* cls);
+bool cxx_class_is_final(const CxxClass* cls);
+bool cxx_class_is_polymorphic(const CxxClass* cls);
 void cxx_class_build_vtable(CxxClass* cls);
 
 /* Namespace operations (core API) */

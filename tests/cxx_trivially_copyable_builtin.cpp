@@ -54,6 +54,19 @@ enum TypeCategoryEnum {
 class TypeCategoryClass {
 };
 
+class TypeCategoryFinalClass final {
+};
+
+class TypeCategoryAbstractClass {
+public:
+    virtual void run() = 0;
+};
+
+class TypeCategoryConcreteDerived : public TypeCategoryAbstractClass {
+public:
+    void run() override {}
+};
+
 struct IncompleteTypeCategoryClass;
 
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
@@ -84,3 +97,14 @@ static_assert(!__is_class(TypeCategoryEnum), "enum types are not class types");
 static_assert(__is_union(TriviallyCopyableUnion), "union types are unions");
 static_assert(!__is_union(TriviallyCopyable), "struct types are not unions");
 static_assert(!__is_union(TypeCategoryEnum), "enum types are not unions");
+
+static_assert(__is_final(TypeCategoryFinalClass), "final classes are final");
+static_assert(!__is_final(TypeCategoryClass), "ordinary classes are not final");
+static_assert(!__is_final(TypeCategoryClass*), "pointers to final classes are not final types");
+static_assert(__is_abstract(TypeCategoryAbstractClass), "pure virtual classes are abstract");
+static_assert(!__is_abstract(TypeCategoryConcreteDerived), "overridden pure virtual functions make the derived class concrete");
+static_assert(!__is_abstract(TypeCategoryClass), "ordinary classes are not abstract");
+static_assert(__is_polymorphic(TypeCategoryAbstractClass), "classes with virtual methods are polymorphic");
+static_assert(__is_polymorphic(TypeCategoryConcreteDerived), "polymorphic bases propagate polymorphism");
+static_assert(!__is_polymorphic(TypeCategoryClass), "classes without virtual methods are not polymorphic");
+static_assert(!__is_polymorphic(TriviallyCopyableUnion), "unions are not polymorphic");
