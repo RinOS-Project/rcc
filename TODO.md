@@ -8864,3 +8864,18 @@ remains a separate open item.
       pass.
 - [ ] Atomic type constraints/traits, remaining constructor/API overloads,
       and C++20 wait/notify operations remain open.
+
+## RCC continuation (2026-10-23, C++20 scalar `atomic_ref` operations)
+
+- [x] Add `std::atomic_ref` operations for supported scalar types: lock-free
+      and required-alignment properties, load/store/conversion/assignment,
+      exchange, weak/strong compare-exchange, integer fetch arithmetic and
+      bitwise RMW, floating fetch-add/sub, and element-scaled pointer
+      fetch-add/sub. Runtime regressions cover successful CAS, memory-order
+      overloads, signed wraparound, floating updates, and pointer scaling.
+      `test-atomic-builtins` passes i686/AMD64 generation at `-O0` and `-O2`,
+      executes both target-width objects, and passes the GCC C++20 syntax
+      oracle.
+- [ ] `atomic_ref` still needs full type constraints and the remaining
+      compound/increment API; the broader `<atomic>` constructor/API and
+      C++20 wait/notify work remains open.

@@ -103,7 +103,65 @@ extern "C" bool cpp_atomic_generic_compare(unsigned* value,
                                      __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 
+static unsigned test_atomic_ref() {
+    unsigned storage = 5u;
+    std::atomic_ref<unsigned> reference{storage};
+    unsigned expected = 9u;
+
+    static_assert(std::atomic_ref<unsigned>::is_always_lock_free,
+                  "atomic_ref exposes the underlying lock-free width");
+    static_assert(std::atomic_ref<unsigned>::required_alignment >=
+                      alignof(unsigned),
+                  "atomic_ref reports an adequate object alignment");
+    if (!reference.is_lock_free() || reference.load() != 5u) return 120u;
+    reference.store(7u, std::memory_order_release);
+    if (reference.load(std::memory_order_acquire) != 7u ||
+        reference.exchange(9u) != 7u)
+        return 121u;
+    if (!reference.compare_exchange_weak(
+            expected, 10u, std::memory_order_acq_rel,
+            std::memory_order_acquire) || reference.load() != 10u)
+        return 122u;
+    if (reference.fetch_add(3u) != 10u || reference.fetch_sub(1u) != 13u ||
+        reference.fetch_and(10u) != 12u || reference.fetch_or(1u) != 8u ||
+        reference.fetch_xor(3u) != 9u || reference.load() != 10u)
+        return 123u;
+    reference = 6u;
+    unsigned converted = reference;
+    if (converted != 6u || reference.load() != 6u) return 126u;
+
+    int signed_storage = 2147483647;
+    std::atomic_ref<int> signed_reference{signed_storage};
+    if (signed_reference.fetch_add(1) != 2147483647 ||
+        signed_reference.load() != (-2147483647 - 1))
+        return 127u;
+
+    float floating_storage = 1.25f;
+    std::atomic_ref<float> floating_reference{floating_storage};
+    if (floating_reference.fetch_add(0.75f) != 1.25f ||
+        floating_reference.fetch_sub(0.5f) != 2.0f ||
+        floating_reference.load() != 1.5f)
+        return 128u;
+
+    int values[5];
+    int* pointer = values;
+    std::atomic_ref<int*> pointer_reference{pointer};
+    if (!pointer_reference.is_lock_free() ||
+        pointer_reference.fetch_add(2) != values || pointer != values + 2)
+        return 124u;
+    int* pointer_expected = values + 2;
+    if (!pointer_reference.compare_exchange_strong(
+            pointer_expected, values + 4, std::memory_order_release,
+            std::memory_order_relaxed) ||
+        pointer_reference.fetch_sub(1) != values + 4 || pointer != values + 3)
+        return 125u;
+    return 0u;
+}
+
 extern "C" unsigned cpp_standard_atomic_operations() {
+    unsigned atomic_ref_status = test_atomic_ref();
+    if (atomic_ref_status != 0u) return atomic_ref_status;
+
     std::atomic_bool alias_bool(true);
     std::atomic_char alias_char('A');
     std::atomic_schar alias_schar(-2);
