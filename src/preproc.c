@@ -425,7 +425,79 @@ void pp_undef(Preprocessor* pp, const char* name) {
 }
 
 bool pp_is_defined(Preprocessor* pp, const char* name) {
+    if (name && strcmp(name, "__has_builtin") == 0) return true;
     return pp_get_macro(pp, name) != NULL;
+}
+
+/* Keep this feature query aligned with builtins that have semantic lowering
+ * in the C/C++ frontends. Unknown names are not advertised. */
+static bool pp_has_builtin(const char* name) {
+    static const char* const builtins[] = {
+        "__builtin_add_overflow", "__builtin_assume_aligned",
+        "__builtin_bswap16", "__builtin_bswap32", "__builtin_bswap64",
+        "__builtin_choose_expr", "__builtin_clrsb", "__builtin_clrsbl",
+        "__builtin_clrsbll", "__builtin_clz", "__builtin_clzl",
+        "__builtin_clzll", "__builtin_constant_p", "__builtin_ctz",
+        "__builtin_ctzl", "__builtin_ctzll", "__builtin_expect",
+        "__builtin_expect_with_probability", "__builtin_ffs",
+        "__builtin_ffsl", "__builtin_ffsll", "__builtin_huge_val",
+        "__builtin_huge_valf", "__builtin_ia32_movntq",
+        "__builtin_ia32_packssdw", "__builtin_ia32_packsswb",
+        "__builtin_ia32_packuswb", "__builtin_ia32_paddb",
+        "__builtin_ia32_paddd", "__builtin_ia32_paddsb",
+        "__builtin_ia32_paddsw", "__builtin_ia32_paddusb",
+        "__builtin_ia32_paddusw", "__builtin_ia32_paddw",
+        "__builtin_ia32_pand", "__builtin_ia32_pandn",
+        "__builtin_ia32_pcmpeqb", "__builtin_ia32_pcmpeqd",
+        "__builtin_ia32_pcmpeqw", "__builtin_ia32_pcmpgtb",
+        "__builtin_ia32_pcmpgtd", "__builtin_ia32_pcmpgtw",
+        "__builtin_ia32_pmaddwd", "__builtin_ia32_pmulhw",
+        "__builtin_ia32_pmullw", "__builtin_ia32_por",
+        "__builtin_ia32_pslld", "__builtin_ia32_pslldi",
+        "__builtin_ia32_psllq", "__builtin_ia32_psllqi",
+        "__builtin_ia32_psllw", "__builtin_ia32_psllwi",
+        "__builtin_ia32_psrad", "__builtin_ia32_psradi",
+        "__builtin_ia32_psraw", "__builtin_ia32_psrawi",
+        "__builtin_ia32_psrld", "__builtin_ia32_psrldi",
+        "__builtin_ia32_psrlq", "__builtin_ia32_psrlqi",
+        "__builtin_ia32_psrlw", "__builtin_ia32_psrlwi",
+        "__builtin_ia32_psubb", "__builtin_ia32_psubd",
+        "__builtin_ia32_psubsb", "__builtin_ia32_psubsw",
+        "__builtin_ia32_psubusw",
+        "__builtin_ia32_psubusb", "__builtin_ia32_psubw",
+        "__builtin_ia32_punpckhbw", "__builtin_ia32_punpckhdq",
+        "__builtin_ia32_punpckhwd", "__builtin_ia32_punpcklbw",
+        "__builtin_ia32_punpckldq", "__builtin_ia32_punpcklwd",
+        "__builtin_ia32_pxor", "__builtin_ia32_vec_init_v2si",
+        "__builtin_ia32_vec_init_v4hi", "__builtin_ia32_vec_init_v8qi",
+        "__builtin_inf", "__builtin_inff",
+        "__builtin_mul_overflow", "__builtin_nan", "__builtin_nanf",
+        "__builtin_object_size", "__builtin_offsetof", "__builtin_parity",
+        "__builtin_parityl", "__builtin_parityll", "__builtin_popcount",
+        "__builtin_popcountl", "__builtin_popcountll", "__builtin_prefetch",
+        "__builtin_strlen", "__builtin_sub_overflow", "__builtin_trap",
+        "__builtin_types_compatible_p", "__builtin_unreachable",
+        "__builtin_va_arg", "__builtin_va_copy", "__builtin_va_end",
+        "__builtin_va_list", "__builtin_va_start",
+        "__atomic_add_fetch", "__atomic_always_lock_free",
+        "__atomic_and_fetch", "__atomic_clear", "__atomic_compare_exchange",
+        "__atomic_compare_exchange_n", "__atomic_exchange",
+        "__atomic_exchange_n", "__atomic_fetch_add", "__atomic_fetch_and",
+        "__atomic_fetch_max", "__atomic_fetch_min", "__atomic_fetch_nand",
+        "__atomic_fetch_or", "__atomic_fetch_sub", "__atomic_fetch_udec",
+        "__atomic_fetch_uinc", "__atomic_fetch_xor", "__atomic_is_lock_free",
+        "__atomic_load", "__atomic_load_n", "__atomic_nand_fetch",
+        "__atomic_or_fetch", "__atomic_signal_fence", "__atomic_store",
+        "__atomic_store_n", "__atomic_sub_fetch", "__atomic_test_and_set",
+        "__atomic_thread_fence", "__atomic_xor_fetch"
+    };
+    size_t index;
+
+    if (!name) return false;
+    for (index = 0; index < sizeof(builtins) / sizeof(builtins[0]); ++index) {
+        if (strcmp(name, builtins[index]) == 0) return true;
+    }
+    return false;
 }
 
 Macro* pp_get_macro(Preprocessor* pp, const char* name) {
@@ -1105,6 +1177,34 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
                 }
                 buf_append_str(&protected, pp_is_defined(pp, name) ? "1" : "0");
                 p = parenthesized ? pp_expr_skip(name_end) + 1 : name_end;
+                continue;
+            }
+            if (strcmp(ident, "__has_builtin") == 0) {
+                const char* cursor = pp_expr_skip(end);
+                char builtin_name[256];
+                const char* name_end;
+                bool probe_valid = *cursor == '(';
+
+                if (probe_valid) {
+                    cursor = pp_expr_skip(cursor + 1);
+                    name_end = read_ident(cursor, builtin_name,
+                                          sizeof(builtin_name));
+                    probe_valid = name_end != cursor;
+                    if (probe_valid) {
+                        cursor = pp_expr_skip(name_end);
+                        probe_valid = *cursor == ')';
+                        if (probe_valid) cursor++;
+                    }
+                }
+                if (!probe_valid) {
+                    *valid = false;
+                    buf_append_str(&protected, "0");
+                    p = end;
+                    continue;
+                }
+                buf_append_str(&protected,
+                               pp_has_builtin(builtin_name) ? "1" : "0");
+                p = cursor;
                 continue;
             }
             if (strcmp(ident, "__has_include") == 0) {

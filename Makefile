@@ -578,7 +578,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-auto-non-type-template
 .PHONY: test-cxx-numeric-separators test-cxx-user-defined-literals
 .PHONY: test-string-embedded-nul
-.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-preprocessor-has-include test-preprocessor-attributes test-preprocessor-cxx-features test-universal-character-identifiers
+.PHONY: test-preprocessor-line test-preprocessor-date-time test-preprocessor-standard-macros test-preprocessor-has-include test-preprocessor-has-builtin test-preprocessor-attributes test-preprocessor-cxx-features test-universal-character-identifiers
 .PHONY: test-preprocessor-line-macro
 .PHONY: test-preprocessor-include test-preprocessor-include-next
 .PHONY: test-cxx-predefined-function-identifiers
@@ -628,6 +628,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
 	test-preprocessor-has-include \
+	test-preprocessor-has-builtin \
 	test-preprocessor-attributes \
 	test-preprocessor-cxx-features \
 	test-preprocessor-date-time \
@@ -1917,6 +1918,41 @@ test-preprocessor-has-include: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'invalid #if expression' \
 		$(TEST_OUT)/preprocessor-has-include/invalid-cxx.log
 	@echo "C17/C++20 __has_include tests completed"
+
+test-preprocessor-has-builtin: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/preprocessor-has-builtin)
+	$(RCC_TARGET) -E tests/preprocessor_has_builtin.c > \
+		$(TEST_OUT)/preprocessor-has-builtin/c.i
+	$(GREP) -F -q 'int preprocessor_has_builtin_c(void)' \
+		$(TEST_OUT)/preprocessor-has-builtin/c.i
+	$(RCXX_TARGET) -std=c++20 -E tests/preprocessor_has_builtin.cpp > \
+		$(TEST_OUT)/preprocessor-has-builtin/cxx.i
+	$(GREP) -F -q 'int preprocessor_has_builtin_cxx()' \
+		$(TEST_OUT)/preprocessor-has-builtin/cxx.i
+	$(RCXX_TARGET) -std=c++20 -E \
+		tests/preprocessor_libcxx_type_traits.cpp > \
+		$(TEST_OUT)/preprocessor-has-builtin/libcxx-type-traits.i
+	$(GREP) -F -q 'int preprocessor_libcxx_type_traits()' \
+		$(TEST_OUT)/preprocessor-has-builtin/libcxx-type-traits.i
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-has-builtin/c-x86.ro \
+		tests/preprocessor_has_builtin.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-has-builtin/c-x64.ro \
+		tests/preprocessor_has_builtin.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-has-builtin/cxx-x86.ro \
+		tests/preprocessor_has_builtin.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-has-builtin/cxx-x64.ro \
+		tests/preprocessor_has_builtin.cpp
+	$(call EXPECT_FAILURE,$(RCC_TARGET) -c -o $(TEST_OUT)/preprocessor-has-builtin/invalid-c.ro tests/invalid_preprocessor_has_builtin.c,$(TEST_OUT)/preprocessor-has-builtin/invalid-c.log)
+	$(GREP) -F -q 'invalid #if expression' \
+		$(TEST_OUT)/preprocessor-has-builtin/invalid-c.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) -std=c++20 -c -o $(TEST_OUT)/preprocessor-has-builtin/invalid-cxx.ro tests/invalid_preprocessor_has_builtin.c,$(TEST_OUT)/preprocessor-has-builtin/invalid-cxx.log)
+	$(GREP) -F -q 'invalid #if expression' \
+		$(TEST_OUT)/preprocessor-has-builtin/invalid-cxx.log
+	@echo "C17/C++20 __has_builtin tests completed"
 
 test-preprocessor-attributes: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/preprocessor-attributes)

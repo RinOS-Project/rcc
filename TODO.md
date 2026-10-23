@@ -9004,3 +9004,20 @@ remains a separate open item.
       above eight bytes, broader implicit special-member viability, complete
       type traits, and C++20 wait/notify remain open. Union atomic operations
       remain limited to the validated trivial-copyable subset.
+
+## RCC continuation (2026-10-23, builtin feature queries)
+
+- [x] Implement the `__has_builtin` preprocessing operator and make it visible
+      to `defined()`. Report all builtin names currently dispatched by the C/C++
+      frontends, including generic atomics and the supported MMX subset, while
+      leaving unsupported and unknown names unadvertised.
+      `test-preprocessor-has-builtin` covers C/C++, both target widths,
+      positive/negative probes,
+      malformed arguments, and preprocessing the libcxx type-traits header;
+      the existing `__has_include`, `__has_cpp_attribute`, and C++ feature-gate
+      tests also pass.
+- [ ] Direct compilation of the libcxx `type_traits.h` remains open: after
+      preprocessing, RCC still lacks some target predefined type macros and
+      frontend support used by the runtime header (GNU attributes and global
+      allocation operators). C++ type-trait intrinsic coverage and remaining
+      target-specific builtin queries also need implementation and tests.
