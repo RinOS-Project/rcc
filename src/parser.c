@@ -1636,6 +1636,8 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
 
     if (type && strcmp(name, "__is_trivially_copyable") == 0) {
         value = rcc_sema_cxx_trivially_copyable(type);
+    } else if (type && strcmp(name, "__is_trivially_destructible") == 0) {
+        value = rcc_sema_cxx_trivially_destructible(type);
     } else if (type && strcmp(name, "__is_enum") == 0) {
         value = type->kind == TYPE_ENUM;
     } else if (type && strcmp(name, "__is_class") == 0) {
@@ -1993,6 +1995,7 @@ static Expr* parse_primary(void) {
     }
     if (parser_cxx_mode &&
         (parser_builtin_name("__is_trivially_copyable") ||
+         parser_builtin_name("__is_trivially_destructible") ||
          parser_builtin_name("__is_enum") ||
          parser_builtin_name("__is_class") ||
          parser_builtin_name("__is_union") ||

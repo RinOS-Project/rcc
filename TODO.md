@@ -9025,13 +9025,8 @@ remains a separate open item.
 - [ ] Direct compilation of the libcxx `type_traits.h` remains open: after
       preprocessing, its runtime header still uses unsupported GNU attributes,
       an ABI-incompatible `long double` member, and global allocation-operator
-      declarations not yet accepted by RCC. The C++20
-      `__is_trivially_copyable(T)` intrinsic, `__is_enum(T)`, `__is_class(T)`,
-      `__is_union(T)`, `__is_final(T)`, `__is_abstract(T)`, and
-      `__is_polymorphic(T)`, `__is_empty(T)`, and their regression coverage
-      are implemented;
-      remaining type-trait and target-specific builtin queries still need
-      implementation and tests.
+      declarations not yet accepted by RCC. Remaining type-trait and
+      target-specific builtin queries still need implementation and tests.
 - [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
       fixed-width, fast-width, and character type macros. C and C++ regressions
       verify their widths against `sizeof(void*)`, the fixed-width integer ABI,
@@ -9044,6 +9039,11 @@ remains a separate open item.
       reference-member, polymorphic, void, function, and reference types; the
       C++ regression aggregate runs both target widths and a GCC syntax oracle.
       Reference members do not invalidate a class's trivial copying.
+- [x] Implement the C++ `__is_trivially_destructible(T)` intrinsic, including
+      bounded arrays, references, deleted/inaccessible destructors, virtual
+      destructors, and member/base destructor propagation. The GCC C++20
+      `std::is_trivially_destructible` oracle and RCC i686/AMD64 checks pass;
+      aggregate cleanup, inline aggregate, and atomic regression suites pass.
 - [x] Implement the C++ type-category intrinsics `__is_enum(T)`,
       `__is_class(T)`, `__is_union(T)`, `__is_final(T)`, `__is_abstract(T)`,
       `__is_polymorphic(T)`, and `__is_empty(T)`. Regressions cover positive,

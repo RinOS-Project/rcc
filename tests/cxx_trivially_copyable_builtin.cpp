@@ -1,3 +1,7 @@
+#ifndef __RCC__
+#include <type_traits>
+#endif
+
 struct TriviallyCopyable {
     int value;
 };
@@ -94,6 +98,46 @@ struct EmptyMemberTypeCategory {
     EmptyTypeCategory value;
 };
 
+struct TriviallyDestructibleDefaulted {
+    ~TriviallyDestructibleDefaulted() = default;
+};
+
+struct NontriviallyDestructibleUserProvided {
+    ~NontriviallyDestructibleUserProvided() {}
+};
+
+struct NontriviallyDestructibleDeleted {
+    ~NontriviallyDestructibleDeleted() = delete;
+};
+
+struct NontriviallyDestructiblePrivate {
+private:
+    ~NontriviallyDestructiblePrivate() = default;
+};
+
+struct NontriviallyDestructibleProtected {
+protected:
+    ~NontriviallyDestructibleProtected() = default;
+};
+
+struct HasNontriviallyDestructibleMember {
+    NontriviallyDestructibleUserProvided member;
+};
+
+struct HasInaccessibleMemberDestructor {
+    NontriviallyDestructiblePrivate member;
+};
+
+struct HasNontrivialBaseDestructor : NontriviallyDestructibleUserProvided {
+};
+
+struct HasProtectedBaseDestructor : NontriviallyDestructibleProtected {
+};
+
+struct VirtualDestructor {
+    virtual ~VirtualDestructor() = default;
+};
+
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
 static_assert(__is_trivially_copyable(int*), "object pointers are trivially copyable");
 static_assert(__is_trivially_copyable(int[3]), "bounded arrays are trivially copyable");
@@ -143,3 +187,37 @@ static_assert(!__is_empty(DerivedNonEmptyTypeCategory), "nonempty bases make a d
 static_assert(!__is_empty(EmptyMemberTypeCategory), "empty data members still make a class nonempty");
 static_assert(!__is_empty(TriviallyCopyableUnion), "unions are not empty classes");
 static_assert(!__is_empty(EmptyTypeCategory*), "pointers to empty classes are not empty classes");
+
+#ifdef __RCC__
+static_assert(__is_trivially_destructible(int), "scalar types are trivially destructible");
+static_assert(__is_trivially_destructible(int&), "references are trivially destructible");
+static_assert(__is_trivially_destructible(TriviallyDestructibleDefaulted), "defaulted trivial destructors retain the property");
+static_assert(__is_trivially_destructible(TriviallyDestructibleDefaulted[3]), "bounded arrays retain the element property");
+static_assert(!__is_trivially_destructible(NontriviallyDestructibleUserProvided), "user-provided destructors are nontrivial");
+static_assert(!__is_trivially_destructible(NontriviallyDestructibleDeleted), "deleted destructors are not destructible");
+static_assert(!__is_trivially_destructible(NontriviallyDestructiblePrivate), "private destructors are inaccessible");
+static_assert(!__is_trivially_destructible(NontriviallyDestructibleProtected), "protected destructors are inaccessible to callers");
+static_assert(!__is_trivially_destructible(HasNontriviallyDestructibleMember), "nontrivial member destructors propagate");
+static_assert(!__is_trivially_destructible(HasInaccessibleMemberDestructor), "inaccessible member destructors propagate");
+static_assert(!__is_trivially_destructible(HasNontrivialBaseDestructor), "nontrivial base destructors propagate");
+static_assert(__is_trivially_destructible(HasProtectedBaseDestructor), "derived classes can destroy protected base subobjects");
+static_assert(!__is_trivially_destructible(VirtualDestructor), "virtual destructors are nontrivial");
+static_assert(!__is_trivially_destructible(void), "void is not destructible");
+static_assert(!__is_trivially_destructible(int()), "function types are not destructible");
+#else
+static_assert(std::is_trivially_destructible_v<int>, "scalar types are trivially destructible");
+static_assert(std::is_trivially_destructible_v<int&>, "references are trivially destructible");
+static_assert(std::is_trivially_destructible_v<TriviallyDestructibleDefaulted>, "defaulted trivial destructors retain the property");
+static_assert(std::is_trivially_destructible_v<TriviallyDestructibleDefaulted[3]>, "bounded arrays retain the element property");
+static_assert(!std::is_trivially_destructible_v<NontriviallyDestructibleUserProvided>, "user-provided destructors are nontrivial");
+static_assert(!std::is_trivially_destructible_v<NontriviallyDestructibleDeleted>, "deleted destructors are not destructible");
+static_assert(!std::is_trivially_destructible_v<NontriviallyDestructiblePrivate>, "private destructors are inaccessible");
+static_assert(!std::is_trivially_destructible_v<NontriviallyDestructibleProtected>, "protected destructors are inaccessible to callers");
+static_assert(!std::is_trivially_destructible_v<HasNontriviallyDestructibleMember>, "nontrivial member destructors propagate");
+static_assert(!std::is_trivially_destructible_v<HasInaccessibleMemberDestructor>, "inaccessible member destructors propagate");
+static_assert(!std::is_trivially_destructible_v<HasNontrivialBaseDestructor>, "nontrivial base destructors propagate");
+static_assert(std::is_trivially_destructible_v<HasProtectedBaseDestructor>, "derived classes can destroy protected base subobjects");
+static_assert(!std::is_trivially_destructible_v<VirtualDestructor>, "virtual destructors are nontrivial");
+static_assert(!std::is_trivially_destructible_v<void>, "void is not destructible");
+static_assert(!std::is_trivially_destructible_v<int()>, "function types are not destructible");
+#endif

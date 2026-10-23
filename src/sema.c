@@ -88,7 +88,7 @@ static bool cxx_same_parameter_type(Type* source, Type* target,
 static bool sema_cxx_member_method_lookup_ambiguous(
     Type* aggregate, const char* name);
 static bool sema_cxx_trivially_copyable(Type* type, int depth);
-static bool sema_cxx_trivially_destructible(Type* type, int depth);
+static bool sema_cxx_trivially_destructible(Type* type);
 static bool is_lvalue(Expr* e);
 
 static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
@@ -1104,7 +1104,7 @@ static bool sema_cxx_derived_to_base_value_conversion(
         type_is_compatible(source, target) ||
         !sema_cxx_trivially_copyable(target, 0) ||
         (!allow_nontrivial_prvalue && (!argument || !is_lvalue(argument)) &&
-         !sema_cxx_trivially_destructible(source, 0))) {
+         !sema_cxx_trivially_destructible(source))) {
         return false;
     }
     public_nonvirtual_paths = sema_cxx_nonvirtual_public_base_paths(
@@ -10418,25 +10418,77 @@ static bool sema_cxx_new_storage_type(Type* type) {
            type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR;
 }
 
-static bool sema_cxx_trivially_destructible(Type* type, int depth) {
+static bool sema_cxx_trivially_destructible(Type* type) {
     CxxClass* cls;
-    if (!type || depth > 32) return false;
+    if (!type) return false;
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len >= 0 && type->base &&
+               sema_cxx_trivially_destructible(type->base);
+    }
     if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (!type_is_complete(type)) return false;
     cls = type->cxx_class;
     if (cls) {
-        for (struct CxxMember* member = cls->members;
-             member; member = member->next) {
-            if (member->method && member->method->is_destructor) {
+        CxxMethod* destructor = cls->destructor_method;
+        if (destructor && (destructor->is_deleted ||
+                           !destructor->is_defaulted ||
+                           destructor->is_virtual)) {
+            return false;
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                !sema_cxx_trivially_destructible(base->type)) {
                 return false;
             }
         }
     }
     for (TypeField* field = type->fields; field; field = field->next) {
-        if (!sema_cxx_trivially_destructible(field->type, depth + 1)) {
+        if (!sema_cxx_trivially_destructible(field->type)) {
             return false;
         }
     }
     return true;
+}
+
+static bool sema_cxx_destructor_is_accessible(Type* type, bool is_base) {
+    CxxClass* cls;
+    if (!type) return false;
+    if (type->kind == TYPE_PTR && type->is_reference) return true;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len >= 0 && type->base &&
+               sema_cxx_destructor_is_accessible(type->base, is_base);
+    }
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC) return false;
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (!type_is_complete(type)) return false;
+    cls = type->cxx_class;
+    if (cls && cls->destructor_method &&
+        (cls->destructor_method->access == ACCESS_PRIVATE ||
+         (!is_base && cls->destructor_method->access != ACCESS_PUBLIC))) {
+        return false;
+    }
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                !sema_cxx_destructor_is_accessible(base->type, true)) {
+                return false;
+            }
+        }
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!sema_cxx_destructor_is_accessible(field->type, false)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool rcc_sema_cxx_trivially_destructible(Type* type) {
+    return sema_cxx_trivially_destructible(type) &&
+           sema_cxx_destructor_is_accessible(type, false);
 }
 
 /* A bytewise copy is valid for a trivially copyable aggregate. An ordinary
@@ -16775,7 +16827,7 @@ static Type* sema_expr(Expr* expr) {
                     return expr->type;
                 }
                 if (object_type->cxx_nontrivial &&
-                    !sema_cxx_trivially_destructible(object_type, 0)) {
+                    !sema_cxx_trivially_destructible(object_type)) {
                     bool has_member_cleanup =
                         sema_cxx_type_has_destructor_cleanup(object_type, 0);
                     expr->call_delete_object_type = object_type;
@@ -16923,7 +16975,7 @@ static Type* sema_expr(Expr* expr) {
                         expr->call_new_default_args = NULL;
                         expr->call_new_default_member_initializers = false;
                         if (object_type->kind != TYPE_STRUCT || !cls ||
-                            (!sema_cxx_trivially_destructible(object_type, 0) &&
+                            (!sema_cxx_trivially_destructible(object_type) &&
                              !destructor && !has_cleanup &&
                              !has_member_cleanup) ||
                             (!has_constructor && has_user_constructor)) {
@@ -17110,7 +17162,7 @@ static Type* sema_expr(Expr* expr) {
                 Type* freed_type = sema_expr(expr->call_args->expr);
                 if (freed_type && freed_type->kind == TYPE_PTR &&
                     freed_type->base && freed_type->base->cxx_nontrivial &&
-                    !sema_cxx_trivially_destructible(freed_type->base, 0)) {
+                    !sema_cxx_trivially_destructible(freed_type->base)) {
                     rcc_error(expr->loc,
                               "delete requires C++ destructor lowering for a non-trivial object");
                 }
