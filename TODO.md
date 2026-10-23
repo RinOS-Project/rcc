@@ -8837,6 +8837,17 @@ remains a separate open item.
 - [ ] Atomic type constraints/traits, remaining constructor/API overloads,
       and C++20 wait/notify operations remain open.
 
+## RCC continuation (2026-10-23, C++ atomic non-member RMW API)
+
+- [x] Provide the standard non-member `atomic_fetch_add/sub/and/or/xor` and
+      explicit-order overloads, including element-scaled pointer add/sub.
+      Runtime checks verify previous values and resulting states for all
+      operations. `test-atomic-builtins` passes both target widths at `-O0` and
+      `-O2`, executes AMD64 objects at both levels, and passes the GCC C++20
+      standard-library syntax oracle.
+- [ ] Atomic type constraints/traits, remaining constructor/API overloads,
+      and C++20 wait/notify operations remain open.
+
 ## RCC continuation (2026-10-23, C++20 atomic_flag test free functions)
 
 - [x] Add `std::atomic_flag_test` and `std::atomic_flag_test_explicit` with

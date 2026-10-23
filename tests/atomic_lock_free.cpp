@@ -193,6 +193,33 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     if (std::atomic_compare_exchange_strong(&zero, &api_expected, 5u) ||
         api_expected != 4u || std::atomic_load(&zero) != 4u)
         return 93u;
+    if (std::atomic_fetch_add(&zero, 1u) != 4u ||
+        std::atomic_load(&zero) != 5u ||
+        std::atomic_fetch_add_explicit(
+            &zero, 2u, std::memory_order_relaxed) != 5u ||
+        std::atomic_load(&zero) != 7u ||
+        std::atomic_fetch_sub(&zero, 1u) != 7u ||
+        std::atomic_load(&zero) != 6u ||
+        std::atomic_fetch_sub_explicit(
+            &zero, 2u, std::memory_order_acq_rel) != 6u ||
+        std::atomic_load(&zero) != 4u)
+        return 115u;
+    if (std::atomic_fetch_and(&zero, 6u) != 4u ||
+        std::atomic_load(&zero) != 4u ||
+        std::atomic_fetch_and_explicit(
+            &zero, 3u, std::memory_order_relaxed) != 4u ||
+        std::atomic_load(&zero) != 0u ||
+        std::atomic_fetch_or(&zero, 2u) != 0u ||
+        std::atomic_load(&zero) != 2u ||
+        std::atomic_fetch_or_explicit(
+            &zero, 4u, std::memory_order_release) != 2u ||
+        std::atomic_load(&zero) != 6u ||
+        std::atomic_fetch_xor(&zero, 3u) != 6u ||
+        std::atomic_load(&zero) != 5u ||
+        std::atomic_fetch_xor_explicit(
+            &zero, 1u, std::memory_order_relaxed) != 5u ||
+        std::atomic_load(&zero) != 4u)
+        return 116u;
     if (atomic_value_type != 1u) return 79u;
     if (wide.fetch_add(3ULL) != 4ULL || wide.load() != 7ULL) return 21u;
     if (initialized_pointer.load() != pointer_values + 1) return 29u;
@@ -213,6 +240,12 @@ extern "C" unsigned cpp_standard_atomic_operations() {
             std::memory_order_acq_rel, std::memory_order_acquire) ||
         std::atomic_load(&pointer) != pointer_values + 2)
         return 102u;
+    if (std::atomic_fetch_add(&pointer, 2) != pointer_values + 2 ||
+        std::atomic_load(&pointer) != pointer_values + 4 ||
+        std::atomic_fetch_sub_explicit(
+            &pointer, 1, std::memory_order_relaxed) != pointer_values + 4 ||
+        std::atomic_load(&pointer) != pointer_values + 3)
+        return 117u;
     pointer.store(pointer_values);
     if (flag.test(std::memory_order_relaxed)) return 30u;
     if (flag.test_and_set(std::memory_order_acquire)) return 31u;
