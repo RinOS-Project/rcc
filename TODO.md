@@ -9028,7 +9028,8 @@ remains a separate open item.
       declarations not yet accepted by RCC. The C++20
       `__is_trivially_copyable(T)` intrinsic, `__is_enum(T)`, `__is_class(T)`,
       `__is_union(T)`, `__is_final(T)`, `__is_abstract(T)`, and
-      `__is_polymorphic(T)` and their regression coverage are implemented;
+      `__is_polymorphic(T)`, `__is_empty(T)`, and their regression coverage
+      are implemented;
       remaining type-trait and target-specific builtin queries still need
       implementation and tests.
 - [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
@@ -9045,6 +9046,7 @@ remains a separate open item.
       Reference members do not invalidate a class's trivial copying.
 - [x] Implement the C++ type-category intrinsics `__is_enum(T)`,
       `__is_class(T)`, `__is_union(T)`, `__is_final(T)`, `__is_abstract(T)`,
-      and `__is_polymorphic(T)`. Regressions cover positive, negative,
-      pointer, class-key, incomplete-class, pure-virtual, and inherited
-      polymorphism cases on i686/AMD64 and pass GCC's C++20 syntax oracle.
+      `__is_polymorphic(T)`, and `__is_empty(T)`. Regressions cover positive,
+      negative, pointer, class-key, incomplete-class, pure-virtual, inherited
+      polymorphism, base/member/static/bitfield emptiness cases on i686/AMD64
+      and pass GCC's C++20 syntax oracle.

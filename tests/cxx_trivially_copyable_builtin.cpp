@@ -69,6 +69,31 @@ public:
 
 struct IncompleteTypeCategoryClass;
 
+struct EmptyTypeCategory {
+};
+
+struct DerivedEmptyTypeCategory : EmptyTypeCategory {
+};
+
+struct NonEmptyTypeCategory {
+    int value;
+};
+
+struct DerivedNonEmptyTypeCategory : NonEmptyTypeCategory {
+};
+
+struct StaticOnlyTypeCategory {
+    static int value;
+};
+
+struct ZeroWidthBitfieldTypeCategory {
+    int : 0;
+};
+
+struct EmptyMemberTypeCategory {
+    EmptyTypeCategory value;
+};
+
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
 static_assert(__is_trivially_copyable(int*), "object pointers are trivially copyable");
 static_assert(__is_trivially_copyable(int[3]), "bounded arrays are trivially copyable");
@@ -108,3 +133,13 @@ static_assert(__is_polymorphic(TypeCategoryAbstractClass), "classes with virtual
 static_assert(__is_polymorphic(TypeCategoryConcreteDerived), "polymorphic bases propagate polymorphism");
 static_assert(!__is_polymorphic(TypeCategoryClass), "classes without virtual methods are not polymorphic");
 static_assert(!__is_polymorphic(TriviallyCopyableUnion), "unions are not polymorphic");
+
+static_assert(__is_empty(EmptyTypeCategory), "classes without non-static data are empty");
+static_assert(__is_empty(DerivedEmptyTypeCategory), "classes with only empty bases are empty");
+static_assert(__is_empty(StaticOnlyTypeCategory), "static data members do not make a class nonempty");
+static_assert(__is_empty(ZeroWidthBitfieldTypeCategory), "zero-width bitfields do not make a class nonempty");
+static_assert(!__is_empty(NonEmptyTypeCategory), "classes with non-static data are nonempty");
+static_assert(!__is_empty(DerivedNonEmptyTypeCategory), "nonempty bases make a derived class nonempty");
+static_assert(!__is_empty(EmptyMemberTypeCategory), "empty data members still make a class nonempty");
+static_assert(!__is_empty(TriviallyCopyableUnion), "unions are not empty classes");
+static_assert(!__is_empty(EmptyTypeCategory*), "pointers to empty classes are not empty classes");

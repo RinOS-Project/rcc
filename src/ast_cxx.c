@@ -6301,6 +6301,31 @@ bool cxx_class_is_polymorphic(const CxxClass* cls) {
     return cls && cls->vtable_size > 0;
 }
 
+static bool cxx_class_is_empty_impl(const CxxClass* cls, unsigned depth) {
+    const TypeParam* field;
+    if (!cls || !cls->type || depth >= 64u || !cls->type->is_complete ||
+        cls->type->kind != TYPE_STRUCT || cls->vtable_size > 0 ||
+        cls->virtual_base_count > 0) {
+        return false;
+    }
+    for (field = cls->fields; field; field = field->next) {
+        if (field->is_static || (field->is_bitfield && field->bit_width == 0u)) {
+            continue;
+        }
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (!cxx_class_is_empty_impl(cls->bases[index].base, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool cxx_class_is_empty(const CxxClass* cls) {
+    return cxx_class_is_empty_impl(cls, 0u);
+}
+
 void cxx_class_build_vtable(CxxClass* cls) {
     CxxClass* primary_base;
     int vtable_size;

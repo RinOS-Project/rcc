@@ -1648,6 +1648,8 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
         value = cxx_class_is_abstract(type->cxx_class);
     } else if (type && strcmp(name, "__is_polymorphic") == 0) {
         value = cxx_class_is_polymorphic(type->cxx_class);
+    } else if (type && strcmp(name, "__is_empty") == 0) {
+        value = cxx_class_is_empty(type->cxx_class);
     }
     Expr* result = expr_int(value ? 1 : 0, loc);
     result->type = type_bool;
@@ -1996,7 +1998,8 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__is_union") ||
          parser_builtin_name("__is_final") ||
          parser_builtin_name("__is_abstract") ||
-         parser_builtin_name("__is_polymorphic"))) {
+         parser_builtin_name("__is_polymorphic") ||
+         parser_builtin_name("__is_empty"))) {
         return parse_builtin_cxx_type_trait(loc);
     }
     if (parser_builtin_name("__builtin_va_start") ||
