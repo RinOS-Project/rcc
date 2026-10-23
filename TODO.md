@@ -9017,7 +9017,13 @@ remains a separate open item.
       the existing `__has_include`, `__has_cpp_attribute`, and C++ feature-gate
       tests also pass.
 - [ ] Direct compilation of the libcxx `type_traits.h` remains open: after
-      preprocessing, RCC still lacks some target predefined type macros and
-      frontend support used by the runtime header (GNU attributes and global
-      allocation operators). C++ type-trait intrinsic coverage and remaining
-      target-specific builtin queries also need implementation and tests.
+      preprocessing, its runtime header still uses unsupported GNU attributes,
+      an ABI-incompatible `long double` member, and global allocation-operator
+      declarations not yet accepted by RCC. C++ type-trait intrinsic coverage
+      and remaining target-specific builtin queries also need implementation
+      and tests.
+- [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
+      fixed-width, fast-width, and character type macros. C and C++ regressions
+      verify their widths against `sizeof(void*)`, the fixed-width integer ABI,
+      and RinOS UTF character widths on i686 and AMD64; the
+      `test-preprocessor-standard-macros` gate passes.

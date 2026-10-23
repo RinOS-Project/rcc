@@ -185,6 +185,28 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__ATOMIC_RELEASE", "3");
     pp_define(pp, "__ATOMIC_ACQ_REL", "4");
     pp_define(pp, "__ATOMIC_SEQ_CST", "5");
+    /* Match the RinOS data model used by libc/stdint.h and libcxx headers. */
+    pp_define(pp, "__INT8_TYPE__", "signed char");
+    pp_define(pp, "__UINT8_TYPE__", "unsigned char");
+    pp_define(pp, "__INT16_TYPE__", "short");
+    pp_define(pp, "__UINT16_TYPE__", "unsigned short");
+    pp_define(pp, "__INT32_TYPE__", "int");
+    pp_define(pp, "__UINT32_TYPE__", "unsigned int");
+    pp_define(pp, "__INT64_TYPE__", "long long");
+    pp_define(pp, "__UINT64_TYPE__", "unsigned long long");
+    pp_define(pp, "__INT_FAST8_TYPE__", "signed char");
+    pp_define(pp, "__UINT_FAST8_TYPE__", "unsigned char");
+    pp_define(pp, "__INT_FAST16_TYPE__", "int");
+    pp_define(pp, "__UINT_FAST16_TYPE__", "unsigned int");
+    pp_define(pp, "__INT_FAST32_TYPE__", "int");
+    pp_define(pp, "__UINT_FAST32_TYPE__", "unsigned int");
+    pp_define(pp, "__INT_FAST64_TYPE__", "long long");
+    pp_define(pp, "__UINT_FAST64_TYPE__", "unsigned long long");
+    pp_define(pp, "__INTMAX_TYPE__", "long long");
+    pp_define(pp, "__UINTMAX_TYPE__", "unsigned long long");
+    pp_define(pp, "__CHAR16_TYPE__", "unsigned short");
+    pp_define(pp, "__CHAR32_TYPE__", "unsigned int");
+    pp_define(pp, "__WCHAR_TYPE__", "int");
     if (g_opts.sse_enabled) pp_define(pp, "__SSE__", "1");
     if (g_opts.sse_enabled && g_opts.sse2_enabled) {
         pp_define(pp, "__SSE2__", "1");
@@ -194,9 +216,17 @@ Preprocessor* pp_new(void) {
     if (g_opts.target_arch == ARCH_X86) {
         pp_define(pp, "__i386__", "1");
         pp_define(pp, "__i386", "1");
+        pp_define(pp, "__SIZE_TYPE__", "unsigned int");
+        pp_define(pp, "__PTRDIFF_TYPE__", "int");
+        pp_define(pp, "__INTPTR_TYPE__", "int");
+        pp_define(pp, "__UINTPTR_TYPE__", "unsigned int");
     } else {
         pp_define(pp, "__x86_64__", "1");
         pp_define(pp, "__amd64__", "1");
+        pp_define(pp, "__SIZE_TYPE__", "unsigned long long");
+        pp_define(pp, "__PTRDIFF_TYPE__", "long long");
+        pp_define(pp, "__INTPTR_TYPE__", "long long");
+        pp_define(pp, "__UINTPTR_TYPE__", "unsigned long long");
     }
 
     return pp;
