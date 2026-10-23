@@ -10441,17 +10441,51 @@ static bool sema_cxx_trivially_destructible(Type* type, int depth) {
 
 /* A bytewise copy is valid for a trivially copyable aggregate. An ordinary
  * user constructor does not make the implicit copy constructor non-trivial;
- * an eligible user-provided copy/move constructor or assignment does. A
- * deleted or explicitly defaulted special member is not user-provided. */
+ * an eligible user-provided copy/move constructor or assignment does. Deleted
+ * operations are ineligible, and defaulted operations use the parser's
+ * retained defaulted marker. */
+static bool sema_cxx_copy_move_constructor_trailing_parameters_are_defaulted(
+    const CxxConstructorInfo* constructor) {
+    const TypeParam* type_parameter;
+    const DeclList* declaration_parameter;
+    int parameter_count = 0;
+    const CxxMethod* method = constructor ? constructor->method : NULL;
+    const Decl* declaration = method ? method->decl : NULL;
+    if (!constructor || !method || !declaration ||
+        constructor->parameter_count < 1 || !constructor->parameters ||
+        !declaration->func_params ||
+        (declaration->type && declaration->type->kind == TYPE_FUNC &&
+         declaration->type->variadic) ||
+        declaration->func_has_explicit_variadic_ellipsis) {
+        return false;
+    }
+    type_parameter = constructor->parameters;
+    declaration_parameter = declaration->func_params;
+    while (type_parameter || declaration_parameter) {
+        if (!type_parameter || !declaration_parameter ||
+            !declaration_parameter->decl ||
+            (parameter_count > 0 &&
+             !declaration_parameter->decl->param_default)) {
+            return false;
+        }
+        ++parameter_count;
+        type_parameter = type_parameter->next;
+        declaration_parameter = declaration_parameter->next;
+    }
+    return parameter_count == constructor->parameter_count;
+}
+
 static bool sema_cxx_has_user_copy_move_constructor(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     if (!cls) return false;
     for (CxxConstructorInfo* constructor = cls->constructors;
          constructor; constructor = constructor->next) {
+        CxxMethod* method = constructor->method;
         TypeParam* parameter = constructor->parameters;
         Type* parameter_type = parameter ? parameter->type : NULL;
-        if (constructor->parameter_count == 1 && parameter &&
-            !parameter->next && parameter_type &&
+        if (method && !method->member_template && !constructor->is_inherited &&
+            sema_cxx_copy_move_constructor_trailing_parameters_are_defaulted(
+                constructor) && parameter_type &&
             parameter_type->kind == TYPE_PTR && parameter_type->is_reference &&
             parameter_type->base && type_is_compatible(parameter_type->base,
                                                         type) &&
@@ -10507,7 +10541,9 @@ static bool sema_cxx_trivially_copyable(Type* type, int depth) {
     cls = type->cxx_class;
     if (cls && (sema_cxx_has_user_copy_move_constructor(type) ||
                 sema_cxx_has_user_copy_move_assignment(type) ||
-                cls->vtable_size > 0 || cls->destructor_method)) {
+                cls->vtable_size > 0 ||
+                (cls->destructor_method &&
+                 !cls->destructor_method->is_defaulted))) {
         return false;
     }
     if (cls) {

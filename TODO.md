@@ -9037,6 +9037,7 @@ remains a separate open item.
 - [x] Implement the C++ `__is_trivially_copyable(T)` type intrinsic using RCC's
       semantic classifier. C++20 static assertions cover scalar, pointer,
       array, cv-qualified, ordinary-constructor, union, user-copy-constructor,
-      reference-member, polymorphic, void, function, and reference types;
-      the C++ regression aggregate runs both target widths and a GCC syntax
-      oracle. Reference members do not invalidate a class's trivial copying.
+      defaulted/user-provided destructor, copy-constructor default arguments,
+      reference-member, polymorphic, void, function, and reference types; the
+      C++ regression aggregate runs both target widths and a GCC syntax oracle.
+      Reference members do not invalidate a class's trivial copying.
