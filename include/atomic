@@ -417,84 +417,138 @@ public:
     }
 
     template<class U = T>
-    T fetch_and(T operand, memory_order order) noexcept {
+    T fetch_and(T operand, memory_order order) noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_and(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_and(&this->value_, operand, order);
     }
     template<class U = T>
-    T fetch_and(T operand, memory_order order) volatile noexcept {
+    T fetch_and(T operand, memory_order order) volatile noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_and(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_and(&this->value_, operand, order);
     }
     template<class U = T>
-    T fetch_and(T operand) noexcept {
+    T fetch_and(T operand) noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_and(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_and(
             &this->value_, operand, memory_order_seq_cst);
     }
     template<class U = T>
-    T fetch_and(T operand) volatile noexcept {
+    T fetch_and(T operand) volatile noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_and(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_and(
             &this->value_, operand, memory_order_seq_cst);
     }
 
     template<class U = T>
-    T fetch_or(T operand, memory_order order) noexcept {
+    T fetch_or(T operand, memory_order order) noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_or(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_or(&this->value_, operand, order);
     }
     template<class U = T>
-    T fetch_or(T operand, memory_order order) volatile noexcept {
+    T fetch_or(T operand, memory_order order) volatile noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_or(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_or(&this->value_, operand, order);
     }
     template<class U = T>
-    T fetch_or(T operand) noexcept {
+    T fetch_or(T operand) noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_or(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_or(
             &this->value_, operand, memory_order_seq_cst);
     }
     template<class U = T>
-    T fetch_or(T operand) volatile noexcept {
+    T fetch_or(T operand) volatile noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_or(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_or(
             &this->value_, operand, memory_order_seq_cst);
     }
 
     template<class U = T>
-    T fetch_xor(T operand, memory_order order) noexcept {
+    T fetch_xor(T operand, memory_order order) noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_xor(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_xor(&this->value_, operand, order);
     }
     template<class U = T>
-    T fetch_xor(T operand, memory_order order) volatile noexcept {
+    T fetch_xor(T operand, memory_order order) volatile noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_xor(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_xor(&this->value_, operand, order);
     }
     template<class U = T>
-    T fetch_xor(T operand) noexcept {
+    T fetch_xor(T operand) noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_xor(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_xor(
             &this->value_, operand, memory_order_seq_cst);
     }
     template<class U = T>
-    T fetch_xor(T operand) volatile noexcept {
+    T fetch_xor(T operand) volatile noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_xor(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_xor(
             &this->value_, operand, memory_order_seq_cst);
     }
 
     template<class U = T>
-    T operator&=(T operand) noexcept {
+    T operator&=(T operand) noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_and(object, value, memory_order_relaxed);
+        } {
         return this->fetch_and(operand) & operand;
     }
     template<class U = T>
-    T operator&=(T operand) volatile noexcept {
+    T operator&=(T operand) volatile noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_and(object, value, memory_order_relaxed);
+        } {
         return this->fetch_and(operand) & operand;
     }
     template<class U = T>
-    T operator|=(T operand) noexcept {
+    T operator|=(T operand) noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_or(object, value, memory_order_relaxed);
+        } {
         return this->fetch_or(operand) | operand;
     }
     template<class U = T>
-    T operator|=(T operand) volatile noexcept {
+    T operator|=(T operand) volatile noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_or(object, value, memory_order_relaxed);
+        } {
         return this->fetch_or(operand) | operand;
     }
     template<class U = T>
-    T operator^=(T operand) noexcept {
+    T operator^=(T operand) noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_xor(object, value, memory_order_relaxed);
+        } {
         return this->fetch_xor(operand) ^ operand;
     }
     template<class U = T>
-    T operator^=(T operand) volatile noexcept {
+    T operator^=(T operand) volatile noexcept
+        requires requires(volatile T* object, T value) {
+            __atomic_fetch_xor(object, value, memory_order_relaxed);
+        } {
         return this->fetch_xor(operand) ^ operand;
     }
 

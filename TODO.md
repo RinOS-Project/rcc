@@ -8882,12 +8882,14 @@ remains a separate open item.
       `std::atomic<T>` and `std::atomic_ref<T>`. Compile-fail regressions verify
       both diagnostics on i686 and AMD64.
 - [x] Constrain generic `atomic_ref<T>` arithmetic and bitwise fetch/compound
-      members with trailing requires-expressions over the existing supported
-      integer/floating helper overloads and integer atomic builtins. The
-      requirements reject aggregates and user-defined overloaded arithmetic or
-      bitwise operators, while retaining integer operations and float/double
-      add/sub. `test-atomic-builtins` passes i686/AMD64 generation at `-O0` and
-      `-O2`, AMD64 execution at both levels, and the GCC C++20 syntax oracle.
+      members, plus generic `atomic<T>` bitwise fetch/compound members, with
+      trailing requires-expressions over the existing supported helper
+      overloads and integer atomic builtins. The requirements reject aggregates
+      and user-defined overloaded arithmetic/bitwise operators, retain integer
+      bitwise operations and float/double `atomic_ref` add/sub, and cover
+      volatile `atomic<T>` bitwise overloads. `test-atomic-builtins` passes
+      i686/AMD64 generation at `-O0` and `-O2`, AMD64 execution at both levels,
+      and the GCC C++20 syntax oracle.
 - [ ] Remaining type/API constraints, broader `<atomic>` constructor/API
       coverage, and C++20 wait/notify operations remain open. The remaining
       general dependent type-trait evaluation in member constraints/SFINAE is
