@@ -8882,7 +8882,12 @@ remains a separate open item.
       `std::atomic<T>` and `std::atomic_ref<T>`. Compile-fail regressions verify
       both diagnostics on i686 and AMD64.
 - [ ] Remaining type/API constraints, broader `<atomic>` constructor/API
-      coverage, and C++20 wait/notify operations remain open.
+      coverage, and C++20 wait/notify operations remain open. In particular,
+      atomic_ref arithmetic and bitwise member templates still need
+      type-category constraints; the frontend currently fails to resolve
+      dependent trait members in class member-template constraints/SFINAE.
+      Add positive and negative requires-expression regressions once that
+      frontend path is supported.
 - [x] Support generic `atomic_ref<T>` load/store/exchange/compare-exchange for
       4-byte and 8-byte aggregates. The i686 8-byte path uses `CMPXCHG8B`; both
       target backends use their existing atomic-width lowering. Runtime checks
