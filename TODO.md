@@ -8928,3 +8928,12 @@ remains a separate open item.
       calls are available for `Box<int>` and unavailable for `Box<char>`.
       i686/AMD64 code generation passes at `-O0` and `-O2`; AMD64 host-runtime
       execution passes at both levels, and GCC C++20 syntax checking passes.
+
+## RCC continuation (2026-10-23, const atomic type constraint)
+
+- [x] Reject `std::atomic<const T>` during concrete class-template
+      instantiation: the const-qualified value cannot satisfy the atomic
+      copy-assignment requirement. Compile-fail regressions assert the
+      diagnostic on i686 and AMD64 as part of `test-atomic-builtins`.
+- [ ] Other copy/move construction and assignment constraints, complete
+      type-trait support, and C++20 wait/notify operations remain open.

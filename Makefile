@@ -15067,12 +15067,16 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
 	$(GREP) -F -q "atomic_ref requires trivially copyable type" \
 		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
+	$(GREP) -F -q "atomic requires copy-assignable type" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-type.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
 		-std=c++20 -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-type.ro \
 		tests/invalid_atomic_type.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-type.log)
 	$(GREP) -F -q "atomic requires trivially copyable type" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
 	$(GREP) -F -q "atomic_ref requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
+	$(GREP) -F -q "atomic requires copy-assignable type" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
 
 ifeq ($(OS),Windows_NT)

@@ -17383,11 +17383,17 @@ static Type* instantiate_class_template_for_owner(
             cxx_standard_atomic_template_name(tmpl);
         if (atomic_template && !tmpl->primary_template &&
             argument_count == 1 && arguments && arguments[0] &&
-            !arguments[0]->cxx_dependent &&
-            !rcc_sema_cxx_trivially_copyable(arguments[0])) {
-            rcc_error(loc, "std::%s requires trivially copyable type",
-                      atomic_template);
-            return type_struct(tmpl->name);
+            !arguments[0]->cxx_dependent) {
+            if (strcmp(atomic_template, "atomic") == 0 &&
+                arguments[0]->is_const) {
+                rcc_error(loc, "std::atomic requires copy-assignable type");
+                return type_struct(tmpl->name);
+            }
+            if (!rcc_sema_cxx_trivially_copyable(arguments[0])) {
+                rcc_error(loc, "std::%s requires trivially copyable type",
+                          atomic_template);
+                return type_struct(tmpl->name);
+            }
         }
     }
     if (cxx_active_class_template_instance_matches(
