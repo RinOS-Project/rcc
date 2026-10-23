@@ -15164,6 +15164,30 @@ test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
 	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable type 'AtomicNestedMoveOnlyOwner'" \
 		$(TEST_OUT)/atomic-cxx-x64/invalid-type.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-reference.log)
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable object type" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-reference.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-reference.log)
+	$(GREP) -F -q "std::atomic requires copy/move constructible and assignable object type" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-reference.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_VOID -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-void.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-void.log)
+	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-void.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_VOID -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-void.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-void.log)
+	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-void.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_FUNCTION -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-function.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-function.log)
+	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-function.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_FUNCTION -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-function.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-function.log)
+	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-function.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-reference.log)
+	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x86/invalid-atomic-ref-reference.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ATOMIC_REF_REFERENCE -c -o $(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-reference.ro tests/invalid_atomic_non_object.cpp,$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-reference.log)
+	$(GREP) -F -q "std::atomic_ref requires trivially copyable type" \
+		$(TEST_OUT)/atomic-cxx-x64/invalid-atomic-ref-reference.log
 
 ifeq ($(OS),Windows_NT)
 	$(CC) $(CFLAGS) -I$(INCDIR) \

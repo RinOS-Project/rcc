@@ -17548,7 +17548,9 @@ static Type* instantiate_class_template_for_owner(
             if (strcmp(atomic_template, "atomic") == 0 &&
                 (arguments[0]->kind == TYPE_VOID ||
                  arguments[0]->kind == TYPE_ARRAY ||
-                 arguments[0]->kind == TYPE_FUNC)) {
+                 arguments[0]->kind == TYPE_FUNC ||
+                 (arguments[0]->kind == TYPE_PTR &&
+                  arguments[0]->is_reference))) {
                 rcc_error(loc,
                           "std::atomic requires copy/move constructible and "
                           "assignable object type");

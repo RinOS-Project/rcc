@@ -10492,6 +10492,10 @@ static bool sema_cxx_has_user_copy_move_assignment(Type* type) {
 static bool sema_cxx_trivially_copyable(Type* type, int depth) {
     CxxClass* cls;
     if (!type || depth > 32) return false;
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC ||
+        (type->kind == TYPE_PTR && type->is_reference)) {
+        return false;
+    }
     if (type->kind == TYPE_ARRAY) {
         return type->array_len >= 0 && type->base &&
                sema_cxx_trivially_copyable(type->base, depth + 1);

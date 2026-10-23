@@ -8971,6 +8971,12 @@ remains a separate open item.
 
 ## RCC continuation (2026-10-23, generic `std::atomic<T>` aggregate operations)
 
+- [x] Keep `void`, function, and reference types outside the trivially-copyable
+      domain used by `std::atomic_ref`, and reject reference specializations of
+      `std::atomic`. Isolated negative fixtures verify `std::atomic<unsigned&>`
+      and `std::atomic_ref<void>`, function, and reference specializations on
+      both i686 and AMD64.
+
 - [x] Route the primary `std::atomic<T>` load/store/exchange/compare-exchange
       implementation through the generic builtins and preserve integer RMW
       helpers without instantiating scalar-only operations for aggregate `T`.
