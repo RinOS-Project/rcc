@@ -59,6 +59,11 @@ struct AtomicRefAggregate {
     unsigned second;
 };
 
+union AtomicRefUnion {
+    unsigned value;
+    float floating;
+};
+
 struct AtomicRefWordAggregate {
     unsigned value;
 };
@@ -479,6 +484,26 @@ static unsigned test_atomic_ref() {
         aggregate_expected.first != 34u || aggregate_expected.second != 55u)
         return 138u;
 
+    alignas(4) AtomicRefUnion union_storage{3u};
+    std::atomic_ref<AtomicRefUnion> union_reference{union_storage};
+    if (union_reference.load().value != 3u) return 142u;
+    AtomicRefUnion union_stored{5u};
+    union_reference.store(union_stored, std::memory_order_release);
+    AtomicRefUnion union_exchanged{7u};
+    if (union_reference.exchange(union_exchanged).value != 5u)
+        return 143u;
+    AtomicRefUnion union_expected{7u};
+    AtomicRefUnion union_desired{9u};
+    if (!union_reference.compare_exchange_strong(
+            union_expected, union_desired, std::memory_order_acq_rel,
+            std::memory_order_acquire))
+        return 144u;
+    union_expected = AtomicRefUnion{11u};
+    if (union_reference.compare_exchange_weak(
+            union_expected, AtomicRefUnion{13u},
+            std::memory_order_relaxed) || union_expected.value != 9u)
+        return 145u;
+
     alignas(4) AtomicRefWordAggregate word_storage{7u};
     std::atomic_ref<AtomicRefWordAggregate> word_reference{word_storage};
     AtomicRefWordAggregate word_exchanged{9u};
@@ -663,6 +688,26 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         atomic_aggregate_expected.first != 34u ||
         atomic_aggregate_expected.second != 55u)
         return 147u;
+    AtomicRefUnion atomic_union_initial{17u};
+    if (atomic_union_initial.value != 17u) return 152u;
+    std::atomic<AtomicRefUnion> union_atomic{atomic_union_initial};
+    if (union_atomic.load().value != 17u) return 153u;
+    AtomicRefUnion atomic_union_stored{19u};
+    union_atomic.store(atomic_union_stored, std::memory_order_release);
+    AtomicRefUnion atomic_union_exchanged{23u};
+    if (union_atomic.exchange(atomic_union_exchanged).value != 19u)
+        return 154u;
+    AtomicRefUnion atomic_union_expected{23u};
+    AtomicRefUnion atomic_union_desired{29u};
+    if (!union_atomic.compare_exchange_strong(
+            atomic_union_expected, atomic_union_desired) ||
+        union_atomic.load().value != 29u)
+        return 155u;
+    atomic_union_expected = AtomicRefUnion{31u};
+    if (union_atomic.compare_exchange_weak(
+            atomic_union_expected, AtomicRefUnion{37u}) ||
+        atomic_union_expected.value != 29u)
+        return 156u;
     AtomicRefWordAggregate atomic_word_initial{7u};
     std::atomic<AtomicRefWordAggregate> word_atomic{atomic_word_initial};
     AtomicRefWordAggregate atomic_word_value = word_atomic.load();

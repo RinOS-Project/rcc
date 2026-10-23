@@ -810,11 +810,18 @@ bool type_is_same_template_argument(Type* a, Type* b) {
 
 bool ast_cxx_is_aggregate(const Type* type) {
     const CxxClass* cls;
-    if (!type || type->kind != TYPE_STRUCT || !type->is_complete ||
-        !type->cxx_class) {
+    if (!type || (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        !type->is_complete) {
         return false;
     }
     cls = type->cxx_class;
+    /* Plain C++ unions use the shared C aggregate type representation and do
+     * not have a CxxClass node.  They have no bases or access-controlled
+     * members in that representation, so their single active member follows
+     * the aggregate path below. */
+    if (type->kind == TYPE_UNION && !cls) return true;
+    if (!cls) return false;
+    if (type->kind == TYPE_UNION && cls->base_count != 0) return false;
     /* Aggregate classes acquired base subobjects in C++17.  Keep the older
      * standard's class aggregate rules when shared initializer code asks. */
     if (cls->base_count > 0 && !rcc_parser_cxx_standard_at_least(17)) {
@@ -838,6 +845,13 @@ int ast_cxx_aggregate_element_count(const Type* type) {
     int count;
     if (!ast_cxx_is_aggregate(type)) return 0;
     cls = type->cxx_class;
+    if (type->kind == TYPE_UNION) {
+        for (const TypeField* field = type->fields; field;
+             field = field->next) {
+            if (field->cxx_declaring_class == cls) return 1;
+        }
+        return 0;
+    }
     count = cls->base_count;
     for (const TypeField* field = type->fields; field; field = field->next) {
         if (field->cxx_declaring_class == cls) {
@@ -858,6 +872,17 @@ bool ast_cxx_aggregate_element(const Type* type, int index,
     if (member_field) *member_field = NULL;
     if (index < 0 || !ast_cxx_is_aggregate(type)) return false;
     cls = type->cxx_class;
+    if (type->kind == TYPE_UNION) {
+        if (index != 0) return false;
+        for (TypeField* field = type->fields; field; field = field->next) {
+            if (field->cxx_declaring_class != cls) continue;
+            if (element_type) *element_type = field->type;
+            if (element_offset) *element_offset = field->offset;
+            if (member_field) *member_field = field;
+            return field->type != NULL;
+        }
+        return false;
+    }
     if (index < cls->base_count) {
         const CxxClass* base = cls->bases[index].base;
         if (!base || !base->type || !cls->base_offsets ||

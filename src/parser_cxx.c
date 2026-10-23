@@ -7943,7 +7943,9 @@ static bool cxx_constructor_scalar_type(Type* type) {
 
 static bool cxx_constructor_trivial_aggregate_type(Type* type) {
     type = cxx_constructor_value_type(type);
-    return type && type->kind == TYPE_STRUCT && type->size > 0 &&
+    return type &&
+           (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+           type->size > 0 &&
            type->size <= 8 && ast_cxx_is_aggregate(type) &&
            rcc_sema_cxx_trivially_copyable(type);
 }

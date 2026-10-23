@@ -1444,6 +1444,11 @@ void rcc_parser_validate_cxx_constructor_initializer(Type* type,
         initializer->kind != EXPR_COMPOUND) {
         return;
     }
+    /* Union aggregates are initialized through aggregate-member selection,
+     * not through the constructor arity mask.  Defer their initializer-list
+     * validation to semantic analysis, which also handles the single active
+     * member rule and exact-type trivial copies. */
+    if (type->kind == TYPE_UNION && ast_cxx_is_aggregate(type)) return;
     if (initializer->compound_init &&
         !initializer->compound_init->next &&
         initializer->compound_init->designator_kind ==

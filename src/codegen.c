@@ -10678,7 +10678,12 @@ static void gen_cxx_initialize_member_initializers32(
             emit_pop_reg(mod, ECX);
             continue;
         }
-        if (field->type && field->type->cxx_class) {
+        if (field->type &&
+            (field->type->cxx_class ||
+             ((field->type->kind == TYPE_STRUCT ||
+               field->type->kind == TYPE_UNION) &&
+              ast_cxx_is_aggregate(field->type) &&
+              rcc_sema_cxx_trivially_copyable(field->type)))) {
             if (!initializer->constructor) {
                 if (ast_cxx_is_aggregate(field->type) &&
                     rcc_sema_cxx_trivially_copyable(field->type) &&
@@ -10965,7 +10970,12 @@ static void gen_cxx_initialize_object32_mode_impl(
                 emit_pop_reg(mod, address_reg);
                 continue;
             }
-            if (field->type && field->type->cxx_class) {
+            if (field->type &&
+                (field->type->cxx_class ||
+                 ((field->type->kind == TYPE_STRUCT ||
+                   field->type->kind == TYPE_UNION) &&
+                  ast_cxx_is_aggregate(field->type) &&
+                  rcc_sema_cxx_trivially_copyable(field->type)))) {
                 if (!initializer->constructor) {
                     if (ast_cxx_is_aggregate(field->type) &&
                         rcc_sema_cxx_trivially_copyable(field->type) &&

@@ -8979,6 +8979,13 @@ remains a separate open item.
       for load/store/exchange/compare-exchange; `test-atomic-builtins` passes
       i686/AMD64 `-O0`/`-O2` generation, AMD64 execution at both levels, and
       GCC C++20 syntax checking.
+- [x] Extend the same bounded trivial-copy path to plain C++ unions, including
+      active-member aggregate initialization and aggregate-byte copying in
+      both code generators. `std::atomic<Union>` and `std::atomic_ref<Union>`
+      load/store/exchange/compare-exchange regressions pass for i686/AMD64
+      `-O0`/`-O2` generation and AMD64 runtime at both levels; the inline
+      aggregate C++ regression target also passes.
 - [ ] Aggregate default construction (including default-member initializers),
-      unions, widths above eight bytes, broader implicit special-member
-      viability, complete type traits, and C++20 wait/notify remain open.
+      widths above eight bytes, broader implicit special-member viability,
+      complete type traits, and C++20 wait/notify remain open. Union support
+      remains limited to the validated trivial-copyable aggregate subset.
