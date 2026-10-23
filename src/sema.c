@@ -10627,6 +10627,104 @@ bool rcc_sema_cxx_trivially_copyable(Type* type) {
     return sema_cxx_trivially_copyable(type, 0);
 }
 
+static bool sema_cxx_type_has_trivial_default_constructor(
+    const CxxClass* cls) {
+    bool has_source_constructor = false;
+    bool has_default_candidate = false;
+    if (!cls) return true;
+    for (const CxxConstructorInfo* constructor = cls->constructors;
+         constructor; constructor = constructor->next) {
+        const Decl* declaration;
+        const DeclList* parameter;
+        int parameter_count = 0;
+        bool callable_without_arguments = true;
+        if (constructor->is_inherited) continue;
+        has_source_constructor = true;
+        if (constructor->method && constructor->method->member_template) {
+            continue;
+        }
+        declaration = constructor->method
+            ? constructor->method->decl : NULL;
+        parameter = declaration ? declaration->func_params : NULL;
+        while (parameter) {
+            const Decl* parameter_decl = parameter->decl;
+            if (!parameter_decl ||
+                (!parameter_decl->param_default &&
+                 !parameter_decl->param_is_pack)) {
+                callable_without_arguments = false;
+            }
+            ++parameter_count;
+            parameter = parameter->next;
+        }
+        if (parameter_count != constructor->parameter_count) {
+            callable_without_arguments = false;
+        }
+        if (!callable_without_arguments) continue;
+        has_default_candidate = true;
+        if (!constructor->is_deleted && !constructor->is_defaulted) {
+            return false;
+        }
+    }
+    if (has_source_constructor && !has_default_candidate) return false;
+    return true;
+}
+
+static bool sema_cxx_trivial(Type* type, unsigned depth) {
+    CxxClass* cls;
+    if (!type || depth > 32u) return false;
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC ||
+        (type->kind == TYPE_PTR && type->is_reference)) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->base && sema_cxx_trivial(type->base, depth + 1u);
+    }
+    if (type->kind == TYPE_VECTOR) {
+        return type->base && sema_cxx_trivial(type->base, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (!type_is_complete(type) || type->size <= 0 ||
+        !sema_cxx_trivially_copyable(type, (int)depth + 1)) {
+        return false;
+    }
+    cls = type->cxx_class;
+    if (!cls) {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            if (field->type && field->type->kind == TYPE_PTR &&
+                field->type->is_reference) {
+                continue;
+            }
+            if (!sema_cxx_trivial(field->type, depth + 1u)) return false;
+        }
+        return true;
+    }
+    if (cls->has_field_initializer || cls->vtable_size > 0 ||
+        cls->virtual_base_count > 0 ||
+        !sema_cxx_type_has_trivial_default_constructor(cls)) {
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (cls->bases[index].is_virtual || !base || !base->type ||
+            !sema_cxx_trivial(base->type, depth + 1u)) {
+            return false;
+        }
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static ||
+            (field->type && field->type->kind == TYPE_PTR &&
+             field->type->is_reference)) {
+            continue;
+        }
+        if (!sema_cxx_trivial(field->type, depth + 1u)) return false;
+    }
+    return true;
+}
+
+bool rcc_sema_cxx_trivial(Type* type) {
+    return sema_cxx_trivial(type, 0u);
+}
+
 static Decl* sema_cxx_destructor_function(Type* object_type);
 static bool sema_cxx_type_has_destructor_cleanup(Type* object_type,
                                                  int depth);

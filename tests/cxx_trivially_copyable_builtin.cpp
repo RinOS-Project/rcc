@@ -145,6 +145,25 @@ protected:
     ~NontriviallyDestructibleProtected() = default;
 };
 
+struct DeletedDefaultConstructor {
+    DeletedDefaultConstructor() = delete;
+    int value;
+};
+
+struct NoDefaultConstructor {
+    explicit NoDefaultConstructor(int);
+    int value;
+};
+
+struct ConstructorTemplateOnly {
+    template<typename T>
+    ConstructorTemplateOnly(T);
+};
+
+struct HasDeletedDefaultConstructorMember {
+    DeletedDefaultConstructor member;
+};
+
 struct HasNontriviallyDestructibleMember {
     NontriviallyDestructibleUserProvided member;
 };
@@ -218,6 +237,7 @@ struct BaseOfAmbiguousDerived : BaseOfLeft, BaseOfRight {
 template<typename T>
 struct DeferredTraitResults {
 #ifdef __RCC__
+    static constexpr bool trivial = __is_trivial(T);
     static constexpr bool class_type = __is_class(T);
     static constexpr bool copyable = __is_trivially_copyable(T);
     static constexpr bool destructible = __is_trivially_destructible(T);
@@ -230,6 +250,7 @@ struct DeferredTraitResults {
     static constexpr bool empty = __is_empty(T);
     static constexpr bool polymorphic = __is_polymorphic(T);
 #else
+    static constexpr bool trivial = std::is_trivial_v<T>;
     static constexpr bool class_type = std::is_class_v<T>;
     static constexpr bool copyable = std::is_trivially_copyable_v<T>;
     static constexpr bool destructible = std::is_trivially_destructible_v<T>;
@@ -269,7 +290,20 @@ template<typename T>
 long deferred_trait_constraint(T*);
 #endif
 
+#ifdef __RCC__
+template<typename T>
+requires __is_trivial(T)
+int deferred_trivial_constraint(T*);
+#else
+template<typename T>
+requires std::is_trivial_v<T>
+int deferred_trivial_constraint(T*);
+#endif
+template<typename T>
+long deferred_trivial_constraint(T*);
+
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
+static_assert(__is_trivial(int), "scalar types are trivial");
 static_assert(__is_trivially_copyable(int*), "object pointers are trivially copyable");
 static_assert(__is_trivially_copyable(int[3]), "bounded arrays are trivially copyable");
 static_assert(__is_trivially_copyable(const TriviallyCopyable), "cv-qualified objects retain the property");
@@ -321,6 +355,25 @@ static_assert(!__is_empty(EmptyTypeCategory*), "pointers to empty classes are no
 
 static_assert(DeferredTraitResults<TypeCategoryClass>::class_type, "dependent class traits are resolved after specialization");
 static_assert(!DeferredTraitResults<int>::class_type, "dependent class traits retain false results after specialization");
+static_assert(DeferredTraitResults<TriviallyCopyable>::trivial, "dependent triviality is resolved after specialization");
+static_assert(!DeferredTraitResults<HasUserDefaultConstructor>::trivial, "dependent triviality rejects user-provided default constructors");
+static_assert(!DeferredTraitResults<NoDefaultConstructor>::trivial, "dependent triviality requires a default constructor");
+static_assert(!DeferredTraitResults<ConstructorTemplateOnly>::trivial, "constructor templates suppress the implicit default constructor");
+static_assert(DeferredTraitResults<DeletedDefaultConstructor>::trivial, "dependent triviality preserves deleted default-constructor classification");
+static_assert(DeferredTraitResults<HasDeletedDefaultConstructorMember>::trivial, "dependent triviality recurses through deleted-default subobjects");
+static_assert(DeferredTraitResults<TriviallyCopyableReferenceMember>::trivial, "reference members preserve trivial class classification");
+static_assert(!DeferredTraitResults<AggregateWithDefaultMemberInitializer>::trivial, "default member initializers make default construction nontrivial");
+static_assert(DeferredTraitResults<DerivedEmptyTypeCategory>::trivial, "triviality includes trivial base subobjects");
+static_assert(DeferredTraitResults<DefaultedDestructor>::trivial, "defaulted trivial destructors preserve triviality");
+static_assert(DeferredTraitResults<NonAggregateDefaultedConstructor>::trivial, "defaulted default constructors preserve triviality");
+static_assert(!DeferredTraitResults<UserProvidedDestructor>::trivial, "user-provided destructors prevent triviality");
+static_assert(DeferredTraitResults<TriviallyCopyableUnion>::trivial, "trivial unions retain triviality");
+static_assert(DeferredTraitResults<TypeCategoryEnum>::trivial, "enumerations are trivial types");
+static_assert(!DeferredTraitResults<TypeCategoryAbstractClass>::trivial, "polymorphic classes are not trivial");
+static_assert(DeferredTraitResults<int[3]>::trivial, "triviality propagates through arrays");
+static_assert(!DeferredTraitResults<int&>::trivial, "references are not trivial types");
+static_assert(sizeof(deferred_trivial_constraint(static_cast<TriviallyCopyable*>(nullptr))) == sizeof(int), "dependent triviality participates in constrained overload resolution");
+static_assert(sizeof(deferred_trivial_constraint(static_cast<HasUserDefaultConstructor*>(nullptr))) == sizeof(long), "false dependent triviality removes constrained overloads");
 static_assert(DeferredTraitResults<TriviallyCopyable>::copyable, "dependent copyability traits are resolved after specialization");
 static_assert(!DeferredTraitResults<NonTriviallyCopyable>::copyable, "dependent copyability traits preserve false results");
 static_assert(DeferredTraitResults<TriviallyDestructibleDefaulted>::destructible, "dependent destructor traits are resolved after specialization");

@@ -18,6 +18,10 @@
 #error RCC must report implemented C++ type-trait builtins
 #endif
 
+#if !__has_builtin(__is_trivial)
+#error RCC must report the implemented triviality type-trait builtin
+#endif
+
 #if !__has_builtin(__has_virtual_destructor)
 #error RCC must report implemented virtual-destructor type-trait builtins
 #endif

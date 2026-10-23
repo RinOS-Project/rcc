@@ -9073,3 +9073,18 @@ remains a separate open item.
       values, two-type `__is_base_of`, pointer operands, and constrained
       overload selection are covered by the RCC/GCC type-trait regression on
       i686 and AMD64.
+
+## RCC continuation (2026-10-23, C++ `__is_trivial` builtin)
+
+- [x] Implement `__is_trivial(T)` using the existing trivial-copy semantic
+      classifier plus default-constructor, base/member, virtual-subobject, and
+      default-member-initializer rules. Preserve dependent operands through
+      template substitution and advertise the builtin with `__has_builtin`.
+      Regressions compare against GCC C++20 `std::is_trivial` for scalar,
+      array, enum, union, deleted/defaulted/user-provided constructors,
+      reference members, bases, virtual classes, and constraints; RCC tests
+      pass for i686 and AMD64.
+- [ ] Constrained and out-of-class-defaulted special-member eligibility and
+      broader constructibility/assignability traits remain open; the
+      `libcxx/type_traits.h` direct-compilation blocker is not resolved by this
+      builtin alone.
