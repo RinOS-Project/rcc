@@ -15556,6 +15556,10 @@ bool rcc_parse_cxx_type_start(void) {
         result = next && next->type == TOK_IDENT;
         return result;
     }
+    if (check(TOK_IDENT) && peek()->value.str_val &&
+        strcmp(peek()->value.str_val, "__underlying_type") == 0) {
+        return true;
+    }
     /* Nested function declarators are parsed by the shared declarator
      * engine, whose parameter-list parser asks this hook before it hands a
      * type-id to the C++ type parser.  `typename T::member` is unambiguously
@@ -33363,7 +33367,26 @@ static Type* parse_cxx_type_spec(void) {
     }
 
     /* Base type */
-    if (match(TOK_TYPENAME)) {
+    if (check(TOK_IDENT) && peek()->value.str_val &&
+        strcmp(peek()->value.str_val, "__underlying_type") == 0) {
+        Type* enum_type = NULL;
+        advance();
+        expect(TOK_LPAREN, "'(' after __underlying_type");
+        if (check(TOK_RPAREN)) {
+            rcc_error(peek()->loc,
+                      "__underlying_type requires an enum type name");
+        } else {
+            enum_type = parse_cxx_type_spec();
+        }
+        expect(TOK_RPAREN, "')' after __underlying_type type name");
+        if (enum_type && enum_type->kind == TYPE_ENUM &&
+            enum_type->enum_underlying_type) {
+            t = enum_type->enum_underlying_type;
+        } else {
+            rcc_error(loc, "__underlying_type requires an enum type");
+            t = type_int;
+        }
+    } else if (match(TOK_TYPENAME)) {
         Type* owner_type = NULL;
         CxxTypeAlias* owner_alias = NULL;
         CxxTypeAlias* member_alias = NULL;

@@ -26,7 +26,8 @@
 #error RCC must report implemented class-property type-trait builtins
 #endif
 
-#if !__has_builtin(__is_aggregate) || !__has_builtin(__is_base_of) || \
+#if !__has_builtin(__underlying_type) || \
+    !__has_builtin(__is_aggregate) || !__has_builtin(__is_base_of) || \
     !__has_builtin(__is_trivially_copyable) || !__has_builtin(__is_enum) || \
     !__has_builtin(__is_class) || !__has_builtin(__is_union) || \
     !__has_builtin(__is_final) || !__has_builtin(__is_abstract) || \

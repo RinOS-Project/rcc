@@ -2,6 +2,31 @@
 #include <type_traits>
 #endif
 
+enum FixedUnderlyingTypeTrait : unsigned short {
+    FixedUnderlyingTypeTraitValue
+};
+
+enum class DefaultUnderlyingTypeTrait {
+    DefaultUnderlyingTypeTraitValue
+};
+
+enum OpaqueUnderlyingTypeTrait : unsigned char;
+
+template<typename T>
+struct UnderlyingTypeTraitIdentity {
+    using type = T;
+};
+
+using FixedUnderlyingTypeTraitResult =
+    __underlying_type(FixedUnderlyingTypeTrait);
+using DefaultUnderlyingTypeTraitResult =
+    __underlying_type(DefaultUnderlyingTypeTrait);
+using OpaqueUnderlyingTypeTraitResult =
+    __underlying_type(OpaqueUnderlyingTypeTrait);
+using UnderlyingTypeTraitTemplateArgument =
+    UnderlyingTypeTraitIdentity<
+        __underlying_type(FixedUnderlyingTypeTrait)>::type;
+
 struct TriviallyCopyable {
     int value;
 };
@@ -278,6 +303,10 @@ static_assert(!__is_base_of(BaseOfPrivateDerived, BaseOfRoot), "base_of directio
 static_assert(!__is_base_of(BaseOfRoot, int), "non-class derived types are not related");
 static_assert(!__is_base_of(int, int), "identical non-class types are not base classes");
 static_assert(!__is_base_of(AggregateTypeTraitUnion, AggregateTypeTraitUnion), "unions are not base classes");
+static_assert(sizeof(FixedUnderlyingTypeTraitResult) == sizeof(unsigned short), "fixed enum underlying type is preserved");
+static_assert(sizeof(DefaultUnderlyingTypeTraitResult) == sizeof(int), "scoped enums default to int");
+static_assert(sizeof(OpaqueUnderlyingTypeTraitResult) == sizeof(unsigned char), "opaque enums retain their fixed underlying type");
+static_assert(sizeof(UnderlyingTypeTraitTemplateArgument) == sizeof(unsigned short), "underlying_type works in template arguments");
 #else
 static_assert(std::is_trivially_destructible_v<int>, "scalar types are trivially destructible");
 static_assert(std::is_trivially_destructible_v<int&>, "references are trivially destructible");
@@ -316,4 +345,8 @@ static_assert(!std::is_base_of_v<BaseOfPrivateDerived, BaseOfRoot>, "base_of dir
 static_assert(!std::is_base_of_v<BaseOfRoot, int>, "non-class derived types are not related");
 static_assert(!std::is_base_of_v<int, int>, "identical non-class types are not base classes");
 static_assert(!std::is_base_of_v<AggregateTypeTraitUnion, AggregateTypeTraitUnion>, "unions are not base classes");
+static_assert(std::is_same_v<FixedUnderlyingTypeTraitResult, unsigned short>, "fixed enum underlying type is preserved");
+static_assert(std::is_same_v<DefaultUnderlyingTypeTraitResult, int>, "scoped enums default to int");
+static_assert(std::is_same_v<OpaqueUnderlyingTypeTraitResult, unsigned char>, "opaque enums retain their fixed underlying type");
+static_assert(std::is_same_v<UnderlyingTypeTraitTemplateArgument, unsigned short>, "underlying_type works in template arguments");
 #endif

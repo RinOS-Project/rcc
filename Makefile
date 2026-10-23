@@ -15080,6 +15080,12 @@ test-cxx-type-trait-builtins: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-type-trait-builtins/x64.ro \
 		tests/cxx_trivially_copyable_builtin.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-type-trait-builtins/invalid-underlying-x86.ro tests/cxx_underlying_type_invalid.cpp,$(TEST_OUT)/cxx-type-trait-builtins/invalid-underlying-x86.log)
+	$(GREP) -F -q '__underlying_type requires an enum type' \
+		$(TEST_OUT)/cxx-type-trait-builtins/invalid-underlying-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-type-trait-builtins/invalid-underlying-x64.ro tests/cxx_underlying_type_invalid.cpp,$(TEST_OUT)/cxx-type-trait-builtins/invalid-underlying-x64.log)
+	$(GREP) -F -q '__underlying_type requires an enum type' \
+		$(TEST_OUT)/cxx-type-trait-builtins/invalid-underlying-x64.log
 	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_trivially_copyable_builtin.cpp
 	@echo "C++20 type-trait intrinsic tests completed"

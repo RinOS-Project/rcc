@@ -9058,6 +9058,10 @@ remains a separate open item.
       independent of access or ambiguity, with identical-class and non-class
       cases checked. RCC i686/AMD64, GCC C++20 `std::is_base_of`, and the
       `__has_builtin` query suite pass.
+- [x] Implement the C++ `__underlying_type(Enum)` type-name builtin for fixed,
+      defaulted, and opaque enums, including use as a template argument. Both
+      target widths and GCC's exact-type oracle pass; invalid non-enum operands
+      produce a diagnostic, and `__has_builtin` reports the implementation.
 - [x] Implement the C++ type-category intrinsics `__is_enum(T)`,
       `__is_class(T)`, `__is_union(T)`, `__is_final(T)`, `__is_abstract(T)`,
       `__is_polymorphic(T)`, and `__is_empty(T)`. Regressions cover positive,

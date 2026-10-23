@@ -524,7 +524,7 @@ static bool pp_has_builtin(const char* name) {
         "__is_base_of", "__is_class",
         "__is_empty", "__is_enum", "__is_final", "__is_polymorphic",
         "__is_trivially_copyable", "__is_trivially_destructible",
-        "__is_union"
+        "__is_union", "__underlying_type"
     };
     size_t index;
 
