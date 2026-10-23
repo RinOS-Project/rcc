@@ -72,6 +72,7 @@ extern Expr* rcc_parse_cxx_fold_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_requires_expression(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_skip_statement_attributes(void) RCC_OPTIONAL_CXX;
+extern bool rcc_parser_cxx_take_noreturn_attribute(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_range_for_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
     RCC_OPTIONAL_CXX;
@@ -5785,6 +5786,10 @@ Stmt* parse_declaration(void) {
     }
 
     skip_attributes();
+    if (parser_cxx_mode && rcc_parser_cxx_take_noreturn_attribute &&
+        rcc_parser_cxx_take_noreturn_attribute()) {
+        is_noreturn = true;
+    }
     is_weak = take_weak_attribute();
     is_naked = take_naked_attribute();
     if (parser_cxx_mode && match(TOK_CONSTEXPR)) is_constexpr = true;

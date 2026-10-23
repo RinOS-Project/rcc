@@ -1,5 +1,11 @@
 using size_type = __SIZE_TYPE__;
 
+extern "C" {
+[[noreturn]] void allocation_operator_noreturn_probe() {
+    for (;;) {}
+}
+}
+
 void* operator new(size_type size) {
     (void)size;
     return (void*)0;

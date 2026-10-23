@@ -5679,6 +5679,7 @@ static bool pending_cxx_nodiscard;
 static bool pending_cxx_deprecated;
 static bool pending_cxx_no_unique_address;
 static bool pending_cxx_weak;
+static bool pending_cxx_noreturn;
 static const char* pending_cxx_deprecated_message;
 
 /* C++ attributes are metadata at this stage.  Consume complete [[...]]
@@ -5696,6 +5697,7 @@ static void skip_cxx_attributes(void) {
         bool group_no_unique_address = false;
         bool group_weak = false;
         bool group_weak_arguments = false;
+        bool group_noreturn = false;
         const char* group_deprecated_message = NULL;
         advance();
         advance();
@@ -5735,6 +5737,9 @@ static void skip_cxx_attributes(void) {
                     } else if (strcmp(peek()->value.str_val,
                                       "no_unique_address") == 0) {
                         group_no_unique_address = true;
+                    } else if (strcmp(peek()->value.str_val,
+                                      "noreturn") == 0) {
+                        group_noreturn = true;
                     } else if (strcmp(peek()->value.str_val, "gnu") == 0 &&
                                parser.cur->next &&
                                parser.cur->next->type == TOK_SCOPE &&
@@ -5776,6 +5781,9 @@ static void skip_cxx_attributes(void) {
             !rcc_parser_cxx_standard_at_least(20)) {
             rcc_error(loc, "[[no_unique_address]] requires C++20 or newer");
         }
+        if (group_noreturn && !rcc_parser_cxx_standard_at_least(11)) {
+            rcc_error(loc, "[[noreturn]] requires C++11 or newer");
+        }
         if (group_weak_arguments) {
             rcc_error(loc, "[[gnu::weak]] does not accept arguments");
         }
@@ -5788,6 +5796,7 @@ static void skip_cxx_attributes(void) {
             }
         }
         if (group_no_unique_address) pending_cxx_no_unique_address = true;
+        if (group_noreturn) pending_cxx_noreturn = true;
     }
 }
 
@@ -5817,6 +5826,12 @@ static bool take_cxx_no_unique_address(void) {
     return result;
 }
 
+bool rcc_parser_cxx_take_noreturn_attribute(void) {
+    bool result = pending_cxx_noreturn;
+    pending_cxx_noreturn = false;
+    return result;
+}
+
 /* Statement attributes are consumed by the shared C statement parser.  They
  * intentionally do not retain declaration metadata: this frontend has no
  * unused-variable or branch-probability diagnostics, but accepting these
@@ -5826,6 +5841,7 @@ void rcc_parser_cxx_skip_statement_attributes(void) {
     bool saved_deprecated = pending_cxx_deprecated;
     bool saved_no_unique_address = pending_cxx_no_unique_address;
     bool saved_weak = pending_cxx_weak;
+    bool saved_noreturn = pending_cxx_noreturn;
     const char* saved_deprecated_message = pending_cxx_deprecated_message;
 
     skip_cxx_attributes();
@@ -5836,6 +5852,7 @@ void rcc_parser_cxx_skip_statement_attributes(void) {
     pending_cxx_deprecated = saved_deprecated;
     pending_cxx_no_unique_address = saved_no_unique_address;
     pending_cxx_weak = saved_weak;
+    pending_cxx_noreturn = saved_noreturn;
     pending_cxx_deprecated_message = saved_deprecated_message;
 }
 
@@ -35984,6 +36001,7 @@ static void parse_cxx_language_linkage(AST* ast, CxxNamespace* ns) {
     if (match(TOK_LBRACE)) {
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
+            skip_cxx_attributes();
             if (match(TOK_CLASS) || match(TOK_STRUCT)) {
                 CxxClass* cls = parse_cxx_class();
                 (void)take_cxx_nodiscard();
@@ -36106,6 +36124,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
     pending_cxx_deprecated = false;
     pending_cxx_no_unique_address = false;
     pending_cxx_weak = false;
+    pending_cxx_noreturn = false;
     pending_cxx_deprecated_message = NULL;
     cxx_standard_feature_tokens_valid(tokens->head);
 

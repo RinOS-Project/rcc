@@ -9156,6 +9156,15 @@ remains a separate open item.
       resolve user-defined allocation/deallocation overloads from `new` and
       `delete` expressions, including class-specific forms.
 
+## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
+
+- [x] Consume standard `[[noreturn]]` on declarations inside `extern "C"`
+      linkage blocks and preserve its function-declaration flag. Regression
+      coverage compiles the attributed definition for i686 and AMD64 and
+      checks the same source with GCC C++20.
+- [ ] Propagate declaration attributes consistently through local, class,
+      template, and multi-declarator parsing paths.
+
 ## RCC continuation (2026-10-23, GNU `__has_trivial_constructor` builtin)
 
 - [x] Implement the GNU legacy trivial-constructor query independently of
