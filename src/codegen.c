@@ -3754,7 +3754,11 @@ void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
 }
 
 static void codegen_emit_cxx_typeinfo(Module* mod, CxxClass* cls) {
-    if (!mod || !cls || !cls->type) return;
+    /* Forward-declared class types have no complete layout or RTTI identity.
+     * They can still be used by compile-time type traits and must not force
+     * emission of runtime typeinfo. A later complete definition reuses this
+     * CxxClass and receives its canonical identity during class completion. */
+    if (!mod || !cls || !cls->type || !cls->type->is_complete) return;
     if (!cls->type->cxx_typeinfo_symbol) {
         rcc_error((SourceLoc){"<cxx-rtti>", 0, 0},
                   "C++ class has no typeinfo identity");

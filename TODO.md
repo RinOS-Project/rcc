@@ -9026,9 +9026,10 @@ remains a separate open item.
       preprocessing, its runtime header still uses unsupported GNU attributes,
       an ABI-incompatible `long double` member, and global allocation-operator
       declarations not yet accepted by RCC. The C++20
-      `__is_trivially_copyable(T)` intrinsic and its dual-target regression
-      coverage are implemented; remaining target-specific builtin queries
-      still need implementation and tests.
+      `__is_trivially_copyable(T)` intrinsic, `__is_enum(T)`, `__is_class(T)`,
+      and `__is_union(T)` and their regression coverage are implemented;
+      remaining type-trait and target-specific builtin queries still need
+      implementation and tests.
 - [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
       fixed-width, fast-width, and character type macros. C and C++ regressions
       verify their widths against `sizeof(void*)`, the fixed-width integer ABI,
@@ -9041,3 +9042,7 @@ remains a separate open item.
       reference-member, polymorphic, void, function, and reference types; the
       C++ regression aggregate runs both target widths and a GCC syntax oracle.
       Reference members do not invalidate a class's trivial copying.
+- [x] Implement the C++ type-category intrinsics `__is_enum(T)`,
+      `__is_class(T)`, and `__is_union(T)`. Regressions cover positive,
+      negative, pointer, class-key, and incomplete-class cases on i686/AMD64
+      and pass GCC's C++20 syntax oracle.

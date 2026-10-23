@@ -15082,7 +15082,7 @@ test-cxx-type-trait-builtins: $(RCXX_TARGET)
 		tests/cxx_trivially_copyable_builtin.cpp
 	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_trivially_copyable_builtin.cpp
-	@echo "C++20 trivially-copyable type intrinsic tests completed"
+	@echo "C++20 type-trait intrinsic tests completed"
 
 test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x86)

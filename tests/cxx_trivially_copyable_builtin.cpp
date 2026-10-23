@@ -47,6 +47,15 @@ union TriviallyCopyableUnion {
     unsigned bits;
 };
 
+enum TypeCategoryEnum {
+    TypeCategoryEnumValue
+};
+
+class TypeCategoryClass {
+};
+
+struct IncompleteTypeCategoryClass;
+
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
 static_assert(__is_trivially_copyable(int*), "object pointers are trivially copyable");
 static_assert(__is_trivially_copyable(int[3]), "bounded arrays are trivially copyable");
@@ -63,3 +72,15 @@ static_assert(!__is_trivially_copyable(VirtualType), "polymorphic classes are no
 static_assert(!__is_trivially_copyable(void), "void is not an object type");
 static_assert(!__is_trivially_copyable(int()), "function types are not object types");
 static_assert(!__is_trivially_copyable(int&), "reference types are not object types");
+
+static_assert(__is_enum(TypeCategoryEnum), "enum types are enums");
+static_assert(!__is_enum(TriviallyCopyable), "class types are not enums");
+static_assert(!__is_enum(TypeCategoryEnum*), "pointers to enums are not enums");
+static_assert(__is_class(TriviallyCopyable), "struct types are class types");
+static_assert(__is_class(TypeCategoryClass), "class-key class types are classes");
+static_assert(__is_class(IncompleteTypeCategoryClass), "incomplete class types retain their category");
+static_assert(!__is_class(TriviallyCopyableUnion), "union types are not class types");
+static_assert(!__is_class(TypeCategoryEnum), "enum types are not class types");
+static_assert(__is_union(TriviallyCopyableUnion), "union types are unions");
+static_assert(!__is_union(TriviallyCopyable), "struct types are not unions");
+static_assert(!__is_union(TypeCategoryEnum), "enum types are not unions");

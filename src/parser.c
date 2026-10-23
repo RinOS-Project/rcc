@@ -1635,6 +1635,12 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
 
     if (type && strcmp(name, "__is_trivially_copyable") == 0) {
         value = rcc_sema_cxx_trivially_copyable(type);
+    } else if (type && strcmp(name, "__is_enum") == 0) {
+        value = type->kind == TYPE_ENUM;
+    } else if (type && strcmp(name, "__is_class") == 0) {
+        value = type->kind == TYPE_STRUCT;
+    } else if (type && strcmp(name, "__is_union") == 0) {
+        value = type->kind == TYPE_UNION;
     }
     Expr* result = expr_int(value ? 1 : 0, loc);
     result->type = type_bool;
@@ -1976,7 +1982,11 @@ static Expr* parse_primary(void) {
         strcmp(peek()->value.str_val, "__builtin_types_compatible_p") == 0) {
         return parse_builtin_types_compatible(loc);
     }
-    if (parser_cxx_mode && parser_builtin_name("__is_trivially_copyable")) {
+    if (parser_cxx_mode &&
+        (parser_builtin_name("__is_trivially_copyable") ||
+         parser_builtin_name("__is_enum") ||
+         parser_builtin_name("__is_class") ||
+         parser_builtin_name("__is_union"))) {
         return parse_builtin_cxx_type_trait(loc);
     }
     if (parser_builtin_name("__builtin_va_start") ||
