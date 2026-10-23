@@ -10680,6 +10680,36 @@ static void gen_cxx_initialize_member_initializers32(
         }
         if (field->type && field->type->cxx_class) {
             if (!initializer->constructor) {
+                if (ast_cxx_is_aggregate(field->type) &&
+                    rcc_sema_cxx_trivially_copyable(field->type) &&
+                    initializer->arguments &&
+                    !initializer->arguments->next &&
+                    initializer->arguments->expr &&
+                    initializer->arguments->expr->type &&
+                    type_is_compatible(
+                        field->type,
+                        initializer->arguments->expr->type)) {
+                    Expr* source = gen_cxx_bind_constructor_expression32(
+                        constructor, initializer->arguments->expr,
+                        arguments);
+                    emit_push_reg(mod, ECX);
+                    gen_lvalue(mod, source);
+                    emit_push_reg(mod, EAX);
+                    emit_mov_reg_mem(mod, ECX, ESP, 4);
+                    if (field->offset != 0) {
+                        emit_add_reg_imm(mod, ECX,
+                                         (uint32_t)field->offset);
+                    }
+                    emit_mov_reg_mem(mod, EDX, ESP, 0);
+                    gen_copy_aggregate_to_address32(
+                        mod, ECX, EDX, field->type->size);
+                    emit_add_reg_imm(mod, ESP, 4);
+                    emit_pop_reg(mod, ECX);
+                    gen_cxx_exception_change_at_offset32(
+                        mod, field->type, ECX, field->offset,
+                        active_cxx_exception_cleanup_frame_offset, false);
+                    continue;
+                }
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
                           "validated C++ member constructor is missing");
                 return;
@@ -10937,6 +10967,37 @@ static void gen_cxx_initialize_object32_mode_impl(
             }
             if (field->type && field->type->cxx_class) {
                 if (!initializer->constructor) {
+                    if (ast_cxx_is_aggregate(field->type) &&
+                        rcc_sema_cxx_trivially_copyable(field->type) &&
+                        initializer->arguments &&
+                        !initializer->arguments->next &&
+                        initializer->arguments->expr &&
+                        initializer->arguments->expr->type &&
+                        type_is_compatible(
+                            field->type,
+                            initializer->arguments->expr->type)) {
+                        Expr* source = gen_cxx_bind_constructor_expression32(
+                            constructor, initializer->arguments->expr,
+                            arguments);
+                        emit_push_reg(mod, ECX);
+                        gen_lvalue(mod, source);
+                        emit_push_reg(mod, EAX);
+                        emit_mov_reg_mem(mod, ECX, ESP, 4);
+                        if (field->offset != 0) {
+                            emit_add_reg_imm(mod, ECX,
+                                             (uint32_t)field->offset);
+                        }
+                        emit_mov_reg_mem(mod, EDX, ESP, 0);
+                        gen_copy_aggregate_to_address32(
+                            mod, ECX, EDX, field->type->size);
+                        emit_add_reg_imm(mod, ESP, 4);
+                        emit_pop_reg(mod, ECX);
+                        gen_cxx_exception_change_at_offset32(
+                            mod, field->type, ECX, field->offset,
+                            active_cxx_exception_cleanup_frame_offset,
+                            false);
+                        continue;
+                    }
                     rcc_error((SourceLoc){"<constructor>", 0, 0},
                               "validated C++ member constructor is missing");
                     return;

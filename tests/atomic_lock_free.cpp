@@ -633,6 +633,51 @@ extern "C" unsigned cpp_standard_atomic_operations() {
             &zero, 1u, std::memory_order_relaxed) != 5u ||
         std::atomic_load(&zero) != 4u)
         return 116u;
+    AtomicRefAggregate atomic_aggregate_initial{2u, 3u};
+    std::atomic<AtomicRefAggregate> aggregate_atomic{
+        atomic_aggregate_initial};
+    AtomicRefAggregate atomic_aggregate_value = aggregate_atomic.load();
+    if (atomic_aggregate_value.first != 2u ||
+        atomic_aggregate_value.second != 3u)
+        return 144u;
+    AtomicRefAggregate atomic_aggregate_stored{5u, 8u};
+    aggregate_atomic.store(atomic_aggregate_stored,
+                           std::memory_order_release);
+    AtomicRefAggregate atomic_aggregate_exchanged{13u, 21u};
+    atomic_aggregate_value = aggregate_atomic.exchange(
+        atomic_aggregate_exchanged);
+    if (atomic_aggregate_value.first != 5u ||
+        atomic_aggregate_value.second != 8u)
+        return 145u;
+    AtomicRefAggregate atomic_aggregate_expected{13u, 21u};
+    AtomicRefAggregate atomic_aggregate_desired{34u, 55u};
+    if (!aggregate_atomic.compare_exchange_strong(
+            atomic_aggregate_expected, atomic_aggregate_desired,
+            std::memory_order_acq_rel, std::memory_order_acquire))
+        return 146u;
+    atomic_aggregate_expected = AtomicRefAggregate{1u, 1u};
+    AtomicRefAggregate atomic_aggregate_mismatch{89u, 144u};
+    if (aggregate_atomic.compare_exchange_weak(
+            atomic_aggregate_expected, atomic_aggregate_mismatch,
+            std::memory_order_relaxed) ||
+        atomic_aggregate_expected.first != 34u ||
+        atomic_aggregate_expected.second != 55u)
+        return 147u;
+    AtomicRefWordAggregate atomic_word_initial{7u};
+    std::atomic<AtomicRefWordAggregate> word_atomic{atomic_word_initial};
+    AtomicRefWordAggregate atomic_word_value = word_atomic.load();
+    if (atomic_word_value.value != 7u) return 148u;
+    AtomicRefWordAggregate atomic_word_stored{9u};
+    word_atomic.store(atomic_word_stored, std::memory_order_release);
+    AtomicRefWordAggregate atomic_word_exchanged{11u};
+    atomic_word_value = word_atomic.exchange(atomic_word_exchanged);
+    if (atomic_word_value.value != 9u) return 149u;
+    AtomicRefWordAggregate atomic_word_expected{11u};
+    AtomicRefWordAggregate atomic_word_desired{13u};
+    if (!word_atomic.compare_exchange_strong(
+            atomic_word_expected, atomic_word_desired) ||
+        word_atomic.load().value != 13u)
+        return 150u;
     if (atomic_value_type != 1u) return 79u;
     if (wide.fetch_add(3ULL) != 4ULL || wide.load() != 7ULL) return 21u;
     if (initialized_pointer.load() != pointer_values + 1) return 29u;

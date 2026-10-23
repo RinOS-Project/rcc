@@ -8968,3 +8968,17 @@ remains a separate open item.
       deleted-copy cases, including access control, overload viability, and all
       implicit special-member deletion interactions. Complete type-trait
       support and C++20 `atomic::wait`/`notify` also remain open.
+
+## RCC continuation (2026-10-23, generic `std::atomic<T>` aggregate operations)
+
+- [x] Route the primary `std::atomic<T>` load/store/exchange/compare-exchange
+      implementation through the generic builtins and preserve integer RMW
+      helpers without instantiating scalar-only operations for aggregate `T`.
+      Enable exact-type aggregate parameter forwarding and member copying in
+      constructor lowering. Runtime checks cover 4-byte and 8-byte aggregates
+      for load/store/exchange/compare-exchange; `test-atomic-builtins` passes
+      i686/AMD64 `-O0`/`-O2` generation, AMD64 execution at both levels, and
+      GCC C++20 syntax checking.
+- [ ] Aggregate default construction (including default-member initializers),
+      unions, widths above eight bytes, broader implicit special-member
+      viability, complete type traits, and C++20 wait/notify remain open.

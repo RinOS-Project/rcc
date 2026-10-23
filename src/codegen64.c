@@ -6247,6 +6247,37 @@ static void gen64_cxx_initialize_member_initializers(
         }
         if (field->type && field->type->cxx_class) {
             if (!initializer->constructor) {
+                if (ast_cxx_is_aggregate(field->type) &&
+                    rcc_sema_cxx_trivially_copyable(field->type) &&
+                    initializer->arguments &&
+                    !initializer->arguments->next &&
+                    initializer->arguments->expr &&
+                    initializer->arguments->expr->type &&
+                    type_is_compatible(
+                        field->type,
+                        initializer->arguments->expr->type)) {
+                    Expr* source = gen64_cxx_bind_constructor_expression(
+                        constructor, initializer->arguments->expr,
+                        arguments);
+                    emit64_push_reg(mod, RCX);
+                    gen64_lvalue(mod, source);
+                    emit64_push_reg(mod, RAX);
+                    emit64_mov_reg_mem(mod, RCX, RSP, 8);
+                    if (field->offset != 0) {
+                        emit64_add_reg_imm(mod, RCX,
+                                           (uint32_t)field->offset);
+                    }
+                    emit64_mov_reg_mem(mod, RDX, RSP, 0);
+                    gen64_copy_memory(mod, RCX, 0, RDX, 0,
+                                      field->type->size);
+                    emit64_add_reg_imm(mod, RSP, 8);
+                    emit64_pop_reg(mod, RCX);
+                    gen64_cxx_exception_change_at_offset(
+                        mod, field->type, RCX, field->offset,
+                        active_cxx_exception_cleanup_frame_offset64,
+                        false);
+                    continue;
+                }
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
                           "validated C++ member constructor is missing");
                 return;
@@ -6500,6 +6531,37 @@ static void gen64_cxx_initialize_object_mode_impl(
             }
             if (field->type && field->type->cxx_class) {
                 if (!initializer->constructor) {
+                    if (ast_cxx_is_aggregate(field->type) &&
+                        rcc_sema_cxx_trivially_copyable(field->type) &&
+                        initializer->arguments &&
+                        !initializer->arguments->next &&
+                        initializer->arguments->expr &&
+                        initializer->arguments->expr->type &&
+                        type_is_compatible(
+                            field->type,
+                            initializer->arguments->expr->type)) {
+                        Expr* source = gen64_cxx_bind_constructor_expression(
+                            constructor, initializer->arguments->expr,
+                            arguments);
+                        emit64_push_reg(mod, address_reg);
+                        gen64_lvalue(mod, source);
+                        emit64_push_reg(mod, RAX);
+                        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+                        if (field->offset != 0) {
+                            emit64_add_reg_imm(mod, RCX,
+                                               (uint32_t)field->offset);
+                        }
+                        emit64_mov_reg_mem(mod, RDX, RSP, 0);
+                        gen64_copy_memory(mod, RCX, 0, RDX, 0,
+                                          field->type->size);
+                        emit64_add_reg_imm(mod, RSP, 8);
+                        emit64_pop_reg(mod, address_reg);
+                        gen64_cxx_exception_change_at_offset(
+                            mod, field->type, address_reg, field->offset,
+                            active_cxx_exception_cleanup_frame_offset64,
+                            false);
+                        continue;
+                    }
                     rcc_error((SourceLoc){"<constructor>", 0, 0},
                               "validated C++ member constructor is missing");
                     return;

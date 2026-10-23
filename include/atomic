@@ -30,29 +30,25 @@ template<class T>
 struct __rcc_atomic_ops {
     static void store_impl(volatile T* object, T desired,
                            memory_order order) noexcept {
-        __atomic_store_n(object, desired, order);
+        __atomic_store(object, &desired, order);
     }
     static T load_impl(const volatile T* object,
                        memory_order order) noexcept {
-        return __atomic_load_n(object, order);
+        T result;
+        __atomic_load(object, &result, order);
+        return result;
     }
     static T exchange_impl(volatile T* object, T desired,
                            memory_order order) noexcept {
-        return __atomic_exchange_n(object, desired, order);
+        T previous;
+        __atomic_exchange(object, &desired, &previous, order);
+        return previous;
     }
     static bool compare_exchange_impl(
         volatile T* object, T* expected, T desired, bool weak,
         memory_order success, memory_order failure) noexcept {
-        return __atomic_compare_exchange_n(
-            object, expected, desired, weak, success, failure);
-    }
-    static T fetch_add_impl(volatile T* object, T operand,
-                            memory_order order) noexcept {
-        return __atomic_fetch_add(object, operand, order);
-    }
-    static T fetch_sub_impl(volatile T* object, T operand,
-                            memory_order order) noexcept {
-        return __atomic_fetch_sub(object, operand, order);
+        return __atomic_compare_exchange(
+            object, expected, &desired, weak, success, failure);
     }
 };
 
@@ -181,21 +177,19 @@ struct __rcc_atomic_ops<double> {
 #define __RCC_ATOMIC_INTEGER_HELPERS(T) \
     inline T __rcc_atomic_supported_fetch_add( \
         volatile T* object, T operand, memory_order order) noexcept { \
-        return __rcc_atomic_ops<T>::fetch_add_impl(object, operand, order); \
+        return __atomic_fetch_add(object, operand, order); \
     } \
     inline T __rcc_atomic_supported_fetch_sub( \
         volatile T* object, T operand, memory_order order) noexcept { \
-        return __rcc_atomic_ops<T>::fetch_sub_impl(object, operand, order); \
+        return __atomic_fetch_sub(object, operand, order); \
     } \
     inline T __rcc_atomic_supported_fetch_increment( \
         volatile T* object, memory_order order) noexcept { \
-        return __rcc_atomic_ops<T>::fetch_add_impl( \
-            object, static_cast<T>(1), order); \
+        return __atomic_fetch_add(object, static_cast<T>(1), order); \
     } \
     inline T __rcc_atomic_supported_fetch_decrement( \
         volatile T* object, memory_order order) noexcept { \
-        return __rcc_atomic_ops<T>::fetch_sub_impl( \
-            object, static_cast<T>(1), order); \
+        return __atomic_fetch_sub(object, static_cast<T>(1), order); \
     }
 
 __RCC_ATOMIC_INTEGER_HELPERS(char)

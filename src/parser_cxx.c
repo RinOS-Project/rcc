@@ -7787,7 +7787,8 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->next = NULL;
             } else if (item && field->type &&
                        field->type->kind == TYPE_STRUCT &&
-                       field->type->cxx_class) {
+                       field->type->cxx_class &&
+                       !ast_cxx_is_aggregate(field->type)) {
                 item->constructor = cxx_find_typed_member_constructor(
                     constructor, field->type->cxx_class, item->arguments);
                 if (!item->constructor) {
@@ -7938,6 +7939,13 @@ static bool cxx_constructor_scalar_type(Type* type) {
     return type && (type_is_integer(type) || type->kind == TYPE_ENUM ||
                     type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR ||
                     type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
+}
+
+static bool cxx_constructor_trivial_aggregate_type(Type* type) {
+    type = cxx_constructor_value_type(type);
+    return type && type->kind == TYPE_STRUCT && type->size > 0 &&
+           type->size <= 8 && ast_cxx_is_aggregate(type) &&
+           rcc_sema_cxx_trivially_copyable(type);
 }
 
 static bool cxx_constructor_scalar_conversion_supported(
@@ -8225,7 +8233,9 @@ static bool cxx_constructor_expression_is_lowerable(
     CxxConstructorInfo* constructor, Expr* expression, Type* target_type,
     bool* parameter_used, unsigned parameter_count) {
     if (!expression || (target_type &&
-                        !cxx_constructor_scalar_type(target_type))) {
+                        !cxx_constructor_scalar_type(target_type) &&
+                        !cxx_constructor_trivial_aggregate_type(
+                            target_type))) {
         return false;
     }
     if (expression->kind == EXPR_IDENT) {
@@ -8234,6 +8244,22 @@ static bool cxx_constructor_expression_is_lowerable(
         TypeParam* parameter = constructor ? constructor->parameters : NULL;
         for (int step = 0; parameter && step < index; ++step) {
             parameter = parameter->next;
+        }
+        if (target_type &&
+            cxx_constructor_trivial_aggregate_type(target_type)) {
+            Type* source_type = parameter
+                ? cxx_constructor_value_type(parameter->type) : NULL;
+            Type* value_target_type =
+                cxx_constructor_value_type(target_type);
+            if (index < 0 || !parameter || !source_type ||
+                !cxx_constructor_trivial_aggregate_type(source_type) ||
+                !type_is_compatible(source_type, value_target_type)) {
+                return false;
+            }
+            if (parameter_used && index < (int)parameter_count) {
+                parameter_used[index] = true;
+            }
+            return true;
         }
         if (index < 0 || !parameter ||
             !cxx_constructor_scalar_type(parameter->type) ||

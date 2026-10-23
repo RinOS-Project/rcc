@@ -12478,7 +12478,15 @@ static void sema_resolve_cxx_constructor_initializers(
             member_type->base->cxx_class) {
             member_type = member_type->base;
         }
-        if (member_type->cxx_class) {
+        bool trivial_aggregate_copy =
+            member_type->cxx_class && ast_cxx_is_aggregate(member_type) &&
+            sema_cxx_trivially_copyable(member_type, 0) &&
+            initializer->arguments && !initializer->arguments->next &&
+            initializer->arguments->expr &&
+            initializer->arguments->expr->type &&
+            type_is_compatible(member_type,
+                               initializer->arguments->expr->type);
+        if (member_type->cxx_class && !trivial_aggregate_copy) {
             initializer->constructor = sema_select_cxx_new_constructor(
                 member_type, &initializer->arguments, initializer->value
                     ? initializer->value->loc : loc);
