@@ -3071,6 +3071,8 @@ static bool expression_mentions_decl(const Expr* expression,
                                      const Decl* declaration) {
     if (!expression || !declaration) return false;
     switch (expression->kind) {
+        case EXPR_CXX_TYPE_TRAIT:
+            return false;
         case EXPR_IDENT:
             return expression->ident_decl == declaration;
         case EXPR_NEG:
@@ -3214,6 +3216,8 @@ static bool expression_modifies_decl(const Expr* expression,
                                      const Decl* declaration) {
     if (!expression || !declaration) return false;
     switch (expression->kind) {
+        case EXPR_CXX_TYPE_TRAIT:
+            return false;
         case EXPR_PREINC:
         case EXPR_PREDEC:
         case EXPR_POSTINC:
@@ -3485,6 +3489,7 @@ static bool expression_has_side_effect(const Expr* expression) {
         case EXPR_NOEXCEPT:
         case EXPR_CXX_THIS:
         case EXPR_CXX_TYPEID:
+        case EXPR_CXX_TYPE_TRAIT:
             return false;
         case EXPR_IDENT:
             return expression->type && expression->type->is_volatile;
@@ -5529,6 +5534,7 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
             return;
         case EXPR_CXX_THIS:
         case EXPR_CXX_TYPEID:
+        case EXPR_CXX_TYPE_TRAIT:
             return;
         case EXPR_NEG:
         case EXPR_NOT:
@@ -6039,6 +6045,8 @@ static void mark_address_escapes_expr(const Expr* expression,
     switch (expression->kind) {
         case EXPR_CXX_THIS:
             return;
+        case EXPR_CXX_TYPE_TRAIT:
+            return;
         case EXPR_NOEXCEPT:
             /* Its operand is unevaluated and cannot make a local address
              * escape from the containing expression. */
@@ -6363,6 +6371,8 @@ static void mark_dead_store_reads(const Expr* expression,
             if (local) local->live = true;
             return;
         case EXPR_CXX_THIS:
+            return;
+        case EXPR_CXX_TYPE_TRAIT:
             return;
         case EXPR_NOEXCEPT:
             /* The operand is unevaluated; it does not read local storage. */

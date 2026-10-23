@@ -221,6 +221,7 @@ static bool driver_validate_expr(Expr* expression)
         case EXPR_STRING_LIT:
         case EXPR_IDENT:
         case EXPR_CXX_THIS:
+        case EXPR_CXX_TYPE_TRAIT:
             return true;
         case EXPR_FLOAT_LIT:
             rcc_error(expression->loc,

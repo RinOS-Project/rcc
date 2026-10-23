@@ -13338,6 +13338,21 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             return lower_integer_constant(context, type,
                                           expression->type->is_unsigned,
                                           (uint64_t)expression->int_val);
+        case EXPR_CXX_TYPE_TRAIT:
+            if (!expr_eval_integer_constant((Expr*)expression, &constant)) {
+                rcc_error(expression->loc,
+                          "dependent C++ type trait was not resolved before code generation");
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (!lower_type(expression->type, &type) ||
+                type.kind != RCC_IR_TYPE_INTEGER) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            return lower_integer_constant(context, type,
+                                          expression->type->is_unsigned,
+                                          (uint64_t)constant);
         case EXPR_NOEXCEPT:
             if (!expression->cxx_noexcept_value_valid ||
                 !lower_type(expression->type, &type) ||

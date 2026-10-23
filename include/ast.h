@@ -500,11 +500,27 @@ typedef enum {
     EXPR_GENERIC,       /* _Generic(control, type: expression, ...) */
     EXPR_CXX_FOLD,      /* C++ unary fold over a type function-parameter pack */
     EXPR_CXX_REQUIRES,  /* bounded C++20 requires-expression */
+    EXPR_CXX_TYPE_TRAIT, /* C++ type trait with deferred dependent operands */
     EXPR_VA_START,      /* __builtin_va_start(list, last) */
     EXPR_VA_END,        /* __builtin_va_end(list) */
     EXPR_VA_COPY,       /* __builtin_va_copy(destination, source) */
     EXPR_VA_ARG,        /* __builtin_va_arg(list, type) */
 } ExprKind;
+
+typedef enum {
+    CXX_TYPE_TRAIT_TRIVIALLY_COPYABLE,
+    CXX_TYPE_TRAIT_TRIVIALLY_DESTRUCTIBLE,
+    CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR,
+    CXX_TYPE_TRAIT_AGGREGATE,
+    CXX_TYPE_TRAIT_BASE_OF,
+    CXX_TYPE_TRAIT_ENUM,
+    CXX_TYPE_TRAIT_CLASS,
+    CXX_TYPE_TRAIT_UNION,
+    CXX_TYPE_TRAIT_FINAL,
+    CXX_TYPE_TRAIT_ABSTRACT,
+    CXX_TYPE_TRAIT_POLYMORPHIC,
+    CXX_TYPE_TRAIT_EMPTY,
+} CxxTypeTraitKind;
 
 typedef enum {
     CXX_CAST_NONE,
@@ -904,6 +920,13 @@ struct Expr {
             TypeList* cxx_requires_types;
             ExprList* cxx_requires_nested;
             CxxCompoundRequirement* cxx_requires_compound;
+        };
+
+        /* EXPR_CXX_TYPE_TRAIT */
+        struct {
+            CxxTypeTraitKind cxx_type_trait_kind;
+            Type* cxx_type_trait_type;
+            Type* cxx_type_trait_other_type;
         };
 
         /* EXPR_VA_START/END/COPY/ARG */

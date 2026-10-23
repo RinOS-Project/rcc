@@ -7968,6 +7968,13 @@ static int template_parameter_pack_index_expression(CxxTemplate* tmpl,
         }
     }
     switch (expression->kind) {
+        case EXPR_CXX_TYPE_TRAIT:
+            result = template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_nested(
+                            tmpl, expression->cxx_type_trait_type));
+            return template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_nested(
+                            tmpl, expression->cxx_type_trait_other_type));
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -10071,6 +10078,13 @@ static bool template_expr_contains_type_parameter(Expr* expression,
         return true;
     }
     switch (expression->kind) {
+        case EXPR_CXX_TYPE_TRAIT:
+            return template_type_contains_parameter_name(
+                       expression->cxx_type_trait_type, parameter_name,
+                       depth + 1) ||
+                   template_type_contains_parameter_name(
+                       expression->cxx_type_trait_other_type, parameter_name,
+                       depth + 1);
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -12089,6 +12103,21 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
     copy->cxx_move_assignment = NULL;
     copy->cxx_close_call = NULL;
     switch (expression->kind) {
+        case EXPR_CXX_TYPE_TRAIT: {
+            int64_t trait_value;
+            copy->cxx_type_trait_type = template_substitute_type(
+                tmpl, expression->cxx_type_trait_type, args, arg_count,
+                value_args, value_present);
+            copy->cxx_type_trait_other_type = template_substitute_type(
+                tmpl, expression->cxx_type_trait_other_type, args, arg_count,
+                value_args, value_present);
+            if (expr_eval_integer_constant(copy, &trait_value)) {
+                Expr* folded = expr_int(trait_value, expression->loc);
+                folded->type = copy->type;
+                return folded;
+            }
+            break;
+        }
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:

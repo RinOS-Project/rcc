@@ -20,6 +20,11 @@ static bool check(TokenType type);
 static bool parser_parenthesized_pointer_is_function(void);
 static bool parser_parenthesized_declarator_starts_member_pointer(void);
 static bool parser_type_is_variably_modified(Type* type);
+static bool parser_cxx_type_trait_kind(const char* name,
+                                      CxxTypeTraitKind* kind);
+static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
+                                        Type* other_type, bool* value);
+static bool parser_type_is_dependent(Type* type);
 
 bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void) {
     return parser_parenthesized_declarator_starts_member_pointer();
@@ -925,6 +930,18 @@ static bool eval_integer_constant_typed(Expr* expr,
             value->bits = expr_char_code_unit(expr);
             value->type = expr->type ? expr->type : type_int;
             return true;
+        case EXPR_CXX_TYPE_TRAIT: {
+            bool trait_value;
+            if (!parser_cxx_type_trait_value(
+                    expr->cxx_type_trait_kind,
+                    expr->cxx_type_trait_type,
+                    expr->cxx_type_trait_other_type, &trait_value)) {
+                return false;
+            }
+            value->bits = trait_value ? 1u : 0u;
+            value->type = expr->type ? expr->type : type_bool;
+            return true;
+        }
         case EXPR_NEG:
         case EXPR_BITNOT:
             if (!eval_integer_constant_typed(expr->unary_operand, &left)) {
@@ -1624,6 +1641,7 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
     const char* name = advance()->value.str_val;
     Type* type = NULL;
     Type* other_type = NULL;
+    CxxTypeTraitKind kind;
     bool value = false;
 
     expect(TOK_LPAREN, "(");
@@ -1644,39 +1662,200 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
     }
     expect(TOK_RPAREN, ")");
 
-    if (type && strcmp(name, "__is_trivially_copyable") == 0) {
-        value = rcc_sema_cxx_trivially_copyable(type);
-    } else if (type && strcmp(name, "__is_trivially_destructible") == 0) {
-        value = rcc_sema_cxx_trivially_destructible(type);
-    } else if (type && strcmp(name, "__has_virtual_destructor") == 0) {
-        value = cxx_class_has_virtual_destructor(type->cxx_class);
-    } else if (type && strcmp(name, "__is_aggregate") == 0) {
-        value = type->kind == TYPE_ARRAY ? type->array_len >= 0
-                                         : ast_cxx_is_aggregate(type);
-    } else if (type && other_type && strcmp(name, "__is_base_of") == 0) {
-        value = type->kind == TYPE_STRUCT &&
-                other_type->kind == TYPE_STRUCT && type->cxx_class &&
-                other_type->cxx_class &&
-                cxx_class_is_same_or_derived_from(other_type->cxx_class,
-                                                  type->cxx_class);
-    } else if (type && strcmp(name, "__is_enum") == 0) {
-        value = type->kind == TYPE_ENUM;
-    } else if (type && strcmp(name, "__is_class") == 0) {
-        value = type->kind == TYPE_STRUCT;
-    } else if (type && strcmp(name, "__is_union") == 0) {
-        value = type->kind == TYPE_UNION;
-    } else if (type && strcmp(name, "__is_final") == 0) {
-        value = cxx_class_is_final(type->cxx_class);
-    } else if (type && strcmp(name, "__is_abstract") == 0) {
-        value = cxx_class_is_abstract(type->cxx_class);
-    } else if (type && strcmp(name, "__is_polymorphic") == 0) {
-        value = cxx_class_is_polymorphic(type->cxx_class);
-    } else if (type && strcmp(name, "__is_empty") == 0) {
-        value = cxx_class_is_empty(type->cxx_class);
+    if (!type || !parser_cxx_type_trait_kind(name, &kind)) {
+        Expr* result = expr_int(0, loc);
+        result->type = type_bool;
+        return result;
     }
+
+    if (parser_type_is_dependent(type) ||
+        parser_type_is_dependent(other_type)) {
+        Expr* result = expr_int(0, loc);
+        result->kind = EXPR_CXX_TYPE_TRAIT;
+        result->cxx_type_trait_kind = kind;
+        result->cxx_type_trait_type = type;
+        result->cxx_type_trait_other_type = other_type;
+        result->type = type_bool;
+        return result;
+    }
+
+    (void)parser_cxx_type_trait_value(kind, type, other_type, &value);
     Expr* result = expr_int(value ? 1 : 0, loc);
     result->type = type_bool;
     return result;
+}
+
+static bool parser_cxx_type_trait_kind(const char* name,
+                                      CxxTypeTraitKind* kind) {
+    if (!name || !kind) return false;
+    if (strcmp(name, "__is_trivially_copyable") == 0) {
+        *kind = CXX_TYPE_TRAIT_TRIVIALLY_COPYABLE;
+    } else if (strcmp(name, "__is_trivially_destructible") == 0) {
+        *kind = CXX_TYPE_TRAIT_TRIVIALLY_DESTRUCTIBLE;
+    } else if (strcmp(name, "__has_virtual_destructor") == 0) {
+        *kind = CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR;
+    } else if (strcmp(name, "__is_aggregate") == 0) {
+        *kind = CXX_TYPE_TRAIT_AGGREGATE;
+    } else if (strcmp(name, "__is_base_of") == 0) {
+        *kind = CXX_TYPE_TRAIT_BASE_OF;
+    } else if (strcmp(name, "__is_enum") == 0) {
+        *kind = CXX_TYPE_TRAIT_ENUM;
+    } else if (strcmp(name, "__is_class") == 0) {
+        *kind = CXX_TYPE_TRAIT_CLASS;
+    } else if (strcmp(name, "__is_union") == 0) {
+        *kind = CXX_TYPE_TRAIT_UNION;
+    } else if (strcmp(name, "__is_final") == 0) {
+        *kind = CXX_TYPE_TRAIT_FINAL;
+    } else if (strcmp(name, "__is_abstract") == 0) {
+        *kind = CXX_TYPE_TRAIT_ABSTRACT;
+    } else if (strcmp(name, "__is_polymorphic") == 0) {
+        *kind = CXX_TYPE_TRAIT_POLYMORPHIC;
+    } else if (strcmp(name, "__is_empty") == 0) {
+        *kind = CXX_TYPE_TRAIT_EMPTY;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+static void parser_type_dependency_push(Type*** pending, size_t* count,
+                                        size_t* capacity, Type* type) {
+    size_t next_capacity;
+    if (!type) return;
+    if (*count == *capacity) {
+        next_capacity = *capacity ? *capacity * 2u : 8u;
+        if (next_capacity < *capacity ||
+            next_capacity > SIZE_MAX / sizeof(**pending)) {
+            rcc_fatal("dependent type graph is too large");
+        }
+        *pending = ast_arena_grow(
+            *pending, *capacity * sizeof(**pending),
+            next_capacity * sizeof(**pending));
+        *capacity = next_capacity;
+    }
+    (*pending)[(*count)++] = type;
+}
+
+static bool parser_type_is_dependent(Type* type) {
+    Type** pending = NULL;
+    size_t count = 0;
+    size_t capacity = 0;
+    size_t head = 0;
+    parser_type_dependency_push(&pending, &count, &capacity, type);
+    while (head < count) {
+        Type* current = pending[head++];
+        bool visited = false;
+        for (size_t index = 0; index + 1u < head; ++index) {
+            if (pending[index] == current) {
+                visited = true;
+                break;
+            }
+        }
+        if (visited) continue;
+        if (current->cxx_dependent) return true;
+        switch (current->kind) {
+            case TYPE_PTR:
+            case TYPE_ARRAY:
+            case TYPE_VECTOR:
+                parser_type_dependency_push(
+                    &pending, &count, &capacity, current->base);
+                if (current->cxx_is_member_pointer) {
+                    parser_type_dependency_push(
+                        &pending, &count, &capacity,
+                        current->cxx_member_pointer_owner);
+                }
+                break;
+            case TYPE_FUNC:
+                parser_type_dependency_push(
+                    &pending, &count, &capacity, current->ret_type);
+                for (TypeParam* parameter = current->params; parameter;
+                     parameter = parameter->next) {
+                    parser_type_dependency_push(
+                        &pending, &count, &capacity, parameter->type);
+                }
+                break;
+            case TYPE_ENUM:
+                if (current->enum_has_fixed_underlying) {
+                    parser_type_dependency_push(
+                        &pending, &count, &capacity,
+                        current->enum_underlying_type);
+                }
+                break;
+            default:
+                break;
+        }
+        if (current->cxx_dependent_alias_template) {
+            parser_type_dependency_push(
+                &pending, &count, &capacity,
+                current->cxx_dependent_alias_owner);
+        }
+        if (current->cxx_dependent_class_template_owner) {
+            parser_type_dependency_push(
+                &pending, &count, &capacity,
+                current->cxx_dependent_class_template_owner);
+        }
+        if (current->cxx_template && current->cxx_template_arg_count > 0) {
+            for (int index = 0; index < current->cxx_template_arg_count;
+                 ++index) {
+                parser_type_dependency_push(
+                    &pending, &count, &capacity,
+                    current->cxx_template_args[index]);
+            }
+        }
+    }
+    return false;
+}
+
+static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
+                                        Type* other_type, bool* value) {
+    if (!type || !value || parser_type_is_dependent(type) ||
+        parser_type_is_dependent(other_type)) {
+        return false;
+    }
+    switch (kind) {
+        case CXX_TYPE_TRAIT_TRIVIALLY_COPYABLE:
+            *value = rcc_sema_cxx_trivially_copyable(type);
+            break;
+        case CXX_TYPE_TRAIT_TRIVIALLY_DESTRUCTIBLE:
+            *value = rcc_sema_cxx_trivially_destructible(type);
+            break;
+        case CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR:
+            *value = cxx_class_has_virtual_destructor(type->cxx_class);
+            break;
+        case CXX_TYPE_TRAIT_AGGREGATE:
+            *value = type->kind == TYPE_ARRAY ? type->array_len >= 0
+                                              : ast_cxx_is_aggregate(type);
+            break;
+        case CXX_TYPE_TRAIT_BASE_OF:
+            *value = other_type && type->kind == TYPE_STRUCT &&
+                     other_type->kind == TYPE_STRUCT && type->cxx_class &&
+                     other_type->cxx_class &&
+                     cxx_class_is_same_or_derived_from(
+                         other_type->cxx_class, type->cxx_class);
+            break;
+        case CXX_TYPE_TRAIT_ENUM:
+            *value = type->kind == TYPE_ENUM;
+            break;
+        case CXX_TYPE_TRAIT_CLASS:
+            *value = type->kind == TYPE_STRUCT;
+            break;
+        case CXX_TYPE_TRAIT_UNION:
+            *value = type->kind == TYPE_UNION;
+            break;
+        case CXX_TYPE_TRAIT_FINAL:
+            *value = cxx_class_is_final(type->cxx_class);
+            break;
+        case CXX_TYPE_TRAIT_ABSTRACT:
+            *value = cxx_class_is_abstract(type->cxx_class);
+            break;
+        case CXX_TYPE_TRAIT_POLYMORPHIC:
+            *value = cxx_class_is_polymorphic(type->cxx_class);
+            break;
+        case CXX_TYPE_TRAIT_EMPTY:
+            *value = cxx_class_is_empty(type->cxx_class);
+            break;
+    }
+    return true;
 }
 
 static bool parser_builtin_name(const char* name) {

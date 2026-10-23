@@ -215,6 +215,60 @@ struct BaseOfRight : BaseOfRoot {
 struct BaseOfAmbiguousDerived : BaseOfLeft, BaseOfRight {
 };
 
+template<typename T>
+struct DeferredTraitResults {
+#ifdef __RCC__
+    static constexpr bool class_type = __is_class(T);
+    static constexpr bool copyable = __is_trivially_copyable(T);
+    static constexpr bool destructible = __is_trivially_destructible(T);
+    static constexpr bool virtual_destructor = __has_virtual_destructor(T);
+    static constexpr bool aggregate = __is_aggregate(T);
+    static constexpr bool enum_type = __is_enum(T);
+    static constexpr bool union_type = __is_union(T);
+    static constexpr bool final_type = __is_final(T);
+    static constexpr bool abstract_type = __is_abstract(T);
+    static constexpr bool empty = __is_empty(T);
+    static constexpr bool polymorphic = __is_polymorphic(T);
+#else
+    static constexpr bool class_type = std::is_class_v<T>;
+    static constexpr bool copyable = std::is_trivially_copyable_v<T>;
+    static constexpr bool destructible = std::is_trivially_destructible_v<T>;
+    static constexpr bool virtual_destructor = std::has_virtual_destructor_v<T>;
+    static constexpr bool aggregate = std::is_aggregate_v<T>;
+    static constexpr bool enum_type = std::is_enum_v<T>;
+    static constexpr bool union_type = std::is_union_v<T>;
+    static constexpr bool final_type = std::is_final_v<T>;
+    static constexpr bool abstract_type = std::is_abstract_v<T>;
+    static constexpr bool empty = std::is_empty_v<T>;
+    static constexpr bool polymorphic = std::is_polymorphic_v<T>;
+#endif
+};
+
+template<typename Base, typename Derived>
+struct DeferredBaseTraitResult {
+#ifdef __RCC__
+    static constexpr bool value = __is_base_of(Base, Derived);
+#else
+    static constexpr bool value = std::is_base_of_v<Base, Derived>;
+#endif
+};
+
+#ifdef __RCC__
+template<typename T>
+requires __is_class(T)
+int deferred_trait_constraint(T*);
+
+template<typename T>
+long deferred_trait_constraint(T*);
+#else
+template<typename T>
+requires std::is_class_v<T>
+int deferred_trait_constraint(T*);
+
+template<typename T>
+long deferred_trait_constraint(T*);
+#endif
+
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
 static_assert(__is_trivially_copyable(int*), "object pointers are trivially copyable");
 static_assert(__is_trivially_copyable(int[3]), "bounded arrays are trivially copyable");
@@ -264,6 +318,31 @@ static_assert(!__is_empty(DerivedNonEmptyTypeCategory), "nonempty bases make a d
 static_assert(!__is_empty(EmptyMemberTypeCategory), "empty data members still make a class nonempty");
 static_assert(!__is_empty(TriviallyCopyableUnion), "unions are not empty classes");
 static_assert(!__is_empty(EmptyTypeCategory*), "pointers to empty classes are not empty classes");
+
+static_assert(DeferredTraitResults<TypeCategoryClass>::class_type, "dependent class traits are resolved after specialization");
+static_assert(!DeferredTraitResults<int>::class_type, "dependent class traits retain false results after specialization");
+static_assert(DeferredTraitResults<TriviallyCopyable>::copyable, "dependent copyability traits are resolved after specialization");
+static_assert(!DeferredTraitResults<NonTriviallyCopyable>::copyable, "dependent copyability traits preserve false results");
+static_assert(DeferredTraitResults<TriviallyDestructibleDefaulted>::destructible, "dependent destructor traits are resolved after specialization");
+static_assert(!DeferredTraitResults<NontriviallyDestructibleUserProvided>::destructible, "dependent destructor traits preserve false results");
+static_assert(DeferredTraitResults<VirtualDestructor>::virtual_destructor, "dependent virtual-destructor traits are resolved after specialization");
+static_assert(!DeferredTraitResults<VirtualMethodOnly>::virtual_destructor, "dependent virtual-method traits distinguish virtual destructors");
+static_assert(DeferredTraitResults<AggregateWithDefaultMemberInitializer>::aggregate, "dependent aggregate traits are resolved after specialization");
+static_assert(DeferredTraitResults<TypeCategoryEnum>::enum_type, "dependent enum traits are resolved after specialization");
+static_assert(!DeferredTraitResults<TypeCategoryClass>::enum_type, "dependent enum traits preserve false results");
+static_assert(DeferredTraitResults<TriviallyCopyableUnion>::union_type, "dependent union traits are resolved after specialization");
+static_assert(DeferredTraitResults<TypeCategoryFinalClass>::final_type, "dependent final traits are resolved after specialization");
+static_assert(!DeferredTraitResults<TypeCategoryClass>::final_type, "dependent final traits preserve false results");
+static_assert(DeferredTraitResults<TypeCategoryAbstractClass>::abstract_type, "dependent abstract traits are resolved after specialization");
+static_assert(!DeferredTraitResults<TypeCategoryConcreteDerived>::abstract_type, "dependent abstract traits reevaluate overridden virtual functions");
+static_assert(DeferredTraitResults<EmptyTypeCategory>::empty, "dependent emptiness traits are resolved after specialization");
+static_assert(DeferredTraitResults<TypeCategoryAbstractClass>::polymorphic, "dependent polymorphism traits are resolved after specialization");
+static_assert(!DeferredTraitResults<TypeCategoryClass*>::class_type, "dependent traits traverse pointer type operands");
+static_assert(DeferredTraitResults<TypeCategoryClass*>::copyable, "dependent pointer traits are evaluated after substitution");
+static_assert(DeferredBaseTraitResult<BaseOfRoot, BaseOfPrivateDerived>::value, "dependent base-of traits are resolved after specialization");
+static_assert(!DeferredBaseTraitResult<BaseOfPrivateDerived, BaseOfRoot>::value, "dependent base-of traits preserve operand order");
+static_assert(sizeof(deferred_trait_constraint(static_cast<TypeCategoryClass*>(nullptr))) == sizeof(int), "dependent type traits participate in constrained overload resolution");
+static_assert(sizeof(deferred_trait_constraint(static_cast<int*>(nullptr))) == sizeof(long), "false dependent traits remove constrained overloads");
 
 #ifdef __RCC__
 static_assert(__is_trivially_destructible(int), "scalar types are trivially destructible");
