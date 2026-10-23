@@ -8945,3 +8945,17 @@ remains a separate open item.
       compile-fail regressions check the copy/move object-type diagnostic.
 - [ ] General copy/move constructibility and assignability constraints,
       complete type-trait support, and C++20 wait/notify operations remain open.
+
+## RCC continuation (2026-10-23, atomic deleted special-member constraints)
+
+- [x] Preserve the standard trivially-copyable classification for classes
+      whose copy/move special member is deleted, while rejecting
+      `std::atomic<T>` when a copy/move constructor or assignment is explicitly
+      deleted. The dual-architecture invalid fixture covers deleted copy and
+      move construction and assignment with type-specific diagnostics. The
+      host GCC C++20 oracle confirms all four corresponding type traits are
+      false; `test-atomic-builtins` passes i686/AMD64 generation at `-O0` and
+      `-O2`, AMD64 runtime at both levels, and valid GCC C++20 syntax checks.
+- [ ] Propagating constructibility/assignability through bases and fields,
+      access/overload viability, complete type-trait support, and C++20
+      `atomic::wait`/`notify` remain open.

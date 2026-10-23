@@ -17351,6 +17351,58 @@ static const char* cxx_standard_atomic_template_name(CxxTemplate* tmpl) {
     return NULL;
 }
 
+static bool cxx_atomic_parameter_is_same_type_reference(Type* parameter_type,
+                                                        Type* value_type) {
+    return parameter_type && parameter_type->kind == TYPE_PTR &&
+           parameter_type->is_reference && parameter_type->base &&
+           type_is_compatible(parameter_type->base, value_type);
+}
+
+/* GCC's std::atomic primary template checks copy/move construction and
+ * assignment in addition to trivial copyability.  Deleted special members
+ * can leave a type trivially copyable while making one of those operations
+ * unavailable; inspect the explicit declarations retained by the C++ AST
+ * before instantiating atomic's members.  Implicit/member-subobject trait
+ * propagation is intentionally kept separate as a broader trait task. */
+static bool cxx_atomic_has_deleted_copy_move_special_member(Type* value_type) {
+    CxxClass* cls = value_type ? value_type->cxx_class : NULL;
+    if (!cls) return false;
+
+    for (CxxConstructorInfo* constructor = cls->constructors; constructor;
+         constructor = constructor->next) {
+        TypeParam* parameter = constructor->parameters;
+        if (!constructor->is_deleted || constructor->parameter_count != 1 ||
+            !parameter || parameter->next ||
+            !cxx_atomic_parameter_is_same_type_reference(parameter->type,
+                                                        value_type)) {
+            continue;
+        }
+        return true;
+    }
+
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        TypeParam* parameter;
+        if (!method || !method->is_deleted || !method->decl ||
+            !method->decl->type) {
+            continue;
+        }
+        parameter = method->decl->type->params;
+        if (!parameter || parameter->next ||
+            !cxx_atomic_parameter_is_same_type_reference(parameter->type,
+                                                        value_type)) {
+            continue;
+        }
+        if (method->is_constructor ||
+            (method->source_name &&
+             strcmp(method->source_name, "operator=") == 0)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static Type* instantiate_class_template_for_owner(
     CxxTemplate* tmpl, Type** arguments, const int64_t* value_args,
     const bool* value_present, int argument_count, CxxClass* owner_class,
@@ -17396,6 +17448,17 @@ static Type* instantiate_class_template_for_owner(
                 rcc_error(loc,
                           "std::atomic requires copy/move constructible and "
                           "assignable object type");
+                return type_struct(tmpl->name);
+            }
+            if (strcmp(atomic_template, "atomic") == 0 &&
+                cxx_atomic_has_deleted_copy_move_special_member(
+                    arguments[0])) {
+                CxxClass* value_class = arguments[0]->cxx_class;
+                rcc_error(loc,
+                          "std::atomic requires copy/move constructible and "
+                          "assignable type '%s'",
+                          value_class && value_class->name
+                              ? value_class->name : "<unknown>");
                 return type_struct(tmpl->name);
             }
             if (!rcc_sema_cxx_trivially_copyable(arguments[0])) {

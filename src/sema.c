@@ -10439,10 +10439,11 @@ static bool sema_cxx_trivially_destructible(Type* type, int depth) {
     return true;
 }
 
-/* A bytewise copy is valid for a trivially copyable aggregate.  An ordinary
+/* A bytewise copy is valid for a trivially copyable aggregate. An ordinary
  * user constructor does not make the implicit copy constructor non-trivial;
- * only an explicitly declared copy/move constructor, a virtual layout, or a
- * user-defined destructor changes the copy semantics represented here. */
+ * only an eligible, non-deleted, non-defaulted copy/move constructor, a
+ * virtual layout, or a user-defined destructor changes the copy semantics
+ * represented here. A deleted special member is not eligible. */
 static bool sema_cxx_has_user_copy_constructor(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     if (!cls) return false;
@@ -10455,7 +10456,7 @@ static bool sema_cxx_has_user_copy_constructor(Type* type) {
             parameter_type->kind == TYPE_PTR && parameter_type->is_reference &&
             parameter_type->base && type_is_compatible(parameter_type->base,
                                                         type) &&
-            !constructor->is_defaulted) {
+            !constructor->is_defaulted && !constructor->is_deleted) {
             return true;
         }
     }
