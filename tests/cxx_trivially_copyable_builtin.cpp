@@ -13,6 +13,10 @@ struct NonTriviallyCopyable {
     int value;
 };
 
+struct TriviallyCopyableReferenceMember {
+    int& value;
+};
+
 struct VirtualType {
     virtual void run();
 };
@@ -28,6 +32,7 @@ static_assert(__is_trivially_copyable(int[3]), "bounded arrays are trivially cop
 static_assert(__is_trivially_copyable(const TriviallyCopyable), "cv-qualified objects retain the property");
 static_assert(__is_trivially_copyable(HasUserDefaultConstructor), "ordinary constructors do not affect trivial copying");
 static_assert(__is_trivially_copyable(TriviallyCopyableUnion), "trivial unions are trivially copyable");
+static_assert(__is_trivially_copyable(TriviallyCopyableReferenceMember), "reference members do not make copy construction nontrivial");
 static_assert(!__is_trivially_copyable(NonTriviallyCopyable), "user copy constructors are nontrivial");
 static_assert(!__is_trivially_copyable(VirtualType), "polymorphic classes are not trivially copyable");
 static_assert(!__is_trivially_copyable(void), "void is not an object type");

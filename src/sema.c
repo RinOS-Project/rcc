@@ -10520,6 +10520,14 @@ static bool sema_cxx_trivially_copyable(Type* type, int depth) {
         }
     }
     for (TypeField* field = type->fields; field; field = field->next) {
+        /* Reference members are not subobjects with their own copy operation.
+         * The containing class can still have trivial copy construction even
+         * though it is not copy-assignable; classify the referenced type only
+         * when the reference itself is the queried type. */
+        if (field->type && field->type->kind == TYPE_PTR &&
+            field->type->is_reference) {
+            continue;
+        }
         if (!sema_cxx_trivially_copyable(field->type, depth + 1)) {
             return false;
         }
