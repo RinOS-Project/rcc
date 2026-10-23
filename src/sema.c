@@ -10764,6 +10764,64 @@ bool rcc_sema_cxx_trivial(Type* type) {
     return sema_cxx_trivial(type, 0u);
 }
 
+static bool sema_cxx_has_trivial_constructor(Type* type, unsigned depth) {
+    CxxClass* cls;
+    if (!type || depth > 32u || type->kind == TYPE_VOID ||
+        type->kind == TYPE_FUNC ||
+        (type->kind == TYPE_PTR && type->is_reference)) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->base &&
+               sema_cxx_has_trivial_constructor(type->base, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (!type_is_complete(type)) return false;
+    cls = type->cxx_class;
+    if (cls) {
+        if (cls->has_field_initializer || cls->vtable_size > 0 ||
+            cls->virtual_base_count > 0 ||
+            !sema_cxx_type_has_trivial_default_constructor(cls)) {
+            return false;
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (cls->bases[index].is_virtual || !base || !base->type ||
+                !sema_cxx_has_trivial_constructor(base->type,
+                                                   depth + 1u)) {
+                return false;
+            }
+        }
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            if (field->is_static ||
+                (field->type && field->type->kind == TYPE_PTR &&
+                 field->type->is_reference)) {
+                continue;
+            }
+            if (!field->type ||
+                !sema_cxx_has_trivial_constructor(field->type, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (field->type && field->type->kind == TYPE_PTR &&
+            field->type->is_reference) {
+            continue;
+        }
+        if (!field->type ||
+            !sema_cxx_has_trivial_constructor(field->type, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool rcc_sema_cxx_has_trivial_constructor(Type* type) {
+    return sema_cxx_has_trivial_constructor(type, 0u);
+}
+
 typedef struct {
     CxxClass** items;
     size_t count;

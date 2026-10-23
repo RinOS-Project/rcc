@@ -9123,3 +9123,14 @@ remains a separate open item.
       results to GCC's builtin.
 - [ ] Remaining GNU special-member and C++ constructibility/assignability
       intrinsics and direct compilation of `libcxx/type_traits.h` remain open.
+
+## RCC continuation (2026-10-23, GNU `__has_trivial_constructor` builtin)
+
+- [x] Implement the GNU legacy trivial-constructor query independently of
+      whether default construction is accessible or deleted. Recursively check
+      arrays, bases, and non-static data members, while preserving GCC's
+      behavior for reference members and deleted member constructors. Preserve
+      dependent operands, advertise the builtin through `__has_builtin`, and
+      compare RCC's i686/AMD64 results against GCC C++20.
+- [ ] Remaining GNU special-member and C++ constructibility/assignability
+      intrinsics and direct compilation of `libcxx/type_traits.h` remain open.

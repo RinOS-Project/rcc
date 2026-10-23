@@ -318,6 +318,8 @@ struct DeferredTraitResults {
     static constexpr bool destructible = __is_trivially_destructible(T);
     static constexpr bool has_trivial_destructor =
         __has_trivial_destructor(T);
+    static constexpr bool has_trivial_constructor =
+        __has_trivial_constructor(T);
     static constexpr bool virtual_destructor = __has_virtual_destructor(T);
     static constexpr bool aggregate = __is_aggregate(T);
     static constexpr bool enum_type = __is_enum(T);
@@ -335,6 +337,8 @@ struct DeferredTraitResults {
     static constexpr bool destructible = std::is_trivially_destructible_v<T>;
     static constexpr bool has_trivial_destructor =
         __has_trivial_destructor(T);
+    static constexpr bool has_trivial_constructor =
+        __has_trivial_constructor(T);
     static constexpr bool virtual_destructor = std::has_virtual_destructor_v<T>;
     static constexpr bool aggregate = std::is_aggregate_v<T>;
     static constexpr bool enum_type = std::is_enum_v<T>;
@@ -512,6 +516,16 @@ static_assert(DeferredTraitResults<HasInaccessibleMemberDestructor>::has_trivial
 static_assert(!DeferredTraitResults<HasNontrivialBaseDestructor>::has_trivial_destructor, "nontrivial base destructors propagate");
 static_assert(DeferredTraitResults<HasProtectedBaseDestructor>::has_trivial_destructor, "a protected trivial base destructor remains trivial");
 static_assert(!DeferredTraitResults<VirtualDestructor>::has_trivial_destructor, "virtual destructors are nontrivial");
+static_assert(DeferredTraitResults<int>::has_trivial_constructor, "scalar types have trivial default construction");
+static_assert(DeferredTraitResults<int[3]>::has_trivial_constructor, "array default-constructor properties propagate");
+static_assert(!DeferredTraitResults<int&>::has_trivial_constructor, "reference types have no trivial constructor");
+static_assert(DeferredTraitResults<DeletedDefaultConstructor>::has_trivial_constructor, "a deleted default constructor retains its triviality property");
+static_assert(DeferredTraitResults<HasDeletedDefaultConstructorMember>::has_trivial_constructor, "a deleted member default constructor does not erase the legacy triviality property");
+static_assert(DeferredTraitResults<NonStandardLayoutReferenceMember>::has_trivial_constructor, "a reference member may make the default constructor deleted without making it nontrivial");
+static_assert(!DeferredTraitResults<NoDefaultConstructor>::has_trivial_constructor, "a class without a default constructor does not have a trivial one");
+static_assert(!DeferredTraitResults<HasUserDefaultConstructor>::has_trivial_constructor, "a user-provided default constructor is nontrivial");
+static_assert(!DeferredTraitResults<AggregateWithDefaultMemberInitializer>::has_trivial_constructor, "default member initializers make the default constructor nontrivial");
+static_assert(!DeferredTraitResults<VirtualType>::has_trivial_constructor, "virtual classes do not have a trivial default constructor");
 static_assert(DeferredTraitResults<VirtualDestructor>::virtual_destructor, "dependent virtual-destructor traits are resolved after specialization");
 static_assert(!DeferredTraitResults<VirtualMethodOnly>::virtual_destructor, "dependent virtual-method traits distinguish virtual destructors");
 static_assert(DeferredTraitResults<AggregateWithDefaultMemberInitializer>::aggregate, "dependent aggregate traits are resolved after specialization");
