@@ -748,6 +748,13 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     AtomicBraceDefaultMemberUnion brace_union_default_value =
         brace_union_default_atomic.load();
     if (brace_union_default_value.integer != 13u) return 160u;
+    AtomicDefaultMemberUnion direct_union_default;
+    if (direct_union_default.integer != 11u) return 161u;
+    AtomicBraceDefaultMemberUnion direct_brace_union_default;
+    if (direct_brace_union_default.integer != 13u) return 162u;
+    AtomicDefaultMemberUnion explicitly_selected_union_member{
+        .floating = 2.5f};
+    if (explicitly_selected_union_member.floating != 2.5f) return 163u;
     AtomicRefWordAggregate atomic_word_initial{7u};
     std::atomic<AtomicRefWordAggregate> word_atomic{atomic_word_initial};
     AtomicRefWordAggregate atomic_word_value = word_atomic.load();

@@ -8994,9 +8994,12 @@ remains a separate open item.
 - [x] Support the validated C++20 union default-member-initializer subset in
       the shared aggregate parser and value-initialization path: one active
       member initialized with either `= expr` or braced syntax. Diagnose more
-      than one initialized union member. `test-atomic-builtins` covers both
-      target widths, both optimization levels, AMD64 runtime at `-O0`/`-O2`,
-      and the GCC C++20 syntax oracle; `test-cxx-inline-aggregates` passes.
+      than one initialized union member. Runtime checks cover direct
+      default-initialization and confirm an explicitly selected alternate
+      variant suppresses the default member initializer. `test-atomic-builtins`
+      covers both target widths, both optimization levels, AMD64 runtime at
+      `-O0`/`-O2`, dual-target invalid diagnostics, and the GCC C++20 syntax
+      oracle; `test-cxx-inline-aggregates` passes.
 - [ ] Remaining aggregate/union default-member-initializer corners, widths
       above eight bytes, broader implicit special-member viability, complete
       type traits, and C++20 wait/notify remain open. Union atomic operations
