@@ -811,70 +811,115 @@ public:
     }
 
     template<class U = T>
-    T fetch_add(T operand, memory_order order) const noexcept {
+    T fetch_add(T operand, memory_order order) const noexcept
+        requires requires(T* object, T value) {
+            __rcc_atomic_ref_fetch_add(object, value, memory_order_relaxed);
+        } {
         return __rcc_atomic_ref_fetch_add(&object_, operand, order);
     }
     template<class U = T>
-    T fetch_add(T operand) const noexcept {
+    T fetch_add(T operand) const noexcept
+        requires requires(T* object, T value) {
+            __rcc_atomic_ref_fetch_add(object, value, memory_order_relaxed);
+        } {
         return __rcc_atomic_ref_fetch_add(
             &object_, operand, memory_order_seq_cst);
     }
     template<class U = T>
-    T fetch_sub(T operand, memory_order order) const noexcept {
+    T fetch_sub(T operand, memory_order order) const noexcept
+        requires requires(T* object, T value) {
+            __rcc_atomic_ref_fetch_sub(object, value, memory_order_relaxed);
+        } {
         return __rcc_atomic_ref_fetch_sub(&object_, operand, order);
     }
     template<class U = T>
-    T fetch_sub(T operand) const noexcept {
+    T fetch_sub(T operand) const noexcept
+        requires requires(T* object, T value) {
+            __rcc_atomic_ref_fetch_sub(object, value, memory_order_relaxed);
+        } {
         return __rcc_atomic_ref_fetch_sub(
             &object_, operand, memory_order_seq_cst);
     }
     template<class U = T>
-    T fetch_and(T operand, memory_order order) const noexcept {
+    T fetch_and(T operand, memory_order order) const noexcept
+        requires requires(T* object, T value) {
+            __atomic_fetch_and(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_and(&object_, operand, order);
     }
     template<class U = T>
-    T fetch_and(T operand) const noexcept {
+    T fetch_and(T operand) const noexcept
+        requires requires(T* object, T value) {
+            __atomic_fetch_and(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_and(
             &object_, operand, memory_order_seq_cst);
     }
     template<class U = T>
-    T fetch_or(T operand, memory_order order) const noexcept {
+    T fetch_or(T operand, memory_order order) const noexcept
+        requires requires(T* object, T value) {
+            __atomic_fetch_or(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_or(&object_, operand, order);
     }
     template<class U = T>
-    T fetch_or(T operand) const noexcept {
+    T fetch_or(T operand) const noexcept
+        requires requires(T* object, T value) {
+            __atomic_fetch_or(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_or(&object_, operand, memory_order_seq_cst);
     }
     template<class U = T>
-    T fetch_xor(T operand, memory_order order) const noexcept {
+    T fetch_xor(T operand, memory_order order) const noexcept
+        requires requires(T* object, T value) {
+            __atomic_fetch_xor(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_xor(&object_, operand, order);
     }
     template<class U = T>
-    T fetch_xor(T operand) const noexcept {
+    T fetch_xor(T operand) const noexcept
+        requires requires(T* object, T value) {
+            __atomic_fetch_xor(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_xor(&object_, operand, memory_order_seq_cst);
     }
     template<class U = T>
-    T operator+=(T operand) const noexcept {
+    T operator+=(T operand) const noexcept
+        requires requires(T* object, T value) {
+            __rcc_atomic_ref_fetch_add(object, value, memory_order_relaxed);
+        } {
         return __rcc_atomic_ref_fetch_add(
                    &object_, operand, memory_order_seq_cst) + operand;
     }
     template<class U = T>
-    T operator-=(T operand) const noexcept {
+    T operator-=(T operand) const noexcept
+        requires requires(T* object, T value) {
+            __rcc_atomic_ref_fetch_sub(object, value, memory_order_relaxed);
+        } {
         return __rcc_atomic_ref_fetch_sub(
                    &object_, operand, memory_order_seq_cst) - operand;
     }
     template<class U = T>
-    T operator&=(T operand) const noexcept {
+    T operator&=(T operand) const noexcept
+        requires requires(T* object, T value) {
+            __atomic_fetch_and(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_and(
                    &object_, operand, memory_order_seq_cst) & operand;
     }
     template<class U = T>
-    T operator|=(T operand) const noexcept {
+    T operator|=(T operand) const noexcept
+        requires requires(T* object, T value) {
+            __atomic_fetch_or(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_or(
                    &object_, operand, memory_order_seq_cst) | operand;
     }
     template<class U = T>
-    T operator^=(T operand) const noexcept {
+    T operator^=(T operand) const noexcept
+        requires requires(T* object, T value) {
+            __atomic_fetch_xor(object, value, memory_order_relaxed);
+        } {
         return __atomic_fetch_xor(
                    &object_, operand, memory_order_seq_cst) ^ operand;
     }

@@ -8881,13 +8881,18 @@ remains a separate open item.
 - [x] Enforce the trivially-copyable type requirement when instantiating
       `std::atomic<T>` and `std::atomic_ref<T>`. Compile-fail regressions verify
       both diagnostics on i686 and AMD64.
+- [x] Constrain generic `atomic_ref<T>` arithmetic and bitwise fetch/compound
+      members with trailing requires-expressions over the existing supported
+      integer/floating helper overloads and integer atomic builtins. The
+      requirements reject aggregates and user-defined overloaded arithmetic or
+      bitwise operators, while retaining integer operations and float/double
+      add/sub. `test-atomic-builtins` passes i686/AMD64 generation at `-O0` and
+      `-O2`, AMD64 execution at both levels, and the GCC C++20 syntax oracle.
 - [ ] Remaining type/API constraints, broader `<atomic>` constructor/API
-      coverage, and C++20 wait/notify operations remain open. In particular,
-      atomic_ref arithmetic and bitwise member templates still need
-      type-category constraints; the frontend currently fails to resolve
-      dependent trait members in class member-template constraints/SFINAE.
-      Add positive and negative requires-expression regressions once that
-      frontend path is supported.
+      coverage, and C++20 wait/notify operations remain open. The remaining
+      general dependent type-trait evaluation in member constraints/SFINAE is
+      still unsupported; this `atomic_ref` subset uses direct helper/builtin
+      requirements instead.
 - [x] Support generic `atomic_ref<T>` load/store/exchange/compare-exchange for
       4-byte and 8-byte aggregates. The i686 8-byte path uses `CMPXCHG8B`; both
       target backends use their existing atomic-width lowering. Runtime checks

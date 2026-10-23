@@ -63,12 +63,122 @@ struct AtomicRefWordAggregate {
     unsigned value;
 };
 
+struct AtomicRefOverloadedArithmetic {
+    unsigned value;
+};
+
+AtomicRefOverloadedArithmetic operator+(
+    AtomicRefOverloadedArithmetic left,
+    AtomicRefOverloadedArithmetic right);
+
+struct AtomicRefOverloadedBitwise {
+    unsigned value;
+};
+
+AtomicRefOverloadedBitwise operator&(
+    AtomicRefOverloadedBitwise left,
+    AtomicRefOverloadedBitwise right);
+
+template<class T>
+concept AtomicRefHasFetchAdd = requires(std::atomic_ref<T> reference,
+                                        T operand) {
+    reference.fetch_add(operand);
+};
+
+template<class T>
+concept AtomicRefHasFetchAnd = requires(std::atomic_ref<T> reference,
+                                        T operand) {
+    reference.fetch_and(operand);
+};
+
+template<class T>
+concept AtomicRefHasFetchSub = requires(std::atomic_ref<T> reference,
+                                        T operand) {
+    reference.fetch_sub(operand);
+};
+
+template<class T>
+concept AtomicRefHasFetchOr = requires(std::atomic_ref<T> reference,
+                                       T operand) {
+    reference.fetch_or(operand);
+};
+
+template<class T>
+concept AtomicRefHasFetchXor = requires(std::atomic_ref<T> reference,
+                                        T operand) {
+    reference.fetch_xor(operand);
+};
+
+template<class T>
+concept AtomicRefHasAddAssign = requires(std::atomic_ref<T> reference,
+                                         T operand) {
+    reference += operand;
+};
+
+template<class T>
+concept AtomicRefHasAndAssign = requires(std::atomic_ref<T> reference,
+                                         T operand) {
+    reference &= operand;
+};
+
+template<class T>
+concept AtomicRefHasSubAssign = requires(std::atomic_ref<T> reference,
+                                         T operand) {
+    reference -= operand;
+};
+
+template<class T>
+concept AtomicRefHasOrAssign = requires(std::atomic_ref<T> reference,
+                                        T operand) {
+    reference |= operand;
+};
+
+template<class T>
+concept AtomicRefHasXorAssign = requires(std::atomic_ref<T> reference,
+                                         T operand) {
+    reference ^= operand;
+};
+
 struct AtomicRefNonTrivial {
     explicit AtomicRefNonTrivial(unsigned initial) : value(initial) {}
     AtomicRefNonTrivial(const AtomicRefNonTrivial& other)
         : value(other.value) {}
     unsigned value;
 };
+
+static_assert(AtomicRefHasFetchAdd<unsigned>);
+static_assert(AtomicRefHasFetchAdd<float>);
+static_assert(!AtomicRefHasFetchAdd<AtomicRefAggregate>);
+static_assert(!AtomicRefHasFetchAdd<AtomicRefOverloadedArithmetic>);
+static_assert(AtomicRefHasFetchSub<unsigned>);
+static_assert(AtomicRefHasFetchSub<float>);
+static_assert(!AtomicRefHasFetchSub<AtomicRefAggregate>);
+static_assert(AtomicRefHasFetchAnd<unsigned>);
+static_assert(!AtomicRefHasFetchAnd<float>);
+static_assert(!AtomicRefHasFetchAnd<AtomicRefAggregate>);
+static_assert(!AtomicRefHasFetchAnd<AtomicRefOverloadedBitwise>);
+static_assert(AtomicRefHasFetchOr<unsigned>);
+static_assert(!AtomicRefHasFetchOr<float>);
+static_assert(!AtomicRefHasFetchOr<AtomicRefAggregate>);
+static_assert(AtomicRefHasFetchXor<unsigned>);
+static_assert(!AtomicRefHasFetchXor<float>);
+static_assert(!AtomicRefHasFetchXor<AtomicRefAggregate>);
+static_assert(AtomicRefHasAddAssign<unsigned>);
+static_assert(AtomicRefHasAddAssign<float>);
+static_assert(!AtomicRefHasAddAssign<AtomicRefAggregate>);
+static_assert(!AtomicRefHasAddAssign<AtomicRefOverloadedArithmetic>);
+static_assert(AtomicRefHasSubAssign<unsigned>);
+static_assert(AtomicRefHasSubAssign<float>);
+static_assert(!AtomicRefHasSubAssign<AtomicRefAggregate>);
+static_assert(AtomicRefHasAndAssign<unsigned>);
+static_assert(!AtomicRefHasAndAssign<float>);
+static_assert(!AtomicRefHasAndAssign<AtomicRefOverloadedBitwise>);
+static_assert(AtomicRefHasOrAssign<unsigned>);
+static_assert(!AtomicRefHasOrAssign<float>);
+static_assert(!AtomicRefHasOrAssign<AtomicRefAggregate>);
+static_assert(AtomicRefHasXorAssign<unsigned>);
+static_assert(!AtomicRefHasXorAssign<float>);
+static_assert(!AtomicRefHasXorAssign<AtomicRefAggregate>);
 
 template<class T>
 T cxx_volatile_class_template_deduction(
