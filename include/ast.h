@@ -515,6 +515,7 @@ typedef enum {
     CXX_TYPE_TRAIT_TRIVIALLY_DESTRUCTIBLE,
     CXX_TYPE_TRAIT_HAS_TRIVIAL_DESTRUCTOR,
     CXX_TYPE_TRAIT_HAS_TRIVIAL_CONSTRUCTOR,
+    CXX_TYPE_TRAIT_TRIVIALLY_CONSTRUCTIBLE,
     CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR,
     CXX_TYPE_TRAIT_AGGREGATE,
     CXX_TYPE_TRAIT_BASE_OF,
@@ -581,6 +582,13 @@ typedef struct TypeList {
     SourceLoc loc;
     struct TypeList* next;
 } TypeList;
+
+typedef struct CxxTypeTraitArgument {
+    Type* type;
+    SourceLoc loc;
+    bool is_pack_expansion;
+    struct CxxTypeTraitArgument* next;
+} CxxTypeTraitArgument;
 
 struct CxxCompoundRequirement {
     Expr* expr;
@@ -932,6 +940,7 @@ struct Expr {
             CxxTypeTraitKind cxx_type_trait_kind;
             Type* cxx_type_trait_type;
             Type* cxx_type_trait_other_type;
+            CxxTypeTraitArgument* cxx_type_trait_arguments;
         };
 
         /* EXPR_VA_START/END/COPY/ARG */

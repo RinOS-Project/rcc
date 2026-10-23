@@ -7972,9 +7972,17 @@ static int template_parameter_pack_index_expression(CxxTemplate* tmpl,
             result = template_parameter_pack_index_merge(
                 result, template_parameter_pack_index_nested(
                             tmpl, expression->cxx_type_trait_type));
-            return template_parameter_pack_index_merge(
+            result = template_parameter_pack_index_merge(
                 result, template_parameter_pack_index_nested(
                             tmpl, expression->cxx_type_trait_other_type));
+            for (CxxTypeTraitArgument* argument =
+                     expression->cxx_type_trait_arguments;
+                 argument; argument = argument->next) {
+                result = template_parameter_pack_index_merge(
+                    result, template_parameter_pack_index_nested(
+                                tmpl, argument->type));
+            }
+            return result;
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -10079,12 +10087,23 @@ static bool template_expr_contains_type_parameter(Expr* expression,
     }
     switch (expression->kind) {
         case EXPR_CXX_TYPE_TRAIT:
-            return template_type_contains_parameter_name(
-                       expression->cxx_type_trait_type, parameter_name,
-                       depth + 1) ||
-                   template_type_contains_parameter_name(
-                       expression->cxx_type_trait_other_type, parameter_name,
-                       depth + 1);
+            if (template_type_contains_parameter_name(
+                    expression->cxx_type_trait_type, parameter_name,
+                    depth + 1) ||
+                template_type_contains_parameter_name(
+                    expression->cxx_type_trait_other_type, parameter_name,
+                    depth + 1)) {
+                return true;
+            }
+            for (CxxTypeTraitArgument* argument =
+                     expression->cxx_type_trait_arguments;
+                 argument; argument = argument->next) {
+                if (template_type_contains_parameter_name(
+                        argument->type, parameter_name, depth + 1)) {
+                    return true;
+                }
+            }
+            return false;
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -11524,6 +11543,94 @@ static Expr* template_clone_structural_pointer_value_expr(
     return copy;
 }
 
+static CxxTypeTraitArgument* template_clone_cxx_type_trait_arguments(
+    CxxTemplate* tmpl, CxxTypeTraitArgument* arguments, Type** args,
+    int arg_count, const int64_t* value_args, const bool* value_present) {
+    CxxTypeTraitArgument* result = NULL;
+    CxxTypeTraitArgument** tail = &result;
+    int expansion_count = -1;
+    for (CxxTypeTraitArgument* argument = arguments; argument;
+         argument = argument->next) {
+        int pack_index = argument->is_pack_expansion
+            ? template_parameter_pack_index_nested(tmpl, argument->type)
+            : -1;
+        int pack_length = argument->is_pack_expansion && pack_index >= 0
+            ? template_pending_pack_length(tmpl, pack_index) : -1;
+        int pack_offset = argument->is_pack_expansion && pack_index >= 0
+            ? template_pending_pack_offset(tmpl, pack_index) : 0;
+        int first_index = 0;
+        int end_index = 1;
+
+        if (argument->is_pack_expansion && pack_index == -2) {
+            rcc_error(argument->loc,
+                      "C++ type-trait pack expansion contains packs with different lengths");
+            continue;
+        }
+        if (argument->is_pack_expansion && pack_length < 0) {
+            CxxTypeTraitArgument* copy = ast_arena_alloc(sizeof(*copy));
+            copy->type = template_substitute_type(
+                tmpl, argument->type, args, arg_count, value_args,
+                value_present);
+            copy->loc = argument->loc;
+            copy->is_pack_expansion = true;
+            copy->next = NULL;
+            *tail = copy;
+            tail = &copy->next;
+            continue;
+        }
+        if (argument->is_pack_expansion) {
+            if (expansion_count >= 0 && expansion_count != pack_length) {
+                rcc_error(argument->loc,
+                          "C++ type-trait pack expansions have different lengths");
+                continue;
+            }
+            expansion_count = pack_length;
+            if (tmpl && tmpl->active_pack_expansion &&
+                tmpl->active_pack_expansion_count == pack_length) {
+                first_index = tmpl->active_pack_expansion_index;
+                end_index = first_index + 1;
+            } else {
+                first_index = 0;
+                end_index = pack_length;
+            }
+        }
+        for (int index = first_index; index < end_index; ++index) {
+            Type** expanded_args = NULL;
+            Type** substitution_args = args;
+            Type* substituted_type;
+            CxxTypeTraitArgument* copy;
+            if (argument->is_pack_expansion) {
+                if (!tmpl || !tmpl->pending_pack_args || index < 0 ||
+                    index >= pack_length || pack_offset < 0 ||
+                    pack_offset > INT_MAX - index || pack_index < 0 ||
+                    pack_index >= arg_count || !args) {
+                    rcc_error(argument->loc,
+                              "C++ type-trait pack expansion is missing its type argument");
+                    continue;
+                }
+                expanded_args = ast_arena_alloc(
+                    sizeof(*expanded_args) * (size_t)arg_count);
+                memcpy(expanded_args, args,
+                       sizeof(*expanded_args) * (size_t)arg_count);
+                expanded_args[pack_index] =
+                    tmpl->pending_pack_args[pack_offset + index];
+                substitution_args = expanded_args;
+            }
+            substituted_type = template_substitute_type(
+                tmpl, argument->type, substitution_args, arg_count,
+                value_args, value_present);
+            copy = ast_arena_alloc(sizeof(*copy));
+            copy->type = substituted_type;
+            copy->loc = argument->loc;
+            copy->is_pack_expansion = false;
+            copy->next = NULL;
+            *tail = copy;
+            tail = &copy->next;
+        }
+    }
+    return result;
+}
+
 static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  Type** args, int arg_count,
                                  const int64_t* value_args,
@@ -12111,6 +12218,10 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->cxx_type_trait_other_type = template_substitute_type(
                 tmpl, expression->cxx_type_trait_other_type, args, arg_count,
                 value_args, value_present);
+            copy->cxx_type_trait_arguments =
+                template_clone_cxx_type_trait_arguments(
+                    tmpl, expression->cxx_type_trait_arguments, args,
+                    arg_count, value_args, value_present);
             if (expr_eval_integer_constant(copy, &trait_value)) {
                 Expr* folded = expr_int(trait_value, expression->loc);
                 folded->type = copy->type;

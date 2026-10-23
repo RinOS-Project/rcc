@@ -155,6 +155,23 @@ struct NoDefaultConstructor {
     int value;
 };
 
+struct TrivialCopyAndMoveConstructors {
+    TrivialCopyAndMoveConstructors(
+        const TrivialCopyAndMoveConstructors&) = default;
+    TrivialCopyAndMoveConstructors(TrivialCopyAndMoveConstructors&&) = default;
+};
+
+struct TrivialMoveOnlyConstructor {
+    TrivialMoveOnlyConstructor(const TrivialMoveOnlyConstructor&) = delete;
+    TrivialMoveOnlyConstructor(TrivialMoveOnlyConstructor&&) = default;
+};
+
+struct PrivateTrivialCopyConstructor {
+    PrivateTrivialCopyConstructor() = default;
+private:
+    PrivateTrivialCopyConstructor(const PrivateTrivialCopyConstructor&) = default;
+};
+
 struct ConstructorTemplateOnly {
     template<typename T>
     ConstructorTemplateOnly(T);
@@ -266,8 +283,42 @@ struct AggregateTypeTrait {
     int value;
 };
 
+struct TwoMemberAggregateTypeTrait {
+    int integer;
+    double floating;
+};
+
+union UnionAggregateWithNontrivialVariant {
+    int integer;
+    NonPODMember nontrivial;
+};
+
+union TwoMemberUnionAggregateTypeTrait {
+    int integer;
+    double floating;
+};
+
+union UnionAggregateWithDefaultMemberInitializer {
+    int integer = 1;
+    double floating;
+};
+
 struct AggregateWithDefaultMemberInitializer {
     int value = 1;
+};
+
+struct ConstMemberWithoutInitializer {
+    const int value;
+};
+
+template<typename T, typename... Args>
+struct DeferredTriviallyConstructible {
+#ifdef __RCC__
+    static constexpr bool value = __is_trivially_constructible(T, Args...);
+#else
+    static constexpr bool value =
+        std::is_trivially_constructible_v<T, Args...>;
+#endif
 };
 
 struct AggregateWithPublicBase : AggregateTypeTrait {
@@ -526,6 +577,38 @@ static_assert(!DeferredTraitResults<NoDefaultConstructor>::has_trivial_construct
 static_assert(!DeferredTraitResults<HasUserDefaultConstructor>::has_trivial_constructor, "a user-provided default constructor is nontrivial");
 static_assert(!DeferredTraitResults<AggregateWithDefaultMemberInitializer>::has_trivial_constructor, "default member initializers make the default constructor nontrivial");
 static_assert(!DeferredTraitResults<VirtualType>::has_trivial_constructor, "virtual classes do not have a trivial default constructor");
+static_assert(DeferredTriviallyConstructible<int>::value, "scalar value initialization is trivial");
+static_assert(DeferredTriviallyConstructible<int, double>::value, "scalar standard conversions are trivial");
+static_assert(DeferredTriviallyConstructible<int[3]>::value, "array default initialization propagates element triviality");
+static_assert(DeferredTriviallyConstructible<int[3], int>::value, "C++20 parenthesized array aggregate initialization is trivial");
+static_assert(DeferredTriviallyConstructible<AggregateTypeTrait>::value, "aggregate value initialization is trivial");
+static_assert(DeferredTriviallyConstructible<AggregateTypeTrait, int>::value, "aggregate parenthesized initialization is trivial");
+static_assert(!DeferredTriviallyConstructible<DeletedDefaultConstructor>::value, "deleted default constructors are not constructible");
+static_assert(!DeferredTriviallyConstructible<HasDeletedDefaultConstructorMember>::value, "deleted subobject constructors make a class unconstructible");
+static_assert(!DeferredTriviallyConstructible<HasUserDefaultConstructor>::value, "user-provided constructors are nontrivial");
+static_assert(!DeferredTriviallyConstructible<AggregateWithDefaultMemberInitializer>::value, "default member initialization is nontrivial");
+static_assert(DeferredTriviallyConstructible<AggregateWithDefaultMemberInitializer, int>::value, "an explicitly initialized aggregate member does not invoke its default member initializer");
+static_assert(!DeferredTriviallyConstructible<ConstMemberWithoutInitializer>::value, "a const scalar member deletes the implicit default constructor");
+static_assert(!DeferredTriviallyConstructible<NontriviallyDestructibleUserProvided>::value, "a nontrivial destructor makes the construction trait false");
+static_assert(!DeferredTriviallyConstructible<NontriviallyDestructibleProtected>::value, "an inaccessible destructor makes the object definition invalid");
+static_assert(!DeferredTriviallyConstructible<NontriviallyDestructibleDeleted>::value, "a deleted destructor prevents object construction");
+static_assert(!DeferredTriviallyConstructible<NontriviallyDestructibleUserProvided, const NontriviallyDestructibleUserProvided&>::value, "copy construction also requires trivial destruction");
+static_assert(DeferredTriviallyConstructible<TwoMemberAggregateTypeTrait, int, float>::value, "variadic aggregate arguments initialize successive members");
+static_assert(!DeferredTriviallyConstructible<TwoMemberAggregateTypeTrait, int, float, char>::value, "too many aggregate arguments are not constructible");
+static_assert(!DeferredTriviallyConstructible<UnionAggregateWithNontrivialVariant>::value, "the implicit union default constructor is deleted by a nontrivial variant constructor");
+static_assert(DeferredTriviallyConstructible<UnionAggregateWithNontrivialVariant, int>::value, "parenthesized union initialization initializes only its first variant");
+static_assert(DeferredTriviallyConstructible<AggregateTypeTraitUnion>::value, "plain scalar unions have trivial default construction");
+static_assert(DeferredTriviallyConstructible<TwoMemberUnionAggregateTypeTrait, int>::value, "one parenthesized union initializer initializes one variant");
+static_assert(!DeferredTriviallyConstructible<TwoMemberUnionAggregateTypeTrait, int, double>::value, "a union cannot have multiple parenthesized aggregate initializers");
+static_assert(!DeferredTriviallyConstructible<UnionAggregateWithDefaultMemberInitializer>::value, "a union default member initializer makes default construction nontrivial");
+static_assert(DeferredTriviallyConstructible<UnionAggregateWithDefaultMemberInitializer, int>::value, "an explicit union initializer overrides the default member initializer");
+static_assert(DeferredTriviallyConstructible<TrivialCopyAndMoveConstructors, const TrivialCopyAndMoveConstructors&>::value, "defaulted copy construction is trivial");
+static_assert(DeferredTriviallyConstructible<TrivialCopyAndMoveConstructors, TrivialCopyAndMoveConstructors&&>::value, "defaulted move construction is trivial");
+static_assert(DeferredTriviallyConstructible<TrivialMoveOnlyConstructor, TrivialMoveOnlyConstructor&&>::value, "a defaulted trivial move constructor is selected over a deleted copy");
+static_assert(!DeferredTriviallyConstructible<TrivialMoveOnlyConstructor, const TrivialMoveOnlyConstructor&>::value, "a deleted copy constructor makes const-lvalue construction invalid");
+static_assert(!DeferredTriviallyConstructible<PrivateTrivialCopyConstructor, const PrivateTrivialCopyConstructor&>::value, "inaccessible copy constructors are not constructible");
+static_assert(DeferredTriviallyConstructible<int&, int&>::value, "trivial lvalue reference binding is constructible");
+static_assert(!DeferredTriviallyConstructible<int&, int>::value, "an lvalue reference cannot bind to a prvalue");
 static_assert(DeferredTraitResults<VirtualDestructor>::virtual_destructor, "dependent virtual-destructor traits are resolved after specialization");
 static_assert(!DeferredTraitResults<VirtualMethodOnly>::virtual_destructor, "dependent virtual-method traits distinguish virtual destructors");
 static_assert(DeferredTraitResults<AggregateWithDefaultMemberInitializer>::aggregate, "dependent aggregate traits are resolved after specialization");

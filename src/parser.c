@@ -23,7 +23,9 @@ static bool parser_type_is_variably_modified(Type* type);
 static bool parser_cxx_type_trait_kind(const char* name,
                                       CxxTypeTraitKind* kind);
 static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
-                                        Type* other_type, bool* value);
+                                        Type* other_type,
+                                        CxxTypeTraitArgument* arguments,
+                                        bool* value);
 static bool parser_type_is_dependent(Type* type);
 
 bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void) {
@@ -935,7 +937,8 @@ static bool eval_integer_constant_typed(Expr* expr,
             if (!parser_cxx_type_trait_value(
                     expr->cxx_type_trait_kind,
                     expr->cxx_type_trait_type,
-                    expr->cxx_type_trait_other_type, &trait_value)) {
+                    expr->cxx_type_trait_other_type,
+                    expr->cxx_type_trait_arguments, &trait_value)) {
                 return false;
             }
             value->bits = trait_value ? 1u : 0u;
@@ -1641,6 +1644,8 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
     const char* name = advance()->value.str_val;
     Type* type = NULL;
     Type* other_type = NULL;
+    CxxTypeTraitArgument* arguments = NULL;
+    CxxTypeTraitArgument** arguments_tail = &arguments;
     CxxTypeTraitKind kind;
     bool value = false;
 
@@ -1659,6 +1664,25 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
             other_type = parse_type_spec();
             other_type = parse_declarator(other_type, NULL, NULL);
         }
+    } else if (strcmp(name, "__is_trivially_constructible") == 0) {
+        while (match(TOK_COMMA)) {
+            CxxTypeTraitArgument* argument = ast_arena_alloc(
+                sizeof(*argument));
+            argument->loc = peek()->loc;
+            if (!is_type_start()) {
+                rcc_error(peek()->loc,
+                          "%s requires type names after the destination type",
+                          name);
+                break;
+            }
+            argument->type = parse_type_spec();
+            argument->type = parse_declarator(argument->type, NULL, NULL);
+            argument->is_pack_expansion = parser_cxx_mode &&
+                                           match(TOK_ELLIPSIS);
+            argument->next = NULL;
+            *arguments_tail = argument;
+            arguments_tail = &argument->next;
+        }
     }
     expect(TOK_RPAREN, ")");
 
@@ -1668,18 +1692,31 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
         return result;
     }
 
-    if (parser_type_is_dependent(type) ||
-        parser_type_is_dependent(other_type)) {
-        Expr* result = expr_int(0, loc);
-        result->kind = EXPR_CXX_TYPE_TRAIT;
-        result->cxx_type_trait_kind = kind;
-        result->cxx_type_trait_type = type;
-        result->cxx_type_trait_other_type = other_type;
-        result->type = type_bool;
-        return result;
+    {
+        bool dependent = parser_type_is_dependent(type) ||
+                         parser_type_is_dependent(other_type);
+        for (CxxTypeTraitArgument* argument = arguments; argument;
+             argument = argument->next) {
+            if (parser_type_is_dependent(argument->type) ||
+                argument->is_pack_expansion) {
+                dependent = true;
+                break;
+            }
+        }
+        if (dependent) {
+            Expr* result = expr_int(0, loc);
+            result->kind = EXPR_CXX_TYPE_TRAIT;
+            result->cxx_type_trait_kind = kind;
+            result->cxx_type_trait_type = type;
+            result->cxx_type_trait_other_type = other_type;
+            result->cxx_type_trait_arguments = arguments;
+            result->type = type_bool;
+            return result;
+        }
     }
 
-    (void)parser_cxx_type_trait_value(kind, type, other_type, &value);
+    (void)parser_cxx_type_trait_value(kind, type, other_type, arguments,
+                                      &value);
     Expr* result = expr_int(value ? 1 : 0, loc);
     result->type = type_bool;
     return result;
@@ -1702,6 +1739,8 @@ static bool parser_cxx_type_trait_kind(const char* name,
         *kind = CXX_TYPE_TRAIT_HAS_TRIVIAL_DESTRUCTOR;
     } else if (strcmp(name, "__has_trivial_constructor") == 0) {
         *kind = CXX_TYPE_TRAIT_HAS_TRIVIAL_CONSTRUCTOR;
+    } else if (strcmp(name, "__is_trivially_constructible") == 0) {
+        *kind = CXX_TYPE_TRAIT_TRIVIALLY_CONSTRUCTIBLE;
     } else if (strcmp(name, "__has_virtual_destructor") == 0) {
         *kind = CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR;
     } else if (strcmp(name, "__is_aggregate") == 0) {
@@ -1817,10 +1856,19 @@ static bool parser_type_is_dependent(Type* type) {
 }
 
 static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
-                                        Type* other_type, bool* value) {
+                                        Type* other_type,
+                                        CxxTypeTraitArgument* arguments,
+                                        bool* value) {
     if (!type || !value || parser_type_is_dependent(type) ||
         parser_type_is_dependent(other_type)) {
         return false;
+    }
+    for (CxxTypeTraitArgument* argument = arguments; argument;
+         argument = argument->next) {
+        if (parser_type_is_dependent(argument->type) ||
+            argument->is_pack_expansion) {
+            return false;
+        }
     }
     switch (kind) {
         case CXX_TYPE_TRAIT_POD:
@@ -1843,6 +1891,9 @@ static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
             break;
         case CXX_TYPE_TRAIT_HAS_TRIVIAL_CONSTRUCTOR:
             *value = rcc_sema_cxx_has_trivial_constructor(type);
+            break;
+        case CXX_TYPE_TRAIT_TRIVIALLY_CONSTRUCTIBLE:
+            *value = rcc_sema_cxx_trivially_constructible(type, arguments);
             break;
         case CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR:
             *value = cxx_class_has_virtual_destructor(type->cxx_class);
@@ -2226,6 +2277,7 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__is_trivially_destructible") ||
          parser_builtin_name("__has_trivial_destructor") ||
          parser_builtin_name("__has_trivial_constructor") ||
+        parser_builtin_name("__is_trivially_constructible") ||
          parser_builtin_name("__has_virtual_destructor") ||
          parser_builtin_name("__is_aggregate") ||
          parser_builtin_name("__is_base_of") ||

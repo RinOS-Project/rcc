@@ -9124,6 +9124,25 @@ remains a separate open item.
 - [ ] Remaining GNU special-member and C++ constructibility/assignability
       intrinsics and direct compilation of `libcxx/type_traits.h` remain open.
 
+## RCC continuation (2026-10-23, C++ `__is_trivially_constructible` builtin)
+
+- [x] Implement variadic `__is_trivially_constructible(T, Args...)` for the
+      currently modeled scalar conversions, references, bounded arrays,
+      aggregate classes/unions, and trivial defaulted copy/move constructors.
+      Preserve dependent type operands and directly expanded type parameter
+      packs, include object-destructor accessibility/triviality, and advertise
+      the builtin through `__has_builtin`. RCC i686/AMD64 tests compare against
+      GCC C++20 `std::is_trivially_constructible` for conversions, references,
+      defaulted/deleted/inaccessible constructors, C++20 parenthesized
+      aggregate and union initialization, destructor cases, and dependent packs.
+- [ ] Full overload resolution for constructor templates, inherited and
+      constrained constructors, complete implicit/out-of-class-defaulted
+      special-member rules, and direct compilation of
+      `libcxx/type_traits.h` remain open. Direct compilation still encounters
+      earlier parser/ABI blockers in `libc/stddef.h` attributes and
+      `libcxx/rincxx.h` declarations; preprocessing alone is not counted as
+      header-compilation support.
+
 ## RCC continuation (2026-10-23, GNU `__has_trivial_constructor` builtin)
 
 - [x] Implement the GNU legacy trivial-constructor query independently of
