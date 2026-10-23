@@ -17389,6 +17389,15 @@ static Type* instantiate_class_template_for_owner(
                 rcc_error(loc, "std::atomic requires copy-assignable type");
                 return type_struct(tmpl->name);
             }
+            if (strcmp(atomic_template, "atomic") == 0 &&
+                (arguments[0]->kind == TYPE_VOID ||
+                 arguments[0]->kind == TYPE_ARRAY ||
+                 arguments[0]->kind == TYPE_FUNC)) {
+                rcc_error(loc,
+                          "std::atomic requires copy/move constructible and "
+                          "assignable object type");
+                return type_struct(tmpl->name);
+            }
             if (!rcc_sema_cxx_trivially_copyable(arguments[0])) {
                 rcc_error(loc, "std::%s requires trivially copyable type",
                           atomic_template);

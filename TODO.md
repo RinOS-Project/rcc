@@ -8937,3 +8937,11 @@ remains a separate open item.
       diagnostic on i686 and AMD64 as part of `test-atomic-builtins`.
 - [ ] Other copy/move construction and assignment constraints, complete
       type-trait support, and C++20 wait/notify operations remain open.
+
+## RCC continuation (2026-10-23, invalid atomic object types)
+
+- [x] Reject `std::atomic` specializations over `void`, function, and array
+      types before instantiating member declarations. Dual-architecture
+      compile-fail regressions check the copy/move object-type diagnostic.
+- [ ] General copy/move constructibility and assignability constraints,
+      complete type-trait support, and C++20 wait/notify operations remain open.
