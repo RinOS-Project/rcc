@@ -133,6 +133,10 @@ static unsigned test_atomic_ref() {
         (reference &= 3u) != 3u || (reference |= 8u) != 11u ||
         (reference ^= 1u) != 10u || reference.load() != 10u)
         return 129u;
+    if (reference++ != 10u || ++reference != 12u ||
+        reference-- != 12u || --reference != 10u ||
+        reference.load() != 10u)
+        return 130u;
 
     int signed_storage = 2147483647;
     std::atomic_ref<int> signed_reference{signed_storage};

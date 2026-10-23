@@ -8878,6 +8878,5 @@ remains a separate open item.
       and pointer scaling/operator results. `test-atomic-builtins` passes
       i686/AMD64 generation at `-O0` and `-O2`, executes both target-width
       objects, and passes the GCC C++20 syntax oracle.
-- [ ] `atomic_ref` still needs complete type constraints and integer
-      pre/post-increment/decrement; broader `<atomic>` constructors/APIs and
-      C++20 wait/notify operations remain open.
+- [ ] `atomic_ref` still needs complete type constraints; broader `<atomic>`
+      constructors/APIs and C++20 wait/notify operations remain open.

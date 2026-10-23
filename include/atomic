@@ -859,6 +859,26 @@ public:
         return __rcc_atomic_ref_fetch_sub(
                    &object_, operand, memory_order_seq_cst) - operand;
     }
+    T operator++() const noexcept {
+        T one = 1;
+        return __rcc_atomic_ref_fetch_add(
+                   &object_, one, memory_order_seq_cst) + one;
+    }
+    T operator++(int) const noexcept {
+        T one = 1;
+        return __rcc_atomic_ref_fetch_add(
+            &object_, one, memory_order_seq_cst);
+    }
+    T operator--() const noexcept {
+        T one = 1;
+        return __rcc_atomic_ref_fetch_sub(
+                   &object_, one, memory_order_seq_cst) - one;
+    }
+    T operator--(int) const noexcept {
+        T one = 1;
+        return __rcc_atomic_ref_fetch_sub(
+            &object_, one, memory_order_seq_cst);
+    }
     template<class U = T>
     T operator&=(T operand) const noexcept {
         return __atomic_fetch_and(
