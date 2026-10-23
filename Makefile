@@ -540,6 +540,7 @@ endif
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-type-trait-builtins
+.PHONY: test-cxx-global-allocation-operators
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
 .PHONY: test-cxx-designated-initializer
@@ -627,6 +628,7 @@ CXX_REGRESSION_TARGETS = \
 	test-compiler-builtins \
 	test-atomic-builtins \
 	test-cxx-type-trait-builtins \
+	test-cxx-global-allocation-operators \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
 	test-preprocessor-has-include \
@@ -15097,6 +15099,18 @@ test-cxx-type-trait-builtins: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_trivially_copyable_builtin.cpp
 	@echo "C++20 type-trait intrinsic tests completed"
+
+test-cxx-global-allocation-operators: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-global-allocation-operators)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-global-allocation-operators/x86.ro \
+		tests/cxx_global_allocation_operators.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-global-allocation-operators/x64.ro \
+		tests/cxx_global_allocation_operators.cpp
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_global_allocation_operators.cpp
+	@echo "C++ global allocation operator declaration tests completed"
 
 test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x86)

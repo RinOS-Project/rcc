@@ -9146,6 +9146,16 @@ remains a separate open item.
       `libcxx/rincxx.h` declarations; preprocessing alone is not counted as
       header-compilation support.
 
+## RCC continuation (2026-10-23, global allocation operator declarations)
+
+- [x] Parse namespace-scope `operator new`, `operator new[]`,
+      `operator delete`, and `operator delete[]` declarations/definitions,
+      including sized and placement forms with pointer return types. Compile
+      both RinOS targets and check the same overload set with GCC C++20.
+- [ ] Enforce all standard allocation-function signature restrictions and
+      resolve user-defined allocation/deallocation overloads from `new` and
+      `delete` expressions, including class-specific forms.
+
 ## RCC continuation (2026-10-23, GNU `__has_trivial_constructor` builtin)
 
 - [x] Implement the GNU legacy trivial-constructor query independently of

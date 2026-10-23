@@ -5884,6 +5884,44 @@ Stmt* parse_declaration(void) {
         return stmt_null(loc);
     }
 
+    if (parser_cxx_mode && check(TOK_STAR)) {
+        Token* probe = parser.cur;
+        bool leads_to_operator = false;
+        while (probe && probe->type == TOK_STAR) {
+            probe = probe->next;
+            while (probe && (probe->type == TOK_CONST ||
+                             probe->type == TOK_VOLATILE ||
+                             probe->type == TOK_RESTRICT)) {
+                probe = probe->next;
+            }
+        }
+        leads_to_operator = probe && probe->type == TOK_OPERATOR;
+        if (leads_to_operator) {
+            Type* pointer_return_type = base_type;
+            do {
+                Type* pointer_type;
+                bool is_const = false;
+                bool is_volatile = false;
+                bool is_restrict = false;
+                advance();
+                pointer_type = type_ptr(pointer_return_type);
+                while (match(TOK_CONST) || match(TOK_VOLATILE) ||
+                       match(TOK_RESTRICT)) {
+                    if (previous()->type == TOK_CONST) is_const = true;
+                    else if (previous()->type == TOK_VOLATILE) {
+                        is_volatile = true;
+                    } else {
+                        is_restrict = true;
+                    }
+                }
+                pointer_type->is_const = is_const;
+                pointer_type->is_volatile = is_volatile;
+                pointer_type->is_restrict = is_restrict;
+                pointer_return_type = pointer_type;
+            } while (check(TOK_STAR));
+            base_type = pointer_return_type;
+        }
+    }
     if (parser_cxx_mode && rcc_parse_cxx_operator_declaration &&
         check(TOK_OPERATOR)) {
         Stmt* operator_declaration = rcc_parse_cxx_operator_declaration(

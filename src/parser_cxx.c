@@ -6454,6 +6454,20 @@ static const char* parse_operator_name(void) {
         expect(TOK_RBRACKET, "]");
         return rcc_intern("operator[]");
     }
+    if (match(TOK_NEW)) {
+        if (match(TOK_LBRACKET)) {
+            expect(TOK_RBRACKET, "]");
+            return rcc_intern("operator new[]");
+        }
+        return rcc_intern("operator new");
+    }
+    if (match(TOK_DELETE)) {
+        if (match(TOK_LBRACKET)) {
+            expect(TOK_RBRACKET, "]");
+            return rcc_intern("operator delete[]");
+        }
+        return rcc_intern("operator delete");
+    }
     operation = peek()->type;
     switch (operation) {
         case TOK_ASSIGN:
