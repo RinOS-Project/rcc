@@ -545,6 +545,9 @@
   - [x] Named concept-idを通常のbool式として評価し、non-type/type argumentの
         positive・negative実行例を追加。`test-cxx-named-concepts`と全`test-cxx`
         gateを完走し、GCC C++20 oracle・i686/AMD64 codegen・AMD64実行を確認
+  - [x] Template function body内のdependent named concept-idをinstantiation
+        まで保持し、non-type/type argumentの正負例を`test-cxx-named-concepts`
+        で検証。GCC C++20 syntax、i686/AMD64生成、AMD64実行が通過
   - [x] parser-known型によるdirect/pointer function-template deductionと
         trailing type defaultの実体化
   - [x] 先行非型引数を参照する整数constant-expression defaultの評価

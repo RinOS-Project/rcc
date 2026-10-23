@@ -10,6 +10,11 @@ int nonpositive_value() {
     return N;
 }
 
+template<int N>
+constexpr bool positive_concept_id() {
+    return Positive<N>;
+}
+
 struct ConceptCarrier {
     int value;
 };
@@ -18,6 +23,11 @@ template<typename T>
 concept HasValue = requires(T candidate) {
     candidate.value;
 };
+
+template<typename T>
+constexpr bool has_value_concept_id() {
+    return HasValue<T>;
+}
 
 template<typename T>
 concept SmallReturnType = sizeof(T) <= sizeof(int);
@@ -136,7 +146,11 @@ int main() {
     ConceptCarrier carrier = {41};
     NoValue missing = {};
     return Positive<3> && !Positive<-2> &&
+                   positive_concept_id<3>() &&
+                   !positive_concept_id<-2>() &&
                    HasValue<ConceptCarrier> && !HasValue<NoValue> &&
+                   has_value_concept_id<ConceptCarrier>() &&
+                   !has_value_concept_id<NoValue>() &&
                    positive_value<3>() == 3 &&
                    nonpositive_value<-2>() == -2 &&
                    read_value(carrier) == 41 &&
