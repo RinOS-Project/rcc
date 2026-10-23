@@ -9135,6 +9135,9 @@ remains a separate open item.
       GCC C++20 `std::is_trivially_constructible` for conversions, references,
       defaulted/deleted/inaccessible constructors, C++20 parenthesized
       aggregate and union initialization, destructor cases, and dependent packs.
+      Separate C++17 regressions verify that parenthesized aggregate/array
+      initialization remains unavailable before C++20 on both targets and
+      agrees with GCC's C++17 standard-trait results.
 - [ ] Full overload resolution for constructor templates, inherited and
       constrained constructors, complete implicit/out-of-class-defaulted
       special-member rules, and direct compilation of

@@ -13155,6 +13155,10 @@ static bool sema_cxx_type_trait_is_aggregate_constructible(
     ExprList* argument = sema_cxx_type_trait_argument_expressions(arguments);
     CxxClass* cls = type ? type->cxx_class : NULL;
     int element_count = 0;
+    if (argument_count > 0 &&
+        !rcc_parser_cxx_standard_at_least(20)) {
+        return false;
+    }
     if (type && type->kind == TYPE_ARRAY) {
         if (type->array_len < 0 || argument_count > type->array_len) {
             return false;
