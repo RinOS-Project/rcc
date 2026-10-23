@@ -10491,6 +10491,45 @@ bool rcc_sema_cxx_trivially_destructible(Type* type) {
            sema_cxx_destructor_is_accessible(type, false);
 }
 
+static bool sema_cxx_has_trivial_destructor(Type* type, unsigned depth) {
+    CxxClass* cls;
+    if (!type || depth > 32u) return false;
+    if (type->kind == TYPE_PTR && type->is_reference) return true;
+    if (type->kind == TYPE_ARRAY) {
+        return type->base &&
+               sema_cxx_has_trivial_destructor(type->base, depth + 1u);
+    }
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC) return false;
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (!type_is_complete(type)) return false;
+    cls = type->cxx_class;
+    if (cls) {
+        CxxMethod* destructor = cls->destructor_method;
+        if (destructor &&
+            ((!destructor->is_defaulted && !destructor->is_deleted) ||
+             destructor->is_virtual)) {
+            return false;
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                !sema_cxx_has_trivial_destructor(base->type, depth + 1u)) {
+                return false;
+            }
+        }
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!sema_cxx_has_trivial_destructor(field->type, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool rcc_sema_cxx_has_trivial_destructor(Type* type) {
+    return sema_cxx_has_trivial_destructor(type, 0u);
+}
+
 /* A bytewise copy is valid for a trivially copyable aggregate. An ordinary
  * user constructor does not make the implicit copy constructor non-trivial;
  * an eligible user-provided copy/move constructor or assignment does. Deleted

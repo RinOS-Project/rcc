@@ -316,6 +316,8 @@ struct DeferredTraitResults {
     static constexpr bool class_type = __is_class(T);
     static constexpr bool copyable = __is_trivially_copyable(T);
     static constexpr bool destructible = __is_trivially_destructible(T);
+    static constexpr bool has_trivial_destructor =
+        __has_trivial_destructor(T);
     static constexpr bool virtual_destructor = __has_virtual_destructor(T);
     static constexpr bool aggregate = __is_aggregate(T);
     static constexpr bool enum_type = __is_enum(T);
@@ -331,6 +333,8 @@ struct DeferredTraitResults {
     static constexpr bool class_type = std::is_class_v<T>;
     static constexpr bool copyable = std::is_trivially_copyable_v<T>;
     static constexpr bool destructible = std::is_trivially_destructible_v<T>;
+    static constexpr bool has_trivial_destructor =
+        __has_trivial_destructor(T);
     static constexpr bool virtual_destructor = std::has_virtual_destructor_v<T>;
     static constexpr bool aggregate = std::is_aggregate_v<T>;
     static constexpr bool enum_type = std::is_enum_v<T>;
@@ -496,6 +500,18 @@ static_assert(DeferredTraitResults<TriviallyCopyable>::copyable, "dependent copy
 static_assert(!DeferredTraitResults<NonTriviallyCopyable>::copyable, "dependent copyability traits preserve false results");
 static_assert(DeferredTraitResults<TriviallyDestructibleDefaulted>::destructible, "dependent destructor traits are resolved after specialization");
 static_assert(!DeferredTraitResults<NontriviallyDestructibleUserProvided>::destructible, "dependent destructor traits preserve false results");
+static_assert(DeferredTraitResults<int>::has_trivial_destructor, "scalar destructors are trivial");
+static_assert(DeferredTraitResults<int[3]>::has_trivial_destructor, "array element destructor properties propagate");
+static_assert(DeferredTraitResults<int&>::has_trivial_destructor, "reference types have trivial destruction");
+static_assert(DeferredTraitResults<NontriviallyDestructiblePrivate>::has_trivial_destructor, "the legacy intrinsic ignores access to the queried destructor");
+static_assert(DeferredTraitResults<NontriviallyDestructibleProtected>::has_trivial_destructor, "protected trivial destructors remain trivial");
+static_assert(DeferredTraitResults<NontriviallyDestructibleDeleted>::has_trivial_destructor, "deleted destructors retain the legacy triviality property");
+static_assert(!DeferredTraitResults<NontriviallyDestructibleUserProvided>::has_trivial_destructor, "user-provided destructors are nontrivial");
+static_assert(!DeferredTraitResults<HasNontriviallyDestructibleMember>::has_trivial_destructor, "nontrivial member destructors propagate");
+static_assert(DeferredTraitResults<HasInaccessibleMemberDestructor>::has_trivial_destructor, "inaccessible member destructors do not change the legacy triviality property");
+static_assert(!DeferredTraitResults<HasNontrivialBaseDestructor>::has_trivial_destructor, "nontrivial base destructors propagate");
+static_assert(DeferredTraitResults<HasProtectedBaseDestructor>::has_trivial_destructor, "a protected trivial base destructor remains trivial");
+static_assert(!DeferredTraitResults<VirtualDestructor>::has_trivial_destructor, "virtual destructors are nontrivial");
 static_assert(DeferredTraitResults<VirtualDestructor>::virtual_destructor, "dependent virtual-destructor traits are resolved after specialization");
 static_assert(!DeferredTraitResults<VirtualMethodOnly>::virtual_destructor, "dependent virtual-method traits distinguish virtual destructors");
 static_assert(DeferredTraitResults<AggregateWithDefaultMemberInitializer>::aggregate, "dependent aggregate traits are resolved after specialization");

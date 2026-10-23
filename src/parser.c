@@ -1698,6 +1698,8 @@ static bool parser_cxx_type_trait_kind(const char* name,
         *kind = CXX_TYPE_TRAIT_TRIVIALLY_COPYABLE;
     } else if (strcmp(name, "__is_trivially_destructible") == 0) {
         *kind = CXX_TYPE_TRAIT_TRIVIALLY_DESTRUCTIBLE;
+    } else if (strcmp(name, "__has_trivial_destructor") == 0) {
+        *kind = CXX_TYPE_TRAIT_HAS_TRIVIAL_DESTRUCTOR;
     } else if (strcmp(name, "__has_virtual_destructor") == 0) {
         *kind = CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR;
     } else if (strcmp(name, "__is_aggregate") == 0) {
@@ -1833,6 +1835,9 @@ static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
             break;
         case CXX_TYPE_TRAIT_TRIVIALLY_DESTRUCTIBLE:
             *value = rcc_sema_cxx_trivially_destructible(type);
+            break;
+        case CXX_TYPE_TRAIT_HAS_TRIVIAL_DESTRUCTOR:
+            *value = rcc_sema_cxx_has_trivial_destructor(type);
             break;
         case CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR:
             *value = cxx_class_has_virtual_destructor(type->cxx_class);
@@ -2214,6 +2219,7 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__is_trivial") ||
          parser_builtin_name("__is_trivially_copyable") ||
          parser_builtin_name("__is_trivially_destructible") ||
+         parser_builtin_name("__has_trivial_destructor") ||
          parser_builtin_name("__has_virtual_destructor") ||
          parser_builtin_name("__is_aggregate") ||
          parser_builtin_name("__is_base_of") ||

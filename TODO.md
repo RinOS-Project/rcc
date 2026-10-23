@@ -9112,3 +9112,14 @@ remains a separate open item.
       negative scalar, array, enum, union, constructor, access, and member cases.
 - [ ] Broader constructibility/assignability traits and direct compilation of
       `libcxx/type_traits.h` remain open.
+
+## RCC continuation (2026-10-23, GNU `__has_trivial_destructor` builtin)
+
+- [x] Implement the GNU legacy trivial-destructor query separately from
+      `__is_trivially_destructible`: test destructor triviality independent of
+      access or deletion status while recursively checking virtual and
+      nontrivial base/member destructors. Preserve dependent operands,
+      advertise it through `__has_builtin`, and compare RCC's i686/AMD64
+      results to GCC's builtin.
+- [ ] Remaining GNU special-member and C++ constructibility/assignability
+      intrinsics and direct compilation of `libcxx/type_traits.h` remain open.

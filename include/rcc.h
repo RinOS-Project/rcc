@@ -184,6 +184,7 @@ bool rcc_sema_cxx_standard_layout(struct Type* type);
 bool rcc_sema_cxx_trivial(struct Type* type);
 bool rcc_sema_cxx_trivially_copyable(struct Type* type);
 bool rcc_sema_cxx_trivially_destructible(struct Type* type);
+bool rcc_sema_cxx_has_trivial_destructor(struct Type* type);
 bool rcc_sema_fold_nonfinite_builtin(struct Expr* expression);
 bool rcc_parser_cxx_type_constraint_satisfied(
     struct CxxTemplate* concept, struct ExprList* explicit_arguments,
