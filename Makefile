@@ -15106,7 +15106,7 @@ endif
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_is_lock_free second argument must have pointer or null-pointer type" \
 		$(TEST_OUT)/atomic-x86/invalid.log
-	$(GREP) -F -q "__atomic_load requires a supported lock-free object pointer" \
+	$(GREP) -F -q "__atomic_load requires a supported lock-free scalar object pointer" \
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-order.ro \

@@ -542,6 +542,9 @@
         empty-pack identity、pack-based static membersの両arch回帰
   - [x] C++20 named conceptを`template<Concept T>`制約付きtype parameterへ
         適用し、instantiation時のconcept評価とC++17以前のstandard gateを検証
+  - [x] Named concept-idを通常のbool式として評価し、non-type/type argumentの
+        positive・negative実行例を追加。`test-cxx-named-concepts`と全`test-cxx`
+        gateを完走し、GCC C++20 oracle・i686/AMD64 codegen・AMD64実行を確認
   - [x] parser-known型によるdirect/pointer function-template deductionと
         trailing type defaultの実体化
   - [x] 先行非型引数を参照する整数constant-expression defaultの評価

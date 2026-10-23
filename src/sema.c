@@ -16474,6 +16474,37 @@ static Type* sema_expr(Expr* expr) {
             int argument_index = 1;
             bool reported_too_many = false;
             bool arguments_analyzed = false;
+            if (expr->cxx_concept_template) {
+                CxxTemplate* concept = expr->cxx_concept_template;
+                int64_t concept_value = 0;
+                bool dependent = false;
+                int concept_index = 0;
+
+                for (argument = expr->call_args; argument;
+                     argument = argument->next, ++concept_index) {
+                    if (concept_index >= concept->param_count) break;
+                    if (concept->params[concept_index].kind ==
+                        TPARAM_NONTYPE) {
+                        sema_expr(argument->expr);
+                    }
+                    if (argument->expr && argument->expr->type &&
+                        argument->expr->type->cxx_dependent) {
+                        dependent = true;
+                    }
+                }
+                expr->type = type_bool;
+                if (dependent) break;
+                if (!rcc_parser_cxx_eval_template_integer_expression(
+                        expr, NULL, NULL, NULL, &concept_value)) {
+                    rcc_error(expr->loc,
+                              "named concept '%s' is not a supported constant expression",
+                              concept->name ? concept->name : "<concept>");
+                    concept_value = 0;
+                }
+                expr->kind = EXPR_INT_LIT;
+                expr->int_val = concept_value != 0;
+                break;
+            }
             if (rcc_parser_is_cxx_mode() &&
                 !expr->call_abi_function_type && expr->call_func &&
                 (expr->call_func->kind == EXPR_CXX_MEMBER_PTR_DOT ||

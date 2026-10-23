@@ -135,7 +135,9 @@ int read_missing(T) {
 int main() {
     ConceptCarrier carrier = {41};
     NoValue missing = {};
-    return positive_value<3>() == 3 &&
+    return Positive<3> && !Positive<-2> &&
+                   HasValue<ConceptCarrier> && !HasValue<NoValue> &&
+                   positive_value<3>() == 3 &&
                    nonpositive_value<-2>() == -2 &&
                    read_value(carrier) == 41 &&
                    read_value_constrained(carrier) == 42 &&
