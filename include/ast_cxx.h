@@ -598,6 +598,7 @@ bool cxx_class_virtual_base_offset(CxxClass* cls, CxxClass* base,
 bool cxx_class_is_abstract(const CxxClass* cls);
 bool cxx_class_is_final(const CxxClass* cls);
 bool cxx_class_is_polymorphic(const CxxClass* cls);
+bool cxx_class_has_virtual_destructor(const CxxClass* cls);
 bool cxx_class_is_empty(const CxxClass* cls);
 void cxx_class_build_vtable(CxxClass* cls);
 

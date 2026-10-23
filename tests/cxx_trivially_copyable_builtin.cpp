@@ -138,6 +138,13 @@ struct VirtualDestructor {
     virtual ~VirtualDestructor() = default;
 };
 
+struct InheritedVirtualDestructor : VirtualDestructor {
+};
+
+struct VirtualMethodOnly {
+    virtual void run();
+};
+
 static_assert(__is_trivially_copyable(int), "scalar types are trivially copyable");
 static_assert(__is_trivially_copyable(int*), "object pointers are trivially copyable");
 static_assert(__is_trivially_copyable(int[3]), "bounded arrays are trivially copyable");
@@ -204,6 +211,11 @@ static_assert(__is_trivially_destructible(HasProtectedBaseDestructor), "derived 
 static_assert(!__is_trivially_destructible(VirtualDestructor), "virtual destructors are nontrivial");
 static_assert(!__is_trivially_destructible(void), "void is not destructible");
 static_assert(!__is_trivially_destructible(int()), "function types are not destructible");
+static_assert(__has_virtual_destructor(VirtualDestructor), "virtual destructors are detected");
+static_assert(__has_virtual_destructor(InheritedVirtualDestructor), "virtual destructors are inherited");
+static_assert(!__has_virtual_destructor(VirtualMethodOnly), "unrelated virtual methods do not make the destructor virtual");
+static_assert(!__has_virtual_destructor(TriviallyCopyableUnion), "unions do not have virtual destructors");
+static_assert(!__has_virtual_destructor(VirtualDestructor*), "pointers do not have virtual destructors");
 #else
 static_assert(std::is_trivially_destructible_v<int>, "scalar types are trivially destructible");
 static_assert(std::is_trivially_destructible_v<int&>, "references are trivially destructible");
@@ -220,4 +232,9 @@ static_assert(std::is_trivially_destructible_v<HasProtectedBaseDestructor>, "der
 static_assert(!std::is_trivially_destructible_v<VirtualDestructor>, "virtual destructors are nontrivial");
 static_assert(!std::is_trivially_destructible_v<void>, "void is not destructible");
 static_assert(!std::is_trivially_destructible_v<int()>, "function types are not destructible");
+static_assert(std::has_virtual_destructor_v<VirtualDestructor>, "virtual destructors are detected");
+static_assert(std::has_virtual_destructor_v<InheritedVirtualDestructor>, "virtual destructors are inherited");
+static_assert(!std::has_virtual_destructor_v<VirtualMethodOnly>, "unrelated virtual methods do not make the destructor virtual");
+static_assert(!std::has_virtual_destructor_v<TriviallyCopyableUnion>, "unions do not have virtual destructors");
+static_assert(!std::has_virtual_destructor_v<VirtualDestructor*>, "pointers do not have virtual destructors");
 #endif

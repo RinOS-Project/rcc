@@ -9044,6 +9044,10 @@ remains a separate open item.
       destructors, and member/base destructor propagation. The GCC C++20
       `std::is_trivially_destructible` oracle and RCC i686/AMD64 checks pass;
       aggregate cleanup, inline aggregate, and atomic regression suites pass.
+- [x] Implement `__has_virtual_destructor(T)` with inherited virtual-destructor
+      detection, and advertise the implemented C++ type-trait queries through
+      `__has_builtin`. RCC i686/AMD64 trait tests, the GCC C++20 standard-trait
+      oracle, and the C++ preprocessing feature-query suite pass.
 - [x] Implement the C++ type-category intrinsics `__is_enum(T)`,
       `__is_class(T)`, `__is_union(T)`, `__is_final(T)`, `__is_abstract(T)`,
       `__is_polymorphic(T)`, and `__is_empty(T)`. Regressions cover positive,

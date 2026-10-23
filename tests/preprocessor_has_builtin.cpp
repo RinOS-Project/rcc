@@ -14,6 +14,25 @@
 #error RCC must report implemented target builtins
 #endif
 
+#if !__has_builtin(__is_trivially_destructible)
+#error RCC must report implemented C++ type-trait builtins
+#endif
+
+#if !__has_builtin(__has_virtual_destructor)
+#error RCC must report implemented virtual-destructor type-trait builtins
+#endif
+
+#if !__has_builtin(__is_empty)
+#error RCC must report implemented class-property type-trait builtins
+#endif
+
+#if !__has_builtin(__is_trivially_copyable) || !__has_builtin(__is_enum) || \
+    !__has_builtin(__is_class) || !__has_builtin(__is_union) || \
+    !__has_builtin(__is_final) || !__has_builtin(__is_abstract) || \
+    !__has_builtin(__is_polymorphic)
+#error RCC must report every implemented C++ class type-trait builtin
+#endif
+
 #if __has_builtin(__builtin_bit_cast)
 #error RCC must not advertise an unimplemented builtin
 #endif

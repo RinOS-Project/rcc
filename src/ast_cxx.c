@@ -6301,6 +6301,19 @@ bool cxx_class_is_polymorphic(const CxxClass* cls) {
     return cls && cls->vtable_size > 0;
 }
 
+bool cxx_class_has_virtual_destructor(const CxxClass* cls) {
+    if (!cls || !cls->type || !cls->type->is_complete) return false;
+    if (cls->destructor_method && cls->destructor_method->is_virtual) {
+        return true;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (cxx_class_has_virtual_destructor(cls->bases[index].base)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool cxx_class_is_empty_impl(const CxxClass* cls, unsigned depth) {
     const TypeParam* field;
     if (!cls || !cls->type || depth >= 64u || !cls->type->is_complete ||
