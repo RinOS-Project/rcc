@@ -186,6 +186,16 @@ struct __rcc_atomic_ops<double> {
     inline T __rcc_atomic_supported_fetch_sub( \
         volatile T* object, T operand, memory_order order) noexcept { \
         return __rcc_atomic_ops<T>::fetch_sub_impl(object, operand, order); \
+    } \
+    inline T __rcc_atomic_supported_fetch_increment( \
+        volatile T* object, memory_order order) noexcept { \
+        return __rcc_atomic_ops<T>::fetch_add_impl( \
+            object, static_cast<T>(1), order); \
+    } \
+    inline T __rcc_atomic_supported_fetch_decrement( \
+        volatile T* object, memory_order order) noexcept { \
+        return __rcc_atomic_ops<T>::fetch_sub_impl( \
+            object, static_cast<T>(1), order); \
     }
 
 __RCC_ATOMIC_INTEGER_HELPERS(char)
@@ -645,37 +655,81 @@ public:
         return this->fetch_xor(operand) ^ operand;
     }
 
-    T operator++() noexcept {
-        return this->fetch_add_impl(
-            &this->value_, 1, memory_order_seq_cst) + 1;
+    template<class U = T>
+    T operator++() noexcept
+        requires requires(volatile T* value) {
+            __rcc_atomic_supported_fetch_increment(
+                static_cast<volatile U*>(value), memory_order_relaxed);
+        } {
+        return __rcc_atomic_supported_fetch_increment(
+                   static_cast<volatile U*>(&this->value_),
+                   memory_order_seq_cst) + static_cast<T>(1);
     }
-    T operator++() volatile noexcept {
-        return this->fetch_add_impl(
-            &this->value_, 1, memory_order_seq_cst) + 1;
+    template<class U = T>
+    T operator++() volatile noexcept
+        requires requires(volatile T* value) {
+            __rcc_atomic_supported_fetch_increment(
+                static_cast<volatile U*>(value), memory_order_relaxed);
+        } {
+        return __rcc_atomic_supported_fetch_increment(
+                   static_cast<volatile U*>(&this->value_),
+                   memory_order_seq_cst) + static_cast<T>(1);
     }
-    T operator++(int) noexcept {
-        return this->fetch_add_impl(
-            &this->value_, 1, memory_order_seq_cst);
+    template<class U = T>
+    T operator++(int) noexcept
+        requires requires(volatile T* value) {
+            __rcc_atomic_supported_fetch_increment(
+                static_cast<volatile U*>(value), memory_order_relaxed);
+        } {
+        return __rcc_atomic_supported_fetch_increment(
+            static_cast<volatile U*>(&this->value_), memory_order_seq_cst);
     }
-    T operator++(int) volatile noexcept {
-        return this->fetch_add_impl(
-            &this->value_, 1, memory_order_seq_cst);
+    template<class U = T>
+    T operator++(int) volatile noexcept
+        requires requires(volatile T* value) {
+            __rcc_atomic_supported_fetch_increment(
+                static_cast<volatile U*>(value), memory_order_relaxed);
+        } {
+        return __rcc_atomic_supported_fetch_increment(
+            static_cast<volatile U*>(&this->value_), memory_order_seq_cst);
     }
-    T operator--() noexcept {
-        return this->fetch_sub_impl(
-            &this->value_, 1, memory_order_seq_cst) - 1;
+    template<class U = T>
+    T operator--() noexcept
+        requires requires(volatile T* value) {
+            __rcc_atomic_supported_fetch_decrement(
+                static_cast<volatile U*>(value), memory_order_relaxed);
+        } {
+        return __rcc_atomic_supported_fetch_decrement(
+                   static_cast<volatile U*>(&this->value_),
+                   memory_order_seq_cst) - static_cast<T>(1);
     }
-    T operator--() volatile noexcept {
-        return this->fetch_sub_impl(
-            &this->value_, 1, memory_order_seq_cst) - 1;
+    template<class U = T>
+    T operator--() volatile noexcept
+        requires requires(volatile T* value) {
+            __rcc_atomic_supported_fetch_decrement(
+                static_cast<volatile U*>(value), memory_order_relaxed);
+        } {
+        return __rcc_atomic_supported_fetch_decrement(
+                   static_cast<volatile U*>(&this->value_),
+                   memory_order_seq_cst) - static_cast<T>(1);
     }
-    T operator--(int) noexcept {
-        return this->fetch_sub_impl(
-            &this->value_, 1, memory_order_seq_cst);
+    template<class U = T>
+    T operator--(int) noexcept
+        requires requires(volatile T* value) {
+            __rcc_atomic_supported_fetch_decrement(
+                static_cast<volatile U*>(value), memory_order_relaxed);
+        } {
+        return __rcc_atomic_supported_fetch_decrement(
+            static_cast<volatile U*>(&this->value_), memory_order_seq_cst);
     }
-    T operator--(int) volatile noexcept {
-        return this->fetch_sub_impl(
-            &this->value_, 1, memory_order_seq_cst);
+    template<class U = T>
+    T operator--(int) volatile noexcept
+        requires requires(volatile T* value) {
+            __rcc_atomic_supported_fetch_decrement(
+                static_cast<volatile U*>(value), memory_order_relaxed);
+        } {
+        return __rcc_atomic_supported_fetch_decrement(
+            static_cast<volatile U*>(&this->value_), memory_order_seq_cst);
     }
     template<class U = T>
     T operator+=(T operand) noexcept

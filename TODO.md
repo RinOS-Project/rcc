@@ -8896,15 +8896,21 @@ remains a separate open item.
       aggregates, and user-defined arithmetic operators. `test-atomic-builtins`
       passes i686/AMD64 generation at `-O0` and `-O2`, AMD64 execution at both
       levels, and the GCC C++20 syntax oracle.
+- [x] Restrict primary `atomic<T>` prefix/postfix increment and decrement to
+      the integer helper overloads, including volatile objects. Extend unary
+      operator rewriting to materialize constrained member-function-template
+      candidates before selecting the operator call, without changing the
+      argument list used for non-member operators. C++20 requires-expression
+      regressions accept integer operators and reject float, `bool`, and
+      aggregates; runtime checks exercise all four operators on ordinary and
+      volatile integers. `test-atomic-builtins` passes i686/AMD64 generation at
+      `-O0` and `-O2`, AMD64 execution at both levels, and the GCC C++20 syntax
+      oracle.
 - [ ] Remaining type/API constraints, broader `<atomic>` constructor/API
       coverage, and C++20 wait/notify operations remain open. The remaining
       general dependent type-trait evaluation in member constraints/SFINAE is
       still unsupported; these atomic API subsets use direct helper/builtin
-      requirements instead. The primary `atomic<T>` prefix/postfix
-      increment/decrement operators still need integral-only participation;
-      converting them to constrained member templates currently breaks RCC's
-      selection of existing operator calls, so their current runtime behavior
-      is preserved pending that frontend improvement.
+      requirements instead.
 - [x] Support generic `atomic_ref<T>` load/store/exchange/compare-exchange for
       4-byte and 8-byte aggregates. The i686 8-byte path uses `CMPXCHG8B`; both
       target backends use their existing atomic-width lowering. Runtime checks

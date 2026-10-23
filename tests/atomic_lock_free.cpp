@@ -190,6 +190,42 @@ concept AtomicHasXorAssign = requires(std::atomic<T> value, T operand) {
 };
 
 template<class T>
+concept AtomicHasPrefixIncrement = requires(std::atomic<T> value) {
+    ++value;
+};
+
+template<class T>
+concept AtomicHasPostfixIncrement = requires(std::atomic<T> value) {
+    value++;
+};
+
+template<class T>
+concept AtomicHasPrefixDecrement = requires(std::atomic<T> value) {
+    --value;
+};
+
+template<class T>
+concept AtomicHasPostfixDecrement = requires(std::atomic<T> value) {
+    value--;
+};
+
+template<class T>
+concept VolatileAtomicHasPrefixIncrement =
+    requires(volatile std::atomic<T>* value) { ++*value; };
+
+template<class T>
+concept VolatileAtomicHasPostfixIncrement =
+    requires(volatile std::atomic<T>* value) { (*value)++; };
+
+template<class T>
+concept VolatileAtomicHasPrefixDecrement =
+    requires(volatile std::atomic<T>* value) { --*value; };
+
+template<class T>
+concept VolatileAtomicHasPostfixDecrement =
+    requires(volatile std::atomic<T>* value) { (*value)--; };
+
+template<class T>
 concept VolatileAtomicHasFetchAnd =
     requires(volatile std::atomic<T>* value, T operand) {
         value->fetch_and(operand);
@@ -273,6 +309,30 @@ static_assert(AtomicHasOrAssign<unsigned>);
 static_assert(!AtomicHasOrAssign<float>);
 static_assert(AtomicHasXorAssign<unsigned>);
 static_assert(!AtomicHasXorAssign<float>);
+static_assert(AtomicHasPrefixIncrement<int>);
+static_assert(AtomicHasPostfixIncrement<int>);
+static_assert(AtomicHasPrefixDecrement<int>);
+static_assert(AtomicHasPostfixDecrement<int>);
+static_assert(!AtomicHasPrefixIncrement<float>);
+static_assert(!AtomicHasPostfixIncrement<float>);
+static_assert(!AtomicHasPrefixDecrement<float>);
+static_assert(!AtomicHasPostfixDecrement<float>);
+static_assert(!AtomicHasPrefixIncrement<bool>);
+static_assert(!AtomicHasPostfixIncrement<bool>);
+static_assert(!AtomicHasPrefixDecrement<bool>);
+static_assert(!AtomicHasPostfixDecrement<bool>);
+static_assert(!AtomicHasPrefixIncrement<AtomicRefAggregate>);
+static_assert(!AtomicHasPostfixIncrement<AtomicRefAggregate>);
+static_assert(!AtomicHasPrefixDecrement<AtomicRefAggregate>);
+static_assert(!AtomicHasPostfixDecrement<AtomicRefAggregate>);
+static_assert(VolatileAtomicHasPrefixIncrement<int>);
+static_assert(VolatileAtomicHasPostfixIncrement<int>);
+static_assert(VolatileAtomicHasPrefixDecrement<int>);
+static_assert(VolatileAtomicHasPostfixDecrement<int>);
+static_assert(!VolatileAtomicHasPrefixIncrement<float>);
+static_assert(!VolatileAtomicHasPostfixIncrement<float>);
+static_assert(!VolatileAtomicHasPrefixDecrement<float>);
+static_assert(!VolatileAtomicHasPostfixDecrement<float>);
 static_assert(VolatileAtomicHasFetchAnd<unsigned>);
 static_assert(!VolatileAtomicHasFetchAnd<float>);
 static_assert(VolatileAtomicHasAndAssign<unsigned>);
@@ -468,6 +528,8 @@ extern "C" unsigned cpp_standard_atomic_operations() {
     std::atomic<unsigned> zero;
     std::atomic<unsigned> compatibility_init = ATOMIC_VAR_INIT(1u);
     std::atomic<unsigned> value(3u);
+    std::atomic<int> incremented(3);
+    volatile std::atomic<int> volatile_incremented(7);
     std::atomic<unsigned long long> wide(4ULL);
     int pointer_values[5];
     std::atomic<int*> pointer;
@@ -519,6 +581,14 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         return 83u;
     if (zero.load() != 0u || !zero.is_always_lock_free ||
         !zero.is_lock_free()) return 20u;
+    if (++incremented != 4 || incremented++ != 4 ||
+        --incremented != 4 || incremented-- != 4 ||
+        incremented.load() != 3)
+        return 142u;
+    if (++volatile_incremented != 8 || volatile_incremented++ != 8 ||
+        --volatile_incremented != 8 || volatile_incremented-- != 8 ||
+        volatile_incremented.load() != 7)
+        return 143u;
     if (!std::atomic_is_lock_free(&zero) ||
         std::atomic_load(&zero) != 0u)
         return 90u;

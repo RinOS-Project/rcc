@@ -13880,6 +13880,9 @@ static bool sema_rewrite_cxx_unary_operator(Expr* expression,
     const char* name;
     Type* aggregate;
     TypeMethod* method;
+    TypeMethod* template_candidates[32];
+    int template_candidate_count = 0;
+    bool template_constraint_unsupported = false;
     ExprList* arguments = NULL;
     Symbol* function;
     Expr* function_expression;
@@ -13893,18 +13896,34 @@ static bool sema_rewrite_cxx_unary_operator(Expr* expression,
     }
     name = sema_cxx_unary_operator_name(expression->kind);
     if (!name) return false;
+    if (expression->kind == EXPR_POSTINC ||
+        expression->kind == EXPR_POSTDEC) {
+        arguments = exprlist_new(expr_int(0, expression->loc));
+    }
+#if defined(__GNUC__) || defined(__clang__)
+    if (rcc_parser_cxx_materialize_member_function_templates) {
+        template_candidate_count =
+            rcc_parser_cxx_materialize_member_function_templates(
+                aggregate, name, arguments, NULL, 0, false,
+                template_candidates,
+                (int)(sizeof(template_candidates) /
+                      sizeof(template_candidates[0])),
+                &template_constraint_unsupported);
+    }
+#endif
+    if (template_constraint_unsupported) return false;
+    if (template_candidate_count > 0) {
+        sema_register_materialized_member_templates(aggregate);
+    }
     method = sema_find_function_method(aggregate, name);
     if (method && method->function_decl) {
-        if (expression->kind == EXPR_POSTINC ||
-            expression->kind == EXPR_POSTDEC) {
-            arguments = exprlist_new(expr_int(0, expression->loc));
-        }
         member = expr_member(expression->unary_operand, name,
                              expression->loc);
         call = expr_call(member, arguments, expression->loc);
         *expression = *call;
         return true;
     }
+    arguments = NULL;
     exprlist_append(&arguments, expression->unary_operand);
     if (expression->kind == EXPR_POSTINC ||
         expression->kind == EXPR_POSTDEC) {
