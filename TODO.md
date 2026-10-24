@@ -9408,11 +9408,12 @@ remains a separate open item.
       conversion functions, and converting constructors. Throwing and
       `noexcept` outcomes agree with GCC C++20 on i686/AMD64; the complete
       `make OS=Linux test-cxx` suite passes under WSL.
-- [x] Verify implicit nothrow copy/move propagation for const/non-const
-      lvalues, rvalues, deleted/private member copies, noexcept and throwing
-      member copies, noexcept member moves, deleted-move copy fallback, and
-      move suppression/deletion from user-declared destructor/assignment.
-      Direct libcxx trait tests agree with GCC C++20 on i686/AMD64.
+- [x] Verify implicit and explicitly defaulted nothrow copy/move propagation
+      for const/non-const lvalues and rvalues, deleted/private member copies,
+      noexcept and throwing member copies, noexcept member moves, deleted-move
+      copy fallback, and move suppression/deletion from user-declared
+      destructor/assignment. Direct libcxx trait tests agree with GCC C++20 on
+      i686/AMD64.
 - [ ] Complete implicit copy/move deletion/access rules beyond this tested
       matrix and broader type-trait conformance.
 

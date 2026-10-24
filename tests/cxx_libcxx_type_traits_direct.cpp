@@ -524,6 +524,12 @@ struct ImplicitNothrowCopyTrait {
     NothrowCopyTraitMember member;
 };
 
+struct ExplicitDefaultedNothrowCopyTrait {
+    NothrowCopyTraitMember member;
+    ExplicitDefaultedNothrowCopyTrait(
+        const ExplicitDefaultedNothrowCopyTrait&) = default;
+};
+
 struct NothrowMutableCopyTraitMember {
     NothrowMutableCopyTraitMember(
         NothrowMutableCopyTraitMember&) noexcept;
@@ -566,6 +572,14 @@ struct ImplicitNothrowMoveTrait {
     NothrowMoveTraitMember member;
 };
 
+struct ExplicitDefaultedNothrowMoveTrait {
+    NothrowMoveTraitMember member;
+    ExplicitDefaultedNothrowMoveTrait(
+        const ExplicitDefaultedNothrowMoveTrait&) = delete;
+    ExplicitDefaultedNothrowMoveTrait(
+        ExplicitDefaultedNothrowMoveTrait&&) = default;
+};
+
 struct DeletedMoveNothrowCopyTraitMember {
     DeletedMoveNothrowCopyTraitMember(
         const DeletedMoveNothrowCopyTraitMember&) noexcept;
@@ -585,6 +599,12 @@ struct ImplicitDeletedCopyTrait {
     DeletedCopyTraitMember member;
 };
 
+struct ExplicitDefaultedDeletedCopyTrait {
+    DeletedCopyTraitMember member;
+    ExplicitDefaultedDeletedCopyTrait(
+        const ExplicitDefaultedDeletedCopyTrait&) = default;
+};
+
 struct PrivateCopyTraitMember {
 private:
     PrivateCopyTraitMember(const PrivateCopyTraitMember&) noexcept;
@@ -592,6 +612,12 @@ private:
 
 struct ImplicitPrivateCopyTrait {
     PrivateCopyTraitMember member;
+};
+
+struct ExplicitDefaultedPrivateCopyTrait {
+    PrivateCopyTraitMember member;
+    ExplicitDefaultedPrivateCopyTrait(
+        const ExplicitDefaultedPrivateCopyTrait&) = default;
 };
 
 void accept_nothrow_value(NothrowValue);
@@ -943,6 +969,10 @@ static_assert(std::is_nothrow_constructible<
                   ImplicitNothrowCopyTrait&&>::value,
               "an implicit move that copies its member retains noexcept");
 static_assert(std::is_nothrow_constructible<
+                  ExplicitDefaultedNothrowCopyTrait,
+                  const ExplicitDefaultedNothrowCopyTrait&>::value,
+              "an explicitly defaulted copy propagates member noexcept");
+static_assert(std::is_nothrow_constructible<
                   ImplicitNothrowMutableCopyTrait,
                   ImplicitNothrowMutableCopyTrait&>::value,
               "implicit copy retains a non-const noexcept member signature");
@@ -978,6 +1008,14 @@ static_assert(std::is_nothrow_constructible<
                   ImplicitNothrowMoveTrait,
                   ImplicitNothrowMoveTrait&&>::value,
               "implicit move propagates a noexcept member move");
+static_assert(std::is_nothrow_constructible<
+                  ExplicitDefaultedNothrowMoveTrait,
+                  ExplicitDefaultedNothrowMoveTrait&&>::value,
+              "an explicitly defaulted move propagates member noexcept");
+static_assert(!std::is_nothrow_constructible<
+                  ExplicitDefaultedNothrowMoveTrait,
+                  const ExplicitDefaultedNothrowMoveTrait&>::value,
+              "an explicitly deleted copy remains unavailable");
 static_assert(!std::is_nothrow_constructible<
                   ImplicitNothrowMoveTrait,
                   const ImplicitNothrowMoveTrait&>::value,
@@ -991,9 +1029,17 @@ static_assert(!std::is_nothrow_constructible<
                   const ImplicitDeletedCopyTrait&>::value,
               "a deleted member copy makes the implicit outer copy unavailable");
 static_assert(!std::is_nothrow_constructible<
+                  ExplicitDefaultedDeletedCopyTrait,
+                  const ExplicitDefaultedDeletedCopyTrait&>::value,
+              "a defaulted copy is deleted when a member copy is deleted");
+static_assert(!std::is_nothrow_constructible<
                   ImplicitPrivateCopyTrait,
                   const ImplicitPrivateCopyTrait&>::value,
               "a private member copy makes the implicit outer copy unavailable");
+static_assert(!std::is_nothrow_constructible<
+                  ExplicitDefaultedPrivateCopyTrait,
+                  const ExplicitDefaultedPrivateCopyTrait&>::value,
+              "a defaulted copy is deleted when a member copy is private");
 
 int cxx_libcxx_type_traits_direct_probe() {
     accept_nothrow_value(0);
