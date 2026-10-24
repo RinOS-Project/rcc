@@ -9032,10 +9032,18 @@ remains a separate open item.
       objects, and GCC C++20 accepts the same fixture. This verifies the full
       header's direct parse/semantic-compile path; it does not claim complete
       instantiation or conformance of every trait.
-- [ ] Broader C++ type-trait intrinsic coverage and target-specific
-      builtin-query cases remain open. Continue by instantiating traits and
-      comparing behavior with GCC, rather than treating a successful header
-      include as complete trait support.
+- [x] Implement `__is_constructible(T, Args...)` for scalar conversions,
+      reference binding, modeled public constructors (including explicit,
+      deleted, and inaccessible best matches), and C++20 aggregate
+      initialization. Preserve dependent type packs through substitution and
+      advertise the builtin through `__has_builtin`. The focused fixture and
+      instantiated `std::is_constructible` checks pass on i686/AMD64 and
+      against GCC; the direct libcxx header gate passes.
+- [ ] Constructor-template, inherited and constrained constructor resolution,
+      implicit copy/move special-member viability, assignment traits,
+      nothrow-constructibility, and remaining target-specific builtin-query
+      cases remain open. Continue instantiating real traits and comparing with
+      GCC rather than treating header parsing as complete support.
 - [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
       fixed-width, fast-width, and character type macros. C and C++ regressions
       verify their widths against `sizeof(void*)`, the fixed-width integer ABI,
@@ -9270,3 +9278,21 @@ remains a separate open item.
       specialization regression targets pass.
 - [ ] Other declaration/attribute ordering cases remain open; class-member
       behavior is covered by the same fixture.
+
+## RCC continuation (2026-10-24, C++ constructibility trait)
+
+- [x] Implement `__is_constructible(T, Args...)` for the modeled scalar,
+      reference, explicit-constructor, deleted/inaccessible best-match, and
+      C++20 aggregate cases. Dependent type packs are expanded after template
+      substitution. `test-cxx-constructible-builtin` and instantiated
+      `std::is_constructible` assertions pass for i686/AMD64 and GCC.
+- [x] Advertise `__is_constructible` via `__has_builtin` and gate it through
+      `test-preprocessor-has-builtin` for C/C++, both target widths, and the
+      libcxx type-traits preprocessor/compile fixture.
+- [x] Define RinOS `max_align_t` from the natural alignment of supported
+      `long long` and `double` types, avoiding unsupported `long double` and
+      field attributes. The direct libcxx type-traits fixture checks its
+      supported scalar alignment on both targets and passes GCC C++20.
+- [ ] Constructor-template, inherited/constrained overload resolution,
+      implicit copy/move special-member rules, `is_assignable`,
+      `is_nothrow_constructible`, and broader trait conformance remain open.

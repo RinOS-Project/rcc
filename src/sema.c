@@ -104,7 +104,8 @@ static bool sema_cxx_trivially_destructible(Type* type);
 static bool is_lvalue(Expr* e);
 static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     Type* type, ExprList* arguments, int argument_count,
-    bool allow_explicit, bool* ambiguous);
+    bool allow_explicit, bool include_inaccessible_or_deleted,
+    bool* ambiguous);
 static bool sema_append_cxx_constructor_default_arguments(
     ExprList** arguments, CxxConstructorInfo* constructor,
     int supplied_count);
@@ -4131,7 +4132,7 @@ reference_binding_validated:
         *source_expression = *e;
         constructor_arguments = exprlist_new(source_expression);
         constructor = sema_cxx_select_type_trait_constructor_ex(
-            target, constructor_arguments, 1, false, &ambiguous);
+            target, constructor_arguments, 1, false, false, &ambiguous);
         if (!ambiguous && constructor && constructor->parameters &&
             implicit_cast_with_explicit_conversion(
                 source_expression, constructor->parameters->type, false) &&
@@ -9561,7 +9562,7 @@ static int cxx_conversion_rank_detail_at_context(
             guard.previous = active_cxx_conversion_guards;
             active_cxx_conversion_guards = &guard;
             constructor = sema_cxx_select_type_trait_constructor_ex(
-                target, constructor_arguments, 1, false, &ambiguous);
+                target, constructor_arguments, 1, false, false, &ambiguous);
             active_cxx_conversion_guards = guard.previous;
             if (constructor && !ambiguous) return 3;
         }
@@ -9721,7 +9722,7 @@ int rcc_sema_cxx_conversion_constructor_noexcept(
     if (!probe->type) return -1;
     constructor_arguments = exprlist_new(probe);
     constructor = sema_cxx_select_type_trait_constructor_ex(
-        target, constructor_arguments, 1, false, &ambiguous);
+        target, constructor_arguments, 1, false, false, &ambiguous);
     if (!constructor || ambiguous || !constructor->method ||
         !constructor->method->decl) {
         return -1;
@@ -13174,7 +13175,8 @@ static bool sema_cxx_type_trait_special_subobjects_are_trivial(
 
 static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     Type* type, ExprList* arguments, int argument_count,
-    bool allow_explicit, bool* ambiguous) {
+    bool allow_explicit, bool include_inaccessible_or_deleted,
+    bool* ambiguous) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     CxxConstructorInfo* best = NULL;
     int* best_ranks;
@@ -13199,9 +13201,10 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
         TypeMethod** candidate_methods;
         bool viable = true;
         if (!candidate->method || candidate->method->member_template ||
-            candidate->is_inherited || candidate->access != ACCESS_PUBLIC ||
+            candidate->is_inherited ||
+            (!include_inaccessible_or_deleted &&
+             (candidate->access != ACCESS_PUBLIC || candidate->is_deleted)) ||
             (!allow_explicit && candidate->method->is_explicit) ||
-            candidate->is_deleted ||
             candidate->parameter_count < argument_count ||
             (candidate->parameter_count != argument_count &&
              !sema_cxx_constructor_arity_has_defaults(
@@ -13283,7 +13286,7 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
 static CxxConstructorInfo* sema_cxx_select_type_trait_constructor(
     Type* type, ExprList* arguments, int argument_count, bool* ambiguous) {
     return sema_cxx_select_type_trait_constructor_ex(
-        type, arguments, argument_count, true, ambiguous);
+        type, arguments, argument_count, true, false, ambiguous);
 }
 
 static bool sema_cxx_type_trait_is_aggregate_constructible(
@@ -13545,6 +13548,197 @@ static bool sema_cxx_trivially_constructible(Type* type,
 bool rcc_sema_cxx_trivially_constructible(
     Type* type, CxxTypeTraitArgument* arguments) {
     return sema_cxx_trivially_constructible(type, arguments, 0u);
+}
+
+static bool sema_cxx_type_trait_destructor_is_deleted(Type* type,
+                                                       unsigned depth) {
+    CxxClass* cls;
+    if (!type || depth > 32u) return true;
+    if (type->kind == TYPE_PTR && type->is_reference) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len < 0 || !type->base ||
+               sema_cxx_type_trait_destructor_is_deleted(type->base,
+                                                          depth + 1u);
+    }
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC) return true;
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return false;
+    if (!type_is_complete(type)) return true;
+    cls = type->cxx_class;
+    if (cls && cls->destructor_method && cls->destructor_method->is_deleted) {
+        return true;
+    }
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                sema_cxx_type_trait_destructor_is_deleted(base->type,
+                                                           depth + 1u)) {
+                return true;
+            }
+        }
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (sema_cxx_type_trait_destructor_is_deleted(field->type,
+                                                       depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sema_cxx_constructible(Type* type,
+                                   CxxTypeTraitArgument* arguments,
+                                   unsigned depth);
+
+static bool sema_cxx_type_trait_aggregate_constructible(
+    Type* type, CxxTypeTraitArgument* arguments, int argument_count,
+    unsigned depth) {
+    ExprList* argument = sema_cxx_type_trait_argument_expressions(arguments);
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    int element_count = 0;
+    if (!type || depth > 32u || argument_count < 0 ||
+        (argument_count > 0 && !rcc_parser_cxx_standard_at_least(20))) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        if (type->array_len < 0 || argument_count > type->array_len ||
+            !type->base) {
+            return false;
+        }
+        while (argument) {
+            CxxTypeTraitArgument element_argument;
+            memset(&element_argument, 0, sizeof(element_argument));
+            element_argument.type = argument->expr->type;
+            element_argument.loc = argument->expr->loc;
+            if (!sema_cxx_constructible(type->base, &element_argument,
+                                        depth + 1u)) {
+                return false;
+            }
+            argument = argument->next;
+        }
+        while (element_count + argument_count < type->array_len) {
+            if (!sema_cxx_constructible(type->base, NULL, depth + 1u)) {
+                return false;
+            }
+            ++element_count;
+        }
+        return true;
+    }
+    if (!ast_cxx_is_aggregate(type)) return false;
+    if (type->kind == TYPE_UNION) {
+        TypeField* field = type->fields;
+        if (argument_count > 1) return false;
+        if (!field) return argument_count == 0;
+        if (!argument_count && field->initializer) return true;
+        if (!argument) {
+            return sema_cxx_constructible(field->type, NULL, depth + 1u);
+        }
+        CxxTypeTraitArgument member_argument;
+        memset(&member_argument, 0, sizeof(member_argument));
+        member_argument.type = argument->expr->type;
+        member_argument.loc = argument->expr->loc;
+        return sema_cxx_constructible(field->type, &member_argument,
+                                      depth + 1u);
+    }
+    if (!cls) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        CxxTypeTraitArgument element_argument;
+        if (!base || !base->type) return false;
+        memset(&element_argument, 0, sizeof(element_argument));
+        if (argument) {
+            element_argument.type = argument->expr->type;
+            element_argument.loc = argument->expr->loc;
+            if (!sema_cxx_constructible(base->type, &element_argument,
+                                        depth + 1u)) {
+                return false;
+            }
+            argument = argument->next;
+        } else if (!sema_cxx_constructible(base->type, NULL, depth + 1u)) {
+            return false;
+        }
+        ++element_count;
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        CxxTypeTraitArgument element_argument;
+        if (field->is_static) continue;
+        if (!field->type) return false;
+        memset(&element_argument, 0, sizeof(element_argument));
+        if (argument) {
+            element_argument.type = argument->expr->type;
+            element_argument.loc = argument->expr->loc;
+            if (!sema_cxx_constructible(field->type, &element_argument,
+                                        depth + 1u)) {
+                return false;
+            }
+            argument = argument->next;
+        } else if (!field->initializer &&
+                   !sema_cxx_constructible(field->type, NULL,
+                                           depth + 1u)) {
+            return false;
+        }
+        ++element_count;
+    }
+    return argument_count <= element_count && !argument;
+}
+
+static bool sema_cxx_constructible(Type* type,
+                                   CxxTypeTraitArgument* arguments,
+                                   unsigned depth) {
+    ExprList* expressions;
+    int argument_count;
+    if (!type || depth > 32u) return false;
+    argument_count = sema_cxx_type_trait_argument_count(arguments);
+    if (argument_count < 0 || type->kind == TYPE_VOID ||
+        type->kind == TYPE_FUNC) {
+        return false;
+    }
+    expressions = sema_cxx_type_trait_argument_expressions(arguments);
+    if (type->kind == TYPE_PTR && type->is_reference) {
+        return argument_count == 1 && expressions && expressions->expr &&
+               cxx_conversion_rank_detail(expressions->expr, type, NULL) >= 0;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type_is_complete(type) &&
+               sema_cxx_type_trait_aggregate_constructible(
+                   type, arguments, argument_count, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) {
+        if (argument_count == 0) return true;
+        return argument_count == 1 && expressions && expressions->expr &&
+               cxx_conversion_rank_detail(expressions->expr, type, NULL) >= 0;
+    }
+    if (!type_is_complete(type) || type->size <= 0 ||
+        !type->cxx_class || sema_cxx_class_is_abstract(type->cxx_class) ||
+        !sema_cxx_destructor_is_accessible(type, false) ||
+        sema_cxx_type_trait_destructor_is_deleted(type, 0u)) {
+        return false;
+    }
+    if (type->cxx_class->constructors) {
+        bool ambiguous = false;
+        CxxConstructorInfo* constructor =
+            sema_cxx_select_type_trait_constructor_ex(
+                type, expressions, argument_count, true, true, &ambiguous);
+        if (ambiguous || !constructor || constructor->is_deleted ||
+            constructor->access != ACCESS_PUBLIC) {
+            return false;
+        }
+        return true;
+    }
+    if (ast_cxx_is_aggregate(type)) {
+        return sema_cxx_type_trait_aggregate_constructible(
+            type, arguments, argument_count, depth + 1u);
+    }
+    if (argument_count == 0 &&
+        (rcc_parser_cxx_constructor_arity_mask(type) & UINT32_C(1)) != 0u) {
+        return true;
+    }
+    return false;
+}
+
+bool rcc_sema_cxx_constructible(Type* type,
+                                CxxTypeTraitArgument* arguments) {
+    return sema_cxx_constructible(type, arguments, 0u);
 }
 
 /* A class-target static_cast may use a conversion function only when direct

@@ -30,6 +30,10 @@
 #error RCC must report the implemented trivial-constructible builtin
 #endif
 
+#if !__has_builtin(__is_constructible)
+#error RCC must report the implemented constructible builtin
+#endif
+
 #if !__has_builtin(__is_trivial)
 #error RCC must report the implemented triviality type-trait builtin
 #endif

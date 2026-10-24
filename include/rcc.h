@@ -189,6 +189,8 @@ bool rcc_sema_cxx_has_trivial_destructor(struct Type* type);
 bool rcc_sema_cxx_has_trivial_constructor(struct Type* type);
 bool rcc_sema_cxx_trivially_constructible(
     struct Type* type, struct CxxTypeTraitArgument* arguments);
+bool rcc_sema_cxx_constructible(
+    struct Type* type, struct CxxTypeTraitArgument* arguments);
 bool rcc_sema_fold_nonfinite_builtin(struct Expr* expression);
 bool rcc_parser_cxx_type_constraint_satisfied(
     struct CxxTemplate* concept, struct ExprList* explicit_arguments,

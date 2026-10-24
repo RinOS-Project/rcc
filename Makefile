@@ -549,6 +549,7 @@ endif
 .PHONY: test-cxx-global-allocation-operators
 .PHONY: test-cxx-class-typedef
 .PHONY: test-cxx-libcxx-type-traits-direct
+.PHONY: test-cxx-constructible-builtin
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
 .PHONY: test-cxx-designated-initializer
@@ -660,6 +661,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-global-allocation-operators \
 	test-cxx-class-typedef \
 	test-cxx-libcxx-type-traits-direct \
+	test-cxx-constructible-builtin \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
 	test-preprocessor-has-include \
@@ -15208,6 +15210,18 @@ test-cxx-libcxx-type-traits-direct: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -ffreestanding -pedantic-errors -Wno-pedantic -fsyntax-only \
 		tests/cxx_libcxx_type_traits_direct.cpp
 	@echo "Direct libcxx type_traits constructor-conversion tests completed"
+
+test-cxx-constructible-builtin: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constructible-builtin)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -ffreestanding -c \
+		-o $(TEST_OUT)/cxx-constructible-builtin/x86.ro \
+		tests/cxx_constructible_builtin.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -ffreestanding -c \
+		-o $(TEST_OUT)/cxx-constructible-builtin/x64.ro \
+		tests/cxx_constructible_builtin.cpp
+	$(CXX) -std=c++20 -ffreestanding -fsyntax-only \
+		tests/cxx_constructible_builtin.cpp
+	@echo "C++ constructible type-trait tests completed"
 
 test-cxx-decltype-dependent-function-reference: $(RCXX_TARGET)
 	$(call CXX_FRONTEND_ONLY_TEST,cxx-decltype-dependent-function-reference,cxx_decltype_dependent_function_reference.cpp)

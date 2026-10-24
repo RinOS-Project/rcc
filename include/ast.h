@@ -551,6 +551,7 @@ typedef enum {
     CXX_TYPE_TRAIT_POLYMORPHIC,
     CXX_TYPE_TRAIT_EMPTY,
     CXX_TYPE_TRAIT_FUNCTION,
+    CXX_TYPE_TRAIT_CONSTRUCTIBLE,
 } CxxTypeTraitKind;
 
 typedef enum {
