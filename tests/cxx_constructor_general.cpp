@@ -44,8 +44,13 @@ int main() {
     GeneralConstructor object(3);
     TemplateConstructor templated{5};
     NormalizedTemplateConstructor normalized{9};
+    TemplateConstructor parenthesized(4);
+    NormalizedTemplateConstructor normalized_parenthesized(11);
+    TemplateConstructor functional_cast = TemplateConstructor(2);
     return object.value == 7 && templated.value == 7 &&
-                   normalized.value == 9
+                   normalized.value == 9 && parenthesized.value == 6 &&
+                   normalized_parenthesized.value == 11 &&
+                   functional_cast.value == 4
         ? 0
         : 1;
 }

@@ -35184,6 +35184,19 @@ int rcc_parser_cxx_materialize_constructor_templates(
         constraint_unsupported);
 }
 
+bool rcc_parser_cxx_has_constructor_template(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!cls) return false;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        if (method && method->is_constructor && method->member_template) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Function-address template deduction uses the target function type as the
  * argument to the same structural deduction and constraint machinery used by
  * calls.  The resulting specializations are then ranked by the existing
@@ -35481,11 +35494,13 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     }
     aggregate_cast = type && type->cxx_class &&
         rcc_parser_cxx_constructor_arity_mask(type) == 0u &&
+        !rcc_parser_cxx_has_constructor_template(type) &&
         (check(TOK_LBRACE) ||
          (check(TOK_LPAREN) && rcc_parser_cxx_standard_at_least(20)));
     if (!type || (!check(TOK_LPAREN) && !check(TOK_LBRACE)) ||
         (type->cxx_class &&
          rcc_parser_cxx_constructor_arity_mask(type) == 0u &&
+         !rcc_parser_cxx_has_constructor_template(type) &&
          !aggregate_cast)) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
@@ -39144,6 +39159,7 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     Expr* initializer;
     Decl* declaration;
     uint32_t constructor_mask;
+    bool has_constructor_template;
     bool aggregate_type;
     bool paren_form;
     bool paren_has_arguments;
@@ -39156,6 +39172,8 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
 
     constructor_mask = base_type
         ? rcc_parser_cxx_constructor_arity_mask(base_type) : 0u;
+    has_constructor_template =
+        rcc_parser_cxx_has_constructor_template(base_type);
     aggregate_type = cxx_type_is_aggregate(base_type);
     paren_form = check_next(TOK_LPAREN);
     paren_has_arguments = paren_form && parser.cur->next->next &&
@@ -39169,14 +39187,14 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     /* Preserve expression-shaped initialization of a local class while its
      * function-template body is still a pattern.  Its concrete layout and
      * constructor set do not exist yet, so arity verification must happen
-     * after specialization.  Outside that deferred case, only constructors
-     * already proven ABI-safe and C++20 aggregate paren initialization are
-     * consumed here; `T value();` remains a function declaration. */
+     * after specialization.  Otherwise admit constructors with a validated
+     * lowering, constructor templates, and C++20 aggregate paren initialization;
+     * `T value();` remains a function declaration. */
     if (!base_type || (base_type->kind != TYPE_STRUCT &&
                        base_type->kind != TYPE_UNION) ||
         (!is_ctad_placeholder && !deferred_template_class_initializer &&
          (!type_is_complete(base_type) ||
-          (constructor_mask == 0u &&
+          (constructor_mask == 0u && !has_constructor_template &&
            !(aggregate_type && (check_next(TOK_LBRACE) ||
                                 (paren_form && paren_has_arguments)))))) ||
         !check(TOK_IDENT) ||
