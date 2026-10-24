@@ -4417,9 +4417,13 @@ static Type* parser_parse_aggregate_type_spec(TypeKind kind) {
     if (check(TOK_IDENT)) tag = advance();
     parser_parse_aggregate_attributes(&attributes);
 
-    if (kind == TYPE_STRUCT && parser_cxx_mode && tag &&
+    if ((kind == TYPE_STRUCT || kind == TYPE_UNION) &&
+        parser_cxx_mode && tag &&
         rcc_parser_cxx_find_class_type) {
         aggregate = rcc_parser_cxx_find_class_type(tag->value.str_val);
+        if (aggregate && aggregate->kind != kind) {
+            aggregate = NULL;
+        }
     }
     if (!aggregate) {
         aggregate = parser_tag_type(kind,

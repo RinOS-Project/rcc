@@ -277,9 +277,11 @@ void rcc_parser_cxx_type_namespace_lookup_depths(
  * functions keeps its existing semantics. */
 static bool cxx_leading_alignas_class_starts(void) {
     Token* token = parser.cur;
+    bool saw_alignas = false;
 
     while (token && token->type == TOK__ALIGNAS) {
         int depth = 0;
+        saw_alignas = true;
         token = token->next;
         if (!token || token->type != TOK_LPAREN) return false;
         do {
@@ -292,7 +294,9 @@ static bool cxx_leading_alignas_class_starts(void) {
         } while (token && depth > 0);
         if (depth != 0) return false;
     }
-    return token && (token->type == TOK_CLASS || token->type == TOK_STRUCT);
+    return saw_alignas && token &&
+        (token->type == TOK_CLASS || token->type == TOK_STRUCT ||
+         token->type == TOK_UNION);
 }
 
 static const char* cxx_method_source_name(CxxMethod* method);
@@ -11264,6 +11268,12 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             }
         }
 
+        if (cls->is_union &&
+            (is_virtual || is_override || is_final || is_pure)) {
+            rcc_error(loc,
+                      "a union member function cannot be virtual or override a base member");
+        }
+
         if (is_constructor) {
             constructor_initializer = parse_ctor_initializer();
         }
@@ -11521,6 +11531,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                 type, explicit_alignment, deferred_alignment_expression, loc);
         }
 
+        if (cls->is_union && !is_static && type && type->is_reference) {
+            rcc_error(loc, "a union data member cannot have reference type");
+        }
+
         if (match(TOK_COLON)) {
             Expr* width_expression = parse_assignment_expression();
             int64_t width_value = 0;
@@ -11560,6 +11574,16 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             init = rcc_parser_parse_initializer();
         } else if (check(TOK_LBRACE)) {
             init = rcc_parser_parse_initializer();
+        }
+        if (init && !is_static && cls->is_union) {
+            for (TypeParam* member = cls->fields; member;
+                 member = member->next) {
+                if (!member->is_static && member->initializer) {
+                    rcc_error(loc,
+                              "a union may have only one default member initializer");
+                    break;
+                }
+            }
         }
         if (init && !is_static) cls->has_field_initializer = true;
         if (is_thread_local && !is_static) {
@@ -11843,7 +11867,7 @@ static CxxClass* cxx_find_class_declaration(const char* name) {
 }
 
 static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
-                                       const char* class_name,
+                                       bool is_union, const char* class_name,
                                        const char* local_type_identity) {
     bool has_definition = false;
     bool is_final;
@@ -11860,6 +11884,10 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                           !local_type_identity)
         ? cxx_find_class_declaration(class_name) : NULL;
     CxxClass* cls = NULL;
+    if (existing && existing->is_union != is_union) {
+        rcc_error(loc, "class-key does not match previous declaration of '%s'",
+                  class_name ? class_name : "<anonymous>");
+    }
     if (existing && existing->type && existing->type->is_complete &&
         !check(TOK_LBRACE) && !check(TOK_COLON)) {
         /* A repeated namespace-scope forward declaration denotes the same
@@ -11869,7 +11897,13 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     if (existing && existing->type && !existing->type->is_complete) {
         cls = existing;
     }
-    if (!cls) cls = cxx_class_new(class_name, loc);
+    if (!cls) {
+        cls = cxx_class_new(class_name, loc);
+        if (is_union) {
+            cls->type = type_union(class_name);
+            cls->type->cxx_class = cls;
+        }
+    }
     /* Friend-name matching is needed while this class body is parsed. Give
      * the class its namespace identity before member declarations are read;
      * namespace registration still happens after the complete definition. */
@@ -11882,6 +11916,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
         active_template_class_definition = cls;
     }
     cls->is_struct = is_struct;
+    cls->is_union = is_union;
     cls->is_final = is_final;
     cls->type->cxx_scope_identity = local_type_identity;
     cls->pack_alignment = rcc_parser_pack_alignment();
@@ -11895,6 +11930,9 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
 
     /* Inheritance */
     if (match(TOK_COLON)) {
+        if (is_union) {
+            rcc_error(previous()->loc, "a union cannot have base classes");
+        }
         do {
             AccessSpec inherit_access = is_struct
                 ? ACCESS_PUBLIC : ACCESS_PRIVATE;
@@ -11990,7 +12028,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                 continue;
             }
 
-            if ((check(TOK_CLASS) || check(TOK_STRUCT)) &&
+            if ((check(TOK_CLASS) || check(TOK_STRUCT) || check(TOK_UNION)) &&
                 parser.cur->next &&
                 parser.cur->next->type == TOK_IDENT &&
                 parser.cur->next->next &&
@@ -11999,15 +12037,18 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                  parser.cur->next->next->type == TOK_FINAL ||
                  parser.cur->next->next->type == TOK_SEMICOLON)) {
                 SourceLoc nested_loc = peek()->loc;
-                bool nested_is_struct = match(TOK_STRUCT);
+                bool nested_is_union = match(TOK_UNION);
+                bool nested_is_struct = !nested_is_union &&
+                                        match(TOK_STRUCT);
                 Token* name_token;
                 CxxClass* nested_class;
                 CxxTemplate* nested_declaration;
-                if (!nested_is_struct) advance();
+                if (!nested_is_struct && !nested_is_union) advance();
                 name_token = expect(TOK_IDENT, "nested class name");
                 if (!name_token) continue;
                 nested_class = parse_cxx_class_named(
-                    nested_loc, nested_is_struct,
+                    nested_loc, nested_is_struct || nested_is_union,
+                    nested_is_union,
                     name_token->value.str_val, NULL);
                 if (!nested_class) continue;
                 nested_declaration = cxx_template_alloc(
@@ -12294,12 +12335,14 @@ static void cxx_apply_class_deprecation(CxxClass* cls, bool is_deprecated,
 CxxClass* parse_cxx_class(void) {
     SourceLoc loc = previous()->loc;
     bool is_struct = previous()->type == TOK_STRUCT;
+    bool is_union = previous()->type == TOK_UNION;
     const char* deprecated_message = NULL;
     bool is_deprecated = cxx_take_class_attributes(loc,
                                                    &deprecated_message);
     Token* name_tok = expect(TOK_IDENT, "class name");
     const char* class_name = name_tok ? name_tok->value.str_val : "anonymous";
-    CxxClass* cls = parse_cxx_class_named(loc, is_struct, class_name, NULL);
+    CxxClass* cls = parse_cxx_class_named(
+        loc, is_struct || is_union, is_union, class_name, NULL);
     cxx_apply_class_deprecation(cls, is_deprecated, deprecated_message);
     return cls;
 }
@@ -12862,7 +12905,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
                     explicit_alignment = alignment;
                 }
             }
-            if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+            if (match(TOK_CLASS) || match(TOK_STRUCT) || match(TOK_UNION)) {
                 CxxClass* cls = parse_cxx_class();
                 cxx_class_apply_explicit_alignment(
                     cls, explicit_alignment, alignment_loc);
@@ -12880,6 +12923,18 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
         } else if (match(TOK_PRAGMA_PACK)) {
             rcc_parser_apply_pragma_pack(previous());
         } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+            CxxClass* cls = parse_cxx_class();
+            (void)take_cxx_nodiscard();
+            if (take_cxx_weak()) {
+                rcc_error(loc, "[[gnu::weak]] requires a file-scope declaration");
+            }
+            (void)take_cxx_deprecated(NULL);
+            if (take_cxx_no_unique_address()) {
+                rcc_error(loc,
+                          "[[no_unique_address]] requires a class data member");
+            }
+            cxx_namespace_add_class(ns, cls);
+        } else if (match(TOK_UNION)) {
             CxxClass* cls = parse_cxx_class();
             (void)take_cxx_nodiscard();
             if (take_cxx_weak()) {
@@ -15161,7 +15216,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         tmpl->templated_class = NULL;
         active_template_class_definition = NULL;
         specialized_class = parse_cxx_class_named(
-            loc, is_struct,
+            loc, is_struct, false,
             name_token ? name_token->value.str_val : "nested-specialization",
             NULL);
         cxx_apply_class_deprecation(specialized_class, class_is_deprecated,
@@ -15359,7 +15414,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         tmpl->templated_class = NULL;
         active_template_class_definition = NULL;
         specialized_class = parse_cxx_class_named(
-            loc, is_struct,
+            loc, is_struct, false,
             name_token ? name_token->value.str_val : "specialization",
             NULL);
         cxx_apply_class_deprecation(specialized_class, class_is_deprecated,
@@ -16165,6 +16220,31 @@ static CxxClass* find_class(const char* qualified_name) {
     if (!name) return NULL;
     explicitly_global = name[0] == ':' && name[1] == ':';
     while (name[0] == ':' && name[1] == ':') name += 2;
+    if (strstr(name, "::")) {
+        const char* separator = strrchr(name, ':');
+        if (separator && separator > name && separator[-1] == ':') {
+            size_t owner_length = (size_t)(separator - name - 1);
+            if (owner_length > 0u && owner_length < sizeof(buffer)) {
+                CxxClass* owner;
+                CxxNestedClassTemplate* nested;
+                memcpy(buffer, name, owner_length);
+                buffer[owner_length] = '\0';
+                owner = find_class(buffer);
+                if (!owner && active_class && active_class->name &&
+                    strcmp(active_class->name, buffer) == 0) {
+                    owner = active_class;
+                }
+                nested = owner
+                    ? cxx_class_find_nested_template(owner, separator + 1)
+                    : NULL;
+                if (nested && nested->declaration &&
+                    nested->declaration->param_count == 0 &&
+                    nested->declaration->templated_class) {
+                    return nested->declaration->templated_class;
+                }
+            }
+        }
+    }
     if (!strstr(name, "::")) {
         if (!explicitly_global) {
             for (ns = active_namespace; ns; ns = ns->parent) {
@@ -19503,6 +19583,11 @@ static Type* instantiate_class_template_for_owner(
     }
     instance = cxx_class_new(ast_arena_strdup(tag), loc);
     instance->is_struct = definition->is_struct;
+    instance->is_union = definition->is_union;
+    if (instance->is_union) {
+        instance->type = type_union(instance->name);
+        instance->type->cxx_class = instance;
+    }
     instance->is_final = definition->is_final;
     instance->is_deprecated = definition->is_deprecated;
     instance->deprecated_message = definition->deprecated_message;
@@ -38186,6 +38271,21 @@ static Type* parse_cxx_type_spec(void) {
             rcc_error(loc, "unknown C++ class type '%s'", name);
             t = type_int;
         }
+    } else if (match(TOK_UNION)) {
+        const char* name = parse_qualified_name();
+        CxxClass* known_class = find_class(name);
+        if (!known_class && active_class && active_class->name &&
+            strcmp(name, active_class->name) == 0) {
+            known_class = active_class;
+        }
+        Type* known_type = known_class
+            ? known_class->type : rcc_parser_lookup_type(name);
+        if (!known_type || known_type->kind != TYPE_UNION) {
+            rcc_error(loc, "unknown C++ union type '%s'", name);
+            t = type_int;
+        } else {
+            t = known_type;
+        }
     } else if (cxx_qualified_class_alias_template_starts()) {
         t = parse_qualified_class_alias_template_type(loc);
     } else if ((!parser.prev || parser.prev->type != TOK_TYPENAME) &&
@@ -40048,7 +40148,8 @@ static bool cxx_local_class_definition_starts(void) {
     Token* body;
     int brace_depth = 0;
     if (!cursor || (cursor->type != TOK_CLASS &&
-                    cursor->type != TOK_STRUCT)) {
+                    cursor->type != TOK_STRUCT &&
+                    cursor->type != TOK_UNION)) {
         return false;
     }
     cursor = cursor->next;
@@ -40074,13 +40175,14 @@ static bool cxx_local_class_definition_starts(void) {
 
 static Stmt* parse_cxx_local_class_definition(void) {
     SourceLoc loc = peek()->loc;
-    bool is_struct = match(TOK_STRUCT);
+    bool is_union = match(TOK_UNION);
+    bool is_struct = !is_union && match(TOK_STRUCT);
     Token* name;
     const char* local_identity;
     CxxClass* local_class;
     CxxTemplate* enclosing_template = active_template;
     CxxTemplate* local_template = NULL;
-    if (!is_struct) expect(TOK_CLASS, "class");
+    if (!is_struct && !is_union) expect(TOK_CLASS, "class");
     name = expect(TOK_IDENT, "local class name");
     if (!name) {
         return stmt_null(loc);
@@ -40120,7 +40222,8 @@ static Stmt* parse_cxx_local_class_definition(void) {
         active_template = local_template;
     }
     local_class = parse_cxx_class_named(
-        loc, is_struct, name->value.str_val, local_identity);
+        loc, is_struct || is_union, is_union,
+        name->value.str_val, local_identity);
     active_template = enclosing_template;
 
     /* A local class in a template is a distinct class in every enclosing
@@ -40388,7 +40491,7 @@ static void parse_cxx_language_linkage(AST* ast, CxxNamespace* ns) {
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
             skip_cxx_attributes();
-            if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+            if (match(TOK_CLASS) || match(TOK_STRUCT) || match(TOK_UNION)) {
                 CxxClass* cls = parse_cxx_class();
                 (void)take_cxx_nodiscard();
                 if (take_cxx_weak()) {
@@ -40531,7 +40634,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                     explicit_alignment = alignment;
                 }
             }
-            if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+            if (match(TOK_CLASS) || match(TOK_STRUCT) || match(TOK_UNION)) {
                 CxxClass* cls = parse_cxx_class();
                 cxx_class_apply_explicit_alignment(
                     cls, explicit_alignment, alignment_loc);
@@ -40566,7 +40669,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                 cxx_namespace_add_template(g_global_namespace, tmpl);
             }
         } else if (rcc_parse_cxx_deduction_guide()) {
-        } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+        } else if (match(TOK_CLASS) || match(TOK_STRUCT) || match(TOK_UNION)) {
             CxxClass* cls = parse_cxx_class();
             (void)take_cxx_nodiscard();
             if (take_cxx_weak()) {

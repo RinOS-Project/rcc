@@ -4982,6 +4982,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     CxxClass* cls = rcc_alloc(sizeof(CxxClass));
     cls->name = name ? rcc_strdup(name) : NULL;
     cls->is_struct = is_struct;
+    cls->is_union = false;
     cls->is_final = false;
     cls->is_deprecated = false;
     cls->deprecated_message = NULL;
@@ -5181,6 +5182,78 @@ void cxx_class_compute_layout(CxxClass* cls) {
             has_virtual = true;
             if (!primary_vtable_base) primary_vtable_base = base;
         }
+    }
+
+    if (cls->is_union || cls->type->kind == TYPE_UNION) {
+        int union_size = 0;
+        bool union_nontrivial = cls->has_user_constructor ||
+                                cls->has_field_initializer;
+
+        /* Every non-static data member of a union begins at offset zero. */
+        for (TypeParam* member = cls->fields; member;
+             member = member->next) {
+            Type* type = member->type;
+            TypeField* field;
+            int align;
+            int size;
+            if (member->is_static) continue;
+            if (!type || !type_is_complete(type) ||
+                type->kind == TYPE_FUNC || type->kind == TYPE_VOID ||
+                type->is_reference) {
+                layout_complete = false;
+                continue;
+            }
+            align = cxx_class_member_alignment(cls, type->align);
+            size = member->is_bitfield && member->bit_width == 0u
+                ? 0 : type->size;
+            if (size < 0) {
+                layout_complete = false;
+                continue;
+            }
+            if (size > union_size) union_size = size;
+            if (align > max_align) max_align = align;
+            if (type->cxx_nontrivial) union_nontrivial = true;
+            if (!member->name) continue;
+
+            field = ast_arena_alloc(sizeof(*field));
+            field->name = member->name;
+            field->type = type;
+            field->offset = 0;
+            field->is_bitfield = member->is_bitfield;
+            field->bit_width = member->bit_width;
+            field->bit_offset = 0u;
+            field->from_virtual_base = false;
+            field->virtual_base_owner = NULL;
+            field->virtual_base_member_offset = -1;
+            field->initializer = member->initializer;
+            field->is_deprecated = member->is_deprecated;
+            field->deprecated_message = member->deprecated_message;
+            field->cxx_no_unique_address = false;
+            field->cxx_access = member->cxx_access;
+            field->cxx_declaring_class = cls;
+            field->next = NULL;
+            *field_tail = field;
+            field_tail = &field->next;
+        }
+
+        if (has_virtual || cls->base_count != 0) {
+            layout_complete = false;
+        }
+        if (union_size == 0) union_size = 1;
+        cls->size = (union_size + max_align - 1) & ~(max_align - 1);
+        if (cls->size == 0) cls->size = 1;
+        cls->align = max_align;
+        cls->nonvirtual_size = cls->size;
+        cls->base_offsets = NULL;
+        cls->virtual_bases = NULL;
+        cls->virtual_base_count = 0;
+        cls->virtual_base_pointer_offset = -1;
+        cls->type->size = cls->size;
+        cls->type->align = cls->align;
+        cls->type->is_complete = layout_complete;
+        cls->type->cxx_is_class = true;
+        cls->type->cxx_nontrivial = union_nontrivial || has_destructor;
+        return;
     }
 
     if (has_virtual && !primary_vtable_base) {

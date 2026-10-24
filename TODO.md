@@ -9361,9 +9361,19 @@ remains a separate open item.
       special-member rules, complete implicit copy/move access/deletion
       conformance, `is_nothrow_constructible`, and broader type-trait coverage
       remain open.
-  - [ ] C++ union definitions with member functions (including user-defined or
-        explicitly defaulted assignment operators) still need the C++ class
-        member parser; union bodies currently use the aggregate-field parser.
+  - [x] Parse file-scope, namespace-scope, nested, and function-local C++ union
+        definitions through the C++ class member parser. Model overlaid field
+        layout and alignment, preserve union default-public access, support one
+        default member initializer, and lower user-defined plus explicitly
+        defaulted trivial copy assignment. Verify bytewise assignment when an
+        unrelated `operator=(int)` overload is declared first, forward
+        declarations, nested/local methods, GCC C++20 parity, i686/AMD64 object
+        generation, and x64 host execution. Reject reference fields, virtual
+        members, base classes, and multiple default member initializers on both
+        targets.
+  - [ ] Out-of-class definitions of ordinary and union member functions still
+        need a shared qualified-member-definition parser and ABI/runtime
+        coverage.
   - [x] Recognize the standard by-value copy-assignment form
         (`operator=(T)` and top-level-const `operator=(const T)`) as a copy
         special member. Keep it in ordinary assignment overload resolution,

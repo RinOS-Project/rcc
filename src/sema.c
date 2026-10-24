@@ -17393,6 +17393,45 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     return true;
 }
 
+static bool sema_union_defaulted_copy_assignment_is_unambiguous(
+    Type* aggregate, Expr* right_hand_side) {
+    TypeMethod* candidate = NULL;
+    Type* source_type;
+    int same_type_candidates = 0;
+
+    if (!aggregate || aggregate->kind != TYPE_UNION || !right_hand_side ||
+        !right_hand_side->type || !aggregate->cxx_class) {
+        return false;
+    }
+    source_type = generic_selection_type(
+        sema_cxx_object_type(right_hand_side->type));
+    if (!type_is_compatible(source_type, aggregate)) return false;
+
+    /* Only bypass call lowering when the exact-type assignment overload is
+     * unique.  Other parameter overloads (for example operator=(int)) do not
+     * compete, while a non-const X& and const X& pair must retain overload
+     * resolution so the better match is selected. */
+    for (TypeMethod* method = aggregate->methods; method;
+         method = method->next) {
+        DeclList* parameters;
+        Type* parameter_object;
+        if (method->kind != TYPE_METHOD_FUNCTION || !method->function_decl ||
+            !method->name || strcmp(method->name, "operator=") != 0) {
+            continue;
+        }
+        parameters = method->function_decl->func_params;
+        if (!parameters || parameters->next || !parameters->decl) continue;
+        parameter_object = generic_selection_type(
+            sema_cxx_object_type(parameters->decl->type));
+        if (!type_is_compatible(parameter_object, aggregate)) continue;
+        ++same_type_candidates;
+        candidate = method;
+    }
+    return same_type_candidates == 1 && candidate &&
+        candidate->is_defaulted && !candidate->is_deleted &&
+        candidate->cxx_access == ACCESS_PUBLIC;
+}
+
 static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
                                                  Type* left_type) {
     const char* name;
@@ -17488,6 +17527,16 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
         }
     }
     method = sema_find_function_method(aggregate, name);
+    if (expression->kind == EXPR_ASSIGN &&
+        sema_union_defaulted_copy_assignment_is_unambiguous(
+            aggregate, expression->binary_rhs)) {
+        /* A non-deleted defaulted union copy-assignment operator is trivial:
+         * C++ defines it as a bytewise copy of the active representation.
+         * Keep the expression on the aggregate-assignment path so the
+         * backend copies the complete object instead of emitting a call to
+         * the source declaration, which has no out-of-line body. */
+        return false;
+    }
     if ((!method || !method->function_decl) &&
         template_candidate_count == 0) {
         return false;
@@ -25398,7 +25447,7 @@ static Expr* sema_cxx_default_member_initializer(Type* type, Expr* source,
     /* `{}` is represented as a value-init `{0}` node.  It is not an explicit
      * initializer for the first member in C++, so defaults replace it. */
     if (source && !source->compound_value_init) {
-        union_has_explicit_member = plain_union &&
+        union_has_explicit_member = type->kind == TYPE_UNION &&
             source->compound_init != NULL;
         for (ExprList* item = source->compound_init; item;
              item = item->next) {

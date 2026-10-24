@@ -549,6 +549,7 @@ endif
 .PHONY: test-cxx-global-allocation-operators
 .PHONY: test-cxx-class-typedef
 .PHONY: test-cxx-libcxx-type-traits-direct
+.PHONY: test-cxx-union-member-functions
 .PHONY: test-cxx-constructible-builtin
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
@@ -661,6 +662,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-global-allocation-operators \
 	test-cxx-class-typedef \
 	test-cxx-libcxx-type-traits-direct \
+	test-cxx-union-member-functions \
 	test-cxx-constructible-builtin \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
@@ -15351,6 +15353,43 @@ test-cxx-libcxx-type-traits-direct: $(RCXX_TARGET)
 	$(GREP) -F -q "defaulted copy-assignment operator must take a reference parameter" \
 		$(TEST_OUT)/cxx-libcxx-type-traits-direct/byvalue-defaulted-invalid.log
 	@echo "Direct libcxx type_traits constructor-conversion tests completed"
+
+ifeq ($(OS),Windows_NT)
+CXX_UNION_MEMBER_FUNCTIONS_MKDIR = $(POWERSHELL) -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(TEST_OUT)/cxx-union-member-functions' | Out-Null"
+CXX_UNION_MEMBER_FUNCTIONS_INVALID_TEST = $(POWERSHELL) -NoProfile -File "$(CURDIR)/scripts/rcc_check_union_member_diagnostics.ps1" -RccPath "$(RCXX_TARGET)" -CxxPath "$(CXX)" -OutputDirectory "$(TEST_OUT)/cxx-union-member-functions"
+else
+CXX_UNION_MEMBER_FUNCTIONS_MKDIR = $(call MKDIR_P,$(TEST_OUT)/cxx-union-member-functions)
+CXX_UNION_MEMBER_FUNCTIONS_INVALID_TEST = \
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_union_member_invalid.cpp,$(TEST_OUT)/cxx-union-member-functions/invalid-gcc.log) && \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-union-member-functions/invalid-x86.ro tests/cxx_union_member_invalid.cpp,$(TEST_OUT)/cxx-union-member-functions/invalid-x86.log) && \
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-union-member-functions/invalid-x64.ro tests/cxx_union_member_invalid.cpp,$(TEST_OUT)/cxx-union-member-functions/invalid-x64.log) && \
+	$(GREP) -F -q "a union data member cannot have reference type" $(TEST_OUT)/cxx-union-member-functions/invalid-x86.log && \
+	$(GREP) -F -q "a union member function cannot be virtual or override a base member" $(TEST_OUT)/cxx-union-member-functions/invalid-x86.log && \
+	$(GREP) -F -q "a union cannot have base classes" $(TEST_OUT)/cxx-union-member-functions/invalid-x86.log && \
+	$(GREP) -F -q "a union may have only one default member initializer" $(TEST_OUT)/cxx-union-member-functions/invalid-x86.log && \
+	$(GREP) -F -q "a union data member cannot have reference type" $(TEST_OUT)/cxx-union-member-functions/invalid-x64.log && \
+	$(GREP) -F -q "a union member function cannot be virtual or override a base member" $(TEST_OUT)/cxx-union-member-functions/invalid-x64.log && \
+	$(GREP) -F -q "a union cannot have base classes" $(TEST_OUT)/cxx-union-member-functions/invalid-x64.log && \
+	$(GREP) -F -q "a union may have only one default member initializer" $(TEST_OUT)/cxx-union-member-functions/invalid-x64.log
+endif
+
+test-cxx-union-member-functions: $(RCXX_TARGET)
+	$(CXX_UNION_MEMBER_FUNCTIONS_MKDIR)
+	$(CXX) -std=c++20 -fsyntax-only tests/cxx_union_member_functions.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-union-member-functions/x86.ro \
+		tests/cxx_union_member_functions.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-union-member-functions/x64.ro \
+		tests/cxx_union_member_functions.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-union-member-functions/host.s \
+		tests/cxx_union_member_functions.cpp
+	$(CC) -o $(TEST_OUT)/cxx-union-member-functions/host \
+		$(TEST_OUT)/cxx-union-member-functions/host.s
+	$(TEST_OUT)/cxx-union-member-functions/host
+	$(CXX_UNION_MEMBER_FUNCTIONS_INVALID_TEST)
+	@echo "C++ union member-function and assignment tests completed"
 
 test-cxx-constructible-builtin: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constructible-builtin)
