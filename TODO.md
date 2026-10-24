@@ -9108,8 +9108,9 @@ remains a separate open item.
       builtin with `__has_builtin`.
       The GCC C++20 oracle and RCC i686/AMD64 tests cover positive and negative
       base/member/access/reference/union cases plus dependent constraints.
-- [ ] Remaining broader type traits and full direct compilation of
-      `libcxx/type_traits.h` remain open.
+- [ ] Remaining broader C++ type-trait semantics remain open. Direct inclusion
+      of the complete `libcxx/type_traits.h` is covered by the checked
+      `test-cxx-libcxx-type-traits-direct` item below.
 
 ## RCC continuation (2026-10-23, C++ `__is_pod` builtin)
 
@@ -9119,8 +9120,8 @@ remains a separate open item.
       operands through specialization and advertise the builtin through
       `__has_builtin`; GCC C++20 and RCC dual-target tests cover positive and
       negative scalar, array, enum, union, constructor, access, and member cases.
-- [ ] Broader constructibility/assignability traits and direct compilation of
-      `libcxx/type_traits.h` remain open.
+- [ ] Broader constructibility/assignability trait semantics remain open;
+      complete-header direct compilation is covered by the checked fixture.
 
 ## RCC continuation (2026-10-23, GNU `__has_trivial_destructor` builtin)
 
@@ -9131,7 +9132,8 @@ remains a separate open item.
       advertise it through `__has_builtin`, and compare RCC's i686/AMD64
       results to GCC's builtin.
 - [ ] Remaining GNU special-member and C++ constructibility/assignability
-      intrinsics and direct compilation of `libcxx/type_traits.h` remain open.
+      intrinsics remain open; complete-header direct compilation is covered by
+      the checked fixture.
 
 ## RCC continuation (2026-10-23, C++ `__is_trivially_constructible` builtin)
 
@@ -9149,12 +9151,13 @@ remains a separate open item.
       agrees with GCC's C++17 standard-trait results.
 - [ ] Full overload resolution for constructor templates, inherited and
       constrained constructors, complete implicit/out-of-class-defaulted
-      special-member rules, and direct compilation of
-      `libcxx/type_traits.h` remain open. The former direct-probe blocker in
-      dependent function-template call substitution for
-      `decltype`/SFINAE (`is_convertible` and `is_nothrow_convertible`) is
-      implemented and covered by the dedicated direct-header fixture; the
-      broader header surface still requires the first-diagnostic workflow.
+      special-member rules, and broad instantiation of `libcxx/type_traits.h`
+      remain open. The former direct-probe blocker in dependent function-
+      template call substitution for `decltype`/SFINAE (`is_convertible` and
+      `is_nothrow_convertible`) is implemented and covered by the dedicated
+      direct-header fixture. Continue the broader work from the first
+      diagnostic in an instantiated trait; full-header direct compilation is
+      separately checked above.
 
 ## RCC continuation (2026-10-23, global allocation operator declarations)
 
@@ -9172,8 +9175,14 @@ remains a separate open item.
       linkage blocks and preserve its function-declaration flag. Regression
       coverage compiles the attributed definition for i686 and AMD64 and
       checks the same source with GCC C++20.
-- [ ] Propagate declaration attributes consistently through local, class,
-      template, and multi-declarator parsing paths.
+- [x] Preserve `[[deprecated]]` on block-scope variables, including every
+      declarator in a comma-separated declaration. `test-cxx-deprecated` checks
+      the six expected diagnostics on both target widths, GCC accepts the same
+      C++20 source, the i686 COFF architecture check passes, and the generated
+      AMD64 code executes successfully.
+- [ ] Complete attribute propagation for local function declarations,
+      class members, templates, and remaining redeclaration/attribute-ordering
+      paths; verify each against GCC before closing the broader attribute item.
 
 ## RCC continuation (2026-10-23, GNU `__has_trivial_constructor` builtin)
 
@@ -9184,7 +9193,8 @@ remains a separate open item.
       dependent operands, advertise the builtin through `__has_builtin`, and
       compare RCC's i686/AMD64 results against GCC C++20.
 - [ ] Remaining GNU special-member and C++ constructibility/assignability
-      intrinsics and direct compilation of `libcxx/type_traits.h` remain open.
+      intrinsics remain open; complete-header direct compilation is covered by
+      the checked fixture.
 
 ## RCC continuation (2026-10-23, class typedefs and function-type packs)
 
@@ -9227,3 +9237,14 @@ remains a separate open item.
 - [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after the
       pack-marker, zero-length-expansion ordering, and deferred body-diagnostic
       and noexcept-state corrections.
+
+## RCC continuation (2026-10-24, local declaration attributes)
+
+- [x] Preserve standard `[[deprecated]]` on block-scope variables through the
+      shared declaration parser, including comma-separated local declarators.
+      The focused test verifies two local-use diagnostics plus the existing
+      namespace/class cases (six total) on i686 and AMD64; GCC C++20 accepts the
+      same fixture, the i686 COFF check passes, and the generated AMD64 code
+      executes successfully.
+- [ ] Local function attributes, class/template attribute propagation, and
+      remaining declaration/redeclaration ordering cases remain open.

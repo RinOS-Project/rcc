@@ -9041,9 +9041,9 @@ test-cxx-nodiscard: $(RCXX_TARGET)
 test-cxx-deprecated: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-deprecated)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-deprecated/warnings-x86.s tests/cxx_deprecated.cpp >$(TEST_OUT)/cxx-deprecated/x86.log 2>&1
-	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/cxx-deprecated/x86.log,4)
+	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/cxx-deprecated/x86.log,6)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-deprecated/warnings-x64.s tests/cxx_deprecated.cpp >$(TEST_OUT)/cxx-deprecated/x64.log 2>&1
-	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/cxx-deprecated/x64.log,4)
+	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/cxx-deprecated/x64.log,6)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-deprecated,cxx_deprecated.cpp)
 
 test-cxx-friend-class: $(RCXX_TARGET)
@@ -10361,9 +10361,9 @@ test-cxx-deprecated-posix: $(RCXX_TARGET)
 		tests/cxx_deprecated.cpp \
 		>$(TEST_OUT)/cxx-deprecated/x64.log 2>&1
 	test "$$($(GREP) -c "use of deprecated" \
-		$(TEST_OUT)/cxx-deprecated/x86.log)" -eq 4
+		$(TEST_OUT)/cxx-deprecated/x86.log)" -eq 6
 	test "$$($(GREP) -c "use of deprecated" \
-		$(TEST_OUT)/cxx-deprecated/x64.log)" -eq 4
+		$(TEST_OUT)/cxx-deprecated/x64.log)" -eq 6
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-deprecated/x86.o \
 		$(TEST_OUT)/cxx-deprecated/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-deprecated/start-x86.o \

@@ -5862,28 +5862,34 @@ bool rcc_parser_cxx_take_noreturn_attribute(void) {
     return result;
 }
 
-/* Statement attributes are consumed by the shared C statement parser.  They
- * intentionally do not retain declaration metadata: this frontend has no
- * unused-variable or branch-probability diagnostics, but accepting these
- * standard annotations is still useful for portable C++ source. */
-void rcc_parser_cxx_skip_statement_attributes(void) {
-    bool saved_nodiscard = pending_cxx_nodiscard;
-    bool saved_deprecated = pending_cxx_deprecated;
-    bool saved_no_unique_address = pending_cxx_no_unique_address;
-    bool saved_weak = pending_cxx_weak;
-    bool saved_noreturn = pending_cxx_noreturn;
-    const char* saved_deprecated_message = pending_cxx_deprecated_message;
-
+bool rcc_parser_cxx_collect_statement_attributes(void) {
+    Token* before = parser.cur;
     skip_cxx_attributes();
-    /* A generic C++ function body can be parsed before its declaration
-     * metadata is attached.  Preserve that outer metadata while discarding
-     * attributes that appeared directly before a statement. */
-    pending_cxx_nodiscard = saved_nodiscard;
-    pending_cxx_deprecated = saved_deprecated;
-    pending_cxx_no_unique_address = saved_no_unique_address;
-    pending_cxx_weak = saved_weak;
-    pending_cxx_noreturn = saved_noreturn;
-    pending_cxx_deprecated_message = saved_deprecated_message;
+    return parser.cur != before;
+}
+
+bool rcc_parser_cxx_take_nodiscard_attribute(void) {
+    return take_cxx_nodiscard();
+}
+
+bool rcc_parser_cxx_take_deprecated_attribute(const char** message) {
+    return take_cxx_deprecated(message);
+}
+
+bool rcc_parser_cxx_take_no_unique_address_attribute(void) {
+    return take_cxx_no_unique_address();
+}
+
+bool rcc_parser_cxx_take_weak_attribute(void) {
+    return take_cxx_weak();
+}
+
+void rcc_parser_cxx_discard_statement_attributes(void) {
+    (void)take_cxx_nodiscard();
+    (void)take_cxx_deprecated(NULL);
+    (void)take_cxx_no_unique_address();
+    (void)take_cxx_weak();
+    (void)rcc_parser_cxx_take_noreturn_attribute();
 }
 
 /* C++20 permits an explicit-specifier to be dependent in a template.  Keep

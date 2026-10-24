@@ -72,7 +72,16 @@ extern Expr* rcc_parse_cxx_lambda(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_fold_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_requires_expression(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_statement(void) RCC_OPTIONAL_CXX;
-extern void rcc_parser_cxx_skip_statement_attributes(void) RCC_OPTIONAL_CXX;
+extern bool rcc_parser_cxx_collect_statement_attributes(void)
+    RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_discard_statement_attributes(void)
+    RCC_OPTIONAL_CXX;
+extern bool rcc_parser_cxx_take_nodiscard_attribute(void) RCC_OPTIONAL_CXX;
+extern bool rcc_parser_cxx_take_deprecated_attribute(
+    const char** message) RCC_OPTIONAL_CXX;
+extern bool rcc_parser_cxx_take_no_unique_address_attribute(void)
+    RCC_OPTIONAL_CXX;
+extern bool rcc_parser_cxx_take_weak_attribute(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parser_cxx_take_noreturn_attribute(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_range_for_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
@@ -5548,10 +5557,16 @@ static Stmt* parse_return_stmt(void) {
 
 static Stmt* parse_statement(void) {
     /* Standard statement attributes may precede a control statement, a label,
-     * or an empty statement.  Let the C++ frontend consume them before this
-     * shared C statement parser classifies the next token. */
-    if (parser_cxx_mode && rcc_parser_cxx_skip_statement_attributes) {
-        rcc_parser_cxx_skip_statement_attributes();
+     * an empty statement, or a declaration. Preserve declaration attributes
+     * until parse_declaration can attach them to the resulting Decl. */
+    bool has_cxx_attributes = false;
+    if (parser_cxx_mode && rcc_parser_cxx_collect_statement_attributes) {
+        has_cxx_attributes =
+            rcc_parser_cxx_collect_statement_attributes();
+    }
+    if (has_cxx_attributes && !is_type_start() && !check(TOK_AUTO) &&
+        rcc_parser_cxx_discard_statement_attributes) {
+        rcc_parser_cxx_discard_statement_attributes();
     }
     SourceLoc loc = peek()->loc;
 
@@ -5814,6 +5829,39 @@ static Decl* parser_make_function_decl(const char* name, Type* type,
     return declaration;
 }
 
+static void parser_apply_cxx_declaration_attributes(
+    Decl* declaration, bool nodiscard, bool deprecated,
+    const char* deprecated_message) {
+    if (!declaration) return;
+    if (declaration->kind == DECL_FUNC) {
+        declaration->func_is_nodiscard = nodiscard;
+        declaration->func_is_deprecated = deprecated;
+        declaration->func_deprecated_message = deprecated_message;
+    } else if (declaration->kind == DECL_VAR) {
+        if (nodiscard) {
+            rcc_error(declaration->loc,
+                      "[[nodiscard]] requires a function or type declaration");
+        }
+        declaration->var_is_deprecated = deprecated;
+        declaration->var_deprecated_message = deprecated_message;
+    }
+}
+
+static void parser_apply_cxx_statement_attributes(
+    Stmt* statement, bool nodiscard, bool deprecated,
+    const char* deprecated_message) {
+    if (!statement) return;
+    if (statement->kind == STMT_DECL) {
+        parser_apply_cxx_declaration_attributes(
+            statement->decl, nodiscard, deprecated, deprecated_message);
+    } else if (statement->kind == STMT_BLOCK) {
+        for (StmtList* item = statement->block_stmts; item; item = item->next) {
+            parser_apply_cxx_statement_attributes(
+                item->stmt, nodiscard, deprecated, deprecated_message);
+        }
+    }
+}
+
 static void parser_apply_old_style_parameter_decl(
     Decl* parameter_declaration, DeclList* parameters, Type* function_type,
     SourceLoc loc) {
@@ -5872,6 +5920,9 @@ Stmt* parse_declaration(void) {
     bool is_thread_local = false;
     bool is_weak = false;
     bool is_naked = false;
+    bool cxx_is_nodiscard = false;
+    bool cxx_is_deprecated = false;
+    const char* cxx_deprecated_message = NULL;
     const char* declaration_name = NULL;
     DeclList* parameters = NULL;
     Type* base_type;
@@ -5882,6 +5933,29 @@ Stmt* parse_declaration(void) {
     void* friend_access_mark = NULL;
     bool friend_access_context_active = false;
     int explicit_alignment = 0;
+
+    if (parser_cxx_mode && rcc_parser_cxx_collect_statement_attributes) {
+        (void)rcc_parser_cxx_collect_statement_attributes();
+    }
+    if (parser_cxx_mode && rcc_parser_cxx_take_nodiscard_attribute) {
+        cxx_is_nodiscard = rcc_parser_cxx_take_nodiscard_attribute();
+    }
+    if (parser_cxx_mode && rcc_parser_cxx_take_deprecated_attribute) {
+        cxx_is_deprecated =
+            rcc_parser_cxx_take_deprecated_attribute(
+                &cxx_deprecated_message);
+    }
+    if (parser_cxx_mode && rcc_parser_cxx_take_weak_attribute) {
+        is_weak = rcc_parser_cxx_take_weak_attribute();
+    }
+    if (parser_cxx_mode && rcc_parser_cxx_take_no_unique_address_attribute &&
+        rcc_parser_cxx_take_no_unique_address_attribute()) {
+        rcc_error(peek()->loc,
+                  "[[no_unique_address]] requires a class data member");
+    }
+    if (parser_cxx_mode && rcc_parser_cxx_take_noreturn_attribute) {
+        is_noreturn = rcc_parser_cxx_take_noreturn_attribute();
+    }
 
     while (check(TOK__ALIGNAS)) {
         int alignment = parse_explicit_alignment();
@@ -5897,7 +5971,12 @@ Stmt* parse_declaration(void) {
           parser.cur->next->next->next &&
           parser.cur->next->next->next->type == TOK_RPAREN))) {
         Stmt* auto_declaration = rcc_parse_cxx_auto_local_declaration();
-        if (auto_declaration) return auto_declaration;
+        if (auto_declaration) {
+            parser_apply_cxx_statement_attributes(
+                auto_declaration, cxx_is_nodiscard, cxx_is_deprecated,
+                cxx_deprecated_message);
+            return auto_declaration;
+        }
     }
 
     if (check(TOK_STATIC_ASSERT)) {
@@ -5918,11 +5997,7 @@ Stmt* parse_declaration(void) {
     }
 
     skip_attributes();
-    if (parser_cxx_mode && rcc_parser_cxx_take_noreturn_attribute &&
-        rcc_parser_cxx_take_noreturn_attribute()) {
-        is_noreturn = true;
-    }
-    is_weak = take_weak_attribute();
+    is_weak = is_weak || take_weak_attribute();
     is_naked = take_naked_attribute();
     if (parser_cxx_mode && match(TOK_CONSTEXPR)) is_constexpr = true;
     if (parser_cxx_mode && match(TOK_CONSTEVAL)) {
@@ -6286,6 +6361,9 @@ Stmt* parse_declaration(void) {
                 declaration_name, type, parameters, NULL, loc, storage,
                 is_inline, is_constexpr, is_noreturn, is_noexcept,
                 noexcept_expr, is_consteval);
+            parser_apply_cxx_declaration_attributes(
+                declaration, cxx_is_nodiscard, cxx_is_deprecated,
+                cxx_deprecated_message);
             declaration->is_weak = is_weak;
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
             while (match(TOK_COMMA)) {
@@ -6336,6 +6414,9 @@ Stmt* parse_declaration(void) {
                         next_name, next_type, next_parameters, NULL, loc,
                         storage, is_inline, is_constexpr, is_noreturn,
                         is_noexcept, noexcept_expr, is_consteval);
+                    parser_apply_cxx_declaration_attributes(
+                        next_declaration, cxx_is_nodiscard,
+                        cxx_is_deprecated, cxx_deprecated_message);
                     next_declaration->is_weak = next_is_weak;
                     stmtlist_append(&declarations,
                                     stmt_decl(next_declaration, loc));
@@ -6346,6 +6427,9 @@ Stmt* parse_declaration(void) {
                         next_name, next_type, next_init, loc, storage,
                         is_thread_local, is_constexpr, is_constinit,
                         is_inline, is_noreturn, is_consteval);
+                    parser_apply_cxx_declaration_attributes(
+                        next_declaration, cxx_is_nodiscard,
+                        cxx_is_deprecated, cxx_deprecated_message);
                     next_declaration->is_weak = next_is_weak;
                     stmtlist_append(&declarations,
                                     stmt_decl(next_declaration, loc));
@@ -6365,6 +6449,9 @@ Stmt* parse_declaration(void) {
             declaration_name, type, parameters, body, loc, storage,
             is_inline, is_constexpr, is_noreturn, is_noexcept,
             noexcept_expr, is_consteval);
+        parser_apply_cxx_declaration_attributes(
+            declaration, cxx_is_nodiscard, cxx_is_deprecated,
+            cxx_deprecated_message);
         declaration->is_weak = is_weak;
         declaration->func_is_naked = is_naked;
         return stmt_decl(declaration, loc);
@@ -6378,6 +6465,9 @@ Stmt* parse_declaration(void) {
         declaration = parser_make_variable_decl(
             declaration_name, type, init, loc, storage, is_thread_local,
             is_constexpr, is_constinit, is_inline, is_noreturn, is_consteval);
+        parser_apply_cxx_declaration_attributes(
+            declaration, cxx_is_nodiscard, cxx_is_deprecated,
+            cxx_deprecated_message);
         declaration->is_weak = is_weak;
         stmtlist_append(&declarations, stmt_decl(declaration, loc));
 
@@ -6406,6 +6496,9 @@ Stmt* parse_declaration(void) {
                 }
                 next_declaration = decl_func(next_name, next_type,
                                              next_parameters, NULL, loc);
+                parser_apply_cxx_declaration_attributes(
+                    next_declaration, cxx_is_nodiscard, cxx_is_deprecated,
+                    cxx_deprecated_message);
                 next_declaration->is_weak = next_is_weak;
                 stmtlist_append(&declarations,
                                 stmt_decl(next_declaration, loc));
@@ -6416,6 +6509,9 @@ Stmt* parse_declaration(void) {
                 next_name, next_type, init, loc, storage, is_thread_local,
                 is_constexpr, is_constinit, is_inline, is_noreturn,
                 is_consteval);
+            parser_apply_cxx_declaration_attributes(
+                declaration, cxx_is_nodiscard, cxx_is_deprecated,
+                cxx_deprecated_message);
             declaration->is_weak = next_is_weak;
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
         }
