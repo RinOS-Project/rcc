@@ -73,6 +73,17 @@ struct ImplicitNontrivialCopy {
     NontrivialCopyMember member;
 };
 
+struct NontrivialCopyBase {
+    NontrivialCopyBase() {}
+    NontrivialCopyBase(const NontrivialCopyBase&) {}
+};
+
+struct DerivedWithImplicitCopy : NontrivialCopyBase {};
+
+struct ImplicitArrayCopy {
+    NontrivialCopyMember members[2];
+};
+
 struct OrdinaryConstructorWithImplicitCopy {
     explicit OrdinaryConstructorWithImplicitCopy(int) {}
     int value;
@@ -90,6 +101,10 @@ struct ImplicitNontrivialMove {
 struct DeletedCopyMember {
     DeletedCopyMember() {}
     DeletedCopyMember(const DeletedCopyMember&) = delete;
+};
+
+struct DeletedArrayCopy {
+    DeletedCopyMember members[2];
 };
 
 struct ImplicitDeletedCopy {
@@ -160,6 +175,15 @@ static_assert(!std::is_constructible<PrivateDestructorValue, int>::value,
 static_assert(std::is_constructible<ImplicitNontrivialCopy,
                                    const ImplicitNontrivialCopy&>::value,
               "implicit copy construction accepts a nontrivial member copy");
+static_assert(std::is_constructible<DerivedWithImplicitCopy,
+                                   const DerivedWithImplicitCopy&>::value,
+              "implicit copy construction checks nontrivial base copies");
+static_assert(std::is_constructible<ImplicitArrayCopy,
+                                   const ImplicitArrayCopy&>::value,
+              "implicit copy construction checks array element copies");
+static_assert(!std::is_constructible<DeletedArrayCopy,
+                                    const DeletedArrayCopy&>::value,
+              "a deleted array-element copy deletes the enclosing copy");
 static_assert(std::is_constructible<ImplicitNontrivialCopy,
                                    ImplicitNontrivialCopy&&>::value,
               "implicit move may copy a member without a move constructor");
