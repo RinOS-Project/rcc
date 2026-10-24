@@ -8064,20 +8064,78 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
     for (int path_index = 1; path_index < inheritance_path_length;
          ++path_index) {
         CxxClass* derived_layer = inheritance_path[path_index];
+        CxxConstructorInitializer* sibling_bases = NULL;
+        CxxConstructorInitializer** sibling_tail = &sibling_bases;
+        int selected_base_index = -1;
+        int sibling_count = 0;
         CxxConstructorInfo* layer_initializers;
         CxxClass member_owner;
-        if (derived_layer->base_count != 1 ||
-            derived_layer->bases[0].base != inheritance_path[path_index - 1] ||
-            derived_layer->bases[0].access != ACCESS_PUBLIC ||
-            derived_layer->bases[0].is_virtual) {
+        for (int base_index = 0; base_index < derived_layer->base_count;
+             ++base_index) {
+            if (derived_layer->bases[base_index].base ==
+                inheritance_path[path_index - 1]) {
+                if (selected_base_index >= 0) {
+                    selected_base_index = -2;
+                    break;
+                }
+                selected_base_index = base_index;
+            }
+        }
+        if (selected_base_index < 0 ||
+            selected_base_index != 0 ||
+            derived_layer->bases[selected_base_index].access != ACCESS_PUBLIC ||
+            derived_layer->bases[selected_base_index].is_virtual ||
+            (path_index + 1 < inheritance_path_length &&
+             derived_layer->base_count != 1)) {
             rcc_error(loc,
-                      "inherited constructor-template lowering requires one public non-virtual base at each derived layer");
+                      "inherited constructor-template lowering requires a unique public non-virtual inherited base first in declaration order");
             return false;
         }
         if (!cxx_inherited_constructor_member_supported(derived_layer)) {
             rcc_error(loc,
                       "using-base constructors require safely lowerable members at every derived layer");
             return false;
+        }
+        if (path_index + 1 == inheritance_path_length) {
+            /* The selected inherited base is initialized by the constructor
+             * itself. Preserve C++ declaration order by emitting any later
+             * direct bases before the derived member initializers below. */
+            for (int base_index = selected_base_index + 1;
+                 base_index < derived_layer->base_count; ++base_index) {
+                CxxClass* sibling = derived_layer->bases[base_index].base;
+                CxxConstructorInfo* default_constructor;
+                CxxConstructorInitializer* initializer;
+                if (!sibling ||
+                    derived_layer->bases[base_index].is_virtual ||
+                    !cxx_constructor_base_layout_supported(
+                        derived_layer, base_index) ||
+                    cxx_constructor_base_index(
+                        derived_layer, sibling->name) != base_index) {
+                    rcc_error(loc,
+                              "inherited constructor template has an unsupported additional direct base");
+                    return false;
+                }
+                default_constructor = cxx_find_base_constructor(sibling, 0);
+                if ((!default_constructor && sibling->constructors) ||
+                    (!default_constructor &&
+                     (sibling->fields || sibling->base_count ||
+                      sibling->has_field_initializer ||
+                      sibling->type->cxx_nontrivial)) ||
+                    (default_constructor &&
+                     default_constructor->parameter_count != 0)) {
+                    rcc_error(loc,
+                              "additional inherited-constructor base requires a safely lowerable zero-argument default constructor");
+                    return false;
+                }
+                initializer = ast_arena_alloc(sizeof(*initializer));
+                memset(initializer, 0, sizeof(*initializer));
+                initializer->field = rcc_intern(sibling->name);
+                initializer->constructor = default_constructor;
+                initializer->is_base_initializer = true;
+                *sibling_tail = initializer;
+                sibling_tail = &initializer->next;
+                ++sibling_count;
+            }
         }
         layer_initializers = ast_arena_alloc(sizeof(*layer_initializers));
         memset(layer_initializers, 0, sizeof(*layer_initializers));
@@ -8096,6 +8154,11 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
             rcc_error(loc,
                       "inherited constructor template has unsupported derived member initializers");
             return false;
+        }
+        if (sibling_bases) {
+            *sibling_tail = layer_initializers->initializers;
+            layer_initializers->initializers = sibling_bases;
+            layer_initializers->initializer_count += sibling_count;
         }
         *initializer_tail = layer_initializers->initializers;
         while (*initializer_tail) {

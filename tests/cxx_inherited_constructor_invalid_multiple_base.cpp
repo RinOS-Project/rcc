@@ -8,7 +8,7 @@ struct InheritedAdditionalBase {
 };
 
 struct InheritedMultipleBaseDerived
-    : InheritedMultipleBaseTemplate, InheritedAdditionalBase {
+    : InheritedAdditionalBase, InheritedMultipleBaseTemplate {
     using InheritedMultipleBaseTemplate::InheritedMultipleBaseTemplate;
 };
 

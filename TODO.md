@@ -9317,9 +9317,14 @@ remains a separate open item.
       type-trait-only inherited overload set so an inaccessible/deleted best
       match blocks a weaker public overload; do not treat base copy/move
       constructors as inherited. Both target-width fixtures match GCC C++20.
-- [ ] Ordinary runtime construction through inherited constructor templates,
-      remaining implicit copy/move deletion and access rules,
-      `is_nothrow_constructible`, and broader trait conformance remain open.
+- [x] Ordinary runtime construction through bounded inherited constructor
+      templates is covered for direct and linear multi-level public
+      non-virtual chains. Additional final-layer direct bases are covered when
+      the selected inherited base is first and later bases have supported
+      public zero-argument constructors.
+- [ ] Remaining implicit copy/move deletion and access rules,
+      `is_nothrow_constructible`, virtual-base inherited constructor templates,
+      and broader trait conformance remain open.
 
 ## RCC continuation (2026-10-24, assignability intrinsic)
 
@@ -9351,9 +9356,13 @@ remains a separate open item.
       Deduction, constraint substitution, partial ordering, and deleted best
       matches are compared against GCC C++20 in the builtin and libcxx direct
       fixtures on i686 and AMD64.
-- [ ] Ordinary source construction and emitted derived-constructor bodies for
-      inherited constructor templates remain open; do not infer runtime
-      support from the type-trait candidate probe. Also open are inherited
-      constructor templates through deeper/virtual bases, remaining implicit
-      copy/move deletion/access rules, `is_nothrow_constructible`, and broader
-      type-trait conformance.
+- [x] Ordinary source construction and emitted derived-constructor bodies for
+      bounded inherited constructor templates are covered by i686/AMD64
+      runtime tests, including selected-base body execution and derived member
+      initialization. Runtime support is separate from the `__is_constructible`
+      candidate-probe coverage above.
+- [ ] Additional direct bases before the selected inherited base, multiple
+      bases at intermediate layers of a multi-level chain, virtual-base
+      inherited constructor templates, remaining implicit copy/move
+      deletion/access rules, `is_nothrow_constructible`, and broader type-trait
+      conformance remain open.

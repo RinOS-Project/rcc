@@ -2,6 +2,8 @@ extern "C" {
 int cxx_inherited_template_order_state = 0;
 int cxx_inherited_template_order_error = 0;
 int cxx_inherited_template_order_complete = 0;
+int cxx_inherited_template_multi_order = 0;
+int cxx_inherited_template_multi_error = 0;
 }
 
 struct InheritedBase {
@@ -87,6 +89,46 @@ struct InheritedTemplateEmptyDerived : InheritedTemplateEmptyBase {
     int extra_ = 3;
 };
 
+struct InheritedTemplateMultiBase {
+    template <typename T>
+    explicit InheritedTemplateMultiBase(T value)
+        : value_(value + sizeof(T)) {
+        if (cxx_inherited_template_multi_order != 0) {
+            cxx_inherited_template_multi_error = 1;
+        }
+        cxx_inherited_template_multi_order = 1;
+    }
+
+    int value_;
+};
+
+struct InheritedTemplateSiblingBase {
+    InheritedTemplateSiblingBase() : sibling_value_(17) {
+        if (cxx_inherited_template_multi_order != 1) {
+            cxx_inherited_template_multi_error = 1;
+        }
+        cxx_inherited_template_multi_order = 2;
+    }
+
+    int sibling_value_;
+};
+
+struct InheritedTemplateMultiMember {
+    InheritedTemplateMultiMember() {
+        if (cxx_inherited_template_multi_order != 2) {
+            cxx_inherited_template_multi_error = 1;
+        }
+        cxx_inherited_template_multi_order = 3;
+    }
+};
+
+struct InheritedTemplateMultiDerived : InheritedTemplateMultiBase,
+                                       InheritedTemplateSiblingBase {
+    using InheritedTemplateMultiBase::InheritedTemplateMultiBase;
+    int extra_ = 9;
+    InheritedTemplateMultiMember member_{};
+};
+
 extern "C" int cxx_inherited_constructor_probe(void) {
     InheritedDerived one(7);
     InheritedDerived two(3, 4);
@@ -96,9 +138,11 @@ extern "C" int cxx_inherited_constructor_probe(void) {
     InheritedTemplateDerived six(5);
     InheritedTemplateEmptyDerived seven{2};
     InheritedTemplateLeaf eight{10};
+    InheritedTemplateMultiDerived nine{3};
     return one.value_ + two.value_ + three.value_ + three.member_.value_ +
            four.value_ + five.value_ + six.value_ + four.extra_ +
            five.extra_ + six.extra_ + seven.value_ + seven.extra_ +
            eight.value_ + eight.extra_ +
+           nine.value_ + nine.sibling_value_ + nine.extra_ +
            cxx_inherited_template_order_complete;
 }

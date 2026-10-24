@@ -13906,13 +13906,13 @@ test-cxx-inherited-constructor-posix: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIM
 		-o $(TEST_OUT)/cxx-inherited-constructor/multiple-base-x86.ro \
 		tests/cxx_inherited_constructor_invalid_multiple_base.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/multiple-base-x86.log 2>&1
-	$(GREP) -q "inherited constructor-template lowering requires one public non-virtual base at each derived layer" \
+	$(GREP) -q "inherited constructor-template lowering requires a unique public non-virtual inherited base first in declaration order" \
 		$(TEST_OUT)/cxx-inherited-constructor/multiple-base-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/multiple-base-x64.ro \
 		tests/cxx_inherited_constructor_invalid_multiple_base.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/multiple-base-x64.log 2>&1
-	$(GREP) -q "inherited constructor-template lowering requires one public non-virtual base at each derived layer" \
+	$(GREP) -q "inherited constructor-template lowering requires a unique public non-virtual inherited base first in declaration order" \
 		$(TEST_OUT)/cxx-inherited-constructor/multiple-base-x64.log
 	@echo "C++ inherited constructor tests completed"
 
@@ -13981,9 +13981,9 @@ test-cxx-inherited-constructor: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/unknown-x64.ro tests/cxx_inherited_constructor_invalid_unknown.cpp,$(TEST_OUT)/cxx-inherited-constructor/unknown-x64.log)
 	$(GREP) -F -q "using-base constructor names an unknown direct base" $(TEST_OUT)/cxx-inherited-constructor/unknown-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/multiple-base-x86.ro tests/cxx_inherited_constructor_invalid_multiple_base.cpp,$(TEST_OUT)/cxx-inherited-constructor/multiple-base-x86.log)
-	$(GREP) -F -q "inherited constructor-template lowering requires one public non-virtual base at each derived layer" $(TEST_OUT)/cxx-inherited-constructor/multiple-base-x86.log
+	$(GREP) -F -q "inherited constructor-template lowering requires a unique public non-virtual inherited base first in declaration order" $(TEST_OUT)/cxx-inherited-constructor/multiple-base-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/multiple-base-x64.ro tests/cxx_inherited_constructor_invalid_multiple_base.cpp,$(TEST_OUT)/cxx-inherited-constructor/multiple-base-x64.log)
-	$(GREP) -F -q "inherited constructor-template lowering requires one public non-virtual base at each derived layer" $(TEST_OUT)/cxx-inherited-constructor/multiple-base-x64.log
+	$(GREP) -F -q "inherited constructor-template lowering requires a unique public non-virtual inherited base first in declaration order" $(TEST_OUT)/cxx-inherited-constructor/multiple-base-x64.log
 else
 test-cxx-constructor-initializer-body: test-cxx-constructor-initializer-body-posix
 test-cxx-base-constructor-initializer: test-cxx-base-constructor-initializer-posix
