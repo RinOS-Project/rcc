@@ -15191,6 +15191,8 @@ bool rcc_sema_cxx_nothrow_constructible(
 
 static int sema_cxx_type_trait_assignable_impl(
     Type* target, Type* source, unsigned depth);
+static int sema_cxx_type_trait_assignable_impl_with_access(
+    Type* target, Type* source, unsigned depth, CxxClass* access_context);
 
 static bool sema_cxx_type_trait_copy_parameter_is_const(Type* type,
                                                         unsigned depth) {
@@ -15367,7 +15369,7 @@ static Expr* sema_cxx_type_trait_assignment_operand(
 
 static bool sema_cxx_type_trait_assignment_subobject_is_assignable(
     Type* subobject, Type* source_object, bool source_is_rvalue,
-    unsigned depth) {
+    CxxClass* access_context, unsigned depth) {
     Type* target_reference;
     Type* source_reference;
     if (!subobject || !source_object || depth > 64u ||
@@ -15377,15 +15379,17 @@ static bool sema_cxx_type_trait_assignment_subobject_is_assignable(
     if (subobject->kind == TYPE_ARRAY) {
         if (subobject->array_len < 0) return false;
         return sema_cxx_type_trait_assignment_subobject_is_assignable(
-            subobject->base, source_object, source_is_rvalue, depth + 1u);
+            subobject->base, source_object, source_is_rvalue,
+            access_context, depth + 1u);
     }
     target_reference = sema_cxx_type_trait_reference_type(
         subobject, false, false, false);
     source_reference = sema_cxx_type_trait_reference_type(
         subobject, source_object->is_const, source_object->is_volatile,
         source_is_rvalue);
-    return sema_cxx_type_trait_assignable_impl(
-               target_reference, source_reference, depth + 1u) == 1;
+    return sema_cxx_type_trait_assignable_impl_with_access(
+               target_reference, source_reference, depth + 1u,
+               access_context) == 1;
 }
 
 static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
@@ -15417,7 +15421,7 @@ static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
                         depth + 1u) ||
                     !sema_cxx_type_trait_assignment_subobject_is_assignable(
                         field->type, source_object, source_is_rvalue,
-                        depth + 1u)) {
+                        cls, depth + 1u)) {
                     return false;
                 }
             }
@@ -15430,7 +15434,7 @@ static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
                         depth + 1u) ||
                     !sema_cxx_type_trait_assignment_subobject_is_assignable(
                         field->type, source_object, source_is_rvalue,
-                        depth + 1u)) {
+                        NULL, depth + 1u)) {
                     return false;
                 }
             }
@@ -15442,14 +15446,16 @@ static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
         CxxClass* base = cls->bases[index].base;
         if (!base || !base->type ||
             !sema_cxx_type_trait_assignment_subobject_is_assignable(
-                base->type, source_object, source_is_rvalue, depth + 1u)) {
+                base->type, source_object, source_is_rvalue,
+                cls, depth + 1u)) {
             return false;
         }
     }
     for (TypeParam* field = cls->fields; field; field = field->next) {
         if (field->is_static) continue;
         if (!sema_cxx_type_trait_assignment_subobject_is_assignable(
-                field->type, source_object, source_is_rvalue, depth + 1u)) {
+                field->type, source_object, source_is_rvalue,
+                cls, depth + 1u)) {
             return false;
         }
     }
@@ -15650,8 +15656,8 @@ static Type* sema_cxx_type_trait_assignment_type(Type* owner_type,
     return result;
 }
 
-static int sema_cxx_type_trait_assignable_impl(
-    Type* target, Type* source, unsigned depth) {
+static int sema_cxx_type_trait_assignable_impl_with_access(
+    Type* target, Type* source, unsigned depth, CxxClass* access_context) {
     SourceLoc loc = {"<type-trait>", 0, 0};
     Type* target_object = NULL;
     Type* lookup_type = NULL;
@@ -15663,6 +15669,8 @@ static int sema_cxx_type_trait_assignable_impl(
     int suppressed_before;
     bool selected_deleted = false;
     SymTab* prior_symtab;
+    Type* prior_method_owner;
+    Decl* prior_function_decl;
     bool owns_symtab = false;
     int result;
     if (!target || !source || depth > 64u || target->cxx_dependent ||
@@ -15675,6 +15683,10 @@ static int sema_cxx_type_trait_assignable_impl(
         if (!g_symtab) return -1;
         owns_symtab = true;
     }
+    prior_method_owner = current_cxx_method_owner;
+    prior_function_decl = current_cxx_function_decl;
+    current_cxx_method_owner = access_context ? access_context->type : NULL;
+    current_cxx_function_decl = NULL;
     target_object = target->kind == TYPE_PTR && target->is_reference
         ? target->base : target;
     if (target_object &&
@@ -15691,6 +15703,8 @@ static int sema_cxx_type_trait_assignable_impl(
     right = sema_cxx_type_trait_assignment_operand(
         source, NULL, loc, "__rcc_type_trait_assignment_source");
     if (!left || !right) {
+        current_cxx_method_owner = prior_method_owner;
+        current_cxx_function_decl = prior_function_decl;
         if (owns_symtab) {
             symtab_free(g_symtab);
             g_symtab = prior_symtab;
@@ -15708,11 +15722,19 @@ static int sema_cxx_type_trait_assignable_impl(
     }
     result = selected_deleted ? 0
         : g_suppressed_error_count == suppressed_before ? 1 : 0;
+    current_cxx_method_owner = prior_method_owner;
+    current_cxx_function_decl = prior_function_decl;
     if (owns_symtab) {
         symtab_free(g_symtab);
         g_symtab = prior_symtab;
     }
     return result;
+}
+
+static int sema_cxx_type_trait_assignable_impl(
+    Type* target, Type* source, unsigned depth) {
+    return sema_cxx_type_trait_assignable_impl_with_access(
+        target, source, depth, NULL);
 }
 
 int rcc_sema_cxx_assignable(Type* target, Type* source) {

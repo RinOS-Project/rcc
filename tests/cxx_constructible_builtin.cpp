@@ -222,6 +222,43 @@ struct ImplicitlyAssignable {
     int value;
 };
 
+struct ProtectedCopyAssignmentBase {
+protected:
+    ProtectedCopyAssignmentBase& operator=(
+        const ProtectedCopyAssignmentBase&) noexcept = default;
+};
+
+struct ImplicitProtectedCopyAssignmentBase : ProtectedCopyAssignmentBase {};
+
+struct PrivateCopyAssignmentBase {
+private:
+    PrivateCopyAssignmentBase& operator=(
+        const PrivateCopyAssignmentBase&) noexcept = default;
+};
+
+struct ImplicitPrivateCopyAssignmentBase : PrivateCopyAssignmentBase {};
+
+struct ProtectedCopyAssignmentMember {
+protected:
+    ProtectedCopyAssignmentMember& operator=(
+        const ProtectedCopyAssignmentMember&) noexcept = default;
+};
+
+struct ImplicitProtectedCopyAssignmentMember {
+    ProtectedCopyAssignmentMember member;
+};
+
+struct FriendCopyAssignmentBaseDerived;
+
+struct FriendCopyAssignmentBase {
+private:
+    FriendCopyAssignmentBase& operator=(
+        const FriendCopyAssignmentBase&) noexcept = default;
+    friend struct FriendCopyAssignmentBaseDerived;
+};
+
+struct FriendCopyAssignmentBaseDerived : FriendCopyAssignmentBase {};
+
 struct ConstMemberNotAssignable {
     const int value;
 };
@@ -566,6 +603,21 @@ static_assert(!__is_assignable(PrivateIntAssignment&, int),
 static_assert(__is_assignable(ImplicitlyAssignable&,
                               const ImplicitlyAssignable&),
               "implicit copy assignment");
+static_assert(!__is_assignable(ProtectedCopyAssignmentBase&,
+                               const ProtectedCopyAssignmentBase&),
+              "a protected base assignment is inaccessible from outside");
+static_assert(__is_assignable(ImplicitProtectedCopyAssignmentBase&,
+                              const ImplicitProtectedCopyAssignmentBase&),
+              "an implicit derived assignment can call a protected base assignment");
+static_assert(!__is_assignable(ImplicitPrivateCopyAssignmentBase&,
+                               const ImplicitPrivateCopyAssignmentBase&),
+              "a private base assignment deletes the implicit derived assignment");
+static_assert(!__is_assignable(ImplicitProtectedCopyAssignmentMember&,
+                               const ImplicitProtectedCopyAssignmentMember&),
+              "a containing class cannot access a protected member assignment");
+static_assert(__is_assignable(FriendCopyAssignmentBaseDerived&,
+                              const FriendCopyAssignmentBaseDerived&),
+              "a friend class can use a private base assignment implicitly");
 static_assert(!__is_assignable(ConstMemberNotAssignable&,
                                const ConstMemberNotAssignable&),
               "const subobjects delete implicit copy assignment");
