@@ -9391,10 +9391,14 @@ remains a separate open item.
       `std::is_nothrow_constructible` cases match GCC C++20 on i686 and AMD64.
 - [x] Advertise `__is_nothrow_constructible` through `__has_builtin`; C and
       C++ feature-query tests pass on both target widths.
-- [ ] Resolve dependent `std::is_nothrow_constructible<T, Args...>` values
-      through nested libcxx `integral_constant` bases and static-member access.
-      Call-dependent default arguments/member initializers also need to be
-      folded when the trait is used as a base non-type argument. Direct builtin
-      checks cover those expressions; full dependent standard-trait
-      instantiation, broader implicit copy/move, and type-trait conformance
-      remain open.
+- [x] Instantiate dependent libcxx `std::is_nothrow_constructible<T, Args...>`
+      through nested `integral_constant` bases for both true and false results,
+      including an argument pack; i686/AMD64 and GCC C++20 agree.
+- [x] Fold unambiguous zero-argument calls in constructor default arguments
+      and aggregate default member initializers through nested libcxx
+      `integral_constant` bases. Both `noexcept` and potentially-throwing calls
+      match GCC C++20 on i686 and AMD64; the complete `make OS=Linux test-cxx`
+      suite passes under WSL.
+- [ ] Extend the nothrow-trait comparison across overload/scope combinations,
+      remaining implicit copy/move deletion/access rules, and the broader
+      C++ type-trait conformance matrix.

@@ -2224,6 +2224,80 @@ static Decl* cxx_structural_pointer_member_identifier_declaration(
     return declaration;
 }
 
+/* Parser-time type-trait evaluation happens before sema has populated the
+ * ordinary symbol table.  A call in a default argument or member initializer
+ * can still be classified when the active namespace has exactly one visible
+ * non-template function declaration for a zero-argument call.  Binding only
+ * that unambiguous case lets unevaluated noexcept queries use its declared
+ * exception specification without inventing an overload choice. */
+bool rcc_parser_cxx_bind_unique_function_call(Expr* expression) {
+    Expr* function_expression;
+    CxxNamespace* lookup_namespace;
+    Decl* selected = NULL;
+    int candidate_count = 0;
+    int argument_count = 0;
+    bool is_noexcept = false;
+    if (!expression || expression->kind != EXPR_CALL ||
+        !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        !expression->call_func->ident_name) {
+        return false;
+    }
+    function_expression = expression->call_func;
+    if (function_expression->ident_decl &&
+        function_expression->ident_decl->kind == DECL_FUNC) {
+        return false;
+    }
+    for (ExprList* argument = expression->call_args; argument;
+         argument = argument->next) {
+        ++argument_count;
+    }
+    if (argument_count != 0) return false;
+    lookup_namespace = active_namespace
+        ? active_namespace : g_global_namespace;
+    for (DeclList* item = lookup_namespace ? lookup_namespace->decls : NULL;
+         item; item = item->next) {
+        Decl* candidate = item->decl;
+        if (!candidate || candidate->kind != DECL_FUNC ||
+            !candidate->name ||
+            !cxx_decl_leaf_matches(candidate->name,
+                                   function_expression->ident_name)) {
+            continue;
+        }
+        if (candidate_count && selected == candidate) continue;
+        selected = candidate;
+        ++candidate_count;
+        if (candidate_count > 1) return false;
+    }
+    if (!selected || selected->func_template_owner ||
+        selected->func_is_template_instance || !selected->type ||
+        selected->type->kind != TYPE_FUNC || !selected->type->ret_type) {
+        return false;
+    }
+    for (DeclList* parameter = selected->func_params; parameter;
+         parameter = parameter->next) {
+        if (!parameter->decl || !parameter->decl->param_default) {
+            return false;
+        }
+    }
+    if (selected->func_noexcept_expr) {
+        int64_t value;
+        if (!expr_eval_integer_constant(
+                selected->func_noexcept_expr, &value)) {
+            return false;
+        }
+        is_noexcept = value != 0;
+    } else {
+        is_noexcept = selected->func_is_noexcept ||
+                      selected->type->function_is_noexcept;
+    }
+    function_expression->ident_decl = selected;
+    function_expression->type = selected->type;
+    expression->type = selected->type->ret_type;
+    expression->cxx_call_is_noexcept = is_noexcept;
+    return true;
+}
+
 static bool cxx_structural_pointer_member_declaration_has_static_storage(
     Decl* declaration, bool namespace_scope_target) {
     Symbol* symbol = declaration && declaration->name && g_symtab

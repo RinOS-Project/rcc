@@ -239,6 +239,36 @@ struct ThrowingValue {
     ThrowingValue(int) {}
 };
 
+int nonthrowing_trait_default() noexcept;
+int throwing_trait_default();
+
+static_assert(noexcept(nonthrowing_trait_default()),
+              "declared noexcept call remains visible to the expression parser");
+static_assert(!noexcept(throwing_trait_default()),
+              "unannotated call remains potentially throwing");
+
+struct NothrowDefaultArgumentValue {
+    NothrowDefaultArgumentValue(
+        int value = nonthrowing_trait_default()) noexcept {
+        (void)value;
+    }
+};
+
+struct ThrowingDefaultArgumentValue {
+    ThrowingDefaultArgumentValue(
+        int value = throwing_trait_default()) noexcept {
+        (void)value;
+    }
+};
+
+struct NothrowDefaultMemberInitializerValue {
+    int value = nonthrowing_trait_default();
+};
+
+struct ThrowingDefaultMemberInitializerValue {
+    int value = throwing_trait_default();
+};
+
 struct NothrowDefaultValue {
     NothrowDefaultValue() noexcept {}
 };
@@ -369,6 +399,17 @@ struct UserDestructorCopy {
 
 void accept_nothrow_value(NothrowValue);
 
+template <typename T>
+struct NothrowConstructibleTraitProbe {
+    static constexpr bool value = std::is_nothrow_constructible<T>::value;
+};
+
+template <typename T, typename... Args>
+struct NothrowConstructiblePackTraitProbe {
+    static constexpr bool value =
+        std::is_nothrow_constructible<T, Args...>::value;
+};
+
 static_assert(std::is_convertible<int, long>::value,
               "arithmetic conversion must be detected");
 static_assert(!std::is_convertible<int, ExplicitOnly>::value,
@@ -385,6 +426,26 @@ static_assert(std::is_nothrow_constructible<NothrowValue, int>::value,
               "direct construction must honor a noexcept constructor");
 static_assert(!std::is_nothrow_constructible<ThrowingValue, int>::value,
               "direct construction must honor a throwing constructor");
+static_assert(
+    std::is_nothrow_constructible<NothrowDefaultArgumentValue>::value,
+    "libcxx trait must fold a non-throwing call in a default argument");
+static_assert(
+    !std::is_nothrow_constructible<ThrowingDefaultArgumentValue>::value,
+    "libcxx trait must fold a throwing call in a default argument");
+static_assert(std::is_nothrow_constructible<
+                  NothrowDefaultMemberInitializerValue>::value,
+              "libcxx trait must fold a non-throwing call in a DMI");
+static_assert(!std::is_nothrow_constructible<
+                  ThrowingDefaultMemberInitializerValue>::value,
+              "libcxx trait must fold a throwing call in a DMI");
+static_assert(NothrowConstructibleTraitProbe<NothrowDefaultValue>::value,
+              "dependent libcxx nothrow constructibility retains true");
+static_assert(!NothrowConstructibleTraitProbe<ThrowingDefaultValue>::value,
+              "dependent libcxx nothrow constructibility retains false");
+static_assert(NothrowConstructiblePackTraitProbe<NothrowValue, int>::value,
+              "dependent libcxx nothrow packs retain true");
+static_assert(!NothrowConstructiblePackTraitProbe<ThrowingValue, int>::value,
+              "dependent libcxx nothrow packs retain false");
 static_assert(std::is_nothrow_constructible<DefaultedNothrowMember>::value,
               "implicit aggregate construction propagates member noexcept");
 static_assert(!std::is_nothrow_constructible<DefaultedThrowingMember>::value,

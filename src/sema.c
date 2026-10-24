@@ -14505,12 +14505,16 @@ static bool sema_cxx_type_trait_expression_is_nothrow(
     Expr* expression, Type* target, unsigned depth) {
     int errors_before;
     if (!expression || depth > 64u) return false;
-    if (!g_symtab && expression->kind == EXPR_CALL &&
-        expression->call_func &&
+    if (expression->kind == EXPR_CALL && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
         !expression->call_func->ident_decl) {
-        cxx_type_trait_nothrow_evaluation_unknown = true;
-        return false;
+        if (!rcc_parser_cxx_bind_unique_function_call(expression)) {
+            if (!g_symtab) {
+                cxx_type_trait_nothrow_evaluation_unknown = true;
+                return false;
+            }
+            if (!sema_expr(expression)) return false;
+        }
     }
     errors_before = g_error_count;
     if (!expression->type && !sema_expr(expression)) return false;
