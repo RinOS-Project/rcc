@@ -13396,7 +13396,7 @@ static CxxConstructorInfo* sema_cxx_make_type_trait_template_constructor(
     constructor->is_defaulted = method->is_defaulted;
     constructor->is_inherited = inherited;
     constructor->inherited_base_initializers = NULL;
-    constructor->inherited_selected_base_index = -1;
+    constructor->inherited_selected_base_offset = -1;
     constructor->inherited_member_initializers = NULL;
     constructor->access = (AccessSpec)method->cxx_access;
     /* Candidate viability depends on the declaration and parameter list, not

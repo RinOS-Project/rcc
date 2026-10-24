@@ -94,10 +94,10 @@ struct InheritedTemplateMultiBase {
     template <typename T>
     explicit InheritedTemplateMultiBase(T value)
         : value_(value + sizeof(T)) {
-        if (cxx_inherited_template_multi_order != 1) {
+        if (cxx_inherited_template_multi_order != 2) {
             cxx_inherited_template_multi_error = 1;
         }
-        cxx_inherited_template_multi_order = 2;
+        cxx_inherited_template_multi_order = 3;
     }
 
     int value_;
@@ -105,10 +105,10 @@ struct InheritedTemplateMultiBase {
 
 struct InheritedTemplateMultiPrefix {
     InheritedTemplateMultiPrefix() : prefix_value_(11) {
-        if (cxx_inherited_template_multi_order != 0) {
+        if (cxx_inherited_template_multi_order != 1) {
             cxx_inherited_template_multi_error = 1;
         }
-        cxx_inherited_template_multi_order = 1;
+        cxx_inherited_template_multi_order = 2;
     }
 
     int prefix_value_;
@@ -116,18 +116,57 @@ struct InheritedTemplateMultiPrefix {
 
 struct InheritedTemplateSiblingBase {
     InheritedTemplateSiblingBase() : sibling_value_(17) {
-        if (cxx_inherited_template_multi_order != 2) {
+        if (cxx_inherited_template_multi_order != 3) {
             cxx_inherited_template_multi_error = 1;
         }
-        cxx_inherited_template_multi_order = 3;
+        cxx_inherited_template_multi_order = 4;
     }
 
     int sibling_value_;
 };
 
+struct InheritedTemplateMultiLeafPrefix {
+    InheritedTemplateMultiLeafPrefix() : leaf_prefix_value_(13) {
+        if (cxx_inherited_template_multi_order != 0) {
+            cxx_inherited_template_multi_error = 1;
+        }
+        cxx_inherited_template_multi_order = 1;
+    }
+
+    int leaf_prefix_value_;
+};
+
+struct InheritedTemplateMiddleMember {
+    InheritedTemplateMiddleMember() {
+        if (cxx_inherited_template_multi_order != 4) {
+            cxx_inherited_template_multi_error = 1;
+        }
+        cxx_inherited_template_multi_order = 5;
+    }
+};
+
+struct InheritedTemplateMultiMiddle : InheritedTemplateMultiPrefix,
+                                      InheritedTemplateMultiBase,
+                                      InheritedTemplateSiblingBase {
+    using InheritedTemplateMultiBase::InheritedTemplateMultiBase;
+    int middle_extra_ = 6;
+    InheritedTemplateMiddleMember middle_member_{};
+};
+
+struct InheritedTemplateMultiLeafSuffix {
+    InheritedTemplateMultiLeafSuffix() : leaf_suffix_value_(19) {
+        if (cxx_inherited_template_multi_order != 5) {
+            cxx_inherited_template_multi_error = 1;
+        }
+        cxx_inherited_template_multi_order = 6;
+    }
+
+    int leaf_suffix_value_;
+};
+
 struct InheritedTemplateMultiMember {
     InheritedTemplateMultiMember() {
-        if (cxx_inherited_template_multi_order != 3) {
+        if (cxx_inherited_template_multi_order != 6) {
             cxx_inherited_template_multi_error = 1;
         }
         cxx_inherited_template_multi_order = 0;
@@ -135,10 +174,10 @@ struct InheritedTemplateMultiMember {
     }
 };
 
-struct InheritedTemplateMultiDerived : InheritedTemplateMultiPrefix,
-                                       InheritedTemplateMultiBase,
-                                       InheritedTemplateSiblingBase {
-    using InheritedTemplateMultiBase::InheritedTemplateMultiBase;
+struct InheritedTemplateMultiDerived : InheritedTemplateMultiLeafPrefix,
+                                       InheritedTemplateMultiMiddle,
+                                       InheritedTemplateMultiLeafSuffix {
+    using InheritedTemplateMultiMiddle::InheritedTemplateMultiMiddle;
     int extra_ = 9;
     InheritedTemplateMultiMember member_{};
 };
@@ -158,8 +197,11 @@ extern "C" int cxx_inherited_constructor_probe(void) {
            four.value_ + five.value_ + six.value_ + four.extra_ +
            five.extra_ + six.extra_ + seven.value_ + seven.extra_ +
            eight.value_ + eight.extra_ +
-           nine.prefix_value_ + nine.value_ + nine.sibling_value_ +
-           nine.extra_ + ten.prefix_value_ + ten.value_ +
-           ten.sibling_value_ + ten.extra_ +
+           nine.leaf_prefix_value_ + nine.prefix_value_ + nine.value_ +
+           nine.sibling_value_ + nine.middle_extra_ +
+           nine.leaf_suffix_value_ + nine.extra_ +
+           ten.leaf_prefix_value_ + ten.prefix_value_ + ten.value_ +
+           ten.sibling_value_ + ten.middle_extra_ +
+           ten.leaf_suffix_value_ + ten.extra_ +
            cxx_inherited_template_order_complete;
 }

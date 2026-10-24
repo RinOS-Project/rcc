@@ -17,7 +17,7 @@ extern int cxx_inherited_template_multi_complete;
 
 int main(void) {
     int result = cxx_inherited_constructor_probe();
-    if (result != 254 || cxx_inherited_template_order_state != 0 ||
+    if (result != 330 || cxx_inherited_template_order_state != 0 ||
         cxx_inherited_template_order_error != 0 ||
         cxx_inherited_template_order_complete != 4 ||
         cxx_inherited_template_multi_order != 0 ||

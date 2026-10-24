@@ -62,6 +62,8 @@ struct CxxNestedClassTemplate {
 struct CxxConstructorInitializer {
     const char* field;
     Type* base_type_pattern;
+    Type* inherited_base_type;
+    int inherited_base_offset;
     Expr* value;
     /* Parenthesized mem-initializers retain their complete argument list.
      * `value` remains the first argument for the scalar aggregate verifier. */
@@ -72,6 +74,7 @@ struct CxxConstructorInitializer {
     bool is_delegating_constructor;
     bool is_default_member_initializer;
     bool is_pack_expansion;
+    bool has_inherited_base_layout;
     CxxConstructorInitializer* next;
 };
 
@@ -90,7 +93,7 @@ struct CxxConstructorInfo {
     bool is_defaulted;
     bool is_inherited;
     CxxConstructorInitializer* inherited_base_initializers;
-    int inherited_selected_base_index;
+    int inherited_selected_base_offset;
     CxxConstructorInfo* inherited_member_initializers;
     AccessSpec access;
     CxxConstructorInfo* next;

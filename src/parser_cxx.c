@@ -7146,12 +7146,15 @@ static CxxConstructorInitializer* cxx_copy_constructor_initializer(
     } else {
         copy->field = field;
         copy->base_type_pattern = NULL;
+        copy->inherited_base_type = NULL;
+        copy->inherited_base_offset = -1;
         copy->value = NULL;
         copy->arguments = NULL;
         copy->constructor = NULL;
         copy->is_delegating_constructor = false;
         copy->is_virtual_base_initializer = false;
         copy->is_pack_expansion = false;
+        copy->has_inherited_base_layout = false;
     }
     copy->constructor = base_constructor;
     copy->is_base_initializer = is_base;
@@ -7423,7 +7426,7 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     inherited->is_defaulted = false;
     inherited->is_inherited = true;
     inherited->inherited_base_initializers = NULL;
-    inherited->inherited_selected_base_index = -1;
+    inherited->inherited_selected_base_offset = -1;
     inherited->inherited_member_initializers = NULL;
     inherited->access = source->access;
 
@@ -7431,12 +7434,15 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     initializer->arguments = NULL;
     initializer->field = rcc_intern(base->name);
     initializer->base_type_pattern = NULL;
+    initializer->inherited_base_type = NULL;
+    initializer->inherited_base_offset = -1;
     initializer->constructor = source;
     initializer->is_base_initializer = true;
     initializer->is_virtual_base_initializer = false;
     initializer->is_delegating_constructor = false;
     initializer->is_default_member_initializer = false;
     initializer->is_pack_expansion = false;
+    initializer->has_inherited_base_layout = false;
     initializer->next = NULL;
     for (parameter = source->method->decl->func_params;
          parameter; parameter = parameter->next) {
@@ -8025,13 +8031,13 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
     CxxConstructorInfo* member_initializers;
     CxxConstructorInitializer** initializer_tail;
     CxxClass* inheritance_path[64];
+    int selected_base_indices[64] = {0};
+    int inheritance_layer_offsets[64] = {0};
     int inheritance_path_length = 0;
     int inheritance_path_count;
     int initializer_count = 0;
-    int final_selected_base_index = -1;
     CxxConstructorInitializer* leading_sibling_bases = NULL;
-    CxxConstructorInitializer** leading_sibling_tail =
-        &leading_sibling_bases;
+    int final_selected_base_offset = -1;
     SourceLoc loc = constructor && constructor->method &&
             constructor->method->decl
         ? constructor->method->decl->loc
@@ -8062,20 +8068,10 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
                   "inherited constructor template requires an explicit public non-virtual using-base chain");
         return false;
     }
-    member_initializers = ast_arena_alloc(sizeof(*member_initializers));
-    memset(member_initializers, 0, sizeof(*member_initializers));
-    member_initializers->initializers_are_supported = true;
-    member_initializers->body_is_empty = true;
-    initializer_tail = &member_initializers->initializers;
     for (int path_index = 1; path_index < inheritance_path_length;
          ++path_index) {
         CxxClass* derived_layer = inheritance_path[path_index];
-        CxxConstructorInitializer* sibling_bases = NULL;
-        CxxConstructorInitializer** sibling_tail = &sibling_bases;
         int selected_base_index = -1;
-        int sibling_count = 0;
-        CxxConstructorInfo* layer_initializers;
-        CxxClass member_owner;
         for (int base_index = 0; base_index < derived_layer->base_count;
              ++base_index) {
             if (derived_layer->bases[base_index].base ==
@@ -8090,62 +8086,112 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
         if (selected_base_index < 0 ||
             derived_layer->bases[selected_base_index].access != ACCESS_PUBLIC ||
             derived_layer->bases[selected_base_index].is_virtual ||
-            (path_index + 1 < inheritance_path_length &&
-             derived_layer->base_count != 1)) {
+            !cxx_constructor_base_layout_supported(
+                derived_layer, selected_base_index)) {
             rcc_error(loc,
-                      "inherited constructor-template lowering requires a unique public non-virtual inherited base and single-base intermediate layers");
+                      "inherited constructor-template lowering requires a unique public non-virtual inherited base with supported layout");
             return false;
         }
+        selected_base_indices[path_index] = selected_base_index;
+    }
+    for (int path_index = inheritance_path_length - 1; path_index >= 1;
+         --path_index) {
+        CxxClass* derived_layer = inheritance_path[path_index];
+        int selected_base_index = selected_base_indices[path_index];
+        int64_t base_offset = derived_layer->base_offsets
+            ? derived_layer->base_offsets[selected_base_index] : -1;
+        int64_t absolute_offset =
+            (int64_t)inheritance_layer_offsets[path_index] + base_offset;
+        if (base_offset < 0 || absolute_offset > INT_MAX) {
+            rcc_error(loc,
+                      "inherited constructor-template base adjustment exceeds the supported object layout");
+            return false;
+        }
+        inheritance_layer_offsets[path_index - 1] = (int)absolute_offset;
+    }
+    final_selected_base_offset = inheritance_layer_offsets[0];
+    member_initializers = ast_arena_alloc(sizeof(*member_initializers));
+    memset(member_initializers, 0, sizeof(*member_initializers));
+    member_initializers->initializers_are_supported = true;
+    member_initializers->body_is_empty = true;
+    initializer_tail = &member_initializers->initializers;
+    for (int path_index = 1; path_index < inheritance_path_length;
+         ++path_index) {
+        CxxClass* derived_layer = inheritance_path[path_index];
+        CxxConstructorInitializer* leading_layer_bases = NULL;
+        CxxConstructorInitializer** leading_layer_tail =
+            &leading_layer_bases;
+        CxxConstructorInitializer* trailing_layer_bases = NULL;
+        CxxConstructorInitializer** trailing_layer_tail =
+            &trailing_layer_bases;
+        int trailing_layer_count = 0;
+        int selected_base_index = selected_base_indices[path_index];
+        CxxConstructorInfo* layer_initializers;
+        CxxClass member_owner;
         if (!cxx_inherited_constructor_member_supported(derived_layer)) {
             rcc_error(loc,
                       "using-base constructors require safely lowerable members at every derived layer");
             return false;
         }
-        if (path_index + 1 == inheritance_path_length) {
-            final_selected_base_index = selected_base_index;
-            /* The selected inherited base is initialized by the constructor
-             * itself. Preserve C++ declaration order by placing earlier
-             * siblings before it and later siblings before derived members. */
-            for (int base_index = 0;
-                 base_index < derived_layer->base_count; ++base_index) {
-                CxxConstructorInitializer*** sibling_tail_target;
-                CxxClass* sibling = derived_layer->bases[base_index].base;
-                CxxConstructorInfo* default_constructor;
-                CxxConstructorInitializer* initializer;
-                if (base_index == selected_base_index) continue;
-                if (!sibling ||
-                    derived_layer->bases[base_index].is_virtual ||
-                    !cxx_constructor_base_layout_supported(
-                        derived_layer, base_index) ||
-                    cxx_constructor_base_index(
-                        derived_layer, sibling->name) != base_index) {
-                    rcc_error(loc,
-                              "inherited constructor template has an unsupported additional direct base");
-                    return false;
-                }
-                default_constructor = cxx_find_base_constructor(sibling, 0);
-                if ((!default_constructor && sibling->constructors) ||
-                    (!default_constructor &&
-                     (sibling->fields || sibling->base_count ||
-                      sibling->has_field_initializer ||
-                      sibling->type->cxx_nontrivial)) ||
-                    (default_constructor &&
-                     default_constructor->parameter_count != 0)) {
-                    rcc_error(loc,
-                              "additional inherited-constructor base requires a safely lowerable zero-argument default constructor");
-                    return false;
-                }
-                initializer = ast_arena_alloc(sizeof(*initializer));
-                memset(initializer, 0, sizeof(*initializer));
-                initializer->field = rcc_intern(sibling->name);
-                initializer->constructor = default_constructor;
-                initializer->is_base_initializer = true;
-                sibling_tail_target = base_index < selected_base_index
-                    ? &leading_sibling_tail : &sibling_tail;
-                **sibling_tail_target = initializer;
-                *sibling_tail_target = &initializer->next;
-                if (base_index >= selected_base_index) ++sibling_count;
+        /* Build a declaration-ordered prefix for each inheritance layer.
+         * The path loop runs base-to-derived, so prepend each layer's prefix
+         * to obtain outer-to-inner execution before the selected base body. */
+        for (int base_index = 0; base_index < derived_layer->base_count;
+             ++base_index) {
+            CxxClass* sibling = derived_layer->bases[base_index].base;
+            CxxConstructorInfo* default_constructor;
+            CxxConstructorInitializer* initializer;
+            int64_t absolute_offset;
+            if (base_index == selected_base_index) continue;
+            if (!sibling ||
+                derived_layer->bases[base_index].is_virtual ||
+                !cxx_constructor_base_layout_supported(
+                    derived_layer, base_index) ||
+                cxx_constructor_base_index(
+                    derived_layer, sibling->name) != base_index) {
+                rcc_error(loc,
+                          "inherited constructor template has an unsupported additional direct base");
+                return false;
             }
+            default_constructor = cxx_find_base_constructor(sibling, 0);
+            if ((!default_constructor && sibling->constructors) ||
+                (!default_constructor &&
+                 (sibling->fields || sibling->base_count ||
+                  sibling->has_field_initializer ||
+                  sibling->type->cxx_nontrivial)) ||
+                (default_constructor &&
+                 default_constructor->parameter_count != 0)) {
+                rcc_error(loc,
+                          "additional inherited-constructor base requires a safely lowerable zero-argument default constructor");
+                return false;
+            }
+            absolute_offset = (int64_t)inheritance_layer_offsets[path_index] +
+                derived_layer->base_offsets[base_index];
+            if (absolute_offset < 0 || absolute_offset > INT_MAX) {
+                rcc_error(loc,
+                          "inherited constructor-template sibling base adjustment exceeds the supported object layout");
+                return false;
+            }
+            initializer = ast_arena_alloc(sizeof(*initializer));
+            memset(initializer, 0, sizeof(*initializer));
+            initializer->field = rcc_intern(sibling->name);
+            initializer->inherited_base_type = sibling->type;
+            initializer->inherited_base_offset = (int)absolute_offset;
+            initializer->constructor = default_constructor;
+            initializer->is_base_initializer = true;
+            initializer->has_inherited_base_layout = true;
+            if (base_index < selected_base_index) {
+                *leading_layer_tail = initializer;
+                leading_layer_tail = &initializer->next;
+            } else {
+                *trailing_layer_tail = initializer;
+                trailing_layer_tail = &initializer->next;
+                ++trailing_layer_count;
+            }
+        }
+        if (leading_layer_bases) {
+            *leading_layer_tail = leading_sibling_bases;
+            leading_sibling_bases = leading_layer_bases;
         }
         layer_initializers = ast_arena_alloc(sizeof(*layer_initializers));
         memset(layer_initializers, 0, sizeof(*layer_initializers));
@@ -8165,10 +8211,10 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
                       "inherited constructor template has unsupported derived member initializers");
             return false;
         }
-        if (sibling_bases) {
-            *sibling_tail = layer_initializers->initializers;
-            layer_initializers->initializers = sibling_bases;
-            layer_initializers->initializer_count += sibling_count;
+        if (trailing_layer_bases) {
+            *trailing_layer_tail = layer_initializers->initializers;
+            layer_initializers->initializers = trailing_layer_bases;
+            layer_initializers->initializer_count += trailing_layer_count;
         }
         *initializer_tail = layer_initializers->initializers;
         while (*initializer_tail) {
@@ -8177,7 +8223,7 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
         }
     }
     constructor->inherited_base_initializers = leading_sibling_bases;
-    constructor->inherited_selected_base_index = final_selected_base_index;
+    constructor->inherited_selected_base_offset = final_selected_base_offset;
     member_initializers->initializer_count = initializer_count;
     constructor->inherited_member_initializers = member_initializers;
     return true;
@@ -8247,6 +8293,8 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
         item = ast_arena_alloc(sizeof(*item));
         item->field = field;
         item->base_type_pattern = base_type_pattern;
+        item->inherited_base_type = NULL;
+        item->inherited_base_offset = -1;
         item->value = value;
         item->arguments = arguments;
         item->constructor = NULL;
@@ -8255,6 +8303,7 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
         item->is_delegating_constructor = false;
         item->is_default_member_initializer = false;
         item->is_pack_expansion = is_pack_expansion;
+        item->has_inherited_base_layout = false;
         item->next = NULL;
         *tail = item;
         tail = &item->next;
@@ -11061,7 +11110,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             info->is_deleted = is_deleted;
             info->is_defaulted = is_defaulted;
             info->inherited_base_initializers = NULL;
-            info->inherited_selected_base_index = -1;
+            info->inherited_selected_base_offset = -1;
             info->inherited_member_initializers = NULL;
             info->access = current_access;
             info->next = NULL;

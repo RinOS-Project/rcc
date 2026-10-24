@@ -10461,6 +10461,9 @@ static void gen_cxx_exception_unregister_initializers32(
                 if (!initialize_virtual_bases) continue;
                 base_offset = gen_cxx_constructor_virtual_base32(
                     object_type, initializer->field, &base_type);
+            } else if (initializer->has_inherited_base_layout) {
+                base_type = initializer->inherited_base_type;
+                base_offset = initializer->inherited_base_offset;
             } else {
                 base_offset = gen_cxx_constructor_base32(
                     object_type, initializer->field, &base_type);
@@ -10607,8 +10610,14 @@ static void gen_cxx_initialize_member_initializers32(
         if (initializer->is_base_initializer) {
             if (initializer->is_virtual_base_initializer) continue;
             Type* base_type = NULL;
-            int base_offset = gen_cxx_constructor_base32(
-                object_type, initializer->field, &base_type);
+            int base_offset;
+            if (initializer->has_inherited_base_layout) {
+                base_type = initializer->inherited_base_type;
+                base_offset = initializer->inherited_base_offset;
+            } else {
+                base_offset = gen_cxx_constructor_base32(
+                    object_type, initializer->field, &base_type);
+            }
             if (base_offset < 0 || !base_type) {
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
                           "validated C++ base initializer is incomplete");
@@ -10825,27 +10834,23 @@ static void gen_cxx_initialize_inherited_members32(
     for (CxxConstructorInitializer* initializer =
              constructor->inherited_base_initializers;
          initializer; initializer = initializer->next) {
-        Type* base_type = NULL;
-        int base_offset = gen_cxx_constructor_base32(
-            object_type, initializer->field, &base_type);
-        if (base_offset >= 0 && base_type) {
-            gen_cxx_exception_change_at_offset32(
-                mod, base_type, ECX, base_offset,
-                active_cxx_exception_cleanup_frame_offset, true);
-        }
+        gen_cxx_exception_change_at_offset32(
+            mod, initializer->inherited_base_type, ECX,
+            initializer->inherited_base_offset,
+            active_cxx_exception_cleanup_frame_offset, true);
     }
 }
 
 static void gen_cxx_initialize_inherited_bases32(
-    Module* mod, Type* object_type, CxxConstructorInfo* constructor) {
+    Module* mod, CxxConstructorInfo* constructor) {
     if (!constructor || !constructor->is_inherited) return;
     for (CxxConstructorInitializer* initializer =
              constructor->inherited_base_initializers;
          initializer; initializer = initializer->next) {
-        Type* base_type = NULL;
-        int base_offset = gen_cxx_constructor_base32(
-            object_type, initializer->field, &base_type);
-        if (base_offset < 0 || !base_type) {
+        Type* base_type = initializer->inherited_base_type;
+        int base_offset = initializer->inherited_base_offset;
+        if (!initializer->has_inherited_base_layout || base_offset < 0 ||
+            !base_type) {
             rcc_error((SourceLoc){"<constructor>", 0, 0},
                       "validated inherited C++ base initializer is incomplete");
             return;
@@ -10882,23 +10887,15 @@ static void gen_cxx_initialize_object32_mode_impl(
     }
     if (!constructor->body_is_empty) {
         gen_cxx_initialize_inherited_bases32(
-            mod, object_type, constructor);
+            mod, constructor);
         emit_push_reg(mod, ECX);
         gen_cxx_initialize_member_initializers32(
             mod, object_type, constructor, arguments,
             initialize_virtual_bases);
-        if (constructor->is_inherited && object_type &&
-            object_type->cxx_class &&
-            constructor->inherited_selected_base_index > 0 &&
-            constructor->inherited_selected_base_index <
-                object_type->cxx_class->base_count &&
-            object_type->cxx_class->base_offsets &&
-            object_type->cxx_class->base_offsets[
-                constructor->inherited_selected_base_index] > 0) {
-            emit_add_reg_imm(
-                mod, ECX,
-                (uint32_t)object_type->cxx_class->base_offsets[
-                    constructor->inherited_selected_base_index]);
+        if (constructor->is_inherited &&
+            constructor->inherited_selected_base_offset > 0) {
+            emit_add_reg_imm(mod, ECX,
+                (uint32_t)constructor->inherited_selected_base_offset);
         }
         gen_cxx_call_constructor32(mod, constructor, arguments);
         emit_pop_reg(mod, ECX);
@@ -10949,7 +10946,7 @@ static void gen_cxx_initialize_object32_mode_impl(
     } else {
         gen_cxx_zero_object32(mod, object_type, address_reg);
     }
-    gen_cxx_initialize_inherited_bases32(mod, object_type, constructor);
+    gen_cxx_initialize_inherited_bases32(mod, constructor);
     if (constructor->initializers) {
         for (initializer = constructor->initializers; initializer;
              initializer = initializer->next) {
