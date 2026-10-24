@@ -33870,7 +33870,8 @@ static void cxx_report_function_template_nested_type_failure(
                   member_name);
         return;
     }
-    if (!access_context && tmpl && tmpl->func_def &&
+    if (!access_context && tmpl && tmpl->kind == TMPL_FUNCTION &&
+        tmpl->func_def &&
         tmpl->func_def->func_method_owner) {
         access_context = tmpl->func_def->func_method_owner->cxx_class;
     }

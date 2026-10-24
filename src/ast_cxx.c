@@ -499,7 +499,8 @@ static Type* cxx_mangle_template_value_type(
         declared_type->cxx_template_param_index < argument_count) {
         Type* owner = arguments[
             declared_type->cxx_template_param_index];
-        CxxClass* access_context = templ && templ->func_def &&
+        CxxClass* access_context = templ &&
+                templ->kind == TMPL_FUNCTION && templ->func_def &&
                 templ->func_def->func_method_owner
             ? templ->func_def->func_method_owner->cxx_class
             : templ ? templ->templated_class : NULL;
@@ -3881,14 +3882,15 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         buf[pos++] = 'E';
     }
     if ((encode_member_signature || !tmpl->member_method) &&
-        tmpl->func_def && tmpl->func_def->type) {
+        tmpl->kind == TMPL_FUNCTION && tmpl->func_def &&
+        tmpl->func_def->type) {
         cxx_mangle_template_type_append(
             buf, &pos, tmpl->func_def->type->ret_type, tmpl,
             &member_mangle_context);
     }
     {
         Decl* signature = (encode_member_signature || !tmpl->member_method) &&
-                tmpl->func_def
+                tmpl->kind == TMPL_FUNCTION && tmpl->func_def
             ? tmpl->func_def : func;
         DeclList* parameters = signature->func_params
             ? signature->func_params : func->func_params;
@@ -8512,7 +8514,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             return unresolved;
         }
         access_context = tmpl ? tmpl->active_class_instance : NULL;
-        if (!access_context && tmpl && tmpl->func_def &&
+        if (!access_context && tmpl && tmpl->kind == TMPL_FUNCTION &&
+            tmpl->func_def &&
             tmpl->func_def->func_method_owner) {
             access_context =
                 tmpl->func_def->func_method_owner->cxx_class;
@@ -8646,7 +8649,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             return unresolved;
         }
         CxxClass* access_context = tmpl ? tmpl->active_class_instance : NULL;
-        if (!access_context && tmpl && tmpl->func_def &&
+        if (!access_context && tmpl && tmpl->kind == TMPL_FUNCTION &&
+            tmpl->func_def &&
             tmpl->func_def->func_method_owner) {
             access_context =
                 tmpl->func_def->func_method_owner->cxx_class;
@@ -9708,7 +9712,8 @@ static Type* template_substitute_dependent_alias_template_type(
         return type_int;
     }
     access_context = tmpl ? tmpl->active_class_instance : NULL;
-    if (!access_context && tmpl && tmpl->func_def &&
+    if (!access_context && tmpl && tmpl->kind == TMPL_FUNCTION &&
+        tmpl->func_def &&
         tmpl->func_def->func_method_owner) {
         access_context = tmpl->func_def->func_method_owner->cxx_class;
     }
@@ -10437,7 +10442,8 @@ static bool template_expr_contains_identifier(Expr* expression,
 static DeclList* template_pack_parameter_list(CxxTemplate* tmpl) {
     if (!tmpl) return NULL;
     if (tmpl->active_pack_parameters) return tmpl->active_pack_parameters;
-    return tmpl->func_def ? tmpl->func_def->func_params : NULL;
+    return tmpl->kind == TMPL_FUNCTION && tmpl->func_def
+        ? tmpl->func_def->func_params : NULL;
 }
 
 static void template_replace_pack_identifier(Expr* expression,

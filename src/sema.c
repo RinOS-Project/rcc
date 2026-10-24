@@ -17757,7 +17757,8 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
         function_expression->ident_decl->var_cxx_lambda_template == tmpl) {
         lambda_variable = function_expression->ident_decl;
     }
-    if (!tmpl->func_def || tmpl->param_count <= 0 ||
+    if (tmpl->kind != TMPL_FUNCTION || !tmpl->func_def ||
+        tmpl->param_count <= 0 ||
         tmpl->param_count > (int)(sizeof(arguments) / sizeof(arguments[0]))) {
         rcc_error(call->loc, "generic lambda has an invalid template shape");
         return false;

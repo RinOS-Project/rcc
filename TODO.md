@@ -9410,3 +9410,11 @@ remains a separate open item.
       `make OS=Linux test-cxx` suite passes under WSL.
 - [ ] Complete implicit copy/move deletion and access rules and broader
       type-trait conformance.
+
+## RCC continuation (2026-10-25, template-kind union access)
+
+- [x] Restrict function-only `CxxTemplate` union reads to `TMPL_FUNCTION`
+      while resolving dependent types and template packs. This prevents class
+      template metadata from being interpreted as a function declaration.
+      The `test-debug-info` corpus, including i686/AMD64 instantiation of
+      `debug_info_cxx_template.cpp`, passes under WSL.
