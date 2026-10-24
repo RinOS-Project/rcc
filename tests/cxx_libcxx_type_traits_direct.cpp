@@ -620,6 +620,43 @@ struct ExplicitDefaultedPrivateCopyTrait {
         const ExplicitDefaultedPrivateCopyTrait&) = default;
 };
 
+struct PrivateCopyTraitBase {
+private:
+    PrivateCopyTraitBase(const PrivateCopyTraitBase&) noexcept = default;
+};
+
+struct ImplicitPrivateCopyTraitBase : PrivateCopyTraitBase {};
+
+struct ProtectedCopyTraitBase {
+protected:
+    ProtectedCopyTraitBase(const ProtectedCopyTraitBase&) noexcept = default;
+};
+
+struct ImplicitProtectedCopyTraitBase : ProtectedCopyTraitBase {};
+
+struct ImplicitPrivateInheritedProtectedCopyTraitBase
+    : private ProtectedCopyTraitBase {};
+
+struct ProtectedCopyTraitMember {
+protected:
+    ProtectedCopyTraitMember(const ProtectedCopyTraitMember&) noexcept =
+        default;
+};
+
+struct ImplicitProtectedCopyTraitMember {
+    ProtectedCopyTraitMember member;
+};
+
+struct FriendCopyTraitBaseDerived;
+
+struct FriendCopyTraitBase {
+private:
+    FriendCopyTraitBase(const FriendCopyTraitBase&) noexcept = default;
+    friend struct FriendCopyTraitBaseDerived;
+};
+
+struct FriendCopyTraitBaseDerived : FriendCopyTraitBase {};
+
 void accept_nothrow_value(NothrowValue);
 
 template <typename T>
@@ -945,6 +982,22 @@ static_assert(!std::is_constructible<ImplicitDeletedCopy,
 static_assert(!std::is_constructible<ImplicitDeletedCopy,
                                     ImplicitDeletedCopy&&>::value,
               "a deleted member copy also blocks implicit move construction");
+static_assert(!std::is_constructible<ImplicitPrivateCopyTraitBase,
+                                     const ImplicitPrivateCopyTraitBase&>::value,
+              "an inaccessible base copy deletes the implicit derived copy");
+static_assert(std::is_constructible<ImplicitProtectedCopyTraitBase,
+                                    const ImplicitProtectedCopyTraitBase&>::value,
+              "an implicit derived copy can call a protected base copy");
+static_assert(std::is_constructible<
+                  ImplicitPrivateInheritedProtectedCopyTraitBase,
+                  const ImplicitPrivateInheritedProtectedCopyTraitBase&>::value,
+              "protected base copying is valid through private inheritance");
+static_assert(!std::is_constructible<ImplicitProtectedCopyTraitMember,
+                                     const ImplicitProtectedCopyTraitMember&>::value,
+              "a containing class cannot access a protected member copy");
+static_assert(std::is_constructible<FriendCopyTraitBaseDerived,
+                                    const FriendCopyTraitBaseDerived&>::value,
+              "a friend class can use a private base copy in its implicit copy");
 static_assert(std::is_constructible<ImplicitMutableCopy,
                                    ImplicitMutableCopy&>::value,
               "implicit copy can use a non-const copy parameter");
@@ -1040,6 +1093,26 @@ static_assert(!std::is_nothrow_constructible<
                   ExplicitDefaultedPrivateCopyTrait,
                   const ExplicitDefaultedPrivateCopyTrait&>::value,
               "a defaulted copy is deleted when a member copy is private");
+static_assert(!std::is_nothrow_constructible<
+                  ImplicitPrivateCopyTraitBase,
+                  const ImplicitPrivateCopyTraitBase&>::value,
+              "an inaccessible base copy makes the implicit derived copy unavailable");
+static_assert(std::is_nothrow_constructible<
+                  ImplicitProtectedCopyTraitBase,
+                  const ImplicitProtectedCopyTraitBase&>::value,
+              "protected base copy access preserves nothrow derived copying");
+static_assert(std::is_nothrow_constructible<
+                  ImplicitPrivateInheritedProtectedCopyTraitBase,
+                  const ImplicitPrivateInheritedProtectedCopyTraitBase&>::value,
+              "protected base copying through private inheritance is nothrow");
+static_assert(!std::is_nothrow_constructible<
+                  ImplicitProtectedCopyTraitMember,
+                  const ImplicitProtectedCopyTraitMember&>::value,
+              "a protected member copy remains inaccessible to the containing class");
+static_assert(std::is_nothrow_constructible<
+                  FriendCopyTraitBaseDerived,
+                  const FriendCopyTraitBaseDerived&>::value,
+              "friend access preserves nothrow private base copying");
 
 int cxx_libcxx_type_traits_direct_probe() {
     accept_nothrow_value(0);

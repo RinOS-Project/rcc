@@ -14032,6 +14032,9 @@ static bool sema_cxx_type_trait_destructor_is_deleted(Type* type,
 static bool sema_cxx_constructible(Type* type,
                                    CxxTypeTraitArgument* arguments,
                                    unsigned depth);
+static bool sema_cxx_constructible_with_access(
+    Type* type, CxxTypeTraitArgument* arguments, unsigned depth,
+    CxxClass* access_context);
 
 static bool sema_cxx_type_trait_aggregate_constructible(
     Type* type, CxxTypeTraitArgument* arguments, int argument_count,
@@ -14125,14 +14128,14 @@ static bool sema_cxx_type_trait_aggregate_constructible(
 
 static bool sema_cxx_type_trait_subobject_constructible(
     Type* subobject, bool source_is_const, bool source_is_volatile,
-    bool source_is_rvalue, unsigned depth) {
+    bool source_is_rvalue, CxxClass* access_context, unsigned depth) {
     CxxTypeTraitArgument argument;
     if (!subobject) return false;
     if (subobject->kind == TYPE_ARRAY) {
         return subobject->array_len >= 0 && subobject->base &&
                sema_cxx_type_trait_subobject_constructible(
                    subobject->base, source_is_const, source_is_volatile,
-                   source_is_rvalue, depth + 1u);
+                   source_is_rvalue, access_context, depth + 1u);
     }
     memset(&argument, 0, sizeof(argument));
     if (sema_cxx_type_trait_is_reference(subobject)) {
@@ -14142,8 +14145,9 @@ static bool sema_cxx_type_trait_subobject_constructible(
             subobject, source_is_const, source_is_volatile,
             source_is_rvalue);
     }
-    return argument.type &&
-           sema_cxx_constructible(subobject, &argument, depth + 1u);
+    return argument.type && sema_cxx_constructible_with_access(
+                                subobject, &argument, depth + 1u,
+                                access_context);
 }
 
 static bool sema_cxx_type_trait_copy_subobjects_constructible(
@@ -14162,7 +14166,7 @@ static bool sema_cxx_type_trait_copy_subobjects_constructible(
             if (!base || !base->type ||
                 !sema_cxx_type_trait_subobject_constructible(
                     base->type, source_is_const, source_is_volatile,
-                    source_is_rvalue, depth + 1u)) {
+                    source_is_rvalue, cls, depth + 1u)) {
                 return false;
             }
         }
@@ -14171,7 +14175,7 @@ static bool sema_cxx_type_trait_copy_subobjects_constructible(
             if (!field->type ||
                 !sema_cxx_type_trait_subobject_constructible(
                     field->type, source_is_const, source_is_volatile,
-                    source_is_rvalue, depth + 1u)) {
+                    source_is_rvalue, cls, depth + 1u)) {
                 return false;
             }
         }
@@ -14180,7 +14184,7 @@ static bool sema_cxx_type_trait_copy_subobjects_constructible(
             if (!field->type ||
                 !sema_cxx_type_trait_subobject_constructible(
                     field->type, source_is_const, source_is_volatile,
-                    source_is_rvalue, depth + 1u)) {
+                    source_is_rvalue, NULL, depth + 1u)) {
                 return false;
             }
         }
@@ -14278,9 +14282,18 @@ static bool sema_cxx_type_trait_implicit_copy_move_beats_template(
         type, false, false, true, depth + 1u);
 }
 
-static bool sema_cxx_constructible(Type* type,
-                                   CxxTypeTraitArgument* arguments,
-                                   unsigned depth) {
+static bool sema_cxx_type_trait_constructor_accessible(
+    CxxConstructorInfo* constructor, CxxClass* access_context) {
+    CxxMethod* method = constructor ? constructor->method : NULL;
+    if (!method) return false;
+    return sema_cxx_member_accessible_at_context(
+        method->owner, (unsigned char)constructor->access, access_context,
+        method->decl ? method->decl->func_friend_access : NULL);
+}
+
+static bool sema_cxx_constructible_with_access(
+    Type* type, CxxTypeTraitArgument* arguments, unsigned depth,
+    CxxClass* access_context) {
     ExprList* expressions;
     int argument_count;
     if (!type) return false;
@@ -14317,7 +14330,8 @@ static bool sema_cxx_constructible(Type* type,
                 type, expressions, argument_count, true, true, true, true,
                 &ambiguous);
         if (ambiguous || !constructor || constructor->is_deleted ||
-            constructor->access != ACCESS_PUBLIC) {
+            !sema_cxx_type_trait_constructor_accessible(
+                constructor, access_context)) {
             if (constructor && constructor->method &&
                 constructor->method->member_template &&
                 !sema_cxx_type_trait_implicit_copy_move_beats_template(
@@ -14362,6 +14376,13 @@ static bool sema_cxx_constructible(Type* type,
     return false;
 }
 
+static bool sema_cxx_constructible(Type* type,
+                                   CxxTypeTraitArgument* arguments,
+                                   unsigned depth) {
+    return sema_cxx_constructible_with_access(
+        type, arguments, depth, NULL);
+}
+
 bool rcc_sema_cxx_constructible(Type* type,
                                 CxxTypeTraitArgument* arguments) {
     return sema_cxx_constructible(type, arguments, 0u);
@@ -14369,6 +14390,9 @@ bool rcc_sema_cxx_constructible(Type* type,
 
 static bool sema_cxx_nothrow_constructible(
     Type* type, CxxTypeTraitArgument* arguments, unsigned depth);
+static bool sema_cxx_nothrow_constructible_with_access(
+    Type* type, CxxTypeTraitArgument* arguments, unsigned depth,
+    CxxClass* access_context);
 
 static bool sema_cxx_type_trait_type_is_dependent(Type* type,
                                                    unsigned depth) {
@@ -14745,8 +14769,8 @@ static bool sema_cxx_type_trait_copy_subobjects_are_nothrow(
         argument.type = sema_cxx_type_trait_reference_type(
             base->type, source_is_const, source_is_volatile, is_move);
         if (!argument.type ||
-            !sema_cxx_nothrow_constructible(
-                base->type, &argument, depth + 1u)) {
+            !sema_cxx_nothrow_constructible_with_access(
+                base->type, &argument, depth + 1u, cls)) {
             return false;
         }
     }
@@ -14761,8 +14785,8 @@ static bool sema_cxx_type_trait_copy_subobjects_are_nothrow(
                   field->type, source_is_const, source_is_volatile,
                   is_move);
         if (!argument.type ||
-            !sema_cxx_nothrow_constructible(
-                field->type, &argument, depth + 1u)) {
+            !sema_cxx_nothrow_constructible_with_access(
+                field->type, &argument, depth + 1u, cls)) {
             return false;
         }
     }
@@ -15051,14 +15075,16 @@ static bool sema_cxx_type_trait_defaulted_copy_move_is_nothrow(
         depth + 1u);
 }
 
-static bool sema_cxx_nothrow_constructible(
-    Type* type, CxxTypeTraitArgument* arguments, unsigned depth) {
+static bool sema_cxx_nothrow_constructible_with_access(
+    Type* type, CxxTypeTraitArgument* arguments, unsigned depth,
+    CxxClass* access_context) {
     ExprList* expressions;
     int argument_count;
     CxxClass* cls;
     bool implicit_applicable = false;
     if (!type || depth > 64u ||
-        !sema_cxx_constructible(type, arguments, depth + 1u) ||
+        !sema_cxx_constructible_with_access(
+            type, arguments, depth + 1u, access_context) ||
         !sema_cxx_type_trait_destructor_is_nothrow(type, depth + 1u)) {
         return false;
     }
@@ -15089,7 +15115,8 @@ static bool sema_cxx_nothrow_constructible(
                 type, expressions, argument_count, true, true, true, true,
                 &ambiguous);
         if (constructor && !ambiguous && !constructor->is_deleted &&
-            constructor->access == ACCESS_PUBLIC) {
+            sema_cxx_type_trait_constructor_accessible(
+                constructor, access_context)) {
             if (constructor->method &&
                 constructor->method->member_template &&
                 sema_cxx_type_trait_implicit_copy_move_beats_template(
@@ -15132,6 +15159,12 @@ static bool sema_cxx_nothrow_constructible(
             type, depth + 1u);
     }
     return false;
+}
+
+static bool sema_cxx_nothrow_constructible(
+    Type* type, CxxTypeTraitArgument* arguments, unsigned depth) {
+    return sema_cxx_nothrow_constructible_with_access(
+        type, arguments, depth, NULL);
 }
 
 bool rcc_sema_cxx_nothrow_constructible(

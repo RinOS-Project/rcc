@@ -9430,6 +9430,11 @@ remains a separate open item.
       copy fallback, and move suppression/deletion from user-declared
       destructor/assignment. Direct libcxx trait tests agree with GCC C++20 on
       i686/AMD64.
+- [x] Preserve access checking while evaluating implicit-copy subobjects:
+      protected base copies are accessible through public and private
+      inheritance, friend classes can copy private bases, and protected member
+      copies remain inaccessible through composition. `is_constructible` and
+      `is_nothrow_constructible` agree with GCC C++20 on both target widths.
 - [ ] Complete implicit copy/move deletion/access rules beyond this tested
       matrix and broader type-trait conformance.
 
