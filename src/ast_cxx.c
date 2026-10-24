@@ -13383,9 +13383,11 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             ? definition->type->function_ref_qualifier
             : CXX_REF_QUAL_NONE;
         instance = decl_func(definition->name, function_type, parameters,
-                             template_clone_stmt(tmpl, definition->func_body,
-                                                 args, arg_count, value_args,
-                                                 value_present),
+                             tmpl->defer_function_body_clone
+                                 ? NULL
+                                 : template_clone_stmt(
+                                       tmpl, definition->func_body, args,
+                                       arg_count, value_args, value_present),
                              definition->loc);
         instance->func_is_inline = definition->func_is_inline;
         instance->is_weak = definition->is_weak;
@@ -13407,6 +13409,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             ? cxx_namespace_qualified_name(tmpl->ns) : NULL;
         instance->func_cxx_namespace_scope = tmpl->ns;
         instance->func_is_template_instance = true;
+        instance->func_template_body_deferred =
+            tmpl->defer_function_body_clone && definition->func_body;
         instance->func_template_owner = tmpl;
         instance->func_is_cxx_method = definition->func_is_cxx_method;
         instance->func_has_explicit_variadic_ellipsis =
@@ -13714,6 +13718,68 @@ bool cxx_class_virtual_base_offset(CxxClass* cls, CxxClass* base,
 /* Return the longest namespace prefix of a qualified declaration.  This also
  * handles class members (`api::Widget::run`), whose final components are not
  * namespaces. */
+bool rcc_cxx_complete_function_template_body(Decl* instance) {
+    CxxTemplate* tmpl;
+    bool* saved_pending_pack_expansions;
+    Expr** saved_pending_pack_value_expressions;
+    Type** saved_pending_pack_args;
+    int64_t* saved_pending_pack_values;
+    bool* saved_pending_pack_value_present;
+    int saved_pending_pack_count;
+    int* saved_pending_pack_offsets;
+    int* saved_pending_pack_counts;
+
+    if (!instance || instance->kind != DECL_FUNC ||
+        !instance->func_template_body_deferred) {
+        return true;
+    }
+    tmpl = instance->func_template_owner;
+    if (!tmpl || !tmpl->func_def || !tmpl->func_def->func_body ||
+        instance->func_template_arg_count != tmpl->param_count ||
+        (tmpl->param_count > 0 && !instance->func_template_args)) {
+        rcc_error(instance->loc,
+                  "selected member function template body has incomplete specialization data");
+        return false;
+    }
+
+    saved_pending_pack_expansions = tmpl->pending_pack_expansions;
+    saved_pending_pack_value_expressions =
+        tmpl->pending_pack_value_expressions;
+    saved_pending_pack_args = tmpl->pending_pack_args;
+    saved_pending_pack_values = tmpl->pending_pack_values;
+    saved_pending_pack_value_present = tmpl->pending_pack_value_present;
+    saved_pending_pack_count = tmpl->pending_pack_count;
+    saved_pending_pack_offsets = tmpl->pending_pack_offsets;
+    saved_pending_pack_counts = tmpl->pending_pack_counts;
+
+    tmpl->pending_pack_expansions = NULL;
+    tmpl->pending_pack_value_expressions = NULL;
+    tmpl->pending_pack_args = instance->func_template_pack_args;
+    tmpl->pending_pack_values = instance->func_template_pack_values;
+    tmpl->pending_pack_value_present =
+        instance->func_template_pack_value_present;
+    tmpl->pending_pack_count = instance->func_template_pack_count;
+    tmpl->pending_pack_offsets = instance->func_template_pack_offsets;
+    tmpl->pending_pack_counts = instance->func_template_pack_counts;
+    instance->func_body = template_clone_stmt(
+        tmpl, tmpl->func_def->func_body, instance->func_template_args,
+        instance->func_template_arg_count,
+        instance->func_template_value_args,
+        instance->func_template_value_present);
+
+    tmpl->pending_pack_expansions = saved_pending_pack_expansions;
+    tmpl->pending_pack_value_expressions =
+        saved_pending_pack_value_expressions;
+    tmpl->pending_pack_args = saved_pending_pack_args;
+    tmpl->pending_pack_values = saved_pending_pack_values;
+    tmpl->pending_pack_value_present = saved_pending_pack_value_present;
+    tmpl->pending_pack_count = saved_pending_pack_count;
+    tmpl->pending_pack_offsets = saved_pending_pack_offsets;
+    tmpl->pending_pack_counts = saved_pending_pack_counts;
+    instance->func_template_body_deferred = false;
+    return true;
+}
+
 CxxNamespace* cxx_namespace_for_decl_name(CxxNamespace* root,
                                            const char* qualified_name) {
     char buffer[512];

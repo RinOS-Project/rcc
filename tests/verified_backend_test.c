@@ -3933,6 +3933,7 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
     ObjSymbol* explicit_array_symbol;
     ObjSymbol* explicit_cleanup_symbol;
     ObjSymbol* explicit_virtual_symbol;
+    ObjSymbol* implicit_array_default_symbol;
     ObjSymbol* scope_symbol;
     size_t mapping_size;
     void* memory;
@@ -3945,6 +3946,7 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
     void (RINOS_ABI *explicit_cleanup_destructor)(
         struct VerifiedCleanupDestructorObject*);
     int (RINOS_ABI *scope_destructor)(void);
+    int (RINOS_ABI *implicit_array_default_cleanup)(void);
     int order = 0;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
@@ -3957,6 +3959,8 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
         object, "verified_cxx_explicit_cleanup_destructor");
     explicit_virtual_symbol = objfile_find_symbol(
         object, "verified_cxx_explicit_virtual_destructor");
+    implicit_array_default_symbol = objfile_find_symbol(
+        object, "verified_cxx_implicit_array_default_cleanup");
     scope_symbol = objfile_find_symbol(
         object, "verified_cxx_scope_destructor");
     assert(text != NULL && entry_symbol != NULL &&
@@ -3978,7 +3982,11 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
            explicit_virtual_symbol != NULL &&
            explicit_virtual_symbol->type == SYM_GLOBAL &&
            explicit_virtual_symbol->binding == BIND_CODE &&
-           explicit_virtual_symbol->section == 0);
+           explicit_virtual_symbol->section == 0 &&
+           implicit_array_default_symbol != NULL &&
+           implicit_array_default_symbol->type == SYM_GLOBAL &&
+           implicit_array_default_symbol->binding == BIND_CODE &&
+           implicit_array_default_symbol->section == 0);
     if (!execute) {
         objfile_free(object);
         return;
@@ -4007,6 +4015,10 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
     address = symbol_address(memory, scope_symbol);
     memcpy(&scope_destructor, &address, sizeof(scope_destructor));
     assert(scope_destructor() == 231);
+    address = symbol_address(memory, implicit_array_default_symbol);
+    memcpy(&implicit_array_default_cleanup, &address,
+           sizeof(implicit_array_default_cleanup));
+    assert(implicit_array_default_cleanup() == 4321);
     order = 0;
     address = symbol_address(memory, explicit_cleanup_symbol);
     memcpy(&explicit_cleanup_destructor, &address,

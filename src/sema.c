@@ -74,6 +74,18 @@ static Decl* current_noexcept_resolution = NULL;
 static CxxNamespace* current_cxx_namespace = NULL;
 static AST* current_ast = NULL;
 
+typedef struct SemaCxxConversionGuard {
+    Type* source;
+    Type* target;
+    struct SemaCxxConversionGuard* previous;
+} SemaCxxConversionGuard;
+
+/* Converting-constructor ranking can recursively ask whether the same
+ * source-to-target conversion is viable through a constructor parameter.
+ * Keep the active pairs so cyclic conversion chains terminate while other
+ * candidates and source conversion functions remain available. */
+static SemaCxxConversionGuard* active_cxx_conversion_guards = NULL;
+
 static Type* sema_decltype_auto_return_type(Expr* expression);
 static bool sema_pointee_qualification_preserved(
     const Type* source, const Type* target);
@@ -9531,12 +9543,28 @@ static int cxx_conversion_rank_detail_at_context(
     if (rcc_parser_is_cxx_mode() &&
         (target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
         target->cxx_class && target->cxx_class->constructors) {
-        ExprList* constructor_arguments = exprlist_new(argument);
-        bool ambiguous = false;
-        CxxConstructorInfo* constructor =
-            sema_cxx_select_type_trait_constructor_ex(
+        bool recursive_pair = false;
+        for (SemaCxxConversionGuard* active = active_cxx_conversion_guards;
+             active; active = active->previous) {
+            if (active->source == source && active->target == target) {
+                recursive_pair = true;
+                break;
+            }
+        }
+        if (!recursive_pair) {
+            SemaCxxConversionGuard guard;
+            ExprList* constructor_arguments = exprlist_new(argument);
+            bool ambiguous = false;
+            CxxConstructorInfo* constructor;
+            guard.source = source;
+            guard.target = target;
+            guard.previous = active_cxx_conversion_guards;
+            active_cxx_conversion_guards = &guard;
+            constructor = sema_cxx_select_type_trait_constructor_ex(
                 target, constructor_arguments, 1, false, &ambiguous);
-        if (constructor && !ambiguous) return 3;
+            active_cxx_conversion_guards = guard.previous;
+            if (constructor && !ambiguous) return 3;
+        }
     }
 
     if (rcc_parser_is_cxx_mode() &&
@@ -14910,6 +14938,10 @@ static TypeMethod* sema_select_cxx_member_method(
     }
     if (best_count != 1) {
         rcc_error(call->loc, "ambiguous member overload for '%s'", name);
+        return NULL;
+    }
+    if (best && best->function_decl &&
+        !rcc_cxx_complete_function_template_body(best->function_decl)) {
         return NULL;
     }
     return best;
@@ -23286,7 +23318,13 @@ static bool sema_resolve_function_noexcept(Decl* declaration) {
     SemaConstexprScalar value;
     bool resolved;
     if (!declaration) return false;
-    if (!declaration->func_noexcept_expr) return true;
+    if (!declaration->func_noexcept_expr) {
+        if (declaration->type && declaration->type->kind == TYPE_FUNC) {
+            declaration->func_is_noexcept =
+                declaration->type->function_is_noexcept;
+        }
+        return true;
+    }
     if (current_noexcept_resolution == declaration) {
         rcc_error(declaration->loc,
                   "exception specification depends on its own evaluation");

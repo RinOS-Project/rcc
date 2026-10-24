@@ -1384,6 +1384,9 @@ struct Decl {
             bool func_is_naked;
             bool func_is_defined;
             bool func_is_template_instance;
+            /* Member-function template candidates defer body substitution
+             * until overload selection chooses the specialization. */
+            bool func_template_body_deferred;
             struct CxxTemplate* func_template_owner;
             Type** func_template_args;
             int func_template_arg_count;

@@ -424,6 +424,9 @@ struct CxxTemplate {
      * substitution expand each pack from its own slice. */
     int* pending_pack_offsets;
     int* pending_pack_counts;
+    /* Candidate matching substitutes signatures before overload selection;
+     * member-function bodies are cloned only for the selected candidate. */
+    bool defer_function_body_clone;
     /* While cloning a local class method, this names the method's own
      * parameter list so pack expressions bind to that method's parameter pack. */
     DeclList* active_pack_parameters;
@@ -629,6 +632,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                            const int64_t* value_args,
                                            const bool* value_present,
                                            int arg_count);
+bool rcc_cxx_complete_function_template_body(Decl* instance);
 Expr* cxx_template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                               Type** args, int arg_count);
 Expr* cxx_template_clone_expr_with_values(

@@ -10541,6 +10541,8 @@ static const Type* gen_cxx_class_array_element32(const Type* type);
 static bool gen_cxx_class_array_count32(const Type* array_type,
                                         const Type* element_type,
                                         uint32_t* count);
+static bool gen_cxx_implicit_default_array_element_supported32(
+    const Type* type);
 
 static void gen_cxx_initialize_member_initializers32(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
@@ -10640,10 +10642,17 @@ static void gen_cxx_initialize_member_initializers32(
         const Type* array_element = field && field->type
             ? gen_cxx_class_array_element32(field->type) : NULL;
         bool class_array_member = array_element != NULL;
+        bool implicit_class_array_default = class_array_member &&
+            !initializer->constructor &&
+            !initializer->is_default_member_initializer &&
+            !initializer->value && !initializer->arguments &&
+            gen_cxx_implicit_default_array_element_supported32(
+                array_element);
         if (!field || (!initializer->value && !initializer->arguments &&
                        !(((field->type && field->type->cxx_class) ||
                           class_array_member) &&
-                         initializer->constructor))) {
+                         (initializer->constructor ||
+                          implicit_class_array_default)))) {
             rcc_error((SourceLoc){"<constructor>", 0, 0},
                       "validated C++ member initializer is incomplete");
             return;
@@ -10655,8 +10664,10 @@ static void gen_cxx_initialize_member_initializers32(
             int done_label;
             if (!gen_cxx_class_array_count32(
                     field->type, element_type, &element_count) ||
-                !initializer->constructor || initializer->value ||
-                initializer->arguments) {
+                (!initializer->constructor &&
+                 !implicit_class_array_default) ||
+                (initializer->constructor &&
+                 (initializer->value || initializer->arguments))) {
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
                           "validated C++ class-array member initializer is incomplete");
                 return;
@@ -10673,8 +10684,10 @@ static void gen_cxx_initialize_member_initializers32(
             emit_jcc_label(mod, CC_E, done_label);
             emit_push_reg(mod, EDX);
             emit_push_reg(mod, ECX);
-            gen_cxx_initialize_object32_mode(
-                mod, element_type, initializer->constructor, NULL, true);
+            if (initializer->constructor) {
+                gen_cxx_initialize_object32_mode(
+                    mod, element_type, initializer->constructor, NULL, true);
+            }
             emit_pop_reg(mod, ECX);
             emit_push_reg(mod, ECX);
             gen_cxx_exception_change_subobject32(
@@ -10947,10 +10960,17 @@ static void gen_cxx_initialize_object32_mode_impl(
             const Type* array_element = field && field->type
                 ? gen_cxx_class_array_element32(field->type) : NULL;
             bool class_array_member = array_element != NULL;
+            bool implicit_class_array_default = class_array_member &&
+                !initializer->constructor &&
+                !initializer->is_default_member_initializer &&
+                !initializer->value && !initializer->arguments &&
+                gen_cxx_implicit_default_array_element_supported32(
+                    array_element);
             if (!field || (!initializer->value && !initializer->arguments &&
                            !(((field->type && field->type->cxx_class) ||
                               class_array_member) &&
-                             initializer->constructor))) {
+                             (initializer->constructor ||
+                              implicit_class_array_default)))) {
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
                           "validated C++ member initializer is incomplete");
                 return;
@@ -10962,8 +10982,11 @@ static void gen_cxx_initialize_object32_mode_impl(
                 int done_label;
                 if (!gen_cxx_class_array_count32(
                         field->type, element_type, &element_count) ||
-                    !initializer->constructor || initializer->value ||
-                    initializer->arguments || !element_type->cxx_class) {
+                    (!initializer->constructor &&
+                     !implicit_class_array_default) ||
+                    (initializer->constructor &&
+                     (initializer->value || initializer->arguments)) ||
+                    !element_type->cxx_class) {
                     rcc_error((SourceLoc){"<constructor>", 0, 0},
                               "validated C++ class-array member initializer is incomplete");
                     return;
@@ -10981,8 +11004,11 @@ static void gen_cxx_initialize_object32_mode_impl(
                 emit_jcc_label(mod, CC_E, done_label);
                 emit_push_reg(mod, EDX);
                 emit_push_reg(mod, address_reg);
-                gen_cxx_initialize_object32_mode(
-                    mod, element_type, initializer->constructor, NULL, true);
+                if (initializer->constructor) {
+                    gen_cxx_initialize_object32_mode(
+                        mod, element_type, initializer->constructor,
+                        NULL, true);
+                }
                 emit_pop_reg(mod, address_reg);
                 emit_push_reg(mod, address_reg);
                 gen_cxx_exception_change_subobject32(
@@ -11322,6 +11348,33 @@ static const Type* gen_cxx_class_array_element32(const Type* type) {
         type = type->base;
     }
     return is_array && type && type->cxx_class ? type : NULL;
+}
+
+static bool gen_cxx_implicit_default_array_element_supported32(
+    const Type* type) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!cls || !type->is_complete || cls->constructors ||
+        cls->base_count != 0 || cls->virtual_base_count != 0 ||
+        cls->vtable_size != 0 || cls->has_field_initializer ||
+        type->cleanup_function || type->cleanup_field) {
+        return false;
+    }
+    if (cls->destructor_method) {
+        const Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_noexcept || destructor->func_params) {
+            return false;
+        }
+    }
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!field->type || field->initializer ||
+            !type_is_scalar(field->type) || field->type->is_const ||
+            field->type->is_reference || field->type->is_atomic) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool gen_cxx_class_array_count32(const Type* array_type,

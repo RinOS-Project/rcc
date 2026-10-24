@@ -1274,13 +1274,18 @@
       the full native-Windows `test-cxx` aggregate passes on the current checkout,
       including class-typed default-member initialization through an inherited
       constructor.
-      - [x] Add i686/AMD64 runtime coverage for fixed-size class-array members
-            initialized through inherited constructors and ordinary constructor
-            prologues, including empty-brace array default member initializers;
-            assert per-element construction order and retain negative coverage
-            for unsupported nested arrays and inherited element cleanup. `make SHELL=cmd.exe
+      - [x] Cover fixed-size class-array members initialized through inherited
+            constructors and ordinary constructor prologues, including nested
+            arrays, empty-brace array default member initializers, and cleanup
+            of inherited elements. Assert row-major construction values and
+            reverse per-element destruction. `make SHELL=cmd.exe
             test-cxx-inherited-constructor` passes freestanding i686 execution,
             AMD64 host execution, and object generation for both target widths.
+      - [x] Lower implicit default-initialization of supported fixed-size class
+            array members in verified IR without zero-initializing their
+            elements; register each element's destructor after its lifetime
+            begins and verify reverse destruction for i686/AMD64 objects with
+            zero fallback in `test-verified-cxx-destructor`.
   - [x] Parse and instantiate a dependent direct base in an ordinary class
         template, defer its base layout and default-member initialization,
         resolve `using Base<T>::Base`/`using Base<T>::member`, and lower
@@ -9196,3 +9201,27 @@ remains a separate open item.
       selected constructor, and the dedicated `type_traits` direct fixture
       covers viable, explicit-only, nothrow, and potentially-throwing
       conversions for i686/AMD64 and GCC C++20.
+
+## RCC continuation (2026-10-24, class partial-specialization pack declarators)
+
+- [x] Preserve the declarator parser's consumed `...` marker when recording a
+      class partial-specialization's argument-pack expansion. Cover zero- and
+      one-element tails, pointer-pattern ordering, constrained ordering, and
+      dependent nested-type substitution.
+- [x] Pass native-Windows `test-cxx-class-template-specialization` for i686
+      and AMD64 generation and AMD64 execution.
+- [x] Order a fixed-arity partial specialization ahead of an otherwise
+      equivalent trailing-pack specialization when the pack expands to zero;
+      verify recursive `conjunction` substitution through an alias on both
+      targets and against GCC with `test-cxx-dependent-pack-through-alias`.
+- [x] Defer member-function-template body cloning until overload selection so
+      body diagnostics are not mistaken for substitution failure; verify the
+      matching structural-value-pack success and mismatch tests for i686,
+      AMD64, and GCC.
+- [x] Keep a declaration's parsed function-type `noexcept` state synchronized
+      when it has no separate exception-specification expression; pass
+      `test-cxx-noexcept-expression` for i686/AMD64 codegen, execution, and
+      verified backend.
+- [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after the
+      pack-marker, zero-length-expansion ordering, and deferred body-diagnostic
+      and noexcept-state corrections.

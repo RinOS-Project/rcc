@@ -3831,7 +3831,8 @@ static bool cxx_class_has_visible_member_template_named(
 
 static int cxx_materialize_member_function_templates_internal(
     Type* aggregate, const char* name, ExprList* arguments,
-    bool include_inherited, const CxxParsedTemplateArgument* explicit_arguments,
+    bool include_inherited, bool defer_body,
+    const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, bool explicit_arguments_specified,
     TypeMethod** candidates, int candidate_capacity,
     bool* constraint_unsupported);
@@ -3884,7 +3885,7 @@ static bool cxx_eval_dependent_integer_member_template_call(
         ++argument_count;
     }
     materialized_count = cxx_materialize_member_function_templates_internal(
-        aggregate, member_expression->member_name, arguments, true,
+        aggregate, member_expression->member_name, arguments, true, false,
         member_expression->member_template_arguments,
         member_expression->member_template_argument_count,
         member_expression->member_has_template_arguments,
@@ -4731,6 +4732,8 @@ static bool eval_template_integer_expression(Expr* expression,
                                               const int64_t* values,
                                               const bool* value_present,
                                               int64_t* result);
+static bool cxx_eval_constexpr_function_template_call(
+    Expr* expression, CxxTemplate* context, int64_t* result);
 static bool cxx_function_template_expression_has_undeduced_nontype_parameter(
     const CxxTemplate* function_template, const Expr* expression,
     const bool* value_present, unsigned depth);
@@ -7193,6 +7196,39 @@ static Type* cxx_constructor_array_element_type(Type* type) {
     return is_array ? type : NULL;
 }
 
+/* A class with no declared constructor still has an implicit default
+ * constructor.  For an array member, this bounded form needs no emitted
+ * constructor body: the class is non-polymorphic, has no bases or member
+ * initializers, and contains only unqualified scalar data members.  A
+ * non-trivial destructor remains valid; array cleanup is registered per
+ * element after its lifetime begins. */
+static bool cxx_implicit_default_array_element_supported(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!cls || !type->is_complete || cls->constructors ||
+        cls->base_count != 0 || cls->virtual_base_count != 0 ||
+        cls->vtable_size != 0 || cls->has_field_initializer ||
+        type->cleanup_function || type->cleanup_field) {
+        return false;
+    }
+    if (cls->destructor_method) {
+        Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_noexcept || destructor->func_params) {
+            return false;
+        }
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!field->type || field->initializer ||
+            !cxx_constructor_scalar_type(field->type) ||
+            field->type->is_const || field->type->is_reference ||
+            field->type->is_atomic) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* The initializer parser represents C++ `{}` as a value-init compound with a
  * single synthetic zero element.  It is safe to lower for a class member
  * through a user-provided zero-argument constructor: value-initialization does
@@ -7260,7 +7296,9 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
                 if (!member_class->type ||
                     member_class->type->cleanup_function ||
                     member_class->type->cleanup_field ||
-                    (constructor_mask & UINT32_C(1)) == 0u) {
+                    ((constructor_mask & UINT32_C(1)) == 0u &&
+                     !cxx_implicit_default_array_element_supported(
+                         member_class->type))) {
                     return false;
                 }
             }
@@ -7836,10 +7874,14 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 }
                 member_constructor = cxx_find_base_constructor(
                     member_class, (int)member_argument_count);
-                if (!member_constructor || !member_class->type ||
-                    member_argument_count >= 32u ||
-                    (lowerable_constructor_arity_mask(member_class) &
-                     (UINT32_C(1) << member_argument_count)) == 0u) {
+                if ((!member_constructor &&
+                     (member_argument_count != 0u || field->initializer ||
+                      !cxx_implicit_default_array_element_supported(
+                          member_class->type))) ||
+                    !member_class->type || member_argument_count >= 32u ||
+                    (member_constructor &&
+                     (lowerable_constructor_arity_mask(member_class) &
+                      (UINT32_C(1) << member_argument_count)) == 0u)) {
                     valid = false;
                     break;
                 }
@@ -8624,13 +8666,16 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 Type* element_type =
                     cxx_constructor_array_element_type(field->type);
                 CxxClass* member_class = element_type->cxx_class;
-                if (!initializer->constructor ||
-                    initializer->value || initializer->arguments ||
+                if (initializer->value || initializer->arguments ||
                     !member_class || !member_class->type ||
                     member_class->type->cleanup_function ||
                     member_class->type->cleanup_field ||
-                    (lowerable_constructor_arity_mask(member_class) &
-                     UINT32_C(1)) == 0u) {
+                    (initializer->constructor
+                         ? (lowerable_constructor_arity_mask(member_class) &
+                            UINT32_C(1)) == 0u
+                         : (field->initializer ||
+                            !cxx_implicit_default_array_element_supported(
+                                member_class->type)))) {
                     supported = false;
                     break;
                 }
@@ -14526,7 +14571,10 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                     arguments[argument_count] =
                         rcc_parser_parse_cxx_declarator(
                             parse_cxx_type_spec(), NULL, NULL);
-                    if (match(TOK_ELLIPSIS)) {
+                    bool is_pack_expansion =
+                        rcc_parser_last_cxx_declarator_was_pack() ||
+                        match(TOK_ELLIPSIS);
+                    if (is_pack_expansion) {
                         if (tmpl->param_count == 0 ||
                             primary_pack_index < 0 ||
                             !cxx_parser_template_pack_parameter_in_scopes(
@@ -20420,6 +20468,113 @@ static bool cxx_class_specialization_patterns_equivalent(
     return true;
 }
 
+/* With a zero-length trailing expansion, a fixed-arity partial
+ * specialization can match the same arguments as a pack pattern. If the
+ * fixed prefix is otherwise identical, the fixed-arity pattern is more
+ * specialized (for example `A<First>` over `A<First, Rest...>`). */
+static int cxx_class_specialization_zero_tail_pack_relation(
+    CxxTemplate* primary, CxxTemplate* left, CxxTemplate* right,
+    int argument_count) {
+    int left_indices[32] = { 0 };
+    int right_indices[32] = { 0 };
+    int left_expansion = -1;
+    int right_expansion = -1;
+    int left_expansion_count = 0;
+    int right_expansion_count = 0;
+    CxxTemplate* fixed;
+    CxxTemplate* expanded;
+    int fixed_expansion;
+    int fixed_pack_index;
+    int expanded_pack_index;
+    bool left_is_expanded;
+
+    if (!primary || !left || !right || argument_count < 0 ||
+        argument_count > 32 ||
+        !cxx_class_specialization_pattern_layout(
+            left, argument_count, left_indices, &left_expansion,
+            &left_expansion_count) ||
+        !cxx_class_specialization_pattern_layout(
+            right, argument_count, right_indices, &right_expansion,
+            &right_expansion_count) ||
+        (left_expansion >= 0) == (right_expansion >= 0)) {
+        return 0;
+    }
+
+    left_is_expanded = left_expansion >= 0;
+    fixed = left_is_expanded ? right : left;
+    expanded = left_is_expanded ? left : right;
+    fixed_expansion = left_is_expanded ? right_expansion : left_expansion;
+    if ((left_is_expanded ? left_expansion_count : right_expansion_count) != 0 ||
+        fixed_expansion >= 0 ||
+        fixed->specialization_arg_count != argument_count ||
+        expanded->specialization_arg_count <= 0 ||
+        (left_is_expanded ? left_expansion : right_expansion) !=
+            expanded->specialization_arg_count - 1) {
+        return 0;
+    }
+
+    expanded_pack_index = cxx_class_pack_index(expanded);
+    fixed_pack_index = cxx_class_pack_index(fixed);
+    if (expanded_pack_index < 0 ||
+        expanded_pack_index != expanded->param_count - 1 ||
+        expanded->params[expanded_pack_index].kind != TPARAM_TYPE ||
+        !expanded->params[expanded_pack_index].is_pack ||
+        fixed_pack_index >= 0 || fixed->param_count != expanded_pack_index) {
+        return 0;
+    }
+    for (int index = 0; index < fixed->param_count; ++index) {
+        const TemplateParam* fixed_parameter = &fixed->params[index];
+        const TemplateParam* expanded_parameter = &expanded->params[index];
+        if (fixed_parameter->kind != expanded_parameter->kind ||
+            fixed_parameter->is_pack || expanded_parameter->is_pack ||
+            (fixed_parameter->kind == TPARAM_NONTYPE &&
+             !cxx_template_type_parameter_mapping_matches(
+                 fixed_parameter->type, fixed,
+                 expanded_parameter->type, expanded)) ||
+            (fixed_parameter->kind == TPARAM_TEMPLATE &&
+             !template_template_parameter_signatures_match(
+                 fixed_parameter->template_signature,
+                 expanded_parameter->template_signature, 0))) {
+            return 0;
+        }
+    }
+
+    int primary_pack_index = cxx_class_pack_index(primary);
+    for (int argument_index = 0; argument_index < argument_count;
+         ++argument_index) {
+        int primary_parameter_index = primary_pack_index >= 0 &&
+                argument_index >= primary_pack_index
+            ? primary_pack_index : argument_index;
+        int fixed_pattern_index = left_is_expanded
+            ? right_indices[argument_index] : left_indices[argument_index];
+        int expanded_pattern_index = left_is_expanded
+            ? left_indices[argument_index] : right_indices[argument_index];
+        if (primary_parameter_index >= primary->param_count) return 0;
+        if (primary->params[primary_parameter_index].kind == TPARAM_NONTYPE) {
+            Expr* fixed_value = fixed->specialization_value_args
+                ? fixed->specialization_value_args[fixed_pattern_index] : NULL;
+            Expr* expanded_value = expanded->specialization_value_args
+                ? expanded->specialization_value_args[expanded_pattern_index]
+                : NULL;
+            if (!cxx_template_constraint_mapping_matches(
+                    fixed_value, fixed, expanded_value, expanded)) {
+                return 0;
+            }
+        } else {
+            Type* fixed_pattern = fixed->specialization_args
+                ? fixed->specialization_args[fixed_pattern_index] : NULL;
+            Type* expanded_pattern = expanded->specialization_args
+                ? expanded->specialization_args[expanded_pattern_index]
+                : NULL;
+            if (!cxx_template_type_parameter_mapping_matches(
+                    fixed_pattern, fixed, expanded_pattern, expanded)) {
+                return 0;
+            }
+        }
+    }
+    return left_is_expanded ? -1 : 1;
+}
+
 static bool cxx_deduce_class_specialization_expanded_type(
     CxxTemplate* specialization, Type* pattern, Type* actual,
     Type** candidate_arguments, int* candidate_pack_count,
@@ -21903,15 +22058,26 @@ static Type* cxx_instantiate_dependent_class_template(
             bool selected_dominates = selected &&
                 cxx_class_specialization_rank_dominates(
                     selected_ranks, candidate_ranks, argument_count);
-            if (selected && !candidate_dominates && !selected_dominates &&
-                cxx_class_specialization_patterns_equivalent(
-                    tmpl, specialization, selected, argument_count)) {
-                bool constraints_comparable = false;
-                int constraint_relation = cxx_template_constraint_relation(
-                    specialization, selected, &constraints_comparable);
-                if (constraints_comparable) {
-                    candidate_dominates = constraint_relation > 0;
-                    selected_dominates = constraint_relation < 0;
+            if (selected && !candidate_dominates && !selected_dominates) {
+                int zero_pack_relation =
+                    cxx_class_specialization_zero_tail_pack_relation(
+                        tmpl, specialization, selected, argument_count);
+                if (zero_pack_relation > 0) {
+                    candidate_dominates = true;
+                } else if (zero_pack_relation < 0) {
+                    selected_dominates = true;
+                } else if (cxx_class_specialization_patterns_equivalent(
+                               tmpl, specialization, selected,
+                               argument_count)) {
+                    bool constraints_comparable = false;
+                    int constraint_relation =
+                        cxx_template_constraint_relation(
+                            specialization, selected,
+                            &constraints_comparable);
+                    if (constraints_comparable) {
+                        candidate_dominates = constraint_relation > 0;
+                        selected_dominates = constraint_relation < 0;
+                    }
                 }
             }
             if (!selected || candidate_dominates) {
@@ -22597,17 +22763,26 @@ static Type* parse_class_template_specialization_with_owner_type(
                     cxx_class_specialization_rank_dominates(
                         selected_ranks, specialization_ranks,
                         argument_count);
-                if (selected && !current_dominates && !selected_dominates &&
-                    cxx_class_specialization_patterns_equivalent(
-                        tmpl, specialization, selected, argument_count)) {
-                    bool constraints_comparable = false;
-                    int constraint_relation =
-                        cxx_template_constraint_relation(
-                            specialization, selected,
-                            &constraints_comparable);
-                    if (constraints_comparable) {
-                        current_dominates = constraint_relation > 0;
-                        selected_dominates = constraint_relation < 0;
+                if (selected && !current_dominates && !selected_dominates) {
+                    int zero_pack_relation =
+                        cxx_class_specialization_zero_tail_pack_relation(
+                            tmpl, specialization, selected, argument_count);
+                    if (zero_pack_relation > 0) {
+                        current_dominates = true;
+                    } else if (zero_pack_relation < 0) {
+                        selected_dominates = true;
+                    } else if (cxx_class_specialization_patterns_equivalent(
+                                   tmpl, specialization, selected,
+                                   argument_count)) {
+                        bool constraints_comparable = false;
+                        int constraint_relation =
+                            cxx_template_constraint_relation(
+                                specialization, selected,
+                                &constraints_comparable);
+                        if (constraints_comparable) {
+                            current_dominates = constraint_relation > 0;
+                            selected_dominates = constraint_relation < 0;
+                        }
                     }
                 }
                 if (!selected || current_dominates) {
@@ -25805,7 +25980,10 @@ static bool eval_template_integer_expression(Expr* expression,
     if (expression->kind == EXPR_CALL && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT) {
         Decl* function = cxx_template_integer_call_function(expression, tmpl);
-        if (!function) return false;
+        if (!function) {
+            return cxx_eval_constexpr_function_template_call(
+                expression, tmpl, result);
+        }
         if (!function->func_is_constexpr || function->func_this_param ||
             !function->type || function->type->kind != TYPE_FUNC ||
             !type_is_integer(function->type->ret_type)) {
@@ -34143,6 +34321,124 @@ static bool prepare_cxx_function_template_match(
     return matched;
 }
 
+/* Resolve the all-function-template subset needed while evaluating a
+ * dependent integral constant expression. Ordinary overloads remain handled
+ * by cxx_template_integer_call_function so this path never silently changes
+ * mixed overload-set ranking. */
+static bool cxx_eval_constexpr_function_template_call(
+    Expr* expression, CxxTemplate* context, int64_t* result) {
+    CxxTemplate* candidates[32] = { NULL };
+    CxxFunctionTemplateMatch matches[32] = { 0 };
+    CxxNamespace* saved_namespace = active_namespace;
+    const char* name;
+    const char* unqualified_name;
+    int candidate_count;
+    int match_count = 0;
+    int selected = -1;
+    int best_count = 0;
+    bool qualified;
+    bool globally_qualified;
+    if (!expression || expression->kind != EXPR_CALL ||
+        !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        !(name = expression->call_func->ident_name) || !result) {
+        return false;
+    }
+    globally_qualified = name[0] == ':' && name[1] == ':';
+    while (name[0] == ':' && name[1] == ':') name += 2;
+    qualified = strstr(name, "::") != NULL;
+    unqualified_name = strrchr(name, ':');
+    unqualified_name = unqualified_name && unqualified_name > name &&
+            unqualified_name[-1] == ':'
+        ? unqualified_name + 1 : name;
+    active_namespace = globally_qualified
+        ? g_global_namespace
+        : context && context->ns ? context->ns
+                                 : saved_namespace;
+    candidate_count = find_function_template_candidates(
+        name, candidates, (int)(sizeof(candidates) / sizeof(candidates[0])));
+    if (candidate_count > (int)(sizeof(candidates) / sizeof(candidates[0]))) {
+        candidate_count = (int)(sizeof(candidates) / sizeof(candidates[0]));
+    }
+    if (!qualified && candidate_count > 0) {
+        candidate_count = cxx_function_template_candidates_for_adl(
+            unqualified_name, expression->call_args, candidates,
+            (int)(sizeof(candidates) / sizeof(candidates[0])),
+            candidate_count);
+        if (candidate_count > (int)(sizeof(candidates) /
+                                    sizeof(candidates[0]))) {
+            candidate_count = (int)(sizeof(candidates) /
+                                    sizeof(candidates[0]));
+        }
+    }
+    if (candidate_count <= 0) {
+        active_namespace = saved_namespace;
+        return false;
+    }
+    for (int index = 0; index < candidate_count; ++index) {
+        CxxTemplate* candidate = candidates[index];
+        bool constraint_unsupported = false;
+        if (!candidate || !candidate->ns) continue;
+        /* A regular function in the same declaration scope participates in
+         * overload resolution; leave that mixed set to the ordinary resolver
+         * until it can supply a shared ranking result. */
+        for (DeclList* declaration = candidate->ns->decls; declaration;
+             declaration = declaration->next) {
+            Decl* function = declaration->decl;
+            if (function && function->kind == DECL_FUNC && function->name &&
+                strcmp(function->name, unqualified_name) == 0 &&
+                !function->func_is_template_instance &&
+                !function->func_template_owner) {
+                active_namespace = saved_namespace;
+                return false;
+            }
+        }
+        active_namespace = candidate->ns;
+        CxxFunctionTemplateMatch match = { 0 };
+        if (prepare_cxx_function_template_match(
+                candidate, expression->call_args, NULL, 0, &match,
+                NULL, &constraint_unsupported)) {
+            if (match_count >= (int)(sizeof(matches) / sizeof(matches[0]))) {
+                active_namespace = saved_namespace;
+                return false;
+            }
+            matches[match_count++] = match;
+        } else if (constraint_unsupported) {
+            active_namespace = saved_namespace;
+            return false;
+        }
+    }
+    active_namespace = saved_namespace;
+    if (match_count == 0) return false;
+    for (int candidate_index = 0; candidate_index < match_count;
+         ++candidate_index) {
+        bool dominated = false;
+        for (int other_index = 0; other_index < match_count; ++other_index) {
+            if (candidate_index != other_index &&
+                cxx_function_template_match_relation(
+                    &matches[other_index], &matches[candidate_index]) > 0) {
+                dominated = true;
+                break;
+            }
+        }
+        if (!dominated) {
+            selected = candidate_index;
+            ++best_count;
+        }
+    }
+    if (best_count != 1 || selected < 0 ||
+        !matches[selected].instance ||
+        !matches[selected].instance->func_is_constexpr ||
+        matches[selected].instance->func_this_param ||
+        !matches[selected].instance->type ||
+        matches[selected].instance->type->kind != TYPE_FUNC ||
+        !type_is_integer(matches[selected].instance->type->ret_type)) {
+        return false;
+    }
+    return rcc_sema_eval_constexpr_integer_call(
+        matches[selected].instance, expression->call_args, result);
+}
+
 static bool cxx_function_template_call_is_dependent(
     ExprList* call_arguments,
     const CxxParsedTemplateArgument* explicit_arguments,
@@ -34501,7 +34797,7 @@ static bool cxx_collect_member_function_template_sources(
 
 static int cxx_materialize_member_function_templates_internal(
     Type* aggregate, const char* name, ExprList* arguments,
-    bool include_inherited,
+    bool include_inherited, bool defer_body,
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, bool explicit_arguments_specified,
     TypeMethod** candidates, int candidate_capacity,
@@ -34566,11 +34862,14 @@ static int cxx_materialize_member_function_templates_internal(
         }
         active_namespace = tmpl->ns ? tmpl->ns
             : method->owner ? method->owner->ns : cls->ns;
+        bool saved_defer_body_clone = tmpl->defer_function_body_clone;
+        if (defer_body) tmpl->defer_function_body_clone = true;
         matched = prepare_cxx_function_template_match(
                 tmpl, arguments,
                 explicit_arguments_specified ? explicit_arguments : NULL,
                 explicit_argument_count, &match,
                 &constraint_invalid, &constraint_unsupported);
+        tmpl->defer_function_body_clone = saved_defer_body_clone;
         if (matched) {
             matched_methods[match_count] = method;
             matched_accesses[match_count] = source_accesses[source_index];
@@ -34632,7 +34931,7 @@ int rcc_parser_cxx_materialize_member_function_templates(
     TypeMethod** candidates, int candidate_capacity,
     bool* constraint_unsupported) {
     return cxx_materialize_member_function_templates_internal(
-        aggregate, name, arguments, true, explicit_arguments,
+        aggregate, name, arguments, true, true, explicit_arguments,
         explicit_argument_count, explicit_arguments_specified, candidates,
         candidate_capacity, constraint_unsupported);
 }

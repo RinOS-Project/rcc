@@ -13819,10 +13819,8 @@ test-cxx-inherited-constructor-posix: $(RCXX_TARGET)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-inherited-constructor-array-initializer,cxx_inherited_constructor_array_initializer.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-nested-array)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-inherited-constructor-nested-array,cxx_inherited_constructor_nested_array.cpp)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.ro tests/cxx_inherited_constructor_invalid_array_cleanup.cpp,$(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.log)
-	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x64.ro tests/cxx_inherited_constructor_invalid_array_cleanup.cpp,$(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x64.log)
-	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x64.log
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-array-cleanup)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-inherited-constructor-array-cleanup,cxx_inherited_constructor_array_cleanup.cpp)
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.ro \
 		tests/cxx_inherited_constructor_invalid_virtual.cpp \
@@ -13919,10 +13917,8 @@ test-cxx-inherited-constructor: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-array-initializer,cxx_inherited_constructor_array_initializer.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-nested-array)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-nested-array,cxx_inherited_constructor_nested_array.cpp)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.ro tests/cxx_inherited_constructor_invalid_array_cleanup.cpp,$(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.log)
-	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x64.ro tests/cxx_inherited_constructor_invalid_array_cleanup.cpp,$(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x64.log)
-	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x64.log
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-array-cleanup)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-array-cleanup,cxx_inherited_constructor_array_cleanup.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.ro tests/cxx_inherited_constructor_invalid_virtual.cpp,$(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log)
 	$(GREP) -F -q "using-base constructor cannot name a virtual base" $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/virtual-x64.ro tests/cxx_inherited_constructor_invalid_virtual.cpp,$(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log)
@@ -18662,7 +18658,7 @@ test-verified-cxx-destructor: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX
 		-o $(TEST_OUT)/verified-backend/cxx-destructor-x86.ro \
 		tests/verified_backend_cxx_destructor.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-destructor-x86.log
-	$(GREP) -F -q 'Verified backend: 16 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-destructor-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-destructor-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -18670,7 +18666,7 @@ test-verified-cxx-destructor: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX
 		-o $(TEST_OUT)/verified-backend/cxx-destructor-x64.ro \
 		tests/verified_backend_cxx_destructor.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-destructor-x64.log
-	$(GREP) -F -q 'Verified backend: 16 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-destructor-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-destructor-x64.log,0)
 	$(CC) $(CFLAGS) -I$(INCDIR) \

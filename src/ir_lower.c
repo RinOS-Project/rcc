@@ -17074,6 +17074,39 @@ static bool lower_cxx_destructor_subobjects_supported(
         cls, depth, false, true);
 }
 
+/* A class-array member with no explicit initializer is default-initialized.
+ * For this bounded subset its implicit default constructor has no work, but
+ * each element still begins a lifetime and must receive its destructor
+ * cleanup registration. */
+static bool lower_cxx_implicit_default_array_element_supported(
+    const Type* type) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!cls || !type->is_complete || cls->constructors ||
+        cls->base_count != 0 || cls->virtual_base_count != 0 ||
+        cls->vtable_size != 0 || cls->has_field_initializer ||
+        type->cleanup_function || type->cleanup_field) {
+        return false;
+    }
+    if (cls->destructor_method) {
+        const Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_cxx_destructor ||
+            !destructor->func_is_noexcept || !destructor->func_this_param ||
+            destructor->func_params) {
+            return false;
+        }
+    }
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!field->type || field->initializer ||
+            !type_is_scalar(field->type) || field->type->is_const ||
+            field->type->is_reference || field->type->is_atomic) {
+            return false;
+        }
+    }
+    return lower_cxx_destructor_subobjects_supported(cls, 0u);
+}
+
 static bool lower_cxx_emit_destructor_call(
     RccIrLowerContext* context, const Decl* destructor,
     RccIrLowerValue object) {
@@ -17768,13 +17801,19 @@ static bool lower_cxx_initialize_constructor_members(
             }
             continue;
         }
-        if (field->type->kind == TYPE_ARRAY && initializer->constructor) {
+        if (field->type->kind == TYPE_ARRAY &&
+            lower_cxx_class_array_element(field->type)) {
             const Type* element_type =
                 lower_cxx_class_array_element(field->type);
             uint64_t element_count;
+            bool implicit_default = !initializer->constructor &&
+                !initializer->is_default_member_initializer &&
+                !initializer->value && !initializer->arguments &&
+                lower_cxx_implicit_default_array_element_supported(
+                    element_type);
             Expr member_expression;
             const Decl* member_constructor =
-                initializer->constructor->method
+                initializer->constructor && initializer->constructor->method
                     ? initializer->constructor->method->decl : NULL;
             memset(&member_expression, 0, sizeof(member_expression));
             member_expression.kind = EXPR_COMPOUND;
@@ -17785,10 +17824,12 @@ static bool lower_cxx_initialize_constructor_members(
             if (!element_type || !element_type->cxx_class ||
                 !lower_cxx_class_array_count(
                     field->type, element_type, &element_count) ||
-                !member_constructor ||
-                !lower_cleanup_constructor_call_supported(
-                    &member_expression) ||
-                !lower_noexcept_expression_list(initializer->arguments)) {
+                (!implicit_default &&
+                 (!initializer->constructor || !member_constructor ||
+                  !lower_cleanup_constructor_call_supported(
+                      &member_expression) ||
+                  !lower_noexcept_expression_list(
+                      initializer->arguments)))) {
                 context->unsupported = true;
                 return false;
             }
@@ -17916,10 +17957,17 @@ static bool lower_cxx_initialize_constructor_members(
             }
             continue;
         }
-        if (field->type->kind == TYPE_ARRAY && initializer->constructor) {
+        if (field->type->kind == TYPE_ARRAY &&
+            lower_cxx_class_array_element(field->type)) {
             const Type* element_type =
                 lower_cxx_class_array_element(field->type);
-            if (!address.valid || !lower_cxx_emit_class_array_constructors(
+            bool implicit_default = !initializer->constructor &&
+                !initializer->is_default_member_initializer &&
+                !initializer->value && !initializer->arguments &&
+                lower_cxx_implicit_default_array_element_supported(
+                    element_type);
+            if ((!initializer->constructor && !implicit_default) ||
+                !address.valid || !lower_cxx_emit_class_array_constructors(
                     context, field->type, element_type,
                     initializer->constructor, initializer->arguments,
                     address, 0u)) {
@@ -19786,7 +19834,9 @@ static bool lower_cxx_emit_class_array_constructors(
     Expr element_initializer;
     if (!context || depth >= 64u || !array_address.valid ||
         array_address.type.kind != RCC_IR_TYPE_POINTER ||
-        !element_type || !element_type->cxx_class || !constructor ||
+        !element_type || !element_type->cxx_class ||
+        (!constructor &&
+         !lower_cxx_implicit_default_array_element_supported(element_type)) ||
         !lower_cxx_class_array_count(
             array_type, element_type, &element_count)) {
         if (context) context->unsupported = true;
@@ -19863,8 +19913,8 @@ static bool lower_cxx_emit_class_array_constructors(
         element_initializer.compound_constructor =
             (CxxConstructorInfo*)constructor;
         element_initializer.compound_init = (ExprList*)arguments;
-        if (!lower_cxx_emit_constructor_call(
-                context, &element_initializer, element.value) ||
+        if ((constructor && !lower_cxx_emit_constructor_call(
+                 context, &element_initializer, element.value)) ||
             !lower_cxx_delete_subobject_cleanup_change(
                 context, element_type, element, true, depth + 1u)) {
             return false;
