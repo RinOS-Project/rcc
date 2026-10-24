@@ -9453,3 +9453,18 @@ remains a separate open item.
       template metadata from being interpreted as a function declaration.
       The `test-debug-info` corpus, including i686/AMD64 instantiation of
       `debug_info_cxx_template.cpp`, passes under WSL.
+
+## RCC continuation (2026-10-25, reference sizeof and alignof)
+
+- [x] Apply C++ reference `sizeof`/`alignof` semantics consistently in
+      constant-expression parsing, semantic validation/evaluation, and both
+      native code generators by measuring the referred-to type. Direct
+      `sizeof(T&)`, `sizeof(const T&)`, and `alignof(T&)` assertions pass in
+      `test-cxx-constructible-builtin` and
+      `test-cxx-libcxx-type_traits-direct` for i686 and AMD64, with GCC C++20
+      syntax checks.
+- [ ] Fix constrained forwarding assignment-template deduction for const
+      lvalue arguments. A `requires (sizeof(T) == sizeof(double))` candidate's
+      constraint evaluates true, but `__is_assignable` and an ordinary
+      assignment expression still reject `const double&`; add direct and
+      libcxx regressions when the semantic path is repaired.

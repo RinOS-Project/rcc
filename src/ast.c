@@ -250,6 +250,13 @@ Type* type_reference(Type* base, bool rvalue_reference) {
     return reference;
 }
 
+Type* type_remove_reference(Type* type) {
+    while (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    return type;
+}
+
 Type* type_array(Type* base, int len) {
     Type* t = rcc_alloc(sizeof(Type));
     t->kind = TYPE_ARRAY;

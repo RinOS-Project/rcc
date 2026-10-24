@@ -5139,6 +5139,7 @@ static bool sema_eval_constexpr_expr(
                 ? expression->sizeof_type
                 : (expression->unary_operand
                     ? expression->unary_operand->type : NULL);
+            measured = type_remove_reference(measured);
             if (!measured || (expression->kind == EXPR_SIZEOF
                                   ? measured->size <= 0 : measured->align <= 0)) {
                 return false;
@@ -8816,6 +8817,7 @@ static bool sema_eval_constexpr_scalar_expr(
                 ? expression->sizeof_type
                 : (expression->unary_operand
                     ? expression->unary_operand->type : NULL);
+            measured = type_remove_reference(measured);
             if (measured == NULL ||
                 (expression->kind == EXPR_SIZEOF
                     ? measured->size <= 0 : measured->align <= 0)) return false;
@@ -18913,10 +18915,11 @@ static Type* sema_expr(Expr* expr) {
                           "sizeof... pack was not substituted during template instantiation");
                 expr->type = type_uint;
             } else if (expr->sizeof_type) {
-                sema_validate_array_parameter_type(expr->sizeof_type,
+                Type* measured = type_remove_reference(expr->sizeof_type);
+                sema_validate_array_parameter_type(measured,
                                                    expr->loc, false);
-                sema_validate_restrict_type(expr->sizeof_type, expr->loc);
-                sema_vla_bounds(expr->sizeof_type, expr->loc);
+                sema_validate_restrict_type(measured, expr->loc);
+                sema_vla_bounds(measured, expr->loc);
                 expr->type = type_uint;
             } else {
                 sema_expr(expr->unary_operand);

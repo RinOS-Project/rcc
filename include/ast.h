@@ -427,6 +427,9 @@ bool type_is_cxx_member_function_pointer(const Type* type);
 /* Construct a C++ reference type and apply the standard reference-collapse
  * rule when `base` is already a reference type. */
 Type* type_reference(Type* base, bool rvalue_reference);
+/* Strip C++ reference wrappers when an operation is defined on the referred
+ * object type (for example sizeof/alignof of a reference type-id). */
+Type* type_remove_reference(Type* type);
 Type* type_array(Type* base, int len);
 Type* type_vector(Type* base, int lanes, int vector_size);
 Type* type_func(Type* ret, TypeParam* params, bool variadic);

@@ -9934,9 +9934,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             break;
 
-        case EXPR_SIZEOF:
-            if (expr->sizeof_type && gen64_type_has_vla(expr->sizeof_type)) {
-                gen64_vla_extent(mod, expr->sizeof_type);
+        case EXPR_SIZEOF: {
+            Type* measured_type = type_remove_reference(
+                expr->sizeof_type ? expr->sizeof_type
+                    : (expr->unary_operand
+                        ? expr->unary_operand->type : NULL));
+            if (expr->sizeof_type && gen64_type_has_vla(measured_type)) {
+                gen64_vla_extent(mod, measured_type);
             } else if (expr->unary_operand &&
                        expr->unary_operand->kind == EXPR_IDENT &&
                        expr->unary_operand->ident_decl &&
@@ -9945,23 +9949,26 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     mod, RAX, RBP,
                     expr->unary_operand->ident_decl->var_vla_size_offset);
             } else if (expr->unary_operand &&
-                       gen64_type_has_vla(expr->unary_operand->type)) {
-                gen64_vla_extent_for_expr(mod, expr->unary_operand->type,
+                       gen64_type_has_vla(measured_type)) {
+                gen64_vla_extent_for_expr(mod, measured_type,
                                           expr->unary_operand);
             } else if (expr->sizeof_type) {
-                emit64_mov_reg_imm32(mod, RAX, expr->sizeof_type->size);
+                emit64_mov_reg_imm32(mod, RAX, measured_type->size);
             } else if (expr->unary_operand && expr->unary_operand->type) {
-                emit64_mov_reg_imm32(mod, RAX, expr->unary_operand->type->size);
+                emit64_mov_reg_imm32(mod, RAX, measured_type->size);
             } else {
                 emit64_mov_reg_imm32(mod, RAX, 8);  /* 64-bit default */
             }
             break;
+        }
 
-        case EXPR_ALIGNOF:
+        case EXPR_ALIGNOF: {
+            Type* measured_type = type_remove_reference(expr->sizeof_type);
             emit64_mov_reg_imm32(
                 mod, RAX,
-                expr->sizeof_type ? expr->sizeof_type->align : 1);
+                measured_type ? measured_type->align : 1);
             break;
+        }
 
         case EXPR_COMMA:
             if (gen64_is_aggregate(expr->type)) {

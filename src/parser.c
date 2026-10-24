@@ -1031,18 +1031,21 @@ static bool eval_integer_constant_typed(Expr* expr,
             if (!measured && expr->unary_operand) {
                 measured = expr->unary_operand->type;
             }
+            measured = type_remove_reference(measured);
             if (!measured || measured->size <= 0) return false;
             value->bits = (uint64_t)measured->size;
             value->type = type_uint;
             return true;
         }
-        case EXPR_ALIGNOF:
-            if (!expr->sizeof_type || expr->sizeof_type->align <= 0) {
+        case EXPR_ALIGNOF: {
+            Type* measured = type_remove_reference(expr->sizeof_type);
+            if (!measured || measured->align <= 0) {
                 return false;
             }
-            value->bits = (uint64_t)expr->sizeof_type->align;
+            value->bits = (uint64_t)measured->align;
             value->type = type_uint;
             return true;
+        }
         case EXPR_CAST:
             if (!expr->cast_type || !type_is_integer(expr->cast_type) ||
                 !eval_integer_constant_typed(expr->cast_expr, &left)) {

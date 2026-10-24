@@ -295,6 +295,31 @@ struct TemplateAssignment {
     TemplateAssignment& operator=(T&&);
 };
 
+struct ConstrainedAssignmentTemplate {
+    template <typename T>
+    ConstrainedAssignmentTemplate& operator=(T)
+        requires (sizeof(T) == sizeof(double));
+};
+
+struct ConstrainedForwardingAssignment {
+    template <typename T>
+    ConstrainedForwardingAssignment& operator=(T&&)
+        requires (sizeof(T) == sizeof(double));
+};
+
+struct ConstrainedAssignmentOverload {
+    template <typename T>
+    ConstrainedAssignmentOverload& operator=(T&&)
+        requires (sizeof(T) == sizeof(double));
+    template <typename T>
+    ConstrainedAssignmentOverload& operator=(T&&) = delete;
+};
+
+template <typename T>
+struct AssignmentSizeProbe {
+    static constexpr bool value = sizeof(T) == sizeof(double);
+};
+
 using IntArray = int[2];
 using FunctionType = int();
 
@@ -1067,6 +1092,25 @@ static_assert(!std::is_assignable<NontrivialAssignmentUnion&,
               "a non-trivial union member deletes union assignment");
 static_assert(std::is_assignable<TemplateAssignment&, int>::value,
               "a member assignment template participates in overload resolution");
+static_assert(std::is_assignable<ConstrainedAssignmentTemplate&, double>::value,
+              "a satisfied assignment-template constraint participates");
+static_assert(!std::is_assignable<ConstrainedAssignmentTemplate&, int>::value,
+              "an unsatisfied assignment-template constraint removes the candidate");
+static_assert(AssignmentSizeProbe<double&>::value,
+              "sizeof a reference type uses the referred-to type size");
+static_assert(AssignmentSizeProbe<const double&>::value,
+              "sizeof a cv-qualified reference uses the referred-to type size");
+static_assert(alignof(double&) == alignof(double),
+              "alignof a reference type uses the referred-to type alignment");
+static_assert(std::is_assignable<ConstrainedForwardingAssignment&,
+                                 double&>::value,
+              "a satisfied forwarding assignment constraint accepts an lvalue");
+static_assert(std::is_assignable<ConstrainedAssignmentOverload&, double>::value,
+              "a satisfied constrained assignment overload beats a deleted fallback");
+static_assert(std::is_assignable<ConstrainedAssignmentOverload&, double&>::value,
+              "a forwarding assignment constraint accepts an lvalue source");
+static_assert(!std::is_assignable<ConstrainedAssignmentOverload&, int>::value,
+              "an unsatisfied constraint leaves the deleted fallback selected");
 static_assert(std::is_assignable<volatile int&, int>::value,
               "a volatile scalar lvalue can be assigned");
 static_assert(std::is_assignable<int&, volatile int&>::value,
