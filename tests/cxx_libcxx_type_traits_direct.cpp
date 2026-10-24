@@ -163,6 +163,46 @@ private:
 
 struct FriendCopyAssignmentBaseDerived : FriendCopyAssignmentBase {};
 
+struct ProtectedMoveAssignmentBase {
+protected:
+    ProtectedMoveAssignmentBase& operator=(
+        ProtectedMoveAssignmentBase&&) noexcept = default;
+};
+
+struct PublicProtectedMoveAssignmentDerived : ProtectedMoveAssignmentBase {};
+
+struct PrivateProtectedMoveAssignmentDerived
+    : private ProtectedMoveAssignmentBase {};
+
+struct PrivateMoveAssignmentBase {
+private:
+    PrivateMoveAssignmentBase& operator=(
+        PrivateMoveAssignmentBase&&) noexcept = default;
+};
+
+struct PrivateMoveAssignmentDerived : PrivateMoveAssignmentBase {};
+
+struct ProtectedMoveAssignmentMember {
+protected:
+    ProtectedMoveAssignmentMember& operator=(
+        ProtectedMoveAssignmentMember&&) noexcept = default;
+};
+
+struct ProtectedMoveAssignmentMemberOwner {
+    ProtectedMoveAssignmentMember member;
+};
+
+struct FriendMoveAssignmentDerived;
+
+struct FriendMoveAssignmentBase {
+private:
+    FriendMoveAssignmentBase& operator=(
+        FriendMoveAssignmentBase&&) noexcept = default;
+    friend struct FriendMoveAssignmentDerived;
+};
+
+struct FriendMoveAssignmentDerived : FriendMoveAssignmentBase {};
+
 struct ConstMemberNotAssignable {
     const int value;
 };
@@ -898,6 +938,24 @@ static_assert(!std::is_assignable<ImplicitProtectedCopyAssignmentMember&,
 static_assert(std::is_assignable<FriendCopyAssignmentBaseDerived&,
                                  const FriendCopyAssignmentBaseDerived&>::value,
               "a friend class can use a private base assignment implicitly");
+static_assert(!std::is_assignable<ProtectedMoveAssignmentBase&,
+                                  ProtectedMoveAssignmentBase&&>::value,
+              "a protected base move assignment is inaccessible externally");
+static_assert(std::is_assignable<PublicProtectedMoveAssignmentDerived&,
+                                 PublicProtectedMoveAssignmentDerived&&>::value,
+              "an implicit derived move assignment can call protected base assignment");
+static_assert(std::is_assignable<PrivateProtectedMoveAssignmentDerived&,
+                                 PrivateProtectedMoveAssignmentDerived&&>::value,
+              "private inheritance retains derived access to a protected move assignment");
+static_assert(!std::is_assignable<PrivateMoveAssignmentDerived&,
+                                  PrivateMoveAssignmentDerived&&>::value,
+              "a private base move assignment deletes implicit derived move assignment");
+static_assert(!std::is_assignable<ProtectedMoveAssignmentMemberOwner&,
+                                  ProtectedMoveAssignmentMemberOwner&&>::value,
+              "a containing class cannot access a protected member move assignment");
+static_assert(std::is_assignable<FriendMoveAssignmentDerived&,
+                                 FriendMoveAssignmentDerived&&>::value,
+              "a friend-derived class can use private base move assignment implicitly");
 static_assert(!std::is_assignable<ConstMemberNotAssignable&,
                                   const ConstMemberNotAssignable&>::value,
               "const subobjects delete implicit copy assignment");

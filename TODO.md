@@ -9435,13 +9435,14 @@ remains a separate open item.
       inheritance, friend classes can copy private bases, and protected member
       copies remain inaccessible through composition. `is_constructible` and
       `is_nothrow_constructible` agree with GCC C++20 on both target widths.
-- [x] Preserve the corresponding access context for implicit copy-assignment
-      subobjects: protected base assignment is usable by an implicit derived
-      assignment but inaccessible to an external query, private base assignment
-      deletes that operation, protected member assignment remains inaccessible
-      through composition, and a friend-derived class can assign its private
-      base. Direct `__is_assignable` and libcxx `std::is_assignable` fixtures
-      agree with GCC C++20 on i686 and AMD64.
+- [x] Preserve the corresponding access context for implicit copy/move
+      assignment subobjects: protected base assignment is usable by an
+      implicit derived assignment but inaccessible to an external query,
+      private base assignment deletes that operation, protected member
+      assignment remains inaccessible through composition, and a friend-derived
+      class can assign its private base. Copy and move cases cover public and
+      private inheritance. Direct `__is_assignable` and libcxx
+      `std::is_assignable` fixtures agree with GCC C++20 on i686 and AMD64.
 - [ ] Complete implicit copy/move deletion/access rules beyond this tested
       matrix and broader type-trait conformance.
 
