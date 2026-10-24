@@ -34,6 +34,24 @@ public:
     T value;
 };
 
+template <typename T>
+class SpecializationBox {
+public:
+    int value;
+};
+
+template <>
+class [[deprecated("use a replacement box")]] SpecializationBox<int> {
+public:
+    int value;
+};
+
+template <typename T>
+class [[deprecated("use a replacement box")]] SpecializationBox<T*> {
+public:
+    int value;
+};
+
 class [[deprecated("use current_class")]] LegacyClass {
 public:
     int value;
@@ -64,6 +82,9 @@ int legacy_local_namespace_api(int value) {
 int main() {
     Legacy legacy{};
     LegacyBox<int> legacy_box{};
+    SpecializationBox<double> primary_box{};
+    SpecializationBox<int> explicit_box{};
+    SpecializationBox<int*> partial_box{};
     LegacyClass legacy_class{};
     [[deprecated("use the namespace declaration")]]
     int legacy_local_api(int);
@@ -77,6 +98,9 @@ int main() {
     result += use_legacy_redecl_before_attribute();
     result += legacy_redecl_after(1);
     result += legacy_box.value;
+    result += primary_box.value;
+    result += explicit_box.value;
+    result += partial_box.value;
     result += legacy_class.value;
     result += old_value;
     result += legacy.old_method();

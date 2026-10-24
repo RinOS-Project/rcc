@@ -11632,31 +11632,41 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     return cls;
 }
 
-/* Parse class definition. */
-CxxClass* parse_cxx_class(void) {
-    SourceLoc loc = previous()->loc;
-    bool is_struct = previous()->type == TOK_STRUCT;
-    const char* deprecated_message = NULL;
+static bool cxx_take_class_attributes(SourceLoc loc,
+                                      const char** deprecated_message) {
     bool is_deprecated;
-    CxxClass* cls;
     skip_cxx_attributes();
     (void)take_cxx_nodiscard();
     if (take_cxx_weak()) {
         rcc_error(loc, "[[gnu::weak]] cannot apply to a class");
     }
-    is_deprecated = take_cxx_deprecated(&deprecated_message);
+    is_deprecated = take_cxx_deprecated(deprecated_message);
     if (take_cxx_no_unique_address()) {
         rcc_error(loc,
                   "[[no_unique_address]] requires a class data member");
     }
     (void)rcc_parser_cxx_take_noreturn_attribute();
+    return is_deprecated;
+}
+
+static void cxx_apply_class_deprecation(CxxClass* cls, bool is_deprecated,
+                                        const char* deprecated_message) {
+    if (!cls || !is_deprecated) return;
+    cls->is_deprecated = true;
+    cls->deprecated_message = deprecated_message;
+}
+
+/* Parse class definition. */
+CxxClass* parse_cxx_class(void) {
+    SourceLoc loc = previous()->loc;
+    bool is_struct = previous()->type == TOK_STRUCT;
+    const char* deprecated_message = NULL;
+    bool is_deprecated = cxx_take_class_attributes(loc,
+                                                   &deprecated_message);
     Token* name_tok = expect(TOK_IDENT, "class name");
     const char* class_name = name_tok ? name_tok->value.str_val : "anonymous";
-    cls = parse_cxx_class_named(loc, is_struct, class_name, NULL);
-    if (cls && is_deprecated) {
-        cls->is_deprecated = true;
-        cls->deprecated_message = deprecated_message;
-    }
+    CxxClass* cls = parse_cxx_class_named(loc, is_struct, class_name, NULL);
+    cxx_apply_class_deprecation(cls, is_deprecated, deprecated_message);
     return cls;
 }
 
@@ -13780,6 +13790,47 @@ static CxxTemplate* cxx_nested_template_parameter_scope_child(
     return NULL;
 }
 
+static Token* cxx_class_name_after_key(Token* token) {
+    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT)) {
+        return NULL;
+    }
+    token = token->next;
+    while (token && token->type == TOK_LBRACKET && token->next &&
+           token->next->type == TOK_LBRACKET) {
+        int depth = 1;
+        token = token->next->next;
+        while (token && depth > 0) {
+            if (token->type == TOK_LBRACKET && token->next &&
+                token->next->type == TOK_LBRACKET) {
+                ++depth;
+                token = token->next->next;
+            } else if (token->type == TOK_RBRACKET && token->next &&
+                       token->next->type == TOK_RBRACKET) {
+                --depth;
+                token = token->next->next;
+            } else {
+                token = token->next;
+            }
+        }
+        if (depth != 0) return NULL;
+    }
+    return token;
+}
+
+static bool cxx_class_template_id_after_key(Token* token) {
+    Token* name = cxx_class_name_after_key(token);
+    return name && name->type == TOK_IDENT && name->next &&
+           name->next->type == TOK_LT;
+}
+
+static bool cxx_nested_class_specialization_after_key(Token* token,
+                                                       bool allow_template_id) {
+    Token* name = cxx_class_name_after_key(token);
+    return name && name->type == TOK_IDENT && name->next &&
+        (name->next->type == TOK_SCOPE ||
+         (allow_template_id && name->next->type == TOK_LT));
+}
+
 CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     SourceLoc loc = previous()->loc;
     CxxTemplate* parameter_outer_template = active_template;
@@ -14220,13 +14271,13 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
      * with a qualified-id, for example `Owner::Inner<T*>`.  Resolve the
      * nested primary on its lexical owner so these specializations share the
      * ordinary class-template matching and instantiation path. */
-    if ((check(TOK_CLASS) || check(TOK_STRUCT)) && parser.cur->next &&
-        parser.cur->next->type == TOK_IDENT && parser.cur->next->next &&
-        (parser.cur->next->next->type == TOK_SCOPE ||
-         ((nested_member_template_explicit_specialization ||
-           nested_member_template_partial_specialization) &&
-          parser.cur->next->next->type == TOK_LT))) {
+    if ((check(TOK_CLASS) || check(TOK_STRUCT)) &&
+        cxx_nested_class_specialization_after_key(
+            parser.cur, nested_member_template_explicit_specialization ||
+                           nested_member_template_partial_specialization)) {
         bool is_struct = match(TOK_STRUCT);
+        const char* class_deprecated_message = NULL;
+        bool class_is_deprecated;
         Token* owner_token;
         Token* name_token;
         CxxTemplate* owner_template = NULL;
@@ -14244,6 +14295,8 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         CxxTemplate* outer_template = active_template;
 
         if (!is_struct) expect(TOK_CLASS, "class or struct");
+        class_is_deprecated = cxx_take_class_attributes(
+            loc, &class_deprecated_message);
         owner_token = expect(TOK_IDENT, "nested specialization owner");
         if (check(TOK_LT) &&
             (nested_member_template_explicit_specialization ||
@@ -14477,6 +14530,8 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
             loc, is_struct,
             name_token ? name_token->value.str_val : "nested-specialization",
             NULL);
+        cxx_apply_class_deprecation(specialized_class, class_is_deprecated,
+                                    class_deprecated_message);
         if (specialized_class && owner_class) {
             specialized_class->enclosing_class = owner_class;
         }
@@ -14533,10 +14588,10 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         }
     /* Template body */
     } else if ((check(TOK_CLASS) || check(TOK_STRUCT)) &&
-        parser.cur->next && parser.cur->next->type == TOK_IDENT &&
-        parser.cur->next->next &&
-        parser.cur->next->next->type == TOK_LT) {
+               cxx_class_template_id_after_key(parser.cur)) {
         bool is_struct = match(TOK_STRUCT);
+        const char* class_deprecated_message = NULL;
+        bool class_is_deprecated;
         Token* name_token;
         CxxTemplate* primary;
         Type* arguments[32] = { NULL };
@@ -14552,6 +14607,8 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         CxxTemplate* outer_template = active_template;
 
         if (!is_struct) expect(TOK_CLASS, "class or struct");
+        class_is_deprecated = cxx_take_class_attributes(
+            loc, &class_deprecated_message);
         name_token = expect(TOK_IDENT, "specialized class name");
         primary = name_token ? find_class_template(name_token->value.str_val)
                              : NULL;
@@ -14671,6 +14728,8 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
             loc, is_struct,
             name_token ? name_token->value.str_val : "specialization",
             NULL);
+        cxx_apply_class_deprecation(specialized_class, class_is_deprecated,
+                                    class_deprecated_message);
         active_template_class_definition = outer_template_class_definition;
         if (specialized_class && explicit_class_alignment > 0) {
             cxx_class_apply_explicit_alignment(
@@ -22865,6 +22924,7 @@ static Type* parse_class_template_specialization_with_owner_type(
         }
     }
     if (selected) {
+        cxx_warn_deprecated_class_template(selected, loc);
         if (selected->param_count == 0) {
             CxxClass* specialized = selected->templated_class;
             int64_t identity_values[32] = { 0 };
@@ -22900,6 +22960,7 @@ static Type* parse_class_template_specialization_with_owner_type(
         }
         return instance_type;
     }
+    cxx_warn_deprecated_class_template(tmpl, loc);
     return instantiate_class_template_for_owner(
         tmpl, arguments, values, value_present, argument_count, owner_class,
         loc);
@@ -22919,7 +22980,6 @@ static Type* parse_class_template_specialization_for_dependent_owner(
 
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc) {
-    cxx_warn_deprecated_class_template(tmpl, loc);
     return parse_class_template_specialization_for_owner(tmpl, NULL, loc);
 }
 

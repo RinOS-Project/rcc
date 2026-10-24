@@ -9187,11 +9187,13 @@ remains a separate open item.
       same ABI symbol. Cover attribute-before-definition, attribute-after-
       definition followed by an unannotated redeclaration, and a call before
       the attribute declaration that must remain unmarked.
-- [x] Parse `[[deprecated]]` after the class-key, preserve it on class-template
-      instances, and diagnose uses of ordinary classes and primary class
-      templates. The fixture compares GCC diagnostics and runs generated code.
-- [ ] Attribute placement on explicit/partial class-template specializations
-      and other declaration-ordering cases remain open.
+- [x] Parse `[[deprecated]]` after the class-key, preserve it on ordinary,
+      primary, explicit-specialization, and partial-specialization classes, and
+      diagnose uses of the selected class. The fixture compares GCC diagnostics
+      and runs generated code; existing specialization and dependent-pack tests
+      remain green.
+- [ ] Other class-template redeclaration and attribute-ordering cases remain
+      open.
 
 ## RCC continuation (2026-10-23, GNU `__has_trivial_constructor` builtin)
 
@@ -9253,7 +9255,8 @@ remains a separate open item.
       every comma-separated declarator, and global- and namespace-scope
       block-scope function declarations plus deprecated function-template
       instantiation, ordinary deprecated classes, and deprecated class
-      templates. `test-cxx-deprecated` checks thirteen RCC diagnostics on both
+      templates including explicit and partial specializations.
+      `test-cxx-deprecated` checks fifteen RCC diagnostics on both
       target widths and checks GCC C++20 diagnostics for local, namespace,
       function-template, and class uses; the i686 COFF check passes and
       generated AMD64 code runs.
@@ -9262,6 +9265,8 @@ remains a separate open item.
       diagnostics are checked by the focused test.
 - [x] Preserve class and primary class-template deprecation through type use;
       GCC C++20 diagnostics and the instantiated AMD64 code are checked.
-- [ ] Explicit/partial class-template specialization attributes and other
-      declaration/attribute ordering cases remain open; class-member behavior
-      is covered by the same fixture.
+- [x] Propagate class attributes through primary, explicit, and partial
+      class-template selection; GCC C++20 diagnostics and both existing
+      specialization regression targets pass.
+- [ ] Other declaration/attribute ordering cases remain open; class-member
+      behavior is covered by the same fixture.
