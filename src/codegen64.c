@@ -6390,17 +6390,32 @@ static void gen64_cxx_initialize_member_initializers(
 
 static void gen64_cxx_initialize_inherited_members(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor) {
-    if (!constructor || !constructor->is_inherited ||
-        !constructor->inherited_member_initializers) return;
-    gen64_cxx_initialize_member_initializers(
-        mod, object_type, constructor->inherited_member_initializers,
-        NULL, false);
+    if (!constructor || !constructor->is_inherited) return;
+    if (constructor->inherited_selected_base_type &&
+        constructor->inherited_selected_base_offset >= 0) {
+        gen64_cxx_exception_change_at_offset(
+            mod, constructor->inherited_selected_base_type, RCX,
+            constructor->inherited_selected_base_offset,
+            active_cxx_exception_cleanup_frame_offset64, false);
+    }
+    if (constructor->inherited_member_initializers) {
+        gen64_cxx_initialize_member_initializers(
+            mod, object_type, constructor->inherited_member_initializers,
+            NULL, false);
+    }
     for (CxxConstructorInitializer* initializer =
              constructor->inherited_base_initializers;
          initializer; initializer = initializer->next) {
         gen64_cxx_exception_change_at_offset(
             mod, initializer->inherited_base_type, RCX,
             initializer->inherited_base_offset,
+            active_cxx_exception_cleanup_frame_offset64, true);
+    }
+    if (constructor->inherited_selected_base_type &&
+        constructor->inherited_selected_base_offset >= 0) {
+        gen64_cxx_exception_change_at_offset(
+            mod, constructor->inherited_selected_base_type, RCX,
+            constructor->inherited_selected_base_offset,
             active_cxx_exception_cleanup_frame_offset64, true);
     }
 }

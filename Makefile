@@ -13827,6 +13827,39 @@ test-cxx-inherited-constructor-posix: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIM
 		tests/cxx_inherited_constructor_run_test.c \
 		$(TEST_OUT)/cxx-inherited-constructor/x64.s
 	$(TEST_OUT)/cxx-inherited-constructor/x64
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-cleanup)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -Wno-unused-parameter \
+		-o $(TEST_OUT)/cxx-inherited-constructor-cleanup/gcc-host \
+		tests/cxx_inherited_constructor_cleanup.cpp
+	$(TEST_OUT)/cxx-inherited-constructor-cleanup/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inherited-constructor-cleanup/x86.s \
+		tests/cxx_inherited_constructor_cleanup.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor-cleanup/x86.o \
+		$(TEST_OUT)/cxx-inherited-constructor-cleanup/x86.s
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor-cleanup/x86-start.o \
+		tests/cxx_exceptions_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-inherited-constructor-cleanup/x86 \
+		$(TEST_OUT)/cxx-inherited-constructor-cleanup/x86-start.o \
+		$(TEST_OUT)/cxx-inherited-constructor-cleanup/x86.o
+	$(TEST_OUT)/cxx-inherited-constructor-cleanup/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inherited-constructor-cleanup/x64.s \
+		tests/cxx_inherited_constructor_cleanup.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor-cleanup/x64.o \
+		$(TEST_OUT)/cxx-inherited-constructor-cleanup/x64.s
+	$(CC) -x assembler-with-cpp -c \
+		-o $(TEST_OUT)/cxx-inherited-constructor-cleanup/x64-start.o \
+		tests/cxx_exceptions_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-inherited-constructor-cleanup/x64 \
+		$(TEST_OUT)/cxx-inherited-constructor-cleanup/x64-start.o \
+		$(TEST_OUT)/cxx-inherited-constructor-cleanup/x64.o
+	$(TEST_OUT)/cxx-inherited-constructor-cleanup/x64
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-inherited-constructor/array-order-x86-freestanding.s \
 		tests/cxx_inherited_constructor_array_order.cpp

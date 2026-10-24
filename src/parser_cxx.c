@@ -7337,7 +7337,6 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
             (void)initializer_arguments;
             constructor_mask = lowerable_constructor_arity_mask(member_class);
             if (!member_class->type ||
-                member_class->destructor_method ||
                 member_class->type->cleanup_function ||
                 initializer_argument_count >= 32u ||
                 (constructor_mask &
@@ -7427,6 +7426,7 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     inherited->is_inherited = true;
     inherited->inherited_base_initializers = NULL;
     inherited->inherited_selected_base_offset = -1;
+    inherited->inherited_selected_base_type = NULL;
     inherited->inherited_member_initializers = NULL;
     inherited->access = source->access;
 
@@ -8224,6 +8224,7 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
     }
     constructor->inherited_base_initializers = leading_sibling_bases;
     constructor->inherited_selected_base_offset = final_selected_base_offset;
+    constructor->inherited_selected_base_type = inheritance_path[0]->type;
     member_initializers->initializer_count = initializer_count;
     constructor->inherited_member_initializers = member_initializers;
     return true;
@@ -11111,6 +11112,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             info->is_defaulted = is_defaulted;
             info->inherited_base_initializers = NULL;
             info->inherited_selected_base_offset = -1;
+            info->inherited_selected_base_type = NULL;
             info->inherited_member_initializers = NULL;
             info->access = current_access;
             info->next = NULL;

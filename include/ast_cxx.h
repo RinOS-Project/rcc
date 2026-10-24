@@ -94,6 +94,7 @@ struct CxxConstructorInfo {
     bool is_inherited;
     CxxConstructorInitializer* inherited_base_initializers;
     int inherited_selected_base_offset;
+    Type* inherited_selected_base_type;
     CxxConstructorInfo* inherited_member_initializers;
     AccessSpec access;
     CxxConstructorInfo* next;
