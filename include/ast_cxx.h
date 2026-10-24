@@ -82,6 +82,7 @@ struct CxxConstructorInfo {
     TypeParam* parameters;
     CxxConstructorInitializer* initializers;
     int initializer_count;
+    bool has_explicit_initializers;
     bool initializers_are_supported;
     bool body_is_empty;
     bool lowerable_parameter_use_mask_valid;

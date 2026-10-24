@@ -13667,16 +13667,25 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
         if (pattern && pattern->initializer_count > 0) {
             best->initializer_count = pattern->initializer_count;
             best->body_is_empty = pattern->body_is_empty;
-            best->initializers_are_supported = false;
-            if (pattern->body_is_empty &&
-                rcc_parser_cxx_normalize_constructor_body) {
-                best->initializer_count = 0;
-                best->body_is_empty = false;
-                if (rcc_parser_cxx_normalize_constructor_body(cls, best)) {
-                    best->initializers_are_supported = true;
-                } else {
+            if (pattern->has_explicit_initializers) {
+                best->initializers = pattern->initializers;
+                best->initializers_are_supported =
+                    pattern->initializers_are_supported;
+            } else {
+                best->initializers_are_supported = false;
+                if (pattern->body_is_empty &&
+                    rcc_parser_cxx_normalize_constructor_body) {
+                    best->initializer_count = 0;
+                    best->body_is_empty = false;
+                    if (rcc_parser_cxx_normalize_constructor_body(cls, best)) {
+                        best->initializers_are_supported = true;
+                    } else {
+                        best->initializer_count = pattern->initializer_count;
+                        best->body_is_empty = true;
+                    }
+                }
+                if (!best->initializers_are_supported) {
                     best->initializer_count = pattern->initializer_count;
-                    best->body_is_empty = true;
                 }
             }
         }

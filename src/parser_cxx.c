@@ -10814,6 +10814,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             info->parameters = method->decl->type->params;
             info->initializers = constructor_initializer.items;
             info->initializer_count = constructor_initializer.count;
+            info->has_explicit_initializers =
+                constructor_initializer.count > 0;
             info->initializers_are_supported =
                 constructor_initializer.count == 0 ||
                 constructor_initializer.is_supported;
@@ -34765,6 +34767,69 @@ static bool cxx_member_template_this_adjustment(
     return true;
 }
 
+static CxxConstructorInfo* cxx_materialize_constructor_info(
+    CxxMethod* method, Decl* instance) {
+    CxxConstructorInfo* pattern = method ? method->constructor_info : NULL;
+    CxxTemplate* tmpl = method ? method->member_template : NULL;
+    CxxConstructorInfo* copy;
+    CxxConstructorInitializer** initializer_tail;
+    if (!pattern || !tmpl || !instance) return pattern;
+    copy = ast_arena_alloc(sizeof(*copy));
+    *copy = *pattern;
+    copy->method = method;
+    copy->next = NULL;
+    copy->lowerable_parameter_use_mask = 0u;
+    copy->lowerable_parameter_use_mask_valid = false;
+    copy->parameters = constructor_parameters_from_method(
+        instance->func_params, &copy->parameter_count);
+    copy->initializers = NULL;
+    initializer_tail = &copy->initializers;
+    for (CxxConstructorInitializer* source = pattern->initializers;
+         source; source = source->next) {
+        CxxConstructorInitializer* item = ast_arena_alloc(sizeof(*item));
+        ExprList** argument_tail;
+        *item = *source;
+        item->next = NULL;
+        item->constructor = NULL;
+        item->arguments = NULL;
+        argument_tail = &item->arguments;
+        if (source->base_type_pattern) {
+            item->base_type_pattern = rcc_cxx_template_substitute_type(
+                tmpl, source->base_type_pattern, instance->func_template_args,
+                instance->func_template_arg_count,
+                instance->func_template_value_args,
+                instance->func_template_value_present);
+        }
+        for (ExprList* argument = source->arguments; argument;
+             argument = argument->next) {
+            ExprList* argument_copy = ast_arena_alloc(sizeof(*argument_copy));
+            *argument_copy = *argument;
+            argument_copy->expr = cxx_template_clone_expr_with_values(
+                tmpl, argument->expr, instance->func_template_args,
+                instance->func_template_arg_count,
+                instance->func_template_value_args,
+                instance->func_template_value_present);
+            argument_copy->cxx_temporary_owner = NULL;
+            argument_copy->cxx_temporary_cleanups = NULL;
+            argument_copy->cxx_temporary_is_parameter_object = false;
+            argument_copy->cxx_temporary_next = NULL;
+            argument_copy->next = NULL;
+            *argument_tail = argument_copy;
+            argument_tail = &argument_copy->next;
+        }
+        item->value = item->arguments
+            ? item->arguments->expr
+            : cxx_template_clone_expr_with_values(
+                  tmpl, source->value, instance->func_template_args,
+                  instance->func_template_arg_count,
+                  instance->func_template_value_args,
+                  instance->func_template_value_present);
+        *initializer_tail = item;
+        initializer_tail = &item->next;
+    }
+    return copy;
+}
+
 static TypeMethod* cxx_materialize_member_function_template(
     Type* aggregate, CxxMethod* method, Decl* instance,
     int this_adjustment) {
@@ -34831,7 +34896,9 @@ static TypeMethod* cxx_materialize_member_function_template(
     lowered->function_decl = instance;
     lowered->kind = TYPE_METHOD_FUNCTION;
     lowered->cxx_member_template = method->member_template;
-    lowered->cxx_constructor_info = method->constructor_info;
+    lowered->cxx_constructor_info = method->is_constructor
+        ? cxx_materialize_constructor_info(method, instance)
+        : method->constructor_info;
     lowered->cxx_access = (unsigned char)method->access;
     lowered->is_explicit = method->is_explicit;
     lowered->is_deleted = method->is_deleted;
