@@ -182,6 +182,11 @@ struct InheritedTemplateMultiDerived : InheritedTemplateMultiLeafPrefix,
     InheritedTemplateMultiMember member_{};
 };
 
+static_assert(__is_constructible(InheritedTemplateMultiMiddle, int),
+              "inherited constructor template remains visible at an intermediate multi-base layer");
+static_assert(__is_constructible(InheritedTemplateMultiDerived, int),
+              "inherited constructor template crosses multi-base intermediate layers");
+
 extern "C" int cxx_inherited_constructor_probe(void) {
     InheritedDerived one(7);
     InheritedDerived two(3, 4);

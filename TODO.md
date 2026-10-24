@@ -9362,8 +9362,11 @@ remains a separate open item.
 - [x] Runtime inherited-constructor templates through a direct virtual base,
       a linear virtual-base chain, and a shared virtual-base diamond execute
       on i686/AMD64; virtual-base initializer/destructor events occur once.
-- [ ] Multiple-base intermediate layers, additional virtual-base constructor
-      chains, broader constructor lifetime/exception cleanup, remaining
+- [x] Bounded inherited-constructor templates also execute through multiple
+      inheritance at intermediate and final layers, with direct bases before
+      and after the selected base; repeated i686/AMD64 runtime checks pass.
+- [ ] Additional virtual-base constructor chains, broader constructor
+      lifetime/exception cleanup, remaining
       implicit copy/move access/deletion rules, additional
       `is_nothrow_constructible` edge cases, and broader type-trait coverage
       remain open.
@@ -9383,10 +9386,11 @@ remains a separate open item.
 - [x] Compare `__is_nothrow_constructible` through a direct virtual base, a
       linear virtual-base chain, and a shared virtual-base diamond with GCC
       C++20; the inherited-constructor runtime gate passes for i686/AMD64.
-- [ ] Additional direct bases before the selected inherited base, multiple
-      bases at intermediate layers of a multi-level chain, more complex
-      virtual-base cases, remaining implicit copy/move deletion/access rules,
-      and broader type-trait conformance remain open.
+- [x] Check `__is_constructible` for an inherited constructor template through
+      an intermediate class with multiple direct bases and through the final
+      multi-base derived class; GCC C++20 and the i686/AMD64 target gate pass.
+- [ ] More complex virtual-base cases, remaining implicit copy/move
+      deletion/access rules, and broader type-trait conformance remain open.
 
 ## RCC continuation (2026-10-24, no-throw constructibility)
 
