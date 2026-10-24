@@ -9317,9 +9317,9 @@ remains a separate open item.
       type-trait-only inherited overload set so an inaccessible/deleted best
       match blocks a weaker public overload; do not treat base copy/move
       constructors as inherited. Both target-width fixtures match GCC C++20.
-- [ ] Inherited constructor templates, remaining implicit copy/move deletion
-      and access rules, `is_nothrow_constructible`, and broader trait
-      conformance remain open.
+- [ ] Ordinary runtime construction through inherited constructor templates,
+      remaining implicit copy/move deletion and access rules,
+      `is_nothrow_constructible`, and broader trait conformance remain open.
 
 ## RCC continuation (2026-10-24, assignability intrinsic)
 
@@ -9343,3 +9343,17 @@ remains a separate open item.
       special-member rules, complete implicit copy/move access/deletion
       conformance, `is_nothrow_constructible`, and broader type-trait coverage
       remain open.
+
+## RCC continuation (2026-10-24, inherited constructor-template traits)
+
+- [x] Include constructor templates inherited through a public, non-virtual
+      direct `using Base::Base` in `__is_constructible` overload selection.
+      Deduction, constraint substitution, partial ordering, and deleted best
+      matches are compared against GCC C++20 in the builtin and libcxx direct
+      fixtures on i686 and AMD64.
+- [ ] Ordinary source construction and emitted derived-constructor bodies for
+      inherited constructor templates remain open; do not infer runtime
+      support from the type-trait candidate probe. Also open are inherited
+      constructor templates through deeper/virtual bases, remaining implicit
+      copy/move deletion/access rules, `is_nothrow_constructible`, and broader
+      type-trait conformance.

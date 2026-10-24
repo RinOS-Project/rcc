@@ -34926,6 +34926,83 @@ static bool cxx_collect_member_function_template_sources(
     return true;
 }
 
+static bool cxx_append_constructor_template_source(
+    CxxMethod* method, AccessSpec access, CxxMethod** methods,
+    AccessSpec* accesses, int capacity, int* count) {
+    if (!method || !method->member_template || !method->is_constructor ||
+        !methods || !accesses || !count || capacity < 0) {
+        return true;
+    }
+    for (int index = 0; index < *count; ++index) {
+        if (methods[index] != method) continue;
+        if (access < accesses[index]) accesses[index] = access;
+        return true;
+    }
+    if (*count >= capacity) {
+        rcc_error(method->decl ? method->decl->loc
+                               : method->member_template->func_def->loc,
+                  "too many inherited constructor template candidates");
+        return false;
+    }
+    methods[*count] = method;
+    accesses[*count] = access;
+    ++*count;
+    return true;
+}
+
+static bool cxx_collect_constructor_template_sources(
+    CxxClass* cls, bool include_inherited, CxxMethod** methods,
+    AccessSpec* accesses, int capacity, int* count) {
+    if (!cls || !methods || !accesses || !count || capacity < 0) return false;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        if (member->method && member->method->member_template &&
+            member->method->is_constructor &&
+            !cxx_append_constructor_template_source(
+                member->method, member->method->access, methods, accesses,
+                capacity, count)) {
+            return false;
+        }
+    }
+    if (!include_inherited) return true;
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        bool inherited = false;
+        if (!base || cls->bases[base_index].access != ACCESS_PUBLIC ||
+            cls->bases[base_index].is_virtual) {
+            continue;
+        }
+        for (int using_index = 0;
+             using_index < cls->using_base_member_count; ++using_index) {
+            const char* member_name =
+                cls->using_base_members[using_index].member_name;
+            if (cxx_using_name_matches_base(
+                    cls->using_base_members[using_index].base_name, base) &&
+                cxx_using_name_matches_base(member_name, base)) {
+                inherited = true;
+                break;
+            }
+        }
+        if (!inherited) continue;
+        for (struct CxxMember* member = base->members; member;
+             member = member->next) {
+            CxxMethod* method = member->method;
+            AccessSpec access;
+            if (!method || !method->member_template ||
+                !method->is_constructor) {
+                continue;
+            }
+            access = method->access > cls->bases[base_index].access
+                ? method->access : cls->bases[base_index].access;
+            if (!cxx_append_constructor_template_source(
+                    method, access, methods, accesses, capacity, count)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static int cxx_materialize_member_function_templates_internal(
     Type* aggregate, const char* name, ExprList* arguments,
     bool include_inherited, bool include_constructors, bool defer_body,
@@ -34949,7 +35026,14 @@ static int cxx_materialize_member_function_templates_internal(
         (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
         return 0;
     }
-    if (include_inherited) {
+    if (include_constructors) {
+        if (!cxx_collect_constructor_template_sources(
+                cls, include_inherited, source_methods, source_accesses,
+                (int)(sizeof(source_methods) / sizeof(source_methods[0])),
+                &source_count)) {
+            return -1;
+        }
+    } else if (include_inherited) {
         if (!cxx_collect_member_function_template_sources(
                 cls, name, ACCESS_PUBLIC, 0u, source_methods,
                 source_accesses,
@@ -34986,8 +35070,10 @@ static int cxx_materialize_member_function_templates_internal(
         bool constraint_invalid = false;
         bool constraint_unsupported = false;
         bool matched;
-        if (!method || !tmpl || !method->source_name ||
-            strcmp(method->source_name, name) != 0 ||
+        if (!method || !tmpl ||
+            (!method->is_constructor &&
+             (!method->source_name ||
+              strcmp(method->source_name, name) != 0)) ||
             (method->is_constructor && !include_constructors) ||
             method->is_destructor || method->is_virtual) {
             continue;
@@ -35027,7 +35113,7 @@ static int cxx_materialize_member_function_templates_internal(
             int this_adjustment = 0;
             bool ambiguous_this_adjustment = false;
             CxxMethod* method = matched_methods[index];
-            if (!method->is_static &&
+            if (!method->is_static && !method->is_constructor &&
                 !cxx_member_template_this_adjustment(
                     cls, method->owner, 0u, &this_adjustment,
                     &ambiguous_this_adjustment)) {
@@ -35044,6 +35130,18 @@ static int cxx_materialize_member_function_templates_internal(
                 this_adjustment);
             if (!lowered) continue;
             lowered->cxx_access = (unsigned char)matched_accesses[index];
+            if (method->is_constructor && method->owner != cls) {
+                Decl* inherited_declaration = ast_arena_alloc(
+                    sizeof(*inherited_declaration));
+                TypeMethod* inherited_method = ast_arena_alloc(
+                    sizeof(*inherited_method));
+                *inherited_declaration = *lowered->function_decl;
+                inherited_declaration->func_method_owner = cls->type;
+                *inherited_method = *lowered;
+                inherited_method->function_decl = inherited_declaration;
+                inherited_method->this_owner = cls->type;
+                lowered = inherited_method;
+            }
             if (result_count >= candidate_capacity || !candidates) {
                 rcc_error(lowered->function_decl->loc,
                           "member function template candidate limit exceeded for '%s'",
@@ -35073,7 +35171,7 @@ int rcc_parser_cxx_materialize_constructor_templates(
     int candidate_capacity, bool* constraint_unsupported) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
     return cxx_materialize_member_function_templates_internal(
-        aggregate, cls ? cls->name : NULL, arguments, false, true, true,
+        aggregate, cls ? cls->name : NULL, arguments, true, true, true,
         NULL, 0, false, candidates, candidate_capacity,
         constraint_unsupported);
 }

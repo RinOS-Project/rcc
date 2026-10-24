@@ -38,6 +38,30 @@ struct InheritedConstructorValue : InheritedConstructorBase {
     using InheritedConstructorBase::InheritedConstructorBase;
 };
 
+struct InheritedConstructorTemplateBase {
+    template <typename T>
+    InheritedConstructorTemplateBase(T value) { (void)value; }
+
+    template <typename T>
+    InheritedConstructorTemplateBase(T*) = delete;
+};
+
+struct InheritedConstructorTemplateValue : InheritedConstructorTemplateBase {
+    using InheritedConstructorTemplateBase::InheritedConstructorTemplateBase;
+};
+
+struct InheritedConstrainedConstructorTemplateBase {
+    template <typename T>
+        requires (sizeof(T) == sizeof(int))
+    InheritedConstrainedConstructorTemplateBase(T value) { (void)value; }
+};
+
+struct InheritedConstrainedConstructorTemplateValue
+    : InheritedConstrainedConstructorTemplateBase {
+    using InheritedConstrainedConstructorTemplateBase::
+        InheritedConstrainedConstructorTemplateBase;
+};
+
 struct InheritedPrivateBestBase {
     InheritedPrivateBestBase(int value) { (void)value; }
 
@@ -338,6 +362,16 @@ static_assert(__is_constructible(InheritedDeletedBest, int),
 static_assert(!__is_constructible(InheritedBaseCopyValue,
                                  const InheritedBaseCopyBase&),
               "base copy constructors are not inherited");
+static_assert(__is_constructible(InheritedConstructorTemplateValue, int),
+              "inherited constructor templates deduce their arguments");
+static_assert(!__is_constructible(InheritedConstructorTemplateValue, int*),
+              "a deleted inherited template best match remains deleted");
+static_assert(__is_constructible(
+                  InheritedConstrainedConstructorTemplateValue, int),
+              "inherited constructor-template constraints are substituted");
+static_assert(!__is_constructible(
+                  InheritedConstrainedConstructorTemplateValue, double),
+              "unsatisfied inherited constructor constraints are rejected");
 static_assert(__is_assignable(int&, int), "scalar lvalue assignment");
 static_assert(!__is_assignable(int, int), "a scalar prvalue is not assignable");
 static_assert(!__is_assignable(const int&, int),

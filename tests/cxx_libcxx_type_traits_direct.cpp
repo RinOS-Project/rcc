@@ -45,6 +45,30 @@ struct InheritedConstructorValue : InheritedConstructorBase {
     using InheritedConstructorBase::InheritedConstructorBase;
 };
 
+struct InheritedConstructorTemplateBase {
+    template <typename T>
+    InheritedConstructorTemplateBase(T value) { (void)value; }
+
+    template <typename T>
+    InheritedConstructorTemplateBase(T*) = delete;
+};
+
+struct InheritedConstructorTemplateValue : InheritedConstructorTemplateBase {
+    using InheritedConstructorTemplateBase::InheritedConstructorTemplateBase;
+};
+
+struct InheritedConstrainedConstructorTemplateBase {
+    template <typename T>
+        requires (sizeof(T) == sizeof(int))
+    InheritedConstrainedConstructorTemplateBase(T value) { (void)value; }
+};
+
+struct InheritedConstrainedConstructorTemplateValue
+    : InheritedConstrainedConstructorTemplateBase {
+    using InheritedConstrainedConstructorTemplateBase::
+        InheritedConstrainedConstructorTemplateBase;
+};
+
 struct InheritedPrivateBestBase {
     InheritedPrivateBestBase(int value) { (void)value; }
 
@@ -368,6 +392,20 @@ static_assert(std::is_constructible<InheritedDeletedBest, int>::value,
 static_assert(!std::is_constructible<InheritedBaseCopyValue,
                                      const InheritedBaseCopyBase&>::value,
               "base copy constructors are not inherited");
+static_assert(std::is_constructible<InheritedConstructorTemplateValue,
+                                   int>::value,
+              "inherited constructor templates deduce their arguments");
+static_assert(!std::is_constructible<InheritedConstructorTemplateValue,
+                                     int*>::value,
+              "a deleted inherited template best match remains deleted");
+static_assert(std::is_constructible<
+                  InheritedConstrainedConstructorTemplateValue,
+                  int>::value,
+              "inherited constructor-template constraints are substituted");
+static_assert(!std::is_constructible<
+                  InheritedConstrainedConstructorTemplateValue,
+                  double>::value,
+              "unsatisfied inherited constructor constraints are rejected");
 static_assert(std::is_assignable<int&, int>::value,
               "scalar lvalue assignment");
 static_assert(!std::is_assignable<int, int>::value,
