@@ -1111,6 +1111,12 @@ static_assert(std::is_assignable<ConstrainedForwardingAssignment&,
 static_assert(std::is_assignable<ConstrainedForwardingAssignment&,
                                  const double&>::value,
               "a satisfied forwarding assignment constraint accepts a const lvalue");
+static_assert(std::is_assignable<ConstrainedForwardingAssignment&,
+                                 volatile double&>::value,
+              "a satisfied forwarding assignment constraint accepts a volatile lvalue");
+static_assert(std::is_assignable<ConstrainedForwardingAssignment&,
+                                 const volatile double&>::value,
+              "a satisfied forwarding assignment constraint accepts a const volatile lvalue");
 static_assert(std::is_assignable<ConstrainedAssignmentOverload&, double>::value,
               "a satisfied constrained assignment overload beats a deleted fallback");
 static_assert(std::is_assignable<ConstrainedAssignmentOverload&, double&>::value,
@@ -1118,6 +1124,12 @@ static_assert(std::is_assignable<ConstrainedAssignmentOverload&, double&>::value
 static_assert(std::is_assignable<ConstrainedAssignmentOverload&,
                                  const double&>::value,
               "a forwarding assignment constraint accepts a const lvalue source");
+static_assert(std::is_assignable<ConstrainedAssignmentOverload&,
+                                 volatile double&>::value,
+              "a constrained overload beats the deleted fallback for volatile lvalues");
+static_assert(std::is_assignable<ConstrainedAssignmentOverload&,
+                                 const volatile double&>::value,
+              "a constrained overload beats the deleted fallback for const volatile lvalues");
 static_assert(!std::is_assignable<ConstrainedAssignmentOverload&, int>::value,
               "an unsatisfied constraint leaves the deleted fallback selected");
 static_assert(std::is_assignable<volatile int&, int>::value,

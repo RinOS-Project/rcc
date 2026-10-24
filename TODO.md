@@ -9498,3 +9498,12 @@ remains a separate open item.
       conversion-operator output directory when run with a clean `TEST_OUT`.
       The complete C++20 regression target passes under WSL with an isolated
       output tree.
+
+## RCC continuation (2026-10-25, cv-qualified constrained assignment)
+
+- [x] Verify constrained forwarding assignment-template participation for
+      `volatile` and `const volatile` lvalue arguments, both with and without
+      a deleted fallback overload. The direct libcxx `std::is_assignable`
+      fixture compiles for i686 and AMD64 and matches GCC C++20.
+- [ ] Other constrained assignment-template cv/ref cases, union special
+      members, and complete copy/move deletion/access conformance remain open.
