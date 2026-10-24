@@ -49,6 +49,51 @@ private:
     ~PrivateDestructorValue() {}
 };
 
+struct NontrivialCopyMember {
+    NontrivialCopyMember() {}
+    NontrivialCopyMember(const NontrivialCopyMember&) {}
+};
+
+struct ImplicitNontrivialCopy {
+    NontrivialCopyMember member;
+};
+
+struct OrdinaryConstructorWithImplicitCopy {
+    explicit OrdinaryConstructorWithImplicitCopy(int) {}
+    int value;
+};
+
+struct NontrivialMoveMember {
+    NontrivialMoveMember() {}
+    NontrivialMoveMember(NontrivialMoveMember&&) {}
+};
+
+struct ImplicitNontrivialMove {
+    NontrivialMoveMember member;
+};
+
+struct DeletedCopyMember {
+    DeletedCopyMember() {}
+    DeletedCopyMember(const DeletedCopyMember&) = delete;
+};
+
+struct ImplicitDeletedCopy {
+    DeletedCopyMember member;
+};
+
+struct MutableCopyMember {
+    MutableCopyMember() {}
+    MutableCopyMember(MutableCopyMember&) {}
+};
+
+struct ImplicitMutableCopy {
+    MutableCopyMember member;
+};
+
+struct UserDestructorCopy {
+    ~UserDestructorCopy() {}
+};
+
 template <typename T, typename... Args>
 struct ConstructiblePackProbe {
     static constexpr bool value = __is_constructible(T, Args...);
@@ -83,6 +128,40 @@ static_assert(__is_constructible(PublicDestructorValue, int),
               "a public nontrivial destructor permits construction");
 static_assert(!__is_constructible(PrivateDestructorValue, int),
               "an inaccessible destructor prevents construction");
+static_assert(__is_constructible(ImplicitNontrivialCopy,
+                                const ImplicitNontrivialCopy&),
+              "implicit copy construction accepts a nontrivial member copy");
+static_assert(__is_constructible(ImplicitNontrivialCopy,
+                                ImplicitNontrivialCopy&&),
+              "implicit move may copy a member without a move constructor");
+static_assert(__is_constructible(OrdinaryConstructorWithImplicitCopy,
+                                const OrdinaryConstructorWithImplicitCopy&),
+              "ordinary constructors do not suppress implicit copy");
+static_assert(__is_constructible(ImplicitNontrivialMove,
+                                ImplicitNontrivialMove&&),
+              "implicit move construction accepts a nontrivial member move");
+static_assert(!__is_constructible(ImplicitNontrivialMove,
+                                 const ImplicitNontrivialMove&),
+              "a member move constructor deletes the implicit enclosing copy");
+static_assert(!__is_constructible(ImplicitDeletedCopy,
+                                 const ImplicitDeletedCopy&),
+              "a deleted member copy deletes the implicit enclosing copy");
+static_assert(!__is_constructible(ImplicitDeletedCopy,
+                                 ImplicitDeletedCopy&&),
+              "a deleted member copy also blocks implicit move construction");
+static_assert(__is_constructible(ImplicitMutableCopy, ImplicitMutableCopy&),
+              "implicit copy can use a non-const copy parameter");
+static_assert(!__is_constructible(ImplicitMutableCopy,
+                                  const ImplicitMutableCopy&),
+              "non-const subobject copy prevents a const enclosing copy");
+static_assert(!__is_constructible(ImplicitMutableCopy,
+                                  ImplicitMutableCopy&&),
+              "non-const lvalue copy cannot bind the enclosing rvalue");
+static_assert(__is_constructible(UserDestructorCopy,
+                                const UserDestructorCopy&),
+              "a user destructor does not suppress implicit copy construction");
+static_assert(__is_constructible(UserDestructorCopy, UserDestructorCopy&&),
+              "a suppressed implicit move falls back to the copy constructor");
 static_assert(ConstructiblePackProbe<ExplicitValue, int>::value,
               "dependent type packs are substituted before evaluation");
 static_assert(!ConstructiblePackProbe<DeletedValue, int>::value,

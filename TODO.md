@@ -9293,6 +9293,11 @@ remains a separate open item.
       `long long` and `double` types, avoiding unsupported `long double` and
       field attributes. The direct libcxx type-traits fixture checks its
       supported scalar alignment on both targets and passes GCC C++20.
+- [x] Extend `__is_constructible` to model implicit copy/move construction
+      through base classes, fields, and array elements, including nontrivial
+      and deleted member copies, non-const copy signatures, and move
+      suppression by a user destructor. The focused builtin and direct libcxx
+      fixtures pass for both targets and GCC C++20.
 - [ ] Constructor-template, inherited/constrained overload resolution,
-      implicit copy/move special-member rules, `is_assignable`,
+      remaining implicit copy/move deletion and access rules, `is_assignable`,
       `is_nothrow_constructible`, and broader trait conformance remain open.

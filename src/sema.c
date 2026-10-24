@@ -13553,7 +13553,7 @@ bool rcc_sema_cxx_trivially_constructible(
 static bool sema_cxx_type_trait_destructor_is_deleted(Type* type,
                                                        unsigned depth) {
     CxxClass* cls;
-    if (!type || depth > 32u) return true;
+    if (!type) return true;
     if (type->kind == TYPE_PTR && type->is_reference) return false;
     if (type->kind == TYPE_ARRAY) {
         return type->array_len < 0 || !type->base ||
@@ -13596,7 +13596,7 @@ static bool sema_cxx_type_trait_aggregate_constructible(
     ExprList* argument = sema_cxx_type_trait_argument_expressions(arguments);
     CxxClass* cls = type ? type->cxx_class : NULL;
     int element_count = 0;
-    if (!type || depth > 32u || argument_count < 0 ||
+    if (!type || argument_count < 0 ||
         (argument_count > 0 && !rcc_parser_cxx_standard_at_least(20))) {
         return false;
     }
@@ -13616,11 +13616,9 @@ static bool sema_cxx_type_trait_aggregate_constructible(
             }
             argument = argument->next;
         }
-        while (element_count + argument_count < type->array_len) {
-            if (!sema_cxx_constructible(type->base, NULL, depth + 1u)) {
-                return false;
-            }
-            ++element_count;
+        if (argument_count < type->array_len &&
+            !sema_cxx_constructible(type->base, NULL, depth + 1u)) {
+            return false;
         }
         return true;
     }
@@ -13682,12 +13680,127 @@ static bool sema_cxx_type_trait_aggregate_constructible(
     return argument_count <= element_count && !argument;
 }
 
+static bool sema_cxx_type_trait_subobject_constructible(
+    Type* subobject, bool source_is_const, bool source_is_volatile,
+    bool source_is_rvalue, unsigned depth) {
+    CxxTypeTraitArgument argument;
+    if (!subobject) return false;
+    if (subobject->kind == TYPE_ARRAY) {
+        return subobject->array_len >= 0 && subobject->base &&
+               sema_cxx_type_trait_subobject_constructible(
+                   subobject->base, source_is_const, source_is_volatile,
+                   source_is_rvalue, depth + 1u);
+    }
+    memset(&argument, 0, sizeof(argument));
+    if (sema_cxx_type_trait_is_reference(subobject)) {
+        argument.type = subobject;
+    } else {
+        argument.type = sema_cxx_type_trait_reference_type(
+            subobject, source_is_const, source_is_volatile,
+            source_is_rvalue);
+    }
+    return argument.type &&
+           sema_cxx_constructible(subobject, &argument, depth + 1u);
+}
+
+static bool sema_cxx_type_trait_copy_subobjects_constructible(
+    Type* type, bool source_is_const, bool source_is_volatile,
+    bool source_is_rvalue, unsigned depth) {
+    CxxClass* cls;
+    if (!type ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        !type_is_complete(type) || type->size <= 0) {
+        return false;
+    }
+    cls = type->cxx_class;
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                !sema_cxx_type_trait_subobject_constructible(
+                    base->type, source_is_const, source_is_volatile,
+                    source_is_rvalue, depth + 1u)) {
+                return false;
+            }
+        }
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            if (field->is_static) continue;
+            if (!field->type ||
+                !sema_cxx_type_trait_subobject_constructible(
+                    field->type, source_is_const, source_is_volatile,
+                    source_is_rvalue, depth + 1u)) {
+                return false;
+            }
+        }
+    } else {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            if (!field->type ||
+                !sema_cxx_type_trait_subobject_constructible(
+                    field->type, source_is_const, source_is_volatile,
+                    source_is_rvalue, depth + 1u)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool sema_cxx_type_trait_implicit_copy_move_constructible(
+    Type* type, CxxTypeTraitArgument* arguments, ExprList* expressions,
+    int argument_count, unsigned depth, bool* applicable) {
+    bool has_copy = false;
+    bool has_move = false;
+    bool source_is_rvalue;
+    bool source_is_const;
+    bool source_is_volatile;
+    bool move_is_declared;
+    Type* source_type;
+    Type* source_base;
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (applicable) *applicable = false;
+    if (!type || !cls || argument_count != 1 || !arguments ||
+        !expressions || !expressions->expr ||
+        !sema_cxx_has_declared_copy_move_constructor(type, &has_copy,
+                                                     &has_move)) {
+        return false;
+    }
+    source_type = arguments->type;
+    source_base = sema_cxx_type_trait_is_reference(source_type)
+        ? source_type->base : source_type;
+    if (!source_base || source_base->cxx_class != cls || has_copy || has_move) {
+        return false;
+    }
+    if (applicable) *applicable = true;
+    if (sema_cxx_has_declared_special_assignment(type, true)) return false;
+    source_is_rvalue = !is_lvalue(expressions->expr);
+    source_is_const = source_base->is_const;
+    source_is_volatile = source_base->is_volatile;
+    if (source_is_volatile) return false;
+
+    move_is_declared = !sema_cxx_has_declared_special_assignment(type, false) &&
+        !sema_cxx_has_declared_special_assignment(type, true) &&
+        !cls->destructor_method;
+    if (source_is_rvalue && !source_is_const && move_is_declared &&
+        sema_cxx_type_trait_copy_subobjects_constructible(
+            type, false, false, true, depth + 1u)) {
+        return true;
+    }
+
+    if (sema_cxx_type_trait_copy_subobjects_constructible(
+            type, true, false, false, depth + 1u)) {
+        return true;
+    }
+    if (source_is_const || source_is_rvalue) return false;
+    return sema_cxx_type_trait_copy_subobjects_constructible(
+        type, false, false, false, depth + 1u);
+}
+
 static bool sema_cxx_constructible(Type* type,
                                    CxxTypeTraitArgument* arguments,
                                    unsigned depth) {
     ExprList* expressions;
     int argument_count;
-    if (!type || depth > 32u) return false;
+    if (!type) return false;
     argument_count = sema_cxx_type_trait_argument_count(arguments);
     if (argument_count < 0 || type->kind == TYPE_VOID ||
         type->kind == TYPE_FUNC) {
@@ -13721,9 +13834,20 @@ static bool sema_cxx_constructible(Type* type,
                 type, expressions, argument_count, true, true, &ambiguous);
         if (ambiguous || !constructor || constructor->is_deleted ||
             constructor->access != ACCESS_PUBLIC) {
-            return false;
+            bool implicit_applicable = false;
+            bool implicit_result = sema_cxx_type_trait_implicit_copy_move_constructible(
+                type, arguments, expressions, argument_count, depth + 1u,
+                &implicit_applicable);
+            return implicit_applicable ? implicit_result : false;
         }
         return true;
+    }
+    {
+        bool implicit_applicable = false;
+        bool implicit_result = sema_cxx_type_trait_implicit_copy_move_constructible(
+            type, arguments, expressions, argument_count, depth + 1u,
+            &implicit_applicable);
+        if (implicit_applicable) return implicit_result;
     }
     if (ast_cxx_is_aggregate(type)) {
         return sema_cxx_type_trait_aggregate_constructible(
