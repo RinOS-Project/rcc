@@ -9507,3 +9507,11 @@ remains a separate open item.
       fixture compiles for i686 and AMD64 and matches GCC C++20.
 - [ ] Other constrained assignment-template cv/ref cases, union special
       members, and complete copy/move deletion/access conformance remain open.
+
+## RCC continuation (2026-10-25, C23 static_assert keyword)
+
+- [x] Reserve `static_assert` as a C keyword only in C23 and retain its
+      identifier behavior in C17; keep `_Static_assert` available in C17.
+      Check the C17 identifier with GCC and RCC execution, and compile the
+      single-argument C23 `static_assert` form in the C23 regression target.
+- [ ] Broader C23 language and library conformance remains open.

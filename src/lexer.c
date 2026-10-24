@@ -421,6 +421,13 @@ static Token* lex_identifier(Lexer* lex) {
     if (!lexer_cxx_mode && type == TOK_NULLPTR && g_opts.c_standard < 23) {
         type = TOK_IDENT;
     }
+    /* C23 promotes static_assert from the <assert.h> compatibility macro to
+     * a keyword.  In earlier C modes the spelling remains an identifier; the
+     * header macro, when present, is expanded before this lexer sees it. */
+    if (!lexer_cxx_mode && type == TOK_STATIC_ASSERT &&
+        g_opts.c_standard < 23 && strcmp(spelling, "static_assert") == 0) {
+        type = TOK_IDENT;
+    }
     if ((type == TOK_CHAR16_T || type == TOK_CHAR32_T) &&
         (!lexer_cxx_mode || lexer_cxx_standard < 11)) {
         type = TOK_IDENT;

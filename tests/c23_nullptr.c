@@ -1,6 +1,8 @@
 #include <stddef.h>
 #include <stdarg.h>
 
+static_assert(sizeof(nullptr_t) == sizeof(void *));
+
 _Static_assert(sizeof(nullptr_t) == sizeof(void *),
                "nullptr_t must use the pointer representation size");
 _Static_assert(_Alignof(nullptr_t) == _Alignof(void *),

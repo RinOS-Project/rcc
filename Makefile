@@ -17365,6 +17365,14 @@ test-archive-link: $(RCC_TARGET) $(RLD_TARGET) $(RAR_TARGET)
 test-static-assert: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) -c -o $(TEST_OUT)/static_assert_pass.ro tests/static_assert_pass.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/static_assert_identifier.s \
+		tests/static_assert_identifier.c
+	$(CC) -std=c17 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only \
+		tests/static_assert_identifier.c
+	$(CC) -o $(TEST_OUT)/static_assert_identifier \
+		$(TEST_OUT)/static_assert_identifier.s
+	$(TEST_OUT)/static_assert_identifier
 	$(call EXPECT_FAILURE,$(RCC_TARGET) -c \
 		-o $(TEST_OUT)/static_assert_fail.ro tests/static_assert_fail.c,$(TEST_OUT)/static_assert_fail.log)
 	$(GREP) -q "static assertion failed" $(TEST_OUT)/static_assert_fail.log
