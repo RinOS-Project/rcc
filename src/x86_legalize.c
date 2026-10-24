@@ -1516,7 +1516,7 @@ static bool x86_legal_selected_shape(
                 (instruction->selected_opcode != RCC_X86_STACK_ADDRESS ||
                  (instruction->immediate <= INT32_MAX &&
                   instruction->auxiliary != 0u &&
-                  instruction->auxiliary <= 4096u &&
+                  instruction->auxiliary <= RCC_MAX_SUPPORTED_ALIGNMENT &&
                   (instruction->auxiliary &
                    (instruction->auxiliary - 1u)) == 0u)) &&
                 (instruction->selected_opcode != RCC_X86_STACK_SAVE ||
@@ -1557,7 +1557,7 @@ static bool x86_legal_selected_shape(
                 instruction->target_count == 0u &&
                 instruction->type.kind == RCC_MIR_TYPE_POINTER &&
                 (instruction->immediate == 0u ||
-                 (instruction->immediate <= 4096u &&
+                 (instruction->immediate <= RCC_MAX_SUPPORTED_ALIGNMENT &&
                   (instruction->immediate &
                    (instruction->immediate - 1u)) == 0u));
         case RCC_X86_SELECT:
@@ -1802,7 +1802,8 @@ static bool x86_legal_verify_call(
                                "x86 call stack area is invalid");
     }
     if (instruction->sysv_stack_alignment < abi->stack_alignment ||
-        instruction->sysv_stack_alignment > 4096u ||
+        instruction->sysv_stack_alignment >
+            RCC_MAX_SUPPORTED_ALIGNMENT ||
         (instruction->sysv_stack_alignment &
          (instruction->sysv_stack_alignment - 1u)) != 0u ||
         (instruction->sysv_stack_alignment > abi->stack_alignment &&

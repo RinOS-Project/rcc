@@ -1938,6 +1938,10 @@
         C/C++ `-O0`/`-O2`全4 objectで57関数をfallbackなしで生成し、host SysV実行で
         結果100を検証。clang64の実行ファイルを`CLANG`に指定して`test-verified-backend`
         全体も再実行し、dynamic-TLS、verified backend、production object各gateが成功。
+      - [x] C/C++ `alignas(8192)`/`_Alignas(8192)`のvariadic MEMORY aggregateを
+        9個目のstack double後に渡し、さらに24-byte aggregateを`va_arg`で読む経路を
+        caller/callee双方でtyped SSA loweringする。C/C++ `-O0`/`-O2`全4 objectは
+        fallbackなしで61関数を生成し、host SysV実行で結果100を検証。
       - [x] 128/256/512/1024/2048-byte alignmentのC/C++ variadic MEMORY aggregateを
         9個目のstack double後に連続して渡し、さらに24-byte aggregateを読む。C/C++
         `-O0`/`-O2`の全4 objectで57関数をfallbackなしで生成し、verified SysV object
@@ -1952,8 +1956,9 @@
         C/C++ O0/O2で実行検証した。片bankだけのregister straddleもwhole-stack assignmentで
         typed verified backendから実行する。32/64/128/256/512/1024/2048/4096-byte
         alignmentのvariadic callerはC/C++ `-O0`/`-O2`でfallbackなし生成・実行検証済み。
+        8192-byte alignmentについても独立したC/C++ caller/callee fixtureを実行検証した。
         その他のalignment値は網羅していない。
-        bounded profile外のnamed aggregate layouts、4096 byteを超えるalignment、および
+        backendの上限8192 byteを超えるalignment、bounded profile外のnamed aggregate layouts、および
         残るadjusted-`va_list`形態は未実装であり、このparent checkboxは未完了のままにする。
   - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／
         `va_copy(local, *p)`をtyped SSAへlowerし、copy側の消費がsource cursorを

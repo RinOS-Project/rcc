@@ -420,13 +420,14 @@ static bool lower_sysv_memory_aggregate(
     if (!classification_out || !alignment_out ||
         g_opts.target_arch != ARCH_X64 ||
         !lower_abi_is_aggregate(type) || type->size <= 0 ||
-        type->align <= 0 || type->align > 4096 ||
+        type->align <= 0 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (type->align & (type->align - 1)) != 0 ||
         !lower_sysv_classify_aggregate(type, &classification)) {
         return false;
     }
     alignment = type->align > 8 ? (uint32_t)type->align : 8u;
-    if (alignment > 4096u) return false;
+    if (alignment > RCC_MAX_SUPPORTED_ALIGNMENT) return false;
     if (!classification.memory) return false;
     if (classification.count < 1) return false;
     *classification_out = classification;
@@ -568,7 +569,8 @@ static bool lower_add_local(RccIrLowerContext* context,
     /* The x86 selector reserves alignment slack and realigns over-aligned
      * stack objects at their address-producing instruction. */
     if (declaration->type &&
-        (declaration->type->align > 4096 ||
+        (declaration->type->align >
+             (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
          declaration->type->align <= 0 ||
          (declaration->type->align &
           (declaration->type->align - 1)) != 0)) {
@@ -9254,7 +9256,8 @@ static bool lower_sysv_call_memory_arguments(
                     &memory_arguments[memory_count++];
                 if (type->size <= 0 ||
                     (uint64_t)type->size > UINT32_MAX || type->align <= 0 ||
-                    type->align > 4096 ||
+                    type->align >
+                        (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
                     (type->align & (type->align - 1)) != 0) {
                     rcc_free(memory_arguments);
                     return false;
@@ -16474,7 +16477,8 @@ static bool lower_abi_parameter_layout(
                     if (parameter->type->size <= 0 ||
                         (uint64_t)parameter->type->size > UINT32_MAX ||
                         parameter->type->align <= 0 ||
-                        parameter->type->align > 4096 ||
+                        parameter->type->align >
+                            (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
                         (parameter->type->align &
                          (parameter->type->align - 1)) != 0) {
                         rcc_free(types);
@@ -21001,7 +21005,7 @@ static RccIrLowerValue lower_compound_literal_address(
     if (!type || type->size <= 0 || type->size > 65536 ||
         type->is_reference || type->is_volatile ||
         type->cleanup_function || type->align <= 0 ||
-        type->align > 4096 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (type->align & (type->align - 1)) != 0) {
         context->unsupported = true;
         return lower_invalid_value();
@@ -21069,7 +21073,8 @@ static bool lower_vla_object_type_supported_internal(
         (type->size == 1 || type->size == 2 ||
          type->size == 4 ||
          (type->size == 8 && g_opts.target_arch == ARCH_X64));
-    if (!type || depth >= 32u || type->align <= 0 || type->align > 4096 ||
+    if (!type || depth >= 32u || type->align <= 0 ||
+        type->align > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (type->align & (type->align - 1)) != 0 ||
         (type->is_atomic && !atomic_scalar_supported)) {
         return false;

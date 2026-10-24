@@ -9578,7 +9578,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             if (stack_bytes + stack_padding) {
                 if (stack_alignment > 16) {
                     int reserve_bytes;
-                    if (stack_alignment > 4096 || stack_alignment <= 0 ||
+                    if (stack_alignment >
+                            (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
+                        stack_alignment <= 0 ||
                         (stack_alignment & (stack_alignment - 1)) != 0 ||
                         stack_bytes > INT_MAX - stack_alignment - 8) {
                         rcc_error(expr->loc,

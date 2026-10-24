@@ -407,7 +407,7 @@ static bool mir_verify_instruction_type(
                                   &first) &&
                 first.kind == RCC_MIR_TYPE_INTEGER &&
                 first.bit_width <= 64u && instruction->immediate != 0u &&
-                instruction->immediate <= 4096u &&
+                instruction->immediate <= RCC_MAX_SUPPORTED_ALIGNMENT &&
                 (instruction->immediate &
                  (instruction->immediate - 1u)) == 0u;
         case RCC_MIR_FRAME_ADDRESS:

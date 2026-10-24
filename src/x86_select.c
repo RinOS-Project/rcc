@@ -181,7 +181,7 @@ static bool x86_align_frame_for_object(
     uint32_t padding;
     if (!policy || !result || alignment == 0u ||
         (alignment & (alignment - 1u)) != 0u ||
-        alignment > 4096u ||
+        alignment > RCC_MAX_SUPPORTED_ALIGNMENT ||
         policy->stack_alignment <
             (uint32_t)policy->pointer_size * 2u) {
         return false;

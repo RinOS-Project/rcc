@@ -1790,7 +1790,8 @@ static bool x86_emit_stack_address(
     slot.frame_offset = (uint32_t)instruction->immediate;
     slot.size = encoder->function->pointer_size;
     slot.alignment = encoder->function->pointer_size;
-    if (alignment == 0u || alignment > 4096u ||
+    if (alignment == 0u ||
+        alignment > RCC_MAX_SUPPORTED_ALIGNMENT ||
         (alignment & (alignment - 1u)) != 0u ||
         instruction->immediate > INT32_MAX ||
         !x86_value_displacement(encoder, slot, &displacement)) {
@@ -1873,7 +1874,8 @@ static bool x86_emit_dynamic_stack_address(
         instruction->operand_types[0].kind != RCC_MIR_TYPE_INTEGER ||
         instruction->operand_types[0].bit_width != size * 8u ||
         instruction->operands[0].size != size ||
-        instruction->immediate == 0u || instruction->immediate > 4096u ||
+        instruction->immediate == 0u ||
+        instruction->immediate > RCC_MAX_SUPPORTED_ALIGNMENT ||
         (instruction->immediate & (instruction->immediate - 1u)) != 0u) {
         return x86_encode_error(
             encoder, "x86 dynamic stack-address contract is invalid");
@@ -1882,7 +1884,8 @@ static bool x86_emit_dynamic_stack_address(
     if (alignment < encoder->function->stack_alignment) {
         alignment = encoder->function->stack_alignment;
     }
-    if (alignment > 4096u || (alignment & (alignment - 1u)) != 0u) {
+    if (alignment > RCC_MAX_SUPPORTED_ALIGNMENT ||
+        (alignment & (alignment - 1u)) != 0u) {
         return x86_encode_error(
             encoder, "x86 dynamic stack alignment is unsupported");
     }
@@ -2722,7 +2725,8 @@ static bool x86_emit_dynamic_outgoing_stack(
     uint32_t reserve;
     if (alignment <= encoder->function->stack_alignment) return true;
     if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
-        alignment > 4096u || bytes == 0u || bytes % 8u != 0u ||
+        alignment > RCC_MAX_SUPPORTED_ALIGNMENT ||
+        bytes == 0u || bytes % 8u != 0u ||
         bytes > (uint32_t)INT32_MAX - (alignment - 1u)) {
         return x86_encode_error(
             encoder, "x86 dynamic SysV outgoing stack layout is invalid");

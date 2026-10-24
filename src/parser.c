@@ -3364,10 +3364,11 @@ static int parse_explicit_alignment(void) {
     }
     expect(TOK_RPAREN, "')' after _Alignas");
     if (alignment != 0 &&
-        (alignment < 1 || alignment > 4096 ||
+        (alignment < 1 ||
+         alignment > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
          (alignment & (alignment - 1)) != 0)) {
         rcc_error(loc,
-                  "_Alignas alignment must be a power of two no greater than 4096");
+                  "_Alignas alignment must be a power of two no greater than 8192");
         alignment = 0;
     }
     return alignment;
@@ -4160,10 +4161,12 @@ static void parser_parse_aggregate_attributes(
                     if (alignment_expression &&
                         (!eval_integer_constant(alignment_expression,
                                                 &alignment_value) ||
-                         alignment_value <= 0 || alignment_value > 4096 ||
+                         alignment_value <= 0 ||
+                         alignment_value >
+                             (int64_t)RCC_MAX_SUPPORTED_ALIGNMENT ||
                          (alignment_value & (alignment_value - 1)) != 0)) {
                         rcc_error(attribute_loc,
-                                  "aligned attribute requires a positive power-of-two constant no greater than 4096");
+                                  "aligned attribute requires a positive power-of-two constant no greater than 8192");
                     } else if (alignment_expression &&
                                alignment_value > attributes->alignment) {
                         attributes->alignment = (int)alignment_value;

@@ -2307,7 +2307,8 @@ static size_t debug_build_expr_breg(uint8_t expression[32], int architecture,
     } while (more);
     if (alignment != 0u) {
         uint64_t pointer_mask;
-        if (alignment < 2u || alignment > 4096u ||
+        if (alignment < 2u ||
+            alignment > RCC_MAX_SUPPORTED_ALIGNMENT ||
             (alignment & (alignment - 1u)) != 0u || size >= 32u) {
             rcc_fatal("DWARF dynamic local alignment is invalid");
             return 0u;

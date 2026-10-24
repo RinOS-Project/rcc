@@ -16700,10 +16700,11 @@ static Type* cxx_substitute_dependent_alignment(
         }
         return NULL;
     }
-    if (alignment < 0 || alignment > 4096 ||
+    if (alignment < 0 ||
+        alignment > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (alignment != 0 && (alignment & (alignment - 1)) != 0)) {
         rcc_error(expression->loc,
-                  "dependent alignas value must be zero or a power of two no greater than 4096");
+                  "dependent alignas value must be zero or a power of two no greater than 8192");
         return NULL;
     }
     substituted = ast_arena_alloc(sizeof(*substituted));
@@ -16781,10 +16782,11 @@ static int cxx_parse_class_member_alignment(Expr** deferred_expression) {
     }
     if (!eval_template_integer_expression(expression, active_template,
                                            NULL, NULL, &value) ||
-        value < 0 || value > 4096 ||
+        value < 0 ||
+        value > (int64_t)RCC_MAX_SUPPORTED_ALIGNMENT ||
         (value != 0 && (value & (value - 1)) != 0)) {
         rcc_error(loc,
-                  "alignas requires zero or a power-of-two integer constant no greater than 4096");
+                  "alignas requires zero or a power-of-two integer constant no greater than 8192");
         return 0;
     }
     return (int)value;

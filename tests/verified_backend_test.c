@@ -913,6 +913,7 @@ static void verify_sysv_va_aggregate_object(const char* path)
     ObjSymbol* aligned32_aggregate_call_symbol;
     ObjSymbol* aligned64_aggregate_call_symbol;
     ObjSymbol* aligned4096_aggregate_call_symbol;
+    ObjSymbol* aligned8192_aggregate_call_symbol;
     ObjSymbol* aligned128_to2048_aggregate_call_symbol;
     ObjSymbol* integer_aggregate_call_symbol;
     ObjSymbol* two_integer_aggregate_call_symbol;
@@ -967,6 +968,9 @@ static void verify_sysv_va_aggregate_object(const char* path)
         double, long long, long long, long long, long long, long long,
         long long, long long, long long, long long, long long, long long);
     long long (RINOS_ABI *aligned4096_aggregate_call)(
+        double, double, double, double, double, double, double, double,
+        double, long long, long long, long long, long long, long long);
+    long long (RINOS_ABI *aligned8192_aggregate_call)(
         double, double, double, double, double, double, double, double,
         double, long long, long long, long long, long long, long long);
     long long (RINOS_ABI *aligned128_to2048_aggregate_call)(
@@ -1039,6 +1043,8 @@ static void verify_sysv_va_aggregate_object(const char* path)
         object, "verified_sysv_va_aligned64_aggregate_call");
     aligned4096_aggregate_call_symbol = objfile_find_symbol(
         object, "verified_sysv_va_aligned4096_aggregate_call");
+    aligned8192_aggregate_call_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_aligned8192_aggregate_call");
     aligned128_to2048_aggregate_call_symbol = objfile_find_symbol(
         object, "verified_sysv_va_aligned128_to2048_aggregate_call");
     integer_aggregate_call_symbol = objfile_find_symbol(
@@ -1149,6 +1155,10 @@ static void verify_sysv_va_aggregate_object(const char* path)
            aligned4096_aggregate_call_symbol->type == SYM_GLOBAL &&
            aligned4096_aggregate_call_symbol->binding == BIND_CODE &&
            aligned4096_aggregate_call_symbol->section == 0);
+    assert(aligned8192_aggregate_call_symbol != NULL &&
+           aligned8192_aggregate_call_symbol->type == SYM_GLOBAL &&
+           aligned8192_aggregate_call_symbol->binding == BIND_CODE &&
+           aligned8192_aggregate_call_symbol->section == 0);
     assert(aligned128_to2048_aggregate_call_symbol != NULL &&
            aligned128_to2048_aggregate_call_symbol->type == SYM_GLOBAL &&
            aligned128_to2048_aggregate_call_symbol->binding == BIND_CODE &&
@@ -1253,6 +1263,9 @@ static void verify_sysv_va_aggregate_object(const char* path)
     address = symbol_address(memory, aligned4096_aggregate_call_symbol);
     memcpy(&aligned4096_aggregate_call, &address,
            sizeof(aligned4096_aggregate_call));
+    address = symbol_address(memory, aligned8192_aggregate_call_symbol);
+    memcpy(&aligned8192_aggregate_call, &address,
+           sizeof(aligned8192_aggregate_call));
     address = symbol_address(memory, aligned128_to2048_aggregate_call_symbol);
     memcpy(&aligned128_to2048_aggregate_call, &address,
            sizeof(aligned128_to2048_aggregate_call));
@@ -1319,6 +1332,9 @@ static void verify_sysv_va_aggregate_object(const char* path)
                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0,
                11, 23, 47, 53, 13, 29, 31, 47, 11, 23, 53) == 100);
     assert(aligned4096_aggregate_call(
+               1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0,
+               11, 47, 13, 29, 53) == 100);
+    assert(aligned8192_aggregate_call(
                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0,
                11, 47, 13, 29, 53) == 100);
     assert(aligned128_to2048_aggregate_call(

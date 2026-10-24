@@ -69,7 +69,7 @@ bool rcc_sysv_memory_arguments_valid(
         const RccSysvMemoryArgument* argument = &arguments[index];
         uint64_t expected_operands;
         if (argument->size == 0u || argument->alignment < 8u ||
-            argument->alignment > 4096u ||
+            argument->alignment > RCC_MAX_SUPPORTED_ALIGNMENT ||
             (argument->alignment & (argument->alignment - 1u)) != 0u) {
             return false;
         }
@@ -207,7 +207,8 @@ const RccIrConstant* rcc_ir_module_intern_constant(
     char name[48];
     if (!module || !data || size == 0u || size > UINT32_MAX ||
         alignment == 0u || (alignment & (alignment - 1u)) != 0u ||
-        alignment > 4096u || module->constant_count >= UINT32_MAX) {
+        alignment > RCC_MAX_SUPPORTED_ALIGNMENT ||
+        module->constant_count >= UINT32_MAX) {
         return NULL;
     }
     for (constant = module->first_constant; constant;
@@ -807,7 +808,7 @@ static bool ir_verify_instruction_types(
                 !ir_value_type(verifier, instruction->operands[0], &first) ||
                 first.kind != RCC_IR_TYPE_INTEGER ||
                 first.bit_width > 64u || instruction->immediate == 0u ||
-                instruction->immediate > 4096u ||
+                instruction->immediate > RCC_MAX_SUPPORTED_ALIGNMENT ||
                 (instruction->immediate &
                  (instruction->immediate - 1u)) != 0u) {
                 return ir_verify_error(
@@ -1630,7 +1631,7 @@ bool rcc_ir_verify_module(const RccIrModule* module, char* error,
             constant->size == 0u || constant->size > UINT32_MAX ||
             constant->alignment == 0u ||
             (constant->alignment & (constant->alignment - 1u)) != 0u ||
-            constant->alignment > 4096u) {
+            constant->alignment > RCC_MAX_SUPPORTED_ALIGNMENT) {
             if (error && error_size != 0u) {
                 snprintf(error, error_size,
                          "invalid IR constant contract");
