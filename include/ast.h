@@ -762,6 +762,9 @@ struct Expr {
     /* Set after direct call resolution; false also covers function pointers
      * and unresolved/external calls whose exception specification is unknown. */
     bool cxx_call_is_noexcept;
+    /* Lexical namespace of an unqualified call. Some semantic checks revisit
+     * initializer calls after parser namespace scopes have been restored. */
+    struct CxxNamespace* cxx_lookup_namespace;
     /* The parser resolves function-template argument deduction before
      * sema, but ordinary overloads must remain candidates until argument
      * conversions and non-template tie breakers have been compared. */

@@ -249,6 +249,96 @@ int select_overload(int) noexcept;
 int select_overload(long);
 }
 
+namespace nested_nothrow_trait_calls {
+int unqualified_nonthrowing() noexcept;
+int unqualified_throwing();
+int select_overload(int) noexcept;
+int select_overload(long);
+
+struct NothrowDefaultMemberInitializerValue {
+    int value = unqualified_nonthrowing();
+};
+
+struct ThrowingDefaultMemberInitializerValue {
+    int value = unqualified_throwing();
+};
+
+struct NothrowOverloadedDefaultArgumentValue {
+    NothrowOverloadedDefaultArgumentValue(
+        int value = select_overload(0)) noexcept {
+        (void)value;
+    }
+};
+}
+
+namespace nothrow_trait_adl {
+struct Tag {
+    friend int hidden_nonthrowing(Tag) noexcept;
+    friend int hidden_throwing(Tag);
+};
+
+struct ImplicitInt {
+    operator int() const noexcept { return 0; }
+};
+
+struct ThrowingInt {
+    operator int() const { return 0; }
+};
+
+struct NothrowWrapped {
+    NothrowWrapped(Tag) noexcept {}
+};
+
+struct ThrowingWrapped {
+    ThrowingWrapped(Tag) {}
+};
+
+extern Tag tag;
+extern ImplicitInt implicit_int;
+extern ThrowingInt throwing_int;
+
+int adl_nonthrowing(Tag) noexcept;
+int adl_throwing(Tag);
+int consume_int(int) noexcept;
+int consume_throwing_int(int) noexcept;
+int consume_wrapped(NothrowWrapped) noexcept;
+int consume_throwing_wrapped(ThrowingWrapped) noexcept;
+}
+
+namespace nothrow_trait_adl_caller {
+struct NothrowAdlDefaultMemberInitializerValue {
+    int value = adl_nonthrowing(nothrow_trait_adl::tag);
+};
+
+struct ThrowingAdlDefaultMemberInitializerValue {
+    int value = adl_throwing(nothrow_trait_adl::tag);
+};
+
+struct NothrowHiddenFriendDefaultMemberInitializerValue {
+    int value = hidden_nonthrowing(nothrow_trait_adl::tag);
+};
+
+struct ThrowingHiddenFriendDefaultMemberInitializerValue {
+    int value = hidden_throwing(nothrow_trait_adl::tag);
+};
+
+struct NothrowClassArgumentConversionValue {
+    int value = consume_int(nothrow_trait_adl::implicit_int);
+};
+
+struct ThrowingClassArgumentConversionValue {
+    int value = consume_throwing_int(nothrow_trait_adl::throwing_int);
+};
+
+struct NothrowConvertingConstructorArgumentValue {
+    int value = consume_wrapped(nothrow_trait_adl::tag);
+};
+
+struct ThrowingConvertingConstructorArgumentValue {
+    int value = consume_throwing_wrapped(nothrow_trait_adl::tag);
+};
+}
+
 static_assert(noexcept(nonthrowing_trait_default()),
               "declared noexcept call remains visible to the expression parser");
 static_assert(!noexcept(throwing_trait_default()),
@@ -479,6 +569,50 @@ static_assert(std::is_nothrow_constructible<
 static_assert(!std::is_nothrow_constructible<
                   ThrowingQualifiedDefaultMemberInitializerValue>::value,
               "libcxx trait must resolve a qualified throwing call in a DMI");
+static_assert(std::is_nothrow_constructible<
+                  nested_nothrow_trait_calls::
+                      NothrowDefaultMemberInitializerValue>::value,
+              "libcxx trait must retain the DMI's enclosing namespace");
+static_assert(!std::is_nothrow_constructible<
+                  nested_nothrow_trait_calls::
+                      ThrowingDefaultMemberInitializerValue>::value,
+              "libcxx trait must classify a throwing unqualified DMI call");
+static_assert(std::is_nothrow_constructible<
+                  nested_nothrow_trait_calls::
+                      NothrowOverloadedDefaultArgumentValue>::value,
+              "libcxx trait must select an overload in the enclosing namespace");
+static_assert(std::is_nothrow_constructible<
+                  nothrow_trait_adl_caller::
+                      NothrowAdlDefaultMemberInitializerValue>::value,
+              "libcxx trait must find a noexcept function through class ADL");
+static_assert(!std::is_nothrow_constructible<
+                  nothrow_trait_adl_caller::
+                      ThrowingAdlDefaultMemberInitializerValue>::value,
+              "libcxx trait must preserve a throwing class-ADL function");
+static_assert(std::is_nothrow_constructible<
+                  nothrow_trait_adl_caller::
+                      NothrowHiddenFriendDefaultMemberInitializerValue>::value,
+              "libcxx trait must find a noexcept hidden friend through ADL");
+static_assert(!std::is_nothrow_constructible<
+                  nothrow_trait_adl_caller::
+                      ThrowingHiddenFriendDefaultMemberInitializerValue>::value,
+              "libcxx trait must preserve a throwing hidden friend");
+static_assert(std::is_nothrow_constructible<
+                  nothrow_trait_adl_caller::
+                      NothrowClassArgumentConversionValue>::value,
+              "libcxx trait must account for a noexcept class argument conversion");
+static_assert(!std::is_nothrow_constructible<
+                  nothrow_trait_adl_caller::
+                      ThrowingClassArgumentConversionValue>::value,
+              "libcxx trait must account for a throwing class argument conversion");
+static_assert(std::is_nothrow_constructible<
+                  nothrow_trait_adl_caller::
+                      NothrowConvertingConstructorArgumentValue>::value,
+              "libcxx trait must account for a noexcept converting constructor");
+static_assert(!std::is_nothrow_constructible<
+                  nothrow_trait_adl_caller::
+                      ThrowingConvertingConstructorArgumentValue>::value,
+              "libcxx trait must account for a throwing converting constructor");
 static_assert(NothrowConstructibleTraitProbe<NothrowDefaultValue>::value,
               "dependent libcxx nothrow constructibility retains true");
 static_assert(!NothrowConstructibleTraitProbe<ThrowingDefaultValue>::value,

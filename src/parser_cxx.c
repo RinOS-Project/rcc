@@ -2230,9 +2230,16 @@ static Decl* cxx_structural_pointer_member_identifier_declaration(
  * been restored.  Reuse the parser's ordinary scalar overload ranking for
  * calls whose target is unambiguous there, then retain the selected declaration
  * so noexcept analysis observes the actual overload. */
+void rcc_parser_cxx_record_call_context(Expr* expression) {
+    if (!expression || expression->kind != EXPR_CALL) return;
+    expression->cxx_lookup_namespace = active_namespace
+        ? active_namespace : g_global_namespace;
+}
+
 bool rcc_parser_cxx_bind_resolved_function_call(Expr* expression) {
     Expr* function_expression;
     Decl* selected;
+    CxxNamespace* saved_namespace;
     bool is_noexcept = false;
     if (!expression || expression->kind != EXPR_CALL ||
         !expression->call_func ||
@@ -2245,7 +2252,12 @@ bool rcc_parser_cxx_bind_resolved_function_call(Expr* expression) {
         function_expression->ident_decl->kind == DECL_FUNC) {
         return false;
     }
+    saved_namespace = active_namespace;
+    if (expression->cxx_lookup_namespace) {
+        active_namespace = expression->cxx_lookup_namespace;
+    }
     selected = cxx_template_integer_call_function(expression, NULL);
+    active_namespace = saved_namespace;
     if (!selected || selected->func_template_owner ||
         selected->func_is_template_instance || !selected->type ||
         selected->type->kind != TYPE_FUNC || !selected->type->ret_type) {
@@ -4232,6 +4244,8 @@ static bool cxx_template_integer_call_add_candidate(
     Decl** candidates, int* candidate_count, int candidate_capacity,
     Decl* candidate);
 static CxxNamespace* cxx_type_associated_namespace(Type* type);
+static bool cxx_type_is_associated_with(Type* type,
+                                        CxxClass* granting_class);
 static bool cxx_template_integer_call_count_namespace_declarations(
     CxxNamespace* ns, int* count) {
     if (!ns || !count) return true;
@@ -4398,7 +4412,8 @@ static bool cxx_template_integer_call_add_using_namespace_candidates(
 }
 
 static bool cxx_template_integer_call_add_adl_namespace_candidates(
-    CxxNamespace* ns, const char* name, Decl** candidates,
+    CxxNamespace* ns, const char* name, ExprList* arguments,
+    Decl** candidates,
     int* candidate_count, int candidate_capacity, unsigned depth) {
     if (!ns || !name || !candidates || !candidate_count || depth > 64u) {
         return depth > 64u ? false : true;
@@ -4410,7 +4425,22 @@ static bool cxx_template_integer_call_add_adl_namespace_candidates(
             !cxx_friend_function_name_matches(ns, candidate->name, name)) {
             continue;
         }
-        if (candidate->func_is_hidden_friend) continue;
+        if (candidate->func_is_hidden_friend) {
+            bool associated = false;
+            for (CxxFriendAccess* grant = candidate->func_friend_access;
+                 grant && !associated; grant = grant->next) {
+                for (ExprList* argument = arguments; argument;
+                     argument = argument->next) {
+                    if (cxx_type_is_associated_with(
+                            cxx_parser_expression_type(argument->expr),
+                            grant->owner)) {
+                        associated = true;
+                        break;
+                    }
+                }
+            }
+            if (!associated) continue;
+        }
         if (!cxx_template_integer_call_add_candidate(
                 candidates, candidate_count, candidate_capacity, candidate)) {
             return false;
@@ -4419,7 +4449,7 @@ static bool cxx_template_integer_call_add_adl_namespace_candidates(
     for (CxxNamespace* child = ns->children; child; child = child->next) {
         if (child->is_inline_namespace &&
             !cxx_template_integer_call_add_adl_namespace_candidates(
-                child, name, candidates, candidate_count,
+                child, name, arguments, candidates, candidate_count,
                 candidate_capacity, depth + 1u)) {
             return false;
         }
@@ -4427,25 +4457,109 @@ static bool cxx_template_integer_call_add_adl_namespace_candidates(
     return true;
 }
 
-static bool cxx_template_integer_call_add_enum_adl_candidates(
+static bool cxx_template_integer_call_add_adl_type_candidates(
+    Type* type, const char* name, ExprList* arguments, Decl** candidates,
+    int* candidate_count, int candidate_capacity, Type*** visited_types,
+    int* visited_type_count, unsigned depth) {
+    CxxClass* cls;
+    if (!type || !name || !candidates || !candidate_count ||
+        !visited_types || !visited_type_count || depth > 64u) {
+        return depth > 64u ? false : true;
+    }
+    if (type->is_reference && type->base) {
+        return cxx_template_integer_call_add_adl_type_candidates(
+            type->base, name, arguments, candidates, candidate_count,
+            candidate_capacity, visited_types, visited_type_count,
+            depth + 1u);
+    }
+    if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
+        !type->cxx_is_member_pointer) {
+        return cxx_template_integer_call_add_adl_type_candidates(
+            type->base, name, arguments, candidates, candidate_count,
+            candidate_capacity, visited_types, visited_type_count,
+            depth + 1u);
+    }
+    if (type->cxx_is_member_pointer && type->cxx_member_pointer_owner &&
+        !cxx_template_integer_call_add_adl_type_candidates(
+            type->cxx_member_pointer_owner, name, arguments, candidates,
+            candidate_count, candidate_capacity, visited_types,
+            visited_type_count, depth + 1u)) {
+        return false;
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
+        type->kind != TYPE_ENUM) {
+        return true;
+    }
+    for (int index = 0; index < *visited_type_count; ++index) {
+        if ((*visited_types)[index] == type) return true;
+    }
+    if (*visited_type_count == INT_MAX) return false;
+    *visited_types = ast_arena_grow(
+        *visited_types,
+        sizeof(**visited_types) * (size_t)*visited_type_count,
+        sizeof(**visited_types) * (size_t)(*visited_type_count + 1));
+    if (!*visited_types) return false;
+    (*visited_types)[(*visited_type_count)++] = type;
+    if (!cxx_template_integer_call_add_adl_namespace_candidates(
+            cxx_type_associated_namespace(type), name, arguments,
+            candidates, candidate_count, candidate_capacity, 0u)) {
+        return false;
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        if (!cxx_template_integer_call_add_adl_type_candidates(
+                type->cxx_template_args[index], name, arguments, candidates,
+                candidate_count, candidate_capacity, visited_types,
+                visited_type_count, depth + 1u)) {
+            return false;
+        }
+    }
+    cls = type->cxx_class;
+    if (!cls) return true;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base && cls->bases[index].base_name) {
+            base = find_class(cls->bases[index].base_name);
+        }
+        if (base && !cxx_template_integer_call_add_adl_type_candidates(
+                base->type, name, arguments, candidates, candidate_count,
+                candidate_capacity, visited_types, visited_type_count,
+                depth + 1u)) {
+            return false;
+        }
+    }
+    {
+        Type** template_arguments = cls->template_identity_tmpl
+            ? cls->template_identity_args : cls->template_args;
+        int template_argument_count = cls->template_identity_tmpl
+            ? cls->template_identity_arg_count : cls->template_arg_count;
+        for (int index = 0; template_arguments &&
+             index < template_argument_count; ++index) {
+            if (!cxx_template_integer_call_add_adl_type_candidates(
+                    template_arguments[index], name, arguments, candidates,
+                    candidate_count, candidate_capacity, visited_types,
+                    visited_type_count, depth + 1u)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool cxx_template_integer_call_add_adl_candidates(
     Expr* expression, const char* name, Decl** candidates,
     int* candidate_count, int candidate_capacity) {
+    Type** visited_types = NULL;
+    int visited_type_count = 0;
     if (!expression || !name || !candidates || !candidate_count) {
         return false;
     }
     for (ExprList* argument = expression->call_args; argument;
          argument = argument->next) {
-        Type* type = cxx_parser_expression_type(argument->expr);
-        while (type && type->is_reference && type->base) type = type->base;
-        while (type && (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
-               !type->cxx_is_member_pointer) {
-            type = type->base;
-            while (type && type->is_reference && type->base) type = type->base;
-        }
-        if (!type || type->kind != TYPE_ENUM) continue;
-        if (!cxx_template_integer_call_add_adl_namespace_candidates(
-                cxx_type_associated_namespace(type), name, candidates,
-                candidate_count, candidate_capacity, 0u)) {
+        if (!cxx_template_integer_call_add_adl_type_candidates(
+                cxx_parser_expression_type(argument->expr), name,
+                expression->call_args, candidates, candidate_count,
+                candidate_capacity, &visited_types, &visited_type_count,
+                0u)) {
             return false;
         }
     }
@@ -4466,9 +4580,11 @@ static Decl* cxx_template_integer_call_select_candidate(
         if (!argument_type ||
             (!type_is_integer(argument_type) &&
              !type_is_floating(argument_type) &&
-             argument_type->kind != TYPE_ENUM)) {
-            /* Class arguments may require user-defined conversions not
-             * represented by this constant-expression overload evaluator. */
+             argument_type->kind != TYPE_ENUM &&
+             argument_type->kind != TYPE_STRUCT &&
+             argument_type->kind != TYPE_UNION &&
+             argument_type->kind != TYPE_PTR &&
+             argument_type->kind != TYPE_ARRAY)) {
             return NULL;
         }
         if (argument_count == INT_MAX) return NULL;
@@ -4753,7 +4869,7 @@ static Decl* cxx_template_integer_call_function(
             }
         }
         if (scope_has_name) {
-            if (!cxx_template_integer_call_add_enum_adl_candidates(
+            if (!cxx_template_integer_call_add_adl_candidates(
                     (Expr*)expression, name, candidates, &candidate_count,
                     candidate_capacity)) {
                 return NULL;
@@ -4773,7 +4889,7 @@ static Decl* cxx_template_integer_call_function(
                                  (size_t)candidate_capacity);
     if (!candidates) return NULL;
     candidate_count = 0;
-    if (!cxx_template_integer_call_add_enum_adl_candidates(
+    if (!cxx_template_integer_call_add_adl_candidates(
             (Expr*)expression, name, candidates, &candidate_count,
             candidate_capacity)) {
         return NULL;
@@ -33225,6 +33341,10 @@ static int cxx_parser_template_pack_parameter_index(CxxTemplate* tmpl) {
         if (tmpl->params[index].is_pack) return index;
     }
     return -1;
+}
+
+Type* rcc_parser_cxx_expression_type(Expr* expression) {
+    return cxx_parser_expression_type(expression);
 }
 
 static bool cxx_parser_expression_is_lvalue(Expr* expression) {

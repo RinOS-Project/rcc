@@ -42,6 +42,8 @@ bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void) {
 #define RCC_OPTIONAL_CXX
 #endif
 extern Type* rcc_parse_cxx_direct_list_type(void) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_record_call_context(Expr* expression)
+    RCC_OPTIONAL_CXX;
 extern Type* rcc_parse_cxx_type_name(void) RCC_OPTIONAL_CXX;
 extern Type* rcc_parser_cxx_find_class_type(const char*) RCC_OPTIONAL_CXX;
 extern Type* rcc_parser_cxx_destructor_type(const char*) RCC_OPTIONAL_CXX;
@@ -2722,6 +2724,9 @@ static Expr* parse_postfix_tail(Expr* e) {
             }
             expect(TOK_RPAREN, ")");
             e = expr_call(e, args, call_loc);
+            if (parser_cxx_mode && rcc_parser_cxx_record_call_context) {
+                rcc_parser_cxx_record_call_context(e);
+            }
         } else {
             break;
         }

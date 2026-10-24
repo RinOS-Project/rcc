@@ -48,6 +48,7 @@ extern bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
     Type*, CxxConstructorInfo*) __attribute__((weak));
 extern bool rcc_parser_cxx_normalize_constructor_body(
     CxxClass*, CxxConstructorInfo*) __attribute__((weak));
+extern Type* rcc_parser_cxx_expression_type(Expr*) __attribute__((weak));
 #endif
 
 static bool sema_cxx_class_is_abstract(const CxxClass* cls) {
@@ -14502,6 +14503,69 @@ static bool sema_cxx_type_trait_conversion_is_nothrow(
 }
 
 static bool sema_cxx_type_trait_expression_is_nothrow(
+    Expr* expression, Type* target, unsigned depth);
+
+static bool sema_cxx_type_trait_call_arguments_are_nothrow(
+    Expr* expression, unsigned depth) {
+    Type* function_type;
+    TypeParam* parameter;
+    Decl* declaration = NULL;
+    DeclList* parameter_declaration;
+    ExprList* argument;
+    if (!expression || expression->kind != EXPR_CALL || depth > 64u) {
+        return false;
+    }
+    function_type = expression->call_abi_function_type;
+    if (!function_type && expression->call_func) {
+        function_type = expression->call_func->type;
+    }
+    if (function_type && function_type->kind == TYPE_PTR) {
+        function_type = function_type->base;
+    }
+    if (!function_type || function_type->kind != TYPE_FUNC) return false;
+    if (expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT) {
+        declaration = expression->call_func->ident_decl;
+    }
+    parameter = function_type->params;
+    parameter_declaration = declaration ? declaration->func_params : NULL;
+    argument = expression->call_args;
+    while (argument && parameter) {
+        if (!argument->expr || !parameter->type ||
+            !sema_cxx_type_trait_expression_is_nothrow(
+                argument->expr, parameter->type, depth + 1u)) {
+            return false;
+        }
+        argument = argument->next;
+        parameter = parameter->next;
+        if (parameter_declaration) {
+            parameter_declaration = parameter_declaration->next;
+        }
+    }
+    while (argument) {
+        if (!function_type->variadic || !argument->expr ||
+            !sema_cxx_type_trait_expression_is_nothrow(
+                argument->expr, NULL, depth + 1u)) {
+            return false;
+        }
+        argument = argument->next;
+    }
+    while (parameter) {
+        Decl* parameter_decl = parameter_declaration
+            ? parameter_declaration->decl : NULL;
+        if (!parameter_decl || !parameter_decl->param_default ||
+            !sema_cxx_type_trait_expression_is_nothrow(
+                parameter_decl->param_default, parameter->type,
+                depth + 1u)) {
+            return false;
+        }
+        parameter = parameter->next;
+        parameter_declaration = parameter_declaration->next;
+    }
+    return true;
+}
+
+static bool sema_cxx_type_trait_expression_is_nothrow(
     Expr* expression, Type* target, unsigned depth) {
     int errors_before;
     if (!expression || depth > 64u) return false;
@@ -14516,10 +14580,27 @@ static bool sema_cxx_type_trait_expression_is_nothrow(
             if (!sema_expr(expression)) return false;
         }
     }
+    if (!expression->type && !g_symtab) {
+#if defined(__GNUC__) || defined(__clang__)
+        if (rcc_parser_cxx_expression_type) {
+            expression->type =
+                rcc_parser_cxx_expression_type(expression);
+        }
+#endif
+        if (!expression->type) {
+            cxx_type_trait_nothrow_evaluation_unknown = true;
+            return false;
+        }
+    }
     errors_before = g_error_count;
     if (!expression->type && !sema_expr(expression)) return false;
     if (g_error_count != errors_before ||
         !sema_noexcept_expr(expression)) {
+        return false;
+    }
+    if (expression->kind == EXPR_CALL &&
+        !sema_cxx_type_trait_call_arguments_are_nothrow(
+            expression, depth + 1u)) {
         return false;
     }
     return !target || sema_cxx_type_trait_conversion_is_nothrow(
