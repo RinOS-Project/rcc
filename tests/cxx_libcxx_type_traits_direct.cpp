@@ -45,6 +45,35 @@ struct InheritedConstructorValue : InheritedConstructorBase {
     using InheritedConstructorBase::InheritedConstructorBase;
 };
 
+struct InheritedPrivateBestBase {
+    InheritedPrivateBestBase(int value) { (void)value; }
+
+private:
+    InheritedPrivateBestBase(short value) { (void)value; }
+};
+
+struct InheritedPrivateBest : InheritedPrivateBestBase {
+    using InheritedPrivateBestBase::InheritedPrivateBestBase;
+};
+
+struct InheritedDeletedBestBase {
+    InheritedDeletedBestBase(int value) { (void)value; }
+    InheritedDeletedBestBase(short) = delete;
+};
+
+struct InheritedDeletedBest : InheritedDeletedBestBase {
+    using InheritedDeletedBestBase::InheritedDeletedBestBase;
+};
+
+struct InheritedBaseCopyBase {
+    InheritedBaseCopyBase(int value) { (void)value; }
+    InheritedBaseCopyBase(const InheritedBaseCopyBase&) = delete;
+};
+
+struct InheritedBaseCopyValue : InheritedBaseCopyBase {
+    using InheritedBaseCopyBase::InheritedBaseCopyBase;
+};
+
 struct DeletedTemplateCopyMember {
     DeletedTemplateCopyMember(const DeletedTemplateCopyMember&) = delete;
 };
@@ -246,6 +275,17 @@ static_assert(std::is_constructible<InheritedConstructorValue,
 static_assert(!std::is_constructible<InheritedConstructorValue,
                                      int, int, int>::value,
               "inherited constructors reject excess arguments");
+static_assert(!std::is_constructible<InheritedPrivateBest, short>::value,
+              "an inaccessible inherited best match blocks weaker overloads");
+static_assert(!std::is_constructible<InheritedDeletedBest, short>::value,
+              "a deleted inherited best match blocks weaker overloads");
+static_assert(std::is_constructible<InheritedPrivateBest, int>::value,
+              "a public inherited overload remains usable");
+static_assert(std::is_constructible<InheritedDeletedBest, int>::value,
+              "a non-deleted inherited overload remains usable");
+static_assert(!std::is_constructible<InheritedBaseCopyValue,
+                                     const InheritedBaseCopyBase&>::value,
+              "base copy constructors are not inherited");
 static_assert(std::is_constructible<TemplateConstructorValue,
                                     const TemplateConstructorValue&>::value,
               "the implicit copy constructor remains available beside a template");

@@ -13182,6 +13182,100 @@ typedef struct SemaCxxTypeTraitConstructorCandidate {
     bool is_template;
 } SemaCxxTypeTraitConstructorCandidate;
 
+static bool sema_cxx_type_trait_using_inherits_constructors(
+    CxxClass* cls, CxxClass* base) {
+    const char* base_name;
+    const char* template_name;
+    if (!cls || !base || !base->name) return false;
+    base_name = sema_cxx_unqualified_name(base->name);
+    template_name = base->templ && base->templ->name
+        ? sema_cxx_unqualified_name(base->templ->name) : NULL;
+    for (int index = 0; index < cls->using_base_member_count; ++index) {
+        const char* used_base = cls->using_base_members[index].base_name;
+        const char* used_member = cls->using_base_members[index].member_name;
+        const char* used_base_name = sema_cxx_unqualified_name(used_base);
+        const char* used_member_name = sema_cxx_unqualified_name(used_member);
+        bool names_base = used_base_name &&
+            (strcmp(used_base_name, base_name) == 0 ||
+             (template_name && strcmp(used_base_name, template_name) == 0));
+        bool names_constructor = used_member_name &&
+            (strcmp(used_member_name, base_name) == 0 ||
+             (template_name &&
+              strcmp(used_member_name, template_name) == 0));
+        if (names_base && names_constructor) return true;
+    }
+    return false;
+}
+
+static bool sema_cxx_type_trait_constructor_signatures_match(
+    const CxxConstructorInfo* left, const CxxConstructorInfo* right) {
+    TypeParam* left_parameter = left ? left->parameters : NULL;
+    TypeParam* right_parameter = right ? right->parameters : NULL;
+    if (!left || !right || left->parameter_count != right->parameter_count) {
+        return false;
+    }
+    while (left_parameter && right_parameter) {
+        if (!left_parameter->type || !right_parameter->type ||
+            !type_is_compatible(left_parameter->type,
+                                right_parameter->type)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return !left_parameter && !right_parameter;
+}
+
+static bool sema_cxx_type_trait_constructor_is_overridden(
+    CxxClass* cls, CxxConstructorInfo* inherited) {
+    for (CxxConstructorInfo* existing = cls ? cls->constructors : NULL;
+         existing; existing = existing->next) {
+        if (sema_cxx_type_trait_constructor_signatures_match(
+                existing, inherited)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int sema_cxx_type_trait_inherited_constructor_count(CxxClass* cls) {
+    int count = 0;
+    if (!cls) return 0;
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        if (!base || cls->bases[base_index].access != ACCESS_PUBLIC ||
+            cls->bases[base_index].is_virtual ||
+            !sema_cxx_type_trait_using_inherits_constructors(cls, base)) {
+            continue;
+        }
+        for (CxxConstructorInfo* source = base->constructors;
+             source; source = source->next) {
+            CxxConstructorInfo inherited;
+            if (!source->method || source->method->member_template ||
+                !source->method->is_constructor ||
+                sema_cxx_constructor_special_member_kind(base->type,
+                                                          source) != 0) {
+                continue;
+            }
+            inherited = *source;
+            inherited.is_inherited = true;
+            if (sema_cxx_type_trait_constructor_is_overridden(cls,
+                                                               &inherited)) {
+                continue;
+            }
+            if (count == INT_MAX) {
+                rcc_error(source->method->decl
+                              ? source->method->decl->loc
+                              : (SourceLoc){"<type-trait>", 0, 0},
+                          "too many inherited constructors to evaluate a type trait");
+                return -1;
+            }
+            ++count;
+        }
+    }
+    return count;
+}
+
 static CxxConstructorInfo* sema_cxx_make_type_trait_template_constructor(
     CxxClass* owner, TypeMethod* method) {
     Decl* declaration = method ? method->function_decl : NULL;
@@ -13233,6 +13327,7 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     CxxConstructorInfo* best = NULL;
     SemaCxxTypeTraitConstructorCandidate* candidates;
     int constructor_count = 0;
+    int inherited_constructor_count;
     int template_count = 0;
     int candidate_count = 0;
     int* best_ranks;
@@ -13243,6 +13338,12 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     bool template_constraint_unsupported = false;
     if (ambiguous) *ambiguous = false;
     if (!cls || argument_count < 0) return NULL;
+    inherited_constructor_count =
+        sema_cxx_type_trait_inherited_constructor_count(cls);
+    if (inherited_constructor_count < 0) {
+        if (ambiguous) *ambiguous = true;
+        return NULL;
+    }
     for (CxxConstructorInfo* constructor = cls->constructors; constructor;
          constructor = constructor->next) {
         if (!constructor->method || constructor->method->member_template) {
@@ -13290,7 +13391,9 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     }
     if (template_count < 0 || template_count >
             (int)(sizeof(template_methods) / sizeof(template_methods[0])) ||
-        constructor_count > INT_MAX - template_count) {
+        constructor_count > INT_MAX - template_count ||
+        constructor_count + template_count >
+            INT_MAX - inherited_constructor_count) {
         rcc_error(arguments && arguments->expr
                       ? arguments->expr->loc
                       : (SourceLoc){"<type-trait>", 0, 0},
@@ -13299,8 +13402,10 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
         return NULL;
     }
     candidates = ast_arena_alloc(
-        sizeof(*candidates) * (size_t)(constructor_count + template_count > 0
-                                           ? constructor_count + template_count
+        sizeof(*candidates) * (size_t)(constructor_count + template_count +
+                                           inherited_constructor_count > 0
+                                           ? constructor_count + template_count +
+                                                 inherited_constructor_count
                                            : 1));
     for (CxxConstructorInfo* constructor = cls->constructors; constructor;
          constructor = constructor->next) {
@@ -13310,6 +13415,35 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
         candidates[candidate_count].constructor = constructor;
         candidates[candidate_count].is_template = false;
         ++candidate_count;
+    }
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        if (!base || cls->bases[base_index].access != ACCESS_PUBLIC ||
+            cls->bases[base_index].is_virtual ||
+            !sema_cxx_type_trait_using_inherits_constructors(cls, base)) {
+            continue;
+        }
+        for (CxxConstructorInfo* source = base->constructors;
+             source; source = source->next) {
+            CxxConstructorInfo* inherited;
+            if (!source->method || source->method->member_template ||
+                !source->method->is_constructor ||
+                sema_cxx_constructor_special_member_kind(base->type,
+                                                          source) != 0) {
+                continue;
+            }
+            inherited = ast_arena_alloc(sizeof(*inherited));
+            *inherited = *source;
+            inherited->next = NULL;
+            inherited->is_inherited = true;
+            if (sema_cxx_type_trait_constructor_is_overridden(cls,
+                                                               inherited)) {
+                continue;
+            }
+            candidates[candidate_count].constructor = inherited;
+            candidates[candidate_count].is_template = false;
+            ++candidate_count;
+        }
     }
     for (int index = 0; index < template_count; ++index) {
         CxxConstructorInfo* constructor =

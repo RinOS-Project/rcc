@@ -9041,9 +9041,10 @@ remains a separate open item.
       against GCC; the direct libcxx header gate passes.
 - [ ] Inherited constructor-template resolution and remaining constrained
       constructor interactions remain open. Direct constructor templates and
-      ordinary inherited constructors are covered below; implicit copy/move
-      special-member viability, assignment traits, nothrow-constructibility,
-      and remaining target-specific builtin-query cases also remain open.
+      ordinary inherited constructors, including access/deletion in best-match
+      selection, are covered below; implicit copy/move special-member viability,
+      assignment traits, nothrow-constructibility, and remaining
+      target-specific builtin-query cases also remain open.
       Continue instantiating real traits and comparing with GCC rather than
       treating header parsing as complete support.
 - [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
@@ -9309,8 +9310,13 @@ remains a separate open item.
 - [x] Include ordinary inherited constructors synthesized by `using Base::Base`
       in `__is_constructible` candidate selection. Verify inherited overload
       arity and reject excess arguments in the builtin and direct libcxx
-      fixtures; the constructibility and inherited-constructor runtime suites
-      pass on Windows and WSL for the supported target architectures.
+      fixtures on Windows and WSL; the inherited-constructor runtime suite
+      passes under WSL for both target architectures. Windows runtime
+      integration remains unverified because the shell lacks `objdump`.
+- [x] Preserve private and deleted ordinary base constructors in the
+      type-trait-only inherited overload set so an inaccessible/deleted best
+      match blocks a weaker public overload; do not treat base copy/move
+      constructors as inherited. Both target-width fixtures match GCC C++20.
 - [ ] Inherited constructor templates, remaining implicit copy/move deletion
       and access rules, `is_assignable`, `is_nothrow_constructible`, and
       broader trait conformance remain open.
