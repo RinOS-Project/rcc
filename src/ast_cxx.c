@@ -6682,7 +6682,33 @@ bool cxx_namespace_add_alias(CxxNamespace* ns, const char* name,
     return true;
 }
 
+static void cxx_inherit_function_deprecation(const Decl* earlier,
+                                             Decl* later) {
+    if (!earlier || !later || earlier->kind != DECL_FUNC ||
+        later->kind != DECL_FUNC ||
+        !earlier->func_is_deprecated) {
+        return;
+    }
+    later->func_is_deprecated = true;
+    if ((!later->func_deprecated_message ||
+         !*later->func_deprecated_message) &&
+        earlier->func_deprecated_message) {
+        later->func_deprecated_message = earlier->func_deprecated_message;
+    }
+}
+
 void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
+    if (ns && decl && decl->kind == DECL_FUNC && decl->link_name) {
+        for (DeclList* existing = ns->decls; existing;
+             existing = existing->next) {
+            Decl* previous = existing->decl;
+            if (previous && previous->kind == DECL_FUNC &&
+                previous->link_name &&
+                strcmp(previous->link_name, decl->link_name) == 0) {
+                cxx_inherit_function_deprecation(previous, decl);
+            }
+        }
+    }
     DeclList* node = rcc_alloc(sizeof(DeclList));
     node->decl = decl;
     node->next = ns->decls;

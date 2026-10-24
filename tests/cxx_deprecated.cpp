@@ -6,6 +6,22 @@ int modern_api(int value) {
     return value + 2;
 }
 
+[[deprecated("use modern_redecl_api")]]
+int legacy_redecl_before(int);
+int legacy_redecl_before(int value) {
+    return value;
+}
+
+int legacy_redecl_after(int value) {
+    return value;
+}
+int use_legacy_redecl_before_attribute() {
+    return legacy_redecl_after(1);
+}
+[[deprecated("use modern_redecl_api")]]
+int legacy_redecl_after(int);
+int legacy_redecl_after(int);
+
 template <typename T>
 [[deprecated("use modern_template_api")]]
 T legacy_template_api(T value) {
@@ -44,13 +60,16 @@ int main() {
     result += legacy_local_api(2);
     result += block_scope_namespace::invoke_local_api();
     result += legacy_template_api(1);
+    result += legacy_redecl_before(1);
+    result += use_legacy_redecl_before_attribute();
+    result += legacy_redecl_after(1);
     result += old_value;
     result += legacy.old_method();
     result += legacy.old_field;
     result += local_old_value;
     result += local_old_value2;
     result += modern_api(1);
-    return result == 28 ? 0 : 1;
+    return result == 31 ? 0 : 1;
 }
 
 int legacy_local_api(int value) {

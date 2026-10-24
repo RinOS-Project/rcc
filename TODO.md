@@ -9183,8 +9183,12 @@ remains a separate open item.
 - [x] Preserve `[[deprecated]]` on local function declarations, class members,
       and instantiated function templates; compare their diagnostics against
       GCC C++20 in the focused fixture.
-- [ ] Class-template attribute propagation and remaining
-      redeclaration/attribute-ordering cases remain open.
+- [x] Carry `[[deprecated]]` forward to later function redeclarations with the
+      same ABI symbol. Cover attribute-before-definition, attribute-after-
+      definition followed by an unannotated redeclaration, and a call before
+      the attribute declaration that must remain unmarked.
+- [ ] Class-template attribute propagation and other declaration/
+      attribute-ordering cases remain open.
 
 ## RCC continuation (2026-10-23, GNU `__has_trivial_constructor` builtin)
 
@@ -9249,6 +9253,9 @@ remains a separate open item.
       target widths and checks GCC C++20 diagnostics for local, namespace, and
       template functions; the i686 COFF check passes and generated AMD64 code
       runs.
-- [ ] Class-template attribute propagation and remaining declaration/
-      redeclaration ordering cases remain open; class-member behavior is
-      covered by the same fixture.
+- [x] Preserve function deprecation across the tested redeclaration orders
+      without retroactively changing the earlier call; GCC C++20 and RCC
+      diagnostics are checked by the focused test.
+- [ ] Class-template attribute propagation and other declaration/attribute
+      ordering cases remain open; class-member behavior is covered by the same
+      fixture.
