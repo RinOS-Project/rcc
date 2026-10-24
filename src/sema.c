@@ -2593,8 +2593,9 @@ static int sema_asm_fixed_register_id(const char* name) {
         strcmp(name, "{edi}") == 0 || strcmp(name, "{rdi}") == 0) return 5;
     if (strcmp(name, "{r8}") == 0) return 8;
     if (strcmp(name, "{r9}") == 0) return 9;
-    if (strcmp(name, "{r10}") == 0) return 6;
-    if (strcmp(name, "r10") == 0) return 6;
+    if (strcmp(name, "{r10}") == 0 || strcmp(name, "r10") == 0) return 6;
+    if (strcmp(name, "r8") == 0) return 8;
+    if (strcmp(name, "r9") == 0) return 9;
     return -1;
 }
 
@@ -2630,6 +2631,14 @@ static int sema_asm_operand_fixed_register_id(const AsmOperand* operand) {
     const char* name = operand
         ? sema_asm_constraint_name(operand->constraint) : NULL;
     if (!operand) return -1;
+    if (operand->expr && operand->expr->kind == EXPR_IDENT &&
+        operand->expr->ident_decl &&
+        operand->expr->ident_decl->kind == DECL_VAR &&
+        operand->expr->ident_decl->var_register_name) {
+        int register_id = sema_asm_fixed_register_id(
+            operand->expr->ident_decl->var_register_name);
+        if (register_id >= 0) return register_id;
+    }
     if (operand->assigned_gpr >= 0) return operand->assigned_gpr;
     if (operand->assigned_gpr < -1) return -1;
     if (sema_asm_earlyclobber_generic_output(operand)) {
@@ -24815,6 +24824,25 @@ static void sema_decl(Decl* decl) {
         case DECL_VAR: {
             bool is_global = g_symtab->current == g_symtab->global;
             CxxNamespace* saved_cxx_namespace = current_cxx_namespace;
+            if (decl->var_register_name) {
+                int register_id = sema_asm_fixed_register_id(
+                    decl->var_register_name);
+                if (is_global || decl->storage != STORAGE_REGISTER) {
+                    rcc_error(decl->loc,
+                              "GNU asm register name requires a block-scope register variable");
+                }
+                if (!sema_asm_scalar_operand(decl->type)) {
+                    rcc_error(decl->loc,
+                              "GNU asm register variable must have scalar integer or pointer type");
+                }
+                if (register_id < 0 ||
+                    (g_opts.target_arch == ARCH_X86 && register_id > 5)) {
+                    rcc_error(decl->loc,
+                              "unsupported %s GNU register variable '%s'",
+                              g_opts.target_arch == ARCH_X86 ? "i686" : "AMD64",
+                              decl->var_register_name);
+                }
+            }
             if (is_global && rcc_parser_is_cxx_mode()) {
                 current_cxx_namespace = sema_decl_namespace(decl);
             }

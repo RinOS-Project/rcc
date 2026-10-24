@@ -64,6 +64,7 @@ int main(int argc, char** argv)
     binary_function earlyclobber_avoids_fixed;
     binary_function earlyclobber_read_write;
     unary_function placeholder;
+    unary_function gnu_register_variable;
     unary_function generic_output;
     unary_function generic_read_write;
     unary_function general_input;
@@ -78,6 +79,8 @@ int main(int argc, char** argv)
 #endif
 #if defined(__x86_64__)
     unary_i64_function immediate64;
+    unary_i64_function gnu_register_r9;
+    unary_i64_function gnu_register_r10;
 #endif
     unary_function immediate8;
     unary_function immediate16;
@@ -136,6 +139,8 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(earlyclobber_read_write, object, mapping,
                   "asm_earlyclobber_generic_read_write");
     LOAD_FUNCTION(placeholder, object, mapping, "asm_placeholder_move");
+    LOAD_FUNCTION(gnu_register_variable, object, mapping,
+                  "asm_gnu_register_variable_move");
     LOAD_FUNCTION(generic_output, object, mapping, "asm_generic_output_move");
     LOAD_FUNCTION(generic_read_write, object, mapping, "asm_generic_read_write");
     LOAD_FUNCTION(general_input, object, mapping, "asm_general_input_move");
@@ -154,12 +159,17 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(immediate32, object, mapping, "asm_mov_imm32");
 #if defined(__x86_64__)
     LOAD_FUNCTION(immediate64, object, mapping, "asm_mov_imm64");
+    LOAD_FUNCTION(gnu_register_r9, object, mapping,
+                  "asm_gnu_register_variable_r9");
+    LOAD_FUNCTION(gnu_register_r10, object, mapping,
+                  "asm_gnu_register_variable_r10");
 #endif
     assert(roundtrip(37, 91) == 37);
     assert(earlyclobber(37, 91) == 91);
     assert(earlyclobber_avoids_fixed(37, 91) == 91);
     assert(earlyclobber_read_write(37, 91) == 91);
     assert(placeholder(83) == 83);
+    assert(gnu_register_variable(89) == 89);
 #if defined(__i386__)
     assert(memory_input(59) == 59);
     assert(i686_sequence(&i686_slot, 0) == 7 && i686_slot == 0);
@@ -179,6 +189,8 @@ int main(int argc, char** argv)
 #if defined(__x86_64__)
     assert((unsigned long long)immediate64(0) ==
            0x1122334455667788ULL);
+    assert(gnu_register_r9(43) == 43);
+    assert(gnu_register_r10(59) == 59);
 #endif
     LOAD_FUNCTION(read_write, object, mapping, "asm_callee_saved_clobber");
     assert(read_write(71) == 71);

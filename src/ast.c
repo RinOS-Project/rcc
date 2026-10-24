@@ -1616,6 +1616,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_debug_const_value_unsigned = false;
     d->var_debug_const_value_valid = false;
     d->var_offset = 0;
+    d->var_register_name = NULL;
     d->var_reference_temporary_offset = 0;
     d->var_reference_temporary_owner = NULL;
     d->var_reference_temporary_source = NULL;

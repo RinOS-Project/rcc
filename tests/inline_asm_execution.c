@@ -29,6 +29,36 @@ int asm_generic_placeholder_move(int value)
     return result;
 }
 
+int asm_gnu_register_variable_move(int value)
+{
+    int result;
+#if defined(__x86_64__)
+    register int fixed __asm__("r8") = value;
+#else
+    register int fixed __asm__("ebx") = value;
+#endif
+    __asm__ __volatile__("mov %1, %0" : "=a"(result) : "r"(fixed));
+    return result;
+}
+
+#if defined(__x86_64__)
+long long asm_gnu_register_variable_r9(long long value)
+{
+    long long result;
+    register long long fixed __asm__("r9") = value;
+    __asm__ __volatile__("mov %1, %0" : "=a"(result) : "r"(fixed));
+    return result;
+}
+
+long long asm_gnu_register_variable_r10(long long value)
+{
+    long long result;
+    register long long fixed __asm__("r10") = value;
+    __asm__ __volatile__("mov %1, %0" : "=a"(result) : "r"(fixed));
+    return result;
+}
+#endif
+
 int asm_generic_output_move(int value)
 {
     int result;

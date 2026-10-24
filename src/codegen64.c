@@ -11713,6 +11713,21 @@ static int codegen64_asm_register_for_operand(const char* constraint,
                                               Expr* expression)
 {
     int64_t value;
+    const char* name = codegen64_asm_constraint_name(constraint);
+    if (expression && expression->kind == EXPR_IDENT &&
+        expression->ident_decl && expression->ident_decl->kind == DECL_VAR &&
+        expression->ident_decl->var_register_name && name &&
+        (strcmp(name, "r") == 0 || strcmp(name, "X") == 0 ||
+         strcmp(name, "g") == 0)) {
+        char fixed_constraint[40];
+        int written = snprintf(fixed_constraint, sizeof(fixed_constraint),
+                               "{%s}",
+                               expression->ident_decl->var_register_name);
+        if (written < 0 || (size_t)written >= sizeof(fixed_constraint)) {
+            return -1;
+        }
+        return codegen64_asm_register(fixed_constraint);
+    }
     if (!codegen64_asm_constraint_is_port(constraint)) {
         return codegen64_asm_register(constraint);
     }

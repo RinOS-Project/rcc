@@ -1353,6 +1353,7 @@ struct Decl {
             bool var_debug_const_value_unsigned;
             bool var_debug_const_value_valid;
             int var_offset;         /* Stack offset (set during codegen) */
+            const char* var_register_name; /* GNU register variable asm name */
             int var_reference_temporary_offset; /* Lifetime-extended object */
             Decl* var_reference_temporary_owner; /* Complete-object cleanup */
             Expr* var_reference_temporary_source; /* Complete object for subobject binding */

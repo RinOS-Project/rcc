@@ -15086,6 +15086,21 @@ static int constraint_to_reg(const char* constraint) {
     }
 }
 
+static int asm_named_register(const char* name) {
+    if (!name) return -1;
+    if (strcmp(name, "eax") == 0 || strcmp(name, "ax") == 0 ||
+        strcmp(name, "al") == 0 || strcmp(name, "ah") == 0) return EAX;
+    if (strcmp(name, "ebx") == 0 || strcmp(name, "bx") == 0 ||
+        strcmp(name, "bl") == 0 || strcmp(name, "bh") == 0) return EBX;
+    if (strcmp(name, "ecx") == 0 || strcmp(name, "cx") == 0 ||
+        strcmp(name, "cl") == 0 || strcmp(name, "ch") == 0) return ECX;
+    if (strcmp(name, "edx") == 0 || strcmp(name, "dx") == 0 ||
+        strcmp(name, "dl") == 0 || strcmp(name, "dh") == 0) return EDX;
+    if (strcmp(name, "esi") == 0 || strcmp(name, "si") == 0) return ESI;
+    if (strcmp(name, "edi") == 0 || strcmp(name, "di") == 0) return EDI;
+    return -1;
+}
+
 static const char* asm_constraint_name(const char* constraint) {
     if (!constraint) return NULL;
     while (*constraint == '=' || *constraint == '+' || *constraint == '&') {
@@ -15102,6 +15117,15 @@ static bool asm_constraint_is_port(const char* constraint) {
 static int constraint_to_reg_for_operand(const char* constraint,
                                          Expr* expression) {
     int64_t value;
+    const char* name = asm_constraint_name(constraint);
+    if (expression && expression->kind == EXPR_IDENT &&
+        expression->ident_decl && expression->ident_decl->kind == DECL_VAR &&
+        expression->ident_decl->var_register_name && name &&
+        (strcmp(name, "r") == 0 || strcmp(name, "X") == 0 ||
+         strcmp(name, "g") == 0)) {
+        return asm_named_register(
+            expression->ident_decl->var_register_name);
+    }
     if (!asm_constraint_is_port(constraint)) {
         return constraint_to_reg(constraint);
     }
