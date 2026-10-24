@@ -394,6 +394,10 @@ static Type* parser_lookup_type(const char* name) {
     static Type* builtin_v4si;
     static Type* builtin_v2di;
     parser_ambiguous_type_name = NULL;
+    if (!parser_cxx_mode && g_opts.c_standard >= 23 && name &&
+        strcmp(name, "__rcc_nullptr_t") == 0) {
+        return type_nullptr;
+    }
     if (name && strcmp(name, "__v4sf") == 0) {
         if (!builtin_v4sf) builtin_v4sf = type_vector(type_float, 4, 16);
         return builtin_v4sf;
@@ -2266,7 +2270,8 @@ static Expr* parse_primary(void) {
     if (parser_cxx_mode && match(TOK_THIS)) {
         return expr_ident("this", loc);
     }
-    if (parser_cxx_mode && match(TOK_NULLPTR)) {
+    if ((parser_cxx_mode || g_opts.c_standard >= 23) &&
+        match(TOK_NULLPTR)) {
         Expr* null_pointer = expr_int(0, loc);
         null_pointer->type = type_nullptr;
         null_pointer->is_cxx_nullptr = true;

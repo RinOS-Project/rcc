@@ -9480,3 +9480,21 @@ remains a separate open item.
       reporting an ambiguous template call; `test-cxx-function-template-
       overloads` matches GCC C++20 on i686 and AMD64, and the complete
       `test-cxx` aggregate passes on Windows.
+
+## RCC continuation (2026-10-25, C23 nullptr)
+
+- [x] Implement C23 `nullptr` as a reserved token with the distinct scalar
+      `nullptr_t` type, null-pointer comparisons/conversions, C23 conditional
+      rules, initialization from integer null pointer constants, and variadic
+      argument access. Keep `nullptr` an ordinary identifier in pre-C23 C and
+      keep the feature C-only where specified.
+- [x] Provide C23 `nullptr_t` in both RCC and bootstrap `<stddef.h>` headers.
+      Verify size/alignment, `_Generic`, static and automatic initialization,
+      pointer/boolean/conditional behavior, variadic access, invalid arithmetic
+      and conditional diagnostics, and pre-C23 identifier compatibility.
+      The focused target passes on i686 and AMD64; generated AMD64 programs
+      execute successfully at `-O0` and `-O2`.
+- [x] Make the class-template member-function test create its separate
+      conversion-operator output directory when run with a clean `TEST_OUT`.
+      The complete C++20 regression target passes under WSL with an isolated
+      output tree.

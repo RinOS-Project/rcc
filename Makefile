@@ -522,7 +522,7 @@ endif
 -include $(wildcard $(OBJDIR)/*.d)
 
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-encoding test-inline-asm-ports test-intrin-header test-inline-asm-execute test-inline-asm-validation test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-verified-i686-floating-arithmetic test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-destructor test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override test-cxx-empty-base test-cxx-no-unique-address
-.PHONY: print-host-cc test-c17 test-c-utf8-string-literals test-c-utf16-utf32-string-literals test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
+.PHONY: print-host-cc test-c17 test-c23 test-c23-nullptr test-c23-empty-initializer test-c-utf8-string-literals test-c-utf16-utf32-string-literals test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-exception-cleanup-verified test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
@@ -1005,6 +1005,7 @@ test: $(RCC_TARGET)
 # implied here.
 TEST_CI_TARGETS = \
 	test-c17 \
+	test-c23 \
 	test-cxx \
 	test-aqc \
 	test-ir \
@@ -1065,6 +1066,53 @@ test-ci: $(TEST_CI_TARGETS)
 
 test-c17: $(RCC_TARGET) $(C17_REGRESSION_TARGETS)
 	@echo "RCC C17 conformance compile-and-run suite completed"
+
+test-c23: $(RCC_TARGET) test-c23-nullptr test-c23-empty-initializer
+	@echo "RCC C23 nullptr and empty-initialization regressions completed"
+
+test-c23-nullptr: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-nullptr)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/c23-nullptr/x86.ro \
+		tests/c23_nullptr.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/c23-nullptr/x64.ro \
+		tests/c23_nullptr.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -S -o $(TEST_OUT)/c23-nullptr/x64.s \
+		tests/c23_nullptr.c
+	$(CC) -o $(TEST_OUT)/c23-nullptr/x64-host $(TEST_OUT)/c23-nullptr/x64.s
+	$(TEST_OUT)/c23-nullptr/x64-host
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -O2 \
+		-nostdinc -Ibootstrap/include -S \
+		-o $(TEST_OUT)/c23-nullptr/x64-o2.s tests/c23_nullptr.c
+	$(CC) -o $(TEST_OUT)/c23-nullptr/x64-o2-host \
+		$(TEST_OUT)/c23-nullptr/x64-o2.s
+	$(TEST_OUT)/c23-nullptr/x64-o2-host
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -nostdinc \
+		-Ibootstrap/include -S -o $(TEST_OUT)/c23-nullptr/c17-identifier.s \
+		tests/c17_nullptr_identifier.c
+	$(CC) -o $(TEST_OUT)/c23-nullptr/c17-identifier-host \
+		$(TEST_OUT)/c23-nullptr/c17-identifier.s
+	$(TEST_OUT)/c23-nullptr/c17-identifier-host
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-nullptr/invalid-arithmetic.ro tests/invalid_c23_nullptr_arithmetic.c,$(TEST_OUT)/c23-nullptr/invalid-arithmetic.log)
+	$(call CHECK_TEXT,nullptr does not support arithmetic operators,$(TEST_OUT)/c23-nullptr/invalid-arithmetic.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-nullptr/invalid-conditional.ro tests/invalid_c23_nullptr_conditional.c,$(TEST_OUT)/c23-nullptr/invalid-conditional.log)
+	$(call CHECK_TEXT,C23 conditional nullptr_t operand requires a pointer or nullptr_t operand,$(TEST_OUT)/c23-nullptr/invalid-conditional.log)
+	@echo "RCC C23 nullptr type, conversion, execution, and diagnostics passed"
+
+test-c23-empty-initializer: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-empty-initializer)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c23-empty-initializer/c17.ro tests/empty_initializer.c,$(TEST_OUT)/c23-empty-initializer/c17.log)
+	$(call CHECK_TEXT,empty initializer list is not valid C17,$(TEST_OUT)/c23-empty-initializer/c17.log)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c \
+		-o $(TEST_OUT)/c23-empty-initializer/x86.ro tests/empty_initializer.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S \
+		-o $(TEST_OUT)/c23-empty-initializer/x64.s tests/empty_initializer.c
+	$(CC) -o $(TEST_OUT)/c23-empty-initializer/x64-host \
+		$(TEST_OUT)/c23-empty-initializer/x64.s
+	$(TEST_OUT)/c23-empty-initializer/x64-host
+	@echo "RCC C23 empty-initializer regression passed"
 
 test-c-utf8-string-literals: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c-utf8-string-literals)
@@ -7960,6 +8008,7 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-host \
 		tests/cxx_class_template_member_function_templates.cpp
 	$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-host
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-conversion-operator/x86.ro \

@@ -1,6 +1,12 @@
 #ifndef RCC_STDDEF_H
 #define RCC_STDDEF_H
 
+#if !defined(__cplusplus) && defined(__STDC_VERSION__) && \
+    __STDC_VERSION__ >= 202311L
+typedef __rcc_nullptr_t nullptr_t;
+#define __STDC_VERSION_STDDEF_H__ 202311L
+#endif
+
 #if defined(__x86_64__)
 typedef unsigned long long size_t;
 typedef long long ptrdiff_t;

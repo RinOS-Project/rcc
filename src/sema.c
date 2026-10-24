@@ -3792,6 +3792,14 @@ static Type* implicit_cast_with_explicit_conversion(
     Expr* e, Type* target, bool allow_explicit_conversion) {
     if (!e->type || !target) return NULL;
 
+    /* C23 permits an integer null pointer constant to initialize or assign
+     * nullptr_t.  C++ deliberately does not share this conversion. */
+    if (!rcc_parser_is_cxx_mode() && g_opts.c_standard >= 23 &&
+        target->kind == TYPE_NULLPTR &&
+        sema_is_null_pointer_constant(e)) {
+        return target;
+    }
+
     /* nullptr has a zero machine representation, but it is not an integer.
      * Keep its standard null-pointer conversion separate from the legacy C
      * integer/pointer conversion paths below. */
@@ -19627,6 +19635,7 @@ static Type* sema_expr(Expr* expr) {
                  !(type_is_integer(argument_type) ||
                    argument_type->kind == TYPE_ENUM ||
                    argument_type->kind == TYPE_PTR ||
+                   argument_type->kind == TYPE_NULLPTR ||
                    argument_type->kind == TYPE_FLOAT ||
                    argument_type->kind == TYPE_DOUBLE)) ||
                 ((argument_type->kind != TYPE_STRUCT &&
@@ -20010,7 +20019,23 @@ static Type* sema_expr(Expr* expr) {
                 sema_is_cxx_nullptr_expr(expr->cond_then);
             bool else_nullptr =
                 sema_is_cxx_nullptr_expr(expr->cond_else);
-            if (then_nullptr && else_nullptr) {
+            bool c23_nullptr_operand = !rcc_parser_is_cxx_mode() &&
+                g_opts.c_standard >= 23 &&
+                ((tv && tv->kind == TYPE_NULLPTR) ||
+                 (ev && ev->kind == TYPE_NULLPTR));
+            if (c23_nullptr_operand && then_nullptr && else_nullptr) {
+                expr->type = type_nullptr;
+            } else if (c23_nullptr_operand && then_nullptr &&
+                       type_is_pointer(ev)) {
+                expr->type = ev;
+            } else if (c23_nullptr_operand && else_nullptr &&
+                       type_is_pointer(tv)) {
+                expr->type = tv;
+            } else if (c23_nullptr_operand) {
+                rcc_error(expr->loc,
+                          "C23 conditional nullptr_t operand requires a pointer or nullptr_t operand");
+                expr->type = type_int;
+            } else if (then_nullptr && else_nullptr) {
                 expr->type = type_nullptr;
             } else if (then_nullptr && type_is_pointer(ev)) {
                 expr->type = ev;

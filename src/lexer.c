@@ -416,6 +416,11 @@ static Token* lex_identifier(Lexer* lex) {
     spelling[len] = '\0';
 
     TokenType type = keyword_lookup(spelling);
+    /* C23 reserves nullptr while earlier C modes leave it as an ordinary
+     * identifier.  It remains a C++ keyword in every supported C++ mode. */
+    if (!lexer_cxx_mode && type == TOK_NULLPTR && g_opts.c_standard < 23) {
+        type = TOK_IDENT;
+    }
     if ((type == TOK_CHAR16_T || type == TOK_CHAR32_T) &&
         (!lexer_cxx_mode || lexer_cxx_standard < 11)) {
         type = TOK_IDENT;
@@ -427,7 +432,8 @@ static Token* lex_identifier(Lexer* lex) {
     /* C++ keywords are ordinary identifiers in C17.  Keeping this decision
      * in the lexer prevents a valid C implementation name such as
      * `protected` from being rejected before the C parser sees it. */
-    if (!lexer_cxx_mode && type >= TOK_CLASS && type <= TOK_CONST_CAST) {
+    if (!lexer_cxx_mode && type >= TOK_CLASS && type <= TOK_CONST_CAST &&
+        !(type == TOK_NULLPTR && g_opts.c_standard >= 23)) {
         type = TOK_IDENT;
     }
     if (!lexer_cxx_mode &&

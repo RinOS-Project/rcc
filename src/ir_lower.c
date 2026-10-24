@@ -4051,7 +4051,9 @@ static bool lower_i686_va_argument_address(
     if (address_out) *address_out = lower_invalid_value();
     supported_integer_or_pointer = argument_type &&
         (type_is_integer((Type*)argument_type) ||
-         (argument_type->kind == TYPE_PTR && argument_type->size == 4));
+         ((argument_type->kind == TYPE_PTR ||
+           argument_type->kind == TYPE_NULLPTR) &&
+          argument_type->size == 4));
     supported_promoted_double = argument_type &&
         argument_type->kind == TYPE_DOUBLE && argument_type->size == 8;
     if (!context || !address_out || g_opts.target_arch != ARCH_X86 ||
@@ -4059,7 +4061,9 @@ static bool lower_i686_va_argument_address(
         argument_type->size <= 0 ||
         (!supported_integer_or_pointer && !supported_promoted_double) ||
         argument_type->size > 8 ||
-        (argument_type->kind == TYPE_PTR && argument_type->size != 4)) {
+        ((argument_type->kind == TYPE_PTR ||
+          argument_type->kind == TYPE_NULLPTR) &&
+         argument_type->size != 4)) {
         if (context) context->unsupported = true;
         return false;
     }
