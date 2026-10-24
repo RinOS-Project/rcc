@@ -10876,6 +10876,21 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
         expression->call_func->ident_name &&
+        strcmp(expression->call_func->ident_name,
+               "__builtin_is_constant_evaluated") == 0) {
+        RccIrType builtin_type;
+        if (expression->call_args || !expression->type ||
+            !lower_type(expression->type, &builtin_type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        /* During ordinary execution the builtin is false; constexpr
+         * interpretation supplies true in the constant-evaluation context. */
+        return lower_integer_constant(context, builtin_type, false, 0u);
+    }
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
         (strcmp(expression->call_func->ident_name,
                 "__atomic_thread_fence") == 0 ||
          strcmp(expression->call_func->ident_name,
@@ -17369,6 +17384,11 @@ static bool lower_cxx_emit_delete_subobject_destructor(
 static bool lower_cxx_emit_constructor_call(
     RccIrLowerContext* context, const Expr* initializer,
     RccIrValue object);
+static bool lower_cxx_emit_class_array_constructors(
+    RccIrLowerContext* context, const Type* array_type,
+    const Type* element_type, const CxxConstructorInfo* constructor,
+    const ExprList* arguments, RccIrLowerValue array_address,
+    unsigned depth);
 
 static bool lower_cxx_constructor_initializer_expression_supported(
     RccIrLowerContext* context, const Expr* expression,
@@ -17748,6 +17768,41 @@ static bool lower_cxx_initialize_constructor_members(
             }
             continue;
         }
+        if (field->type->kind == TYPE_ARRAY && initializer->constructor) {
+            const Type* element_type =
+                lower_cxx_class_array_element(field->type);
+            uint64_t element_count;
+            Expr member_expression;
+            const Decl* member_constructor =
+                initializer->constructor->method
+                    ? initializer->constructor->method->decl : NULL;
+            memset(&member_expression, 0, sizeof(member_expression));
+            member_expression.kind = EXPR_COMPOUND;
+            member_expression.type = (Type*)element_type;
+            member_expression.compound_constructor =
+                initializer->constructor;
+            member_expression.compound_init = initializer->arguments;
+            if (!element_type || !element_type->cxx_class ||
+                !lower_cxx_class_array_count(
+                    field->type, element_type, &element_count) ||
+                !member_constructor ||
+                !lower_cleanup_constructor_call_supported(
+                    &member_expression) ||
+                !lower_noexcept_expression_list(initializer->arguments)) {
+                context->unsupported = true;
+                return false;
+            }
+            for (const ExprList* member_argument = initializer->arguments;
+                 member_argument; member_argument = member_argument->next) {
+                if (member_argument->cxx_temporary_owner ||
+                    !lower_cxx_constructor_initializer_expression_supported(
+                        context, member_argument->expr, 0u)) {
+                    context->unsupported = true;
+                    return false;
+                }
+            }
+            continue;
+        }
         if (initializer->constructor || field->type->kind == TYPE_STRUCT) {
             context->unsupported = true;
             return false;
@@ -17856,6 +17911,18 @@ static bool lower_cxx_initialize_constructor_members(
                 (field->type->cxx_nontrivial &&
                  !lower_cxx_delete_subobject_cleanup_change(
                      context, field->type, address, true, 0u))) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
+        if (field->type->kind == TYPE_ARRAY && initializer->constructor) {
+            const Type* element_type =
+                lower_cxx_class_array_element(field->type);
+            if (!address.valid || !lower_cxx_emit_class_array_constructors(
+                    context, field->type, element_type,
+                    initializer->constructor, initializer->arguments,
+                    address, 0u)) {
                 context->unsupported = true;
                 return false;
             }
@@ -19694,6 +19761,132 @@ static bool lower_cxx_emit_constructor_call(
     rcc_free(operands);
     if (!call) return false;
     rcc_ir_set_callee(call, decl_link_name(declaration));
+    return true;
+}
+
+static bool lower_cxx_emit_class_array_constructors(
+    RccIrLowerContext* context, const Type* array_type,
+    const Type* element_type, const CxxConstructorInfo* constructor,
+    const ExprList* arguments, RccIrLowerValue array_address,
+    unsigned depth) {
+    RccIrInstruction* allocation;
+    RccIrLowerValue index_address;
+    RccIrLowerValue zero;
+    RccIrLowerValue index;
+    RccIrLowerValue count_value;
+    RccIrType index_type;
+    Type* index_language_type;
+    RccIrBlock* condition_block;
+    RccIrBlock* body_block;
+    RccIrBlock* exit_block;
+    RccIrInstruction* compare;
+    RccIrValue operands[2];
+    uint64_t element_count;
+    size_t index_size;
+    Expr element_initializer;
+    if (!context || depth >= 64u || !array_address.valid ||
+        array_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !element_type || !element_type->cxx_class || !constructor ||
+        !lower_cxx_class_array_count(
+            array_type, element_type, &element_count)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    index_language_type = g_opts.target_arch == ARCH_X64
+        ? type_ulong : type_uint;
+    if (!lower_type(index_language_type, &index_type) ||
+        index_type.kind != RCC_IR_TYPE_INTEGER ||
+        (index_type.bit_width != 32u && index_type.bit_width != 64u)) {
+        context->unsupported = true;
+        return false;
+    }
+    index_size = index_type.bit_width / 8u;
+    allocation = lower_append(context, RCC_IR_ALLOCA,
+                              rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+    if (!allocation) return false;
+    rcc_ir_set_immediate(allocation, (uint64_t)index_size);
+    allocation->alignment = (uint32_t)index_size;
+    index_address = lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
+    zero = lower_integer_constant(context, index_type, true, 0u);
+    count_value = lower_integer_constant(
+        context, index_type, true, element_count);
+    if (!zero.valid || !count_value.valid ||
+        !lower_store_address(context, index_address, zero)) {
+        return false;
+    }
+    condition_block = rcc_ir_block_add(
+        context->function, "constructor.array.cond");
+    body_block = rcc_ir_block_add(
+        context->function, "constructor.array.body");
+    exit_block = rcc_ir_block_add(
+        context->function, "constructor.array.end");
+    if (!condition_block || !body_block || !exit_block ||
+        !lower_branch(context, condition_block->id)) {
+        return false;
+    }
+    context->current = condition_block;
+    context->terminated = false;
+    index = lower_load_address(context, index_address, index_language_type);
+    if (!index.valid) return false;
+    operands[0] = index.value;
+    operands[1] = count_value.value;
+    compare = lower_append(context, RCC_IR_ICMP,
+                           rcc_ir_type_integer(1u), operands, 2u, NULL, 0u);
+    if (!compare) return false;
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_ULT);
+    if (!lower_conditional_branch(
+            context, lower_value(compare->result,
+                                 rcc_ir_type_integer(1u), true),
+            body_block->id, exit_block->id)) {
+        return false;
+    }
+    context->current = body_block;
+    context->terminated = false;
+    index = lower_load_address(context, index_address, index_language_type);
+    if (!index.valid) return false;
+    operands[0] = array_address.value;
+    operands[1] = index.value;
+    {
+        RccIrInstruction* element_address = lower_append(
+            context, RCC_IR_GEP, rcc_ir_type_pointer(0u),
+            operands, 2u, NULL, 0u);
+        RccIrLowerValue element;
+        if (!element_address) return false;
+        rcc_ir_set_immediate(
+            element_address, (uint64_t)element_type->size);
+        element = lower_value(
+            element_address->result, rcc_ir_type_pointer(0u), true);
+        memset(&element_initializer, 0, sizeof(element_initializer));
+        element_initializer.kind = EXPR_COMPOUND;
+        element_initializer.type = (Type*)element_type;
+        element_initializer.compound_constructor =
+            (CxxConstructorInfo*)constructor;
+        element_initializer.compound_init = (ExprList*)arguments;
+        if (!lower_cxx_emit_constructor_call(
+                context, &element_initializer, element.value) ||
+            !lower_cxx_delete_subobject_cleanup_change(
+                context, element_type, element, true, depth + 1u)) {
+            return false;
+        }
+    }
+    index = lower_load_address(context, index_address, index_language_type);
+    zero = lower_integer_constant(context, index_type, true, 1u);
+    if (!index.valid || !zero.valid) return false;
+    operands[0] = index.value;
+    operands[1] = zero.value;
+    {
+        RccIrInstruction* increment = lower_append(
+            context, RCC_IR_ADD, index_type, operands, 2u, NULL, 0u);
+        if (!increment) return false;
+        index = lower_value(increment->result, index_type, true);
+    }
+    if (!lower_store_address(context, index_address, index) ||
+        !lower_branch(context, condition_block->id)) {
+        return false;
+    }
+    context->current = exit_block;
+    context->terminated = false;
     return true;
 }
 

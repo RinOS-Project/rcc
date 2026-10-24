@@ -198,6 +198,11 @@ struct TypeMethod;
 int rcc_sema_cxx_conversion_rank(struct Expr* expression,
                                  struct Type* source,
                                  struct Type* target);
+/* Return 1/0 when an implicit destination-class conversion is selected and
+ * its converting constructor is respectively noexcept/ potentially throwing;
+ * return -1 when the conversion is not constructor-based or is not viable. */
+int rcc_sema_cxx_conversion_constructor_noexcept(
+    struct Expr* expression, struct Type* source, struct Type* target);
 int rcc_sema_cxx_conversion_rank_with_method(
     struct Expr* expression, struct Type* source, struct Type* target,
     struct TypeMethod** conversion_method);

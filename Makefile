@@ -16,9 +16,14 @@ CFLAGS = -Wall -Wextra -std=c11 -g -O2 -MMD -MP \
 	-I$(RINOS_SDK_ROOT)/include
 LDFLAGS =
 OBJCOPY ?= objcopy
+OBJDUMP ?= objdump
+NM ?= nm
+STRINGS ?= strings
 comma = ,
 
 ifeq ($(OS),Windows_NT)
+POWERSHELL ?= powershell
+FINDSTR ?= findstr
 # Use the ISO printf implementation so the C11 `%z` length modifier remains
 # valid when RCC itself is built with MinGW's Windows CRT headers.
 CFLAGS += -D__USE_MINGW_ANSI_STDIO=1
@@ -69,13 +74,13 @@ ifeq ($(OS),Windows_NT)
 # Override this when the checkout is mounted at a different WSL path.
 WSL_RINCOMPILER_ROOT ?= /mnt/e/RinOS/public-base/toolchain/RinCompiler
 WINDOWS_TEST_OUT = $(subst /,\,$(TEST_OUT))
-CHECK_INIT_ARRAY = findstr /c:".section .init_array"
+CHECK_INIT_ARRAY = $(FINDSTR) /c:".section .init_array"
 CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(subst /,\,$(1))
-CHECK_FINI_ARRAY = findstr /c:".section .fini_array"
+CHECK_FINI_ARRAY = $(FINDSTR) /c:".section .fini_array"
 CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(subst /,\,$(1))
-CHECK_TEXT = findstr /c:"$(1)" "$(subst /,\,$(2))" >NUL
-CHECK_TEXT_ABSENT = powershell -NoProfile -Command "$$text=Get-Content -Raw -LiteralPath '$(2)'; if ($$text.Contains('$(1)')) { exit 1 }"
-GREP = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_grep.ps1"
+CHECK_TEXT = $(FINDSTR) /c:"$(1)" "$(subst /,\,$(2))" >NUL
+CHECK_TEXT_ABSENT = $(POWERSHELL) -NoProfile -Command "$$text=Get-Content -Raw -LiteralPath '$(2)'; if ($$text.Contains('$(1)')) { exit 1 }"
+GREP = $(POWERSHELL) -NoProfile -File "$(CURDIR)/scripts/rcc_grep.ps1"
 else
 CHECK_INIT_ARRAY = $(GREP) -F -q ".section .init_array"
 CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(1)
@@ -106,12 +111,12 @@ endif
 
 ifeq ($(OS),Windows_NT)
 define CHECK_BINARY_STRING
-strings $(2) > $(2).strings
+$(STRINGS) $(2) > $(2).strings
 $(GREP) -F -x -q '$(1)' $(2).strings
 endef
 else
 define CHECK_BINARY_STRING
-strings $(2) | $(GREP) -F -x -q '$(1)'
+$(STRINGS) $(2) | $(GREP) -F -x -q '$(1)'
 endef
 endif
 
@@ -120,13 +125,13 @@ MKDIR_P = if not exist "$(1)\." mkdir "$(1)"
 # cmd.exe treats forward slashes in an executable path as option syntax. Make
 # Windows expected-failure invocations use native separators before launching.
 EXPECT_FAILURE = $(subst /,\,$(subst ./,,$(1))) >$(subst /,\,$(2)) 2>&1 & if not errorlevel 1 exit /b 1
-CHECK_NONEMPTY = powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(1)') -or (Get-Item -LiteralPath '$(1)').Length -eq 0) { exit 1 }"
-COPY_FILE = powershell -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
-ASSERT_ABSENT = powershell -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { exit 1 }"
-REMOVE_FILE = powershell -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { Remove-Item -LiteralPath '$(1)' -Force }"
-CHECK_NO_SIGN_TEMP = powershell -NoProfile -Command "$$bad=Get-ChildItem -LiteralPath '$(1)' -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $$_.Name -like '*.rcc-unsigned-*' -or $$_.Name -like '*.rld-unsigned-*' -or $$_.Name -like '*.rcc-signed-*' }; if ($$bad) { exit 1 }"
+CHECK_NONEMPTY = $(POWERSHELL) -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(1)') -or (Get-Item -LiteralPath '$(1)').Length -eq 0) { exit 1 }"
+COPY_FILE = $(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
+ASSERT_ABSENT = $(POWERSHELL) -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { exit 1 }"
+REMOVE_FILE = $(POWERSHELL) -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { Remove-Item -LiteralPath '$(1)' -Force }"
+CHECK_NO_SIGN_TEMP = $(POWERSHELL) -NoProfile -Command "$$bad=Get-ChildItem -LiteralPath '$(1)' -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $$_.Name -like '*.rcc-unsigned-*' -or $$_.Name -like '*.rld-unsigned-*' -or $$_.Name -like '*.rcc-signed-*' }; if ($$bad) { exit 1 }"
 define PARALLEL_SIGNING
-powershell -NoProfile -Command "$$a=Start-Process -FilePath '$(RCC_TARGET)' -ArgumentList @('--target','i686-unknown-rinos','--sign-profile','debug','--python','python3','--rinsign','tests/fake_rinsign.py','--sign-key','tests/signing_test_private.key','--public-key','tests/signing_test_public.der','-o','$(SIGN_TEST_DIR)/parallel.rin','tests/hello.c') -PassThru; $$b=Start-Process -FilePath '$(RCC_TARGET)' -ArgumentList @('--target','i686-unknown-rinos','--sign-profile','debug','--python','python3','--rinsign','tests/fake_rinsign.py','--sign-key','tests/signing_test_private.key','--public-key','tests/signing_test_public.der','-o','$(SIGN_TEST_DIR)/parallel.rin','tests/hello.c') -PassThru; Wait-Process -Id $$a.Id,$$b.Id; $$a.Refresh(); $$b.Refresh(); if ($$a.ExitCode -ne 0 -or $$b.ExitCode -ne 0) { exit 1 }"
+$(POWERSHELL) -NoProfile -Command "$$a=Start-Process -FilePath '$(RCC_TARGET)' -ArgumentList @('--target','i686-unknown-rinos','--sign-profile','debug','--python','python3','--rinsign','tests/fake_rinsign.py','--sign-key','tests/signing_test_private.key','--public-key','tests/signing_test_public.der','-o','$(SIGN_TEST_DIR)/parallel.rin','tests/hello.c') -PassThru; $$b=Start-Process -FilePath '$(RCC_TARGET)' -ArgumentList @('--target','i686-unknown-rinos','--sign-profile','debug','--python','python3','--rinsign','tests/fake_rinsign.py','--sign-key','tests/signing_test_private.key','--public-key','tests/signing_test_public.der','-o','$(SIGN_TEST_DIR)/parallel.rin','tests/hello.c') -PassThru; Wait-Process -Id $$a.Id,$$b.Id; $$a.Refresh(); $$b.Refresh(); if ($$a.ExitCode -ne 0 -or $$b.ExitCode -ne 0) { exit 1 }"
 endef
 # Native MinGW installations commonly provide only the host CRT.  The
 # verifier still parses both x86 and x64 objects and executes the native x64
@@ -136,8 +141,8 @@ VERIFIED_BACKEND_X86_HOST_CFLAGS = $(CFLAGS)
 VERIFIED_BACKEND_X86_RUNTIME_DEPS = \
 	$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 VERIFIED_BACKEND_X86_HOST_LINK_FLAGS =
-COMPARE_FILES = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_compare_files.ps1" "$(1)" "$(2)"
-CHECK_COUNT = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "$(3)" "$(1)" "$(2)"
+COMPARE_FILES = $(POWERSHELL) -NoProfile -File "$(CURDIR)/scripts/rcc_compare_files.ps1" "$(1)" "$(2)"
+CHECK_COUNT = $(POWERSHELL) -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "$(3)" "$(1)" "$(2)"
 else
 MKDIR_P = mkdir -p "$(1)"
 EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
@@ -251,7 +256,7 @@ CXX_WINDOWS_EXCEPTION_RUNTIME = $(CXX_HOST_EXCEPTION_RUNTIME)
 define CXX_WINDOWS_MAIN
 $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/$(2)-x86.s tests/$(3)
 $(CC) -m32 -c -o $(TEST_OUT)/$(1)/$(2)-x86.o $(TEST_OUT)/$(1)/$(2)-x86.s
-objdump -f $(TEST_OUT)/$(1)/$(2)-x86.o > $(TEST_OUT)/$(1)/$(2)-x86-arch.log
+$(OBJDUMP) -f $(TEST_OUT)/$(1)/$(2)-x86.o > $(TEST_OUT)/$(1)/$(2)-x86-arch.log
 $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/$(2)-x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/$(2)-x64.s tests/$(3)
 $(CC) -c -o $(TEST_OUT)/$(1)/$(2)-x64.o $(TEST_OUT)/$(1)/$(2)-x64.s
@@ -266,7 +271,7 @@ endef
 define CXX_WINDOWS_CONSTRUCTOR_TEST
 $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
 $(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
-objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(OBJDUMP) -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
 $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
@@ -277,7 +282,7 @@ endef
 define CXX_WINDOWS_ENTRY_TEST
 $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
 $(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
-objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(OBJDUMP) -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
 $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
@@ -287,7 +292,7 @@ $(TEST_OUT)/$(1)/x64-host
 endef
 
 define CXX_I686_WIDE_MEMBER_INITIALIZER_CHECK
-objdump -d -M att $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-disassembly.log
+$(OBJDUMP) -d -M att $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-disassembly.log
 $(GREP) -F -q "cltd" $(TEST_OUT)/$(1)/x86-disassembly.log
 $(GREP) -F -q "ba 00 00 00 00" $(TEST_OUT)/$(1)/x86-disassembly.log
 $(GREP) -F -q "ba 01 00 00 00" $(TEST_OUT)/$(1)/x86-disassembly.log
@@ -301,7 +306,7 @@ $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86
 $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86-peer.s tests/$(3)
 $(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
 $(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86-peer.o $(TEST_OUT)/$(1)/x86-peer.s
-objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(OBJDUMP) -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
 $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64-peer.s tests/$(3)
@@ -326,7 +331,7 @@ endef
 define C_WINDOWS_ENTRY_TEST
 $(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
 $(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
-objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(OBJDUMP) -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
 $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
@@ -338,7 +343,7 @@ endef
 define CXX_WINDOWS_C_RUN_TEST
 $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
 $(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
-objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(OBJDUMP) -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
 $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
@@ -349,7 +354,7 @@ endef
 define CXX_WINDOWS_CONSTEXPR_TEST
 $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
 $(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
-objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(OBJDUMP) -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
 $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
@@ -376,7 +381,7 @@ ifeq ($(OS),Windows_NT)
 # omitted: its PE architecture is checked explicitly before the x64 run.
 define AGGREGATE_X86_ABI_TEST
 	$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
-	objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 endef
 else
@@ -540,7 +545,10 @@ endif
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-type-trait-builtins
+.PHONY: test-cxx-is-function-builtin
 .PHONY: test-cxx-global-allocation-operators
+.PHONY: test-cxx-class-typedef
+.PHONY: test-cxx-libcxx-type-traits-direct
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
 .PHONY: test-cxx-designated-initializer
@@ -585,6 +593,16 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-preprocessor-include test-preprocessor-include-next
 .PHONY: test-cxx-predefined-function-identifiers
 .PHONY: test-cxx-class-template-deduction test-cxx-aggregate-paren-init
+.PHONY: test-cxx-decltype-dependent-function-reference \
+	test-cxx-decltype-pseudo-destructor \
+	test-cxx-dependent-alias-template-argument \
+	test-cxx-dependent-alignas \
+	test-cxx-dependent-decltype-qualified-call \
+	test-cxx-dependent-pack-through-alias \
+	test-cxx-noexcept-function-decay \
+	test-cxx-recursive-class-partial-specialization \
+	test-cxx-template-template-parameters \
+	test-cxx-trailing-return-noexcept
 .PHONY: test-cxx-abbreviated-function-template test-cxx-trailing-requires \
 	test-cxx-constrained-abbreviated test-cxx-constrained-class-template \
 	test-cxx-raw-strings test-cxx-alternative-tokens \
@@ -628,7 +646,20 @@ CXX_REGRESSION_TARGETS = \
 	test-compiler-builtins \
 	test-atomic-builtins \
 	test-cxx-type-trait-builtins \
+	test-cxx-is-function-builtin \
+	test-cxx-decltype-dependent-function-reference \
+	test-cxx-decltype-pseudo-destructor \
+	test-cxx-dependent-alias-template-argument \
+	test-cxx-dependent-alignas \
+	test-cxx-dependent-decltype-qualified-call \
+	test-cxx-dependent-pack-through-alias \
+	test-cxx-noexcept-function-decay \
+	test-cxx-recursive-class-partial-specialization \
+	test-cxx-template-template-parameters \
+	test-cxx-trailing-return-noexcept \
 	test-cxx-global-allocation-operators \
+	test-cxx-class-typedef \
+	test-cxx-libcxx-type-traits-direct \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
 	test-preprocessor-has-include \
@@ -829,6 +860,16 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-dynamic-cast-reference \
 	test-cxx-bitfields \
 	test-cxx-global-constructor
+
+define CXX_FRONTEND_ONLY_TEST
+$(call MKDIR_P,$(TEST_OUT)/$(1))
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+	-o $(TEST_OUT)/$(1)/x86.ro tests/$(2)
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+	-o $(TEST_OUT)/$(1)/x64.ro tests/$(2)
+$(CXX) -std=c++20 -fsyntax-only tests/$(2)
+@echo "C++ frontend regression completed: $(2)"
+endef
 
 ifeq ($(OS),Windows_NT)
 $(CXX_REGRESSION_TARGETS): $(CXX_WINDOWS_EXCEPTION_RUNTIME)
@@ -1401,7 +1442,7 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-debug-info-inli
 		-Wno-unused-parameter -c \
 		-o $(TEST_OUT)/debug-info/cxx-template-gcc.o \
 		tests/debug_info_cxx_template.cpp
-	objdump --dwarf=info $(TEST_OUT)/debug-info/cxx-template-gcc.o \
+	$(OBJDUMP) --dwarf=info $(TEST_OUT)/debug-info/cxx-template-gcc.o \
 		>$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
 	$(GREP) -F -q 'DW_TAG_GNU_template_template_param' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
@@ -1413,9 +1454,9 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-debug-info-inli
 		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
 	$(GREP) -F -q 'debug_template_namespace::Leaf' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
-	strings $(TEST_OUT)/debug-info/cxx-template-gcc.o \
+	$(STRINGS) $(TEST_OUT)/debug-info/cxx-template-gcc.o \
 		>$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
-	strings $(TEST_OUT)/debug-info/cxx-template-x64-g.ro \
+	$(STRINGS) $(TEST_OUT)/debug-info/cxx-template-x64-g.ro \
 		>$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z34debug_template_template_pack_entryP31DebugTemplateTemplatePackHolderIJ25DebugTemplateTemplateLeafN24debug_template_namespace4LeafEEE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
@@ -1938,6 +1979,14 @@ test-preprocessor-has-builtin: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/preprocessor-has-builtin/libcxx-type-traits.i
 	$(GREP) -F -q 'int preprocessor_libcxx_type_traits()' \
 		$(TEST_OUT)/preprocessor-has-builtin/libcxx-type-traits.i
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-has-builtin/libcxx-type-traits-x86.ro \
+		tests/preprocessor_libcxx_type_traits.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-has-builtin/libcxx-type-traits-x64.ro \
+		tests/preprocessor_libcxx_type_traits.cpp
+	$(CXX) -std=c++20 -fsyntax-only \
+		tests/preprocessor_libcxx_type_traits.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-has-builtin/c-x86.ro \
 		tests/preprocessor_has_builtin.c
@@ -2163,7 +2212,7 @@ ifeq ($(OS),Windows_NT)
 		tests/cxx_enum_class.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-enum-class/enum-x86.o \
 		$(TEST_OUT)/cxx-enum-class/enum-x86.s
-	objdump -f $(TEST_OUT)/cxx-enum-class/enum-x86.o > $(TEST_OUT)/cxx-enum-class/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-enum-class/enum-x86.o > $(TEST_OUT)/cxx-enum-class/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-enum-class/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-enum-class/enum-x64.s \
@@ -2316,27 +2365,27 @@ test-cxx-language-core: $(RCXX_TARGET)
 ifeq ($(OS),Windows_NT)
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-language-core/new-delete-x86.o \
 		$(TEST_OUT)/cxx-language-core/new-delete-x86.s
-	objdump -f $(TEST_OUT)/cxx-language-core/new-delete-x86.o > \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-language-core/new-delete-x86.o > \
 		$(TEST_OUT)/cxx-language-core/new-delete-x86.arch
 	$(GREP) -F -q "i386" $(TEST_OUT)/cxx-language-core/new-delete-x86.arch
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-language-core/adl-x86.o \
 		$(TEST_OUT)/cxx-language-core/adl-x86.s
-	objdump -f $(TEST_OUT)/cxx-language-core/adl-x86.o > \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-language-core/adl-x86.o > \
 		$(TEST_OUT)/cxx-language-core/adl-x86.arch
 	$(GREP) -F -q "i386" $(TEST_OUT)/cxx-language-core/adl-x86.arch
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.o \
 		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.s
-	objdump -f $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.o > \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.o > \
 		$(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.arch
 	$(GREP) -F -q "i386" $(TEST_OUT)/cxx-language-core/virtual-dispatch-x86.arch
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-language-core/field-initializers-x86.o \
 		$(TEST_OUT)/cxx-language-core/field-initializers-x86.s
-	objdump -f $(TEST_OUT)/cxx-language-core/field-initializers-x86.o > \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-language-core/field-initializers-x86.o > \
 		$(TEST_OUT)/cxx-language-core/field-initializers-x86.arch
 	$(GREP) -F -q "i386" $(TEST_OUT)/cxx-language-core/field-initializers-x86.arch
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-language-core/inheritance-x86.o \
 		$(TEST_OUT)/cxx-language-core/inheritance-x86.s
-	objdump -f $(TEST_OUT)/cxx-language-core/inheritance-x86.o > \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-language-core/inheritance-x86.o > \
 		$(TEST_OUT)/cxx-language-core/inheritance-x86.arch
 	$(GREP) -F -q "i386" $(TEST_OUT)/cxx-language-core/inheritance-x86.arch
 	$(CC) -c -o $(TEST_OUT)/cxx-language-core/new-delete-x64.o \
@@ -3193,7 +3242,7 @@ test-cxx-language-linkage: $(RCXX_TARGET)
 	$(call CHECK_TEXT,_ZN14scoped_linkage17scoped_cpp_importEi,$(TEST_OUT)/cxx-language-linkage/x64.ro)
 	$(call CHECK_TEXT,_Z29call_qualified_scoped_linkagei,$(TEST_OUT)/cxx-language-linkage/x64.ro)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch '_Z14linkage_importi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }; if (Select-String -Quiet -SimpleMatch '_ZN14scoped_linkage23scoped_linkage_functionEi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }; if (Select-String -Quiet -SimpleMatch '_ZN14scoped_linkage16scoped_c_counterE' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }"
+	$(POWERSHELL) -NoProfile -Command "if (Select-String -Quiet -SimpleMatch '_Z14linkage_importi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }; if (Select-String -Quiet -SimpleMatch '_ZN14scoped_linkage23scoped_linkage_functionEi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }; if (Select-String -Quiet -SimpleMatch '_ZN14scoped_linkage16scoped_c_counterE' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }"
 else
 	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | $(GREP) -x -q '_Z14linkage_importi'
 	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | $(GREP) -x -q '_ZN14scoped_linkage23scoped_linkage_functionEi'
@@ -3806,7 +3855,7 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x86.o \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
-	objdump -f $(TEST_OUT)/cxx-static-reference-temporaries/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-reference-temporaries/x86.o \
 		> $(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
@@ -3843,7 +3892,7 @@ test-cxx-static-reference-retry-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-reference-retry/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-retry/x86.o \
 		$(TEST_OUT)/cxx-static-reference-retry/x86.s
-	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-reference-retry/x86.o \
 		> $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
@@ -3868,7 +3917,7 @@ test-cxx-static-reference-retry-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-reference-retry/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64.o \
 		$(TEST_OUT)/cxx-static-reference-retry/x64.s
-	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x64.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-reference-retry/x64.o \
 		> $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
 	$(GREP) -F -q "elf64-x86-64" \
 		$(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
@@ -3903,11 +3952,11 @@ test-cxx-static-local-exception-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-local-exception/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-local-exception/x86.o \
 		$(TEST_OUT)/cxx-static-local-exception/x86.s
-	objdump -r $(TEST_OUT)/cxx-static-local-exception/x86.o \
+	$(OBJDUMP) -r $(TEST_OUT)/cxx-static-local-exception/x86.o \
 		> $(TEST_OUT)/cxx-static-local-exception/x86-reloc.log
 	$(GREP) -E -q "R_386_TLS_LE.*__rcc_static_3_value" \
 		$(TEST_OUT)/cxx-static-local-exception/x86-reloc.log
-	objdump -f $(TEST_OUT)/cxx-static-local-exception/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-local-exception/x86.o \
 		> $(TEST_OUT)/cxx-static-local-exception/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-static-local-exception/x86-arch.log
@@ -3947,11 +3996,11 @@ test-cxx-static-local-exception-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-local-exception/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-local-exception/x64.o \
 		$(TEST_OUT)/cxx-static-local-exception/x64.s
-	objdump -r $(TEST_OUT)/cxx-static-local-exception/x64.o \
+	$(OBJDUMP) -r $(TEST_OUT)/cxx-static-local-exception/x64.o \
 		> $(TEST_OUT)/cxx-static-local-exception/x64-reloc.log
 	$(GREP) -E -q "R_X86_64_TPOFF32.*__rcc_static_3_value" \
 		$(TEST_OUT)/cxx-static-local-exception/x64-reloc.log
-	objdump -f $(TEST_OUT)/cxx-static-local-exception/x64.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-local-exception/x64.o \
 		> $(TEST_OUT)/cxx-static-local-exception/x64-arch.log
 	$(GREP) -F -q "elf64-x86-64" \
 		$(TEST_OUT)/cxx-static-local-exception/x64-arch.log
@@ -3983,7 +4032,7 @@ test-cxx-static-reference-subobjects-posix: $(RCXX_TARGET)
 		tests/cxx_static_reference_subobjects.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-subobjects/x86.o \
 		$(TEST_OUT)/cxx-static-reference-subobjects/x86.s
-	objdump -f $(TEST_OUT)/cxx-static-reference-subobjects/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-reference-subobjects/x86.o \
 		> $(TEST_OUT)/cxx-static-reference-subobjects/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-static-reference-subobjects/x86-arch.log
@@ -4008,7 +4057,7 @@ test-cxx-static-reference-conversions-posix: $(RCXX_TARGET)
 		tests/cxx_static_reference_conversions.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-conversions/x86.o \
 		$(TEST_OUT)/cxx-static-reference-conversions/x86.s
-	objdump -f $(TEST_OUT)/cxx-static-reference-conversions/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-reference-conversions/x86.o \
 		> $(TEST_OUT)/cxx-static-reference-conversions/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-static-reference-conversions/x86-arch.log
@@ -4157,7 +4206,7 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 test-cxx-structural-pointer-offset-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-pointer-offset)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-structural-pointer-offset,cxx_structural_pointer_offset_nttp.cpp)
-	objdump -f $(TEST_OUT)/cxx-structural-pointer-offset/x86.o > $(TEST_OUT)/cxx-structural-pointer-offset/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-structural-pointer-offset/x86.o > $(TEST_OUT)/cxx-structural-pointer-offset/x86-arch.log
 	$(GREP) -F -q "$(if $(filter Windows_NT,$(OS)),pe-i386,elf32-i386)" $(TEST_OUT)/cxx-structural-pointer-offset/x86-arch.log
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadL_Z32structural_pointer_offset_valuesEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELi0EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
@@ -4189,7 +4238,7 @@ test-cxx-member-pointer-reference-lifetime-posix: $(RCXX_TARGET)
 	$(CC) -m32 -c \
 		-o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.o \
 		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.s
-	objdump -f $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.o \
 		> $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86-arch.log
@@ -4215,7 +4264,7 @@ test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
 		tests/cxx_member_pointer_data.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-pointer-data/x86.o \
 		$(TEST_OUT)/cxx-member-pointer-data/x86.s
-	objdump -f $(TEST_OUT)/cxx-member-pointer-data/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-member-pointer-data/x86.o \
 		> $(TEST_OUT)/cxx-member-pointer-data/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-member-pointer-data/x86-arch.log
@@ -4308,7 +4357,7 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 		tests/cxx_member_pointer_functions.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-pointer-functions/x86.o \
 		$(TEST_OUT)/cxx-member-pointer-functions/x86.s
-	objdump -f $(TEST_OUT)/cxx-member-pointer-functions/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-member-pointer-functions/x86.o \
 		> $(TEST_OUT)/cxx-member-pointer-functions/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x86-arch.log
@@ -4644,7 +4693,7 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		tests/cxx_alias_templates.cpp
 	gcc -m32 -c -o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o \
 		$(TEST_OUT)/cxx-alias-templates/cxx11-x86.s
-	objdump -f $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o \
 		>$(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
@@ -4781,7 +4830,7 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.ro)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-alias-owner)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-class-template-alias-owner,cxx_class_template_alias_templates.cpp)
-	objdump -f $(TEST_OUT)/cxx-class-template-alias-owner/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-class-template-alias-owner/x86.o \
 		>$(TEST_OUT)/cxx-class-template-alias-owner/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-class-template-alias-owner/x86-arch.log
@@ -4791,7 +4840,7 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 	gcc -m32 -c \
 		-o $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.o \
 		$(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.s
-	objdump -f $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.o \
 		>$(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86-arch.log
@@ -4831,7 +4880,7 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.ro)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-signature-alias)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-friend-signature-alias,cxx_friend_signature_alias_templates.cpp)
-	objdump -f $(TEST_OUT)/cxx-friend-signature-alias/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-friend-signature-alias/x86.o \
 		>$(TEST_OUT)/cxx-friend-signature-alias/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-friend-signature-alias/x86-arch.log
@@ -5167,7 +5216,7 @@ test-cxx-static-reference-temporaries: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-temporaries)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-temporaries/x86.s tests/cxx_static_reference_temporaries.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x86.o $(TEST_OUT)/cxx-static-reference-temporaries/x86.s
-	objdump -f $(TEST_OUT)/cxx-static-reference-temporaries/x86.o > $(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-reference-temporaries/x86.o > $(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-temporaries/x64.s tests/cxx_static_reference_temporaries.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x64.o $(TEST_OUT)/cxx-static-reference-temporaries/x64.s
@@ -5183,7 +5232,7 @@ test-cxx-static-reference-retry: $(RCXX_TARGET)
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x86.s
 	$(GREP) -F -q "__cxa_atexit" $(TEST_OUT)/cxx-static-reference-retry/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-retry/x86.o $(TEST_OUT)/cxx-static-reference-retry/x86.s
-	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x86.o > $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-reference-retry/x86.o > $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-retry/x64.s tests/cxx_static_reference_retry.cpp
 	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-reference-retry/x64.s
@@ -5191,7 +5240,7 @@ test-cxx-static-reference-retry: $(RCXX_TARGET)
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x64.s
 	$(GREP) -F -q "__cxa_atexit" $(TEST_OUT)/cxx-static-reference-retry/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64.o $(TEST_OUT)/cxx-static-reference-retry/x64.s
-	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x64.o > $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-reference-retry/x64.o > $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
 	$(CC) $(CFLAGS) -c -o $(TEST_OUT)/cxx-static-reference-retry/guard-runtime.o tests/cxx_static_reference_guard_runtime.c
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-static-reference-retry/x64.o
@@ -5223,7 +5272,7 @@ test-cxx-static-reference-subobjects: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-subobjects)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-subobjects/x86.s tests/cxx_static_reference_subobjects.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-subobjects/x86.o $(TEST_OUT)/cxx-static-reference-subobjects/x86.s
-	objdump -f $(TEST_OUT)/cxx-static-reference-subobjects/x86.o > $(TEST_OUT)/cxx-static-reference-subobjects/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-reference-subobjects/x86.o > $(TEST_OUT)/cxx-static-reference-subobjects/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-reference-subobjects/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-subobjects/x64.s tests/cxx_static_reference_subobjects.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-subobjects/x64.o $(TEST_OUT)/cxx-static-reference-subobjects/x64.s
@@ -5237,7 +5286,7 @@ test-cxx-static-reference-conversions: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-conversions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-conversions/x86.s tests/cxx_static_reference_conversions.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-conversions/x86.o $(TEST_OUT)/cxx-static-reference-conversions/x86.s
-	objdump -f $(TEST_OUT)/cxx-static-reference-conversions/x86.o > $(TEST_OUT)/cxx-static-reference-conversions/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-static-reference-conversions/x86.o > $(TEST_OUT)/cxx-static-reference-conversions/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-reference-conversions/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-conversions/x64.s tests/cxx_static_reference_conversions.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-conversions/x64.o $(TEST_OUT)/cxx-static-reference-conversions/x64.s
@@ -5252,7 +5301,7 @@ test-cxx-member-pointer-reference-lifetime: $(RCXX_TARGET)
 		tests/cxx_member_pointer_reference_lifetime.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.o \
 		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.s
-	objdump -f $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.o \
 		> $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86-arch.log
 	$(GREP) -F -q "pe-i386" \
 		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86-arch.log
@@ -5276,7 +5325,7 @@ test-cxx-member-pointer-data: $(RCXX_TARGET)
 		tests/cxx_member_pointer_data.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-pointer-data/x86.o \
 		$(TEST_OUT)/cxx-member-pointer-data/x86.s
-	objdump -f $(TEST_OUT)/cxx-member-pointer-data/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-member-pointer-data/x86.o \
 		> $(TEST_OUT)/cxx-member-pointer-data/x86-arch.log
 	$(GREP) -F -q "pe-i386" \
 		$(TEST_OUT)/cxx-member-pointer-data/x86-arch.log
@@ -5536,7 +5585,7 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-alias-owner,cxx_class_template_alias_templates.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.s tests/cxx_class_template_alias_templates.cpp
 	gcc -m32 -c -o $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.o $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.s
-	objdump -f $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.o > $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.o > $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x64.s tests/cxx_class_template_alias_templates.cpp
 	gcc -c -o $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x64.o $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x64.s
@@ -5560,7 +5609,7 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-signature-alias,cxx_friend_signature_alias_templates.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x86.s tests/cxx_friend_signature_alias_templates.cpp
 	gcc -m32 -c -o $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x86.o $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x86.s
-	objdump -f $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x86.o > $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x86.o > $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x64.s tests/cxx_friend_signature_alias_templates.cpp
 	gcc -c -o $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x64.o $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x64.s
@@ -5576,7 +5625,7 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-signature-constrained-alias,cxx_friend_signature_constrained_alias_templates.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.s tests/cxx_alias_templates.cpp
 	gcc -m32 -c -o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.s
-	objdump -f $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o > $(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o > $(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.s tests/cxx_alias_templates.cpp
 	gcc -c -o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.s
@@ -6588,7 +6637,7 @@ test-cxx-class-template-methods: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-methods,cxx_class_template_methods.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-class-template-methods/x86-o2.s tests/cxx_class_template_methods.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-methods/x86-o2.o $(TEST_OUT)/cxx-class-template-methods/x86-o2.s
-	objdump -f $(TEST_OUT)/cxx-class-template-methods/x86-o2.o > $(TEST_OUT)/cxx-class-template-methods/x86-o2-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-class-template-methods/x86-o2.o > $(TEST_OUT)/cxx-class-template-methods/x86-o2-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-class-template-methods/x86-o2-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-class-template-methods/x64-o2.s tests/cxx_class_template_methods.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-class-template-methods/x64-o2.o $(TEST_OUT)/cxx-class-template-methods/x64-o2.s
@@ -7750,7 +7799,7 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.ro tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.log)
 	$(GREP) -F -q "no matching member overload for 'count_matching_pairs'" $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.ro)
-	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-gcc.log)
 	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.ro tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
@@ -7792,7 +7841,7 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_c_style_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_pack_size'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro)
-	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log)
 	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x86.ro tests/cxx_class_template_member_template_sizeof_type_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x86.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_type_size'" $(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x86.log
@@ -7800,7 +7849,7 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x64.ro tests/cxx_class_template_member_template_sizeof_type_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x64.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_type_size'" $(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x64.ro)
-	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_sizeof_type_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_sizeof_type_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-gcc.log)
 	$(GREP) -F -q "cannot convert" $(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.ro tests/cxx_class_template_dependent_member_return_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.log)
 	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.log
@@ -7808,10 +7857,10 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.ro tests/cxx_class_template_dependent_member_return_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.log)
 	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.ro)
-	g++ -std=c++20 -Wall -Wextra -Werror -c \
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -c \
 		-o $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
 		tests/cxx_class_template_member_function_templates.cpp
-	nm -g $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
+	$(NM) -g $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
 		> $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_pack_sizeIJilEEEiDp10PackTaggedIT_XsZT_EE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
@@ -8423,7 +8472,7 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.ro tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.log)
 	$(GREP) -F -q "no matching member overload for 'count_matching_pairs'" $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.ro)
-	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-gcc.log)
 	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.ro tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
@@ -8465,7 +8514,7 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_c_style_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_pack_size'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro)
-	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log)
 	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x86.ro tests/cxx_class_template_member_template_sizeof_type_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x86.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_type_size'" $(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x86.log
@@ -8473,12 +8522,12 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x64.ro tests/cxx_class_template_member_template_sizeof_type_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x64.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_type_size'" $(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-x64.ro)
-	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_sizeof_type_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_sizeof_type_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-gcc.log)
 	$(GREP) -F -q "cannot convert" $(TEST_OUT)/cxx-class-template-member-function-templates/sizeof-type-invalid-gcc.log
-	g++ -std=c++20 -Wall -Wextra -Werror -c \
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -c \
 		-o $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
 		tests/cxx_class_template_member_function_templates.cpp
-	nm -g $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
+	$(NM) -g $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
 		> $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_pack_sizeIJilEEEiDp10PackTaggedIT_XsZT_EE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
@@ -8713,7 +8762,7 @@ test-cxx-range-for: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-range-for)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-range-for/x86.s tests/cxx_function_pointer_probe.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-range-for/x86.o $(TEST_OUT)/cxx-range-for/x86.s
-	objdump -f $(TEST_OUT)/cxx-range-for/x86.o > $(TEST_OUT)/cxx-range-for/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-range-for/x86.o > $(TEST_OUT)/cxx-range-for/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-range-for/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-range-for/x64.s tests/cxx_function_pointer_probe.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-range-for/x64.o $(TEST_OUT)/cxx-range-for/x64.s
@@ -8737,7 +8786,7 @@ test-cxx-operator-arrow: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-operator-arrow,cxx_operator_arrow.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-operator-arrow/x86-o2.s tests/cxx_operator_arrow.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-operator-arrow/x86-o2.o $(TEST_OUT)/cxx-operator-arrow/x86-o2.s
-	objdump -f $(TEST_OUT)/cxx-operator-arrow/x86-o2.o > $(TEST_OUT)/cxx-operator-arrow/x86-o2-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-operator-arrow/x86-o2.o > $(TEST_OUT)/cxx-operator-arrow/x86-o2-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-operator-arrow/x86-o2-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-operator-arrow/x64-o2.s tests/cxx_operator_arrow.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-operator-arrow/x64-o2.o $(TEST_OUT)/cxx-operator-arrow/x64-o2.s
@@ -8781,7 +8830,7 @@ test-cxx-operator-arrow: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-operator-arrow-long-chain,cxx_operator_arrow_long_chain.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.s tests/cxx_operator_arrow_long_chain.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.o $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.s
-	objdump -f $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.o > $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2.o > $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-operator-arrow/long-chain-x86-o2-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.s tests/cxx_operator_arrow_long_chain.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.o $(TEST_OUT)/cxx-operator-arrow/long-chain-x64-o2.s
@@ -9071,7 +9120,7 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET) \
 	$(TEST_OUT)/cxx-aggregate-paren-init/ref-lifetime-gcc$(EXE_SUFFIX)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86.s tests/cxx_aggregate_paren_ref_lifetime.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86.o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86.s
-	objdump -f $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86.o > $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86.o > $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64.s tests/cxx_aggregate_paren_ref_lifetime.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64.o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64.s
@@ -9080,7 +9129,7 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET) \
 	$(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2.s tests/cxx_aggregate_paren_ref_lifetime.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2.o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2.s
-	objdump -f $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2.o > $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2.o > $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x86-o2-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2.s tests/cxx_aggregate_paren_ref_lifetime.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2.o $(TEST_OUT)/cxx-aggregate-paren-ref-lifetime/x64-o2.s
@@ -9105,7 +9154,7 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET) \
 	$(call CHECK_COUNT,incompatible aggregate copy initialization,$(TEST_OUT)/cxx-aggregate-paren-init/paren-base-invalid-x64.log,2)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -S -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.s tests/cxx_aggregate_bases.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.s
-	objdump -f $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.o > $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.arch
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.o > $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.arch
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.arch
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -S -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64.s tests/cxx_aggregate_bases.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64.o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64.s
@@ -9151,7 +9200,7 @@ test-cxx-designated-initializer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-designated-initializer)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-designated-initializer/x86.s tests/cxx_designated_initializer.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-designated-initializer/x86.o $(TEST_OUT)/cxx-designated-initializer/x86.s
-	objdump -f $(TEST_OUT)/cxx-designated-initializer/x86.o > $(TEST_OUT)/cxx-designated-initializer/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-designated-initializer/x86.o > $(TEST_OUT)/cxx-designated-initializer/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-designated-initializer/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-designated-initializer/x64.s tests/cxx_designated_initializer.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-designated-initializer/x64.o $(TEST_OUT)/cxx-designated-initializer/x64.s
@@ -9186,7 +9235,7 @@ test-cxx-utf8-literals: $(RCXX_TARGET) test-utf16-utf32-rin-format
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_utf8_char_multicodeunit_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-char-oracle.log)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-utf8-literals/x86.s tests/cxx_utf8_literals.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-utf8-literals/x86.o $(TEST_OUT)/cxx-utf8-literals/x86.s
-	objdump -f $(TEST_OUT)/cxx-utf8-literals/x86.o > $(TEST_OUT)/cxx-utf8-literals/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-utf8-literals/x86.o > $(TEST_OUT)/cxx-utf8-literals/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-utf8-literals/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-utf8-literals/x64.s tests/cxx_utf8_literals.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-utf8-literals/x64.o $(TEST_OUT)/cxx-utf8-literals/x64.s
@@ -10835,7 +10884,7 @@ test-cxx-lambda-function-pointer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-lambda-function-pointer)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-lambda-function-pointer/x86.s tests/cxx_lambda_pointer_probe.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-lambda-function-pointer/x86.o $(TEST_OUT)/cxx-lambda-function-pointer/x86.s
-	objdump -f $(TEST_OUT)/cxx-lambda-function-pointer/x86.o > $(TEST_OUT)/cxx-lambda-function-pointer/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-lambda-function-pointer/x86.o > $(TEST_OUT)/cxx-lambda-function-pointer/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-lambda-function-pointer/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-lambda-function-pointer/x64.s tests/cxx_lambda_pointer_probe.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-lambda-function-pointer/x64.o $(TEST_OUT)/cxx-lambda-function-pointer/x64.s
@@ -10971,22 +11020,22 @@ test-multiple-inputs: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/multiple-inputs/c)
 	$(call MKDIR_P,$(TEST_OUT)/multiple-inputs/cxx)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "Copy-Item -LiteralPath 'tests/hello.c' -Destination '$(TEST_OUT)/multiple-inputs/c/first.c' -Force"
-	powershell -NoProfile -Command "Copy-Item -LiteralPath 'tests/aggregate_copy.c' -Destination '$(TEST_OUT)/multiple-inputs/c/second.c' -Force"
-	powershell -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -c -MMD first.c second.c"
+	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath 'tests/hello.c' -Destination '$(TEST_OUT)/multiple-inputs/c/first.c' -Force"
+	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath 'tests/aggregate_copy.c' -Destination '$(TEST_OUT)/multiple-inputs/c/second.c' -Force"
+	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -c -MMD first.c second.c"
 	if not exist $(TEST_OUT)\multiple-inputs\c\first.ro exit /b 1
 	if not exist $(TEST_OUT)\multiple-inputs\c\second.ro exit /b 1
 	if not exist $(TEST_OUT)\multiple-inputs\c\first.d exit /b 1
 	if not exist $(TEST_OUT)\multiple-inputs\c\second.d exit /b 1
-	powershell -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -S first.c second.c"
+	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -S first.c second.c"
 	if not exist $(TEST_OUT)\multiple-inputs\c\first.s exit /b 1
 	if not exist $(TEST_OUT)\multiple-inputs\c\second.s exit /b 1
-	powershell -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -E first.c second.c > combined.i"
+	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -E first.c second.c > combined.i"
 	$(GREP) -F -q "int main" $(TEST_OUT)/multiple-inputs/c/combined.i
 	$(GREP) -F -q "struct Pair" $(TEST_OUT)/multiple-inputs/c/combined.i
-	powershell -NoProfile -Command "Copy-Item -LiteralPath 'tests/cxx_function_templates.cpp' -Destination '$(TEST_OUT)/multiple-inputs/cxx/first.cpp' -Force"
-	powershell -NoProfile -Command "Copy-Item -LiteralPath 'tests/cxx_lambda.cpp' -Destination '$(TEST_OUT)/multiple-inputs/cxx/second.cpp' -Force"
-	powershell -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/cxx)'; & '$(abspath $(RCXX_TARGET))' --target x86_64-unknown-rinos -std=c++20 -c first.cpp second.cpp"
+	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath 'tests/cxx_function_templates.cpp' -Destination '$(TEST_OUT)/multiple-inputs/cxx/first.cpp' -Force"
+	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath 'tests/cxx_lambda.cpp' -Destination '$(TEST_OUT)/multiple-inputs/cxx/second.cpp' -Force"
+	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/cxx)'; & '$(abspath $(RCXX_TARGET))' --target x86_64-unknown-rinos -std=c++20 -c first.cpp second.cpp"
 	if not exist $(TEST_OUT)\multiple-inputs\cxx\first.ro exit /b 1
 	if not exist $(TEST_OUT)\multiple-inputs\cxx\second.ro exit /b 1
 else
@@ -11669,7 +11718,7 @@ test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.s tests/cxx_typeid_local_scope_peer.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid-local-scope/x86.o $(TEST_OUT)/cxx-typeid-local-scope/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.o $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.s
-	objdump -f $(TEST_OUT)/cxx-typeid-local-scope/x86.o > $(TEST_OUT)/cxx-typeid-local-scope/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-typeid-local-scope/x86.o > $(TEST_OUT)/cxx-typeid-local-scope/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-typeid-local-scope/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-local-scope/x64.s tests/cxx_typeid_local_scope.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-local-scope/x64-peer.s tests/cxx_typeid_local_scope_peer.cpp
@@ -11891,11 +11940,11 @@ test-cxx-typeid-dynamic: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-dynamic)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-dynamic/x86.s tests/cxx_typeid_dynamic.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid-dynamic/x86.o $(TEST_OUT)/cxx-typeid-dynamic/x86.s
-	objdump -f $(TEST_OUT)/cxx-typeid-dynamic/x86.o > $(TEST_OUT)/cxx-typeid-dynamic/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-typeid-dynamic/x86.o > $(TEST_OUT)/cxx-typeid-dynamic/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-typeid-dynamic/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-dynamic/x64.s tests/cxx_typeid_dynamic.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-typeid-dynamic/x64.o $(TEST_OUT)/cxx-typeid-dynamic/x64.s
-	objdump -f $(TEST_OUT)/cxx-typeid-dynamic/x64.o > $(TEST_OUT)/cxx-typeid-dynamic/x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-typeid-dynamic/x64.o > $(TEST_OUT)/cxx-typeid-dynamic/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-typeid-dynamic/x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid-dynamic/x86.ro tests/cxx_typeid_dynamic.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid-dynamic/x64.ro tests/cxx_typeid_dynamic.cpp
@@ -12995,7 +13044,7 @@ ifeq ($(OS),Windows_NT)
 		-o $(TEST_OUT)/cxx-using/x86.s tests/cxx_using.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-using/x86.o \
 		$(TEST_OUT)/cxx-using/x86.s
-	objdump -f $(TEST_OUT)/cxx-using/x86.o > $(TEST_OUT)/cxx-using/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-using/x86.o > $(TEST_OUT)/cxx-using/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-using/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-using/x64.s tests/cxx_using.cpp
@@ -13043,7 +13092,7 @@ ifeq ($(OS),Windows_NT)
 		tests/cxx_numeric_separators.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-numeric-separators/x86.o \
 		$(TEST_OUT)/cxx-numeric-separators/x86.s
-	objdump -f $(TEST_OUT)/cxx-numeric-separators/x86.o > $(TEST_OUT)/cxx-numeric-separators/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-numeric-separators/x86.o > $(TEST_OUT)/cxx-numeric-separators/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-numeric-separators/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-numeric-separators/x64.s \
@@ -13098,7 +13147,7 @@ ifeq ($(OS),Windows_NT)
 	$(GREP) -q '_Zli7_answery' $(TEST_OUT)/cxx-user-defined-literals/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-user-defined-literals/x86.o \
 		$(TEST_OUT)/cxx-user-defined-literals/x86.s
-	objdump -f $(TEST_OUT)/cxx-user-defined-literals/x86.o > $(TEST_OUT)/cxx-user-defined-literals/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-user-defined-literals/x86.o > $(TEST_OUT)/cxx-user-defined-literals/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-user-defined-literals/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-user-defined-literals/x64.s \
@@ -13209,7 +13258,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/cxx_member_methods.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-methods/x86.o \
 		$(TEST_OUT)/cxx-member-methods/x86.s
-	objdump -f $(TEST_OUT)/cxx-member-methods/x86.o > $(TEST_OUT)/cxx-member-methods/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-member-methods/x86.o > $(TEST_OUT)/cxx-member-methods/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-member-methods/x86-arch.log
 	$(CC) -c -o $(TEST_OUT)/cxx-member-methods/x64.o \
 		$(TEST_OUT)/cxx-member-methods/x64.s
@@ -13464,8 +13513,8 @@ test-cxx-class-template-static-data-odr: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.s tests/cxx_class_template_static_data_b.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.o $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.s
-	objdump -f $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.o > $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86-arch.log
-	objdump -f $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.o > $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86.o > $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86.o > $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-class-template-static-data-odr/a-x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-class-template-static-data-odr/b-x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-static-data-odr/a-x64.s tests/cxx_class_template_static_data_a.cpp
@@ -13768,10 +13817,8 @@ test-cxx-inherited-constructor-posix: $(RCXX_TARGET)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-inherited-constructor/array-initializer-x86-freestanding,$(TEST_OUT)/cxx-inherited-constructor/array-initializer-x86-freestanding.s)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-array-initializer)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-inherited-constructor-array-initializer,cxx_inherited_constructor_array_initializer.cpp)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/nested-array-x86.ro tests/cxx_inherited_constructor_invalid_array_nested.cpp,$(TEST_OUT)/cxx-inherited-constructor/nested-array-x86.log)
-	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/nested-array-x86.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/nested-array-x64.ro tests/cxx_inherited_constructor_invalid_array_nested.cpp,$(TEST_OUT)/cxx-inherited-constructor/nested-array-x64.log)
-	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/nested-array-x64.log
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-nested-array)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-inherited-constructor-nested-array,cxx_inherited_constructor_nested_array.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.ro tests/cxx_inherited_constructor_invalid_array_cleanup.cpp,$(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.log)
 	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x64.ro tests/cxx_inherited_constructor_invalid_array_cleanup.cpp,$(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x64.log)
@@ -13870,10 +13917,8 @@ test-cxx-inherited-constructor: $(RCXX_TARGET)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-inherited-constructor/array-initializer-x86-freestanding,$(TEST_OUT)/cxx-inherited-constructor/array-initializer-x86-freestanding.s)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-array-initializer)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-array-initializer,cxx_inherited_constructor_array_initializer.cpp)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/nested-array-x86.ro tests/cxx_inherited_constructor_invalid_array_nested.cpp,$(TEST_OUT)/cxx-inherited-constructor/nested-array-x86.log)
-	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/nested-array-x86.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/nested-array-x64.ro tests/cxx_inherited_constructor_invalid_array_nested.cpp,$(TEST_OUT)/cxx-inherited-constructor/nested-array-x64.log)
-	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/nested-array-x64.log
+	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-nested-array)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-nested-array,cxx_inherited_constructor_nested_array.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.ro tests/cxx_inherited_constructor_invalid_array_cleanup.cpp,$(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.log)
 	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x64.ro tests/cxx_inherited_constructor_invalid_array_cleanup.cpp,$(TEST_OUT)/cxx-inherited-constructor/array-cleanup-x64.log)
@@ -14136,12 +14181,12 @@ test-cxx-parser-recovery: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-parser-recovery)
 ifeq ($(OS),Windows_NT)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-parser-recovery/invalid-x86.ro)
-	powershell -NoProfile -File scripts/rcc_expect_cxx_parser_recovery.ps1 \
+	$(POWERSHELL) -NoProfile -File scripts/rcc_expect_cxx_parser_recovery.ps1 \
 		-CompilerPath "$(RCXX_TARGET)" -Target i686-unknown-rinos \
 		-OutputPath "$(TEST_OUT)/cxx-parser-recovery/invalid-x86.ro"
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-parser-recovery/invalid-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-parser-recovery/invalid-x64.ro)
-	powershell -NoProfile -File scripts/rcc_expect_cxx_parser_recovery.ps1 \
+	$(POWERSHELL) -NoProfile -File scripts/rcc_expect_cxx_parser_recovery.ps1 \
 		-CompilerPath "$(RCXX_TARGET)" -Target x86_64-unknown-rinos \
 		-OutputPath "$(TEST_OUT)/cxx-parser-recovery/invalid-x64.ro"
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-parser-recovery/invalid-x64.ro)
@@ -14168,10 +14213,10 @@ else
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-parser-recovery/invalid-x64.ro)
 endif
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -SimpleMatch 'expected ;' '$(TEST_OUT)/cxx-parser-recovery/invalid-x86.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch 'too many errors' '$(TEST_OUT)/cxx-parser-recovery/invalid-x86.log') { exit 1 }"
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -SimpleMatch 'expected ;' '$(TEST_OUT)/cxx-parser-recovery/invalid-x64.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch 'too many errors' '$(TEST_OUT)/cxx-parser-recovery/invalid-x64.log') { exit 1 }"
+	$(POWERSHELL) -NoProfile -Command "if (-not (Select-String -Quiet -SimpleMatch 'expected ;' '$(TEST_OUT)/cxx-parser-recovery/invalid-x86.log')) { exit 1 }"
+	$(POWERSHELL) -NoProfile -Command "if (Select-String -Quiet -SimpleMatch 'too many errors' '$(TEST_OUT)/cxx-parser-recovery/invalid-x86.log') { exit 1 }"
+	$(POWERSHELL) -NoProfile -Command "if (-not (Select-String -Quiet -SimpleMatch 'expected ;' '$(TEST_OUT)/cxx-parser-recovery/invalid-x64.log')) { exit 1 }"
+	$(POWERSHELL) -NoProfile -Command "if (Select-String -Quiet -SimpleMatch 'too many errors' '$(TEST_OUT)/cxx-parser-recovery/invalid-x64.log') { exit 1 }"
 else
 	$(GREP) -q "expected ;" $(TEST_OUT)/cxx-parser-recovery/invalid-x86.log
 	! $(GREP) -q "too many errors" $(TEST_OUT)/cxx-parser-recovery/invalid-x86.log
@@ -14185,11 +14230,11 @@ test-cxx-exceptions: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-exceptions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exceptions/x86.s tests/cxx_exceptions_rejected.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exceptions/x86.o $(TEST_OUT)/cxx-exceptions/x86.s
-	objdump -f $(TEST_OUT)/cxx-exceptions/x86.o > $(TEST_OUT)/cxx-exceptions/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-exceptions/x86.o > $(TEST_OUT)/cxx-exceptions/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-exceptions/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exceptions/x64.s tests/cxx_exceptions_rejected.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-exceptions/x64.o $(TEST_OUT)/cxx-exceptions/x64.s
-	objdump -f $(TEST_OUT)/cxx-exceptions/x64.o > $(TEST_OUT)/cxx-exceptions/x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-exceptions/x64.o > $(TEST_OUT)/cxx-exceptions/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exceptions/x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-exceptions/x86-verified.ro tests/cxx_exceptions_rejected.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-exceptions/x64-verified.ro tests/cxx_exceptions_rejected.cpp
@@ -14271,11 +14316,11 @@ test-cxx-object-exceptions: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-object-exceptions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-object-exceptions/x86.s tests/cxx_object_exceptions.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-object-exceptions/x86.o $(TEST_OUT)/cxx-object-exceptions/x86.s
-	objdump -f $(TEST_OUT)/cxx-object-exceptions/x86.o > $(TEST_OUT)/cxx-object-exceptions/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-object-exceptions/x86.o > $(TEST_OUT)/cxx-object-exceptions/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-object-exceptions/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-object-exceptions/x64.s tests/cxx_object_exceptions.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-object-exceptions/x64.o $(TEST_OUT)/cxx-object-exceptions/x64.s
-	objdump -f $(TEST_OUT)/cxx-object-exceptions/x64.o > $(TEST_OUT)/cxx-object-exceptions/x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-object-exceptions/x64.o > $(TEST_OUT)/cxx-object-exceptions/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-object-exceptions/x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-object-exceptions/x86-verified.ro tests/cxx_object_exceptions.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-object-exceptions/x64-verified.ro tests/cxx_object_exceptions.cpp
@@ -14325,16 +14370,16 @@ test-cxx-cross-library-exceptions: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.s tests/cxx_exception_consumer.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.s
-	objdump -f $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.o > $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86-arch.log
-	objdump -f $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.o > $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.o > $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86.o > $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.s tests/cxx_exception_provider.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.s tests/cxx_exception_consumer.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.o $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.s
-	objdump -f $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.o > $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64-arch.log
-	objdump -f $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.o > $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.o > $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.o > $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-cross-library-exceptions/provider-x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -c -o $(TEST_OUT)/cxx-cross-library-exceptions/provider-x86.ro tests/cxx_exception_provider.cpp
@@ -14459,16 +14504,16 @@ test-cxx-cross-translation-unit-virtual: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86.s tests/cxx_virtual_consumer.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86.o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86.o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86.s
-	objdump -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86-arch.log
-	objdump -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.s tests/cxx_virtual_provider.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.s tests/cxx_virtual_consumer.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.o $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.o $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.s
-	objdump -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64-arch.log
-	objdump -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64.o > $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-cross-translation-unit-virtual/consumer-x64-arch.log
 	$(OBJCOPY) --redefine-sym _rcc_entry=provider_virtual_rcc_entry $(TEST_OUT)/cxx-cross-translation-unit-virtual/provider-x64.o
@@ -14546,22 +14591,22 @@ test-cxx-exception-cleanup: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME) test
 	$(call MKDIR_P,$(TEST_OUT)/cxx-exception-cleanup)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/x86.s tests/cxx_exception_cleanup.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.o $(TEST_OUT)/cxx-exception-cleanup/x86.s
-	objdump -f $(TEST_OUT)/cxx-exception-cleanup/x86.o > $(TEST_OUT)/cxx-exception-cleanup/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-exception-cleanup/x86.o > $(TEST_OUT)/cxx-exception-cleanup/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-exception-cleanup/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/x64.s tests/cxx_exception_cleanup.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.o $(TEST_OUT)/cxx-exception-cleanup/x64.s
-	objdump -f $(TEST_OUT)/cxx-exception-cleanup/x64.o > $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-exception-cleanup/x64.o > $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
 	objcopy --redefine-sym main=rcc_test_main $(TEST_OUT)/cxx-exception-cleanup/x64.o
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-exception-cleanup/x64-host tests/cxx_exception_cleanup_host.c $(TEST_OUT)/cxx-exception-cleanup/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-exception-cleanup/x64-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s tests/cxx_exception_cleanup_call_rejected.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s
-	objdump -f $(TEST_OUT)/cxx-exception-cleanup/call-x86.o > $(TEST_OUT)/cxx-exception-cleanup/call-x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-exception-cleanup/call-x86.o > $(TEST_OUT)/cxx-exception-cleanup/call-x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-exception-cleanup/call-x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/call-x64.s tests/cxx_exception_cleanup_call_rejected.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x64.o $(TEST_OUT)/cxx-exception-cleanup/call-x64.s
-	objdump -f $(TEST_OUT)/cxx-exception-cleanup/call-x64.o > $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-exception-cleanup/call-x64.o > $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,0)
@@ -14639,11 +14684,11 @@ test-cxx-nontrivial-object-exceptions: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nontrivial-object-exceptions)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.s tests/cxx_nontrivial_object_exceptions.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.s
-	objdump -f $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.o > $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.o > $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.s tests/cxx_nontrivial_object_exceptions.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.s
-	objdump -f $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.o > $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.o > $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86.ro tests/cxx_nontrivial_object_exceptions.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.ro tests/cxx_nontrivial_object_exceptions.cpp
@@ -14689,7 +14734,7 @@ ifeq ($(OS),Windows_NT)
 	$(GREP) -F -q '_ZNK14QualifierProbe4readEv' $(TEST_OUT)/cxx-const-member-overload/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-const-member-overload/x86.o \
 		$(TEST_OUT)/cxx-const-member-overload/x86.s
-	objdump -f $(TEST_OUT)/cxx-const-member-overload/x86.o > $(TEST_OUT)/cxx-const-member-overload/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-const-member-overload/x86.o > $(TEST_OUT)/cxx-const-member-overload/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-const-member-overload/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-const-member-overload/x64.s \
@@ -15100,6 +15145,18 @@ test-cxx-type-trait-builtins: $(RCXX_TARGET)
 		tests/cxx_trivially_copyable_builtin.cpp
 	@echo "C++20 type-trait intrinsic tests completed"
 
+test-cxx-is-function-builtin: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-is-function-builtin)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-is-function-builtin/x86.ro \
+		tests/cxx_is_function_builtin.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-is-function-builtin/x64.ro \
+		tests/cxx_is_function_builtin.cpp
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_is_function_builtin.cpp
+	@echo "C++ __is_function builtin tests completed"
+
 test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-global-allocation-operators)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
@@ -15111,6 +15168,60 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_global_allocation_operators.cpp
 	@echo "C++ global allocation operator declaration tests completed"
+
+test-cxx-class-typedef: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-typedef)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-class-typedef/x86.ro \
+		tests/cxx_class_typedef.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-class-typedef/x64.ro \
+		tests/cxx_class_typedef.cpp
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_class_typedef.cpp
+	@echo "C++ class-scope typedef tests completed"
+
+test-cxx-libcxx-type-traits-direct: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-libcxx-type-traits-direct)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -ffreestanding -c \
+		-o $(TEST_OUT)/cxx-libcxx-type-traits-direct/x86.ro \
+		tests/cxx_libcxx_type_traits_direct.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -ffreestanding -c \
+		-o $(TEST_OUT)/cxx-libcxx-type-traits-direct/x64.ro \
+		tests/cxx_libcxx_type_traits_direct.cpp
+	$(CXX) -std=c++20 -ffreestanding -pedantic-errors -Wno-pedantic -fsyntax-only \
+		tests/cxx_libcxx_type_traits_direct.cpp
+	@echo "Direct libcxx type_traits constructor-conversion tests completed"
+
+test-cxx-decltype-dependent-function-reference: $(RCXX_TARGET)
+	$(call CXX_FRONTEND_ONLY_TEST,cxx-decltype-dependent-function-reference,cxx_decltype_dependent_function_reference.cpp)
+
+test-cxx-decltype-pseudo-destructor: $(RCXX_TARGET)
+	$(call CXX_FRONTEND_ONLY_TEST,cxx-decltype-pseudo-destructor,cxx_decltype_pseudo_destructor.cpp)
+
+test-cxx-dependent-alias-template-argument: $(RCXX_TARGET)
+	$(call CXX_FRONTEND_ONLY_TEST,cxx-dependent-alias-template-argument,cxx_dependent_alias_template_argument.cpp)
+
+test-cxx-dependent-alignas: $(RCXX_TARGET)
+	$(call CXX_FRONTEND_ONLY_TEST,cxx-dependent-alignas,cxx_dependent_alignas.cpp)
+
+test-cxx-dependent-decltype-qualified-call: $(RCXX_TARGET)
+	$(call CXX_FRONTEND_ONLY_TEST,cxx-dependent-decltype-qualified-call,cxx_dependent_decltype_qualified_call.cpp)
+
+test-cxx-dependent-pack-through-alias: $(RCXX_TARGET)
+	$(call CXX_FRONTEND_ONLY_TEST,cxx-dependent-pack-through-alias,cxx_dependent_pack_through_alias.cpp)
+
+test-cxx-noexcept-function-decay: $(RCXX_TARGET)
+	$(call CXX_FRONTEND_ONLY_TEST,cxx-noexcept-function-decay,cxx_noexcept_function_decay.cpp)
+
+test-cxx-recursive-class-partial-specialization: $(RCXX_TARGET)
+	$(call CXX_FRONTEND_ONLY_TEST,cxx-recursive-class-partial-specialization,cxx_recursive_class_partial_specialization.cpp)
+
+test-cxx-template-template-parameters: $(RCXX_TARGET)
+	$(call CXX_FRONTEND_ONLY_TEST,cxx-template-template-parameters,cxx_template_template_parameters.cpp)
+
+test-cxx-trailing-return-noexcept: $(RCXX_TARGET)
+	$(call CXX_FRONTEND_ONLY_TEST,cxx-trailing-return-noexcept,cxx_trailing_return_noexcept.cpp)
 
 test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x86)
@@ -15714,14 +15825,14 @@ test-cxx-dynamic-cast-downcast: $(RCXX_TARGET)
 		tests/cxx_dynamic_cast_downcast.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.o \
 		$(TEST_OUT)/cxx-dynamic-cast-downcast/x86.s
-	objdump -f $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.o > $(TEST_OUT)/cxx-dynamic-cast-downcast/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-dynamic-cast-downcast/x86.o > $(TEST_OUT)/cxx-dynamic-cast-downcast/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-dynamic-cast-downcast/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.s \
 		tests/cxx_dynamic_cast_downcast.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.o \
 		$(TEST_OUT)/cxx-dynamic-cast-downcast/x64.s
-	objdump -f $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.o > $(TEST_OUT)/cxx-dynamic-cast-downcast/x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.o > $(TEST_OUT)/cxx-dynamic-cast-downcast/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-dynamic-cast-downcast/x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
@@ -15774,14 +15885,14 @@ test-cxx-dynamic-cast-runtime: $(RCXX_TARGET)
 		tests/cxx_dynamic_cast_virtual.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/x86.o \
 		$(TEST_OUT)/cxx-dynamic-cast-runtime/x86.s
-	objdump -f $(TEST_OUT)/cxx-dynamic-cast-runtime/x86.o > $(TEST_OUT)/cxx-dynamic-cast-runtime/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-dynamic-cast-runtime/x86.o > $(TEST_OUT)/cxx-dynamic-cast-runtime/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-dynamic-cast-runtime/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.s \
 		tests/cxx_dynamic_cast_virtual.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.o \
 		$(TEST_OUT)/cxx-dynamic-cast-runtime/x64.s
-	objdump -f $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.o > $(TEST_OUT)/cxx-dynamic-cast-runtime/x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.o > $(TEST_OUT)/cxx-dynamic-cast-runtime/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-dynamic-cast-runtime/x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
@@ -15834,14 +15945,14 @@ test-cxx-dynamic-cast-reference: $(RCXX_TARGET)
 		tests/cxx_dynamic_cast_reference.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/x86.o \
 		$(TEST_OUT)/cxx-dynamic-cast-reference/x86.s
-	objdump -f $(TEST_OUT)/cxx-dynamic-cast-reference/x86.o > $(TEST_OUT)/cxx-dynamic-cast-reference/x86-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-dynamic-cast-reference/x86.o > $(TEST_OUT)/cxx-dynamic-cast-reference/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-dynamic-cast-reference/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-dynamic-cast-reference/x64.s \
 		tests/cxx_dynamic_cast_reference.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/x64.o \
 		$(TEST_OUT)/cxx-dynamic-cast-reference/x64.s
-	objdump -f $(TEST_OUT)/cxx-dynamic-cast-reference/x64.o > $(TEST_OUT)/cxx-dynamic-cast-reference/x64-arch.log
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-dynamic-cast-reference/x64.o > $(TEST_OUT)/cxx-dynamic-cast-reference/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-dynamic-cast-reference/x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
@@ -16988,7 +17099,7 @@ endif
 test-parser-recovery: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/parser-recovery)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "$$out='$(TEST_OUT)/parser-recovery/invalid.log'; $$err='$(TEST_OUT)/parser-recovery/invalid.err'; $$p=Start-Process -FilePath './rcc.exe' -ArgumentList '--target','x86_64-unknown-rinos','-c','-o','$(TEST_OUT)/parser-recovery/invalid.ro','tests/parser_recovery.c' -RedirectStandardOutput $$out -RedirectStandardError $$err -PassThru; Wait-Process -Id $$p.Id -Timeout 10 -ErrorAction SilentlyContinue | Out-Null; $$p.Refresh(); if (-not $$p.HasExited) { Stop-Process -Id $$p.Id -Force -ErrorAction SilentlyContinue; Write-Error 'parser recovery timed out'; exit 1 }; Get-Content $$err | Add-Content $$out; if ($$p.ExitCode -eq 0) { Write-Error 'parser recovery fixture unexpectedly compiled'; exit 1 }"
+	$(POWERSHELL) -NoProfile -Command "$$out='$(TEST_OUT)/parser-recovery/invalid.log'; $$err='$(TEST_OUT)/parser-recovery/invalid.err'; $$p=Start-Process -FilePath './rcc.exe' -ArgumentList '--target','x86_64-unknown-rinos','-c','-o','$(TEST_OUT)/parser-recovery/invalid.ro','tests/parser_recovery.c' -RedirectStandardOutput $$out -RedirectStandardError $$err -PassThru; Wait-Process -Id $$p.Id -Timeout 10 -ErrorAction SilentlyContinue | Out-Null; $$p.Refresh(); if (-not $$p.HasExited) { Stop-Process -Id $$p.Id -Force -ErrorAction SilentlyContinue; Write-Error 'parser recovery timed out'; exit 1 }; Get-Content $$err | Add-Content $$out; if ($$p.ExitCode -eq 0) { Write-Error 'parser recovery fixture unexpectedly compiled'; exit 1 }"
 else
 	@set +e; timeout 10s $(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/parser-recovery/invalid.ro \
@@ -20487,7 +20598,7 @@ test-cxx-conversion-member-pointer-owner-ranking: $(RCXX_TARGET) $(CXX_HOST_EXCE
 	$(CC) -m32 -c \
 		-o $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86.o \
 		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86.s
-	objdump -f $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86.o \
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86.o \
 		> $(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86-arch.log
 	$(GREP) -F -q "$(if $(filter Windows_NT,$(OS)),pe-i386,elf32-i386)" \
 		$(TEST_OUT)/cxx-conversion-member-pointer-owner-ranking/x86-arch.log

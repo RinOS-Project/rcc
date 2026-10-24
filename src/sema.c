@@ -90,6 +90,12 @@ static bool sema_cxx_member_method_lookup_ambiguous(
 static bool sema_cxx_trivially_copyable(Type* type, int depth);
 static bool sema_cxx_trivially_destructible(Type* type);
 static bool is_lvalue(Expr* e);
+static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
+    Type* type, ExprList* arguments, int argument_count,
+    bool allow_explicit, bool* ambiguous);
+static bool sema_append_cxx_constructor_default_arguments(
+    ExprList** arguments, CxxConstructorInfo* constructor,
+    int supplied_count);
 
 static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
     if (!expression) return false;
@@ -2093,6 +2099,8 @@ static bool is_lvalue(Expr* e) {
             return true;
         case EXPR_COND:
             return e->cxx_conditional_lvalue;
+        case EXPR_ASSIGN:
+            return rcc_parser_is_cxx_mode();
         case EXPR_COMMA:
             return rcc_parser_is_cxx_mode() && is_lvalue(e->binary_rhs);
         case EXPR_CALL:
@@ -4093,6 +4101,42 @@ reference_binding_validated:
     if (sema_cxx_apply_derived_to_base_value_cast(e, target, false)) {
         return target;
     }
+
+    /* A converting constructor is an implicit conversion sequence when the
+     * destination is a class type.  This path is also required by the
+     * standard `is_convertible` probe in libcxx/type_traits.h: the probe is a
+     * call to a function taking `To` by value, not a direct `To{...}`
+     * expression.  Use the signature-only constructor selector here so a
+     * declaration-only constructor is sufficient in unevaluated contexts;
+     * the compound node still retains the constructor for normal lowering. */
+    if (rcc_parser_is_cxx_mode() &&
+        (target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
+        target->cxx_class && target->cxx_class->constructors) {
+        Expr* source_expression = ast_arena_alloc(sizeof(*source_expression));
+        ExprList* constructor_arguments;
+        CxxConstructorInfo* constructor;
+        bool ambiguous = false;
+        *source_expression = *e;
+        constructor_arguments = exprlist_new(source_expression);
+        constructor = sema_cxx_select_type_trait_constructor_ex(
+            target, constructor_arguments, 1, false, &ambiguous);
+        if (!ambiguous && constructor && constructor->parameters &&
+            implicit_cast_with_explicit_conversion(
+                source_expression, constructor->parameters->type, false) &&
+            (constructor->parameter_count == 1 ||
+             sema_append_cxx_constructor_default_arguments(
+                 &constructor_arguments, constructor, 1))) {
+            Expr* converted = expr_initializer_list(
+                constructor_arguments, e->loc);
+            converted->compound_type = target;
+            converted->compound_copy_init = true;
+            converted->compound_constructor = constructor;
+            converted->type = target;
+            *e = *converted;
+            return target;
+        }
+    }
+
     if (target->kind == TYPE_VECTOR &&
         e->type->kind == TYPE_VECTOR &&
         e->type->size == target->size) {
@@ -8800,6 +8844,17 @@ static bool sema_eval_constexpr_scalar_expr(
                 expression->call_func->kind == EXPR_IDENT &&
                 expression->call_func->ident_name &&
                 strcmp(expression->call_func->ident_name,
+                       "__builtin_is_constant_evaluated") == 0 &&
+                !expression->call_args) {
+                value->type = expression->type
+                    ? expression->type : type_bool;
+                value->integer_value = 1;
+                return true;
+            }
+            if (expression->call_func &&
+                expression->call_func->kind == EXPR_IDENT &&
+                expression->call_func->ident_name &&
+                strcmp(expression->call_func->ident_name,
                        "__atomic_always_lock_free") == 0) {
                 ExprList* size_argument = expression->call_args;
                 ExprList* pointer_argument = size_argument
@@ -9469,6 +9524,21 @@ static int cxx_conversion_rank_detail_at_context(
         return 2;
     }
 
+    /* A destination class may be initialized by one public non-explicit
+     * converting constructor.  Keep this in the shared ranker so template
+     * deduction and deferred decltype viability see the same user-defined
+     * conversion that implicit_cast() lowers later. */
+    if (rcc_parser_is_cxx_mode() &&
+        (target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
+        target->cxx_class && target->cxx_class->constructors) {
+        ExprList* constructor_arguments = exprlist_new(argument);
+        bool ambiguous = false;
+        CxxConstructorInfo* constructor =
+            sema_cxx_select_type_trait_constructor_ex(
+                target, constructor_arguments, 1, false, &ambiguous);
+        if (constructor && !ambiguous) return 3;
+    }
+
     if (rcc_parser_is_cxx_mode() &&
         (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION)) {
         bool ambiguous = false;
@@ -9600,6 +9670,36 @@ static int cxx_conversion_rank_detail(Expr* argument, Type* target,
 
 static int cxx_conversion_rank(Expr* argument, Type* target) {
     return cxx_conversion_rank_detail(argument, target, NULL);
+}
+
+int rcc_sema_cxx_conversion_constructor_noexcept(
+    Expr* argument, Type* source, Type* target) {
+    Expr typed_argument;
+    Expr* probe = argument;
+    ExprList* constructor_arguments;
+    CxxConstructorInfo* constructor;
+    bool ambiguous = false;
+    Decl* declaration;
+    if (!argument || !target ||
+        (target->kind != TYPE_STRUCT && target->kind != TYPE_UNION) ||
+        !target->cxx_class || !target->cxx_class->constructors) {
+        return -1;
+    }
+    if (!argument->type && source) {
+        typed_argument = *argument;
+        typed_argument.type = source;
+        probe = &typed_argument;
+    }
+    if (!probe->type) return -1;
+    constructor_arguments = exprlist_new(probe);
+    constructor = sema_cxx_select_type_trait_constructor_ex(
+        target, constructor_arguments, 1, false, &ambiguous);
+    if (!constructor || ambiguous || !constructor->method ||
+        !constructor->method->decl) {
+        return -1;
+    }
+    declaration = constructor->method->decl;
+    return declaration->func_is_noexcept ? 1 : 0;
 }
 
 int rcc_sema_cxx_conversion_rank_with_method(
@@ -13044,8 +13144,9 @@ static bool sema_cxx_type_trait_special_subobjects_are_trivial(
     return true;
 }
 
-static CxxConstructorInfo* sema_cxx_select_type_trait_constructor(
-    Type* type, ExprList* arguments, int argument_count, bool* ambiguous) {
+static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
+    Type* type, ExprList* arguments, int argument_count,
+    bool allow_explicit, bool* ambiguous) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     CxxConstructorInfo* best = NULL;
     int* best_ranks;
@@ -13070,7 +13171,9 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor(
         TypeMethod** candidate_methods;
         bool viable = true;
         if (!candidate->method || candidate->method->member_template ||
-            candidate->is_inherited ||
+            candidate->is_inherited || candidate->access != ACCESS_PUBLIC ||
+            (!allow_explicit && candidate->method->is_explicit) ||
+            candidate->is_deleted ||
             candidate->parameter_count < argument_count ||
             (candidate->parameter_count != argument_count &&
              !sema_cxx_constructor_arity_has_defaults(
@@ -13147,6 +13250,12 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor(
         }
     }
     return best;
+}
+
+static CxxConstructorInfo* sema_cxx_select_type_trait_constructor(
+    Type* type, ExprList* arguments, int argument_count, bool* ambiguous) {
+    return sema_cxx_select_type_trait_constructor_ex(
+        type, arguments, argument_count, true, ambiguous);
 }
 
 static bool sema_cxx_type_trait_is_aggregate_constructible(
@@ -16004,6 +16113,18 @@ static bool sema_noexcept_expr(Expr* expression) {
         case EXPR_PTR_MEMBER:
             return sema_noexcept_expr(expression->member_base);
         case EXPR_COMPOUND:
+            if (expression->compound_constructor) {
+                CxxConstructorInfo* constructor =
+                    expression->compound_constructor;
+                Decl* declaration = constructor->method
+                    ? constructor->method->decl : NULL;
+                if (!declaration || constructor->is_deleted ||
+                    !declaration->func_is_noexcept ||
+                    !sema_noexcept_expr_list(expression->compound_init)) {
+                    return false;
+                }
+                return true;
+            }
             if (expression->compound_type &&
                 expression->compound_type->cxx_nontrivial) return false;
             return sema_noexcept_expr_list(expression->compound_init);
@@ -19152,6 +19273,11 @@ bool rcc_sema_cxx_requires_satisfied(Expr* expression) {
     g_suppress_errors = suppress_before;
     valid = expression->kind == EXPR_INT_LIT && expression->int_val != 0;
     if (g_suppressed_error_count != suppressed_before) valid = false;
+    /* Invalid requirements are the normal representation of a false
+     * constraint. Their diagnostic probes have already been consumed above;
+     * do not let them poison an enclosing SFINAE candidate that uses this
+     * requires-expression through a concept (notably `!Concept<T>`). */
+    g_suppressed_error_count = suppressed_before;
     if (temporary_symtab) {
         symtab_free(temporary_symtab);
         g_symtab = NULL;
@@ -20465,6 +20591,19 @@ static bool sema_compiler_builtin_call(Expr* expr) {
          * the front-end's integer-constant-expression answer. */
         function->type = type_ptr(type_int);
         expr->type = type_int;
+        return true;
+    }
+    if (strcmp(name, "__builtin_is_constant_evaluated") == 0) {
+        if (expr->call_args) {
+            rcc_error(expr->loc,
+                      "__builtin_is_constant_evaluated takes no arguments");
+            for (argument = expr->call_args; argument;
+                 argument = argument->next) {
+                sema_expr(argument->expr);
+            }
+        }
+        function->type = type_ptr(type_bool);
+        expr->type = type_bool;
         return true;
     }
     if (strcmp(name, "__builtin_object_size") == 0) {

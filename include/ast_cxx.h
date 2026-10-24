@@ -478,6 +478,9 @@ bool cxx_method_override_signature_matches(const CxxMethod* derived,
 bool rcc_parser_cxx_eval_template_integer_expression(
     Expr* expression, CxxTemplate* tmpl, const int64_t* values,
     const bool* value_present, int64_t* result);
+bool rcc_parser_cxx_resolve_dependent_static_integer_members(
+    Expr** expression_pointer, CxxTemplate* tmpl, Type** arguments,
+    const int64_t* values, const bool* value_present, unsigned depth);
 bool rcc_parser_cxx_template_constraint_satisfied(
     CxxTemplate* tmpl, Type** arguments, const int64_t* values,
     const bool* value_present, SourceLoc loc);

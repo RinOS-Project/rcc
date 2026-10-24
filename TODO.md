@@ -9022,11 +9022,13 @@ remains a separate open item.
       malformed arguments, and preprocessing the libcxx type-traits header;
       the existing `__has_include`, `__has_cpp_attribute`, and C++ feature-gate
       tests also pass.
-- [ ] Direct compilation of the libcxx `type_traits.h` remains open: after
-      preprocessing, its runtime header still uses unsupported GNU attributes,
-      an ABI-incompatible `long double` member, and global allocation-operator
-      declarations not yet accepted by RCC. Remaining type-trait and
-      target-specific builtin queries still need implementation and tests.
+- [ ] Full direct compilation of the libcxx `type_traits.h` remains open. RCC
+      now parses through its ABI headers, `[[noreturn]]` linkage declarations,
+      global allocation-operator declarations, and function-type `decay`
+      patterns. The `is_convertible`/`is_nothrow_convertible` converting-
+      constructor probe is covered by a direct x86/i686 plus GCC fixture;
+      continue with the first diagnostic from any broader actual direct
+      compile, not preprocessing alone.
 - [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
       fixed-width, fast-width, and character type macros. C and C++ regressions
       verify their widths against `sizeof(void*)`, the fixed-width integer ABI,
@@ -9141,10 +9143,11 @@ remains a separate open item.
 - [ ] Full overload resolution for constructor templates, inherited and
       constrained constructors, complete implicit/out-of-class-defaulted
       special-member rules, and direct compilation of
-      `libcxx/type_traits.h` remain open. Direct compilation still encounters
-      earlier parser/ABI blockers in `libc/stddef.h` attributes and
-      `libcxx/rincxx.h` declarations; preprocessing alone is not counted as
-      header-compilation support.
+      `libcxx/type_traits.h` remain open. The former direct-probe blocker in
+      dependent function-template call substitution for
+      `decltype`/SFINAE (`is_convertible` and `is_nothrow_convertible`) is
+      implemented and covered by the dedicated direct-header fixture; the
+      broader header surface still requires the first-diagnostic workflow.
 
 ## RCC continuation (2026-10-23, global allocation operator declarations)
 
@@ -9175,3 +9178,21 @@ remains a separate open item.
       compare RCC's i686/AMD64 results against GCC C++20.
 - [ ] Remaining GNU special-member and C++ constructibility/assignability
       intrinsics and direct compilation of `libcxx/type_traits.h` remain open.
+
+## RCC continuation (2026-10-23, class typedefs and function-type packs)
+
+- [x] Parse class-scope `typedef` declarations, including multiple declarators
+      and typedefs in class-template partial specializations. RCC i686/AMD64
+      compilation and the GCC C++20 syntax oracle pass.
+- [x] Implement and advertise `__is_function(T)`, preserving dependent
+      operands until substitution. Cover function, variadic-function, and
+      function-pointer operands, plus fixed and C-variadic function-type pack
+      matching in class partial specializations. RCC i686/AMD64 and GCC C++20
+      regressions pass.
+- [x] Defer dependent explicit function-template calls in `decltype` until
+      template substitution and apply SFINAE when overload resolution fails.
+      The shared conversion ranker now accounts for public non-explicit
+      converting constructors, the noexcept evaluator accounts for the
+      selected constructor, and the dedicated `type_traits` direct fixture
+      covers viable, explicit-only, nothrow, and potentially-throwing
+      conversions for i686/AMD64 and GCC C++20.

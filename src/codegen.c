@@ -10537,6 +10537,11 @@ static void gen_cxx_exception_change_direct_subobjects32(
  * body.  The ordinary constructor function owns this prologue, so direct
  * objects, new-expressions, and static initialization all share the same
  * order and argument evaluation. */
+static const Type* gen_cxx_class_array_element32(const Type* type);
+static bool gen_cxx_class_array_count32(const Type* array_type,
+                                        const Type* element_type,
+                                        uint32_t* count);
+
 static void gen_cxx_initialize_member_initializers32(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
     ExprList* arguments, bool initialize_virtual_bases) {
@@ -10632,9 +10637,9 @@ static void gen_cxx_initialize_member_initializers32(
         }
         TypeField* field = gen_cxx_constructor_field32(
             object_type, initializer->field);
-        bool class_array_member = field && field->type &&
-            field->type->kind == TYPE_ARRAY && field->type->base &&
-            field->type->base->cxx_class;
+        const Type* array_element = field && field->type
+            ? gen_cxx_class_array_element32(field->type) : NULL;
+        bool class_array_member = array_element != NULL;
         if (!field || (!initializer->value && !initializer->arguments &&
                        !(((field->type && field->type->cxx_class) ||
                           class_array_member) &&
@@ -10644,10 +10649,12 @@ static void gen_cxx_initialize_member_initializers32(
             return;
         }
         if (class_array_member) {
-            Type* element_type = field->type->base;
+            Type* element_type = (Type*)array_element;
+            uint32_t element_count;
             int loop_label;
             int done_label;
-            if (field->type->array_len <= 0 || element_type->size <= 0 ||
+            if (!gen_cxx_class_array_count32(
+                    field->type, element_type, &element_count) ||
                 !initializer->constructor || initializer->value ||
                 initializer->arguments) {
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
@@ -10660,7 +10667,7 @@ static void gen_cxx_initialize_member_initializers32(
             if (field->offset != 0) {
                 emit_add_reg_imm(mod, ECX, (uint32_t)field->offset);
             }
-            emit_mov_reg_imm(mod, EDX, (uint32_t)field->type->array_len);
+            emit_mov_reg_imm(mod, EDX, element_count);
             emit_label(mod, loop_label);
             emit_cmp_reg_imm(mod, EDX, 0);
             emit_jcc_label(mod, CC_E, done_label);
@@ -10937,9 +10944,9 @@ static void gen_cxx_initialize_object32_mode_impl(
             }
             field = gen_cxx_constructor_field32(
                 object_type, initializer->field);
-            bool class_array_member = field && field->type &&
-                field->type->kind == TYPE_ARRAY && field->type->base &&
-                field->type->base->cxx_class;
+            const Type* array_element = field && field->type
+                ? gen_cxx_class_array_element32(field->type) : NULL;
+            bool class_array_member = array_element != NULL;
             if (!field || (!initializer->value && !initializer->arguments &&
                            !(((field->type && field->type->cxx_class) ||
                               class_array_member) &&
@@ -10949,10 +10956,12 @@ static void gen_cxx_initialize_object32_mode_impl(
                 return;
             }
             if (class_array_member) {
-                Type* element_type = field->type->base;
+                Type* element_type = (Type*)array_element;
+                uint32_t element_count;
                 int loop_label;
                 int done_label;
-                if (field->type->array_len <= 0 ||
+                if (!gen_cxx_class_array_count32(
+                        field->type, element_type, &element_count) ||
                     !initializer->constructor || initializer->value ||
                     initializer->arguments || !element_type->cxx_class) {
                     rcc_error((SourceLoc){"<constructor>", 0, 0},
@@ -10966,8 +10975,7 @@ static void gen_cxx_initialize_object32_mode_impl(
                     emit_add_reg_imm(mod, address_reg,
                                      (uint32_t)field->offset);
                 }
-                emit_mov_reg_imm(mod, EDX,
-                                 (uint32_t)field->type->array_len);
+                emit_mov_reg_imm(mod, EDX, element_count);
                 emit_label(mod, loop_label);
                 emit_cmp_reg_imm(mod, EDX, 0);
                 emit_jcc_label(mod, CC_E, done_label);
@@ -12737,6 +12745,11 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         emit_mov_reg_imm(mod, EAX,
                          argument && expr_eval_integer_constant(
                              argument, &constant) ? 1u : 0u);
+        return true;
+    }
+    if (strcmp(function->ident_name,
+               "__builtin_is_constant_evaluated") == 0) {
+        emit_mov_reg_imm(mod, EAX, 0u);
         return true;
     }
     if (strcmp(function->ident_name, "__builtin_object_size") == 0) {

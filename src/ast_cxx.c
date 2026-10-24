@@ -6732,10 +6732,19 @@ static bool cxx_template_redeclaration_type_matches(
         left->is_rvalue_reference != right->is_rvalue_reference ||
         left->is_unsigned != right->is_unsigned ||
         left->cxx_is_member_pointer != right->cxx_is_member_pointer ||
+        left->cxx_dependent_underlying_type !=
+            right->cxx_dependent_underlying_type ||
         left->cxx_dependent_alias_template !=
             right->cxx_dependent_alias_template ||
         (!!left->cxx_dependent_class_template_owner !=
          !!right->cxx_dependent_class_template_owner)) {
+        return false;
+    }
+    if (left->cxx_dependent_underlying_type &&
+        !cxx_template_redeclaration_type_matches(
+            left->cxx_underlying_type_operand, left_template,
+            right->cxx_underlying_type_operand, right_template,
+            depth + 1)) {
         return false;
     }
     if (left->cxx_dependent_class_template_owner &&
@@ -6819,7 +6828,8 @@ static bool cxx_template_redeclaration_type_matches(
                 return false;
             }
             while (left_parameter && right_parameter) {
-                if (!cxx_template_redeclaration_type_matches(
+                if (left_parameter->is_pack != right_parameter->is_pack ||
+                    !cxx_template_redeclaration_type_matches(
                         left_parameter->type, left_template,
                         right_parameter->type, right_template, depth + 1)) {
                     return false;
@@ -8459,6 +8469,18 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
             *unresolved = *type;
             unresolved->cxx_class = owner->cxx_class;
+            unresolved->cxx_template = owner->cxx_template;
+            unresolved->cxx_dependent_class_template_owner =
+                owner->cxx_dependent_class_template_owner;
+            unresolved->cxx_template_args = owner->cxx_template_args;
+            unresolved->cxx_template_value_args =
+                owner->cxx_template_value_args;
+            unresolved->cxx_template_arg_pack_expansions =
+                owner->cxx_template_arg_pack_expansions;
+            unresolved->cxx_template_arg_count =
+                owner->cxx_template_arg_count;
+            unresolved->cxx_template_param_index =
+                owner->cxx_template_param_index;
             return unresolved;
         }
         access_context = tmpl ? tmpl->active_class_instance : NULL;
@@ -8625,7 +8647,9 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     index = template_type_parameter_index(tmpl, type);
     if (index >= 0 && index < arg_count && args[index]) {
         replacement = args[index];
-        if (replacement != type && replacement->cxx_dependent) {
+        if (replacement != type && replacement->cxx_dependent &&
+            replacement->cxx_template_param_index < 0 &&
+            !replacement->cxx_dependent_member_name) {
             Type* resolved = template_substitute_type(
                 tmpl, replacement, args, arg_count, value_args,
                 value_present);
@@ -8834,6 +8858,32 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             bool is_pack_expansion =
                 type->cxx_template_arg_pack_expansions &&
                 type->cxx_template_arg_pack_expansions[nested_index];
+            /* Dependent class-template-ids reconstructed from their
+             * identity arguments can lose the parallel expansion bitmap.
+             * Recover only at the class's declared pack slot, and only when
+             * that argument actually references an enclosing template pack;
+             * a fixed argument in the pack slot remains fixed. */
+            if (!is_pack_expansion && pack_index >= 0 &&
+                nested_index >= pack_index && parameter &&
+                parameter->is_pack) {
+                Type* pack_pattern = type->cxx_template_args
+                    ? type->cxx_template_args[nested_index] : NULL;
+                Expr* pack_value_pattern = type->cxx_template_value_args
+                    ? type->cxx_template_value_args[nested_index] : NULL;
+                int type_pack_index = template_parameter_pack_index_nested(
+                    tmpl, pack_pattern);
+                int value_pack_index = template_parameter_pack_index_expression(
+                    tmpl, pack_value_pattern);
+                if (type_pack_index >= 0 && value_pack_index >= 0 &&
+                    type_pack_index != value_pack_index) {
+                    type_pack_index = -2;
+                }
+                int expansion_pack_index = type_pack_index >= 0
+                    ? type_pack_index : value_pack_index;
+                is_pack_expansion = expansion_pack_index >= 0 &&
+                    expansion_pack_index < tmpl->param_count &&
+                    tmpl->params[expansion_pack_index].is_pack;
+            }
             if (is_pack_expansion) {
                 Type* pattern_argument = type->cxx_template_args
                     ? type->cxx_template_args[nested_index] : NULL;
@@ -9187,6 +9237,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 Expr* value_expression = type->cxx_template_value_args
                     ? type->cxx_template_value_args[nested_index] : NULL;
                 Expr* substituted_expression;
+                bool value_resolved;
                 if (!value_expression) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
                               "dependent class-template non-type argument "
@@ -9196,19 +9247,39 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 substituted_expression = template_clone_expr(
                     tmpl, value_expression, args, arg_count, value_args,
                     value_present);
-                if (!substituted_expression ||
-                    !rcc_parser_cxx_eval_template_integer_expression(
+                value_resolved = substituted_expression &&
+                    rcc_parser_cxx_resolve_dependent_static_integer_members(
+                        &substituted_expression, tmpl, args, value_args,
+                        value_present, 0u) &&
+                    rcc_parser_cxx_eval_template_integer_expression(
                         substituted_expression, tmpl, value_args,
-                        value_present, &nested_values[nested_count])) {
+                        value_present, &nested_values[nested_count]);
+                if (!value_resolved && tmpl &&
+                    tmpl->kind == TMPL_FUNCTION) {
+                    /* A class-template non-type argument in a function
+                     * template's parameter type is a substitution context.
+                     * An unavailable, inaccessible, or non-constant member
+                     * makes this candidate non-viable; retain the expression
+                     * as dependent so overload resolution can discard it
+                     * without issuing a hard diagnostic. */
+                    nested_value_expressions[nested_count] =
+                        substituted_expression ? substituted_expression
+                                               : value_expression;
+                    nested_arguments[nested_count] = parameter->type
+                        ? parameter->type : type_int;
+                    still_dependent = true;
+                } else if (!value_resolved) {
                     rcc_error(value_expression->loc,
                               "dependent class-template non-type argument "
                               "must be an integer constant expression");
                     return NULL;
+                } else {
+                    nested_value_expressions[nested_count] = expr_int(
+                        nested_values[nested_count], value_expression->loc);
+                    nested_arguments[nested_count] = parameter->type
+                        ? parameter->type : type_int;
+                    nested_value_present[nested_count] = true;
                 }
-                nested_value_expressions[nested_count] = value_expression;
-                nested_arguments[nested_count] = parameter->type
-                    ? parameter->type : type_int;
-                nested_value_present[nested_count] = true;
             } else {
                 if (!parameter) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
@@ -12229,6 +12300,18 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             }
             break;
         }
+        case EXPR_NOEXCEPT:
+            copy->unary_operand = template_clone_expr(
+                tmpl, expression->unary_operand, args, arg_count,
+                value_args, value_present);
+            /* A dependent noexcept expression can be semantically visited
+             * while its template is declared, leaving a provisional value
+             * cached on the source node.  Its operands may become
+             * non-throwing only after substitution, so the cloned node must
+             * be evaluated against the substituted expression. */
+            copy->cxx_noexcept_value = false;
+            copy->cxx_noexcept_value_valid = false;
+            break;
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -12240,7 +12323,6 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
         case EXPR_POSTDEC:
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
-        case EXPR_NOEXCEPT:
             copy->unary_operand = template_clone_expr(
                 tmpl, expression->unary_operand, args, arg_count,
                 value_args, value_present);
@@ -12367,6 +12449,54 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->call_args = template_clone_expr_list(
                 tmpl, expression->call_args, args, arg_count,
                 value_args, value_present);
+            if (expression->cxx_dependent_function_template_call) {
+                CxxDependentFunctionTemplateCall* source_call =
+                    expression->cxx_dependent_function_template_call;
+                CxxDependentFunctionTemplateCall* cloned_call =
+                    ast_arena_alloc(sizeof(*cloned_call));
+                *cloned_call = *source_call;
+                cloned_call->candidates = source_call->candidate_count > 0
+                    ? ast_arena_alloc(sizeof(cloned_call->candidates[0]) *
+                                      (size_t)source_call->candidate_count)
+                    : NULL;
+                if (cloned_call->candidates) {
+                    memcpy(cloned_call->candidates, source_call->candidates,
+                           sizeof(cloned_call->candidates[0]) *
+                               (size_t)source_call->candidate_count);
+                }
+                cloned_call->explicit_arguments =
+                    source_call->explicit_argument_count > 0
+                        ? ast_arena_alloc(
+                              sizeof(cloned_call->explicit_arguments[0]) *
+                              (size_t)source_call->explicit_argument_count)
+                        : NULL;
+                for (int index = 0;
+                     cloned_call->explicit_arguments &&
+                     index < source_call->explicit_argument_count; ++index) {
+                    CxxParsedTemplateArgument* destination =
+                        &cloned_call->explicit_arguments[index];
+                    const CxxParsedTemplateArgument* source =
+                        &source_call->explicit_arguments[index];
+                    *destination = *source;
+                    destination->type = source->is_type
+                        ? template_substitute_type(
+                              tmpl, source->type, args, arg_count,
+                              value_args, value_present)
+                        : NULL;
+                    destination->value_expression = source->is_type
+                        ? NULL
+                        : template_clone_expr(
+                              tmpl, source->value_expression, args,
+                              arg_count, value_args, value_present);
+                    if (destination->value_expression &&
+                        expr_eval_integer_constant(
+                            destination->value_expression,
+                            &destination->value)) {
+                        destination->value_valid = true;
+                    }
+                }
+                copy->cxx_dependent_function_template_call = cloned_call;
+            }
             copy->call_abi_function_type = template_substitute_type(
                 tmpl, expression->call_abi_function_type, args, arg_count,
                 value_args, value_present);
@@ -12423,6 +12553,9 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
         case EXPR_PTR_MEMBER:
             copy->member_base = template_clone_expr(
                 tmpl, expression->member_base, args, arg_count,
+                value_args, value_present);
+            copy->member_destructor_type = template_substitute_type(
+                tmpl, expression->member_destructor_type, args, arg_count,
                 value_args, value_present);
             copy->member_field = NULL;
             if (expression->member_template_argument_count > 0 &&

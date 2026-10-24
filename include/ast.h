@@ -21,6 +21,8 @@ typedef struct TypeMethod TypeMethod;
 typedef struct CxxCatch CxxCatch;
 typedef struct CxxCleanupPlan CxxCleanupPlan;
 typedef struct CxxParsedTemplateArgument CxxParsedTemplateArgument;
+typedef struct CxxDependentFunctionTemplateCall
+    CxxDependentFunctionTemplateCall;
 struct ExprList;
 struct Token;
 struct CxxClass;
@@ -33,6 +35,14 @@ struct CxxParsedTemplateArgument {
     int64_t value;
     bool value_valid;
     Expr* value_expression;
+};
+
+struct CxxDependentFunctionTemplateCall {
+    struct CxxTemplate** candidates;
+    int candidate_count;
+    CxxParsedTemplateArgument* explicit_arguments;
+    int explicit_argument_count;
+    bool explicit_arguments_specified;
 };
 
 /* ═══════════════════════════════════════
@@ -94,6 +104,8 @@ typedef struct TypeField {
 typedef struct TypeParam {
     const char* name;
     Type* type;
+    /* Function-type template parameter packs are retained in the type tree. */
+    bool is_pack;
     bool is_bitfield;
     unsigned bit_width;
     bool is_static;
@@ -169,6 +181,8 @@ struct Type {
     int size;           /* Size in bytes */
     int align;          /* Alignment */
     bool has_explicit_alignment;
+    /* Deferred C++ alignas expression in a class-template field type. */
+    Expr* cxx_dependent_alignment_expr;
     bool is_unsigned;
     /* Integer character types retain distinct C/C++ identities despite
      * sharing their underlying integer representation. */
@@ -191,6 +205,13 @@ struct Type {
     bool cxx_is_class;
     bool cxx_nontrivial;
     bool cxx_dependent;
+    /* Deferred GNU __underlying_type(T) when T is a template parameter. */
+    bool cxx_dependent_underlying_type;
+    Type* cxx_underlying_type_operand;
+    /* Retain a dependent decltype expression until class-template partial
+     * specialization matching can recheck its calls after substitution. */
+    Expr* cxx_dependent_decltype_expr;
+    bool cxx_dependent_decltype_parenthesized;
     /* C++ fixed-underlying-type enums retain the actual integer type so the
      * parser can validate every enumerator against its signedness and width. */
     bool enum_has_fixed_underlying;
@@ -210,6 +231,9 @@ struct Type {
     /* A dependent `T::template alias<...>` type-id retains its explicit
      * specialization arguments until T is known. */
     bool cxx_dependent_alias_template;
+    /* A dependent nested alias template used as a template-template argument
+     * retains its owner until that class-template specialization is known. */
+    bool cxx_dependent_template_template_argument;
     /* Keep a substituted dependent owner expression when an alias resolves
      * to another dependent nested alias, so later instantiation can continue
      * the owner chain instead of reusing an out-of-scope parameter index. */
@@ -526,6 +550,7 @@ typedef enum {
     CXX_TYPE_TRAIT_ABSTRACT,
     CXX_TYPE_TRAIT_POLYMORPHIC,
     CXX_TYPE_TRAIT_EMPTY,
+    CXX_TYPE_TRAIT_FUNCTION,
 } CxxTypeTraitKind;
 
 typedef enum {
@@ -742,6 +767,9 @@ struct Expr {
      * class-template-id. Enclosing-class substitution must retain references
      * that belong to a member template until that member is specialized. */
     struct CxxTemplate* cxx_template_context;
+    /* A function-template call whose overload depends on an enclosing
+     * template argument is retained until substitution can select it. */
+    CxxDependentFunctionTemplateCall* cxx_dependent_function_template_call;
     /* A fold instantiated before a nested member-template pack is available
      * keeps the corresponding expansion element on dependent sizeof/alignof
      * expressions until that member template is specialized. */
@@ -879,6 +907,7 @@ struct Expr {
             TypeField* member_field; /* Resolved during sema */
             bool member_is_explicit_destructor;
             const char* member_destructor_name;
+            Type* member_destructor_type;
             bool member_has_template_arguments;
             CxxParsedTemplateArgument* member_template_arguments;
             int member_template_argument_count;
@@ -1334,6 +1363,7 @@ struct Decl {
             struct CxxTemplate* var_cxx_lambda_template;
             bool var_cxx_lambda_specialized;
             bool var_is_constexpr;  /* C++ constexpr variable declaration. */
+            bool var_is_being_constant_evaluated;
             bool var_is_constinit;  /* C++20 constant-initialized variable. */
             bool var_is_inline;     /* C++17 inline variable definition. */
             bool var_is_deprecated; /* C++17 deprecated variable declaration. */

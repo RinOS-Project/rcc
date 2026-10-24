@@ -44,6 +44,7 @@ bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void) {
 extern Type* rcc_parse_cxx_direct_list_type(void) RCC_OPTIONAL_CXX;
 extern Type* rcc_parse_cxx_type_name(void) RCC_OPTIONAL_CXX;
 extern Type* rcc_parser_cxx_find_class_type(const char*) RCC_OPTIONAL_CXX;
+extern Type* rcc_parser_cxx_destructor_type(const char*) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_functional_cast(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_member_template_arguments(Expr*) RCC_OPTIONAL_CXX;
@@ -933,6 +934,54 @@ static bool eval_integer_constant_typed(Expr* expr,
             value->bits = expr_char_code_unit(expr);
             value->type = expr->type ? expr->type : type_int;
             return true;
+        case EXPR_IDENT:
+            if (expr->ident_decl &&
+                expr->ident_decl->kind == DECL_VAR &&
+                expr->ident_decl->var_is_constexpr &&
+                expr->ident_decl->var_init &&
+                !expr->ident_decl->var_is_being_constant_evaluated) {
+                Decl* declaration = expr->ident_decl;
+                bool evaluated;
+                declaration->var_is_being_constant_evaluated = true;
+                evaluated = eval_integer_constant_typed(
+                    declaration->var_init, value);
+                declaration->var_is_being_constant_evaluated = false;
+                return evaluated;
+            }
+            return false;
+        case EXPR_MEMBER:
+            if (expr->member_base && expr->member_base->type &&
+                expr->member_base->type->cxx_class && expr->member_name) {
+                for (struct CxxMember* member =
+                         expr->member_base->type->cxx_class->members;
+                     member; member = member->next) {
+                    Decl* declaration = member->decl;
+                    const char* declared_name =
+                        declaration ? declaration->name : NULL;
+                    const char* separator = declared_name
+                        ? strrchr(declared_name, ':') : NULL;
+                    if (separator && separator > declared_name &&
+                        separator[-1] == ':') {
+                        declared_name = separator + 1;
+                    }
+                    if (!member->is_static || !declaration ||
+                        declaration->kind != DECL_VAR ||
+                        !declared_name ||
+                        strcmp(declared_name, expr->member_name) != 0 ||
+                        !declaration->var_is_constexpr ||
+                        !declaration->var_init ||
+                        declaration->var_is_being_constant_evaluated) {
+                        continue;
+                    }
+                    bool evaluated;
+                    declaration->var_is_being_constant_evaluated = true;
+                    evaluated = eval_integer_constant_typed(
+                        declaration->var_init, value);
+                    declaration->var_is_being_constant_evaluated = false;
+                    return evaluated;
+                }
+            }
+            return false;
         case EXPR_CXX_TYPE_TRAIT: {
             bool trait_value;
             if (!parser_cxx_type_trait_value(
@@ -1355,6 +1404,30 @@ Type* rcc_parser_lookup_type(const char* name) {
     if (type || !name ||
         (parser_ambiguous_type_name &&
          strcmp(parser_ambiguous_type_name, name) == 0)) return type;
+    /* A leading global-scope qualifier must bypass namespace lookup.  The
+     * ordinary C++ lookup helper intentionally searches visible namespaces,
+     * while `::name` denotes only a translation-unit-scope declaration. */
+    if (name[0] == ':' && name[1] == ':' &&
+        !strstr(name + 2, "::")) {
+        const char* global_name = name + 2;
+        for (ParserTypeName* entry = parser_type_names; entry;
+             entry = entry->next) {
+            if (entry->name && strcmp(entry->name, global_name) == 0 &&
+                entry->scope == parser_tag_root_scope &&
+                (!entry->cxx_namespace || !*entry->cxx_namespace)) {
+                return entry->type;
+            }
+        }
+        for (tag = parser_tag_names; tag; tag = tag->next) {
+            if (tag->name && strcmp(tag->name, global_name) == 0 &&
+                tag->scope == parser_tag_root_scope &&
+                (!tag->cxx_namespace || !*tag->cxx_namespace) &&
+                (tag->kind == TYPE_ENUM || tag->kind == TYPE_STRUCT ||
+                 tag->kind == TYPE_UNION)) {
+                return tag->type;
+            }
+        }
+    }
     {
         const char* qualified_name = name;
         const char* final_separator;
@@ -1679,7 +1752,8 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
             argument->type = parse_type_spec();
             argument->type = parse_declarator(argument->type, NULL, NULL);
             argument->is_pack_expansion = parser_cxx_mode &&
-                                           match(TOK_ELLIPSIS);
+                (parser_last_declarator_parameter_pack ||
+                 match(TOK_ELLIPSIS));
             argument->next = NULL;
             *arguments_tail = argument;
             arguments_tail = &argument->next;
@@ -1762,6 +1836,8 @@ static bool parser_cxx_type_trait_kind(const char* name,
         *kind = CXX_TYPE_TRAIT_POLYMORPHIC;
     } else if (strcmp(name, "__is_empty") == 0) {
         *kind = CXX_TYPE_TRAIT_EMPTY;
+    } else if (strcmp(name, "__is_function") == 0) {
+        *kind = CXX_TYPE_TRAIT_FUNCTION;
     } else {
         return false;
     }
@@ -1930,6 +2006,9 @@ static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
             break;
         case CXX_TYPE_TRAIT_EMPTY:
             *value = cxx_class_is_empty(type->cxx_class);
+            break;
+        case CXX_TYPE_TRAIT_FUNCTION:
+            *value = type->kind == TYPE_FUNC;
             break;
     }
     return true;
@@ -2288,7 +2367,8 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__is_final") ||
          parser_builtin_name("__is_abstract") ||
          parser_builtin_name("__is_polymorphic") ||
-         parser_builtin_name("__is_empty"))) {
+         parser_builtin_name("__is_empty") ||
+         parser_builtin_name("__is_function"))) {
         return parse_builtin_cxx_type_trait(loc);
     }
     if (parser_builtin_name("__builtin_va_start") ||
@@ -2511,6 +2591,16 @@ static Expr* parse_postfix_tail(Expr* e) {
                     e->member_is_explicit_destructor = true;
                     e->member_destructor_name =
                         destructor_name->value.str_val;
+                    e->member_destructor_type =
+                        rcc_parser_cxx_destructor_type
+                            ? rcc_parser_cxx_destructor_type(
+                                  e->member_destructor_name)
+                            : NULL;
+                    if (!e->member_destructor_type) {
+                        rcc_error(destructor_name->loc,
+                                  "unknown pseudo-destructor type '%s'",
+                                  e->member_destructor_name);
+                    }
                 }
             } else {
                 Token* name = expect(TOK_IDENT, "member name");
@@ -2533,6 +2623,16 @@ static Expr* parse_postfix_tail(Expr* e) {
                     m->member_is_explicit_destructor = true;
                     m->member_destructor_name =
                         destructor_name->value.str_val;
+                    m->member_destructor_type =
+                        rcc_parser_cxx_destructor_type
+                            ? rcc_parser_cxx_destructor_type(
+                                  m->member_destructor_name)
+                            : NULL;
+                    if (!m->member_destructor_type) {
+                        rcc_error(destructor_name->loc,
+                                  "unknown pseudo-destructor type '%s'",
+                                  m->member_destructor_name);
+                    }
                     e = m;
                 }
             } else {
@@ -2810,7 +2910,8 @@ static bool parser_cxx_template_shift_closes_arguments(void) {
      * as expressions. */
     return next_type == TOK_COMMA || next_type == TOK_GT ||
            next_type == TOK_RPAREN || next_type == TOK_RBRACKET ||
-           next_type == TOK_RBRACE || next_type == TOK_SEMICOLON ||
+           next_type == TOK_RBRACE || next_type == TOK_LBRACE ||
+           next_type == TOK_COLON || next_type == TOK_SEMICOLON ||
            next_type == TOK_EOF;
 }
 
@@ -4558,6 +4659,7 @@ static TypeParam* parser_type_params(DeclList* parameters, bool* variadic) {
         TypeParam* param = ast_arena_alloc(sizeof(*param));
         param->name = item->decl->name;
         param->type = item->decl->type;
+        param->is_pack = item->decl->param_is_pack;
         param->is_bitfield = false;
         param->bit_width = 0u;
         param->is_static = false;
@@ -4603,6 +4705,12 @@ static DeclList* parse_parameter_list(bool* variadic) {
             parameter_base = type_int;
         }
         parameter_type = parse_declarator(parameter_base, &parameter_name, NULL);
+        /* In a function type pattern, `Args...` is a type-pack expansion,
+         * distinct from the final C-style `...` handled at the top of this
+         * loop.  parse_declarator also records the named `Args... name` form. */
+        if (parser_cxx_mode && match(TOK_ELLIPSIS)) {
+            parser_last_declarator_parameter_pack = true;
+        }
         /* GNU parameter attributes follow the declarator, as in
          * `int callback(void *context __attribute__((unused)))`. */
         skip_attributes();
@@ -4990,7 +5098,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
         }
         expect(TOK_RPAREN, ")");
         expect(TOK_LPAREN, "(");
-        has_prototype = !check(TOK_RPAREN);
+        has_prototype = parser_cxx_mode || !check(TOK_RPAREN);
         if (parser_is_old_style_parameter_list()) {
             function_parameters = parse_old_style_parameter_list();
             has_prototype = false;
@@ -5078,9 +5186,15 @@ static Type* parse_declarator(Type* base_type, const char** name,
     }
 
     type = apply_pointer_levels(type, leading_pointers);
+    if (parser_cxx_mode && match(TOK_ELLIPSIS)) {
+        declarator_parameter_pack = true;
+    }
     if (!parenthesized_pointer && check(TOK_IDENT)) {
         Token* identifier = advance();
         if (name) *name = identifier->value.str_val;
+    }
+    if (parser_cxx_mode && match(TOK_ELLIPSIS)) {
+        declarator_parameter_pack = true;
     }
 
     for (;;) {
@@ -5144,7 +5258,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
             break;
         } else if (match(TOK_LPAREN)) {
             bool variadic = false;
-            bool has_prototype = !check(TOK_RPAREN);
+            bool has_prototype = parser_cxx_mode || !check(TOK_RPAREN);
             DeclList* function_parameters;
             if (parser_is_old_style_parameter_list()) {
                 function_parameters = parse_old_style_parameter_list();
@@ -5157,6 +5271,24 @@ static Type* parse_declarator(Type* base_type, const char** name,
                              parser_type_params(function_parameters, &variadic),
                              variadic);
             type->has_prototype = has_prototype;
+            if (parser_cxx_mode && match(TOK_NOEXCEPT)) {
+                type->function_is_noexcept = true;
+                if (match(TOK_LPAREN)) {
+                    Expr* noexcept_expression = parse_expression();
+                    int64_t noexcept_value = 0;
+                    expect(TOK_RPAREN, ")");
+                    if (!noexcept_expression ||
+                        !eval_integer_constant(noexcept_expression,
+                                               &noexcept_value)) {
+                        rcc_error(noexcept_expression
+                                      ? noexcept_expression->loc
+                                      : previous()->loc,
+                                  "function type noexcept requires an integral constant expression");
+                    } else {
+                        type->function_is_noexcept = noexcept_value != 0;
+                    }
+                }
+            }
             if (parameters) *parameters = function_parameters;
         } else {
             break;

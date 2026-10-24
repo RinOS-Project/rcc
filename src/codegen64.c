@@ -3105,6 +3105,11 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
                 argument, &constant) ? UINT64_C(1) : UINT64_C(0));
         return true;
     }
+    if (strcmp(function->ident_name,
+               "__builtin_is_constant_evaluated") == 0) {
+        emit64_mov_reg_imm64(mod, RAX, UINT64_C(0));
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_object_size") == 0) {
         Expr* object = call64_argument(expr, 0);
         int64_t mode = 0;
@@ -6097,6 +6102,11 @@ static void gen64_cxx_exception_change_direct_subobjects(
 /* Execute a validated mem-initializer list before a non-empty constructor
  * body.  The constructor function owns this prologue, keeping automatic,
  * allocated, and static objects on one initialization path. */
+static const Type* gen64_cxx_class_array_element(const Type* type);
+static bool gen64_cxx_class_array_count(const Type* array_type,
+                                        const Type* element_type,
+                                        uint64_t* count);
+
 static void gen64_cxx_initialize_member_initializers(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
     ExprList* arguments, bool initialize_virtual_bases) {
@@ -6194,9 +6204,9 @@ static void gen64_cxx_initialize_member_initializers(
         }
         TypeField* field = gen64_cxx_constructor_field(
             object_type, initializer->field);
-        bool class_array_member = field && field->type &&
-            field->type->kind == TYPE_ARRAY && field->type->base &&
-            field->type->base->cxx_class;
+        const Type* array_element = field && field->type
+            ? gen64_cxx_class_array_element(field->type) : NULL;
+        bool class_array_member = array_element != NULL;
         if (!field || (!initializer->value && !initializer->arguments &&
                        !(((field->type && field->type->cxx_class) ||
                           class_array_member) &&
@@ -6206,10 +6216,12 @@ static void gen64_cxx_initialize_member_initializers(
             return;
         }
         if (class_array_member) {
-            Type* element_type = field->type->base;
+            Type* element_type = (Type*)array_element;
+            uint64_t element_count;
             int loop_label;
             int done_label;
-            if (field->type->array_len <= 0 || element_type->size <= 0 ||
+            if (!gen64_cxx_class_array_count(
+                    field->type, element_type, &element_count) ||
                 !initializer->constructor || initializer->value ||
                 initializer->arguments) {
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
@@ -6222,8 +6234,7 @@ static void gen64_cxx_initialize_member_initializers(
             if (field->offset != 0) {
                 emit64_add_reg_imm(mod, RCX, (uint32_t)field->offset);
             }
-            emit64_mov_reg_imm32(mod, RDX,
-                                 (uint32_t)field->type->array_len);
+            emit64_mov_reg_imm64(mod, RDX, element_count);
             emit64_label(mod, loop_label);
             emit64_cmp_reg_imm(mod, RDX, 0);
             emit64_jcc_label(mod, CC64_E, done_label);
@@ -6498,9 +6509,9 @@ static void gen64_cxx_initialize_object_mode_impl(
             }
             field = gen64_cxx_constructor_field(
                 object_type, initializer->field);
-            bool class_array_member = field && field->type &&
-                field->type->kind == TYPE_ARRAY && field->type->base &&
-                field->type->base->cxx_class;
+            const Type* array_element = field && field->type
+                ? gen64_cxx_class_array_element(field->type) : NULL;
+            bool class_array_member = array_element != NULL;
             if (!field || (!initializer->value && !initializer->arguments &&
                            !(((field->type && field->type->cxx_class) ||
                               class_array_member) &&
@@ -6510,10 +6521,12 @@ static void gen64_cxx_initialize_object_mode_impl(
                 return;
             }
             if (class_array_member) {
-                Type* element_type = field->type->base;
+                Type* element_type = (Type*)array_element;
+                uint64_t element_count;
                 int loop_label;
                 int done_label;
-                if (field->type->array_len <= 0 ||
+                if (!gen64_cxx_class_array_count(
+                        field->type, element_type, &element_count) ||
                     !initializer->constructor || initializer->value ||
                     initializer->arguments || !element_type->cxx_class) {
                     rcc_error((SourceLoc){"<constructor>", 0, 0},
@@ -6526,8 +6539,7 @@ static void gen64_cxx_initialize_object_mode_impl(
                 if (field->offset != 0) {
                     emit64_add_reg_imm(mod, address_reg, field->offset);
                 }
-                emit64_mov_reg_imm32(mod, RDX,
-                                     (uint32_t)field->type->array_len);
+                emit64_mov_reg_imm64(mod, RDX, element_count);
                 emit64_label(mod, loop_label);
                 emit64_cmp_reg_imm(mod, RDX, 0);
                 emit64_jcc_label(mod, CC64_E, done_label);

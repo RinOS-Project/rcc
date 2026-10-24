@@ -188,51 +188,55 @@ int alias_class(BoxAlias<int>* value) {
 }
 
 int main() {
+#define CHECK_ALIAS_CASE(number, expression) \
+    do { \
+        if (!(expression)) return number; \
+    } while (0)
     BoxAlias<int> box;
     box.value = 40;
     IntArray<3> values = {1, 2, 3};
     int value = 5;
-    return alias_identity(3) == 5 &&
-                   alias_pointer(&value) == 5 &&
-                   alias_class(&box) == 40 &&
-                   empty_alias_pack_value.marker == 67 &&
-                   alias_pack_value(&multi_alias_pack_value) == 71 &&
-                   forwarded_empty_alias_pack_value.marker == 73 &&
-                   forwarded_multi_alias_pack_value.marker == 79 &&
-                   forwarded_chain_alias_pack_value.marker == 83 &&
-                   alias_pack_around_value(
-                       &forwarded_around_alias_pack_value) == 89 &&
-                   alias_pack_forward_size(
-                       &forwarded_chain_alias_pack_value) == 12 &&
-                   alias_pack_around_size(
-                       &forwarded_around_alias_pack_value) == 12 &&
-                   empty_alias_value_pack_value.marker == 97 &&
-                   multi_alias_value_pack_value.marker == 101 &&
-                   alias_value_pack_size(
-                       &multi_alias_value_pack_value) == 12 &&
-                   empty_forwarded_alias_value_pack_value.marker == 103 &&
-                   multi_forwarded_alias_value_pack_value.marker == 107 &&
-                   alias_value_pack_size(
-                       &multi_forwarded_alias_value_pack_value) == 12 &&
-                   incremented_forwarded_alias_value_pack_value.marker ==
-                       109 &&
-                   incremented_alias_value_pack_size(
-                       &incremented_forwarded_alias_value_pack_value) == 8 &&
-                   wrapped_alias_value_pack_size(
-                       &wrapped_forwarded_alias_value_pack_value) == 12 &&
-                   alias_value_pack_function_size<>() == 8 &&
-                   alias_value_pack_function_size<1, 2, 3, 4, 5>() == 12 &&
-                   enum_alias_value_pack_value.marker == 113 &&
-                   enum_forwarded_alias_value_pack_value.marker == 127 &&
-                   enum_alias_value_pack_size(
-                       &enum_forwarded_alias_value_pack_value) == 8 &&
-                   values[2] == 3 &&
-                   class_alias_value == 47 &&
-                   nested_class_alias_value.value == 61 &&
-                   alias_without_template_keyword == 59 &&
-                   namespace_class_alias_value == 53 &&
-                   class_alias_array[2] == 5 &&
-                   class_alias_local_value == 7 &&
-                   protected_alias_value == 11
-               ? 0 : 1;
+    CHECK_ALIAS_CASE(1, alias_identity(3) == 5);
+    CHECK_ALIAS_CASE(2, alias_pointer(&value) == 5);
+    CHECK_ALIAS_CASE(3, alias_class(&box) == 40);
+    CHECK_ALIAS_CASE(4, empty_alias_pack_value.marker == 67);
+    CHECK_ALIAS_CASE(5, alias_pack_value(&multi_alias_pack_value) == 71);
+    CHECK_ALIAS_CASE(6, forwarded_empty_alias_pack_value.marker == 73);
+    CHECK_ALIAS_CASE(7, forwarded_multi_alias_pack_value.marker == 79);
+    CHECK_ALIAS_CASE(8, forwarded_chain_alias_pack_value.marker == 83);
+    CHECK_ALIAS_CASE(9, alias_pack_around_value(
+                            &forwarded_around_alias_pack_value) == 89);
+    CHECK_ALIAS_CASE(10, alias_pack_forward_size(
+                             &forwarded_chain_alias_pack_value) == 12);
+    CHECK_ALIAS_CASE(11, alias_pack_around_size(
+                             &forwarded_around_alias_pack_value) == 12);
+    CHECK_ALIAS_CASE(12, empty_alias_value_pack_value.marker == 97);
+    CHECK_ALIAS_CASE(13, multi_alias_value_pack_value.marker == 101);
+    CHECK_ALIAS_CASE(14, alias_value_pack_size(
+                             &multi_alias_value_pack_value) == 12);
+    CHECK_ALIAS_CASE(15, empty_forwarded_alias_value_pack_value.marker == 103);
+    CHECK_ALIAS_CASE(16, multi_forwarded_alias_value_pack_value.marker == 107);
+    CHECK_ALIAS_CASE(17, alias_value_pack_size(
+                             &multi_forwarded_alias_value_pack_value) == 12);
+    CHECK_ALIAS_CASE(18,
+                     incremented_forwarded_alias_value_pack_value.marker == 109);
+    CHECK_ALIAS_CASE(19, incremented_alias_value_pack_size(
+                             &incremented_forwarded_alias_value_pack_value) == 8);
+    CHECK_ALIAS_CASE(20, wrapped_alias_value_pack_size(
+                             &wrapped_forwarded_alias_value_pack_value) == 12);
+    CHECK_ALIAS_CASE(21, alias_value_pack_function_size<>() == 8);
+    if (alias_value_pack_function_size<1, 2, 3, 4, 5>() != 12) return 22;
+    CHECK_ALIAS_CASE(23, enum_alias_value_pack_value.marker == 113);
+    CHECK_ALIAS_CASE(24, enum_forwarded_alias_value_pack_value.marker == 127);
+    CHECK_ALIAS_CASE(25, enum_alias_value_pack_size(
+                             &enum_forwarded_alias_value_pack_value) == 8);
+    CHECK_ALIAS_CASE(26, values[2] == 3);
+    CHECK_ALIAS_CASE(27, class_alias_value == 47);
+    CHECK_ALIAS_CASE(28, nested_class_alias_value.value == 61);
+    CHECK_ALIAS_CASE(29, alias_without_template_keyword == 59);
+    CHECK_ALIAS_CASE(30, namespace_class_alias_value == 53);
+    CHECK_ALIAS_CASE(31, class_alias_array[2] == 5);
+    CHECK_ALIAS_CASE(32, class_alias_local_value == 7);
+    CHECK_ALIAS_CASE(33, protected_alias_value == 11);
+    return 0;
 }

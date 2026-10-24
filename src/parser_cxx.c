@@ -35,6 +35,17 @@ static AST* active_ast;
 static CxxFriendAccess* active_friend_access_context;
 static CxxFriendAccess* active_friend_signature_candidates;
 
+static bool cxx_resolve_dependent_function_template_call(Expr* expression);
+static bool cxx_function_template_call_is_dependent(
+    ExprList* call_arguments,
+    const CxxParsedTemplateArgument* explicit_arguments,
+    int explicit_argument_count, bool explicit_arguments_specified,
+    const CxxTemplate* context);
+static bool cxx_dependent_decltype_calls_are_viable(
+    Expr* expression, unsigned depth);
+static bool cxx_resolve_dependent_function_template_calls(
+    Expr* expression, unsigned depth);
+
 typedef struct CxxFriendSignatureAliasUse {
     CxxClass* owner;
     CxxClassAliasTemplate* alias_template;
@@ -1250,6 +1261,9 @@ static bool cxx_parser_find_enclosing_pack_source(
     CxxTemplate** pack_scope_out, int* pack_index_out,
     int* pack_argument_offset_out, int* pack_parameter_offset_out,
     int* trailing_argument_count_out);
+static bool cxx_parser_find_pattern_pack_source(
+    Type* type_pattern, CxxTemplate** pack_scope_out,
+    int* pack_index_out);
 static void cxx_parser_replace_pack_value_identifier(
     Expr* expression, const char* parameter_name,
     Expr* replacement_expression);
@@ -1634,6 +1648,10 @@ static Type* cxx_parser_expression_type(Expr* expression) {
     Type* right;
     Type* function_type;
     if (!expression) return NULL;
+    if (expression->cxx_dependent_function_template_call) {
+        (void)cxx_resolve_dependent_function_template_call(expression);
+        return expression->type;
+    }
     if (expression->type) return expression->type;
 
     switch (expression->kind) {
@@ -1678,6 +1696,9 @@ static Type* cxx_parser_expression_type(Expr* expression) {
 
         case EXPR_DEREF:
             left = cxx_parser_expression_type(expression->unary_operand);
+            while (left && left->kind == TYPE_PTR && left->is_reference) {
+                left = left->base;
+            }
             return left && left->kind == TYPE_PTR ? left->base : NULL;
 
         case EXPR_INDEX:
@@ -2111,6 +2132,10 @@ extern bool rcc_parser_last_cxx_declarator_was_pack(void);
 static Stmt* parse_cxx_statement(void);
 static DeclList* parse_cxx_parameter_declarations(bool* is_variadic);
 static Type* parse_cxx_type_spec(void);
+static Type* parse_cxx_template_type_argument(void);
+static int cxx_parse_class_member_alignment(Expr** deferred_expression);
+static Type* cxx_apply_class_member_alignment(
+    Type* type, int alignment, Expr* deferred_expression, SourceLoc loc);
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc);
 static bool eval_template_floating_expression(
@@ -3675,6 +3700,8 @@ static CxxTemplate* find_class_template(const char* qualified_name);
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc);
 static CxxTemplate* find_alias_template(const char* qualified_name);
+static Type* parse_class_alias_template_template_argument(
+    TemplateParam* parameter, SourceLoc loc);
 static CxxTemplate* find_template_template_argument(
     const char* qualified_name);
 static CxxTemplate* find_template(const char* qualified_name, int kind);
@@ -7154,6 +7181,18 @@ static bool cxx_constructor_parameter_lists_match(
 
 static uint32_t lowerable_constructor_arity_mask(CxxClass* cls);
 
+static Type* cxx_constructor_array_element_type(Type* type) {
+    bool is_array = false;
+    while (type && type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len <= 0 || type->size <= 0) {
+            return NULL;
+        }
+        is_array = true;
+        type = type->base;
+    }
+    return is_array ? type : NULL;
+}
+
 /* The initializer parser represents C++ `{}` as a value-init compound with a
  * single synthetic zero element.  It is safe to lower for a class member
  * through a user-provided zero-argument constructor: value-initialization does
@@ -7203,7 +7242,7 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
         Type* type = field->type;
         if (field->is_static) continue;
         if (type && type->kind == TYPE_ARRAY) {
-            Type* element_type = type->base;
+            Type* element_type = cxx_constructor_array_element_type(type);
             ExprList* initializer_arguments = NULL;
             unsigned initializer_argument_count = 0u;
             if ((field->initializer &&
@@ -7211,16 +7250,16 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
                       field->initializer, &initializer_arguments,
                       &initializer_argument_count) ||
                   initializer_argument_count != 0u)) ||
-                !element_type ||
-                type->array_len <= 0 || element_type->kind == TYPE_ARRAY) {
+                !element_type) {
                 return false;
             }
             if (element_type->cxx_class) {
                 CxxClass* member_class = element_type->cxx_class;
                 uint32_t constructor_mask =
                     lowerable_constructor_arity_mask(member_class);
-                if (!member_class->type || member_class->destructor_method ||
+                if (!member_class->type ||
                     member_class->type->cleanup_function ||
+                    member_class->type->cleanup_field ||
                     (constructor_mask & UINT32_C(1)) == 0u) {
                     return false;
                 }
@@ -7740,10 +7779,12 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
         }
         for (TypeParam* field = cls->fields; field; field = field->next) {
             CxxConstructorInitializer* item;
+            Type* array_element_type = field->type &&
+                    field->type->kind == TYPE_ARRAY
+                ? cxx_constructor_array_element_type(field->type) : NULL;
             bool class_object_member = field->type &&
                 (field->type->cxx_class ||
-                 (field->type->kind == TYPE_ARRAY && field->type->base &&
-                  field->type->base->cxx_class));
+                 (array_element_type && array_element_type->cxx_class));
             if (field->is_static || !field->name) continue;
             item = cxx_find_constructor_initializer(
                 constructor, field->name, NULL);
@@ -7777,11 +7818,10 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->next = NULL;
             } else if (!item && field->type &&
                        ((field->type->cxx_class != NULL) ||
-                        (field->type->kind == TYPE_ARRAY &&
-                         field->type->base &&
-                         field->type->base->cxx_class))) {
-                Type* member_type = field->type->kind == TYPE_ARRAY
-                    ? field->type->base : field->type;
+                        (array_element_type &&
+                         array_element_type->cxx_class))) {
+                Type* member_type = array_element_type
+                    ? array_element_type : field->type;
                 CxxClass* member_class = member_type->cxx_class;
                 ExprList* member_arguments = NULL;
                 unsigned member_argument_count = 0u;
@@ -8563,8 +8603,9 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                  !(field->type &&
                    (field->type->cxx_class ||
                     (field->type->kind == TYPE_ARRAY &&
-                     field->type->base &&
-                     field->type->base->cxx_class) ||
+                     cxx_constructor_array_element_type(field->type) &&
+                     cxx_constructor_array_element_type(field->type)
+                         ->cxx_class) ||
                     type_is_scalar(field->type) ||
                     ((field->type->kind == TYPE_STRUCT ||
                       field->type->kind == TYPE_UNION) &&
@@ -8578,17 +8619,16 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
              * argument list; explicit constructor initializers are restricted
              * to the bounded parameter-forwarding form below. */
             if (field->type && field->type->kind == TYPE_ARRAY &&
-                field->type->base &&
-                field->type->base->cxx_class) {
-                Type* element_type = field->type->base;
+                cxx_constructor_array_element_type(field->type) &&
+                cxx_constructor_array_element_type(field->type)->cxx_class) {
+                Type* element_type =
+                    cxx_constructor_array_element_type(field->type);
                 CxxClass* member_class = element_type->cxx_class;
-                if (field->type->array_len <= 0 ||
-                    element_type->kind == TYPE_ARRAY ||
+                if (!initializer->constructor ||
                     initializer->value || initializer->arguments ||
-                    !initializer->constructor || !member_class ||
-                    !member_class->type ||
-                    member_class->destructor_method ||
+                    !member_class || !member_class->type ||
                     member_class->type->cleanup_function ||
+                    member_class->type->cleanup_field ||
                     (lowerable_constructor_arity_mask(member_class) &
                      UINT32_C(1)) == 0u) {
                     supported = false;
@@ -10314,9 +10354,11 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
     int explicit_alignment = 0;
     bool has_explicit_alignment = false;
+    Expr* deferred_alignment_expression = NULL;
 
     while (check(TOK__ALIGNAS)) {
-        int alignment = rcc_parser_parse_explicit_alignment();
+        int alignment = cxx_parse_class_member_alignment(
+            &deferred_alignment_expression);
         has_explicit_alignment = true;
         if (alignment > explicit_alignment) explicit_alignment = alignment;
     }
@@ -10361,7 +10403,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         else if (match(TOK_FRIEND)) is_friend = true;
         else if (match(TOK_MUTABLE)) { }
         else if (check(TOK__ALIGNAS)) {
-            int alignment = rcc_parser_parse_explicit_alignment();
+            int alignment = cxx_parse_class_member_alignment(
+                &deferred_alignment_expression);
             has_explicit_alignment = true;
             if (alignment > explicit_alignment) explicit_alignment = alignment;
         }
@@ -10787,8 +10830,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         }
 
         if (has_explicit_alignment) {
-            type = rcc_parser_apply_explicit_alignment(
-                type, explicit_alignment, loc);
+            type = cxx_apply_class_member_alignment(
+                type, explicit_alignment, deferred_alignment_expression, loc);
         }
 
         if (match(TOK_COLON)) {
@@ -11119,6 +11162,10 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     /* A final class has the same object layout as an otherwise identical
      * class; the semantic restriction is enforced when bases are resolved. */
     is_final = match(TOK_FINAL);
+    if (active_template && active_template->kind == TMPL_CLASS &&
+        !active_template->name && class_name) {
+        active_template->name = ast_arena_strdup(class_name);
+    }
 
     CxxClass* existing = (!active_template && !active_class &&
                           !local_type_identity)
@@ -11254,6 +11301,40 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                 continue;
             }
 
+            if ((check(TOK_CLASS) || check(TOK_STRUCT)) &&
+                parser.cur->next &&
+                parser.cur->next->type == TOK_IDENT &&
+                parser.cur->next->next &&
+                (parser.cur->next->next->type == TOK_LBRACE ||
+                 parser.cur->next->next->type == TOK_COLON ||
+                 parser.cur->next->next->type == TOK_FINAL ||
+                 parser.cur->next->next->type == TOK_SEMICOLON)) {
+                SourceLoc nested_loc = peek()->loc;
+                bool nested_is_struct = match(TOK_STRUCT);
+                Token* name_token;
+                CxxClass* nested_class;
+                CxxTemplate* nested_declaration;
+                if (!nested_is_struct) advance();
+                name_token = expect(TOK_IDENT, "nested class name");
+                if (!name_token) continue;
+                nested_class = parse_cxx_class_named(
+                    nested_loc, nested_is_struct,
+                    name_token->value.str_val, NULL);
+                if (!nested_class) continue;
+                nested_declaration = cxx_template_alloc(
+                    name_token->value.str_val, NULL, 0);
+                nested_declaration->kind = TMPL_CLASS;
+                nested_declaration->ns = active_namespace;
+                nested_declaration->enclosing_template = active_template;
+                nested_declaration->enclosing_class = cls;
+                nested_declaration->templated_class = nested_class;
+                nested_declaration->class_def = nested_class;
+                nested_class->templ = nested_declaration;
+                cxx_class_add_nested_template(
+                    cls, nested_declaration, current_access, nested_loc);
+                continue;
+            }
+
             /* Conversion-function templates are retained as class methods
              * and specialized from the required destination type. */
             if (cxx_class_conversion_template_starts()) {
@@ -11281,6 +11362,35 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                     rcc_error(template_loc,
                               "class-scope member function template is invalid");
                 }
+                continue;
+            }
+
+            if (match(TOK_TYPEDEF)) {
+                SourceLoc typedef_loc = previous()->loc;
+                Type* base_type = parse_cxx_type_spec();
+                if (!base_type) {
+                    rcc_error(typedef_loc,
+                              "class typedef declaration requires a type");
+                    while (!at_end() && !match(TOK_SEMICOLON) &&
+                           !check(TOK_RBRACE)) {
+                        advance();
+                    }
+                    continue;
+                }
+                do {
+                    const char* alias_name = NULL;
+                    Type* alias_type = rcc_parser_parse_cxx_declarator(
+                        base_type, &alias_name, NULL);
+                    if (!alias_type || !alias_name || !*alias_name) {
+                        rcc_error(typedef_loc,
+                                  "class typedef declarator requires a name");
+                    } else {
+                        cxx_class_add_type_alias(
+                            cls, alias_name, alias_type, current_access,
+                            typedef_loc);
+                    }
+                } while (match(TOK_COMMA));
+                expect(TOK_SEMICOLON, ";");
                 continue;
             }
 
@@ -11749,6 +11859,7 @@ static Decl* parse_cxx_using(AST* ast, CxxNamespace* ns) {
     const char* name;
     Type* enum_type;
     Token* local_name;
+    bool globally_qualified;
 
     if (match(TOK_NAMESPACE)) {
         name = parse_qualified_name();
@@ -11780,6 +11891,7 @@ static Decl* parse_cxx_using(AST* ast, CxxNamespace* ns) {
         return NULL;
     }
 
+    globally_qualified = match(TOK_SCOPE);
     local_name = expect(TOK_IDENT, "name in using-declaration");
     if (!local_name) {
         while (!at_end() && !match(TOK_SEMICOLON)) advance();
@@ -11806,11 +11918,19 @@ static Decl* parse_cxx_using(AST* ast, CxxNamespace* ns) {
         /* The first identifier was consumed as the local spelling.  A using
          * declaration has no separate local identifier, so it is the first
          * component of the target and the remaining `::` chain follows. */
-        if (strlen(local_name->value.str_val) >= sizeof(target)) {
+        size_t target_length = 0u;
+        if (globally_qualified) {
+            target[0] = ':';
+            target[1] = ':';
+            target[2] = '\0';
+            target_length = 2u;
+        }
+        if (strlen(local_name->value.str_val) >=
+            sizeof(target) - target_length) {
             rcc_error(loc, "using-declaration name is too long");
             target[0] = '\0';
         } else {
-            strcpy(target, local_name->value.str_val);
+            strcpy(target + target_length, local_name->value.str_val);
         }
         while (match(TOK_SCOPE)) {
             if (!check(TOK_IDENT)) {
@@ -11828,6 +11948,9 @@ static Decl* parse_cxx_using(AST* ast, CxxNamespace* ns) {
         }
         if (ast) {
             Type* imported_type = rcc_parser_lookup_type(target);
+            if (!imported_type && globally_qualified) {
+                imported_type = rcc_parser_lookup_type(target + 2u);
+            }
             if (imported_type) {
                 const char* imported_name = strrchr(target, ':');
                 imported_name = imported_name
@@ -11836,8 +11959,8 @@ static Decl* parse_cxx_using(AST* ast, CxxNamespace* ns) {
                                        imported_type);
             }
         }
-        cxx_namespace_add_using_decl(
-            ns, cxx_using_qualified_name(target, loc));
+        cxx_namespace_add_using_decl(ns, globally_qualified
+            ? rcc_intern(target) : cxx_using_qualified_name(target, loc));
     }
     expect(TOK_SEMICOLON, ";");
     return alias_declaration;
@@ -12917,11 +13040,6 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     expect(TOK_LPAREN, "(");
     params = parse_cxx_parameter_declarations(&is_variadic);
     expect(TOK_RPAREN, ")");
-    if (is_auto_return && match(TOK_ARROW)) {
-        return_type = parse_cxx_type_spec();
-        is_auto_return = false;
-        is_decltype_auto_return = false;
-    }
     if (match(TOK_NOEXCEPT)) {
         if (check(TOK_LPAREN)) {
             advance();
@@ -12930,6 +13048,11 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         } else {
             *is_noexcept = true;
         }
+    }
+    if (is_auto_return && match(TOK_ARROW)) {
+        return_type = parse_cxx_type_spec();
+        is_auto_return = false;
+        is_decltype_auto_return = false;
     }
     {
         Expr* trailing_constraint = parse_cxx_trailing_requires_clause(loc);
@@ -14574,29 +14697,17 @@ static CxxTemplate* namespace_template(CxxNamespace* ns,
     return NULL;
 }
 
-static CxxTemplate* find_template(const char* qualified_name,
-                                  int kind) {
+static CxxTemplate* find_template_absolute(const char* qualified_name,
+                                            int kind) {
     char buffer[512];
     char* component;
     char* next;
-    CxxNamespace* ns;
+    CxxNamespace* ns = g_global_namespace;
     CxxTemplate* result;
-    const char* name = qualified_name;
-
-    if (!name) return NULL;
-    while (name[0] == ':' && name[1] == ':') name += 2;
-    if (!strstr(name, "::")) {
-        for (ns = active_namespace; ns; ns = ns->parent) {
-            result = namespace_template(ns, name);
-            if (result && (int)result->kind == kind) return result;
-        }
-        result = namespace_template(g_global_namespace, name);
-        return result && (int)result->kind == kind ? result : NULL;
+    if (!qualified_name || strlen(qualified_name) >= sizeof(buffer)) {
+        return NULL;
     }
-
-    if (strlen(name) >= sizeof(buffer)) return NULL;
-    strcpy(buffer, name);
-    ns = g_global_namespace;
+    strcpy(buffer, qualified_name);
     component = buffer;
     for (;;) {
         next = strstr(component, "::");
@@ -14610,8 +14721,52 @@ static CxxTemplate* find_template(const char* qualified_name,
     return result && (int)result->kind == kind ? result : NULL;
 }
 
+static CxxTemplate* find_template(const char* qualified_name,
+                                  int kind) {
+    char buffer[512];
+    CxxNamespace* ns;
+    CxxTemplate* result;
+    const char* name = qualified_name;
+    bool globally_qualified;
+
+    if (!name) return NULL;
+    globally_qualified = name[0] == ':' && name[1] == ':';
+    while (name[0] == ':' && name[1] == ':') name += 2;
+    if (!strstr(name, "::")) {
+        for (ns = active_namespace; ns; ns = ns->parent) {
+            result = namespace_template(ns, name);
+            if (result && (int)result->kind == kind) return result;
+        }
+        result = namespace_template(g_global_namespace, name);
+        return result && (int)result->kind == kind ? result : NULL;
+    }
+
+    if (!globally_qualified) {
+        for (ns = active_namespace; ns; ns = ns->parent) {
+            const char* scope_name = cxx_namespace_qualified_name(ns);
+            int written;
+            if (!scope_name || !*scope_name) continue;
+            written = snprintf(buffer, sizeof(buffer), "%s::%s",
+                               scope_name, name);
+            if (written < 0 || (size_t)written >= sizeof(buffer)) continue;
+            result = find_template_absolute(buffer, kind);
+            if (result) return result;
+        }
+    }
+    return find_template_absolute(name, kind);
+}
+
 static CxxTemplate* find_class_template(const char* qualified_name) {
-    return find_template(qualified_name, TMPL_CLASS);
+    CxxTemplate* result = find_template(qualified_name, TMPL_CLASS);
+    if (result) return result;
+    if (active_template && active_template->kind == TMPL_CLASS &&
+        active_template->name && qualified_name &&
+        !strstr(qualified_name, "::") &&
+        strcmp(qualified_name, active_template->name) == 0) {
+        return active_template->primary_template
+            ? active_template->primary_template : active_template;
+    }
+    return NULL;
 }
 
 static CxxNestedClassTemplate* find_nested_class_template(
@@ -14945,26 +15100,16 @@ static int cxx_function_template_candidates_for_adl(
     return lookup.templates.count;
 }
 
-/* Unlike ordinary name lookup, a function-template name denotes a candidate
- * set.  Stop at the first namespace in the lexical search that contributes a
- * match, then let the call-site deduction/partial-ordering pass select one. */
-static int find_function_template_candidates(const char* qualified_name,
-                                             CxxTemplate** results,
-                                             int capacity) {
+static int find_function_template_candidates_absolute(
+    const char* qualified_name, CxxTemplate** results, int capacity) {
     char buffer[512];
     char* component;
     char* next;
     CxxNamespace* ns;
     const char* name = qualified_name;
-    int count;
 
     if (!name || !results || capacity <= 0) return 0;
-    while (name[0] == ':' && name[1] == ':') name += 2;
     if (!strstr(name, "::")) {
-        for (ns = active_namespace; ns; ns = ns->parent) {
-            count = namespace_function_templates(ns, name, results, capacity);
-            if (count > 0) return count;
-        }
         return namespace_function_templates(g_global_namespace, name,
                                             results, capacity);
     }
@@ -14981,6 +15126,47 @@ static int find_function_template_candidates(const char* qualified_name,
         component = next + 2;
     }
     return namespace_function_templates(ns, component, results, capacity);
+}
+
+/* Unlike ordinary name lookup, a function-template name denotes a candidate
+ * set. Stop at the first namespace in the lexical search that contributes a
+ * match, then let the call-site deduction/partial-ordering pass select one.
+ * A relative qualified-id is searched from the innermost namespace outward;
+ * only an explicitly global-qualified name bypasses that lexical search. */
+static int find_function_template_candidates(const char* qualified_name,
+                                             CxxTemplate** results,
+                                             int capacity) {
+    char buffer[512];
+    const char* name = qualified_name;
+    bool globally_qualified;
+    int count;
+
+    if (!name || !results || capacity <= 0) return 0;
+    globally_qualified = name[0] == ':' && name[1] == ':';
+    while (name[0] == ':' && name[1] == ':') name += 2;
+    if (!strstr(name, "::")) {
+        for (CxxNamespace* ns = active_namespace; ns; ns = ns->parent) {
+            count = namespace_function_templates(ns, name, results, capacity);
+            if (count > 0) return count;
+        }
+        return namespace_function_templates(g_global_namespace, name,
+                                            results, capacity);
+    }
+    if (!globally_qualified) {
+        for (CxxNamespace* ns = active_namespace; ns; ns = ns->parent) {
+            const char* scope_name = cxx_namespace_qualified_name(ns);
+            int written;
+            if (!scope_name || !*scope_name) continue;
+            written = snprintf(buffer, sizeof(buffer), "%s::%s",
+                               scope_name, name);
+            if (written < 0 || (size_t)written >= sizeof(buffer)) continue;
+            count = find_function_template_candidates_absolute(
+                buffer, results, capacity);
+            if (count > 0) return count;
+        }
+    }
+    return find_function_template_candidates_absolute(name, results,
+                                                       capacity);
 }
 
 static bool cxx_class_is_associated_with(CxxClass* actual,
@@ -15665,6 +15851,184 @@ static int template_parameter_index(CxxTemplate* tmpl, Type* type) {
     return -1;
 }
 
+static bool cxx_type_contains_template_parameter_index(
+    CxxTemplate* tmpl, Type* type, int parameter_index, unsigned depth) {
+    if (!type || depth > 64u) return false;
+    if (template_parameter_index(tmpl, type) == parameter_index) return true;
+    if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+         type->kind == TYPE_VECTOR) &&
+        cxx_type_contains_template_parameter_index(
+            tmpl, type->base, parameter_index, depth + 1u)) {
+        return true;
+    }
+    if (type->kind == TYPE_FUNC) {
+        if (cxx_type_contains_template_parameter_index(
+                tmpl, type->ret_type, parameter_index, depth + 1u)) {
+            return true;
+        }
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (cxx_type_contains_template_parameter_index(
+                    tmpl, parameter->type, parameter_index, depth + 1u)) {
+                return true;
+            }
+        }
+    }
+    if (cxx_type_contains_template_parameter_index(
+            tmpl, type->cxx_dependent_alias_owner, parameter_index,
+            depth + 1u) ||
+        cxx_type_contains_template_parameter_index(
+            tmpl, type->cxx_dependent_class_template_owner, parameter_index,
+            depth + 1u)) {
+        return true;
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        if (type->cxx_template_args &&
+            cxx_type_contains_template_parameter_index(
+                tmpl, type->cxx_template_args[index], parameter_index,
+                depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Type* cxx_substitute_dependent_alignment(
+    CxxTemplate* tmpl, Type* type, Type** arguments, int argument_count,
+    const int64_t* value_args, const bool* value_present) {
+    Expr* expression;
+    int64_t alignment;
+    Type* substituted;
+    if (!type || !type->cxx_dependent_alignment_expr) return type;
+    expression = cxx_template_clone_expr_with_values(
+        tmpl, type->cxx_dependent_alignment_expr, arguments, argument_count,
+        value_args, value_present);
+    if (!expression || !eval_template_integer_expression(
+                           expression, tmpl, value_args, value_present,
+                           &alignment)) {
+        if (expression && cxx_expression_is_dependent(expression, tmpl)) {
+            return type;
+        }
+        if (expression && cxx_template_integer_expression_overflows(
+                              expression, tmpl, value_args, value_present)) {
+            rcc_error(expression->loc,
+                      "dependent alignas expression overflows its integer type");
+        } else {
+            rcc_error(expression ? expression->loc
+                                 : (SourceLoc){"<template>", 0, 0},
+                      "dependent alignas expression is not an integer constant expression");
+        }
+        return NULL;
+    }
+    if (alignment < 0 || alignment > 4096 ||
+        (alignment != 0 && (alignment & (alignment - 1)) != 0)) {
+        rcc_error(expression->loc,
+                  "dependent alignas value must be zero or a power of two no greater than 4096");
+        return NULL;
+    }
+    substituted = ast_arena_alloc(sizeof(*substituted));
+    *substituted = *type;
+    substituted->cxx_dependent_alignment_expr = NULL;
+    substituted->has_explicit_alignment = alignment != 0;
+    if (alignment > substituted->align) {
+        substituted->align = (int)alignment;
+    }
+    return substituted;
+}
+
+static int cxx_template_parameter_kind_for_name(
+    const CxxTemplate* tmpl, const char* name) {
+    if (!tmpl || !name) return -1;
+    for (const CxxTemplate* scope = tmpl; scope;
+         scope = scope->enclosing_template) {
+        for (int index = 0; index < scope->param_count; ++index) {
+            const TemplateParam* parameter = &scope->params[index];
+            if (parameter->name && strcmp(parameter->name, name) == 0) {
+                return parameter->kind;
+            }
+        }
+    }
+    return -1;
+}
+
+static bool cxx_alignas_uses_nontype_template_parameter(void) {
+    Token* token;
+    int depth = 0;
+    bool inside_arguments = false;
+    if (!active_template || !check(TOK__ALIGNAS) || !parser.cur->next ||
+        parser.cur->next->type != TOK_LPAREN) {
+        return false;
+    }
+    for (token = parser.cur->next; token; token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            ++depth;
+            inside_arguments = true;
+        } else if (token->type == TOK_RPAREN) {
+            if (--depth == 0) break;
+        } else if (inside_arguments && token->type == TOK_IDENT) {
+            if (cxx_template_parameter_kind_for_name(
+                    active_template, token->value.str_val) == TPARAM_NONTYPE) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static int cxx_parse_class_member_alignment(Expr** deferred_expression) {
+    SourceLoc loc = peek()->loc;
+    Expr* expression;
+    int64_t value;
+    if (!cxx_alignas_uses_nontype_template_parameter()) {
+        return rcc_parser_parse_explicit_alignment();
+    }
+    advance();
+    expect(TOK_LPAREN, "'(' after alignas");
+    expression = parse_assignment_expression();
+    expect(TOK_RPAREN, "')' after alignas");
+    if (!expression) return 0;
+    if (cxx_expression_is_dependent(expression, active_template)) {
+        if (*deferred_expression) {
+            Expr* previous = *deferred_expression;
+            Expr* comparison = expr_binary(
+                EXPR_GT, previous, expression, expression->loc);
+            *deferred_expression = expr_cond(
+                comparison, previous, expression, expression->loc);
+        } else {
+            *deferred_expression = expression;
+        }
+        return 0;
+    }
+    if (!eval_template_integer_expression(expression, active_template,
+                                           NULL, NULL, &value) ||
+        value < 0 || value > 4096 ||
+        (value != 0 && (value & (value - 1)) != 0)) {
+        rcc_error(loc,
+                  "alignas requires zero or a power-of-two integer constant no greater than 4096");
+        return 0;
+    }
+    return (int)value;
+}
+
+static Type* cxx_apply_class_member_alignment(
+    Type* type, int alignment, Expr* deferred_expression, SourceLoc loc) {
+    if (!type) return NULL;
+    type = rcc_parser_apply_explicit_alignment(type, alignment, loc);
+    if (!deferred_expression) return type;
+    if (alignment > 0) {
+        Expr* constant = expr_int(alignment, loc);
+        Expr* comparison = expr_binary(
+            EXPR_GT, deferred_expression, constant, loc);
+        deferred_expression = expr_cond(
+            comparison, deferred_expression, constant, loc);
+    }
+    Type* aligned = ast_arena_alloc(sizeof(*aligned));
+    *aligned = *type;
+    aligned->cxx_dependent_alignment_expr = deferred_expression;
+    aligned->has_explicit_alignment = true;
+    return aligned;
+}
+
 static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                                         const int64_t* value_args,
                                         const bool* value_present,
@@ -15826,6 +16190,55 @@ static int cxx_template_pending_pack_length(const CxxTemplate* tmpl,
     return tmpl->pending_pack_count;
 }
 
+static bool cxx_function_template_resolve_dependent_static_integer_members(
+    Expr** expression_pointer, CxxTemplate* function_template,
+    Type** arguments, const int64_t* values, const bool* value_present,
+    unsigned depth);
+
+static Type* cxx_decltype_parsed_expression_type(Expr* expression,
+                                                 SourceLoc loc);
+static Type* cxx_decltype_apply_expression_category(Expr* expression,
+                                                    Type* result,
+                                                    bool parenthesized);
+static int cxx_template_pack_index_in_type(CxxTemplate* tmpl, Type* type);
+
+static bool cxx_type_contains_unresolved_template_component(Type* type,
+                                                            unsigned depth) {
+    if (!type) return false;
+    if (depth > 64u || type->cxx_dependent ||
+        type->cxx_dependent_member_name || type->cxx_dependent_alias_template ||
+        type->cxx_dependent_class_template_owner) {
+        return true;
+    }
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        if (cxx_type_contains_unresolved_template_component(
+                type->base, depth + 1u)) return true;
+    } else if (type->kind == TYPE_FUNC) {
+        if (cxx_type_contains_unresolved_template_component(
+                type->ret_type, depth + 1u)) return true;
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (cxx_type_contains_unresolved_template_component(
+                    parameter->type, depth + 1u)) return true;
+        }
+    }
+    if (cxx_type_contains_unresolved_template_component(
+            type->cxx_dependent_alias_owner, depth + 1u) ||
+        cxx_type_contains_unresolved_template_component(
+            type->cxx_dependent_class_template_owner, depth + 1u)) {
+        return true;
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        if (type->cxx_template_args &&
+            cxx_type_contains_unresolved_template_component(
+                type->cxx_template_args[index], depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                       Type** arguments, int argument_count,
                                       const int64_t* value_args,
@@ -15836,13 +16249,111 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
     Expr* array_bound;
     int parameter_index;
     if (!type) return NULL;
+    if (type->cxx_dependent_decltype_expr) {
+        CxxTemplate* context = type->cxx_template_param_context
+            ? type->cxx_template_param_context : tmpl;
+        Expr* expression;
+        Type* expression_type;
+        if (!context) return type;
+        if (context->param_count > argument_count) return type;
+        for (int index = 0; index < context->param_count; ++index) {
+            TemplateParam* parameter = &context->params[index];
+            if ((parameter->kind == TPARAM_TYPE &&
+                 (!arguments || !arguments[index] ||
+                  cxx_type_contains_unresolved_template_component(
+                      arguments[index], 0u))) ||
+                (parameter->kind == TPARAM_NONTYPE &&
+                 (!value_present || !value_present[index])) ||
+                (parameter->kind == TPARAM_TEMPLATE &&
+                 (!arguments || !arguments[index] ||
+                  arguments[index]->cxx_dependent))) {
+                return type;
+            }
+        }
+        expression = cxx_template_clone_expr_with_values(
+            context, type->cxx_dependent_decltype_expr, arguments,
+            argument_count, value_args, value_present);
+        if (!cxx_resolve_dependent_function_template_calls(expression, 0u) ||
+            !cxx_dependent_decltype_calls_are_viable(expression, 0u)) {
+            if (cxx_expression_is_dependent(expression, context)) {
+                substituted = ast_arena_alloc(sizeof(*substituted));
+                *substituted = *type;
+                substituted->cxx_dependent = true;
+                substituted->cxx_dependent_decltype_expr = expression;
+                substituted->cxx_template_param_context = context;
+                return substituted;
+            }
+            return NULL;
+        }
+        expression_type = cxx_decltype_parsed_expression_type(
+            expression, parser.cur ? parser.cur->loc
+                                   : (SourceLoc){"<template>", 0, 0});
+        if (!expression_type || expression_type->cxx_dependent ||
+            cxx_expression_is_dependent(expression, context)) {
+            substituted = ast_arena_alloc(sizeof(*substituted));
+            *substituted = *type;
+            substituted->cxx_dependent = true;
+            substituted->cxx_dependent_decltype_expr = expression;
+            substituted->cxx_template_param_context = context;
+            return substituted;
+        }
+        if (type->cxx_dependent_member_name) {
+            CxxClass* owner_class = expression_type->cxx_class;
+            CxxClass* access_context = tmpl
+                ? (tmpl->active_class_instance
+                       ? tmpl->active_class_instance
+                       : tmpl->templated_class)
+                : NULL;
+            Type* nested_type = NULL;
+            bool ambiguous = false;
+            bool accessible = false;
+            if (!owner_class && expression_type->cxx_template &&
+                expression_type->cxx_template->kind == TMPL_CLASS) {
+                owner_class = expression_type->cxx_template->templated_class;
+            }
+            if (owner_class && cxx_class_resolve_nested_type_path(
+                    owner_class, type->cxx_dependent_member_name,
+                    access_context, &nested_type, &ambiguous, &accessible) &&
+                nested_type) {
+                return substitute_template_type(
+                    tmpl, nested_type, arguments, argument_count, value_args,
+                    value_present);
+            }
+            if (ambiguous || !accessible || !owner_class) {
+                rcc_error(parser.cur ? parser.cur->loc
+                                     : (SourceLoc){"<template>", 0, 0},
+                          ambiguous
+                              ? "nested type '%s' is ambiguous in class '%s'"
+                              : !accessible
+                                    ? "nested type '%s' is inaccessible in class '%s'"
+                                    : "decltype expression does not yield a class type for nested type '%s'",
+                          type->cxx_dependent_member_name,
+                          owner_class && owner_class->name
+                              ? owner_class->name : "<unnamed>");
+                return NULL;
+            }
+            rcc_error(parser.cur ? parser.cur->loc
+                                 : (SourceLoc){"<template>", 0, 0},
+                      "class '%s' has no nested type '%s'",
+                      owner_class->name ? owner_class->name : "<unnamed>",
+                      type->cxx_dependent_member_name);
+            return NULL;
+        }
+        return cxx_decltype_apply_expression_category(
+            expression, expression_type,
+            type->cxx_dependent_decltype_parenthesized);
+    }
     if (tmpl && tmpl->is_local_class_template &&
         tmpl->local_class_pattern && tmpl->local_class_instance &&
         tmpl->local_class_pattern->type &&
         tmpl->local_class_instance->type &&
         type->kind == TYPE_STRUCT &&
         (type->cxx_class == tmpl->local_class_pattern ||
-         (!type->cxx_class && type->tag &&
+         (!type->cxx_class && !type->cxx_template &&
+          type->cxx_template_arg_count == 0 &&
+          !type->cxx_dependent_class_template_owner &&
+          !type->cxx_dependent_member_name &&
+          !type->cxx_dependent_alias_template && type->tag &&
           tmpl->local_class_pattern->type->tag &&
           strcmp(type->tag,
                  tmpl->local_class_pattern->type->tag) == 0 &&
@@ -15877,7 +16388,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
     if (tmpl && tmpl->active_class_instance && tmpl->templated_class &&
         tmpl->active_class_instance->type && type->kind == TYPE_STRUCT) {
         bool matches_active_class = false;
-        if (!type->cxx_class && type->cxx_dependent && type->tag &&
+        if (!type->cxx_class && !type->cxx_template &&
+            type->cxx_template_arg_count == 0 &&
+            !type->cxx_dependent_class_template_owner &&
+            !type->cxx_dependent_member_name &&
+            !type->cxx_dependent_alias_template &&
+            type->cxx_dependent && type->tag &&
             tmpl->templated_class->type &&
             tmpl->templated_class->type->tag &&
             strcmp(type->tag,
@@ -15902,10 +16418,95 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             return substituted;
         }
     }
+    if (type->cxx_dependent_template_template_argument) {
+        Type* owner = substitute_template_type(
+            tmpl, type->cxx_dependent_alias_owner, arguments,
+            argument_count, value_args, value_present);
+        CxxClass* owner_class;
+        CxxClass* declaring_class = NULL;
+        CxxClassAliasTemplate* alias_template;
+        bool ambiguous = false;
+        bool accessible = false;
+        if (!owner) return NULL;
+        if (owner->cxx_dependent) {
+            substituted = ast_arena_alloc(sizeof(*substituted));
+            *substituted = *type;
+            substituted->cxx_dependent = true;
+            substituted->cxx_dependent_alias_owner = owner;
+            return substituted;
+        }
+        owner_class = owner->cxx_class;
+        alias_template = owner_class
+            ? cxx_parser_find_inherited_alias_template(
+                  owner_class, type->cxx_dependent_member_name,
+                  tmpl ? (tmpl->active_class_instance
+                              ? tmpl->active_class_instance
+                              : tmpl->templated_class)
+                       : NULL,
+                  &declaring_class, &ambiguous, &accessible)
+            : NULL;
+        if (!alias_template || !alias_template->declaration || ambiguous) {
+            rcc_error(parser.cur ? parser.cur->loc
+                                 : (SourceLoc){"<template>", 0, 0},
+                      ambiguous
+                          ? "nested alias template '%s' is ambiguous in class '%s'"
+                          : "class '%s' has no nested alias template '%s'",
+                      ambiguous
+                          ? (type->cxx_dependent_member_name
+                                 ? type->cxx_dependent_member_name
+                                 : "<unnamed>")
+                          : (owner_class && owner_class->name
+                                 ? owner_class->name : "<unnamed>"),
+                      ambiguous
+                          ? (owner_class && owner_class->name
+                                 ? owner_class->name : "<unnamed>")
+                          : (type->cxx_dependent_member_name
+                                 ? type->cxx_dependent_member_name
+                                 : "<unnamed>"));
+            return NULL;
+        }
+        if (!accessible) {
+            rcc_error(parser.cur ? parser.cur->loc
+                                 : (SourceLoc){"<template>", 0, 0},
+                      "nested alias template '%s' is inaccessible in class '%s'",
+                      type->cxx_dependent_member_name
+                          ? type->cxx_dependent_member_name : "<unnamed>",
+                      owner_class && owner_class->name
+                          ? owner_class->name : "<unnamed>");
+            return NULL;
+        }
+        substituted = ast_arena_alloc(sizeof(*substituted));
+        *substituted = *type;
+        substituted->cxx_template = alias_template->declaration;
+        substituted->cxx_dependent = false;
+        substituted->cxx_dependent_template_template_argument = false;
+        substituted->cxx_dependent_alias_owner = NULL;
+        substituted->cxx_dependent_member_name = NULL;
+        return substituted;
+    }
     if (type->cxx_dependent_alias_template) {
         return rcc_cxx_template_substitute_type(
             tmpl, type, arguments, argument_count, value_args,
             value_present);
+    }
+    if (type->cxx_dependent_underlying_type) {
+        Type* operand = substitute_template_type(
+            tmpl, type->cxx_underlying_type_operand, arguments,
+            argument_count, value_args, value_present);
+        if (!operand) return NULL;
+        if (operand->cxx_dependent) {
+            substituted = ast_arena_alloc(sizeof(*substituted));
+            *substituted = *type;
+            substituted->cxx_underlying_type_operand = operand;
+            return substituted;
+        }
+        if (operand->kind == TYPE_ENUM && operand->enum_underlying_type) {
+            return operand->enum_underlying_type;
+        }
+        rcc_error(parser.cur ? parser.cur->loc
+                             : (SourceLoc){"<template>", 0, 0},
+                  "__underlying_type requires an enum type");
+        return type_int;
     }
     if (type->cxx_dependent && type->cxx_dependent_member_name) {
         Type* owner = NULL;
@@ -15934,9 +16535,21 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
             *unresolved = *type;
             unresolved->cxx_class = owner->cxx_class;
+            unresolved->cxx_template = owner->cxx_template;
+            unresolved->cxx_dependent_class_template_owner =
+                owner->cxx_dependent_class_template_owner;
+            unresolved->cxx_template_args = owner->cxx_template_args;
+            unresolved->cxx_template_value_args =
+                owner->cxx_template_value_args;
+            unresolved->cxx_template_arg_pack_expansions =
+                owner->cxx_template_arg_pack_expansions;
+            unresolved->cxx_template_arg_count =
+                owner->cxx_template_arg_count;
             if (owner->cxx_template_param_index >= 0) {
                 unresolved->cxx_template_param_index =
                     owner->cxx_template_param_index;
+            } else {
+                unresolved->cxx_template_param_index = -1;
             }
             return unresolved;
         }
@@ -16156,6 +16769,33 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             bool is_pack_expansion =
                 type->cxx_template_arg_pack_expansions &&
                 type->cxx_template_arg_pack_expansions[nested_index];
+            /* Alias substitution can reconstruct a dependent class-id from
+             * its pattern arguments without preserving the parallel pack
+             * expansion bitmap. Recover it only at the declared pack slot
+             * and only when the argument names a source parameter pack. */
+            if (!is_pack_expansion && pack_index >= 0 &&
+                nested_index >= pack_index && parameter &&
+                parameter->is_pack && tmpl) {
+                Type* pack_pattern = type->cxx_template_args
+                    ? type->cxx_template_args[nested_index] : NULL;
+                Expr* value_pattern = type->cxx_template_value_args
+                    ? type->cxx_template_value_args[nested_index] : NULL;
+                int type_pack_index =
+                    cxx_parser_template_parameter_pack_index(
+                        tmpl, pack_pattern);
+                int value_pack_index =
+                    cxx_parser_template_value_pack_index_expression(
+                        tmpl, value_pattern);
+                if (type_pack_index >= 0 && value_pack_index >= 0 &&
+                    type_pack_index != value_pack_index) {
+                    type_pack_index = -2;
+                }
+                int expansion_pack_index = type_pack_index >= 0
+                    ? type_pack_index : value_pack_index;
+                is_pack_expansion = expansion_pack_index >= 0 &&
+                    expansion_pack_index < tmpl->param_count &&
+                    tmpl->params[expansion_pack_index].is_pack;
+            }
             if (is_pack_expansion) {
                 Type* pattern_argument = type->cxx_template_args[nested_index];
                 int expansion_pack_index =
@@ -16189,6 +16829,21 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                         &enclosing_pack_offset,
                         &enclosing_pack_parameter_offset,
                         &enclosing_pack_trailing_count);
+                CxxTemplate* deferred_pack_scope = NULL;
+                int deferred_pack_index = -1;
+                bool has_deferred_pack_source =
+                    !has_local_pack_source && !expands_enclosing_pack &&
+                    cxx_parser_find_pattern_pack_source(
+                        pattern_argument, &deferred_pack_scope,
+                        &deferred_pack_index);
+                bool deferred_pack_scope_is_visible = false;
+                for (CxxTemplate* scope = tmpl; scope;
+                     scope = scope->enclosing_template) {
+                    if (scope == deferred_pack_scope) {
+                        deferred_pack_scope_is_visible = true;
+                        break;
+                    }
+                }
                 TemplateParam* local_expansion_parameter =
                     has_local_pack_source
                         ? &tmpl->params[expansion_pack_index] : NULL;
@@ -16199,7 +16854,13 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 TemplateParam* expansion_parameter =
                     local_expansion_parameter
                         ? local_expansion_parameter
-                        : enclosing_expansion_parameter;
+                        : enclosing_expansion_parameter
+                              ? enclosing_expansion_parameter
+                              : has_deferred_pack_source &&
+                                        !deferred_pack_scope_is_visible
+                                    ? &deferred_pack_scope->params[
+                                          deferred_pack_index]
+                                    : NULL;
                 int local_expansion_count = has_local_pack_source
                     ? cxx_template_pending_pack_length(
                           tmpl, expansion_pack_index)
@@ -16482,7 +17143,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 Expr* value_expression = type->cxx_template_value_args
                     ? type->cxx_template_value_args[nested_index] : NULL;
                 nested_arguments[nested_count] = parameter->type
-                    ? parameter->type : type_int;
+                    ? substitute_template_type(
+                          type->cxx_template, parameter->type,
+                          nested_arguments, nested_count, nested_values,
+                          nested_value_present)
+                    : type_int;
+                if (!nested_arguments[nested_count]) return NULL;
                 nested_value_expressions[nested_count] = value_expression;
                 if (!value_expression) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
@@ -16494,6 +17160,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     cxx_template_clone_expr_with_values(
                         tmpl, value_expression, arguments, argument_count,
                         value_args, value_present);
+                if (!substituted_value_expression ||
+                    !cxx_function_template_resolve_dependent_static_integer_members(
+                        &substituted_value_expression, tmpl, arguments,
+                        value_args, value_present, 0u)) {
+                    return NULL;
+                }
                 if (eval_template_integer_expression(
                         substituted_value_expression, tmpl, value_args,
                         value_present,
@@ -16643,6 +17315,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                           tmpl, value_expression, arguments, argument_count,
                           value_args, value_present)
                     : NULL;
+                if (!substituted_expression ||
+                    !cxx_function_template_resolve_dependent_static_integer_members(
+                        &substituted_expression, tmpl, arguments, value_args,
+                        value_present, 0u)) {
+                    return NULL;
+                }
                 nested_value_expressions[nested_index] =
                     substituted_expression ? substituted_expression
                                            : value_expression;
@@ -16731,7 +17409,11 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     tmpl->params[parameter_index].is_pack
                 ? type : NULL;
         }
-        if (substituted != type && substituted->cxx_dependent) {
+        if (substituted != type && substituted->cxx_dependent &&
+            substituted->cxx_template_param_index < 0 &&
+            !substituted->cxx_dependent_member_name &&
+            !cxx_type_contains_template_parameter_index(
+                tmpl, substituted, parameter_index, 0u)) {
             Type* resolved = substitute_template_type(
                 tmpl, substituted, arguments, argument_count, value_args,
                 value_present);
@@ -16809,7 +17491,8 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             }
         }
         if (base != type->base || array_len != type->array_len ||
-            array_bound != type->array_bound) {
+            array_bound != type->array_bound ||
+            type->cxx_dependent_alignment_expr) {
             substituted = ast_arena_alloc(sizeof(*substituted));
             *substituted = *type;
             substituted->base = base;
@@ -16820,7 +17503,9 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     ? base->size * substituted->array_len : 0;
                 substituted->align = base->align;
             }
-            return substituted;
+            return cxx_substitute_dependent_alignment(
+                tmpl, substituted, arguments, argument_count, value_args,
+                value_present);
         }
     } else if (type->kind == TYPE_FUNC) {
         Type* return_type = substitute_template_type(
@@ -16831,25 +17516,66 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         bool changed = return_type != type->ret_type;
         for (TypeParam* parameter = type->params; parameter;
              parameter = parameter->next) {
-            TypeParam* copy = ast_arena_alloc(sizeof(*copy));
-            *copy = *parameter;
-            copy->type = substitute_template_type(
-                tmpl, parameter->type, arguments, argument_count, value_args,
-                value_present);
-            copy->next = NULL;
-            if (copy->type != parameter->type) changed = true;
-            *tail = copy;
-            tail = &copy->next;
+            int pack_index = parameter->is_pack
+                ? cxx_template_pack_index_in_type(tmpl, parameter->type)
+                : -1;
+            if (pack_index >= 0 && tmpl &&
+                tmpl->params[pack_index].kind == TPARAM_TYPE &&
+                tmpl->pending_pack_count >= 0 &&
+                pack_index < argument_count &&
+                (tmpl->pending_pack_count == 0 ||
+                 tmpl->pending_pack_args)) {
+                for (int pack_value = 0;
+                     pack_value < tmpl->pending_pack_count; ++pack_value) {
+                    Type* expanded_arguments[32] = { NULL };
+                    TypeParam* copy = ast_arena_alloc(sizeof(*copy));
+                    if (argument_count >
+                        (int)(sizeof(expanded_arguments) /
+                              sizeof(expanded_arguments[0]))) {
+                        rcc_error((SourceLoc){"<template>", 0, 0},
+                                  "function type parameter pack exceeds compiler limits");
+                        return NULL;
+                    }
+                    if (argument_count > 0) {
+                        memcpy(expanded_arguments, arguments,
+                               sizeof(Type*) * (size_t)argument_count);
+                    }
+                    expanded_arguments[pack_index] =
+                        tmpl->pending_pack_args[pack_value];
+                    *copy = *parameter;
+                    copy->type = substitute_template_type(
+                        tmpl, parameter->type, expanded_arguments,
+                        argument_count, value_args, value_present);
+                    copy->is_pack = false;
+                    copy->next = NULL;
+                    *tail = copy;
+                    tail = &copy->next;
+                }
+                changed = true;
+            } else {
+                TypeParam* copy = ast_arena_alloc(sizeof(*copy));
+                *copy = *parameter;
+                copy->type = substitute_template_type(
+                    tmpl, parameter->type, arguments, argument_count,
+                    value_args, value_present);
+                copy->next = NULL;
+                if (copy->type != parameter->type) changed = true;
+                *tail = copy;
+                tail = &copy->next;
+            }
         }
         if (changed) {
             substituted = ast_arena_alloc(sizeof(*substituted));
             *substituted = *type;
             substituted->ret_type = return_type;
             substituted->params = parameters;
-            return substituted;
+            return cxx_substitute_dependent_alignment(
+                tmpl, substituted, arguments, argument_count, value_args,
+                value_present);
         }
     }
-    return type;
+    return cxx_substitute_dependent_alignment(
+        tmpl, type, arguments, argument_count, value_args, value_present);
 }
 
 static TypeParam* substitute_template_parameters(CxxTemplate* tmpl,
@@ -17239,6 +17965,67 @@ static int cxx_template_pack_index_in_type(CxxTemplate* tmpl, Type* type) {
         if (pack_index >= 0) return pack_index;
     }
     return -1;
+}
+
+static bool cxx_template_type_has_unexpanded_pack(
+    CxxTemplate* tmpl, Type* type) {
+    if (!tmpl || !type) return false;
+    if (type->kind == TYPE_STRUCT && type->cxx_dependent &&
+        type->cxx_template_param_index >= 0 &&
+        type->cxx_template_param_index < tmpl->param_count) {
+        TemplateParam* parameter =
+            &tmpl->params[type->cxx_template_param_index];
+        if (parameter->is_pack &&
+            (parameter->kind == TPARAM_TYPE ||
+             parameter->kind == TPARAM_TEMPLATE)) {
+            return true;
+        }
+    }
+    if (type->kind == TYPE_STRUCT && type->tag) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->is_pack &&
+                (parameter->kind == TPARAM_TYPE ||
+                 parameter->kind == TPARAM_TEMPLATE) &&
+                parameter->name && strcmp(parameter->name, type->tag) == 0) {
+                return true;
+            }
+        }
+    }
+    if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+         type->kind == TYPE_VECTOR) &&
+        cxx_template_type_has_unexpanded_pack(tmpl, type->base)) {
+        return true;
+    }
+    if (type->kind == TYPE_FUNC) {
+        if (cxx_template_type_has_unexpanded_pack(tmpl, type->ret_type)) {
+            return true;
+        }
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (cxx_template_type_has_unexpanded_pack(
+                    tmpl, parameter->type)) {
+                return true;
+            }
+        }
+    }
+    if (type->cxx_is_member_pointer &&
+        cxx_template_type_has_unexpanded_pack(
+            tmpl, type->cxx_member_pointer_owner)) {
+        return true;
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        if (type->cxx_template_arg_pack_expansions &&
+            type->cxx_template_arg_pack_expansions[index]) {
+            continue;
+        }
+        if (cxx_template_type_has_unexpanded_pack(
+                tmpl, type->cxx_template_args
+                          ? type->cxx_template_args[index] : NULL)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool class_template_instance_matches(
@@ -18202,18 +18989,7 @@ static Type* instantiate_class_template_for_owner(
             }
             continue;
         }
-        bool has_argument_pack_expansion = false;
-        for (int argument_index = 0;
-             argument_index < pattern->cxx_template_arg_count;
-             ++argument_index) {
-            if (pattern->cxx_template_arg_pack_expansions &&
-                pattern->cxx_template_arg_pack_expansions[argument_index]) {
-                has_argument_pack_expansion = true;
-                break;
-            }
-        }
-        if (cxx_template_pack_index_in_type(tmpl, pattern) >= 0 &&
-            !has_argument_pack_expansion) {
+        if (cxx_template_type_has_unexpanded_pack(tmpl, pattern)) {
             rcc_error(loc,
                       "a base type parameter pack requires an ellipsis");
             continue;
@@ -18618,6 +19394,11 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                                         const int64_t* value_args,
                                         const bool* value_present,
                                         int argument_count, SourceLoc loc) {
+    if (tmpl && tmpl->specialization_count > 0) {
+        return cxx_instantiate_dependent_class_template(
+            tmpl, NULL, arguments, value_args, value_present, argument_count,
+            loc);
+    }
     return instantiate_class_template_for_owner(
         tmpl, arguments, value_args, value_present, argument_count, NULL, loc);
 }
@@ -18760,7 +19541,17 @@ static int cxx_class_specialization_type_rank(const Type* pattern) {
     if (!pattern) return 0;
     if (pattern->is_const) ++rank;
     if (pattern->is_volatile) ++rank;
-    if (pattern->kind == TYPE_PTR || pattern->kind == TYPE_ARRAY) {
+    if (pattern->kind == TYPE_ARRAY) {
+        int array_rank = rank + 1 +
+            cxx_class_specialization_type_rank(pattern->base);
+        /* `T[N]` is more constrained than `T[]` even though N remains a
+         * dependent non-type argument until deduction. */
+        if (pattern->array_len >= 0 || pattern->array_bound) {
+            array_rank += 4;
+        }
+        return array_rank;
+    }
+    if (pattern->kind == TYPE_PTR) {
         return rank + 1 + cxx_class_specialization_type_rank(pattern->base);
     }
     if (pattern->cxx_dependent) return rank;
@@ -18793,10 +19584,48 @@ static bool cxx_class_specialization_rank_dominates(
     return strictly_greater;
 }
 
+static bool cxx_class_specialization_has_function_type_pack(
+    CxxTemplate* tmpl, Type* type) {
+    if (!tmpl || !type) return false;
+    if (type->kind == TYPE_FUNC) {
+        if (cxx_class_specialization_has_function_type_pack(
+                tmpl, type->ret_type)) {
+            return true;
+        }
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (parameter->is_pack ||
+                cxx_class_specialization_has_function_type_pack(
+                    tmpl, parameter->type)) {
+                return true;
+            }
+        }
+    }
+    if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+         type->kind == TYPE_VECTOR) &&
+        cxx_class_specialization_has_function_type_pack(tmpl, type->base)) {
+        return true;
+    }
+    if (type->cxx_is_member_pointer &&
+        cxx_class_specialization_has_function_type_pack(
+            tmpl, type->cxx_member_pointer_owner)) {
+        return true;
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        if (cxx_class_specialization_has_function_type_pack(
+                tmpl, type->cxx_template_args
+                          ? type->cxx_template_args[index] : NULL)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool deduce_class_specialization_type(CxxTemplate* tmpl,
                                               Type* pattern, Type* actual,
                                               Type** arguments,
-                                              int* specificity) {
+                                              int* specificity,
+                                              int* pack_count) {
     int nested_specificity = 0;
     if (!tmpl || !pattern || !actual || !arguments) return false;
     /* type_is_compatible intentionally ignores top-level cv qualifiers for
@@ -18824,20 +19653,147 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
             if (parameter->kind == TPARAM_TYPE && parameter->name &&
                 strcmp(parameter->name, pattern->tag) == 0) {
                 if (!arguments[index]) {
+                    if (pattern->is_const || pattern->is_volatile) {
+                        Type* deduced = ast_arena_alloc(sizeof(*deduced));
+                        *deduced = *actual;
+                        deduced->is_const = false;
+                        deduced->is_volatile = false;
+                        actual = deduced;
+                    }
                     arguments[index] = actual;
                     if (specificity) *specificity += 0;
                     return true;
                 }
-                return type_is_compatible(arguments[index], actual);
+                return type_is_same_template_argument(arguments[index],
+                                                      actual);
             }
         }
+    }
+    if (pattern->kind == TYPE_FUNC && actual->kind == TYPE_FUNC) {
+        TypeParam* pattern_parameter = pattern->params;
+        TypeParam* actual_parameter = actual->params;
+        TypeParam* pack_pattern = NULL;
+        int pattern_count = 0;
+        int actual_count = 0;
+        int pack_parameter_index = -1;
+        int pack_position = -1;
+        int pack_count_in_pattern = 0;
+        if (pattern->variadic != actual->variadic ||
+            pattern->function_is_noexcept != actual->function_is_noexcept ||
+            pattern->has_prototype != actual->has_prototype ||
+            !deduce_class_specialization_type(
+                tmpl, pattern->ret_type, actual->ret_type, arguments,
+                specificity, pack_count)) {
+            return false;
+        }
+        for (TypeParam* item = pattern->params; item; item = item->next) {
+            if (item->is_pack) {
+                pack_pattern = item;
+                pack_position = pattern_count;
+                ++pack_count_in_pattern;
+            }
+            ++pattern_count;
+        }
+        for (TypeParam* item = actual->params; item; item = item->next) {
+            ++actual_count;
+        }
+        if (pack_count_in_pattern == 0) {
+            while (pattern_parameter && actual_parameter) {
+                if (!deduce_class_specialization_type(
+                        tmpl, pattern_parameter->type, actual_parameter->type,
+                        arguments, specificity, pack_count)) {
+                    return false;
+                }
+                pattern_parameter = pattern_parameter->next;
+                actual_parameter = actual_parameter->next;
+            }
+            return !pattern_parameter && !actual_parameter;
+        }
+        if (pack_count_in_pattern != 1 || !pack_pattern || !pack_count ||
+            actual_count < pattern_count - 1 ||
+            pack_position < 0 || pack_position >= pattern_count) {
+            return false;
+        }
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
+                ((pack_pattern->type->cxx_template_param_index == index) ||
+                 (pack_pattern->type->tag && parameter->name &&
+                  strcmp(pack_pattern->type->tag, parameter->name) == 0))) {
+                pack_parameter_index = index;
+                break;
+            }
+        }
+        if (!pack_pattern->type || pack_parameter_index < 0 ||
+            pack_parameter_index != tmpl->param_count - 1) {
+            return false;
+        }
+        for (int index = 0; index < pack_position; ++index) {
+            if (!pattern_parameter || !actual_parameter ||
+                !deduce_class_specialization_type(
+                    tmpl, pattern_parameter->type, actual_parameter->type,
+                    arguments, specificity, pack_count)) {
+                return false;
+            }
+            pattern_parameter = pattern_parameter->next;
+            actual_parameter = actual_parameter->next;
+        }
+        TypeParam* pattern_suffix = pack_pattern->next;
+        /* Match fixed suffix parameters from the end, leaving the middle
+         * sequence for the function-type parameter-pack expansion. */
+        TypeParam* pack_end = actual->params;
+        TypeParam* actual_suffix = NULL;
+        int suffix_count = pattern_count - pack_position - 1;
+        for (int index = 0; pack_end && index < actual_count - suffix_count;
+             ++index) {
+            pack_end = pack_end->next;
+        }
+        actual_suffix = pack_end;
+        for (TypeParam* suffix = pattern_suffix; suffix;
+             suffix = suffix->next) {
+            if (!actual_suffix || !deduce_class_specialization_type(
+                    tmpl, suffix->type, actual_suffix->type, arguments,
+                    specificity, pack_count)) {
+                return false;
+            }
+            actual_suffix = actual_suffix->next;
+        }
+        while (actual_parameter && actual_parameter != pack_end) {
+            Type* element_arguments[32] = { NULL };
+            int element_specificity = 0;
+            if (*pack_count >= 32 - pack_parameter_index ||
+                !deduce_class_specialization_type(
+                    tmpl, pack_pattern->type, actual_parameter->type,
+                    element_arguments, &element_specificity, NULL) ||
+                !element_arguments[pack_parameter_index]) {
+                return false;
+            }
+            for (int index = 0; index < pack_parameter_index; ++index) {
+                if (element_arguments[index]) {
+                    if (arguments[index] &&
+                        !type_is_compatible(arguments[index],
+                                            element_arguments[index])) {
+                        return false;
+                    }
+                    if (!arguments[index]) {
+                        arguments[index] = element_arguments[index];
+                    }
+                }
+            }
+            arguments[pack_parameter_index + *pack_count] =
+                element_arguments[pack_parameter_index];
+            ++*pack_count;
+            if (specificity) *specificity += element_specificity;
+            actual_parameter = actual_parameter->next;
+        }
+        return actual_parameter == pack_end;
     }
     if (pattern->kind == TYPE_PTR && actual->kind == TYPE_PTR &&
         pattern->is_reference == actual->is_reference &&
         pattern->is_rvalue_reference == actual->is_rvalue_reference) {
         return deduce_class_specialization_type(
             tmpl, pattern->base, actual->base, arguments,
-            specificity ? &nested_specificity : NULL) &&
+            specificity ? &nested_specificity : NULL, pack_count) &&
             (!specificity || (*specificity += nested_specificity + 1, true));
     }
     if (pattern->kind == TYPE_ARRAY && actual->kind == TYPE_ARRAY &&
@@ -18845,7 +19801,8 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
          pattern->array_len == actual->array_len)) {
         if (specificity && pattern->array_len >= 0) *specificity += 4;
         return deduce_class_specialization_type(
-            tmpl, pattern->base, actual->base, arguments, specificity);
+            tmpl, pattern->base, actual->base, arguments, specificity,
+            pack_count);
     }
     if (!type_is_compatible(pattern, actual)) return false;
     if (specificity) *specificity += 8;
@@ -18916,6 +19873,421 @@ static bool cxx_deduce_class_specialization_array_bounds(
     return cxx_deduce_class_specialization_array_bounds(
         tmpl, pattern->base, actual->base, values, value_present,
         require_resolved, specificity);
+}
+
+static bool cxx_type_pattern_contains_dependent_component(
+    const Type* type, unsigned depth);
+
+static Type* cxx_decltype_destructor_object_type(const Expr* destructor) {
+    Type* object_type;
+    if (!destructor || !destructor->member_is_explicit_destructor) {
+        return NULL;
+    }
+    object_type = cxx_parser_expression_type(destructor->member_base);
+    if (destructor->kind == EXPR_PTR_MEMBER) {
+        if (!object_type || object_type->kind != TYPE_PTR ||
+            object_type->is_reference) {
+            return NULL;
+        }
+        object_type = object_type->base;
+    } else if (object_type && object_type->kind == TYPE_PTR &&
+               object_type->is_reference) {
+        object_type = object_type->base;
+    }
+    return object_type;
+}
+
+static bool cxx_decltype_type_destructible(Type* type, unsigned depth) {
+    CxxClass* cls;
+    if (!type || depth > 64u) return false;
+    if (type->kind == TYPE_PTR && type->is_reference) {
+        return cxx_decltype_type_destructible(type->base, depth + 1u);
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return cxx_decltype_type_destructible(type->base, depth + 1u);
+    }
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC) return false;
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) {
+        return type->kind == TYPE_INT || type->kind == TYPE_FLOAT ||
+               type->kind == TYPE_ENUM || type->kind == TYPE_PTR ||
+               type->kind == TYPE_NULLPTR;
+    }
+    if (!type->is_complete) return false;
+    cls = type->cxx_class;
+    if (!cls) return true;
+    if (cls->destructor_method &&
+        (cls->destructor_method->is_deleted ||
+         cls->destructor_method->access != ACCESS_PUBLIC)) {
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        Type* base_type = cls->bases[index].base
+            ? cls->bases[index].base->type : NULL;
+        if (!cxx_decltype_type_destructible(base_type, depth + 1u)) {
+            return false;
+        }
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!cxx_decltype_type_destructible(field->type, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool cxx_decltype_explicit_destructor_is_viable(
+    const Expr* destructor) {
+    Type* object_type = cxx_decltype_destructor_object_type(destructor);
+    Type* target_type = destructor
+        ? destructor->member_destructor_type : NULL;
+    Type object_unqualified;
+    Type target_unqualified;
+    if (!object_type || !target_type || object_type->cxx_dependent ||
+        target_type->cxx_dependent) {
+        return false;
+    }
+    if (object_type->is_const || object_type->is_volatile) {
+        object_unqualified = *object_type;
+        object_unqualified.is_const = false;
+        object_unqualified.is_volatile = false;
+        object_type = &object_unqualified;
+    }
+    if (target_type->is_const || target_type->is_volatile) {
+        target_unqualified = *target_type;
+        target_unqualified.is_const = false;
+        target_unqualified.is_volatile = false;
+        target_type = &target_unqualified;
+    }
+    bool compatible = type_is_compatible(object_type, target_type);
+    bool destructible = cxx_decltype_type_destructible(object_type, 0u);
+    return compatible && destructible;
+}
+
+static bool cxx_decltype_type_destructor_is_nothrow(Type* type,
+                                                     unsigned depth) {
+    CxxClass* cls;
+    if (!type || depth > 64u) return false;
+    if (type->kind == TYPE_PTR && type->is_reference) {
+        return cxx_decltype_type_destructor_is_nothrow(type->base,
+                                                       depth + 1u);
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return cxx_decltype_type_destructor_is_nothrow(type->base,
+                                                       depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) {
+        return type->kind != TYPE_VOID && type->kind != TYPE_FUNC;
+    }
+    cls = type->cxx_class;
+    if (!cls) return true;
+    if (cls->destructor_method) {
+        CxxMethod* destructor = cls->destructor_method;
+        int64_t explicit_value;
+        if (destructor->is_noexcept) return true;
+        if (destructor->decl && destructor->decl->func_noexcept_expr) {
+            return expr_eval_integer_constant(
+                       destructor->decl->func_noexcept_expr,
+                       &explicit_value) && explicit_value != 0;
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        Type* base_type = cls->bases[index].base
+            ? cls->bases[index].base->type : NULL;
+        if (!cxx_decltype_type_destructor_is_nothrow(base_type,
+                                                      depth + 1u)) {
+            return false;
+        }
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!cxx_decltype_type_destructor_is_nothrow(field->type,
+                                                      depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool cxx_decltype_explicit_destructor_is_nothrow(
+    const Expr* destructor) {
+    Type* object_type;
+    if (!cxx_decltype_explicit_destructor_is_viable(destructor)) return false;
+    object_type = cxx_decltype_destructor_object_type(destructor);
+    return cxx_decltype_type_destructor_is_nothrow(object_type, 0u);
+}
+
+static bool cxx_dependent_decltype_calls_are_viable(
+    Expr* expression, unsigned depth) {
+    if (!expression) return true;
+    if (depth > 64u) return false;
+    switch (expression->kind) {
+        case EXPR_CALL: {
+            if (expression->cxx_dependent_function_template_call &&
+                !cxx_resolve_dependent_function_template_call(expression)) {
+                return false;
+            }
+            if (expression->call_func &&
+                (expression->call_func->kind == EXPR_MEMBER ||
+                 expression->call_func->kind == EXPR_PTR_MEMBER) &&
+                expression->call_func->member_is_explicit_destructor) {
+                return cxx_decltype_explicit_destructor_is_viable(
+                           expression->call_func) &&
+                       cxx_dependent_decltype_calls_are_viable(
+                           expression->call_func->member_base,
+                           depth + 1u);
+            }
+            Type* function_type = cxx_parser_expression_type(
+                expression->call_func);
+            TypeParam* parameter;
+            ExprList* argument;
+            if (function_type && function_type->kind == TYPE_PTR) {
+                function_type = function_type->base;
+            }
+            if (!function_type || function_type->kind != TYPE_FUNC) {
+                return false;
+            }
+            parameter = function_type->params;
+            argument = expression->call_args;
+            while (parameter && argument) {
+                Type* source = cxx_parser_expression_type(argument->expr);
+                if (!source || cxx_type_pattern_contains_dependent_component(
+                                   source, 0u) ||
+                    rcc_sema_cxx_conversion_rank(
+                        argument->expr, source, parameter->type) < 0 ||
+                    !cxx_dependent_decltype_calls_are_viable(
+                        argument->expr, depth + 1u)) {
+                    return false;
+                }
+                parameter = parameter->next;
+                argument = argument->next;
+            }
+            if (argument && !function_type->variadic) return false;
+            if (parameter && !argument) return false;
+            return cxx_dependent_decltype_calls_are_viable(
+                       expression->call_func, depth + 1u) &&
+                   (!argument || cxx_dependent_decltype_calls_are_viable(
+                                    argument->expr, depth + 1u));
+        }
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            return cxx_dependent_decltype_calls_are_viable(
+                expression->unary_operand, depth + 1u);
+        case EXPR_CAST:
+            return cxx_dependent_decltype_calls_are_viable(
+                expression->cast_expr, depth + 1u);
+        case EXPR_COND:
+            return cxx_dependent_decltype_calls_are_viable(
+                       expression->cond_test, depth + 1u) &&
+                   cxx_dependent_decltype_calls_are_viable(
+                       expression->cond_then, depth + 1u) &&
+                   cxx_dependent_decltype_calls_are_viable(
+                       expression->cond_else, depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+            return cxx_dependent_decltype_calls_are_viable(
+                       expression->binary_lhs, depth + 1u) &&
+                   cxx_dependent_decltype_calls_are_viable(
+                       expression->binary_rhs, depth + 1u);
+        case EXPR_INDEX:
+            return cxx_dependent_decltype_calls_are_viable(
+                       expression->index_base, depth + 1u) &&
+                   cxx_dependent_decltype_calls_are_viable(
+                       expression->index_expr, depth + 1u);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return cxx_dependent_decltype_calls_are_viable(
+                expression->member_base, depth + 1u);
+        default:
+            return true;
+    }
+}
+
+static bool cxx_resolve_dependent_function_template_calls(
+    Expr* expression, unsigned depth) {
+    if (!expression) return true;
+    if (depth > 64u) return false;
+    switch (expression->kind) {
+        case EXPR_CALL:
+            if (expression->cxx_dependent_function_template_call &&
+                !cxx_resolve_dependent_function_template_call(expression)) {
+                return false;
+            }
+            if (!cxx_resolve_dependent_function_template_calls(
+                    expression->call_func, depth + 1u)) {
+                return false;
+            }
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                if (!cxx_resolve_dependent_function_template_calls(
+                        argument->expr, depth + 1u)) {
+                    return false;
+                }
+            }
+            return true;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            return cxx_resolve_dependent_function_template_calls(
+                expression->unary_operand, depth + 1u);
+        case EXPR_CAST:
+            return cxx_resolve_dependent_function_template_calls(
+                expression->cast_expr, depth + 1u);
+        case EXPR_COND:
+            return cxx_resolve_dependent_function_template_calls(
+                       expression->cond_test, depth + 1u) &&
+                   cxx_resolve_dependent_function_template_calls(
+                       expression->cond_then, depth + 1u) &&
+                   cxx_resolve_dependent_function_template_calls(
+                       expression->cond_else, depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            return cxx_resolve_dependent_function_template_calls(
+                       expression->binary_lhs, depth + 1u) &&
+                   cxx_resolve_dependent_function_template_calls(
+                       expression->binary_rhs, depth + 1u);
+        case EXPR_INDEX:
+            return cxx_resolve_dependent_function_template_calls(
+                       expression->index_base, depth + 1u) &&
+                   cxx_resolve_dependent_function_template_calls(
+                       expression->index_expr, depth + 1u);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return cxx_resolve_dependent_function_template_calls(
+                expression->member_base, depth + 1u);
+        case EXPR_CXX_TYPEID:
+            return cxx_resolve_dependent_function_template_calls(
+                expression->cxx_typeid_operand, depth + 1u);
+        default:
+            return true;
+    }
+}
+
+static bool cxx_dependent_decltype_type_is_viable(
+    Type* pattern, Type** arguments, int argument_count,
+    const int64_t* values, const bool* value_present, unsigned depth) {
+    if (!pattern) return true;
+    if (depth > 64u) return false;
+    if (pattern->cxx_dependent_decltype_expr) {
+        CxxTemplate* context = pattern->cxx_template_param_context;
+        Expr* expression;
+        if (!context) return false;
+        expression = cxx_template_clone_expr_with_values(
+            context, pattern->cxx_dependent_decltype_expr, arguments,
+            argument_count, values, value_present);
+        if (!cxx_dependent_decltype_calls_are_viable(expression, 0u)) {
+            return false;
+        }
+    }
+    if ((pattern->kind == TYPE_PTR || pattern->kind == TYPE_ARRAY ||
+         pattern->kind == TYPE_VECTOR) &&
+        !cxx_dependent_decltype_type_is_viable(
+            pattern->base, arguments, argument_count, values, value_present,
+            depth + 1u)) {
+        return false;
+    }
+    if (pattern->kind == TYPE_FUNC) {
+        if (!cxx_dependent_decltype_type_is_viable(
+                pattern->ret_type, arguments, argument_count, values,
+                value_present, depth + 1u)) {
+            return false;
+        }
+        for (TypeParam* parameter = pattern->params; parameter;
+             parameter = parameter->next) {
+            if (!cxx_dependent_decltype_type_is_viable(
+                    parameter->type, arguments, argument_count, values,
+                    value_present, depth + 1u)) {
+                return false;
+            }
+        }
+    }
+    if (!cxx_dependent_decltype_type_is_viable(
+            pattern->cxx_dependent_alias_owner, arguments, argument_count,
+            values, value_present, depth + 1u) ||
+        !cxx_dependent_decltype_type_is_viable(
+            pattern->cxx_dependent_class_template_owner, arguments,
+            argument_count, values, value_present, depth + 1u) ||
+        !cxx_dependent_decltype_type_is_viable(
+            pattern->cxx_underlying_type_operand, arguments,
+            argument_count, values, value_present, depth + 1u)) {
+        return false;
+    }
+    for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+        if (pattern->cxx_template_args &&
+            !cxx_dependent_decltype_type_is_viable(
+                pattern->cxx_template_args[index], arguments,
+                argument_count, values, value_present, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool cxx_dependent_decltype_pattern_is_viable(
+    Type* pattern, Type** arguments, int argument_count,
+    const int64_t* values, const bool* value_present) {
+    return cxx_dependent_decltype_type_is_viable(
+        pattern, arguments, argument_count, values, value_present, 0u);
 }
 
 static bool cxx_class_specialization_pattern_layout(
@@ -19062,7 +20434,7 @@ static bool cxx_deduce_class_specialization_expanded_type(
         !specialization->params[pack_index].is_pack ||
         !deduce_class_specialization_type(
             specialization, pattern, actual, element_arguments,
-            &element_specificity) || !element_arguments[pack_index]) {
+            &element_specificity, NULL) || !element_arguments[pack_index]) {
         return false;
     }
     for (int parameter_index = 0; parameter_index < pack_index;
@@ -19364,7 +20736,7 @@ static bool cxx_class_partial_owner_pattern_matches(
                     specialization,
                     specialization->specialization_args[index],
                     owner_pattern->cxx_template_args[index],
-                    deduced_arguments, &specificity)) {
+                    deduced_arguments, &specificity, NULL)) {
                 return false;
             }
         } else if (primary->params[index].kind == TPARAM_NONTYPE) {
@@ -19458,6 +20830,32 @@ CxxClass* rcc_cxx_instantiate_class_template_for_owner(
     return type ? type->cxx_class : NULL;
 }
 
+static bool cxx_template_name_contains_parameter(
+    const char* expression_name, const char* parameter_name) {
+    size_t parameter_length;
+    const char* match;
+    if (!expression_name || !parameter_name || !*parameter_name) return false;
+    parameter_length = strlen(parameter_name);
+    for (match = expression_name;
+         (match = strstr(match, parameter_name)) != NULL; ++match) {
+        char before = match == expression_name ? '\0' : match[-1];
+        char after = match[parameter_length];
+        bool before_identifier =
+            (before >= 'a' && before <= 'z') ||
+            (before >= 'A' && before <= 'Z') ||
+            (before >= '0' && before <= '9') || before == '_';
+        bool after_identifier =
+            (after >= 'a' && after <= 'z') ||
+            (after >= 'A' && after <= 'Z') ||
+            (after >= '0' && after <= '9') || after == '_';
+        if (!before_identifier && !after_identifier) return true;
+    }
+    return false;
+}
+
+static bool cxx_type_pattern_contains_dependent_component(
+    const Type* type, unsigned depth);
+
 static bool cxx_expression_is_dependent(
     const Expr* expression, const CxxTemplate* tmpl) {
     const CxxTemplate* expression_template;
@@ -19474,6 +20872,10 @@ static bool cxx_expression_is_dependent(
             for (int index = 0; index < scope->param_count; ++index) {
                 const TemplateParam* parameter = &scope->params[index];
                 if (!parameter->name) continue;
+                if (cxx_template_name_contains_parameter(
+                        expression->ident_name, parameter->name)) {
+                    return true;
+                }
                 if (parameter->kind == TPARAM_NONTYPE &&
                     strcmp(parameter->name, expression->ident_name) == 0) {
                     return true;
@@ -19502,6 +20904,14 @@ static bool cxx_expression_is_dependent(
                 }
             }
         }
+    }
+    if ((expression->kind == EXPR_MEMBER ||
+         expression->kind == EXPR_PTR_MEMBER) && expression->member_base &&
+        (cxx_expression_is_dependent(expression->member_base,
+                                     expression_template) ||
+         cxx_type_pattern_contains_dependent_component(
+             expression->member_base->type, 0u))) {
+            return true;
     }
     if (expression->kind == EXPR_SIZEOF &&
         expression->sizeof_pack_name) {
@@ -19535,9 +20945,33 @@ static bool cxx_expression_is_dependent(
         return false;
     }
     switch (expression->kind) {
+        case EXPR_CXX_TYPE_TRAIT:
+            if (cxx_type_pattern_contains_dependent_component(
+                    expression->cxx_type_trait_type, 0u) ||
+                cxx_type_pattern_contains_dependent_component(
+                    expression->cxx_type_trait_other_type, 0u)) {
+                return true;
+            }
+            for (CxxTypeTraitArgument* argument =
+                     expression->cxx_type_trait_arguments;
+                 argument; argument = argument->next) {
+                if (argument->is_pack_expansion ||
+                    cxx_type_pattern_contains_dependent_component(
+                        argument->type, 0u)) {
+                    return true;
+                }
+            }
+            return false;
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_NOEXCEPT:
             return cxx_expression_is_dependent(
                 expression->unary_operand, expression_template);
         case EXPR_CAST:
@@ -19561,6 +20995,8 @@ static bool cxx_expression_is_dependent(
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             return cxx_expression_is_dependent(
                        expression->binary_lhs, expression_template) ||
                    cxx_expression_is_dependent(
@@ -19573,13 +21009,33 @@ static bool cxx_expression_is_dependent(
                    cxx_expression_is_dependent(
                        expression->cond_else, expression_template);
         case EXPR_CALL:
+            if (expression->cxx_dependent_function_template_call) {
+                return cxx_function_template_call_is_dependent(
+                    expression->call_args,
+                    expression->cxx_dependent_function_template_call
+                        ->explicit_arguments,
+                    expression->cxx_dependent_function_template_call
+                        ->explicit_argument_count,
+                    expression->cxx_dependent_function_template_call
+                        ->explicit_arguments_specified,
+                    expression_template);
+            }
+            if (cxx_type_pattern_contains_dependent_component(
+                    expression->type ? expression->type
+                                     : cxx_parser_expression_type(
+                                           (Expr*)expression),
+                    0u)) {
+                return true;
+            }
             if (cxx_expression_is_dependent(
                     expression->call_func, expression_template)) {
                 return true;
             }
             for (ExprList* argument = expression->call_args; argument;
                  argument = argument->next) {
-                if (cxx_expression_is_dependent(
+                if (cxx_type_pattern_contains_dependent_component(
+                        cxx_parser_expression_type(argument->expr), 0u) ||
+                    cxx_expression_is_dependent(
                         argument->expr, expression_template)) {
                     return true;
                 }
@@ -19812,7 +21268,7 @@ cxx_find_nested_template_for_dependent_owner_pattern(
                         specialization,
                         specialization->specialization_args[argument_index],
                         owner_pattern->cxx_template_args[argument_index],
-                        deduced_arguments, &specificity);
+                        deduced_arguments, &specificity, NULL);
             } else if (primary_parameter->kind == TPARAM_NONTYPE) {
                 matches = specialization->specialization_value_args &&
                     owner_pattern->cxx_template_value_args &&
@@ -19993,7 +21449,7 @@ static int cxx_nested_specialization_owner_matches(
                      : !deduce_class_specialization_type(
                            owner_template, type_pattern,
                            actual_arguments[index], deduced_arguments,
-                           &specificity))) {
+                           &specificity, NULL))) {
                 return 0;
             }
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -20067,7 +21523,7 @@ static int cxx_nested_specialization_owner_matches(
                         owner_template,
                         pattern->cxx_template_args[expansion_index],
                         actual_arguments[index], deduced_arguments,
-                        &specificity)) {
+                        &specificity, NULL)) {
                     return 0;
                 }
             } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -20172,6 +21628,7 @@ static Type* cxx_instantiate_dependent_class_template(
         int expansion_index = -1;
         int expansion_count = 0;
         int candidate_pack_count = 0;
+        bool function_type_pack = false;
         bool matches = specialization && specialization->templated_class &&
             cxx_class_specialization_pattern_layout(
                 specialization, argument_count, pattern_indices,
@@ -20189,6 +21646,20 @@ static Type* cxx_instantiate_dependent_class_template(
         }
         if (!full_specialization && specialization->param_count > 32) {
             continue;
+        }
+        if (matches && !full_specialization) {
+            for (int pattern_index = 0;
+                 pattern_index < specialization->specialization_arg_count;
+                 ++pattern_index) {
+                Type* pattern = specialization->specialization_args
+                    ? specialization->specialization_args[pattern_index]
+                    : NULL;
+                if (cxx_class_specialization_has_function_type_pack(
+                        specialization, pattern)) {
+                    function_type_pack = true;
+                    break;
+                }
+            }
         }
 
         for (int argument_index = 0;
@@ -20220,10 +21691,34 @@ static Type* cxx_instantiate_dependent_class_template(
                         candidate_arguments, &candidate_pack_count,
                         &specificity);
                 } else {
+                    if (pattern && pattern->cxx_dependent &&
+                        (pattern->cxx_dependent_member_name ||
+                         pattern->cxx_dependent_alias_template ||
+                         pattern->cxx_dependent_class_template_owner ||
+                         pattern->cxx_template_arg_count > 0 ||
+                         pattern->cxx_dependent_decltype_expr)) {
+                        Type* resolved_pattern = substitute_template_type(
+                            specialization, pattern, candidate_arguments,
+                            specialization->param_count, candidate_values,
+                            candidate_value_present);
+                        if (!resolved_pattern) {
+                            matches = false;
+                            break;
+                        }
+                        if (!resolved_pattern->cxx_dependent) {
+                            pattern = resolved_pattern;
+                            matches = type_is_same_template_argument(
+                                pattern, arguments[argument_index]);
+                            if (matches) specificity +=
+                                candidate_ranks[argument_index];
+                            continue;
+                        }
+                    }
                     matches = specialization->param_count > 0 && pattern &&
                         deduce_class_specialization_type(
                             specialization, pattern, arguments[argument_index],
-                            candidate_arguments, &specificity);
+                            candidate_arguments, &specificity,
+                            &candidate_pack_count);
                     if (matches) {
                         matches = cxx_deduce_class_specialization_array_bounds(
                             specialization, pattern, arguments[argument_index],
@@ -20280,6 +21775,48 @@ static Type* cxx_instantiate_dependent_class_template(
 
         if (!matches) continue;
         if (!full_specialization) {
+            int specialization_argument_count =
+                specialization->param_count;
+            if (expansion_index >= 0) {
+                int specialization_pack_index =
+                    cxx_class_pack_index(specialization);
+                if (specialization_pack_index < 0) {
+                    matches = false;
+                } else {
+                    specialization_argument_count =
+                        specialization_pack_index + candidate_pack_count;
+                }
+            } else if (function_type_pack) {
+                int specialization_pack_index =
+                    cxx_class_pack_index(specialization);
+                if (specialization_pack_index < 0 ||
+                    specialization_pack_index !=
+                        specialization->param_count - 1 ||
+                    specialization->params[specialization_pack_index].kind !=
+                        TPARAM_TYPE) {
+                    matches = false;
+                } else {
+                    specialization_argument_count =
+                        specialization_pack_index + candidate_pack_count;
+                }
+            }
+            for (int pattern_index = 0;
+                 matches && pattern_index <
+                                specialization->specialization_arg_count;
+                 ++pattern_index) {
+                Type* pattern = specialization->specialization_args
+                    ? specialization->specialization_args[pattern_index]
+                    : NULL;
+                if (pattern) {
+                    matches = cxx_dependent_decltype_pattern_is_viable(
+                        pattern, candidate_arguments,
+                        specialization_argument_count, candidate_values,
+                        candidate_value_present);
+                }
+            }
+        }
+        if (!matches) continue;
+        if (!full_specialization) {
             for (int argument_index = 0; matches &&
                  argument_index < argument_count; ++argument_index) {
                 int parameter_index = pack_index >= 0 &&
@@ -20316,6 +21853,13 @@ static Type* cxx_instantiate_dependent_class_template(
                         TPARAM_TYPE) {
                     continue;
                 }
+                if (function_type_pack &&
+                    parameter_index == specialization_pack_index &&
+                    specialization->params[parameter_index].kind ==
+                        TPARAM_TYPE &&
+                    specialization->params[parameter_index].is_pack) {
+                    continue;
+                }
                 if (specialization->params[parameter_index].kind ==
                         TPARAM_NONTYPE
                     ? !candidate_value_present[parameter_index]
@@ -20345,6 +21889,10 @@ static Type* cxx_instantiate_dependent_class_template(
         if (matches) {
             int candidate_argument_count = specialization->param_count;
             if (expansion_index >= 0) {
+                candidate_argument_count =
+                    cxx_class_pack_index(specialization) +
+                    candidate_pack_count;
+            } else if (function_type_pack) {
                 candidate_argument_count =
                     cxx_class_pack_index(specialization) +
                     candidate_pack_count;
@@ -20451,6 +21999,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                 pack_index >= 0 && argument_count >= pack_index
                     ? pack_index : argument_count];
             if (parameter->kind == TPARAM_TYPE) {
+                bool argument_pack_expansion;
                 Type* argument = parse_cxx_type_spec();
                 /* A type template argument is a type-id, not only a type
                  * specifier. Parse its abstract declarator too so array,
@@ -20458,9 +22007,13 @@ static Type* parse_class_template_specialization_with_owner_type(
                  * their full type in the template argument list. */
                 argument = rcc_parser_parse_cxx_declarator(
                     argument, NULL, NULL);
+                argument_pack_expansion =
+                    rcc_parser_last_cxx_declarator_was_pack();
                 int argument_index = argument_count++;
                 arguments[argument_index] = argument;
-                if (match(TOK_ELLIPSIS)) {
+                argument_pack_expansion =
+                    match(TOK_ELLIPSIS) || argument_pack_expansion;
+                if (argument_pack_expansion) {
                     if (!parameter->is_pack || pack_index < 0 ||
                         !cxx_parser_template_pack_parameter_in_scopes(
                             active_template, argument, NULL, -1)) {
@@ -20523,54 +22076,61 @@ static Type* parse_class_template_specialization_with_owner_type(
             } else {
                 const char* argument_name = NULL;
                 CxxTemplate* argument_template;
-                Type* template_carrier;
-                int source_parameter_index;
+                Type* template_carrier =
+                    parse_class_alias_template_template_argument(
+                        parameter, loc);
+                int source_parameter_index = -1;
                 bool invalid_current_template_argument = false;
-                if (check(TOK_IDENT) || check(TOK_SCOPE)) {
-                    argument_name = parse_qualified_name();
-                } else {
-                    rcc_error(peek()->loc,
-                              "template-template argument requires a class "
-                              "template name");
-                }
-                source_parameter_index = argument_name && active_template
-                    ? active_template_template_parameter_index(argument_name)
-                    : -1;
-                if (source_parameter_index >= 0 && active_template) {
-                    const TemplateParam* source_parameter =
-                        active_template_template_parameter(
-                            source_parameter_index);
-                    if (!source_parameter ||
-                        !template_template_parameter_signatures_match(
-                            parameter->template_signature,
-                            source_parameter->template_signature, 0)) {
-                        rcc_error(loc,
-                                  "template-template argument does not match "
-                                  "its parameter list");
-                        template_carrier = type_int;
-                        invalid_template_argument = true;
-                        invalid_current_template_argument = true;
+                if (!template_carrier) {
+                    if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+                        argument_name = parse_qualified_name();
                     } else {
-                        template_carrier = type_struct(argument_name);
-                        template_carrier->cxx_dependent = true;
-                        template_carrier->cxx_template_param_index =
-                            source_parameter_index;
+                        rcc_error(peek()->loc,
+                                  "template-template argument requires a class "
+                                  "template name");
                     }
-                } else {
-                    argument_template = argument_name
-                        ? find_template_template_argument(argument_name) : NULL;
-                    if (!argument_template ||
-                        !template_template_signature_matches(
-                            parameter, argument_template)) {
-                        rcc_error(loc,
-                                  "template-template argument does not match "
-                                  "its parameter list");
-                        template_carrier = type_int;
-                        invalid_template_argument = true;
-                        invalid_current_template_argument = true;
+                    source_parameter_index = argument_name && active_template
+                        ? active_template_template_parameter_index(
+                              argument_name)
+                        : -1;
+                    if (source_parameter_index >= 0 && active_template) {
+                        const TemplateParam* source_parameter =
+                            active_template_template_parameter(
+                                source_parameter_index);
+                        if (!source_parameter ||
+                            !template_template_parameter_signatures_match(
+                                parameter->template_signature,
+                                source_parameter->template_signature, 0)) {
+                            rcc_error(loc,
+                                      "template-template argument does not match "
+                                      "its parameter list");
+                            template_carrier = type_int;
+                            invalid_template_argument = true;
+                            invalid_current_template_argument = true;
+                        } else {
+                            template_carrier = type_struct(argument_name);
+                            template_carrier->cxx_dependent = true;
+                            template_carrier->cxx_template_param_index =
+                                source_parameter_index;
+                        }
                     } else {
-                        template_carrier = type_struct(argument_name);
-                        template_carrier->cxx_template = argument_template;
+                        argument_template = argument_name
+                            ? find_template_template_argument(argument_name)
+                            : NULL;
+                        if (!argument_template ||
+                            !template_template_signature_matches(
+                                parameter, argument_template)) {
+                            rcc_error(loc,
+                                      "template-template argument does not match "
+                                      "its parameter list");
+                            template_carrier = type_int;
+                            invalid_template_argument = true;
+                            invalid_current_template_argument = true;
+                        } else {
+                            template_carrier = type_struct(argument_name);
+                            template_carrier->cxx_template =
+                                argument_template;
+                        }
                     }
                 }
                 int argument_index = argument_count++;
@@ -20798,6 +22358,7 @@ static Type* parse_class_template_specialization_with_owner_type(
         int expansion_index = -1;
         int expansion_count = 0;
         int candidate_pack_count = 0;
+        bool function_type_pack = false;
         bool matches = specialization &&
             cxx_class_specialization_pattern_layout(
                 specialization, argument_count, pattern_indices,
@@ -20809,6 +22370,20 @@ static Type* parse_class_template_specialization_with_owner_type(
         int specialization_ranks[32] = { 0 };
         int specificity = specialization && specialization->param_count == 0
             ? 100000 : 0;
+        if (matches && specialization->param_count > 0) {
+            for (int pattern_index = 0;
+                 pattern_index < specialization->specialization_arg_count;
+                 ++pattern_index) {
+                Type* pattern = specialization->specialization_args
+                    ? specialization->specialization_args[pattern_index]
+                    : NULL;
+                if (cxx_class_specialization_has_function_type_pack(
+                        specialization, pattern)) {
+                    function_type_pack = true;
+                    break;
+                }
+            }
+        }
         for (int argument_index = 0; matches &&
              argument_index < argument_count; ++argument_index) {
             int pattern_index = pattern_indices[argument_index];
@@ -20872,9 +22447,43 @@ static Type* parse_class_template_specialization_with_owner_type(
                         specialization_arguments, &candidate_pack_count,
                         &specificity);
                 } else {
+                    bool pattern_was_substituted = false;
+                    if (pattern && pattern->cxx_dependent &&
+                        (pattern->cxx_dependent_member_name ||
+                         pattern->cxx_dependent_alias_template ||
+                         pattern->cxx_dependent_class_template_owner ||
+                         pattern->cxx_template_arg_count > 0 ||
+                         pattern->cxx_dependent_decltype_expr)) {
+                        bool suppress_before = g_suppress_errors;
+                        int suppressed_before = g_suppressed_error_count;
+                        Type* resolved_pattern;
+                        g_suppress_errors = true;
+                        resolved_pattern = substitute_template_type(
+                            specialization, pattern, specialization_arguments,
+                            specialization->param_count, specialization_values,
+                            specialization_value_present);
+                        g_suppress_errors = suppress_before;
+                        if (!resolved_pattern ||
+                            g_suppressed_error_count != suppressed_before) {
+                            matches = false;
+                            break;
+                        }
+                        if (!resolved_pattern->cxx_dependent) {
+                            pattern = resolved_pattern;
+                            pattern_was_substituted = true;
+                        }
+                    }
+                    if (pattern_was_substituted) {
+                        matches = type_is_same_template_argument(
+                            pattern, arguments[argument_index]);
+                        if (matches) specificity +=
+                            specialization_ranks[argument_index];
+                        continue;
+                    }
                     matches = deduce_class_specialization_type(
                         specialization, pattern, arguments[argument_index],
-                        specialization_arguments, &specificity);
+                        specialization_arguments, &specificity,
+                        &candidate_pack_count);
                 }
                 if (matches) {
                     matches = cxx_deduce_class_specialization_array_bounds(
@@ -20923,6 +22532,13 @@ static Type* parse_class_template_specialization_with_owner_type(
                         TPARAM_TYPE) {
                     continue;
                 }
+                if (function_type_pack &&
+                    parameter_index == specialization_pack_index &&
+                    specialization->params[parameter_index].kind ==
+                        TPARAM_TYPE &&
+                    specialization->params[parameter_index].is_pack) {
+                    continue;
+                }
                 if (specialization->params[parameter_index].kind ==
                         TPARAM_NONTYPE
                     ? !specialization_value_present[parameter_index]
@@ -20936,8 +22552,29 @@ static Type* parse_class_template_specialization_with_owner_type(
                     candidate_argument_count =
                         cxx_class_pack_index(specialization) +
                         candidate_pack_count;
+                } else if (function_type_pack) {
+                    candidate_argument_count =
+                        cxx_class_pack_index(specialization) +
+                        candidate_pack_count;
+                }
+                for (int pattern_index = 0;
+                     matches && pattern_index <
+                                    specialization->specialization_arg_count;
+                     ++pattern_index) {
+                    Type* pattern = specialization->specialization_args
+                        ? specialization->specialization_args[pattern_index]
+                        : NULL;
+                    if (pattern &&
+                        !cxx_dependent_decltype_pattern_is_viable(
+                            pattern, specialization_arguments,
+                            candidate_argument_count,
+                            specialization_values,
+                            specialization_value_present)) {
+                        matches = false;
+                    }
                 }
                 if (specialization->constraint &&
+                    matches &&
                     !cxx_template_constraint_satisfied(
                         specialization, specialization_arguments,
                         specialization_values, specialization_value_present,
@@ -21183,6 +22820,19 @@ static void cxx_function_template_class_type_pattern_arguments(
     if (arguments_out) *arguments_out = NULL;
     if (argument_count_out) *argument_count_out = 0;
     if (!type) return;
+    /* A dependent template-id's source arguments carry pack-expansion
+     * positions that are not represented in the class identity arguments.
+     * Preserve those before consulting the materialized class identity. */
+    if (type->cxx_template && type->cxx_template_args &&
+        type->cxx_template_arg_count > 0 &&
+        type->cxx_template_arg_pack_expansions) {
+        if (template_out) *template_out = type->cxx_template;
+        if (arguments_out) *arguments_out = type->cxx_template_args;
+        if (argument_count_out) {
+            *argument_count_out = type->cxx_template_arg_count;
+        }
+        return;
+    }
     if (cls && cls->template_identity_tmpl) {
         if (template_out) *template_out = cls->template_identity_tmpl;
         if (arguments_out) *arguments_out = cls->template_identity_args;
@@ -21304,6 +22954,433 @@ static Expr* cxx_function_template_class_nontype_argument_expression(
     return type->cxx_template_value_args[argument_index];
 }
 
+static CxxClass* cxx_function_template_type_parameter_class(
+    CxxTemplate* function_template, const char* owner_name,
+    size_t owner_name_length, Type** arguments) {
+    if (!function_template || !owner_name || !arguments) return NULL;
+    for (int index = 0; index < function_template->param_count; ++index) {
+        TemplateParam* parameter = &function_template->params[index];
+        Type* owner_type;
+        if (parameter->kind != TPARAM_TYPE || parameter->is_pack ||
+            !parameter->name || strlen(parameter->name) != owner_name_length ||
+            memcmp(parameter->name, owner_name, owner_name_length) != 0 ||
+            !(owner_type = arguments[index])) {
+            continue;
+        }
+        while (owner_type->is_reference && owner_type->base) {
+            owner_type = owner_type->base;
+        }
+        return owner_type->cxx_class;
+    }
+    return NULL;
+}
+
+static CxxClass* cxx_function_template_dependent_member_owner(
+    CxxTemplate* function_template, const char* qualified_name,
+    Type** arguments, const char** member_name_out) {
+    const char* name = qualified_name;
+    const char* separator;
+    if (member_name_out) *member_name_out = NULL;
+    if (!function_template || !name || !arguments) return NULL;
+    while (name[0] == ':' && name[1] == ':') name += 2;
+    separator = strstr(name, "::");
+    if (!separator || separator == name || !separator[2] ||
+        strstr(separator + 2, "::")) {
+        return NULL;
+    }
+    CxxClass* owner = cxx_function_template_type_parameter_class(
+        function_template, name, (size_t)(separator - name), arguments);
+    if (owner && member_name_out) *member_name_out = separator + 2;
+    return owner;
+}
+
+static CxxClass* cxx_function_template_dependent_member_expression_owner(
+    CxxTemplate* function_template, const Expr* expression,
+    Type** arguments, const char** member_name_out) {
+    if (member_name_out) *member_name_out = NULL;
+    if (!function_template || !expression ||
+        (expression->kind != EXPR_MEMBER &&
+         expression->kind != EXPR_PTR_MEMBER) ||
+        !expression->member_base ||
+        expression->member_base->kind != EXPR_IDENT ||
+        !expression->member_base->ident_name || !expression->member_name) {
+        return NULL;
+    }
+    CxxClass* owner = cxx_function_template_type_parameter_class(
+        function_template, expression->member_base->ident_name,
+        strlen(expression->member_base->ident_name), arguments);
+    if (owner && member_name_out) *member_name_out = expression->member_name;
+    return owner;
+}
+
+static bool cxx_function_template_resolve_class_static_integer(
+    Expr* expression, CxxTemplate* function_template, Type** arguments,
+    const int64_t* values, const bool* value_present, int64_t* value_out,
+    unsigned depth) {
+    const char* qualified_name;
+    const char* separator;
+    const char* member_name;
+    char owner_name[512];
+    CxxClass* owner_class;
+    CxxClass* resolved_class;
+    CxxTemplate* identity_template;
+    Type** identity_arguments;
+    int64_t identity_values[32] = { 0 };
+    bool identity_value_present[32] = { false };
+    Type** source_arguments;
+    Type* resolved_type;
+    int identity_argument_count;
+    bool needs_instantiation = false;
+
+    if (!expression || expression->kind != EXPR_IDENT ||
+        !expression->ident_name || !function_template || !arguments ||
+        !value_out || depth > 64u) {
+        return false;
+    }
+    qualified_name = expression->ident_name;
+    separator = strrchr(qualified_name, ':');
+    if (!separator || separator <= qualified_name || separator[-1] != ':') {
+        return false;
+    }
+    member_name = separator + 1;
+    if (!*member_name || (size_t)(separator - qualified_name - 1) >=
+                             sizeof(owner_name)) {
+        return false;
+    }
+    memcpy(owner_name, qualified_name,
+           (size_t)(separator - qualified_name - 1));
+    owner_name[separator - qualified_name - 1] = '\0';
+    owner_class = find_class(owner_name);
+    if (!owner_class) return false;
+
+    identity_template = owner_class->template_identity_tmpl
+        ? owner_class->template_identity_tmpl : owner_class->templ;
+    identity_argument_count = owner_class->template_identity_tmpl
+        ? owner_class->template_identity_arg_count
+        : owner_class->template_arg_count;
+    source_arguments = owner_class->template_identity_tmpl
+        ? owner_class->template_identity_args : owner_class->template_args;
+    if (!identity_template || identity_argument_count <= 0 ||
+        identity_argument_count > 32 || !source_arguments ||
+        identity_template->param_count != identity_argument_count) {
+        return false;
+    }
+    identity_arguments = ast_arena_alloc(
+        sizeof(*identity_arguments) * (size_t)identity_argument_count);
+    for (int index = 0; index < identity_argument_count; ++index) {
+        TemplateParam* parameter = &identity_template->params[index];
+        if (parameter->kind == TPARAM_NONTYPE) {
+            bool* source_present = owner_class->template_identity_tmpl
+                ? owner_class->template_identity_value_present
+                : owner_class->template_value_present;
+            int64_t* source_values = owner_class->template_identity_tmpl
+                ? owner_class->template_identity_value_args
+                : owner_class->template_value_args;
+            if (!source_present || !source_values || !source_present[index]) {
+                return false;
+            }
+            identity_values[index] = source_values[index];
+            identity_value_present[index] = true;
+            identity_arguments[index] = parameter->type
+                ? substitute_template_type(
+                      function_template, parameter->type, arguments,
+                      function_template->param_count, values, value_present)
+                : type_int;
+            if (!identity_arguments[index]) return false;
+            continue;
+        }
+        identity_arguments[index] = substitute_template_type(
+            function_template, source_arguments[index], arguments,
+            function_template->param_count, values, value_present);
+        if (!identity_arguments[index]) return false;
+        if (cxx_type_pattern_contains_dependent_component(
+                identity_arguments[index], 0u)) {
+            return false;
+        }
+        if (identity_arguments[index] != source_arguments[index]) {
+            needs_instantiation = true;
+        }
+    }
+
+    resolved_class = owner_class;
+    if (needs_instantiation) {
+        resolved_type = cxx_instantiate_dependent_class_template(
+            identity_template, owner_class->enclosing_class,
+            identity_arguments, identity_values, identity_value_present,
+            identity_argument_count, expression->loc);
+        if (!resolved_type || !resolved_type->cxx_class) return false;
+        resolved_class = resolved_type->cxx_class;
+    }
+
+    for (struct CxxMember* member = resolved_class->members; member;
+         member = member->next) {
+        Decl* declaration = member->decl;
+        const char* declared_name = declaration ? declaration->name : NULL;
+        const char* declared_separator = declared_name
+            ? strrchr(declared_name, ':') : NULL;
+        declared_name = declared_separator && declared_separator > declared_name &&
+                declared_separator[-1] == ':'
+            ? declared_separator + 1 : declared_name;
+        if (!member->is_static || !declaration ||
+            declaration->kind != DECL_VAR ||
+            !declaration->var_is_constexpr || !declaration->var_init ||
+            !declaration->type || !type_is_integer(declaration->type) ||
+            !declared_name || strcmp(declared_name, member_name) != 0 ||
+            declaration->var_is_being_constant_evaluated) {
+            continue;
+        }
+        declaration->var_is_being_constant_evaluated = true;
+        bool evaluated = expr_eval_integer_constant(
+            declaration->var_init, value_out);
+        declaration->var_is_being_constant_evaluated = false;
+        if (evaluated) return true;
+        return false;
+    }
+    return false;
+}
+
+/* Resolve the small constant-expression subset needed when a dependent
+ * class-template argument names a constexpr static member of a deduced type.
+ * The expression has already undergone ordinary function-template
+ * substitution; this pass replaces only `T::member` and `T::function(...)`
+ * forms, leaving the general constant-expression evaluator responsible for
+ * arithmetic, casts, and conditional expressions. */
+static bool cxx_function_template_resolve_dependent_static_integer_members(
+    Expr** expression_pointer, CxxTemplate* function_template,
+    Type** arguments, const int64_t* values, const bool* value_present,
+    unsigned depth) {
+    Expr* expression;
+    if (!expression_pointer || !(expression = *expression_pointer) ||
+        !function_template || depth > 64u) {
+        return false;
+    }
+    if ((expression->kind == EXPR_MEMBER ||
+         expression->kind == EXPR_PTR_MEMBER) && expression->member_name) {
+        const char* member_name = NULL;
+        CxxClass* owner = cxx_function_template_dependent_member_expression_owner(
+            function_template, expression, arguments, &member_name);
+        if (owner && member_name) {
+            for (struct CxxMember* member = owner->members; member;
+                 member = member->next) {
+                Decl* declaration = member->decl;
+                const char* declared_name = declaration
+                    ? declaration->name : NULL;
+                const char* separator = declared_name
+                    ? strrchr(declared_name, ':') : NULL;
+                declared_name = separator && separator > declared_name &&
+                        separator[-1] == ':'
+                    ? separator + 1 : declared_name;
+                if (!member->is_static || member->access != ACCESS_PUBLIC ||
+                    !declaration || declaration->kind != DECL_VAR ||
+                    !declaration->var_is_constexpr ||
+                    !declaration->var_init || !declared_name ||
+                    strcmp(declared_name, member_name) != 0 ||
+                    !declaration->type ||
+                    !type_is_integer(declaration->type)) {
+                    continue;
+                }
+                Expr* initializer = cxx_template_clone_expr_with_values(
+                    function_template, declaration->var_init, arguments,
+                    function_template->param_count, values, value_present);
+                int64_t value;
+                if (!initializer ||
+                    !cxx_function_template_resolve_dependent_static_integer_members(
+                        &initializer, function_template, arguments, values,
+                        value_present, depth + 1u) ||
+                    !eval_template_integer_expression(
+                        initializer, function_template, values,
+                        value_present, &value)) {
+                    return false;
+                }
+                Expr* replacement = expr_int(value, expression->loc);
+                replacement->type = declaration->type;
+                *expression_pointer = replacement;
+                return true;
+            }
+        }
+        return true;
+    }
+    if (expression->kind == EXPR_IDENT && expression->ident_name) {
+        int64_t static_member_value;
+        if (cxx_function_template_resolve_class_static_integer(
+                expression, function_template, arguments, values,
+                value_present, &static_member_value, depth + 1u)) {
+            Expr* replacement = expr_int(static_member_value, expression->loc);
+            replacement->type = expression->type
+                ? expression->type : type_int;
+            *expression_pointer = replacement;
+            return true;
+        }
+        const char* member_name = NULL;
+        CxxClass* owner = cxx_function_template_dependent_member_owner(
+            function_template, expression->ident_name, arguments,
+            &member_name);
+        if (owner && member_name) {
+            for (struct CxxMember* member = owner->members; member;
+                 member = member->next) {
+                Decl* declaration = member->decl;
+                const char* declared_name = declaration
+                    ? declaration->name : NULL;
+                const char* separator = declared_name
+                    ? strrchr(declared_name, ':') : NULL;
+                declared_name = separator && separator > declared_name &&
+                        separator[-1] == ':'
+                    ? separator + 1 : declared_name;
+                if (!member->is_static || member->access != ACCESS_PUBLIC ||
+                    !declaration || declaration->kind != DECL_VAR ||
+                    !declaration->var_is_constexpr ||
+                    !declaration->var_init || !declared_name ||
+                    strcmp(declared_name, member_name) != 0 ||
+                    !declaration->type ||
+                    !type_is_integer(declaration->type)) {
+                    continue;
+                }
+                Expr* initializer = cxx_template_clone_expr_with_values(
+                    function_template, declaration->var_init, arguments,
+                    function_template->param_count, values, value_present);
+                int64_t value;
+                if (!initializer ||
+                    !cxx_function_template_resolve_dependent_static_integer_members(
+                        &initializer, function_template, arguments, values,
+                        value_present, depth + 1u) ||
+                    !eval_template_integer_expression(
+                        initializer, function_template, values,
+                        value_present, &value)) {
+                    return false;
+                }
+                Expr* replacement = expr_int(value, expression->loc);
+                replacement->type = declaration->type;
+                *expression_pointer = replacement;
+                return true;
+            }
+        }
+        return true;
+    }
+    if (expression->kind == EXPR_CALL && expression->call_func) {
+        const char* member_name = NULL;
+        CxxClass* owner = expression->call_func->kind == EXPR_IDENT &&
+                expression->call_func->ident_name
+            ? cxx_function_template_dependent_member_owner(
+                  function_template, expression->call_func->ident_name,
+                  arguments, &member_name)
+            : cxx_function_template_dependent_member_expression_owner(
+                  function_template, expression->call_func, arguments,
+                  &member_name);
+        if (owner && member_name) {
+            Decl* candidates[32] = { NULL };
+            int candidate_count = 0;
+            for (struct CxxMember* member = owner->members; member;
+                 member = member->next) {
+                CxxMethod* method = member->method;
+                if (!member->is_static || member->access != ACCESS_PUBLIC ||
+                    !method || !method->is_constexpr || !method->decl ||
+                    method->member_template || !method->source_name ||
+                    strcmp(method->source_name, member_name) != 0) {
+                    continue;
+                }
+                if (candidate_count >=
+                    (int)(sizeof(candidates) / sizeof(candidates[0]))) {
+                    return false;
+                }
+                candidates[candidate_count++] = method->decl;
+            }
+            if (candidate_count == 0) return true;
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                if (!cxx_function_template_resolve_dependent_static_integer_members(
+                        &argument->expr, function_template, arguments,
+                        values, value_present, depth + 1u)) {
+                    return false;
+                }
+            }
+            Decl* selected = cxx_template_integer_call_select_candidate(
+                expression, candidates, candidate_count);
+            int64_t value;
+            if (!selected || !selected->type ||
+                !type_is_integer(selected->type->ret_type) ||
+                !rcc_sema_eval_constexpr_integer_call(
+                    selected, expression->call_args, &value)) {
+                return false;
+            }
+            Expr* replacement = expr_int(value, expression->loc);
+            replacement->type = selected->type->ret_type;
+            *expression_pointer = replacement;
+            return true;
+        }
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return cxx_function_template_resolve_dependent_static_integer_members(
+                &expression->unary_operand, function_template, arguments,
+                values, value_present, depth + 1u);
+        case EXPR_CALL:
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                if (!cxx_function_template_resolve_dependent_static_integer_members(
+                        &argument->expr, function_template, arguments,
+                        values, value_present, depth + 1u)) {
+                    return false;
+                }
+            }
+            return true;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+            return cxx_function_template_resolve_dependent_static_integer_members(
+                       &expression->binary_lhs, function_template,
+                       arguments, values, value_present, depth + 1u) &&
+                   cxx_function_template_resolve_dependent_static_integer_members(
+                       &expression->binary_rhs, function_template,
+                       arguments, values, value_present, depth + 1u);
+        case EXPR_COND:
+            return cxx_function_template_resolve_dependent_static_integer_members(
+                       &expression->cond_test, function_template, arguments,
+                       values, value_present, depth + 1u) &&
+                   cxx_function_template_resolve_dependent_static_integer_members(
+                       &expression->cond_then, function_template, arguments,
+                       values, value_present, depth + 1u) &&
+                   cxx_function_template_resolve_dependent_static_integer_members(
+                       &expression->cond_else, function_template, arguments,
+                       values, value_present, depth + 1u);
+        case EXPR_CAST:
+            return cxx_function_template_resolve_dependent_static_integer_members(
+                &expression->cast_expr, function_template, arguments, values,
+                value_present, depth + 1u);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return cxx_function_template_resolve_dependent_static_integer_members(
+                &expression->member_base, function_template, arguments,
+                values, value_present, depth + 1u);
+        default:
+            return true;
+    }
+}
+
+bool rcc_parser_cxx_resolve_dependent_static_integer_members(
+    Expr** expression_pointer, CxxTemplate* tmpl, Type** arguments,
+    const int64_t* values, const bool* value_present, unsigned depth) {
+    return cxx_function_template_resolve_dependent_static_integer_members(
+        expression_pointer, tmpl, arguments, values, value_present, depth);
+}
+
 static bool cxx_function_template_class_nontype_argument_matches(
     CxxTemplate* function_template, Type* pattern_type, Type* actual_type,
     int argument_index, Type** arguments, const int64_t* values,
@@ -21317,22 +23394,38 @@ static bool cxx_function_template_class_nontype_argument_matches(
             actual_type, argument_index, &actual_value)) {
         return false;
     }
-    if (cxx_function_template_class_nontype_argument_value(
-            pattern_type, argument_index, &pattern_value)) {
-        return pattern_value == actual_value;
-    }
     pattern_expression =
         cxx_function_template_class_nontype_argument_expression(
             pattern_type, argument_index);
-    if (!pattern_expression) return false;
+    if (!pattern_expression) {
+        bool found = cxx_function_template_class_nontype_argument_value(
+            pattern_type, argument_index, &pattern_value);
+        return found && pattern_value == actual_value;
+    }
+    bool dependent_static_member_pattern =
+        pattern_expression->kind == EXPR_MEMBER ||
+        pattern_expression->kind == EXPR_PTR_MEMBER ||
+        (pattern_expression->kind == EXPR_CALL &&
+         pattern_expression->call_func &&
+         (pattern_expression->call_func->kind == EXPR_MEMBER ||
+          pattern_expression->call_func->kind == EXPR_PTR_MEMBER));
+    if (!dependent_static_member_pattern &&
+        expr_eval_integer_constant(pattern_expression, &pattern_value)) {
+        return pattern_value == actual_value;
+    }
     substituted_expression = cxx_template_clone_expr_with_values(
         function_template, pattern_expression, arguments,
         function_template->param_count, values, value_present);
-    if (!substituted_expression) return false;
-    return eval_template_integer_expression(
-               substituted_expression, function_template, values,
-               value_present, &pattern_value) &&
-        pattern_value == actual_value;
+    if (!substituted_expression ||
+        !cxx_function_template_resolve_dependent_static_integer_members(
+            &substituted_expression, function_template, arguments, values,
+            value_present, 0u)) {
+        return false;
+    }
+    bool evaluated = eval_template_integer_expression(
+        substituted_expression, function_template, values,
+        value_present, &pattern_value);
+    return evaluated && pattern_value == actual_value;
 }
 
 static bool cxx_function_template_expression_has_undeduced_nontype_parameter(
@@ -21432,9 +23525,11 @@ static bool cxx_function_template_class_nontype_argument_deduce(
         cxx_function_template_class_nontype_argument_expression(
             pattern_type, argument_index);
     int64_t actual_value;
+    bool actual_value_known = actual_type &&
+        cxx_function_template_class_nontype_argument_value(
+            actual_type, argument_index, &actual_value);
     if (!function_template || !pattern_type || !actual_type ||
-        !cxx_function_template_class_nontype_argument_value(
-            actual_type, argument_index, &actual_value)) {
+        !actual_value_known) {
         return false;
     }
     if (pattern_expression && pattern_expression->kind == EXPR_IDENT &&
@@ -21695,7 +23790,8 @@ static bool deduce_function_template_type_with_pack(
             CxxTemplate* actual_template = actual_class &&
                     actual_class->template_identity_tmpl
                 ? actual_class->template_identity_tmpl
-                : actual->cxx_template;
+                : actual_class && actual_class->templ
+                    ? actual_class->templ : actual->cxx_template;
             Type** actual_arguments = actual_class &&
                     actual_class->template_identity_tmpl
                 ? actual_class->template_identity_args
@@ -21762,6 +23858,64 @@ static bool deduce_function_template_type_with_pack(
                             return false;
                         }
                         expansion_index = index;
+                    }
+                }
+                /* Some dependent class-template patterns are reconstructed
+                 * from their identity arguments after parsing and lose the
+                 * parallel expansion bitmap. Recover the expansion from the
+                 * class template's pack slot and the function-template pack
+                 * referenced by that argument; a fixed argument in a class
+                 * pack slot is not inferred as an expansion. */
+                if (expansion_index < 0) {
+                    int class_pack_index =
+                        cxx_class_pack_index(pattern_template);
+                    if (class_pack_index >= 0 && pattern_arguments) {
+                        for (int pattern_index = class_pack_index;
+                             pattern_index < pattern_argument_count;
+                             ++pattern_index) {
+                            TemplateParam* class_pack_parameter =
+                                &pattern_template->params[class_pack_index];
+                            int function_pack_index = -1;
+                            if (class_pack_parameter->kind == TPARAM_TYPE ||
+                                class_pack_parameter->kind == TPARAM_TEMPLATE) {
+                                function_pack_index =
+                                    cxx_parser_template_parameter_pack_index(
+                                        tmpl, pattern_arguments[pattern_index]);
+                            }
+                            if (class_pack_parameter->kind ==
+                                    TPARAM_NONTYPE &&
+                                pattern->cxx_template_value_args) {
+                                int value_pack_index =
+                                    cxx_parser_template_value_pack_index_expression(
+                                        tmpl, pattern->cxx_template_value_args[
+                                                  pattern_index]);
+                                if (function_pack_index < 0) {
+                                    function_pack_index = value_pack_index;
+                                } else if (value_pack_index >= 0 &&
+                                           value_pack_index !=
+                                               function_pack_index) {
+                                    function_pack_index = -2;
+                                }
+                            }
+                            if (function_pack_index >= 0 &&
+                                function_pack_index < tmpl->param_count &&
+                                tmpl->params[function_pack_index].is_pack) {
+                                if (pattern_index !=
+                                    pattern_argument_count - 1) {
+                                    /* A pack expansion that is not the final
+                                     * template argument is a non-deduced
+                                     * context here. Do not mistake it for a
+                                     * trailing expansion and append the fixed
+                                     * suffix to the function pack. */
+                                    return true;
+                                }
+                                if (expansion_index >= 0) {
+                                    expansion_index = -2;
+                                    break;
+                                }
+                                expansion_index = pattern_index;
+                            }
+                        }
                     }
                 }
                 if (expansion_index >= 0) {
@@ -21880,7 +24034,7 @@ static bool deduce_function_template_type_with_pack(
                         int64_t element_values[32] = { 0 };
                         bool element_value_present[32] = { false };
                         int element_specificity = 0;
-                        Type* pack_element;
+                        Type* pack_element = NULL;
                         if (tmpl->param_count >
                             (int)(sizeof(element_arguments) /
                                   sizeof(element_arguments[0]))) {
@@ -22032,7 +24186,22 @@ static bool deduce_function_template_type_with_pack(
                             saved_pending_pack_length;
                     }
                     if (!fixed_values_match) return false;
-                    if (specificity) *specificity += 16;
+                    if (specificity) {
+                        *specificity += 16;
+                        for (int index = 0; index < expansion_index; ++index) {
+                            if (pattern_template->params[index].kind ==
+                                    TPARAM_NONTYPE &&
+                                pattern->cxx_template_value_args &&
+                                pattern->cxx_template_value_args[index]) {
+                                int64_t fixed_value;
+                                if (expr_eval_integer_constant(
+                                        pattern->cxx_template_value_args[index],
+                                        &fixed_value)) {
+                                    ++*specificity;
+                                }
+                            }
+                        }
+                    }
                     return true;
                 }
                 int pattern_pack_index =
@@ -23293,6 +25462,191 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
     return true;
 }
 
+static bool cxx_template_expression_is_nothrow(
+    Expr* expression, unsigned depth) {
+    Type* function_type;
+    Decl* declaration = NULL;
+    TypeParam* parameter;
+    DeclList* parameter_declaration;
+    ExprList* argument;
+
+    if (!expression || depth > 64u) return false;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_IDENT:
+        case EXPR_CXX_THIS:
+        case EXPR_CXX_TYPEID:
+        case EXPR_NOEXCEPT:
+            return true;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            return cxx_template_expression_is_nothrow(
+                expression->unary_operand, depth + 1u);
+        case EXPR_CAST:
+            if (expression->cast_type &&
+                (expression->cast_type->kind == TYPE_STRUCT ||
+                 expression->cast_type->kind == TYPE_UNION) &&
+                expression->cast_type->cxx_nontrivial) {
+                return false;
+            }
+            return cxx_template_expression_is_nothrow(
+                expression->cast_expr, depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return cxx_template_expression_is_nothrow(
+                       expression->binary_lhs, depth + 1u) &&
+                   cxx_template_expression_is_nothrow(
+                       expression->binary_rhs, depth + 1u);
+        case EXPR_COND:
+            return cxx_template_expression_is_nothrow(
+                       expression->cond_test, depth + 1u) &&
+                   cxx_template_expression_is_nothrow(
+                       expression->cond_then, depth + 1u) &&
+                   cxx_template_expression_is_nothrow(
+                       expression->cond_else, depth + 1u);
+        case EXPR_INDEX:
+            return cxx_template_expression_is_nothrow(
+                       expression->index_base, depth + 1u) &&
+                   cxx_template_expression_is_nothrow(
+                       expression->index_expr, depth + 1u);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return cxx_template_expression_is_nothrow(
+                expression->member_base, depth + 1u);
+        case EXPR_CALL:
+            if (expression->cxx_dependent_function_template_call &&
+                !cxx_resolve_dependent_function_template_call(expression)) {
+                return false;
+            }
+            if (expression->call_func &&
+                (expression->call_func->kind == EXPR_MEMBER ||
+                 expression->call_func->kind == EXPR_PTR_MEMBER) &&
+                expression->call_func->member_is_explicit_destructor) {
+                return cxx_decltype_explicit_destructor_is_nothrow(
+                    expression->call_func);
+            }
+            if (expression->call_is_new) return false;
+            function_type = cxx_parser_expression_type(
+                expression->call_func);
+            if (function_type && function_type->kind == TYPE_PTR) {
+                function_type = function_type->base;
+            }
+            if (!function_type || function_type->kind != TYPE_FUNC) {
+                return false;
+            }
+            if (expression->call_func &&
+                expression->call_func->kind == EXPR_IDENT) {
+                declaration = expression->call_func->ident_decl;
+            }
+            if (!function_type->function_is_noexcept &&
+                !(declaration && declaration->func_is_noexcept) &&
+                !(expression->call_method &&
+                  expression->call_method->is_noexcept)) {
+                return false;
+            }
+            if (!cxx_template_expression_is_nothrow(
+                    expression->call_func, depth + 1u)) {
+                return false;
+            }
+            parameter = function_type->params;
+            parameter_declaration = declaration
+                ? declaration->func_params : NULL;
+            argument = expression->call_args;
+            while (parameter && argument) {
+                TypeMethod* conversion_method = NULL;
+                int conversion_rank =
+                    cxx_parser_function_template_overload_conversion_rank(
+                        argument->expr, parameter->type,
+                        &conversion_method);
+                int constructor_noexcept =
+                    rcc_sema_cxx_conversion_constructor_noexcept(
+                        argument->expr,
+                        cxx_parser_expression_type(argument->expr),
+                        parameter->type);
+                if (conversion_rank < 0 || constructor_noexcept == 0 ||
+                    (conversion_method &&
+                     !conversion_method->is_noexcept &&
+                     !(conversion_method->source_decl &&
+                       conversion_method->source_decl->func_is_noexcept) &&
+                     !(conversion_method->function_decl &&
+                       conversion_method->function_decl->func_is_noexcept)) ||
+                    !cxx_template_expression_is_nothrow(
+                        argument->expr, depth + 1u)) {
+                    return false;
+                }
+                parameter = parameter->next;
+                argument = argument->next;
+                if (parameter_declaration) {
+                    parameter_declaration = parameter_declaration->next;
+                }
+            }
+            if (argument && !function_type->variadic) return false;
+            while (argument) {
+                if (!cxx_template_expression_is_nothrow(
+                        argument->expr, depth + 1u)) {
+                    return false;
+                }
+                argument = argument->next;
+            }
+            while (parameter) {
+                Decl* parameter_decl = parameter_declaration
+                    ? parameter_declaration->decl : NULL;
+                if (!parameter_decl || !parameter_decl->param_default ||
+                    !cxx_template_expression_is_nothrow(
+                        parameter_decl->param_default, depth + 1u)) {
+                    return false;
+                }
+                parameter = parameter->next;
+                parameter_declaration = parameter_declaration->next;
+            }
+            return true;
+        default:
+            return false;
+    }
+}
+
 static bool eval_template_integer_expression(Expr* expression,
                                               CxxTemplate* tmpl,
                                               const int64_t* values,
@@ -23302,6 +25656,11 @@ static bool eval_template_integer_expression(Expr* expression,
     int64_t right;
     if (!expression || !result) return false;
     if (expr_eval_integer_constant(expression, result)) return true;
+    if (expression->kind == EXPR_NOEXCEPT && expression->unary_operand) {
+        *result = cxx_template_expression_is_nothrow(
+                      expression->unary_operand, 0u) ? 1 : 0;
+        return true;
+    }
     if (expression->kind == EXPR_SIZEOF && expression->sizeof_pack_name &&
         tmpl) {
         for (int index = 0; index < tmpl->param_count; ++index) {
@@ -25443,7 +27802,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                     Type* pack_argument;
                     bool pack_argument_expansion = false;
                     int source_pack_index;
-                    pack_argument = parse_cxx_type_spec();
+                    pack_argument = parse_cxx_template_type_argument();
                     if (match(TOK_ELLIPSIS)) {
                         bool valid_source_pack;
                         pack_argument_expansion = true;
@@ -25713,7 +28072,8 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                     break;
                 }
             } else if (parameter->kind == TPARAM_TYPE) {
-                arguments[argument_count] = parse_cxx_type_spec();
+                arguments[argument_count] =
+                    parse_cxx_template_type_argument();
                 ++argument_count;
             } else if (parameter->kind == TPARAM_NONTYPE) {
                 Expr* value_expression;
@@ -25933,8 +28293,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                 saved_pending_pack_value_expressions;
             tmpl->pending_pack_count = saved_pending_pack_count;
         }
-        if (result && owner_type && owner_type->cxx_dependent &&
-            owner_template == tmpl->enclosing_template) {
+        if (result) {
             result = cxx_substitute_class_owner_value_expressions(
                 result, &owner_value_substitution);
         }
@@ -26125,6 +28484,104 @@ done:
         *owner_template_name_out = owner_template_name;
     }
     return starts;
+}
+
+static Type* parse_class_alias_template_template_argument(
+    TemplateParam* parameter, SourceLoc loc) {
+    const char* owner_template_name = NULL;
+    const char* alias_name;
+    CxxTemplate* owner_template;
+    Type* owner_type;
+    CxxClass* owner_class;
+    CxxClass* declaring_class = NULL;
+    CxxClassAliasTemplate* alias_template;
+    Type* carrier;
+    bool ambiguous = false;
+    bool accessible = false;
+
+    if (!cxx_class_template_id_owner_starts() ||
+        !cxx_template_id_followed_by_scope(&owner_template_name)) {
+        return NULL;
+    }
+    owner_template = find_class_template(owner_template_name);
+    if (!owner_template && active_template &&
+        active_template->kind == TMPL_CLASS && active_template->name &&
+        strcmp(active_template->name, owner_template_name) == 0) {
+        owner_template = active_template;
+    }
+    if (!owner_template) return NULL;
+
+    (void)parse_qualified_name();
+    owner_type = parse_class_template_specialization(owner_template, loc);
+    if (!owner_type || !match(TOK_SCOPE)) {
+        rcc_error(loc,
+                  "template-template alias argument requires a class-template owner");
+        return type_int;
+    }
+    if (!match(TOK_TEMPLATE) || !check(TOK_IDENT)) {
+        rcc_error(loc,
+                  "dependent nested alias template argument requires 'template' and a name");
+        return type_int;
+    }
+    alias_name = rcc_intern(advance()->value.str_val);
+    if (check(TOK_LT) ||
+        (!check(TOK_COMMA) && !check(TOK_GT) && !check(TOK_RSHIFT) &&
+         !check(TOK_ELLIPSIS))) {
+        rcc_error(peek()->loc,
+                  "template-template argument must name an alias template without arguments");
+        return type_int;
+    }
+
+    owner_class = owner_type->cxx_class;
+    if (!owner_class && owner_type->cxx_template) {
+        owner_class = owner_type->cxx_template->templated_class;
+    }
+    alias_template = owner_class
+        ? cxx_parser_find_inherited_alias_template(
+              owner_class, alias_name, active_class, &declaring_class,
+              &ambiguous, &accessible)
+        : NULL;
+    if (!alias_template || !alias_template->declaration || ambiguous) {
+        rcc_error(loc,
+                  ambiguous
+                      ? "nested alias template '%s' is ambiguous in class '%s'"
+                      : "class-template owner '%s' has no nested alias template '%s'",
+                  ambiguous ? alias_name
+                            : (owner_class && owner_class->name
+                                   ? owner_class->name : "<unnamed>"),
+                  ambiguous
+                      ? (owner_class && owner_class->name
+                             ? owner_class->name : "<unnamed>")
+                      : alias_name);
+        return type_int;
+    }
+    if (!accessible) {
+        rcc_error(loc,
+                  "nested alias template '%s' is inaccessible in class '%s'",
+                  alias_name,
+                  owner_class && owner_class->name
+                      ? owner_class->name : "<unnamed>");
+        return type_int;
+    }
+    if (!template_template_signature_matches(
+            parameter, alias_template->declaration)) {
+        rcc_error(loc,
+                  "nested alias template '%s' does not match the template-template parameter signature",
+                  alias_name);
+        return type_int;
+    }
+
+    carrier = type_struct(alias_name);
+    carrier->cxx_template = alias_template->declaration;
+    carrier->cxx_dependent = owner_type->cxx_dependent;
+    carrier->cxx_dependent_template_template_argument =
+        owner_type->cxx_dependent;
+    carrier->cxx_dependent_alias_owner = owner_type->cxx_dependent
+        ? owner_type : NULL;
+    carrier->cxx_dependent_member_name = owner_type->cxx_dependent
+        ? alias_name : NULL;
+    carrier->cxx_template_param_context = active_template;
+    return carrier;
 }
 
 static bool cxx_qualified_class_alias_template_starts(void) {
@@ -26664,7 +29121,7 @@ bool rcc_parse_cxx_member_template_arguments(Expr* member) {
             memset(argument, 0, sizeof(*argument));
             if (cxx_explicit_template_argument_starts_type()) {
                 argument->is_type = true;
-                argument->type = parse_cxx_type_spec();
+                argument->type = parse_cxx_template_type_argument();
             } else {
                 rcc_parser_set_cxx_template_default_mode(true);
                 argument->value_expression = parse_assignment_expression();
@@ -28528,6 +30985,57 @@ static int cxx_function_template_nontype_pack_parameter_index(
     return -1;
 }
 
+static int cxx_function_template_class_pack_expansion_argument_index(
+    const CxxFunctionTemplateMatch* match, Type* class_type,
+    CxxTemplate* class_template, Type** arguments, int argument_count,
+    int class_pack_index, int function_pack_index) {
+    bool use_source_expansion_map;
+    int expansion_index = -1;
+    if (!match || !match->tmpl || !class_type || !class_template ||
+        !arguments || argument_count <= 0 || class_pack_index < 0 ||
+        class_pack_index >= class_template->param_count ||
+        function_pack_index < 0 ||
+        function_pack_index >= match->tmpl->param_count) {
+        return -1;
+    }
+    use_source_expansion_map = class_type->cxx_template_args == arguments &&
+        class_type->cxx_template_arg_count == argument_count &&
+        class_type->cxx_template_arg_pack_expansions != NULL;
+    for (int index = class_pack_index; index < argument_count; ++index) {
+        int referenced_pack_index = -1;
+        bool marked_expansion = use_source_expansion_map &&
+            class_type->cxx_template_arg_pack_expansions[index];
+        const TemplateParam* class_pack =
+            &class_template->params[class_pack_index];
+        if (class_pack->kind == TPARAM_TYPE) {
+            referenced_pack_index = cxx_parser_template_parameter_pack_index(
+                match->tmpl, arguments[index]);
+        } else if (class_pack->kind == TPARAM_NONTYPE) {
+            referenced_pack_index =
+                cxx_parser_template_value_pack_index_expression(
+                    match->tmpl,
+                    cxx_function_template_class_nontype_argument_expression(
+                        class_type, index));
+        } else if (class_pack->kind == TPARAM_TEMPLATE) {
+            referenced_pack_index =
+                cxx_function_template_template_pack_parameter_index(
+                    match->tmpl, arguments[index]);
+        }
+        if (referenced_pack_index == -2) return -2;
+        if (marked_expansion &&
+            referenced_pack_index != function_pack_index) {
+            return -2;
+        }
+        if (referenced_pack_index != function_pack_index) {
+            if (marked_expansion) return -2;
+            continue;
+        }
+        if (expansion_index >= 0) return -2;
+        expansion_index = index;
+    }
+    return expansion_index;
+}
+
 /* Compare one element of a class-template-id pack expansion. A pack parameter
  * acts as a scalar type parameter for this element only; deductions for that
  * pack are intentionally not merged across expansion elements. */
@@ -29138,27 +31646,7 @@ static bool cxx_function_template_class_pack_expansion_deduce(
     if (!parameter_class_template ||
         parameter_class_template != argument_class_template ||
         parameter_argument_count <= 0 || argument_argument_count <= 0 ||
-        !parameter_arguments || !argument_arguments ||
-        !parameter_type->cxx_template_arg_pack_expansions ||
-        !argument_type->cxx_template_arg_pack_expansions) {
-        return false;
-    }
-    for (int index = 0; index < parameter_argument_count; ++index) {
-        if (parameter_type->cxx_template_arg_pack_expansions[index]) {
-            if (parameter_pack_index >= 0 ||
-                index != parameter_argument_count - 1) return false;
-            parameter_pack_index = index;
-        }
-    }
-    for (int index = 0; index < argument_argument_count; ++index) {
-        if (argument_type->cxx_template_arg_pack_expansions[index]) {
-            if (argument_pack_index >= 0 ||
-                index != argument_argument_count - 1) return false;
-            argument_pack_index = index;
-        }
-    }
-    if (parameter_pack_index != parameter_argument_count - 1 ||
-        argument_pack_index != argument_argument_count - 1) {
+        !parameter_arguments || !argument_arguments) {
         return false;
     }
     for (int index = 0; index < parameter_class_template->param_count; ++index) {
@@ -29183,6 +31671,24 @@ static bool cxx_function_template_class_pack_expansion_deduce(
             parameter_class_template->params[class_template_pack_index].kind ||
         argument_match->tmpl->params[argument_template_pack_index].kind !=
             parameter_class_template->params[class_template_pack_index].kind) {
+        return false;
+    }
+    parameter_pack_index =
+        cxx_function_template_class_pack_expansion_argument_index(
+            parameter_match, parameter_type, parameter_class_template,
+            parameter_arguments, parameter_argument_count,
+            class_template_pack_index, parameter_template_pack_index);
+    argument_pack_index =
+        cxx_function_template_class_pack_expansion_argument_index(
+            argument_match, argument_type, argument_class_template,
+            argument_arguments, argument_argument_count,
+            class_template_pack_index, argument_template_pack_index);
+    if (parameter_pack_index < 0 || argument_pack_index < 0) {
+        return false;
+    }
+    if (parameter_pack_index != parameter_argument_count - 1 ||
+        argument_pack_index != argument_argument_count - 1) {
+        if (supported) *supported = true;
         return false;
     }
     if (parameter_class_template->params[class_template_pack_index].kind ==
@@ -29831,6 +32337,90 @@ static bool cxx_parser_find_enclosing_pack_source(
     return false;
 }
 
+typedef struct CxxParserPatternPackSource {
+    CxxTemplate* scope;
+    int index;
+    bool found;
+    bool ambiguous;
+} CxxParserPatternPackSource;
+
+static void cxx_parser_merge_pattern_pack_source(
+    CxxParserPatternPackSource* source, CxxTemplate* scope, int index) {
+    if (!source || !scope || index < 0 || index >= scope->param_count ||
+        !scope->params[index].is_pack) {
+        return;
+    }
+    if (!source->found) {
+        source->scope = scope;
+        source->index = index;
+        source->found = true;
+    } else if (source->scope != scope || source->index != index) {
+        source->ambiguous = true;
+    }
+}
+
+static void cxx_parser_collect_pattern_pack_source(
+    Type* type, CxxParserPatternPackSource* source, unsigned depth) {
+    if (!type || !source || source->ambiguous || depth > 64u) return;
+    if (type->cxx_dependent && type->cxx_template_param_context) {
+        int offset = 0;
+        for (CxxTemplate* scope = type->cxx_template_param_context; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                TemplateParam* parameter = &scope->params[index];
+                bool indexed = type->cxx_template_param_index >= 0 &&
+                    type->cxx_template_param_index == offset + index;
+                bool named = type->kind == TYPE_STRUCT && type->tag &&
+                    parameter->name && strcmp(parameter->name, type->tag) == 0;
+                if ((indexed || named) && parameter->is_pack &&
+                    (parameter->kind == TPARAM_TYPE ||
+                     parameter->kind == TPARAM_TEMPLATE)) {
+                    cxx_parser_merge_pattern_pack_source(source, scope, index);
+                }
+            }
+            if (scope->param_count > INT_MAX - offset) return;
+            offset += scope->param_count;
+        }
+    }
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        cxx_parser_collect_pattern_pack_source(
+            type->base, source, depth + 1u);
+    } else if (type->kind == TYPE_FUNC) {
+        cxx_parser_collect_pattern_pack_source(
+            type->ret_type, source, depth + 1u);
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            cxx_parser_collect_pattern_pack_source(
+                parameter->type, source, depth + 1u);
+        }
+    }
+    cxx_parser_collect_pattern_pack_source(
+        type->cxx_member_pointer_owner, source, depth + 1u);
+    cxx_parser_collect_pattern_pack_source(
+        type->cxx_underlying_type_operand, source, depth + 1u);
+    cxx_parser_collect_pattern_pack_source(
+        type->cxx_dependent_alias_owner, source, depth + 1u);
+    cxx_parser_collect_pattern_pack_source(
+        type->cxx_dependent_class_template_owner, source, depth + 1u);
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        cxx_parser_collect_pattern_pack_source(
+            type->cxx_template_args ? type->cxx_template_args[index] : NULL,
+            source, depth + 1u);
+    }
+}
+
+static bool cxx_parser_find_pattern_pack_source(
+    Type* type_pattern, CxxTemplate** pack_scope_out,
+    int* pack_index_out) {
+    CxxParserPatternPackSource source = { 0 };
+    cxx_parser_collect_pattern_pack_source(type_pattern, &source, 0u);
+    if (!source.found || source.ambiguous) return false;
+    *pack_scope_out = source.scope;
+    *pack_index_out = source.index;
+    return true;
+}
+
 static int cxx_parser_template_pack_parameter_index(CxxTemplate* tmpl) {
     if (!tmpl) return -1;
     for (int index = 0; index < tmpl->param_count; ++index) {
@@ -30327,6 +32917,24 @@ static Type* cxx_function_template_find_dependent_nested_type(
     }
 }
 
+static bool cxx_function_template_match_has_dependent_arguments(
+    const CxxFunctionTemplateMatch* match) {
+    if (!match || !active_template) return false;
+    for (int index = 0; index < match->argument_count; ++index) {
+        if (cxx_type_pattern_contains_dependent_component(
+                match->arguments[index], 0u)) {
+            return true;
+        }
+    }
+    for (int index = 0; index < match->pack_count; ++index) {
+        if (cxx_type_pattern_contains_dependent_component(
+                match->pack_arguments[index], 0u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void cxx_report_function_template_nested_type_failure(
     Type* unresolved, CxxTemplate* tmpl, SourceLoc loc) {
     const char* member_name;
@@ -30391,6 +32999,14 @@ static bool cxx_function_template_instance_viable(
         TypeMethod* conversion_method = NULL;
         int rank = cxx_parser_function_template_overload_conversion_rank(
             argument->expr, parameter->type, &conversion_method);
+        if (rank < 0 && active_template &&
+            cxx_type_pattern_contains_dependent_component(
+                cxx_parser_expression_type(argument->expr), 0u)) {
+            /* Defer conversions that depend on an enclosing template
+             * argument. A retained decltype expression checks the concrete
+             * conversion during partial-specialization substitution. */
+            rank = 0;
+        }
         if (rank < 0) {
             return false;
         }
@@ -30767,7 +33383,7 @@ static Type* cxx_function_template_substitute_default_type(
     return result;
 }
 
-static bool prepare_cxx_function_template_match(
+static bool prepare_cxx_function_template_match_impl(
     CxxTemplate* tmpl, ExprList* call_arguments,
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, CxxFunctionTemplateMatch* match,
@@ -31221,15 +33837,27 @@ static bool prepare_cxx_function_template_match(
                     tmpl->pending_pack_count = saved_pending_pack_count;
                     if (!deduced &&
                         !cxx_function_template_find_dependent_nested_type(
-                            parameter->decl->type, 0u, false) &&
+                            parameter->decl->type, 0u, false)) {
+                        int conversion_rank =
+                            cxx_parser_function_template_overload_conversion_rank(
+                                argument->expr, parameter_type, NULL);
+                        if (conversion_rank < 0 &&
+                            !(active_template &&
+                              cxx_type_pattern_contains_dependent_component(
+                                  actual, 0u))) {
+                            return false;
+                        }
+                    }
+                } else {
+                    int conversion_rank =
                         cxx_parser_function_template_overload_conversion_rank(
-                            argument->expr, parameter_type, NULL) < 0) {
+                            argument->expr, parameter_type, NULL);
+                    if (conversion_rank < 0 &&
+                        !(active_template &&
+                          cxx_type_pattern_contains_dependent_component(
+                              actual, 0u))) {
                         return false;
                     }
-                } else if (
-                    cxx_parser_function_template_overload_conversion_rank(
-                        argument->expr, parameter_type, NULL) < 0) {
-                    return false;
                 }
             }
         }
@@ -31441,6 +34069,19 @@ static bool prepare_cxx_function_template_match(
     match->instance = (Decl*)cxx_template_instantiate_with_values(
         tmpl, match->arguments, match->values, match->value_present,
         match->argument_count);
+    if (match->instance && match->instance->type &&
+        match->instance->type->kind == TYPE_FUNC &&
+        match->instance->type->ret_type &&
+        match->instance->type->ret_type->cxx_dependent_decltype_expr) {
+        Type* resolved_return_type = substitute_template_type(
+            tmpl, match->instance->type->ret_type, match->arguments,
+            match->argument_count, match->values, match->value_present);
+        if (!resolved_return_type) {
+            match->instance = NULL;
+        } else {
+            match->instance->type->ret_type = resolved_return_type;
+        }
+    }
     tmpl->pending_pack_args = saved_pending_pack_args;
     tmpl->pending_pack_values = saved_pending_pack_values;
     tmpl->pending_pack_value_present = saved_pending_pack_value_present;
@@ -31462,7 +34103,11 @@ static bool prepare_cxx_function_template_match(
                 cxx_function_template_find_dependent_nested_type(
                     parameter->type, 0u, true);
         }
-        if (match->substitution_failure_type) return false;
+        if (match->substitution_failure_type &&
+            !(match->substitution_failure_type->cxx_dependent &&
+              cxx_function_template_match_has_dependent_arguments(match))) {
+            return false;
+        }
     }
     if (!cxx_function_template_instance_viable(
             match->instance, call_arguments, match->conversion_ranks,
@@ -31473,6 +34118,178 @@ static bool prepare_cxx_function_template_match(
             &match->conversion_rank_count)) {
         return false;
     }
+    return true;
+}
+
+/* Substitution failures in a function-template candidate are not hard
+ * diagnostics.  Keep candidate preparation isolated so an invalid dependent
+ * return/parameter type or non-type template parameter removes only that
+ * candidate; the caller can then continue overload resolution and report a
+ * single no-match diagnostic if needed. */
+static bool prepare_cxx_function_template_match(
+    CxxTemplate* tmpl, ExprList* call_arguments,
+    const CxxParsedTemplateArgument* explicit_arguments,
+    int explicit_argument_count, CxxFunctionTemplateMatch* match,
+    bool* constraint_invalid, bool* constraint_unsupported) {
+    bool suppress_before = g_suppress_errors;
+    int suppressed_before = g_suppressed_error_count;
+    bool matched;
+    g_suppress_errors = true;
+    matched = prepare_cxx_function_template_match_impl(
+        tmpl, call_arguments, explicit_arguments, explicit_argument_count,
+        match, constraint_invalid, constraint_unsupported);
+    g_suppress_errors = suppress_before;
+    if (g_suppressed_error_count != suppressed_before) return false;
+    return matched;
+}
+
+static bool cxx_function_template_call_is_dependent(
+    ExprList* call_arguments,
+    const CxxParsedTemplateArgument* explicit_arguments,
+    int explicit_argument_count, bool explicit_arguments_specified,
+    const CxxTemplate* context) {
+    if (!context) return false;
+    if (explicit_arguments_specified) {
+        for (int index = 0; index < explicit_argument_count; ++index) {
+            const CxxParsedTemplateArgument* argument =
+                &explicit_arguments[index];
+            if ((argument->is_type &&
+                 cxx_type_pattern_contains_dependent_component(
+                     argument->type, 0u)) ||
+                (argument->value_expression &&
+                 cxx_expression_is_dependent(
+                     argument->value_expression, context))) {
+                return true;
+            }
+        }
+    }
+    for (ExprList* argument = call_arguments; argument;
+         argument = argument->next) {
+        Type* argument_type = cxx_parser_expression_type(argument->expr);
+        if ((argument_type &&
+             cxx_type_pattern_contains_dependent_component(
+                 argument_type, 0u)) ||
+            cxx_expression_is_dependent(argument->expr, context)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Expr* cxx_defer_function_template_call(
+    const char* name, SourceLoc loc, CxxTemplate** candidates,
+    int candidate_count, ExprList* call_arguments,
+    const CxxParsedTemplateArgument* explicit_arguments,
+    int explicit_argument_count, bool explicit_arguments_specified) {
+    CxxDependentFunctionTemplateCall* deferred;
+    Expr* function;
+    Expr* call;
+    Type* dependent_type;
+    if (!name || !active_template || candidate_count <= 0 ||
+        candidate_count > 32) {
+        return NULL;
+    }
+    deferred = ast_arena_alloc(sizeof(*deferred));
+    deferred->candidates = ast_arena_alloc(
+        sizeof(deferred->candidates[0]) * (size_t)candidate_count);
+    memcpy(deferred->candidates, candidates,
+           sizeof(deferred->candidates[0]) * (size_t)candidate_count);
+    deferred->candidate_count = candidate_count;
+    deferred->explicit_argument_count = explicit_argument_count;
+    deferred->explicit_arguments_specified = explicit_arguments_specified;
+    if (explicit_arguments_specified && explicit_argument_count > 0) {
+        deferred->explicit_arguments = ast_arena_alloc(
+            sizeof(deferred->explicit_arguments[0]) *
+            (size_t)explicit_argument_count);
+        memcpy(deferred->explicit_arguments, explicit_arguments,
+               sizeof(deferred->explicit_arguments[0]) *
+                   (size_t)explicit_argument_count);
+    }
+    function = expr_ident(name, loc);
+    call = expr_call(function, call_arguments, loc);
+    dependent_type = ast_arena_alloc(sizeof(*dependent_type));
+    *dependent_type = *type_int;
+    dependent_type->cxx_dependent = true;
+    dependent_type->cxx_template_param_context = active_template;
+    call->type = dependent_type;
+    call->cxx_template_context = active_template;
+    call->cxx_dependent_function_template_call = deferred;
+    return call;
+}
+
+static bool cxx_resolve_dependent_function_template_call(Expr* expression) {
+    CxxDependentFunctionTemplateCall* deferred;
+    CxxFunctionTemplateMatch matches[32];
+    int match_count = 0;
+    CxxNamespace* saved_namespace = active_namespace;
+    int selected = -1;
+    int best_count = 0;
+    if (!expression || expression->kind != EXPR_CALL ||
+        !(deferred = expression->cxx_dependent_function_template_call)) {
+        return false;
+    }
+    if (cxx_function_template_call_is_dependent(
+            expression->call_args,
+            deferred->explicit_arguments,
+            deferred->explicit_argument_count,
+            deferred->explicit_arguments_specified,
+            expression->cxx_template_context)) {
+        return false;
+    }
+    for (int index = 0; index < deferred->candidate_count; ++index) {
+        CxxTemplate* candidate = deferred->candidates[index];
+        CxxFunctionTemplateMatch match = { 0 };
+        bool constraint_invalid = false;
+        bool constraint_unsupported = false;
+        if (!candidate || candidate->kind != TMPL_FUNCTION ||
+            !candidate->func_def ||
+            (deferred->explicit_arguments_specified &&
+             candidate->is_hidden_friend)) {
+            continue;
+        }
+        active_namespace = candidate->ns
+            ? candidate->ns : saved_namespace;
+        if (prepare_cxx_function_template_match(
+                candidate, expression->call_args,
+                deferred->explicit_arguments_specified
+                    ? deferred->explicit_arguments : NULL,
+                deferred->explicit_argument_count, &match,
+                &constraint_invalid, &constraint_unsupported)) {
+            if (match_count < (int)(sizeof(matches) / sizeof(matches[0]))) {
+                matches[match_count++] = match;
+            }
+        }
+    }
+    active_namespace = saved_namespace;
+    for (int index = 0; index < match_count; ++index) {
+        bool dominated = false;
+        for (int other = 0; other < match_count; ++other) {
+            if (index != other &&
+                cxx_function_template_match_relation(
+                    &matches[other], &matches[index]) > 0) {
+                dominated = true;
+                break;
+            }
+        }
+        if (!dominated) {
+            selected = index;
+            ++best_count;
+        }
+    }
+    if (best_count != 1 || selected < 0 || !matches[selected].instance ||
+        matches[selected].instance->kind != DECL_FUNC ||
+        !matches[selected].instance->type ||
+        matches[selected].instance->type->kind != TYPE_FUNC) {
+        return false;
+    }
+    if (!expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT) {
+        return false;
+    }
+    expression->call_func->ident_decl = matches[selected].instance;
+    expression->call_func->type = matches[selected].instance->type;
+    expression->type = matches[selected].instance->type->ret_type;
+    expression->cxx_dependent_function_template_call = NULL;
     return true;
 }
 
@@ -32292,7 +35109,8 @@ Expr* rcc_parse_cxx_template_call(void) {
                         break;
                     }
                     if (parameter->kind == TPARAM_TYPE) {
-                        arguments[argument_count] = parse_cxx_type_spec();
+                        arguments[argument_count] =
+                            parse_cxx_template_type_argument();
                         if (!arguments[argument_count]) {
                             rcc_error(peek()->loc,
                                       "variable template type argument is invalid");
@@ -32416,7 +35234,7 @@ Expr* rcc_parse_cxx_template_call(void) {
                     memset(parsed, 0, sizeof(*parsed));
                     if (parameter && parameter->kind == TPARAM_TYPE) {
                         parsed->is_type = true;
-                        parsed->type = parse_cxx_type_spec();
+                        parsed->type = parse_cxx_template_type_argument();
                     } else if (parameter &&
                                parameter->kind == TPARAM_TEMPLATE) {
                         const char* argument_name = check(TOK_IDENT) ||
@@ -32479,8 +35297,22 @@ Expr* rcc_parse_cxx_template_call(void) {
         if (!adl_arguments_parsed) {
             if (!check(TOK_RPAREN)) {
                 do {
-                    exprlist_append(&call_arguments,
-                                    parse_assignment_expression());
+                    Expr* argument = parse_assignment_expression();
+                    if (match(TOK_ELLIPSIS)) {
+                        if (!argument) {
+                            rcc_error(loc,
+                                      "C++ pack expansion requires an expression pattern");
+                        } else if (argument->kind == EXPR_IDENT &&
+                                   argument->ident_name) {
+                            argument->cxx_pack_expansion = true;
+                            argument->cxx_pack_expansion_name =
+                                argument->ident_name;
+                        } else {
+                            argument->cxx_pack_expansion = true;
+                            argument->cxx_pack_expansion_pattern = argument;
+                        }
+                    }
+                    exprlist_append(&call_arguments, argument);
                 } while (match(TOK_COMMA));
             }
             expect(TOK_RPAREN, ")");
@@ -32498,6 +35330,20 @@ Expr* rcc_parse_cxx_template_call(void) {
                                             sizeof(candidate_templates[0]));
                 }
             }
+        }
+
+        if (active_template &&
+            cxx_function_template_call_is_dependent(
+                call_arguments,
+                explicit_template_arguments ? explicit_arguments : NULL,
+                explicit_argument_count, explicit_template_arguments,
+                active_template)) {
+            Expr* deferred = cxx_defer_function_template_call(
+                name, loc, candidate_templates, candidate_count,
+                call_arguments,
+                explicit_template_arguments ? explicit_arguments : NULL,
+                explicit_argument_count, explicit_template_arguments);
+            if (deferred) return deferred;
         }
 
         if (unsafe_versioned_shape && candidate_count == 1) {
@@ -32634,7 +35480,7 @@ Expr* rcc_parse_cxx_template_call(void) {
     }
 
     expect(TOK_LT, "<");
-    argument = parse_cxx_type_spec();
+    argument = parse_cxx_template_type_argument();
     if (match(TOK_COMMA)) {
         rcc_error(loc, "versioned structure template requires one type argument");
         while (!check(TOK_GT) && !at_end()) advance();
@@ -32927,11 +35773,43 @@ static bool cxx_decltype_expression_is_lvalue(Expr* expression) {
     }
 }
 
+static Type* cxx_decltype_apply_expression_category(Expr* expression,
+                                                    Type* result,
+                                                    bool parenthesized) {
+    bool is_lvalue = cxx_decltype_expression_is_lvalue(expression);
+    if (!result) return NULL;
+    if ((parenthesized || (expression &&
+         (expression->kind == EXPR_MEMBER ||
+          expression->kind == EXPR_PTR_MEMBER ||
+          expression->kind == EXPR_INDEX ||
+          expression->kind == EXPR_DEREF))) && is_lvalue) {
+        return type_reference(result, false);
+    }
+    return result;
+}
+
 static Type* cxx_decltype_parsed_expression_type(Expr* expression,
                                                  SourceLoc loc) {
     Type* object_type;
     if (!expression) return NULL;
     switch (expression->kind) {
+        case EXPR_CALL:
+            if (expression->call_func &&
+                (expression->call_func->kind == EXPR_MEMBER ||
+                 expression->call_func->kind == EXPR_PTR_MEMBER) &&
+                expression->call_func->member_is_explicit_destructor) {
+                Type* target_type =
+                    expression->call_func->member_destructor_type;
+                object_type = cxx_decltype_destructor_object_type(
+                    expression->call_func);
+                if (!object_type || !target_type) return NULL;
+                if (!object_type->cxx_dependent &&
+                    !target_type->cxx_dependent &&
+                    !cxx_decltype_explicit_destructor_is_viable(
+                        expression->call_func)) return NULL;
+                return type_void;
+            }
+            return cxx_parser_expression_type(expression);
         case EXPR_ASSIGN:
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN:
@@ -32984,7 +35862,6 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
     Expr* expression;
     Type* result;
     bool extra_parentheses;
-    bool is_lvalue;
     int errors_before = g_error_count;
 
     expect(TOK_DECLTYPE, "decltype");
@@ -33001,18 +35878,28 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
 
     result = cxx_decltype_parsed_expression_type(expression, loc);
     if (!result) {
-        parser.cur = saved_cur;
-        parser.prev = saved_prev;
-        return parse_cxx_decltype_type_legacy(loc);
+        if (active_template &&
+            cxx_expression_is_dependent(expression, active_template)) {
+            result = type_int;
+        } else {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return parse_cxx_decltype_type_legacy(loc);
+        }
     }
 
-    is_lvalue = cxx_decltype_expression_is_lvalue(expression);
-    if ((extra_parentheses || expression->kind == EXPR_MEMBER ||
-         expression->kind == EXPR_PTR_MEMBER ||
-         expression->kind == EXPR_INDEX ||
-         expression->kind == EXPR_DEREF) && is_lvalue) {
-        Type* reference = type_reference(result, false);
-        return reference ? reference : type_int;
+    result = cxx_decltype_apply_expression_category(
+        expression, result, extra_parentheses);
+    if (!result) return type_int;
+    if (active_template &&
+        cxx_expression_is_dependent(expression, active_template)) {
+        Type* dependent = ast_arena_alloc(sizeof(*dependent));
+        *dependent = *result;
+        dependent->cxx_dependent = true;
+        dependent->cxx_dependent_decltype_expr = expression;
+        dependent->cxx_dependent_decltype_parenthesized = extra_parentheses;
+        dependent->cxx_template_param_context = active_template;
+        return dependent;
     }
     return result;
 }
@@ -33181,7 +36068,7 @@ static Type* parse_dependent_nested_alias_template_type(SourceLoc loc) {
                  * retained as a carrier until the owner alias declaration
                  * supplies its parameter kind and signature. */
             } else if (cxx_template_argument_starts_type()) {
-                argument = parse_cxx_type_spec();
+                argument = parse_cxx_template_type_argument();
             } else {
                 rcc_parser_set_cxx_template_default_mode(true);
                 value_argument = parse_assignment_expression();
@@ -33410,7 +36297,16 @@ static Type* parse_cxx_type_spec(void) {
             enum_type = parse_cxx_type_spec();
         }
         expect(TOK_RPAREN, "')' after __underlying_type type name");
-        if (enum_type && enum_type->kind == TYPE_ENUM &&
+        if (enum_type && enum_type->cxx_dependent) {
+            t = type_struct("__underlying_type");
+            t->cxx_dependent = true;
+            t->cxx_dependent_underlying_type = true;
+            t->cxx_underlying_type_operand = enum_type;
+            t->cxx_template_param_index =
+                enum_type->cxx_template_param_index;
+            t->cxx_template_param_context =
+                enum_type->cxx_template_param_context;
+        } else if (enum_type && enum_type->kind == TYPE_ENUM &&
             enum_type->enum_underlying_type) {
             t = enum_type->enum_underlying_type;
         } else {
@@ -33459,19 +36355,25 @@ static Type* parse_cxx_type_spec(void) {
         } else if (cxx_qualified_class_alias_template_starts()) {
             t = parse_qualified_class_alias_template_type(loc);
             typename_resolved = true;
-        } else if (cxx_template_id_followed_by_scope(&owner_template_name)) {
-            CxxTemplate* owner_template;
-            CxxTemplate* owner_alias_template;
-            (void)parse_qualified_name();
-            owner_template = find_class_template(owner_template_name);
-            owner_alias_template = owner_template
-                ? NULL : find_alias_template(owner_template_name);
-            owner_type = owner_template
-                ? parse_class_template_specialization(owner_template, loc)
-                : owner_alias_template
-                    ? parse_alias_template_specialization(
-                          owner_alias_template, loc, NULL)
-                    : NULL;
+        } else if (check(TOK_DECLTYPE) ||
+                   cxx_template_id_followed_by_scope(&owner_template_name)) {
+            bool decltype_owner = check(TOK_DECLTYPE);
+            if (decltype_owner) {
+                owner_type = parse_cxx_decltype_type(loc);
+            } else {
+                CxxTemplate* owner_template;
+                CxxTemplate* owner_alias_template;
+                (void)parse_qualified_name();
+                owner_template = find_class_template(owner_template_name);
+                owner_alias_template = owner_template
+                    ? NULL : find_alias_template(owner_template_name);
+                owner_type = owner_template
+                    ? parse_class_template_specialization(owner_template, loc)
+                    : owner_alias_template
+                        ? parse_alias_template_specialization(
+                              owner_alias_template, loc, NULL)
+                        : NULL;
+            }
             if (!owner_type) {
                 rcc_error(loc,
                           "typename must name a nested type of a class type");
@@ -33491,8 +36393,53 @@ static Type* parse_cxx_type_spec(void) {
                     }
                     member_name = rcc_intern(advance()->value.str_val);
                     if (owner_type->cxx_dependent &&
+                        owner_type->cxx_dependent_decltype_expr &&
+                        !check(TOK_LT)) {
+                        Type* dependent =
+                            ast_arena_alloc(sizeof(*dependent));
+                        *dependent = *owner_type;
+                        dependent->cxx_dependent_member_name = member_name;
+                        dependent->cxx_dependent = true;
+                        dependent->cxx_template_param_context =
+                            active_template;
+                        owner_type = dependent;
+                        typename_resolved = true;
+                        saw_member = true;
+                        break;
+                    }
+                    if (owner_type->cxx_dependent &&
                         owner_type->cxx_template &&
                         !check(TOK_LT)) {
+                        CxxClass* owner_pattern_class =
+                            owner_type->cxx_template->templated_class;
+                        CxxNestedClassTemplate* nested_declaration =
+                            owner_pattern_class
+                                ? cxx_class_find_nested_template(
+                                      owner_pattern_class, member_name)
+                                : NULL;
+                        if (nested_declaration &&
+                            nested_declaration->declaration &&
+                            nested_declaration->declaration->param_count == 0) {
+                            Type* dependent_nested =
+                                ast_arena_alloc(sizeof(*dependent_nested));
+                            *dependent_nested =
+                                *nested_declaration->declaration
+                                     ->templated_class->type;
+                            dependent_nested->cxx_class = NULL;
+                            dependent_nested->cxx_template =
+                                nested_declaration->declaration;
+                            dependent_nested->cxx_dependent = true;
+                            dependent_nested->cxx_template_param_index = -1;
+                            dependent_nested->cxx_template_param_context =
+                                active_template;
+                            dependent_nested->cxx_dependent_class_template_owner =
+                                owner_type;
+                            owner_type = dependent_nested;
+                            typename_resolved = true;
+                            saw_member = true;
+                            if (check(TOK_SCOPE)) continue;
+                            break;
+                        }
                         char nested_path[512];
                         size_t path_length = strlen(member_name);
                         int written;
@@ -33575,18 +36522,51 @@ static Type* parse_cxx_type_spec(void) {
                         ? cxx_class_find_nested_template(owner_class,
                                                          member_name)
                         : NULL;
-                    if (member_class_template && check(TOK_LT)) {
+                    if (member_class_template &&
+                        (check(TOK_LT) ||
+                         (member_class_template->declaration &&
+                          member_class_template->declaration->param_count == 0))) {
                         bool accessible =
                             cxx_nested_class_template_accessible(
                                 member_class_template, owner_class,
                                 active_class);
-                        Type* specialization = owner_type->cxx_dependent
-                            ? parse_class_template_specialization_for_dependent_owner(
-                                  member_class_template->declaration,
-                                  owner_type, loc)
-                            : parse_class_template_specialization_for_owner(
-                                  member_class_template->declaration,
-                                  owner_class, loc);
+                        Type* specialization;
+                        if (check(TOK_LT)) {
+                            specialization = owner_type->cxx_dependent
+                                ? parse_class_template_specialization_for_dependent_owner(
+                                      member_class_template->declaration,
+                                      owner_type, loc)
+                                : parse_class_template_specialization_for_owner(
+                                      member_class_template->declaration,
+                                      owner_class, loc);
+                        } else if (owner_type->cxx_dependent) {
+                            specialization =
+                                ast_arena_alloc(sizeof(*specialization));
+                            *specialization =
+                                *member_class_template->declaration
+                                     ->templated_class->type;
+                            specialization->cxx_class = NULL;
+                            specialization->cxx_template =
+                                member_class_template->declaration;
+                            specialization->cxx_dependent = true;
+                            specialization->cxx_template_param_index = -1;
+                            specialization->cxx_template_param_context =
+                                active_template;
+                            specialization->cxx_dependent_class_template_owner =
+                                owner_type;
+                        } else if (!member_class_template->declaration
+                                        ->enclosing_template) {
+                            specialization =
+                                member_class_template->declaration
+                                    ->templated_class->type;
+                        } else {
+                            CxxClass* nested_instance =
+                                rcc_cxx_instantiate_class_template_for_owner(
+                                    member_class_template->declaration,
+                                    NULL, NULL, NULL, 0, owner_class, loc);
+                            specialization = nested_instance
+                                ? nested_instance->type : NULL;
+                        }
                         if (!accessible) {
                             rcc_error(loc,
                                       "nested class template '%s' is inaccessible in class '%s'",
@@ -33914,17 +36894,58 @@ static Type* parse_cxx_type_spec(void) {
         } else {
             for (;;) {
                 member_name = rcc_intern(advance()->value.str_val);
-                member_class_template = owner_class && check(TOK_LT)
-                    ? cxx_class_find_nested_template(owner_class, member_name)
+                CxxClass* owner_pattern_class = owner_class
+                    ? owner_class
+                    : owner_type && owner_type->cxx_template
+                        ? owner_type->cxx_template->templated_class : NULL;
+                member_class_template = owner_pattern_class
+                    ? cxx_class_find_nested_template(owner_pattern_class,
+                                                     member_name)
                     : NULL;
                 if (member_class_template &&
-                    member_class_template->declaration) {
+                    member_class_template->declaration &&
+                    (check(TOK_LT) ||
+                     member_class_template->declaration->param_count == 0)) {
                     bool accessible = cxx_nested_class_template_accessible(
-                        member_class_template, owner_class, active_class);
-                    Type* specialization =
-                        parse_class_template_specialization_for_owner(
-                            member_class_template->declaration, owner_class,
-                            loc);
+                        member_class_template, owner_pattern_class,
+                        active_class);
+                    Type* specialization;
+                    if (check(TOK_LT)) {
+                        specialization = owner_type->cxx_dependent
+                            ? parse_class_template_specialization_for_dependent_owner(
+                                  member_class_template->declaration,
+                                  owner_type, loc)
+                            : parse_class_template_specialization_for_owner(
+                                  member_class_template->declaration,
+                                  owner_class, loc);
+                    } else if (owner_type->cxx_dependent) {
+                        specialization =
+                            ast_arena_alloc(sizeof(*specialization));
+                        *specialization =
+                            *member_class_template->declaration
+                                 ->templated_class->type;
+                        specialization->cxx_class = NULL;
+                        specialization->cxx_template =
+                            member_class_template->declaration;
+                        specialization->cxx_dependent = true;
+                        specialization->cxx_template_param_index = -1;
+                        specialization->cxx_template_param_context =
+                            active_template;
+                        specialization->cxx_dependent_class_template_owner =
+                            owner_type;
+                    } else if (!member_class_template->declaration
+                                    ->enclosing_template) {
+                        specialization =
+                            member_class_template->declaration
+                                ->templated_class->type;
+                    } else {
+                        CxxClass* nested_instance =
+                            rcc_cxx_instantiate_class_template_for_owner(
+                                member_class_template->declaration,
+                                NULL, NULL, NULL, 0, owner_class, loc);
+                        specialization = nested_instance
+                            ? nested_instance->type : NULL;
+                    }
                     if (!accessible) {
                         rcc_error(loc,
                                   "nested class template '%s' is inaccessible in class '%s'",
@@ -34097,6 +37118,15 @@ static Type* parse_cxx_type_spec(void) {
         if (t) {
             /* A class-scope alias was resolved above, before namespace types
              * and class templates with the same unqualified spelling. */
+        } else if (!check(TOK_LT) && known_class &&
+                   active_class == known_class &&
+                   active_template &&
+                   active_template->kind == TMPL_CLASS &&
+                   active_template->param_count > 0) {
+            /* Inside a class-template definition the injected class name is
+             * the current specialization, not a CTAD placeholder. */
+            t = type_struct(name);
+            t->cxx_dependent = true;
         } else if (tmpl && !check(TOK_LT)) {
             bool direct_initialization = check(TOK_IDENT) &&
                 (check_next(TOK_LPAREN) || check_next(TOK_LBRACE));
@@ -34291,13 +37321,6 @@ static Type* parse_cxx_type_spec(void) {
             }
         } else if (tmpl) {
             t = parse_class_template_specialization(tmpl, loc);
-        } else if (known_class && active_template &&
-                   active_class == known_class) {
-            /* A self-reference in a class template is dependent on the
-             * specialization even when the primary class is already visible
-             * in the parser's class table. */
-            t = type_struct(name);
-            t->cxx_dependent = true;
         } else if (known_class) {
             t = known_class->type;
         } else if (known_type) {
@@ -34413,6 +37436,12 @@ static Type* parse_cxx_type_spec(void) {
     }
 
     return t;
+}
+
+static Type* parse_cxx_template_type_argument(void) {
+    Type* type = parse_cxx_type_spec();
+    if (!type) return NULL;
+    return rcc_parser_parse_cxx_declarator(type, NULL, NULL);
 }
 
 Expr* rcc_parse_cxx_special_expression(void) {
@@ -34576,13 +37605,24 @@ Expr* rcc_parse_cxx_qualified_template_member(void) {
         return NULL;
     }
     type = parse_class_template_specialization(tmpl, loc);
-    if (!type || !type->cxx_class || !match(TOK_SCOPE) ||
-        !check(TOK_IDENT)) {
+    if (!type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
     }
     member_name = advance()->value.str_val;
+    if (type->cxx_dependent) {
+        Expr* base = expr_ident(name, loc);
+        base->type = type;
+        result = expr_member(base, member_name, loc);
+        result->cxx_member_qualified_type = true;
+        return result;
+    }
+    if (!type->cxx_class) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
     cls = type->cxx_class;
     for (struct CxxMember* member = cls->members; member;
          member = member->next) {
@@ -34921,6 +37961,21 @@ static int active_template_type_index(const char* name) {
         offset += scope->param_count;
     }
     return -1;
+}
+
+Type* rcc_parser_cxx_destructor_type(const char* name) {
+    Type* type;
+    int parameter_index;
+    if (!name || !*name) return NULL;
+    type = rcc_parser_lookup_type(name);
+    if (type) return type;
+    parameter_index = active_template_type_index(name);
+    if (parameter_index < 0) return NULL;
+    type = type_struct(rcc_intern(name));
+    type->cxx_dependent = true;
+    type->cxx_template_param_index = parameter_index;
+    type->cxx_template_param_context = active_template;
+    return type;
 }
 
 static TypeMethod* cxx_range_find_method(Type* type, const char* name) {

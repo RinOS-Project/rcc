@@ -582,7 +582,8 @@ bool type_is_compatible(Type* a, Type* b) {
         ap = a->params;
         bp = b->params;
         while (ap && bp) {
-            if (!type_is_compatible(ap->type, bp->type)) return false;
+            if (ap->is_pack != bp->is_pack ||
+                !type_is_compatible(ap->type, bp->type)) return false;
             ap = ap->next;
             bp = bp->next;
         }
@@ -660,7 +661,8 @@ static bool type_is_compatible_qualified_impl(
             left = a->params;
             right = b->params;
             while (left && right) {
-                if (!type_is_compatible_qualified_impl(
+                if (left->is_pack != right->is_pack ||
+                    !type_is_compatible_qualified_impl(
                         left->type, right->type, true, depth + 1u)) {
                     return false;
                 }
@@ -709,6 +711,8 @@ bool type_is_same_template_argument(Type* a, Type* b) {
         a->is_wchar != b->is_wchar ||
         a->is_char16 != b->is_char16 || a->is_char32 != b->is_char32 ||
         a->cxx_is_member_pointer != b->cxx_is_member_pointer ||
+        a->cxx_dependent_underlying_type !=
+            b->cxx_dependent_underlying_type ||
         a->cxx_dependent_alias_template !=
             b->cxx_dependent_alias_template) {
         return false;
@@ -720,6 +724,11 @@ bool type_is_same_template_argument(Type* a, Type* b) {
          !type_is_same_template_argument(
              a->cxx_dependent_class_template_owner,
              b->cxx_dependent_class_template_owner))) {
+        return false;
+    }
+    if (a->cxx_dependent_underlying_type &&
+        !type_is_same_template_argument(a->cxx_underlying_type_operand,
+                                        b->cxx_underlying_type_operand)) {
         return false;
     }
     switch (a->kind) {
@@ -748,7 +757,8 @@ bool type_is_same_template_argument(Type* a, Type* b) {
             left_parameter = a->params;
             right_parameter = b->params;
             while (left_parameter && right_parameter) {
-                if (!type_is_same_template_argument(left_parameter->type,
+                if (left_parameter->is_pack != right_parameter->is_pack ||
+                    !type_is_same_template_argument(left_parameter->type,
                                                     right_parameter->type)) {
                     return false;
                 }
