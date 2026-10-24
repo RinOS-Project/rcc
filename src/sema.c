@@ -44,6 +44,8 @@ extern int rcc_parser_cxx_materialize_constructor_templates(
     Type*, ExprList*, bool, TypeMethod**, int, bool*) __attribute__((weak));
 extern bool rcc_parser_cxx_has_constructor_template(
     Type*) __attribute__((weak));
+extern bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
+    Type*, CxxConstructorInfo*) __attribute__((weak));
 extern bool rcc_parser_cxx_normalize_constructor_body(
     CxxClass*, CxxConstructorInfo*) __attribute__((weak));
 #endif
@@ -13393,6 +13395,7 @@ static CxxConstructorInfo* sema_cxx_make_type_trait_template_constructor(
     constructor->is_deleted = method->is_deleted;
     constructor->is_defaulted = method->is_defaulted;
     constructor->is_inherited = inherited;
+    constructor->inherited_member_initializers = NULL;
     constructor->access = (AccessSpec)method->cxx_access;
     /* Candidate viability depends on the declaration and parameter list, not
      * on an instantiated body.  Runtime lowering is finalized only after
@@ -13701,6 +13704,16 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
                     best->initializer_count = pattern->initializer_count;
                 }
             }
+        }
+        if (best->is_inherited &&
+            (!rcc_parser_cxx_complete_inherited_constructor_member_initializers ||
+             !rcc_parser_cxx_complete_inherited_constructor_member_initializers(
+                 type, best))) {
+            if (!rcc_parser_cxx_complete_inherited_constructor_member_initializers) {
+                rcc_error(declaration->loc,
+                          "inherited constructor template member initialization is unavailable");
+            }
+            return NULL;
         }
     }
     return best;

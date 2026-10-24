@@ -6379,6 +6379,15 @@ static void gen64_cxx_initialize_member_initializers(
     }
 }
 
+static void gen64_cxx_initialize_inherited_members(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor) {
+    if (!constructor || !constructor->is_inherited ||
+        !constructor->inherited_member_initializers) return;
+    gen64_cxx_initialize_member_initializers(
+        mod, object_type, constructor->inherited_member_initializers,
+        NULL, false);
+}
+
 static void gen64_cxx_initialize_object_mode_impl(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
     ExprList* arguments, bool initialize_virtual_bases) {
@@ -6399,6 +6408,8 @@ static void gen64_cxx_initialize_object_mode_impl(
             initialize_virtual_bases);
         gen64_cxx_call_constructor(mod, constructor, arguments);
         emit64_pop_reg(mod, RCX);
+        gen64_cxx_initialize_inherited_members(
+            mod, object_type, constructor);
         gen64_cxx_exception_unregister_initializers(
             mod, object_type, constructor, initialize_virtual_bases,
             active_cxx_exception_cleanup_frame_offset64);
@@ -6418,6 +6429,8 @@ static void gen64_cxx_initialize_object_mode_impl(
             gen64_cxx_bind_constructor_arguments(
                 constructor, delegation->arguments, arguments),
             initialize_virtual_bases);
+        gen64_cxx_initialize_inherited_members(
+            mod, object_type, constructor);
         return;
     }
     if (constructor->lowerable_parameter_use_mask_valid) {
@@ -6705,6 +6718,8 @@ static void gen64_cxx_initialize_object_mode_impl(
                                    RAX, field->type);
             }
         }
+        gen64_cxx_initialize_inherited_members(
+            mod, object_type, constructor);
         gen64_cxx_exception_unregister_initializers(
             mod, object_type, constructor, initialize_virtual_bases,
             active_cxx_exception_cleanup_frame_offset64);
@@ -6724,6 +6739,8 @@ static void gen64_cxx_initialize_object_mode_impl(
             emit64_store_typed(mod, address_reg, field->offset,
                                RAX, field->type);
         }
+        gen64_cxx_initialize_inherited_members(
+            mod, object_type, constructor);
         return;
     }
     field = object_type ? object_type->fields : NULL;
@@ -6735,6 +6752,8 @@ static void gen64_cxx_initialize_object_mode_impl(
         emit64_store_typed(mod, address_reg, field->offset,
                            RAX, field->type);
     }
+    gen64_cxx_initialize_inherited_members(
+        mod, object_type, constructor);
 }
 
 static void gen64_cxx_initialize_object_mode(

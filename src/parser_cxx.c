@@ -7422,6 +7422,7 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     inherited->is_deleted = false;
     inherited->is_defaulted = false;
     inherited->is_inherited = true;
+    inherited->inherited_member_initializers = NULL;
     inherited->access = source->access;
 
     initializer = ast_arena_alloc(sizeof(*initializer));
@@ -7944,6 +7945,68 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
         constructor->initializer_count = count;
         constructor->initializers_are_supported = true;
     }
+}
+
+bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
+    Type* owner_type, CxxConstructorInfo* constructor) {
+    CxxClass* cls = owner_type ? owner_type->cxx_class : NULL;
+    CxxConstructorInfo* pattern = constructor && constructor->method
+        ? constructor->method->constructor_info : NULL;
+    CxxClass* base = pattern && pattern->method
+        ? pattern->method->owner : NULL;
+    CxxConstructorInfo* member_initializers;
+    CxxClass member_owner;
+    bool direct_public_base = false;
+    SourceLoc loc = constructor && constructor->method &&
+            constructor->method->decl
+        ? constructor->method->decl->loc
+        : (SourceLoc){"<constructor>", 0, 0};
+
+    if (!constructor || !constructor->is_inherited) return true;
+    if (!cls || !base) {
+        rcc_error(loc,
+                  "inherited constructor template has no derived/base class metadata");
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (cls->bases[index].base == base &&
+            cls->bases[index].access == ACCESS_PUBLIC &&
+            !cls->bases[index].is_virtual) {
+            direct_public_base = true;
+            break;
+        }
+    }
+    if (!direct_public_base) {
+        rcc_error(loc,
+                  "inherited constructor template requires a public direct non-virtual base");
+        return false;
+    }
+    if (!cxx_inherited_constructor_member_supported(cls)) {
+        rcc_error(loc,
+                  "using-base constructors require safely lowerable derived members and supported default member initializers in the bounded RCC++ profile");
+        return false;
+    }
+
+    member_initializers = ast_arena_alloc(sizeof(*member_initializers));
+    memset(member_initializers, 0, sizeof(*member_initializers));
+    member_initializers->initializers_are_supported = true;
+    member_initializers->body_is_empty = true;
+    member_owner = *cls;
+    member_owner.base_count = 0;
+    member_owner.bases = NULL;
+    member_owner.virtual_base_count = 0;
+    member_owner.virtual_bases = NULL;
+    member_owner.using_base_member_count = 0;
+    member_owner.using_base_members = NULL;
+    member_owner.constructors = member_initializers;
+    complete_cxx_default_member_initializers(&member_owner);
+    if (!member_initializers->initializers_are_supported) {
+        rcc_error(loc,
+                  "inherited constructor template has unsupported derived member initializers");
+        return false;
+    }
+    constructor->inherited_member_initializers = member_initializers;
+    return true;
 }
 
 /* Retain a parenthesized mem-initializer list.  It is lowered only when the
@@ -10823,6 +10886,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                                   body->block_stmts == NULL;
             info->is_deleted = is_deleted;
             info->is_defaulted = is_defaulted;
+            info->inherited_member_initializers = NULL;
             info->access = current_access;
             info->next = NULL;
             if (!info->body_is_empty) {

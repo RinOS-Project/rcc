@@ -89,6 +89,7 @@ struct CxxConstructorInfo {
     bool is_deleted;
     bool is_defaulted;
     bool is_inherited;
+    CxxConstructorInfo* inherited_member_initializers;
     AccessSpec access;
     CxxConstructorInfo* next;
 };

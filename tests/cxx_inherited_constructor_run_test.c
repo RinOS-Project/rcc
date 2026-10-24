@@ -8,11 +8,20 @@
 #endif
 
 int RIN_SYSV cxx_inherited_constructor_probe(void);
+extern int cxx_inherited_template_order_state;
+extern int cxx_inherited_template_order_error;
+extern int cxx_inherited_template_order_complete;
 
 int main(void) {
     int result = cxx_inherited_constructor_probe();
-    if (result != 116) {
-        fprintf(stderr, "inherited constructor probe returned %d\n", result);
+    if (result != 143 || cxx_inherited_template_order_state != 0 ||
+        cxx_inherited_template_order_error != 0 ||
+        cxx_inherited_template_order_complete != 3) {
+        fprintf(stderr,
+                "inherited constructor probe returned %d; order state=%d, error=%d, completed=%d\n",
+                result, cxx_inherited_template_order_state,
+                cxx_inherited_template_order_error,
+                cxx_inherited_template_order_complete);
         return 1;
     }
     puts("C++ inherited constructor execution test passed");
