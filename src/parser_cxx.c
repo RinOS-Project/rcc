@@ -3701,6 +3701,8 @@ static Expr* parse_cxx_requires_clause_expression(void) {
 static CxxTemplate* find_class_template(const char* qualified_name);
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc);
+static void cxx_warn_deprecated_class_template(CxxTemplate* tmpl,
+                                                SourceLoc loc);
 static CxxTemplate* find_alias_template(const char* qualified_name);
 static Type* parse_class_alias_template_template_argument(
     TemplateParam* parameter, SourceLoc loc);
@@ -11634,9 +11636,28 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
 CxxClass* parse_cxx_class(void) {
     SourceLoc loc = previous()->loc;
     bool is_struct = previous()->type == TOK_STRUCT;
+    const char* deprecated_message = NULL;
+    bool is_deprecated;
+    CxxClass* cls;
+    skip_cxx_attributes();
+    (void)take_cxx_nodiscard();
+    if (take_cxx_weak()) {
+        rcc_error(loc, "[[gnu::weak]] cannot apply to a class");
+    }
+    is_deprecated = take_cxx_deprecated(&deprecated_message);
+    if (take_cxx_no_unique_address()) {
+        rcc_error(loc,
+                  "[[no_unique_address]] requires a class data member");
+    }
+    (void)rcc_parser_cxx_take_noreturn_attribute();
     Token* name_tok = expect(TOK_IDENT, "class name");
     const char* class_name = name_tok ? name_tok->value.str_val : "anonymous";
-    return parse_cxx_class_named(loc, is_struct, class_name, NULL);
+    cls = parse_cxx_class_named(loc, is_struct, class_name, NULL);
+    if (cls && is_deprecated) {
+        cls->is_deprecated = true;
+        cls->deprecated_message = deprecated_message;
+    }
+    return cls;
 }
 
 /* ═══════════════════════════════════════
@@ -18766,6 +18787,8 @@ static Type* instantiate_class_template_for_owner(
     instance = cxx_class_new(ast_arena_strdup(tag), loc);
     instance->is_struct = definition->is_struct;
     instance->is_final = definition->is_final;
+    instance->is_deprecated = definition->is_deprecated;
+    instance->deprecated_message = definition->deprecated_message;
     instance->ns = definition->ns;
     instance->enclosing_class = owner_class
         ? owner_class : definition->enclosing_class;
@@ -22896,6 +22919,7 @@ static Type* parse_class_template_specialization_for_dependent_owner(
 
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc) {
+    cxx_warn_deprecated_class_template(tmpl, loc);
     return parse_class_template_specialization_for_owner(tmpl, NULL, loc);
 }
 
@@ -36590,6 +36614,49 @@ static bool cxx_template_template_substitute_default(
     return true;
 }
 
+static void cxx_warn_deprecated_class(CxxClass* cls, SourceLoc loc) {
+    if (!cls || !cls->is_deprecated) return;
+    if (cls->deprecated_message && *cls->deprecated_message) {
+        rcc_warning(loc, "use of deprecated class '%s': %s",
+                    cls->name ? cls->name : "<unnamed>",
+                    cls->deprecated_message);
+    } else {
+        rcc_warning(loc, "use of deprecated class '%s'",
+                    cls->name ? cls->name : "<unnamed>");
+    }
+}
+
+static CxxClass* cxx_deprecated_class_template_definition(
+    CxxTemplate* tmpl, CxxTemplate** declaration) {
+    for (CxxTemplate* current = tmpl; current;
+         current = current->primary_template) {
+        CxxClass* definition = current->templated_class
+            ? current->templated_class : current->class_def;
+        if (definition && definition->is_deprecated) {
+            if (declaration) *declaration = current;
+            return definition;
+        }
+    }
+    return NULL;
+}
+
+static void cxx_warn_deprecated_class_template(CxxTemplate* tmpl,
+                                                SourceLoc loc) {
+    CxxTemplate* declaration = NULL;
+    CxxClass* definition = cxx_deprecated_class_template_definition(
+        tmpl, &declaration);
+    const char* name;
+    if (!definition) return;
+    name = declaration && declaration->name ? declaration->name
+        : tmpl && tmpl->name ? tmpl->name : "<unnamed>";
+    if (definition->deprecated_message && *definition->deprecated_message) {
+        rcc_warning(loc, "use of deprecated class template '%s': %s",
+                    name, definition->deprecated_message);
+    } else {
+        rcc_warning(loc, "use of deprecated class template '%s'", name);
+    }
+}
+
 static Type* parse_cxx_type_spec(void) {
     SourceLoc loc = peek()->loc;
     Type* t = NULL;
@@ -37656,8 +37723,14 @@ static Type* parse_cxx_type_spec(void) {
         } else if (tmpl) {
             t = parse_class_template_specialization(tmpl, loc);
         } else if (known_class) {
+            if (known_class != active_class) {
+                cxx_warn_deprecated_class(known_class, loc);
+            }
             t = known_class->type;
         } else if (known_type) {
+            if (known_type->cxx_class != active_class) {
+                cxx_warn_deprecated_class(known_type->cxx_class, loc);
+            }
             t = known_type;
         } else if (is_active_template_type(name)) {
             /* A dependent type remains an incomplete placeholder until

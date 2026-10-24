@@ -9187,8 +9187,11 @@ remains a separate open item.
       same ABI symbol. Cover attribute-before-definition, attribute-after-
       definition followed by an unannotated redeclaration, and a call before
       the attribute declaration that must remain unmarked.
-- [ ] Class-template attribute propagation and other declaration/
-      attribute-ordering cases remain open.
+- [x] Parse `[[deprecated]]` after the class-key, preserve it on class-template
+      instances, and diagnose uses of ordinary classes and primary class
+      templates. The fixture compares GCC diagnostics and runs generated code.
+- [ ] Attribute placement on explicit/partial class-template specializations
+      and other declaration-ordering cases remain open.
 
 ## RCC continuation (2026-10-23, GNU `__has_trivial_constructor` builtin)
 
@@ -9249,13 +9252,16 @@ remains a separate open item.
 - [x] Preserve standard `[[deprecated]]` on block-scope variables, including
       every comma-separated declarator, and global- and namespace-scope
       block-scope function declarations plus deprecated function-template
-      instantiation. `test-cxx-deprecated` checks nine RCC diagnostics on both
-      target widths and checks GCC C++20 diagnostics for local, namespace, and
-      template functions; the i686 COFF check passes and generated AMD64 code
-      runs.
+      instantiation, ordinary deprecated classes, and deprecated class
+      templates. `test-cxx-deprecated` checks thirteen RCC diagnostics on both
+      target widths and checks GCC C++20 diagnostics for local, namespace,
+      function-template, and class uses; the i686 COFF check passes and
+      generated AMD64 code runs.
 - [x] Preserve function deprecation across the tested redeclaration orders
       without retroactively changing the earlier call; GCC C++20 and RCC
       diagnostics are checked by the focused test.
-- [ ] Class-template attribute propagation and other declaration/attribute
-      ordering cases remain open; class-member behavior is covered by the same
-      fixture.
+- [x] Preserve class and primary class-template deprecation through type use;
+      GCC C++20 diagnostics and the instantiated AMD64 code are checked.
+- [ ] Explicit/partial class-template specialization attributes and other
+      declaration/attribute ordering cases remain open; class-member behavior
+      is covered by the same fixture.

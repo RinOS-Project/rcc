@@ -108,6 +108,8 @@ struct CxxClass {
     const char* name;
     bool is_struct;          /* struct vs class (default access) */
     bool is_final;           /* C++ final class cannot be used as a base. */
+    bool is_deprecated;
+    const char* deprecated_message;
     bool is_abstract;        /* A vtable slot remains pure virtual. */
     bool has_user_constructor;
     bool has_nonpublic_field;

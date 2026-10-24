@@ -4981,6 +4981,8 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->name = name ? rcc_strdup(name) : NULL;
     cls->is_struct = is_struct;
     cls->is_final = false;
+    cls->is_deprecated = false;
+    cls->deprecated_message = NULL;
     cls->is_abstract = false;
     cls->has_user_constructor = false;
     cls->has_nonpublic_field = false;
