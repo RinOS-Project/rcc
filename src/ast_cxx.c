@@ -13124,7 +13124,7 @@ static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
                          pack_index < pack_length; ++pack_index) {
                         if (!tmpl->pending_pack_args ||
                             !tmpl->instances[instance_index].pack_args ||
-                            !type_is_compatible(
+                            !type_is_same_template_argument(
                                 tmpl->instances[instance_index].pack_args[
                                     instance_offset + pack_index],
                                 tmpl->pending_pack_args[
@@ -13162,7 +13162,7 @@ static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
                          pack_index < tmpl->pending_pack_count; ++pack_index) {
                         if (!tmpl->pending_pack_args ||
                             !tmpl->instances[instance_index].pack_args ||
-                            !type_is_compatible(
+                            !type_is_same_template_argument(
                                 tmpl->instances[instance_index].pack_args[
                                     pack_index],
                                 tmpl->pending_pack_args[pack_index])) {
@@ -13197,7 +13197,7 @@ static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
                 return false;
             }
         } else if (!args || !args[index] ||
-                   !type_is_compatible(
+                   !type_is_same_template_argument(
                        tmpl->instances[instance_index].args[index],
                        args[index])) {
             return false;

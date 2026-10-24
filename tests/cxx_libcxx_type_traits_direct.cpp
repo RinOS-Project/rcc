@@ -1092,6 +1092,9 @@ static_assert(!std::is_assignable<NontrivialAssignmentUnion&,
               "a non-trivial union member deletes union assignment");
 static_assert(std::is_assignable<TemplateAssignment&, int>::value,
               "a member assignment template participates in overload resolution");
+static_assert(std::is_assignable<TemplateAssignment&,
+                                 const double&>::value,
+              "an unconstrained forwarding assignment accepts a const lvalue");
 static_assert(std::is_assignable<ConstrainedAssignmentTemplate&, double>::value,
               "a satisfied assignment-template constraint participates");
 static_assert(!std::is_assignable<ConstrainedAssignmentTemplate&, int>::value,
@@ -1105,10 +1108,16 @@ static_assert(alignof(double&) == alignof(double),
 static_assert(std::is_assignable<ConstrainedForwardingAssignment&,
                                  double&>::value,
               "a satisfied forwarding assignment constraint accepts an lvalue");
+static_assert(std::is_assignable<ConstrainedForwardingAssignment&,
+                                 const double&>::value,
+              "a satisfied forwarding assignment constraint accepts a const lvalue");
 static_assert(std::is_assignable<ConstrainedAssignmentOverload&, double>::value,
               "a satisfied constrained assignment overload beats a deleted fallback");
 static_assert(std::is_assignable<ConstrainedAssignmentOverload&, double&>::value,
               "a forwarding assignment constraint accepts an lvalue source");
+static_assert(std::is_assignable<ConstrainedAssignmentOverload&,
+                                 const double&>::value,
+              "a forwarding assignment constraint accepts a const lvalue source");
 static_assert(!std::is_assignable<ConstrainedAssignmentOverload&, int>::value,
               "an unsatisfied constraint leaves the deleted fallback selected");
 static_assert(std::is_assignable<volatile int&, int>::value,

@@ -424,7 +424,14 @@ static_assert(alignof(double&) == alignof(double),
               "alignof a reference type uses the referred-to type alignment");
 
 static void check_constrained_forwarding_assignment(
-    ConstrainedForwardingAssignment& target, double& source) {
+    ConstrainedForwardingAssignment& target, double& source,
+    const double& const_source) {
+    target = source;
+    target = const_source;
+}
+
+static void check_unconstrained_forwarding_assignment(
+    TemplateAssignment& target, const double& source) {
     target = source;
 }
 
@@ -824,16 +831,23 @@ static_assert(!__is_assignable(NontrivialAssignmentUnion&,
               "a non-trivial union member deletes union assignment");
 static_assert(__is_assignable(TemplateAssignment&, int),
               "a member assignment template participates in overload resolution");
+static_assert(__is_assignable(TemplateAssignment&, const double&),
+              "an unconstrained forwarding assignment accepts a const lvalue");
 static_assert(__is_assignable(ConstrainedAssignmentTemplate&, double),
               "a satisfied assignment-template constraint participates");
 static_assert(!__is_assignable(ConstrainedAssignmentTemplate&, int),
               "an unsatisfied assignment-template constraint removes the candidate");
 static_assert(__is_assignable(ConstrainedForwardingAssignment&, double&),
               "a satisfied forwarding assignment constraint accepts an lvalue");
+static_assert(__is_assignable(ConstrainedForwardingAssignment&,
+                              const double&),
+              "a satisfied forwarding assignment constraint accepts a const lvalue");
 static_assert(__is_assignable(ConstrainedAssignmentOverload&, double),
               "a satisfied constrained assignment overload beats a deleted fallback");
 static_assert(__is_assignable(ConstrainedAssignmentOverload&, double&),
               "a forwarding assignment constraint accepts an lvalue source");
+static_assert(__is_assignable(ConstrainedAssignmentOverload&, const double&),
+              "a forwarding assignment constraint accepts a const lvalue source");
 static_assert(__is_assignable(ConstrainedForwardingAssignment&, const double),
               "a satisfied forwarding assignment constraint accepts a const rvalue");
 static_assert(!__is_assignable(ConstrainedAssignmentOverload&, int),

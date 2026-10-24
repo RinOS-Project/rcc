@@ -9463,8 +9463,15 @@ remains a separate open item.
       `test-cxx-constructible-builtin` and
       `test-cxx-libcxx-type_traits-direct` for i686 and AMD64, with GCC C++20
       syntax checks.
-- [ ] Fix constrained forwarding assignment-template deduction for const
-      lvalue arguments. A `requires (sizeof(T) == sizeof(double))` candidate's
-      constraint evaluates true, but `__is_assignable` and an ordinary
-      assignment expression still reject `const double&`; add direct and
-      libcxx regressions when the semantic path is repaired.
+- [x] Fix constrained forwarding assignment-template deduction for const
+      lvalue arguments. The function-template instance cache now compares
+      exact type arguments, including cv/ref qualifiers, instead of reusing a
+      `double&` specialization for `const double&`. Ordinary assignment,
+      `__is_assignable`, and libcxx `std::is_assignable` regressions pass for
+      i686 and AMD64 against GCC C++20.
+- [x] Compare function-template partial-ordering patterns after lvalue/rvalue
+      reference adjustment when both candidates use the same reference
+      category. This selects `const T&` over `T&` for const lvalues rather than
+      reporting an ambiguous template call; `test-cxx-function-template-
+      overloads` matches GCC C++20 on i686 and AMD64, and the complete
+      `test-cxx` aggregate passes on Windows.

@@ -31819,20 +31819,36 @@ static bool cxx_function_template_partial_order_deduces(
     TypeParam* argument = argument_function->params;
     while (parameter && argument) {
         bool parameter_supported = false;
-        /* Reference collapsing and top-level reference adjustment have their
-         * own established ordering rules; this structural subset handles
-         * pointer and class-template-id patterns only. */
-        if ((parameter->type && parameter->type->kind == TYPE_PTR &&
-             (parameter->type->is_reference ||
-              parameter->type->is_rvalue_reference)) ||
-            (argument->type && argument->type->kind == TYPE_PTR &&
-             (argument->type->is_reference ||
-              argument->type->is_rvalue_reference))) {
-            return false;
+        Type* parameter_type = parameter->type;
+        Type* argument_type = argument->type;
+        bool parameter_reference = parameter_type &&
+            parameter_type->kind == TYPE_PTR &&
+            (parameter_type->is_reference ||
+             parameter_type->is_rvalue_reference);
+        bool argument_reference = argument_type &&
+            argument_type->kind == TYPE_PTR &&
+            (argument_type->is_reference ||
+             argument_type->is_rvalue_reference);
+        if (parameter_reference || argument_reference) {
+            /* Partial ordering compares the referred-to types after reference
+             * adjustment. Keep mixed lvalue/rvalue or reference/value forms
+             * on the existing ranking path, but compare matching reference
+             * categories structurally so cv-qualified `T&` patterns are not
+             * incorrectly reported as indistinguishable. */
+            if (!parameter_reference || !argument_reference ||
+                parameter_type->is_reference !=
+                    argument_type->is_reference ||
+                parameter_type->is_rvalue_reference !=
+                    argument_type->is_rvalue_reference ||
+                !parameter_type->base || !argument_type->base) {
+                return false;
+            }
+            parameter_type = parameter_type->base;
+            argument_type = argument_type->base;
         }
         if (!cxx_function_template_partial_order_deduce_type(
-                parameter_match->tmpl, parameter->type,
-                argument_match->tmpl, argument->type, deduced_arguments,
+                parameter_match->tmpl, parameter_type,
+                argument_match->tmpl, argument_type, deduced_arguments,
                 deduced_value_parameters, &parameter_supported, 0u)) {
             if (parameter_supported && supported) *supported = true;
             return false;
