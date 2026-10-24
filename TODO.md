@@ -9389,6 +9389,12 @@ remains a separate open item.
 - [x] Check `__is_constructible` for an inherited constructor template through
       an intermediate class with multiple direct bases and through the final
       multi-base derived class; GCC C++20 and the i686/AMD64 target gate pass.
+- [x] Check `__is_nothrow_constructible` through those intermediate and final
+      multi-base layers when the selected template constructor, sibling-base
+      constructors, and class members are all `noexcept`; GCC C++20 agrees and
+      the focused target passes generation/execution on i686 and AMD64. Ensure
+      the target creates its virtual-fixture output directories from a clean
+      test-output tree.
 - [ ] More complex virtual-base cases, remaining implicit copy/move
       deletion/access rules, and broader type-trait conformance remain open.
 

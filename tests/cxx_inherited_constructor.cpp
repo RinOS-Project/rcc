@@ -92,7 +92,7 @@ struct InheritedTemplateEmptyDerived : InheritedTemplateEmptyBase {
 
 struct InheritedTemplateMultiBase {
     template <typename T>
-    explicit InheritedTemplateMultiBase(T value)
+    explicit InheritedTemplateMultiBase(T value) noexcept
         : value_(value + sizeof(T)) {
         if (cxx_inherited_template_multi_order != 2) {
             cxx_inherited_template_multi_error = 1;
@@ -104,7 +104,7 @@ struct InheritedTemplateMultiBase {
 };
 
 struct InheritedTemplateMultiPrefix {
-    InheritedTemplateMultiPrefix() : prefix_value_(11) {
+    InheritedTemplateMultiPrefix() noexcept : prefix_value_(11) {
         if (cxx_inherited_template_multi_order != 1) {
             cxx_inherited_template_multi_error = 1;
         }
@@ -115,7 +115,7 @@ struct InheritedTemplateMultiPrefix {
 };
 
 struct InheritedTemplateSiblingBase {
-    InheritedTemplateSiblingBase() : sibling_value_(17) {
+    InheritedTemplateSiblingBase() noexcept : sibling_value_(17) {
         if (cxx_inherited_template_multi_order != 3) {
             cxx_inherited_template_multi_error = 1;
         }
@@ -126,7 +126,7 @@ struct InheritedTemplateSiblingBase {
 };
 
 struct InheritedTemplateMultiLeafPrefix {
-    InheritedTemplateMultiLeafPrefix() : leaf_prefix_value_(13) {
+    InheritedTemplateMultiLeafPrefix() noexcept : leaf_prefix_value_(13) {
         if (cxx_inherited_template_multi_order != 0) {
             cxx_inherited_template_multi_error = 1;
         }
@@ -137,7 +137,7 @@ struct InheritedTemplateMultiLeafPrefix {
 };
 
 struct InheritedTemplateMiddleMember {
-    InheritedTemplateMiddleMember() {
+    InheritedTemplateMiddleMember() noexcept {
         if (cxx_inherited_template_multi_order != 4) {
             cxx_inherited_template_multi_error = 1;
         }
@@ -154,7 +154,7 @@ struct InheritedTemplateMultiMiddle : InheritedTemplateMultiPrefix,
 };
 
 struct InheritedTemplateMultiLeafSuffix {
-    InheritedTemplateMultiLeafSuffix() : leaf_suffix_value_(19) {
+    InheritedTemplateMultiLeafSuffix() noexcept : leaf_suffix_value_(19) {
         if (cxx_inherited_template_multi_order != 5) {
             cxx_inherited_template_multi_error = 1;
         }
@@ -165,7 +165,7 @@ struct InheritedTemplateMultiLeafSuffix {
 };
 
 struct InheritedTemplateMultiMember {
-    InheritedTemplateMultiMember() {
+    InheritedTemplateMultiMember() noexcept {
         if (cxx_inherited_template_multi_order != 6) {
             cxx_inherited_template_multi_error = 1;
         }
@@ -186,6 +186,10 @@ static_assert(__is_constructible(InheritedTemplateMultiMiddle, int),
               "inherited constructor template remains visible at an intermediate multi-base layer");
 static_assert(__is_constructible(InheritedTemplateMultiDerived, int),
               "inherited constructor template crosses multi-base intermediate layers");
+static_assert(__is_nothrow_constructible(InheritedTemplateMultiMiddle, int),
+              "noexcept inherited constructor accounts for noexcept sibling bases and members");
+static_assert(__is_nothrow_constructible(InheritedTemplateMultiDerived, int),
+              "noexcept inherited constructor remains noexcept across multi-base layers");
 
 extern "C" int cxx_inherited_constructor_probe(void) {
     InheritedDerived one(7);
