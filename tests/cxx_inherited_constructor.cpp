@@ -70,6 +70,18 @@ struct InheritedTemplateDerived : InheritedTemplateBase {
     InheritedTemplateMarker markers_[2] = {};
 };
 
+struct InheritedTemplateMiddle : InheritedTemplateBase {
+    using InheritedTemplateBase::InheritedTemplateBase;
+    InheritedTemplateMarker marker_{};
+};
+
+struct InheritedTemplateLeaf : InheritedTemplateMiddle {
+    using InheritedTemplateMiddle::InheritedTemplateMiddle;
+    int extra_ = 6;
+    InheritedTemplateMarker marker_{};
+    InheritedTemplateMarker marker2_{};
+};
+
 struct InheritedTemplateEmptyDerived : InheritedTemplateEmptyBase {
     using InheritedTemplateEmptyBase::InheritedTemplateEmptyBase;
     int extra_ = 3;
@@ -83,8 +95,10 @@ extern "C" int cxx_inherited_constructor_probe(void) {
     InheritedTemplateDerived five{'A'};
     InheritedTemplateDerived six(5);
     InheritedTemplateEmptyDerived seven{2};
+    InheritedTemplateLeaf eight{10};
     return one.value_ + two.value_ + three.value_ + three.member_.value_ +
            four.value_ + five.value_ + six.value_ + four.extra_ +
            five.extra_ + six.extra_ + seven.value_ + seven.extra_ +
+           eight.value_ + eight.extra_ +
            cxx_inherited_template_order_complete;
 }

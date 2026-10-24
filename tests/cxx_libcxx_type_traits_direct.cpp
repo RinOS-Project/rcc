@@ -57,6 +57,17 @@ struct InheritedConstructorTemplateValue : InheritedConstructorTemplateBase {
     using InheritedConstructorTemplateBase::InheritedConstructorTemplateBase;
 };
 
+struct InheritedConstructorTemplateMiddle
+    : InheritedConstructorTemplateBase {
+    using InheritedConstructorTemplateBase::InheritedConstructorTemplateBase;
+};
+
+struct InheritedConstructorTemplateLeaf
+    : InheritedConstructorTemplateMiddle {
+    using InheritedConstructorTemplateMiddle::
+        InheritedConstructorTemplateMiddle;
+};
+
 struct InheritedConstrainedConstructorTemplateBase {
     template <typename T>
         requires (sizeof(T) == sizeof(int))
@@ -398,6 +409,12 @@ static_assert(std::is_constructible<InheritedConstructorTemplateValue,
 static_assert(!std::is_constructible<InheritedConstructorTemplateValue,
                                      int*>::value,
               "a deleted inherited template best match remains deleted");
+static_assert(std::is_constructible<InheritedConstructorTemplateLeaf,
+                                   int>::value,
+              "constructor templates inherit through a public base chain");
+static_assert(!std::is_constructible<InheritedConstructorTemplateLeaf,
+                                     int*>::value,
+              "deleted overloads remain deleted through an inherited chain");
 static_assert(std::is_constructible<
                   InheritedConstrainedConstructorTemplateValue,
                   int>::value,

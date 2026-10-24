@@ -50,6 +50,17 @@ struct InheritedConstructorTemplateValue : InheritedConstructorTemplateBase {
     using InheritedConstructorTemplateBase::InheritedConstructorTemplateBase;
 };
 
+struct InheritedConstructorTemplateMiddle
+    : InheritedConstructorTemplateBase {
+    using InheritedConstructorTemplateBase::InheritedConstructorTemplateBase;
+};
+
+struct InheritedConstructorTemplateLeaf
+    : InheritedConstructorTemplateMiddle {
+    using InheritedConstructorTemplateMiddle::
+        InheritedConstructorTemplateMiddle;
+};
+
 struct InheritedConstrainedConstructorTemplateBase {
     template <typename T>
         requires (sizeof(T) == sizeof(int))
@@ -366,6 +377,10 @@ static_assert(__is_constructible(InheritedConstructorTemplateValue, int),
               "inherited constructor templates deduce their arguments");
 static_assert(!__is_constructible(InheritedConstructorTemplateValue, int*),
               "a deleted inherited template best match remains deleted");
+static_assert(__is_constructible(InheritedConstructorTemplateLeaf, int),
+              "constructor templates inherit through a public base chain");
+static_assert(!__is_constructible(InheritedConstructorTemplateLeaf, int*),
+              "deleted overloads remain deleted through an inherited chain");
 static_assert(__is_constructible(
                   InheritedConstrainedConstructorTemplateValue, int),
               "inherited constructor-template constraints are substituted");

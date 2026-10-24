@@ -7947,6 +7947,72 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
     }
 }
 
+static bool cxx_class_uses_inherited_constructor(CxxClass* cls,
+                                                 CxxClass* base) {
+    if (!cls || !base) return false;
+    for (int index = 0; index < cls->using_base_member_count; ++index) {
+        const char* member_name = cls->using_base_members[index].member_name;
+        if (cxx_using_name_matches_base(
+                cls->using_base_members[index].base_name, base) &&
+            cxx_using_name_matches_base(member_name, base)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Return the number of using-inheritance paths from cls to target and retain
+ * the sole path in target-to-derived order.  Constructor templates are only
+ * candidates when every edge explicitly inherits constructors. */
+static int cxx_find_inherited_constructor_paths(
+    CxxClass* cls, CxxClass* target, CxxClass** path, int capacity,
+    int* path_length, unsigned depth) {
+    CxxClass* first_path[64];
+    int first_length = 0;
+    int paths = 0;
+    if (!cls || !target || !path || !path_length || capacity <= 0) return 0;
+    if (cls == target) {
+        path[0] = target;
+        *path_length = 1;
+        return 1;
+    }
+    if (depth >= (unsigned)capacity || depth >= 64u) return -1;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        CxxClass* candidate_path[64];
+        int candidate_length = 0;
+        int candidate_count;
+        if (!base || cls->bases[index].access != ACCESS_PUBLIC ||
+            cls->bases[index].is_virtual ||
+            !cxx_class_uses_inherited_constructor(cls, base)) {
+            continue;
+        }
+        candidate_count = cxx_find_inherited_constructor_paths(
+            base, target, candidate_path, capacity, &candidate_length,
+            depth + 1u);
+        if (candidate_count < 0) return candidate_count;
+        if (candidate_count == 0) continue;
+        if (paths == 0 && candidate_count == 1 &&
+            candidate_length < capacity) {
+            memcpy(first_path, candidate_path,
+                   sizeof(*first_path) * (size_t)candidate_length);
+            first_path[candidate_length] = cls;
+            first_length = candidate_length + 1;
+        }
+        paths += candidate_count;
+        if (paths > 1) {
+            *path_length = 0;
+            return 2;
+        }
+    }
+    if (paths == 1) {
+        memcpy(path, first_path,
+               sizeof(*path) * (size_t)first_length);
+        *path_length = first_length;
+    }
+    return paths;
+}
+
 bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
     Type* owner_type, CxxConstructorInfo* constructor) {
     CxxClass* cls = owner_type ? owner_type->cxx_class : NULL;
@@ -7955,8 +8021,11 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
     CxxClass* base = pattern && pattern->method
         ? pattern->method->owner : NULL;
     CxxConstructorInfo* member_initializers;
-    CxxClass member_owner;
-    bool direct_public_base = false;
+    CxxConstructorInitializer** initializer_tail;
+    CxxClass* inheritance_path[64];
+    int inheritance_path_length = 0;
+    int inheritance_path_count;
+    int initializer_count = 0;
     SourceLoc loc = constructor && constructor->method &&
             constructor->method->decl
         ? constructor->method->decl->loc
@@ -7968,43 +8037,73 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
                   "inherited constructor template has no derived/base class metadata");
         return false;
     }
-    for (int index = 0; index < cls->base_count; ++index) {
-        if (cls->bases[index].base == base &&
-            cls->bases[index].access == ACCESS_PUBLIC &&
-            !cls->bases[index].is_virtual) {
-            direct_public_base = true;
-            break;
-        }
-    }
-    if (!direct_public_base) {
+    inheritance_path_count = cxx_find_inherited_constructor_paths(
+        cls, base, inheritance_path,
+        (int)(sizeof(inheritance_path) / sizeof(inheritance_path[0])),
+        &inheritance_path_length, 0u);
+    if (inheritance_path_count < 0) {
         rcc_error(loc,
-                  "inherited constructor template requires a public direct non-virtual base");
+                  "inherited constructor-template chain exceeds the supported inheritance depth");
         return false;
     }
-    if (!cxx_inherited_constructor_member_supported(cls)) {
+    if (inheritance_path_count > 1) {
         rcc_error(loc,
-                  "using-base constructors require safely lowerable derived members and supported default member initializers in the bounded RCC++ profile");
+                  "inherited constructor template has multiple public non-virtual using-base paths");
         return false;
     }
-
+    if (inheritance_path_count == 0 || inheritance_path_length < 2) {
+        rcc_error(loc,
+                  "inherited constructor template requires an explicit public non-virtual using-base chain");
+        return false;
+    }
     member_initializers = ast_arena_alloc(sizeof(*member_initializers));
     memset(member_initializers, 0, sizeof(*member_initializers));
     member_initializers->initializers_are_supported = true;
     member_initializers->body_is_empty = true;
-    member_owner = *cls;
-    member_owner.base_count = 0;
-    member_owner.bases = NULL;
-    member_owner.virtual_base_count = 0;
-    member_owner.virtual_bases = NULL;
-    member_owner.using_base_member_count = 0;
-    member_owner.using_base_members = NULL;
-    member_owner.constructors = member_initializers;
-    complete_cxx_default_member_initializers(&member_owner);
-    if (!member_initializers->initializers_are_supported) {
-        rcc_error(loc,
-                  "inherited constructor template has unsupported derived member initializers");
-        return false;
+    initializer_tail = &member_initializers->initializers;
+    for (int path_index = 1; path_index < inheritance_path_length;
+         ++path_index) {
+        CxxClass* derived_layer = inheritance_path[path_index];
+        CxxConstructorInfo* layer_initializers;
+        CxxClass member_owner;
+        if (derived_layer->base_count != 1 ||
+            derived_layer->bases[0].base != inheritance_path[path_index - 1] ||
+            derived_layer->bases[0].access != ACCESS_PUBLIC ||
+            derived_layer->bases[0].is_virtual) {
+            rcc_error(loc,
+                      "inherited constructor-template lowering requires one public non-virtual base at each derived layer");
+            return false;
+        }
+        if (!cxx_inherited_constructor_member_supported(derived_layer)) {
+            rcc_error(loc,
+                      "using-base constructors require safely lowerable members at every derived layer");
+            return false;
+        }
+        layer_initializers = ast_arena_alloc(sizeof(*layer_initializers));
+        memset(layer_initializers, 0, sizeof(*layer_initializers));
+        layer_initializers->initializers_are_supported = true;
+        layer_initializers->body_is_empty = true;
+        member_owner = *derived_layer;
+        member_owner.base_count = 0;
+        member_owner.bases = NULL;
+        member_owner.virtual_base_count = 0;
+        member_owner.virtual_bases = NULL;
+        member_owner.using_base_member_count = 0;
+        member_owner.using_base_members = NULL;
+        member_owner.constructors = layer_initializers;
+        complete_cxx_default_member_initializers(&member_owner);
+        if (!layer_initializers->initializers_are_supported) {
+            rcc_error(loc,
+                      "inherited constructor template has unsupported derived member initializers");
+            return false;
+        }
+        *initializer_tail = layer_initializers->initializers;
+        while (*initializer_tail) {
+            ++initializer_count;
+            initializer_tail = &(*initializer_tail)->next;
+        }
     }
+    member_initializers->initializer_count = initializer_count;
     constructor->inherited_member_initializers = member_initializers;
     return true;
 }
@@ -35090,7 +35189,12 @@ static bool cxx_append_constructor_template_source(
 
 static bool cxx_collect_constructor_template_sources(
     CxxClass* cls, bool include_inherited, CxxMethod** methods,
-    AccessSpec* accesses, int capacity, int* count) {
+    AccessSpec* accesses, int capacity, int* count, unsigned depth) {
+    if (depth > 64u) {
+        rcc_error((SourceLoc){"<constructor>", 0, 0},
+                  "inherited constructor-template chain is too deep");
+        return false;
+    }
     if (!cls || !methods || !accesses || !count || capacity < 0) return false;
     for (struct CxxMember* member = cls->members; member;
          member = member->next) {
@@ -35122,20 +35226,9 @@ static bool cxx_collect_constructor_template_sources(
             }
         }
         if (!inherited) continue;
-        for (struct CxxMember* member = base->members; member;
-             member = member->next) {
-            CxxMethod* method = member->method;
-            AccessSpec access;
-            if (!method || !method->member_template ||
-                !method->is_constructor) {
-                continue;
-            }
-            access = method->access > cls->bases[base_index].access
-                ? method->access : cls->bases[base_index].access;
-            if (!cxx_append_constructor_template_source(
-                    method, access, methods, accesses, capacity, count)) {
-                return false;
-            }
+        if (!cxx_collect_constructor_template_sources(
+                base, true, methods, accesses, capacity, count, depth + 1u)) {
+            return false;
         }
     }
     return true;
@@ -35168,7 +35261,7 @@ static int cxx_materialize_member_function_templates_internal(
         if (!cxx_collect_constructor_template_sources(
                 cls, include_inherited, source_methods, source_accesses,
                 (int)(sizeof(source_methods) / sizeof(source_methods[0])),
-                &source_count)) {
+                &source_count, 0u)) {
             return -1;
         }
     } else if (include_inherited) {
@@ -35310,7 +35403,8 @@ bool rcc_parser_cxx_has_constructor_template(Type* type) {
     int count = 0;
     return cls && cxx_collect_constructor_template_sources(
                       cls, true, methods, accesses,
-                      (int)(sizeof(methods) / sizeof(methods[0])), &count) &&
+                      (int)(sizeof(methods) / sizeof(methods[0])), &count,
+                      0u) &&
            count > 0;
 }
 

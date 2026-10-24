@@ -14,9 +14,9 @@ extern int cxx_inherited_template_order_complete;
 
 int main(void) {
     int result = cxx_inherited_constructor_probe();
-    if (result != 143 || cxx_inherited_template_order_state != 0 ||
+    if (result != 165 || cxx_inherited_template_order_state != 0 ||
         cxx_inherited_template_order_error != 0 ||
-        cxx_inherited_template_order_complete != 3) {
+        cxx_inherited_template_order_complete != 4) {
         fprintf(stderr,
                 "inherited constructor probe returned %d; order state=%d, error=%d, completed=%d\n",
                 result, cxx_inherited_template_order_state,
