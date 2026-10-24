@@ -14508,7 +14508,7 @@ static bool sema_cxx_type_trait_expression_is_nothrow(
     if (expression->kind == EXPR_CALL && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
         !expression->call_func->ident_decl) {
-        if (!rcc_parser_cxx_bind_unique_function_call(expression)) {
+        if (!rcc_parser_cxx_bind_resolved_function_call(expression)) {
             if (!g_symtab) {
                 cxx_type_trait_nothrow_evaluation_unknown = true;
                 return false;

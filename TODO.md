@@ -9399,6 +9399,10 @@ remains a separate open item.
       `integral_constant` bases. Both `noexcept` and potentially-throwing calls
       match GCC C++20 on i686 and AMD64; the complete `make OS=Linux test-cxx`
       suite passes under WSL.
-- [ ] Extend the nothrow-trait comparison across overload/scope combinations,
-      remaining implicit copy/move deletion/access rules, and the broader
-      C++ type-trait conformance matrix.
+- [x] Select scalar overloads in constructor default arguments and resolve
+      explicitly qualified namespace calls in aggregate DMIs through nested
+      libcxx trait bases. `int`/`long` overload selection and both exception
+      outcomes match GCC C++20 on i686/AMD64.
+- [ ] Extend nothrow-trait call coverage to unqualified nested-scope lookup,
+      ADL and class-argument conversions; remaining implicit copy/move
+      deletion/access rules and broader type-trait conformance also remain.

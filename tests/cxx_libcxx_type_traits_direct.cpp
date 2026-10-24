@@ -242,6 +242,13 @@ struct ThrowingValue {
 int nonthrowing_trait_default() noexcept;
 int throwing_trait_default();
 
+namespace nothrow_trait_calls {
+int qualified_nonthrowing() noexcept;
+int qualified_throwing();
+int select_overload(int) noexcept;
+int select_overload(long);
+}
+
 static_assert(noexcept(nonthrowing_trait_default()),
               "declared noexcept call remains visible to the expression parser");
 static_assert(!noexcept(throwing_trait_default()),
@@ -267,6 +274,28 @@ struct NothrowDefaultMemberInitializerValue {
 
 struct ThrowingDefaultMemberInitializerValue {
     int value = throwing_trait_default();
+};
+
+struct NothrowOverloadedDefaultArgumentValue {
+    NothrowOverloadedDefaultArgumentValue(
+        int value = nothrow_trait_calls::select_overload(0)) noexcept {
+        (void)value;
+    }
+};
+
+struct ThrowingOverloadedDefaultArgumentValue {
+    ThrowingOverloadedDefaultArgumentValue(
+        int value = nothrow_trait_calls::select_overload(0L)) noexcept {
+        (void)value;
+    }
+};
+
+struct NothrowQualifiedDefaultMemberInitializerValue {
+    int value = nothrow_trait_calls::qualified_nonthrowing();
+};
+
+struct ThrowingQualifiedDefaultMemberInitializerValue {
+    int value = nothrow_trait_calls::qualified_throwing();
 };
 
 struct NothrowDefaultValue {
@@ -438,6 +467,18 @@ static_assert(std::is_nothrow_constructible<
 static_assert(!std::is_nothrow_constructible<
                   ThrowingDefaultMemberInitializerValue>::value,
               "libcxx trait must fold a throwing call in a DMI");
+static_assert(std::is_nothrow_constructible<
+                  NothrowOverloadedDefaultArgumentValue>::value,
+              "libcxx trait must follow the selected non-throwing overload");
+static_assert(!std::is_nothrow_constructible<
+                  ThrowingOverloadedDefaultArgumentValue>::value,
+              "libcxx trait must follow the selected throwing overload");
+static_assert(std::is_nothrow_constructible<
+                  NothrowQualifiedDefaultMemberInitializerValue>::value,
+              "libcxx trait must resolve a qualified noexcept call in a DMI");
+static_assert(!std::is_nothrow_constructible<
+                  ThrowingQualifiedDefaultMemberInitializerValue>::value,
+              "libcxx trait must resolve a qualified throwing call in a DMI");
 static_assert(NothrowConstructibleTraitProbe<NothrowDefaultValue>::value,
               "dependent libcxx nothrow constructibility retains true");
 static_assert(!NothrowConstructibleTraitProbe<ThrowingDefaultValue>::value,

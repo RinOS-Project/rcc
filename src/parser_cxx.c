@@ -36,6 +36,8 @@ static CxxFriendAccess* active_friend_access_context;
 static CxxFriendAccess* active_friend_signature_candidates;
 
 static bool cxx_resolve_dependent_function_template_call(Expr* expression);
+static Decl* cxx_template_integer_call_function(
+    const Expr* expression, CxxTemplate* tmpl);
 static bool cxx_function_template_call_is_dependent(
     ExprList* call_arguments,
     const CxxParsedTemplateArgument* explicit_arguments,
@@ -2224,18 +2226,13 @@ static Decl* cxx_structural_pointer_member_identifier_declaration(
     return declaration;
 }
 
-/* Parser-time type-trait evaluation happens before sema has populated the
- * ordinary symbol table.  A call in a default argument or member initializer
- * can still be classified when the active namespace has exactly one visible
- * non-template function declaration for a zero-argument call.  Binding only
- * that unambiguous case lets unevaluated noexcept queries use its declared
- * exception specification without inventing an overload choice. */
-bool rcc_parser_cxx_bind_unique_function_call(Expr* expression) {
+/* Type-trait evaluation may revisit initializer calls after parser scopes have
+ * been restored.  Reuse the parser's ordinary scalar overload ranking for
+ * calls whose target is unambiguous there, then retain the selected declaration
+ * so noexcept analysis observes the actual overload. */
+bool rcc_parser_cxx_bind_resolved_function_call(Expr* expression) {
     Expr* function_expression;
-    CxxNamespace* lookup_namespace;
-    Decl* selected = NULL;
-    int candidate_count = 0;
-    int argument_count = 0;
+    Decl* selected;
     bool is_noexcept = false;
     if (!expression || expression->kind != EXPR_CALL ||
         !expression->call_func ||
@@ -2248,37 +2245,11 @@ bool rcc_parser_cxx_bind_unique_function_call(Expr* expression) {
         function_expression->ident_decl->kind == DECL_FUNC) {
         return false;
     }
-    for (ExprList* argument = expression->call_args; argument;
-         argument = argument->next) {
-        ++argument_count;
-    }
-    if (argument_count != 0) return false;
-    lookup_namespace = active_namespace
-        ? active_namespace : g_global_namespace;
-    for (DeclList* item = lookup_namespace ? lookup_namespace->decls : NULL;
-         item; item = item->next) {
-        Decl* candidate = item->decl;
-        if (!candidate || candidate->kind != DECL_FUNC ||
-            !candidate->name ||
-            !cxx_decl_leaf_matches(candidate->name,
-                                   function_expression->ident_name)) {
-            continue;
-        }
-        if (candidate_count && selected == candidate) continue;
-        selected = candidate;
-        ++candidate_count;
-        if (candidate_count > 1) return false;
-    }
+    selected = cxx_template_integer_call_function(expression, NULL);
     if (!selected || selected->func_template_owner ||
         selected->func_is_template_instance || !selected->type ||
         selected->type->kind != TYPE_FUNC || !selected->type->ret_type) {
         return false;
-    }
-    for (DeclList* parameter = selected->func_params; parameter;
-         parameter = parameter->next) {
-        if (!parameter->decl || !parameter->decl->param_default) {
-            return false;
-        }
     }
     if (selected->func_noexcept_expr) {
         int64_t value;
@@ -4635,9 +4606,10 @@ static Decl* cxx_template_integer_call_function(
     if (qualified) {
         char namespace_name[512];
         const char* separator = strrchr(name, ':');
+        CxxNamespace* call_namespace = NULL;
+        DeclList* declarations;
         if (separator && separator > name && separator[-1] == ':') {
             size_t namespace_length = (size_t)(separator - name - 1);
-            CxxNamespace* call_namespace;
             if (namespace_length >= sizeof(namespace_name)) return NULL;
             memcpy(namespace_name, name, namespace_length);
             namespace_name[namespace_length] = '\0';
@@ -4668,8 +4640,11 @@ static Decl* cxx_template_integer_call_function(
                 }
             }
         }
-        for (DeclList* item = active_ast ? active_ast->decls : NULL; item;
-             item = item->next) {
+        declarations = active_ast ? active_ast->decls
+                                  : call_namespace
+                                        ? call_namespace->decls : NULL;
+        if (!active_ast && !call_namespace) return direct_declaration;
+        for (DeclList* item = declarations; item; item = item->next) {
             if (candidate_capacity == INT_MAX) return NULL;
             ++candidate_capacity;
         }
@@ -4677,10 +4652,14 @@ static Decl* cxx_template_integer_call_function(
         candidates = ast_arena_alloc(sizeof(*candidates) *
                                      (size_t)candidate_capacity);
         if (!candidates) return NULL;
-        for (DeclList* item = active_ast->decls; item; item = item->next) {
+        for (DeclList* item = declarations; item; item = item->next) {
             Decl* candidate = item->decl;
             if (!candidate || !candidate->name ||
-                strcmp(candidate->name, name) != 0) {
+                (active_ast
+                     ? strcmp(candidate->name, name) != 0
+                     : !cxx_friend_function_name_matches(
+                           call_namespace, candidate->name,
+                           separator + 1))) {
                 continue;
             }
             if (candidate->kind == DECL_FUNC &&
