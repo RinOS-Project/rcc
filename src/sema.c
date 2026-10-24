@@ -14225,6 +14225,536 @@ bool rcc_sema_cxx_constructible(Type* type,
     return sema_cxx_constructible(type, arguments, 0u);
 }
 
+static int sema_cxx_type_trait_assignable_impl(
+    Type* target, Type* source, unsigned depth);
+
+static bool sema_cxx_type_trait_copy_parameter_is_const(Type* type,
+                                                        unsigned depth) {
+    CxxClass* cls;
+    bool has_nonconst_copy = false;
+    if (!type || depth > 64u) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return sema_cxx_type_trait_copy_parameter_is_const(
+            type->base, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    cls = type->cxx_class;
+    if (!cls) return true;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        DeclList* parameter;
+        Type* parameter_type;
+        if (!method || method->is_static || !method->source_name ||
+            strcmp(method->source_name, "operator=") != 0 ||
+            !method->decl) {
+            continue;
+        }
+        parameter = method->decl->func_params;
+        parameter_type = parameter && parameter->decl
+            ? parameter->decl->type : NULL;
+        if (!parameter || parameter->next || !parameter_type ||
+            parameter_type->kind != TYPE_PTR ||
+            !parameter_type->is_reference ||
+            parameter_type->is_rvalue_reference || !parameter_type->base ||
+            parameter_type->base->cxx_class != cls) {
+            continue;
+        }
+        if (parameter_type->base->is_const) return true;
+        has_nonconst_copy = true;
+    }
+    if (has_nonconst_copy) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || !base->type ||
+            !sema_cxx_type_trait_copy_parameter_is_const(
+                base->type, depth + 1u)) {
+            return false;
+        }
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!field->type ||
+            !sema_cxx_type_trait_copy_parameter_is_const(
+                field->type, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
+    Type* owner_type, Type* source_parameter, unsigned depth);
+
+static bool sema_cxx_type_trait_union_member_assignment_is_trivial(
+    Type* type, Type* source_object, bool source_is_rvalue,
+    unsigned depth) {
+    CxxClass* cls;
+    if (!type || !source_object || depth > 64u || type->is_reference ||
+        type->is_const) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len >= 0 &&
+            sema_cxx_type_trait_union_member_assignment_is_trivial(
+                type->base, source_object, source_is_rvalue, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    cls = type->cxx_class;
+    if ((!cls && type->kind != TYPE_UNION) ||
+        (cls && (cls->vtable_size > 0 || cls->virtual_base_count > 0)) ||
+        sema_cxx_has_user_copy_move_assignment(type)) {
+        return false;
+    }
+    {
+        Type* source_parameter = sema_cxx_type_trait_reference_type(
+            type, source_object->is_const, source_object->is_volatile,
+            source_is_rvalue);
+        if (!sema_cxx_type_trait_assignment_subobjects_are_assignable(
+                type, source_parameter, depth + 1u)) {
+            return false;
+        }
+    }
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base ||
+                !sema_cxx_type_trait_union_member_assignment_is_trivial(
+                    base->type, source_object, source_is_rvalue, depth + 1u)) {
+                return false;
+            }
+        }
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            if (field->is_static) continue;
+            if (!sema_cxx_type_trait_union_member_assignment_is_trivial(
+                    field->type, source_object, source_is_rvalue,
+                    depth + 1u)) {
+                return false;
+            }
+        }
+    } else {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            if (!sema_cxx_type_trait_union_member_assignment_is_trivial(
+                    field->type, source_object, source_is_rvalue, depth + 1u)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static Expr* sema_cxx_type_trait_assignment_operand(
+    Type* type, Type* object_override, SourceLoc loc, const char* name) {
+    Expr* expression;
+    if (!type) return NULL;
+    if (type->kind == TYPE_PTR && type->is_reference) {
+        Type* object_type = object_override ? object_override : type->base;
+        Type* reference_type = ast_arena_alloc(sizeof(*reference_type));
+        Decl* declaration;
+        Expr* object;
+        if (!object_type) return NULL;
+        *reference_type = *type;
+        reference_type->base = object_type;
+        declaration = ast_arena_alloc(sizeof(*declaration));
+        declaration->kind = DECL_VAR;
+        declaration->name = name;
+        declaration->type = reference_type->is_rvalue_reference
+            ? object_type : reference_type;
+        declaration->loc = loc;
+        object = expr_ident(name, loc);
+        object->ident_decl = declaration;
+        object->type = declaration->type;
+        if (!reference_type->is_rvalue_reference) return object;
+        expression = ast_arena_alloc(sizeof(*expression));
+        expression->kind = EXPR_CAST;
+        expression->loc = loc;
+        expression->cast_expr = object;
+        expression->cast_type = reference_type;
+        expression->cxx_cast_kind = CXX_CAST_STATIC;
+        expression->type = reference_type;
+        return expression;
+    }
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        Type* object_type = object_override ? object_override : type;
+        Type* rvalue_reference = sema_cxx_type_trait_reference_type(
+            object_type, false, false, true);
+        Decl* declaration = ast_arena_alloc(sizeof(*declaration));
+        Expr* object = expr_ident(name, loc);
+        expression = ast_arena_alloc(sizeof(*expression));
+        declaration->kind = DECL_VAR;
+        declaration->name = name;
+        declaration->type = object_type;
+        declaration->loc = loc;
+        object->ident_decl = declaration;
+        object->type = object_type;
+        expression->kind = EXPR_CAST;
+        expression->loc = loc;
+        expression->cast_expr = object;
+        expression->cast_type = rvalue_reference;
+        expression->cxx_cast_kind = CXX_CAST_STATIC;
+        expression->type = rvalue_reference;
+        return expression;
+    }
+    if (object_override) return NULL;
+    expression = expr_int(0, loc);
+    expression->type = type;
+    return expression;
+}
+
+static bool sema_cxx_type_trait_assignment_subobject_is_assignable(
+    Type* subobject, Type* source_object, bool source_is_rvalue,
+    unsigned depth) {
+    Type* target_reference;
+    Type* source_reference;
+    if (!subobject || !source_object || depth > 64u ||
+        subobject->is_reference || subobject->is_const) {
+        return false;
+    }
+    if (subobject->kind == TYPE_ARRAY) {
+        if (subobject->array_len < 0) return false;
+        return sema_cxx_type_trait_assignment_subobject_is_assignable(
+            subobject->base, source_object, source_is_rvalue, depth + 1u);
+    }
+    target_reference = sema_cxx_type_trait_reference_type(
+        subobject, false, false, false);
+    source_reference = sema_cxx_type_trait_reference_type(
+        subobject, source_object->is_const, source_object->is_volatile,
+        source_is_rvalue);
+    return sema_cxx_type_trait_assignable_impl(
+               target_reference, source_reference, depth + 1u) == 1;
+}
+
+static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
+    Type* owner_type, Type* source_parameter, unsigned depth) {
+    CxxClass* cls = owner_type ? owner_type->cxx_class : NULL;
+    Type* source_object;
+    bool source_is_rvalue;
+    if (!owner_type || !source_parameter || depth > 64u ||
+        (!cls && owner_type->kind != TYPE_UNION)) {
+        return false;
+    }
+    source_is_rvalue = source_parameter->kind == TYPE_PTR &&
+        source_parameter->is_reference &&
+        source_parameter->is_rvalue_reference;
+    source_object = source_parameter->kind == TYPE_PTR &&
+            source_parameter->is_reference
+        ? source_parameter->base : source_parameter;
+    if (!source_object) return false;
+
+    if (owner_type->kind == TYPE_UNION) {
+        bool trivial_source = source_is_rvalue &&
+            !source_object->is_const && !source_object->is_volatile;
+        if (cls) {
+            for (TypeParam* field = cls->fields; field; field = field->next) {
+                if (field->is_static) continue;
+                if (!field->type ||
+                    !sema_cxx_type_trait_union_member_assignment_is_trivial(
+                        field->type, source_object, trivial_source,
+                        depth + 1u) ||
+                    !sema_cxx_type_trait_assignment_subobject_is_assignable(
+                        field->type, source_object, source_is_rvalue,
+                        depth + 1u)) {
+                    return false;
+                }
+            }
+        } else {
+            for (TypeField* field = owner_type->fields;
+                 field; field = field->next) {
+                if (!field->type ||
+                    !sema_cxx_type_trait_union_member_assignment_is_trivial(
+                        field->type, source_object, trivial_source,
+                        depth + 1u) ||
+                    !sema_cxx_type_trait_assignment_subobject_is_assignable(
+                        field->type, source_object, source_is_rvalue,
+                        depth + 1u)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || !base->type ||
+            !sema_cxx_type_trait_assignment_subobject_is_assignable(
+                base->type, source_object, source_is_rvalue, depth + 1u)) {
+            return false;
+        }
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!sema_cxx_type_trait_assignment_subobject_is_assignable(
+                field->type, source_object, source_is_rvalue, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static TypeMethod* sema_cxx_type_trait_assignment_method(
+    Type* owner_type, Decl* source_declaration, Type* parameter_type,
+    AccessSpec access, bool is_deleted, bool is_defaulted,
+    bool is_noexcept, CxxRefQualifier ref_qualifier, SourceLoc loc) {
+    Decl* declaration;
+    Type* function_type;
+    Type* this_object_type;
+    Type* this_pointer_type;
+    TypeParam* parameter;
+    TypeParam* this_parameter_type;
+    TypeMethod* method;
+    Decl* parameter_declaration;
+    if (!owner_type || (!source_declaration && !parameter_type)) return NULL;
+
+    if (source_declaration) {
+        if (!source_declaration->type ||
+            source_declaration->type->kind != TYPE_FUNC) {
+            return NULL;
+        }
+        declaration = ast_arena_alloc(sizeof(*declaration));
+        *declaration = *source_declaration;
+        function_type = ast_arena_alloc(sizeof(*function_type));
+        *function_type = *source_declaration->type;
+    } else {
+        parameter_declaration = decl_param("source", parameter_type, 0, loc);
+        parameter = ast_arena_alloc(sizeof(*parameter));
+        parameter->name = "source";
+        parameter->type = parameter_type;
+        declaration = ast_arena_alloc(sizeof(*declaration));
+        declaration->kind = DECL_FUNC;
+        declaration->name = rcc_intern("__rcc_type_trait_operator_assign");
+        declaration->loc = loc;
+        declaration->func_params = decllist_new(parameter_declaration);
+        function_type = type_func(
+            sema_cxx_type_trait_reference_type(
+                owner_type, false, false, false),
+            parameter, false);
+    }
+
+    this_object_type = owner_type;
+    if (source_declaration &&
+        (source_declaration->type->is_const ||
+         source_declaration->type->is_volatile)) {
+        this_object_type = ast_arena_alloc(sizeof(*this_object_type));
+        *this_object_type = *owner_type;
+        this_object_type->is_const = source_declaration->type->is_const;
+        this_object_type->is_volatile =
+            source_declaration->type->is_volatile;
+    }
+    this_pointer_type = type_ptr(this_object_type);
+    this_parameter_type = ast_arena_alloc(sizeof(*this_parameter_type));
+    this_parameter_type->name = "this";
+    this_parameter_type->type = this_pointer_type;
+    this_parameter_type->next = function_type->params;
+    function_type->params = this_parameter_type;
+    declaration->type = function_type;
+    declaration->func_this_param = decl_param("this", this_pointer_type,
+                                              -1, loc);
+    declaration->func_is_cxx_method = true;
+    declaration->func_method_owner = owner_type;
+    declaration->func_is_noexcept = is_noexcept;
+
+    method = ast_arena_alloc(sizeof(*method));
+    method->name = "operator=";
+    method->return_type = function_type->ret_type;
+    method->function_decl = declaration;
+    method->kind = TYPE_METHOD_FUNCTION;
+    method->cxx_access = (unsigned char)access;
+    method->is_deleted = is_deleted;
+    method->is_defaulted = is_defaulted;
+    method->is_noexcept = is_noexcept;
+    method->ref_qualifier = ref_qualifier;
+    method->this_owner = owner_type;
+    return method;
+}
+
+static bool sema_cxx_type_trait_assignment_method_is_present(
+    TypeMethod* methods, Decl* declaration) {
+    for (TypeMethod* method = methods; method; method = method->next) {
+        if (method->function_decl == declaration ||
+            method->source_decl == declaration) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Type* sema_cxx_type_trait_assignment_type(Type* owner_type,
+                                                  unsigned depth) {
+    CxxClass* cls = owner_type ? owner_type->cxx_class : NULL;
+    Type* result;
+    TypeMethod** tail;
+    bool has_copy_assignment;
+    bool has_move_assignment;
+    bool has_copy_constructor = false;
+    bool has_move_constructor = false;
+    if (!owner_type ||
+        (!cls && owner_type->kind != TYPE_UNION) || depth > 64u) {
+        return owner_type;
+    }
+    result = ast_arena_alloc(sizeof(*result));
+    *result = *owner_type;
+    result->methods = NULL;
+    tail = &result->methods;
+    for (TypeMethod* existing = owner_type->methods; existing;
+         existing = existing->next) {
+        TypeMethod* copy = ast_arena_alloc(sizeof(*copy));
+        *copy = *existing;
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    for (struct CxxMember* member = cls ? cls->members : NULL; member;
+         member = member->next) {
+        CxxMethod* source_method = member->method;
+        TypeMethod* lowered;
+        bool is_deleted;
+        bool is_defaulted;
+        if (!source_method || source_method->is_static ||
+            source_method->member_template || !source_method->decl ||
+            !source_method->source_name ||
+            strcmp(source_method->source_name, "operator=") != 0 ||
+            sema_cxx_type_trait_assignment_method_is_present(
+                result->methods, source_method->decl)) {
+            continue;
+        }
+        is_deleted = source_method->is_deleted;
+        is_defaulted = source_method->is_defaulted;
+        if (is_defaulted && !is_deleted && source_method->decl->func_params &&
+            !source_method->decl->func_params->next &&
+            source_method->decl->func_params->decl) {
+            Type* parameter_type =
+                source_method->decl->func_params->decl->type;
+            if (parameter_type && parameter_type->kind == TYPE_PTR &&
+                parameter_type->is_reference &&
+                parameter_type->base &&
+                parameter_type->base->cxx_class == cls) {
+                is_deleted = !sema_cxx_type_trait_assignment_subobjects_are_assignable(
+                    result, parameter_type, depth + 1u);
+            }
+        }
+        lowered = sema_cxx_type_trait_assignment_method(
+            result, source_method->decl, NULL, member->access, is_deleted,
+            is_defaulted, source_method->is_noexcept,
+            source_method->ref_qualifier, source_method->decl->loc);
+        if (!lowered) continue;
+        *tail = lowered;
+        tail = &lowered->next;
+    }
+
+    has_copy_assignment = sema_cxx_has_declared_special_assignment(
+        owner_type, false);
+    has_move_assignment = sema_cxx_has_declared_special_assignment(
+        owner_type, true);
+    (void)sema_cxx_has_declared_copy_move_constructor(
+        owner_type, &has_copy_constructor, &has_move_constructor);
+    if (!has_copy_assignment) {
+        bool copy_parameter_is_const =
+            sema_cxx_type_trait_copy_parameter_is_const(result, depth + 1u);
+        Type* parameter_type = sema_cxx_type_trait_reference_type(
+            result, copy_parameter_is_const, false, false);
+        bool is_deleted = has_move_assignment || has_move_constructor ||
+            !sema_cxx_type_trait_assignment_subobjects_are_assignable(
+                result, parameter_type, depth + 1u);
+        TypeMethod* implicit_copy = sema_cxx_type_trait_assignment_method(
+            result, NULL, parameter_type, ACCESS_PUBLIC, is_deleted, true,
+            false, CXX_REF_QUAL_NONE, (SourceLoc){"<type-trait>", 0, 0});
+        if (implicit_copy) {
+            *tail = implicit_copy;
+            tail = &implicit_copy->next;
+        }
+    }
+    if (!has_copy_assignment && !has_move_assignment &&
+        !has_copy_constructor && !has_move_constructor &&
+        (!cls || !cls->destructor_method)) {
+        Type* parameter_type = sema_cxx_type_trait_reference_type(
+            result, false, false, true);
+        bool is_deleted = !sema_cxx_type_trait_assignment_subobjects_are_assignable(
+            result, parameter_type, depth + 1u);
+        /* A deleted implicit move assignment is ignored by overload
+         * resolution, allowing the copy assignment candidate to remain. */
+        if (!is_deleted) {
+            TypeMethod* implicit_move = sema_cxx_type_trait_assignment_method(
+                result, NULL, parameter_type, ACCESS_PUBLIC, false, true,
+                false, CXX_REF_QUAL_NONE, (SourceLoc){"<type-trait>", 0, 0});
+            if (implicit_move) {
+                *tail = implicit_move;
+                tail = &implicit_move->next;
+            }
+        }
+    }
+    return result;
+}
+
+static int sema_cxx_type_trait_assignable_impl(
+    Type* target, Type* source, unsigned depth) {
+    SourceLoc loc = {"<type-trait>", 0, 0};
+    Type* target_object = NULL;
+    Type* lookup_type = NULL;
+    Type* target_override = NULL;
+    Expr* left;
+    Expr* right;
+    Expr* assignment;
+    bool suppress_before;
+    int suppressed_before;
+    bool selected_deleted = false;
+    SymTab* prior_symtab;
+    bool owns_symtab = false;
+    int result;
+    if (!target || !source || depth > 64u || target->cxx_dependent ||
+        source->cxx_dependent) {
+        return -1;
+    }
+    prior_symtab = g_symtab;
+    if (!g_symtab) {
+        g_symtab = symtab_new();
+        if (!g_symtab) return -1;
+        owns_symtab = true;
+    }
+    target_object = target->kind == TYPE_PTR && target->is_reference
+        ? target->base : target;
+    if (target_object &&
+        (target_object->kind == TYPE_STRUCT ||
+         target_object->kind == TYPE_UNION) &&
+        (target_object->cxx_class || target_object->kind == TYPE_UNION)) {
+        lookup_type = sema_cxx_type_trait_assignment_type(
+            target_object, depth + 1u);
+        target_override = lookup_type;
+    }
+    left = sema_cxx_type_trait_assignment_operand(
+        target, target_override, loc,
+        "__rcc_type_trait_assignment_target");
+    right = sema_cxx_type_trait_assignment_operand(
+        source, NULL, loc, "__rcc_type_trait_assignment_source");
+    if (!left || !right) {
+        if (owns_symtab) {
+            symtab_free(g_symtab);
+            g_symtab = prior_symtab;
+        }
+        return 0;
+    }
+    assignment = expr_binary(EXPR_ASSIGN, left, right, loc);
+    suppress_before = g_suppress_errors;
+    suppressed_before = g_suppressed_error_count;
+    g_suppress_errors = true;
+    (void)sema_expr(assignment);
+    g_suppress_errors = suppress_before;
+    if (assignment->kind == EXPR_CALL && assignment->call_method) {
+        selected_deleted = assignment->call_method->is_deleted;
+    }
+    result = selected_deleted ? 0
+        : g_suppressed_error_count == suppressed_before ? 1 : 0;
+    if (owns_symtab) {
+        symtab_free(g_symtab);
+        g_symtab = prior_symtab;
+    }
+    return result;
+}
+
+int rcc_sema_cxx_assignable(Type* target, Type* source) {
+    return sema_cxx_type_trait_assignable_impl(target, source, 0u);
+}
+
 /* A class-target static_cast may use a conversion function only when direct
  * initialization has no viable constructor.  This signature-only probe also
  * counts inaccessible, deleted, or not-yet-lowerable candidates so the
@@ -16990,6 +17520,21 @@ static Type* sema_expr(Expr* expr) {
     }
 
     switch (expr->kind) {
+        case EXPR_CXX_TYPE_TRAIT:
+            if (expr->cxx_type_trait_kind == CXX_TYPE_TRAIT_ASSIGNABLE &&
+                expr->cxx_type_trait_type &&
+                expr->cxx_type_trait_other_type) {
+                int assignable = rcc_sema_cxx_assignable(
+                    expr->cxx_type_trait_type,
+                    expr->cxx_type_trait_other_type);
+                if (assignable >= 0) {
+                    expr->kind = EXPR_INT_LIT;
+                    expr->int_val = assignable != 0;
+                    expr->type = type_bool;
+                }
+            }
+            break;
+
         case EXPR_INT_LIT:
             (void)sema_cxx_resolve_deferred_member_pointer_form(expr);
             if (!expr->type) expr->type = type_int;
@@ -19194,6 +19739,13 @@ static Type* sema_expr(Expr* expr) {
                             method->cxx_access)) {
                         rcc_error(expr->loc, "method '%s' is not accessible",
                                   member->member_name);
+                    }
+                    if (method->is_deleted) {
+                        rcc_error(expr->loc,
+                                  "use of deleted member function '%s'",
+                                  member->member_name);
+                        expr->type = type_int;
+                        break;
                     }
                     function_expression = expr_ident(
                         method->function_decl->name, expr->loc);

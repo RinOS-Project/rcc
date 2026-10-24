@@ -9318,5 +9318,28 @@ remains a separate open item.
       match blocks a weaker public overload; do not treat base copy/move
       constructors as inherited. Both target-width fixtures match GCC C++20.
 - [ ] Inherited constructor templates, remaining implicit copy/move deletion
-      and access rules, `is_assignable`, `is_nothrow_constructible`, and
-      broader trait conformance remain open.
+      and access rules, `is_nothrow_constructible`, and broader trait
+      conformance remain open.
+
+## RCC continuation (2026-10-24, assignability intrinsic)
+
+- [x] Implement `__is_assignable(T, U)` by forming and semantically checking
+      the corresponding assignment expression. Cover scalar conversions and
+      cv/ref categories, ordinary and templated assignment operators,
+      inaccessible/deleted best matches, implicit and explicitly defaulted
+      copy/move assignment, subobject/array propagation, and union deletion
+      rules. The focused builtin and direct libcxx `std::is_assignable`
+      fixtures include dependent instantiation and match GCC C++20 on i686
+      and AMD64.
+- [x] Advertise `__is_assignable` through `__has_builtin`; the C/C++ feature
+      query fixture passes on both target widths. The complete `make test-cxx`
+      aggregate passes under WSL after the parser correction below.
+- [x] Recognize in-class function-template declarations whose overloaded
+      operator spelling contains `=`, so templated `operator=` reaches normal
+      candidate materialization and overload resolution. The direct builtin
+      and libcxx assignment-template cases pass on both target widths and
+      GCC C++20.
+- [ ] Constrained assignment-template edge cases, unusual cv/ref and union
+      special-member rules, complete implicit copy/move access/deletion
+      conformance, `is_nothrow_constructible`, and broader type-trait coverage
+      remain open.

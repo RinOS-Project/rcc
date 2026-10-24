@@ -560,6 +560,7 @@ typedef enum {
     CXX_TYPE_TRAIT_EMPTY,
     CXX_TYPE_TRAIT_FUNCTION,
     CXX_TYPE_TRAIT_CONSTRUCTIBLE,
+    CXX_TYPE_TRAIT_ASSIGNABLE,
 } CxxTypeTraitKind;
 
 typedef enum {

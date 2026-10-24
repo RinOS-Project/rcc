@@ -1739,7 +1739,8 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
         type = parse_type_spec();
         type = parse_declarator(type, NULL, NULL);
     }
-    if (strcmp(name, "__is_base_of") == 0) {
+    if (strcmp(name, "__is_base_of") == 0 ||
+        strcmp(name, "__is_assignable") == 0) {
         expect(TOK_COMMA, ",");
         if (!is_type_start()) {
             rcc_error(peek()->loc, "%s requires two type names", name);
@@ -1800,8 +1801,17 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
         }
     }
 
-    (void)parser_cxx_type_trait_value(kind, type, other_type, arguments,
-                                      &value);
+    if (!parser_cxx_type_trait_value(kind, type, other_type, arguments,
+                                     &value) &&
+        kind == CXX_TYPE_TRAIT_ASSIGNABLE) {
+        Expr* result = expr_int(0, loc);
+        result->kind = EXPR_CXX_TYPE_TRAIT;
+        result->cxx_type_trait_kind = kind;
+        result->cxx_type_trait_type = type;
+        result->cxx_type_trait_other_type = other_type;
+        result->type = type_bool;
+        return result;
+    }
     Expr* result = expr_int(value ? 1 : 0, loc);
     result->type = type_bool;
     return result;
@@ -1828,6 +1838,8 @@ static bool parser_cxx_type_trait_kind(const char* name,
         *kind = CXX_TYPE_TRAIT_TRIVIALLY_CONSTRUCTIBLE;
     } else if (strcmp(name, "__is_constructible") == 0) {
         *kind = CXX_TYPE_TRAIT_CONSTRUCTIBLE;
+    } else if (strcmp(name, "__is_assignable") == 0) {
+        *kind = CXX_TYPE_TRAIT_ASSIGNABLE;
     } else if (strcmp(name, "__has_virtual_destructor") == 0) {
         *kind = CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR;
     } else if (strcmp(name, "__is_aggregate") == 0) {
@@ -1986,6 +1998,14 @@ static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
             break;
         case CXX_TYPE_TRAIT_CONSTRUCTIBLE:
             *value = rcc_sema_cxx_constructible(type, arguments);
+            break;
+        case CXX_TYPE_TRAIT_ASSIGNABLE:
+            if (!other_type) return false;
+            {
+                int assignable = rcc_sema_cxx_assignable(type, other_type);
+                if (assignable < 0) return false;
+                *value = assignable != 0;
+            }
             break;
         case CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR:
             *value = cxx_class_has_virtual_destructor(type->cxx_class);
@@ -2374,6 +2394,7 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__has_trivial_constructor") ||
          parser_builtin_name("__is_trivially_constructible") ||
          parser_builtin_name("__is_constructible") ||
+         parser_builtin_name("__is_assignable") ||
          parser_builtin_name("__has_virtual_destructor") ||
          parser_builtin_name("__is_aggregate") ||
          parser_builtin_name("__is_base_of") ||

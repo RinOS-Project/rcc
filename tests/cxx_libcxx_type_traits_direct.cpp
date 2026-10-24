@@ -74,6 +74,88 @@ struct InheritedBaseCopyValue : InheritedBaseCopyBase {
     using InheritedBaseCopyBase::InheritedBaseCopyBase;
 };
 
+struct AssignableFromInt {
+    AssignableFromInt& operator=(int value) { (void)value; return *this; }
+};
+
+struct DeletedCopyAssignment {
+    DeletedCopyAssignment& operator=(const DeletedCopyAssignment&) = delete;
+};
+
+struct PrivateIntAssignment {
+private:
+    PrivateIntAssignment& operator=(int value) { (void)value; return *this; }
+};
+
+struct ImplicitlyAssignable {
+    int value;
+};
+
+struct ConstMemberNotAssignable {
+    const int value;
+};
+
+struct ReferenceMemberNotAssignable {
+    int& value;
+};
+
+struct LvalueOnlyCopyAssignment {
+    LvalueOnlyCopyAssignment& operator=(LvalueOnlyCopyAssignment&);
+};
+
+struct LvalueOnlyCopySubobject {
+    LvalueOnlyCopyAssignment value;
+};
+
+struct DefaultedConstCopyAssignment {
+    const int value;
+    DefaultedConstCopyAssignment& operator=(
+        const DefaultedConstCopyAssignment&) = default;
+};
+
+struct ImplicitMoveAssignment {
+    int value;
+};
+
+struct RvalueQualifiedAssignment {
+    RvalueQualifiedAssignment& operator=(
+        const RvalueQualifiedAssignment&) &&;
+};
+
+struct AssignmentBase {};
+
+struct DeletedBestAssignment : AssignmentBase {
+    DeletedBestAssignment& operator=(
+        const DeletedBestAssignment&) = delete;
+    DeletedBestAssignment& operator=(const AssignmentBase&);
+};
+
+struct NontrivialUnionMemberAssignment {
+    NontrivialUnionMemberAssignment& operator=(
+        const NontrivialUnionMemberAssignment&);
+};
+
+struct TemplateAssignment {
+    template <typename T>
+    TemplateAssignment& operator=(T&&);
+};
+
+using IntArray = int[2];
+using FunctionType = int();
+
+template <typename Target, typename Source>
+struct StandardAssignmentProbe : std::is_assignable<Target, Source> {};
+
+union ScalarAssignmentUnion {
+    int value;
+    double other;
+};
+
+union NontrivialAssignmentUnion {
+    NontrivialUnionMemberAssignment value;
+    int other;
+};
+
 struct DeletedTemplateCopyMember {
     DeletedTemplateCopyMember(const DeletedTemplateCopyMember&) = delete;
 };
@@ -286,6 +368,82 @@ static_assert(std::is_constructible<InheritedDeletedBest, int>::value,
 static_assert(!std::is_constructible<InheritedBaseCopyValue,
                                      const InheritedBaseCopyBase&>::value,
               "base copy constructors are not inherited");
+static_assert(std::is_assignable<int&, int>::value,
+              "scalar lvalue assignment");
+static_assert(!std::is_assignable<int, int>::value,
+              "a scalar prvalue is not assignable");
+static_assert(!std::is_assignable<const int&, int>::value,
+              "a const scalar lvalue is not assignable");
+static_assert(std::is_assignable<int&, short>::value,
+              "scalar assignment conversion");
+static_assert(std::is_assignable<AssignableFromInt&, int>::value,
+              "user-defined assignment overload");
+static_assert(!std::is_assignable<DeletedCopyAssignment&,
+                                  const DeletedCopyAssignment&>::value,
+              "deleted assignment overload");
+static_assert(!std::is_assignable<PrivateIntAssignment&, int>::value,
+              "inaccessible assignment overload");
+static_assert(std::is_assignable<ImplicitlyAssignable&,
+                                 const ImplicitlyAssignable&>::value,
+              "implicit copy assignment");
+static_assert(!std::is_assignable<ConstMemberNotAssignable&,
+                                  const ConstMemberNotAssignable&>::value,
+              "const subobjects delete implicit copy assignment");
+static_assert(!std::is_assignable<ReferenceMemberNotAssignable&,
+                                  const ReferenceMemberNotAssignable&>::value,
+              "reference subobjects delete implicit copy assignment");
+static_assert(std::is_assignable<LvalueOnlyCopyAssignment&,
+                                 LvalueOnlyCopyAssignment&>::value,
+              "non-const copy assignment remains viable for mutable sources");
+static_assert(!std::is_assignable<LvalueOnlyCopyAssignment&,
+                                  const LvalueOnlyCopyAssignment&>::value,
+              "non-const copy assignment rejects const sources");
+static_assert(std::is_assignable<LvalueOnlyCopySubobject&,
+                                 LvalueOnlyCopySubobject&>::value,
+              "implicit copy assignment propagates a non-const source");
+static_assert(!std::is_assignable<LvalueOnlyCopySubobject&,
+                                  const LvalueOnlyCopySubobject&>::value,
+              "implicit copy signature follows non-const subobject copies");
+static_assert(!std::is_assignable<DefaultedConstCopyAssignment&,
+                                  const DefaultedConstCopyAssignment&>::value,
+              "defaulted copy assignment is deleted by a const subobject");
+static_assert(std::is_assignable<ImplicitMoveAssignment&,
+                                 ImplicitMoveAssignment>::value,
+              "implicit move assignment accepts a class prvalue");
+static_assert(std::is_assignable<ImplicitMoveAssignment,
+                                 const ImplicitMoveAssignment&>::value,
+              "class xvalues can be assignment targets");
+static_assert(!std::is_assignable<RvalueQualifiedAssignment&,
+                                  const RvalueQualifiedAssignment&>::value,
+              "rvalue-qualified assignment rejects lvalue targets");
+static_assert(std::is_assignable<RvalueQualifiedAssignment,
+                                 const RvalueQualifiedAssignment&>::value,
+              "rvalue-qualified assignment accepts xvalue targets");
+static_assert(!std::is_assignable<DeletedBestAssignment&,
+                                  const DeletedBestAssignment&>::value,
+              "a deleted best assignment blocks a weaker base overload");
+static_assert(std::is_assignable<ScalarAssignmentUnion&,
+                                 const ScalarAssignmentUnion&>::value,
+              "trivial scalar union assignment is available");
+static_assert(!std::is_assignable<NontrivialAssignmentUnion&,
+                                  const NontrivialAssignmentUnion&>::value,
+              "a non-trivial union member deletes union assignment");
+static_assert(std::is_assignable<TemplateAssignment&, int>::value,
+              "a member assignment template participates in overload resolution");
+static_assert(std::is_assignable<volatile int&, int>::value,
+              "a volatile scalar lvalue can be assigned");
+static_assert(std::is_assignable<int&, volatile int&>::value,
+              "a volatile scalar source can be converted for assignment");
+static_assert(!std::is_assignable<IntArray&, IntArray&>::value,
+              "built-in arrays are not assignable");
+static_assert(!std::is_assignable<FunctionType, FunctionType>::value,
+              "function types are not assignable");
+static_assert(!std::is_assignable<void, int>::value,
+              "void is not an assignment target");
+static_assert(StandardAssignmentProbe<int&, int>::value,
+              "dependent std::is_assignable is evaluated after substitution");
+static_assert(!StandardAssignmentProbe<const int&, int>::value,
+              "dependent non-assignability survives trait substitution");
 static_assert(std::is_constructible<TemplateConstructorValue,
                                     const TemplateConstructorValue&>::value,
               "the implicit copy constructor remains available beside a template");

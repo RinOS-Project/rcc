@@ -11151,6 +11151,7 @@ static bool cxx_class_class_template_starts(void) {
 /* Keep nested class, alias, and variable templates on their existing parser
  * paths while recognizing ordinary in-class member function templates. */
 static bool cxx_member_function_declaration_starts(Token* token) {
+    bool saw_operator = false;
     token = cxx_conversion_member_skip_specifiers(token);
     if (!token || token->type == TOK_REQUIRES ||
         token->type == TOK_CLASS || token->type == TOK_STRUCT ||
@@ -11158,9 +11159,10 @@ static bool cxx_member_function_declaration_starts(Token* token) {
         return false;
     }
     for (; token; token = token->next) {
+        if (token->type == TOK_OPERATOR) saw_operator = true;
         if (token->type == TOK_LPAREN) return true;
         if (token->type == TOK_SEMICOLON || token->type == TOK_LBRACE ||
-            token->type == TOK_ASSIGN) {
+            (token->type == TOK_ASSIGN && !saw_operator)) {
             return false;
         }
     }
