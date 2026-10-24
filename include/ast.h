@@ -26,6 +26,7 @@ typedef struct CxxDependentFunctionTemplateCall
 struct ExprList;
 struct Token;
 struct CxxClass;
+struct CxxConstructorInfo;
 struct CxxNamespace;
 struct CxxTemplate;
 
@@ -162,6 +163,8 @@ struct TypeMethod {
      * inherited method; NULL keeps the source declaration's owner. */
     struct CxxClass* cxx_access_owner;
     bool is_explicit;
+    struct CxxTemplate* cxx_member_template;
+    struct CxxConstructorInfo* cxx_constructor_info;
     /* Preserve declaration status on a materialized member-function-template
      * candidate so semantic probes can apply deleted/defaulted rules without
      * re-reading the dependent source declaration. */
@@ -384,8 +387,11 @@ int rcc_parser_cxx_materialize_member_function_templates(
     int candidate_capacity,
     bool* constraint_unsupported);
 int rcc_parser_cxx_materialize_constructor_templates(
-    Type* aggregate, struct ExprList* arguments, TypeMethod** candidates,
+    Type* aggregate, struct ExprList* arguments, bool defer_body,
+    TypeMethod** candidates,
     int candidate_capacity, bool* constraint_unsupported);
+bool rcc_parser_cxx_normalize_constructor_body(
+    struct CxxClass* cls, struct CxxConstructorInfo* constructor);
 Expr* rcc_parse_cxx_concept_expression(void);
 Expr* rcc_parse_cxx_dependent_member(void);
 Expr* rcc_parse_cxx_qualified_template_member(void);

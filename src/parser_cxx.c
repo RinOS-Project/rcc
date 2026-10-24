@@ -6838,6 +6838,11 @@ static bool lowerable_constructor_body(CxxClass* cls,
     return true;
 }
 
+bool rcc_parser_cxx_normalize_constructor_body(
+    CxxClass* cls, CxxConstructorInfo* constructor) {
+    return lowerable_constructor_body(cls, constructor);
+}
+
 static TypeParam* cxx_constructor_field_parameter(CxxClass* cls,
                                                   const char* name) {
     for (TypeParam* field = cls ? cls->fields : NULL; field;
@@ -10804,6 +10809,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             CxxConstructorInfo* info = ast_arena_alloc(sizeof(*info));
             CxxConstructorInfo** tail = &cls->constructors;
             info->method = method;
+            method->constructor_info = info;
             info->parameter_count = param_idx;
             info->parameters = method->decl->type->params;
             info->initializers = constructor_initializer.items;
@@ -34784,8 +34790,7 @@ static TypeMethod* cxx_materialize_member_function_template(
         owner_type->cxx_scope_identity != NULL;
     instance->func_is_cxx_constructor = method->is_constructor;
     instance->func_is_cxx_destructor = method->is_destructor;
-    if (!method->is_static && !method->is_constructor &&
-        !instance->func_this_param) {
+    if (!method->is_static && !instance->func_this_param) {
         Type* qualified_owner = owner_type;
         Type* object_type;
         TypeParam* this_type_parameter;
@@ -34816,7 +34821,7 @@ static TypeMethod* cxx_materialize_member_function_template(
             method_type->params = this_type_parameter;
             instance->type = method_type;
         }
-    } else if (method->is_static || method->is_constructor) {
+    } else if (method->is_static) {
         instance->func_this_param = NULL;
     }
     if (instance->link_name) instance->name = instance->link_name;
@@ -34825,6 +34830,8 @@ static TypeMethod* cxx_materialize_member_function_template(
     lowered->return_type = instance->type->ret_type;
     lowered->function_decl = instance;
     lowered->kind = TYPE_METHOD_FUNCTION;
+    lowered->cxx_member_template = method->member_template;
+    lowered->cxx_constructor_info = method->constructor_info;
     lowered->cxx_access = (unsigned char)method->access;
     lowered->is_explicit = method->is_explicit;
     lowered->is_deleted = method->is_deleted;
@@ -35167,11 +35174,12 @@ int rcc_parser_cxx_materialize_member_function_templates(
 }
 
 int rcc_parser_cxx_materialize_constructor_templates(
-    Type* aggregate, ExprList* arguments, TypeMethod** candidates,
+    Type* aggregate, ExprList* arguments, bool defer_body,
+    TypeMethod** candidates,
     int candidate_capacity, bool* constraint_unsupported) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
     return cxx_materialize_member_function_templates_internal(
-        aggregate, cls ? cls->name : NULL, arguments, true, true, true,
+        aggregate, cls ? cls->name : NULL, arguments, true, true, defer_body,
         NULL, 0, false, candidates, candidate_capacity,
         constraint_unsupported);
 }

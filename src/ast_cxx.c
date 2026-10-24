@@ -14715,6 +14715,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
     method->is_constructor = false;
     method->is_destructor = false;
     method->member_template = NULL;
+    method->constructor_info = NULL;
     method->vtable_index = -1;
 
     return method;

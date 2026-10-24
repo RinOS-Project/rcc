@@ -469,6 +469,7 @@ struct CxxMethod {
     bool is_constructor;
     bool is_destructor;
     CxxTemplate* member_template;
+    CxxConstructorInfo* constructor_info;
     int vtable_index;        /* -1 if not virtual */
 };
 
