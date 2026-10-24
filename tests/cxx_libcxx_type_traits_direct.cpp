@@ -239,6 +239,27 @@ struct ThrowingValue {
     ThrowingValue(int) {}
 };
 
+struct NothrowDefaultValue {
+    NothrowDefaultValue() noexcept {}
+};
+
+struct ThrowingDefaultValue {
+    ThrowingDefaultValue() {}
+};
+
+struct DefaultedNothrowMember {
+    NothrowDefaultValue value;
+};
+
+struct DefaultedThrowingMember {
+    ThrowingDefaultValue value;
+};
+
+struct ThrowingDestructorValue {
+    ThrowingDestructorValue() noexcept {}
+    ~ThrowingDestructorValue() noexcept(false) {}
+};
+
 struct DeletedValue {
     DeletedValue(int) = delete;
 };
@@ -360,6 +381,16 @@ static_assert(std::is_nothrow_convertible<int, NothrowValue>::value,
               "nothrow constructor conversion must be detected");
 static_assert(!std::is_nothrow_convertible<int, ThrowingValue>::value,
               "throwing constructor conversion must not be nothrow");
+static_assert(std::is_nothrow_constructible<NothrowValue, int>::value,
+              "direct construction must honor a noexcept constructor");
+static_assert(!std::is_nothrow_constructible<ThrowingValue, int>::value,
+              "direct construction must honor a throwing constructor");
+static_assert(std::is_nothrow_constructible<DefaultedNothrowMember>::value,
+              "implicit aggregate construction propagates member noexcept");
+static_assert(!std::is_nothrow_constructible<DefaultedThrowingMember>::value,
+              "implicit aggregate construction propagates member throws");
+static_assert(!std::is_nothrow_constructible<ThrowingDestructorValue>::value,
+              "temporary destruction participates in nothrow construction");
 static_assert(std::is_convertible<void, void>::value,
               "void specialisation must remain available");
 static_assert(std::is_constructible<int>::value,

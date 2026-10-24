@@ -34,6 +34,10 @@
 #error RCC must report the implemented constructible builtin
 #endif
 
+#if !__has_builtin(__is_nothrow_constructible)
+#error RCC must report the implemented nothrow-constructible builtin
+#endif
+
 #if !__has_builtin(__is_assignable)
 #error RCC must report the implemented assignable builtin
 #endif

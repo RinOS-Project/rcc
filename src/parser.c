@@ -1750,7 +1750,8 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
             other_type = parse_declarator(other_type, NULL, NULL);
         }
     } else if (strcmp(name, "__is_trivially_constructible") == 0 ||
-               strcmp(name, "__is_constructible") == 0) {
+               strcmp(name, "__is_constructible") == 0 ||
+               strcmp(name, "__is_nothrow_constructible") == 0) {
         while (match(TOK_COMMA)) {
             CxxTypeTraitArgument* argument = ast_arena_alloc(
                 sizeof(*argument));
@@ -1804,7 +1805,8 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
 
     if (!parser_cxx_type_trait_value(kind, type, other_type, arguments,
                                      &value) &&
-        kind == CXX_TYPE_TRAIT_ASSIGNABLE) {
+        (kind == CXX_TYPE_TRAIT_ASSIGNABLE ||
+         kind == CXX_TYPE_TRAIT_NOTHROW_CONSTRUCTIBLE)) {
         Expr* result = expr_int(0, loc);
         result->kind = EXPR_CXX_TYPE_TRAIT;
         result->cxx_type_trait_kind = kind;
@@ -1839,6 +1841,8 @@ static bool parser_cxx_type_trait_kind(const char* name,
         *kind = CXX_TYPE_TRAIT_TRIVIALLY_CONSTRUCTIBLE;
     } else if (strcmp(name, "__is_constructible") == 0) {
         *kind = CXX_TYPE_TRAIT_CONSTRUCTIBLE;
+    } else if (strcmp(name, "__is_nothrow_constructible") == 0) {
+        *kind = CXX_TYPE_TRAIT_NOTHROW_CONSTRUCTIBLE;
     } else if (strcmp(name, "__is_assignable") == 0) {
         *kind = CXX_TYPE_TRAIT_ASSIGNABLE;
     } else if (strcmp(name, "__has_virtual_destructor") == 0) {
@@ -2000,6 +2004,9 @@ static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
         case CXX_TYPE_TRAIT_CONSTRUCTIBLE:
             *value = rcc_sema_cxx_constructible(type, arguments);
             break;
+        case CXX_TYPE_TRAIT_NOTHROW_CONSTRUCTIBLE:
+            return rcc_sema_cxx_nothrow_constructible(
+                type, arguments, value);
         case CXX_TYPE_TRAIT_ASSIGNABLE:
             if (!other_type) return false;
             {
@@ -2395,6 +2402,7 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__has_trivial_constructor") ||
          parser_builtin_name("__is_trivially_constructible") ||
          parser_builtin_name("__is_constructible") ||
+         parser_builtin_name("__is_nothrow_constructible") ||
          parser_builtin_name("__is_assignable") ||
          parser_builtin_name("__has_virtual_destructor") ||
          parser_builtin_name("__is_aggregate") ||

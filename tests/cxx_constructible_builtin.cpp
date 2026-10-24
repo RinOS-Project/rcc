@@ -2,6 +2,89 @@ struct ExplicitValue {
     explicit ExplicitValue(int) {}
 };
 
+struct NothrowConstructorValue {
+    explicit NothrowConstructorValue(int) noexcept {}
+};
+
+struct ThrowingConstructorValue {
+    explicit ThrowingConstructorValue(int) {}
+};
+
+struct NothrowDefaultValue {
+    NothrowDefaultValue() noexcept {}
+};
+
+struct ThrowingDefaultValue {
+    ThrowingDefaultValue() {}
+};
+
+struct DefaultedNothrowMember {
+    NothrowDefaultValue value;
+};
+
+struct DefaultedThrowingMember {
+    ThrowingDefaultValue value;
+};
+
+struct NothrowIntConversion {
+    operator int() noexcept { return 0; }
+};
+
+struct ThrowingIntConversion {
+    operator int() { return 0; }
+};
+
+struct ThrowingDestructorValue {
+    ThrowingDestructorValue() noexcept {}
+    ~ThrowingDestructorValue() noexcept(false) {}
+};
+
+struct ConditionalNothrowConstructorValue {
+    ConditionalNothrowConstructorValue(int) noexcept(sizeof(int) == 4) {}
+};
+
+int potentially_throwing_integer();
+int nonthrowing_integer() noexcept;
+
+struct ThrowingDefaultArgumentValue {
+    ThrowingDefaultArgumentValue(
+        int value = potentially_throwing_integer()) noexcept {
+        (void)value;
+    }
+};
+
+struct NothrowDefaultArgumentValue {
+    NothrowDefaultArgumentValue(
+        int value = nonthrowing_integer()) noexcept {
+        (void)value;
+    }
+};
+
+struct NothrowDefaultMemberInitializer {
+    int value = nonthrowing_integer();
+};
+
+struct ThrowingDefaultMemberInitializer {
+    int value = potentially_throwing_integer();
+};
+
+struct NothrowCopyValue {
+    NothrowCopyValue(const NothrowCopyValue&) noexcept {}
+};
+
+struct ThrowingCopyValue {
+    ThrowingCopyValue(const ThrowingCopyValue&) {}
+};
+
+struct ImplicitNothrowCopyMember {
+    NothrowCopyValue value;
+};
+
+struct DefaultedThrowingCopyMember {
+    ThrowingCopyValue value;
+    DefaultedThrowingCopyMember(const DefaultedThrowingCopyMember&) = default;
+};
+
 struct TemplateConstructorValue {
     template <typename T>
     TemplateConstructorValue(T&&) {}
@@ -36,6 +119,26 @@ struct InheritedConstructorBase {
 
 struct InheritedConstructorValue : InheritedConstructorBase {
     using InheritedConstructorBase::InheritedConstructorBase;
+};
+
+struct InheritedNothrowConstructorBase {
+    explicit InheritedNothrowConstructorBase(int value) noexcept {
+        (void)value;
+    }
+    explicit InheritedNothrowConstructorBase(long value) {
+        (void)value;
+    }
+};
+
+struct InheritedNothrowConstructorValue
+    : InheritedNothrowConstructorBase {
+    using InheritedNothrowConstructorBase::InheritedNothrowConstructorBase;
+};
+
+struct ConditionalTemplateNothrowConstructorValue {
+    template <typename T>
+    ConditionalTemplateNothrowConstructorValue(T&&)
+        noexcept(sizeof(T) == sizeof(int)) {}
 };
 
 struct InheritedConstructorTemplateBase {
@@ -338,8 +441,69 @@ struct ConstructiblePackProbe {
     static constexpr bool value = __is_constructible(T, Args...);
 };
 
+template <typename T>
+struct NothrowConstructibleProbe {
+    static constexpr bool value = __is_nothrow_constructible(T);
+};
+
+template <typename T, typename... Args>
+struct NothrowConstructiblePackProbe {
+    static constexpr bool value = __is_nothrow_constructible(T, Args...);
+};
+
 static_assert(__is_constructible(int), "scalar value initialization");
 static_assert(__is_constructible(int, double), "scalar conversion");
+static_assert(__is_nothrow_constructible(int),
+              "scalar value initialization is non-throwing");
+static_assert(__is_nothrow_constructible(int, double),
+              "standard arithmetic conversion is non-throwing");
+static_assert(__is_nothrow_constructible(NothrowConstructorValue, int),
+              "a selected noexcept constructor is non-throwing");
+static_assert(!__is_nothrow_constructible(ThrowingConstructorValue, int),
+              "a potentially-throwing selected constructor is not nothrow");
+static_assert(__is_nothrow_constructible(DefaultedNothrowMember),
+              "an implicit aggregate constructor inherits non-throwing members");
+static_assert(!__is_nothrow_constructible(DefaultedThrowingMember),
+              "a potentially-throwing member constructor propagates");
+static_assert(__is_nothrow_constructible(NothrowConstructorValue,
+                                         NothrowIntConversion),
+              "a noexcept argument conversion is included");
+static_assert(!__is_nothrow_constructible(ThrowingConstructorValue,
+                                          ThrowingIntConversion),
+              "a throwing argument conversion is included");
+static_assert(!__is_nothrow_constructible(ThrowingDestructorValue),
+              "temporary destruction is part of the trait expression");
+static_assert(__is_nothrow_constructible(
+                  ConditionalNothrowConstructorValue, int),
+              "a constant noexcept expression is evaluated");
+static_assert(!__is_nothrow_constructible(ThrowingDefaultArgumentValue),
+              "default argument evaluation is included");
+static_assert(__is_nothrow_constructible(NothrowDefaultArgumentValue),
+              "a noexcept call in a default argument remains non-throwing");
+static_assert(__is_nothrow_constructible(NothrowDefaultMemberInitializer),
+              "a non-throwing default member initializer is included");
+static_assert(!__is_nothrow_constructible(ThrowingDefaultMemberInitializer),
+              "a throwing default member initializer is included");
+static_assert(__is_nothrow_constructible(
+                  InheritedNothrowConstructorValue, int),
+              "an inherited noexcept constructor remains non-throwing");
+static_assert(!__is_nothrow_constructible(
+                  InheritedNothrowConstructorValue, long),
+              "an inherited potentially-throwing constructor remains throwing");
+static_assert(__is_nothrow_constructible(
+                  ConditionalTemplateNothrowConstructorValue, int),
+              "constructor-template noexcept expressions are substituted");
+static_assert(!__is_nothrow_constructible(
+                  ConditionalTemplateNothrowConstructorValue, long long),
+              "constructor-template noexcept depends on the deduced type");
+static_assert(__is_nothrow_constructible(
+                  ImplicitNothrowCopyMember,
+                  const ImplicitNothrowCopyMember&),
+              "implicit copy exception specifications propagate from members");
+static_assert(!__is_nothrow_constructible(
+                  DefaultedThrowingCopyMember,
+                  const DefaultedThrowingCopyMember&),
+              "defaulted copy exception specifications propagate from members");
 static_assert(__is_constructible(ExplicitValue, int),
               "direct initialization may select an explicit constructor");
 static_assert(__is_constructible(TemplateConstructorValue, int),
@@ -551,6 +715,16 @@ static_assert(!ConstructiblePackProbe<DeletedPreferredValue, int>::value,
               "dependent overload resolution retains deleted best matches");
 static_assert(!ConstructiblePackProbe<PrivatePreferredValue, int>::value,
               "dependent overload resolution retains inaccessible best matches");
+static_assert(NothrowConstructibleProbe<NothrowDefaultValue>::value,
+              "dependent no-argument nothrow traits are instantiated");
+static_assert(!NothrowConstructibleProbe<ThrowingDefaultValue>::value,
+              "dependent potentially-throwing default construction is retained");
+static_assert(NothrowConstructiblePackProbe<NothrowConstructorValue,
+                                             int>::value,
+              "dependent nothrow traits substitute argument packs");
+static_assert(!NothrowConstructiblePackProbe<ThrowingConstructorValue,
+                                              int>::value,
+              "dependent nothrow packs preserve throwing constructors");
 
 int cxx_constructible_builtin_probe() {
     return ConstructiblePackProbe<ExplicitValue, int>::value &&

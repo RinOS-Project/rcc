@@ -9381,3 +9381,20 @@ remains a separate open item.
       inherited constructor templates, remaining implicit copy/move
       deletion/access rules, `is_nothrow_constructible`, and broader type-trait
       conformance remain open.
+
+## RCC continuation (2026-10-24, no-throw constructibility)
+
+- [x] Implement `__is_nothrow_constructible` using selected-constructor
+      exception specifications, argument/default-argument conversions,
+      aggregate/base/member initialization, defaulted copy construction, and
+      temporary destruction. Direct builtin and libcxx
+      `std::is_nothrow_constructible` cases match GCC C++20 on i686 and AMD64.
+- [x] Advertise `__is_nothrow_constructible` through `__has_builtin`; C and
+      C++ feature-query tests pass on both target widths.
+- [ ] Resolve dependent `std::is_nothrow_constructible<T, Args...>` values
+      through nested libcxx `integral_constant` bases and static-member access.
+      Call-dependent default arguments/member initializers also need to be
+      folded when the trait is used as a base non-type argument. Direct builtin
+      checks cover those expressions; full dependent standard-trait
+      instantiation, broader implicit copy/move, and type-trait conformance
+      remain open.
