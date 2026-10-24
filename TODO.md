@@ -9027,13 +9027,15 @@ remains a separate open item.
       malformed arguments, and preprocessing the libcxx type-traits header;
       the existing `__has_include`, `__has_cpp_attribute`, and C++ feature-gate
       tests also pass.
-- [ ] Full direct compilation of the libcxx `type_traits.h` remains open. RCC
-      now parses through its ABI headers, `[[noreturn]]` linkage declarations,
-      global allocation-operator declarations, and function-type `decay`
-      patterns. The `is_convertible`/`is_nothrow_convertible` converting-
-      constructor probe is covered by a direct x86/i686 plus GCC fixture;
-      continue with the first diagnostic from any broader actual direct
-      compile, not preprocessing alone.
+- [x] Directly compile the complete libcxx `type_traits.h` include through
+      `test-cxx-libcxx-type-traits-direct`: RCC generates both i686 and AMD64
+      objects, and GCC C++20 accepts the same fixture. This verifies the full
+      header's direct parse/semantic-compile path; it does not claim complete
+      instantiation or conformance of every trait.
+- [ ] Broader C++ type-trait intrinsic coverage and target-specific
+      builtin-query cases remain open. Continue by instantiating traits and
+      comparing behavior with GCC, rather than treating a successful header
+      include as complete trait support.
 - [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
       fixed-width, fast-width, and character type macros. C and C++ regressions
       verify their widths against `sizeof(void*)`, the fixed-width integer ABI,
