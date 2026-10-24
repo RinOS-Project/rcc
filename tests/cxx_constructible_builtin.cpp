@@ -26,6 +26,18 @@ struct PartialOrderTemplateConstructorValue {
     PartialOrderTemplateConstructorValue(T) {}
 };
 
+struct InheritedConstructorBase {
+    explicit InheritedConstructorBase(int value) { (void)value; }
+    InheritedConstructorBase(int left, int right) {
+        (void)left;
+        (void)right;
+    }
+};
+
+struct InheritedConstructorValue : InheritedConstructorBase {
+    using InheritedConstructorBase::InheritedConstructorBase;
+};
+
 struct DeletedTemplateCopyMember {
     DeletedTemplateCopyMember(const DeletedTemplateCopyMember&) = delete;
 };
@@ -196,6 +208,12 @@ static_assert(__is_constructible(DefaultedTemplateConstructorValue, int),
 static_assert(!__is_constructible(PartialOrderTemplateConstructorValue,
                                  int*),
               "constructor-template partial ordering selects the pointer pattern");
+static_assert(__is_constructible(InheritedConstructorValue, int),
+              "inherited constructors participate in constructibility");
+static_assert(__is_constructible(InheritedConstructorValue, int, int),
+              "inherited constructor overloads retain their arity");
+static_assert(!__is_constructible(InheritedConstructorValue, int, int, int),
+              "inherited constructors reject excess arguments");
 static_assert(__is_constructible(TemplateConstructorValue,
                                 const TemplateConstructorValue&),
               "the implicit copy constructor remains available beside a template");

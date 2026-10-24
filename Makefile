@@ -13811,7 +13811,7 @@ test-cxx-converting-constructor-posix: $(RCXX_TARGET) \
 		$(TEST_OUT)/cxx-converting-constructor/invalid-x64.log
 	@echo "C++ converting constructor tests completed"
 
-test-cxx-inherited-constructor-posix: $(RCXX_TARGET)
+test-cxx-inherited-constructor-posix: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-inherited-constructor/x86.s \
@@ -13842,7 +13842,18 @@ test-cxx-inherited-constructor-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-nested-array)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-inherited-constructor-nested-array,cxx_inherited_constructor_nested_array.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-array-cleanup)
-	$(call CXX_POSIX_ENTRY_TEST,cxx-inherited-constructor-array-cleanup,cxx_inherited_constructor_array_cleanup.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inherited-constructor-array-cleanup/x86.s \
+		tests/cxx_inherited_constructor_array_cleanup.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-inherited-constructor-array-cleanup/x86.o \
+		$(TEST_OUT)/cxx-inherited-constructor-array-cleanup/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inherited-constructor-array-cleanup/x64.s \
+		tests/cxx_inherited_constructor_array_cleanup.cpp
+	$(CC) -no-pie -o $(TEST_OUT)/cxx-inherited-constructor-array-cleanup/x64 \
+		$(TEST_OUT)/cxx-inherited-constructor-array-cleanup/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-inherited-constructor-array-cleanup/x64
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.ro \
 		tests/cxx_inherited_constructor_invalid_virtual.cpp \

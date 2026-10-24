@@ -9039,11 +9039,13 @@ remains a separate open item.
       advertise the builtin through `__has_builtin`. The focused fixture and
       instantiated `std::is_constructible` checks pass on i686/AMD64 and
       against GCC; the direct libcxx header gate passes.
-- [ ] Constructor-template, inherited and constrained constructor resolution,
-      implicit copy/move special-member viability, assignment traits,
-      nothrow-constructibility, and remaining target-specific builtin-query
-      cases remain open. Continue instantiating real traits and comparing with
-      GCC rather than treating header parsing as complete support.
+- [ ] Inherited constructor-template resolution and remaining constrained
+      constructor interactions remain open. Direct constructor templates and
+      ordinary inherited constructors are covered below; implicit copy/move
+      special-member viability, assignment traits, nothrow-constructibility,
+      and remaining target-specific builtin-query cases also remain open.
+      Continue instantiating real traits and comparing with GCC rather than
+      treating header parsing as complete support.
 - [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
       fixed-width, fast-width, and character type macros. C and C++ regressions
       verify their widths against `sizeof(void*)`, the fixed-width integer ABI,
@@ -9304,6 +9306,11 @@ remains a separate open item.
       private/deleted best matches, and interaction with implicit copy/move
       candidates. The focused builtin and direct libcxx fixtures pass for
       i686/AMD64 and GCC C++20 on Windows and WSL.
+- [x] Include ordinary inherited constructors synthesized by `using Base::Base`
+      in `__is_constructible` candidate selection. Verify inherited overload
+      arity and reject excess arguments in the builtin and direct libcxx
+      fixtures; the constructibility and inherited-constructor runtime suites
+      pass on Windows and WSL for the supported target architectures.
 - [ ] Inherited constructor templates, remaining implicit copy/move deletion
       and access rules, `is_assignable`, `is_nothrow_constructible`, and
       broader trait conformance remain open.

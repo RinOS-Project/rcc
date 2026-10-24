@@ -13349,7 +13349,7 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
         Type** candidate_targets;
         TypeMethod** candidate_methods;
         bool viable = true;
-        if (!candidate->method || candidate->is_inherited ||
+        if (!candidate->method ||
             (!include_inaccessible_or_deleted &&
              (candidate->access != ACCESS_PUBLIC || candidate->is_deleted)) ||
             (!allow_explicit && candidate->method->is_explicit) ||
