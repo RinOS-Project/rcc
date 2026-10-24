@@ -1,13 +1,13 @@
 static int inherited_virtual_events[16];
 static int inherited_virtual_event_count;
 
-static void record_inherited_virtual_event(int value) {
+static void record_inherited_virtual_event(int value) noexcept {
     inherited_virtual_events[inherited_virtual_event_count++] = value;
 }
 
 struct InheritedVirtualTemplateBase {
     template <typename T>
-    explicit InheritedVirtualTemplateBase(T value) : value_(value) {
+    explicit InheritedVirtualTemplateBase(T value) noexcept : value_(value) {
         record_inherited_virtual_event(1);
     }
 
@@ -32,6 +32,10 @@ static_assert(__is_constructible(InheritedVirtualLayer, int),
               "direct virtual inherited constructor template");
 static_assert(__is_constructible(InheritedVirtualLeaf, int),
               "linear inherited constructor-template chain through a virtual base");
+static_assert(__is_nothrow_constructible(InheritedVirtualLayer, int),
+              "direct virtual inherited constructor preserves noexcept");
+static_assert(__is_nothrow_constructible(InheritedVirtualLeaf, int),
+              "virtual-base inherited constructor chain preserves noexcept");
 
 int main() {
     static const int expected[] = {1, -1, 1, -1};

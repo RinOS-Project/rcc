@@ -9323,9 +9323,9 @@ remains a separate open item.
       selected inherited base when each sibling has a safely lowerable public
       zero-argument constructor; i686/AMD64 runtime probes verify declaration
       order across repeated constructions.
-- [ ] Remaining implicit copy/move deletion and access rules,
-      `is_nothrow_constructible`, virtual-base inherited constructor templates,
-      and broader trait conformance remain open.
+- [ ] Remaining implicit copy/move deletion and access rules, more complex
+      virtual-base inherited-constructor cases, and broader trait conformance
+      remain open.
 
 ## RCC continuation (2026-10-24, assignability intrinsic)
 
@@ -9359,10 +9359,14 @@ remains a separate open item.
       prefix/suffix order and initialized values on i686 and AMD64; the focused
       inherited-constructor execution gate and full `make test-cxx` aggregate
       pass under WSL, and the GCC C++20 execution oracle passes.
-- [ ] Multiple-base intermediate layers, virtual-base constructor-template
+- [x] Runtime inherited-constructor templates through a direct virtual base,
+      a linear virtual-base chain, and a shared virtual-base diamond execute
+      on i686/AMD64; virtual-base initializer/destructor events occur once.
+- [ ] Multiple-base intermediate layers, additional virtual-base constructor
       chains, broader constructor lifetime/exception cleanup, remaining
-      implicit copy/move access/deletion rules, `is_nothrow_constructible`,
-      and broader type-trait coverage remain open.
+      implicit copy/move access/deletion rules, additional
+      `is_nothrow_constructible` edge cases, and broader type-trait coverage
+      remain open.
 
 ## RCC continuation (2026-10-24, inherited constructor-template traits)
 
@@ -9376,11 +9380,13 @@ remains a separate open item.
       runtime tests, including selected-base body execution and derived member
       initialization. Runtime support is separate from the `__is_constructible`
       candidate-probe coverage above.
+- [x] Compare `__is_nothrow_constructible` through a direct virtual base, a
+      linear virtual-base chain, and a shared virtual-base diamond with GCC
+      C++20; the inherited-constructor runtime gate passes for i686/AMD64.
 - [ ] Additional direct bases before the selected inherited base, multiple
-      bases at intermediate layers of a multi-level chain, virtual-base
-      inherited constructor templates, remaining implicit copy/move
-      deletion/access rules, `is_nothrow_constructible`, and broader type-trait
-      conformance remain open.
+      bases at intermediate layers of a multi-level chain, more complex
+      virtual-base cases, remaining implicit copy/move deletion/access rules,
+      and broader type-trait conformance remain open.
 
 ## RCC continuation (2026-10-24, no-throw constructibility)
 

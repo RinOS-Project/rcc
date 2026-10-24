@@ -3,7 +3,7 @@ static int virtual_diamond_event_count;
 
 struct VirtualDiamondOrigin {
     template <typename T>
-    explicit VirtualDiamondOrigin(T value) : value_(value) {
+    explicit VirtualDiamondOrigin(T value) noexcept : value_(value) {
         virtual_diamond_events[virtual_diamond_event_count++] = 1;
     }
 
@@ -37,6 +37,8 @@ struct VirtualDiamond : VirtualDiamondLeft, VirtualDiamondRight {
 
 static_assert(__is_constructible(VirtualDiamond, int),
               "constructibility through a shared virtual-base constructor");
+static_assert(__is_nothrow_constructible(VirtualDiamond, int),
+              "nothrow constructibility follows a shared virtual-base constructor");
 
 int main() {
     virtual_diamond_event_count = 0;
