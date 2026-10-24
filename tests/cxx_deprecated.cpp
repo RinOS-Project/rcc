@@ -6,6 +6,12 @@ int modern_api(int value) {
     return value + 2;
 }
 
+template <typename T>
+[[deprecated("use modern_template_api")]]
+T legacy_template_api(T value) {
+    return value;
+}
+
 [[deprecated]] int old_value = 7;
 
 class Legacy {
@@ -37,13 +43,14 @@ int main() {
     int result = old_api(1);
     result += legacy_local_api(2);
     result += block_scope_namespace::invoke_local_api();
+    result += legacy_template_api(1);
     result += old_value;
     result += legacy.old_method();
     result += legacy.old_field;
     result += local_old_value;
     result += local_old_value2;
     result += modern_api(1);
-    return result == 27 ? 0 : 1;
+    return result == 28 ? 0 : 1;
 }
 
 int legacy_local_api(int value) {

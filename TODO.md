@@ -9180,9 +9180,11 @@ remains a separate open item.
       the six expected diagnostics on both target widths, GCC accepts the same
       C++20 source, the i686 COFF architecture check passes, and the generated
       AMD64 code executes successfully.
-- [ ] Complete attribute propagation for local function declarations,
-      class members, templates, and remaining redeclaration/attribute-ordering
-      paths; verify each against GCC before closing the broader attribute item.
+- [x] Preserve `[[deprecated]]` on local function declarations, class members,
+      and instantiated function templates; compare their diagnostics against
+      GCC C++20 in the focused fixture.
+- [ ] Class-template attribute propagation and remaining
+      redeclaration/attribute-ordering cases remain open.
 
 ## RCC continuation (2026-10-23, GNU `__has_trivial_constructor` builtin)
 
@@ -9242,9 +9244,11 @@ remains a separate open item.
 
 - [x] Preserve standard `[[deprecated]]` on block-scope variables, including
       every comma-separated declarator, and global- and namespace-scope
-      block-scope function declarations. `test-cxx-deprecated` checks eight RCC
-      diagnostics on both target widths; GCC C++20 accepts the fixture, the
-      i686 COFF check passes, and generated AMD64 code runs.
-- [ ] Template attribute propagation and remaining declaration/redeclaration
-      ordering cases remain open; namespace and class-member behavior is
+      block-scope function declarations plus deprecated function-template
+      instantiation. `test-cxx-deprecated` checks nine RCC diagnostics on both
+      target widths and checks GCC C++20 diagnostics for local, namespace, and
+      template functions; the i686 COFF check passes and generated AMD64 code
+      runs.
+- [ ] Class-template attribute propagation and remaining declaration/
+      redeclaration ordering cases remain open; class-member behavior is
       covered by the same fixture.

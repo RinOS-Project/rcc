@@ -9041,9 +9041,14 @@ test-cxx-nodiscard: $(RCXX_TARGET)
 test-cxx-deprecated: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-deprecated)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-deprecated/warnings-x86.s tests/cxx_deprecated.cpp >$(TEST_OUT)/cxx-deprecated/x86.log 2>&1
-	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/cxx-deprecated/x86.log,8)
+	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/cxx-deprecated/x86.log,9)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-deprecated/warnings-x64.s tests/cxx_deprecated.cpp >$(TEST_OUT)/cxx-deprecated/x64.log 2>&1
-	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/cxx-deprecated/x64.log,8)
+	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/cxx-deprecated/x64.log,9)
+	$(CXX) -std=c++20 -Wdeprecated-declarations -fsyntax-only \
+		tests/cxx_deprecated.cpp >$(TEST_OUT)/cxx-deprecated/gcc.log 2>&1
+	$(GREP) -F -q "legacy_local_api" $(TEST_OUT)/cxx-deprecated/gcc.log
+	$(GREP) -F -q "legacy_local_namespace_api" $(TEST_OUT)/cxx-deprecated/gcc.log
+	$(GREP) -F -q "legacy_template_api" $(TEST_OUT)/cxx-deprecated/gcc.log
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-deprecated,cxx_deprecated.cpp)
 
 test-cxx-friend-class: $(RCXX_TARGET)
@@ -10361,9 +10366,14 @@ test-cxx-deprecated-posix: $(RCXX_TARGET)
 		tests/cxx_deprecated.cpp \
 		>$(TEST_OUT)/cxx-deprecated/x64.log 2>&1
 	test "$$($(GREP) -c "use of deprecated" \
-		$(TEST_OUT)/cxx-deprecated/x86.log)" -eq 8
+		$(TEST_OUT)/cxx-deprecated/x86.log)" -eq 9
 	test "$$($(GREP) -c "use of deprecated" \
-		$(TEST_OUT)/cxx-deprecated/x64.log)" -eq 8
+		$(TEST_OUT)/cxx-deprecated/x64.log)" -eq 9
+	$(CXX) -std=c++20 -Wdeprecated-declarations -fsyntax-only \
+		tests/cxx_deprecated.cpp >$(TEST_OUT)/cxx-deprecated/gcc.log 2>&1
+	$(GREP) -F -q "legacy_local_api" $(TEST_OUT)/cxx-deprecated/gcc.log
+	$(GREP) -F -q "legacy_local_namespace_api" $(TEST_OUT)/cxx-deprecated/gcc.log
+	$(GREP) -F -q "legacy_template_api" $(TEST_OUT)/cxx-deprecated/gcc.log
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-deprecated/x86.o \
 		$(TEST_OUT)/cxx-deprecated/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-deprecated/start-x86.o \
