@@ -9403,6 +9403,10 @@ remains a separate open item.
       explicitly qualified namespace calls in aggregate DMIs through nested
       libcxx trait bases. `int`/`long` overload selection and both exception
       outcomes match GCC C++20 on i686/AMD64.
-- [ ] Extend nothrow-trait call coverage to unqualified nested-scope lookup,
-      ADL and class-argument conversions; remaining implicit copy/move
-      deletion/access rules and broader type-trait conformance also remain.
+- [x] Extend nothrow-trait call coverage to unqualified nested-namespace lookup
+      and overload selection, class and hidden-friend ADL, class-argument
+      conversion functions, and converting constructors. Throwing and
+      `noexcept` outcomes agree with GCC C++20 on i686/AMD64; the complete
+      `make OS=Linux test-cxx` suite passes under WSL.
+- [ ] Complete implicit copy/move deletion and access rules and broader
+      type-trait conformance.
