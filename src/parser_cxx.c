@@ -45,6 +45,8 @@ static bool cxx_dependent_decltype_calls_are_viable(
     Expr* expression, unsigned depth);
 static bool cxx_resolve_dependent_function_template_calls(
     Expr* expression, unsigned depth);
+static void cxx_set_block_scope_function_linkage(Decl* declaration);
+static void cxx_set_block_scope_statement_linkage(Stmt* statement);
 
 typedef struct CxxFriendSignatureAliasUse {
     CxxClass* owner;
@@ -11722,6 +11724,33 @@ static void set_cxx_link_name(Decl* declaration, CxxNamespace* ns,
             declaration->link_name = rcc_intern(local_name);
         } else {
             declaration->link_name = rcc_intern(mangled_name);
+        }
+    }
+}
+
+/* A block-scope function declaration denotes an externally linked function
+ * even though it is intentionally absent from namespace-scope lookup. Give
+ * the local Decl the same ABI name its eventual namespace-scope definition
+ * receives so calls bind to the actual symbol. */
+static void cxx_set_block_scope_function_linkage(Decl* declaration) {
+    CxxNamespace* ns;
+    if (!declaration || declaration->kind != DECL_FUNC) return;
+    ns = active_namespace ? active_namespace : g_global_namespace;
+    if (ns == g_global_namespace) ns = NULL;
+    set_cxx_link_name(declaration, ns, false);
+    if (ns) {
+        declaration->func_cxx_namespace = cxx_namespace_qualified_name(ns);
+        declaration->func_cxx_namespace_scope = ns;
+    }
+}
+
+static void cxx_set_block_scope_statement_linkage(Stmt* statement) {
+    if (!statement) return;
+    if (statement->kind == STMT_DECL) {
+        cxx_set_block_scope_function_linkage(statement->decl);
+    } else if (statement->kind == STMT_BLOCK) {
+        for (StmtList* item = statement->block_stmts; item; item = item->next) {
+            cxx_set_block_scope_statement_linkage(item->stmt);
         }
     }
 }
@@ -39259,7 +39288,9 @@ static Stmt* parse_cxx_statement(void) {
 }
 
 Stmt* rcc_parse_cxx_statement(void) {
-    return parse_cxx_statement();
+    Stmt* statement = parse_cxx_statement();
+    cxx_set_block_scope_statement_linkage(statement);
+    return statement;
 }
 
 static void add_cxx_declaration_one(AST* ast, Stmt* statement,

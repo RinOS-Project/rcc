@@ -9240,11 +9240,11 @@ remains a separate open item.
 
 ## RCC continuation (2026-10-24, local declaration attributes)
 
-- [x] Preserve standard `[[deprecated]]` on block-scope variables through the
-      shared declaration parser, including comma-separated local declarators.
-      The focused test verifies two local-use diagnostics plus the existing
-      namespace/class cases (six total) on i686 and AMD64; GCC C++20 accepts the
-      same fixture, the i686 COFF check passes, and the generated AMD64 code
-      executes successfully.
-- [ ] Local function attributes, class/template attribute propagation, and
-      remaining declaration/redeclaration ordering cases remain open.
+- [x] Preserve standard `[[deprecated]]` on block-scope variables, including
+      every comma-separated declarator, and global- and namespace-scope
+      block-scope function declarations. `test-cxx-deprecated` checks eight RCC
+      diagnostics on both target widths; GCC C++20 accepts the fixture, the
+      i686 COFF check passes, and generated AMD64 code runs.
+- [ ] Template attribute propagation and remaining declaration/redeclaration
+      ordering cases remain open; namespace and class-member behavior is
+      covered by the same fixture.
