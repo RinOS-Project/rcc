@@ -15262,6 +15262,42 @@ static bool sema_cxx_type_trait_copy_parameter_is_const(Type* type,
 static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
     Type* owner_type, Type* source_parameter, unsigned depth);
 
+static bool sema_cxx_type_trait_union_member_has_nontrivial_assignment(
+    Type* type, bool source_is_rvalue) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!cls) return false;
+    for (struct CxxMember* member = cls->members;
+         member; member = member->next) {
+        CxxMethod* method = member->method;
+        DeclList* parameter;
+        Type* parameter_type;
+        if (!method || method->member_template || method->is_defaulted ||
+            method->is_deleted || !method->source_name ||
+            strcmp(method->source_name, "operator=") != 0 ||
+            !method->decl || !method->decl->type) {
+            continue;
+        }
+        parameter = method->decl->func_params;
+        parameter_type = parameter && parameter->decl
+            ? parameter->decl->type : NULL;
+        if (!parameter || parameter->next || !parameter_type ||
+            parameter_type->kind != TYPE_PTR ||
+            !parameter_type->is_reference || !parameter_type->base ||
+            parameter_type->is_rvalue_reference != source_is_rvalue ||
+            !type_is_compatible(parameter_type->base, type)) {
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool sema_cxx_type_trait_union_member_requires_assignment_probe(
+    Type* type) {
+    while (type && type->kind == TYPE_ARRAY) type = type->base;
+    return type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
+}
+
 static bool sema_cxx_type_trait_union_member_assignment_is_trivial(
     Type* type, Type* source_object, bool source_is_rvalue,
     unsigned depth) {
@@ -15279,7 +15315,8 @@ static bool sema_cxx_type_trait_union_member_assignment_is_trivial(
     cls = type->cxx_class;
     if ((!cls && type->kind != TYPE_UNION) ||
         (cls && (cls->vtable_size > 0 || cls->virtual_base_count > 0)) ||
-        sema_cxx_has_user_copy_move_assignment(type)) {
+        sema_cxx_type_trait_union_member_has_nontrivial_assignment(
+            type, source_is_rvalue)) {
         return false;
     }
     {
@@ -15424,29 +15461,34 @@ static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
             !source_object->is_const && !source_object->is_volatile;
         if (cls) {
             for (TypeParam* field = cls->fields; field; field = field->next) {
+                bool member_assignable;
                 if (field->is_static) continue;
-                if (!field->type ||
+                member_assignable = !sema_cxx_type_trait_union_member_requires_assignment_probe(
+                    field->type) ||
+                    sema_cxx_type_trait_assignment_subobject_is_assignable(
+                        field->type, source_object, source_is_rvalue,
+                        NULL, depth + 1u);
+                if (!field->type || !member_assignable ||
                     !sema_cxx_type_trait_union_member_assignment_is_trivial(
                         field->type, source_object, trivial_source,
-                        depth + 1u) ||
-                    !sema_cxx_type_trait_assignment_subobject_is_assignable(
-                        field->type, source_object, source_is_rvalue,
-                        cls, depth + 1u)) {
+                        depth + 1u)) {
                     return false;
                 }
             }
         } else {
             for (TypeField* field = owner_type->fields;
                  field; field = field->next) {
-                if (!field->type ||
-                    !sema_cxx_type_trait_union_member_assignment_is_trivial(
-                        field->type, source_object, trivial_source,
-                        depth + 1u) ||
-                    !sema_cxx_type_trait_assignment_subobject_is_assignable(
+                bool member_assignable =
+                    !sema_cxx_type_trait_union_member_requires_assignment_probe(
+                        field->type) ||
+                    sema_cxx_type_trait_assignment_subobject_is_assignable(
                         field->type, source_object, source_is_rvalue,
-                        NULL, depth + 1u)) {
-                    return false;
-                }
+                        NULL, depth + 1u);
+                bool member_trivial = field->type &&
+                    sema_cxx_type_trait_union_member_assignment_is_trivial(
+                        field->type, source_object, trivial_source,
+                        depth + 1u);
+                if (!member_trivial || !member_assignable) return false;
             }
         }
         return true;

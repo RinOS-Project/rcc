@@ -336,6 +336,59 @@ union NontrivialAssignmentUnion {
     int other;
 };
 
+struct UnionMemberDeletedMoveAssignment {
+    UnionMemberDeletedMoveAssignment& operator=(
+        UnionMemberDeletedMoveAssignment&&) = delete;
+};
+
+union DeletedMoveAssignmentUnion {
+    UnionMemberDeletedMoveAssignment value;
+    int other;
+};
+
+union ConstMemberAssignmentUnion {
+    const int value;
+    double other;
+};
+
+union TrivialArrayAssignmentUnion {
+    int values[3];
+    double other;
+};
+
+union NontrivialArrayAssignmentUnion {
+    NontrivialUnionMemberAssignment values[2];
+    double other;
+};
+
+struct CopyTrivialMoveNontrivialAssignment {
+    CopyTrivialMoveNontrivialAssignment& operator=(
+        const CopyTrivialMoveNontrivialAssignment&) = default;
+    CopyTrivialMoveNontrivialAssignment& operator=(
+        CopyTrivialMoveNontrivialAssignment&&) {
+        return *this;
+    }
+};
+
+union CopyTrivialMoveNontrivialAssignmentUnion {
+    CopyTrivialMoveNontrivialAssignment value;
+    int other;
+};
+
+struct CopyNontrivialMoveTrivialAssignment {
+    CopyNontrivialMoveTrivialAssignment& operator=(
+        const CopyNontrivialMoveTrivialAssignment&) {
+        return *this;
+    }
+    CopyNontrivialMoveTrivialAssignment& operator=(
+        CopyNontrivialMoveTrivialAssignment&&) = default;
+};
+
+union CopyNontrivialMoveTrivialAssignmentUnion {
+    CopyNontrivialMoveTrivialAssignment value;
+    int other;
+};
+
 struct DeletedTemplateCopyMember {
     DeletedTemplateCopyMember(const DeletedTemplateCopyMember&) = delete;
 };
@@ -1090,6 +1143,36 @@ static_assert(std::is_assignable<ScalarAssignmentUnion&,
 static_assert(!std::is_assignable<NontrivialAssignmentUnion&,
                                   const NontrivialAssignmentUnion&>::value,
               "a non-trivial union member deletes union assignment");
+static_assert(!std::is_assignable<DeletedMoveAssignmentUnion&,
+                                  DeletedMoveAssignmentUnion&&>::value,
+              "a union move assignment is deleted with a deleted variant move");
+static_assert(!std::is_assignable<DeletedMoveAssignmentUnion&,
+                                  const DeletedMoveAssignmentUnion&>::value,
+              "a union copy assignment is deleted when the variant copy is unavailable");
+static_assert(!std::is_assignable<ConstMemberAssignmentUnion&,
+                                  const ConstMemberAssignmentUnion&>::value,
+              "a const scalar variant deletes implicit union assignment");
+static_assert(std::is_assignable<TrivialArrayAssignmentUnion&,
+                                 const TrivialArrayAssignmentUnion&>::value,
+              "a trivial array variant keeps union copy assignment available");
+static_assert(!std::is_assignable<NontrivialArrayAssignmentUnion&,
+                                  const NontrivialArrayAssignmentUnion&>::value,
+              "an array of non-trivial variant elements deletes union assignment");
+static_assert(std::is_assignable<CopyTrivialMoveNontrivialAssignmentUnion&,
+                                 const CopyTrivialMoveNontrivialAssignmentUnion&>::value,
+              "a non-trivial variant move does not delete trivial union copy assignment");
+static_assert(std::is_assignable<CopyTrivialMoveNontrivialAssignmentUnion&,
+                                 CopyTrivialMoveNontrivialAssignmentUnion&&>::value,
+              "deleted implicit union move assignment falls back to copy assignment");
+static_assert(!std::is_assignable<CopyNontrivialMoveTrivialAssignmentUnion&,
+                                  const CopyNontrivialMoveTrivialAssignmentUnion&>::value,
+              "a non-trivial variant copy deletes union copy assignment");
+static_assert(std::is_assignable<CopyNontrivialMoveTrivialAssignment&,
+                                 CopyNontrivialMoveTrivialAssignment&&>::value,
+              "the variant's explicitly defaulted move assignment is available");
+static_assert(std::is_assignable<CopyNontrivialMoveTrivialAssignmentUnion&,
+                                 CopyNontrivialMoveTrivialAssignmentUnion&&>::value,
+              "a trivial variant move keeps union move assignment available");
 static_assert(std::is_assignable<TemplateAssignment&, int>::value,
               "a member assignment template participates in overload resolution");
 static_assert(std::is_assignable<TemplateAssignment&,

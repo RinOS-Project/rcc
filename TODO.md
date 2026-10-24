@@ -9350,10 +9350,23 @@ remains a separate open item.
       candidate materialization and overload resolution. The direct builtin
       and libcxx assignment-template cases pass on both target widths and
       GCC C++20.
+- [x] Evaluate implicit union copy and move assignment independently against
+      the corresponding variant-member operation. Cover scalar/array variants,
+      deleted and non-trivial operations, trivial copy with non-trivial move,
+      non-trivial copy with trivial move, and rvalue fallback to copy. GCC C++20
+      and RCC agree in direct libcxx `std::is_assignable` tests for i686 and
+      AMD64; the complete `test-cxx` aggregate reaches its successful final
+      target.
 - [ ] Constrained assignment-template edge cases, unusual cv/ref and union
       special-member rules, complete implicit copy/move access/deletion
       conformance, `is_nothrow_constructible`, and broader type-trait coverage
       remain open.
+  - [ ] C++ union definitions with member functions (including user-defined or
+        explicitly defaulted assignment operators) still need the C++ class
+        member parser; union bodies currently use the aggregate-field parser.
+  - [ ] Recognize and probe the standard by-value form of a copy-assignment
+        operator (`operator=(T)`) in overload resolution and type traits; the
+        current assignment trait path does not accept this valid form.
 
 ## RCC continuation (2026-10-24, inherited constructor-template base order)
 
