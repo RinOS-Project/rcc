@@ -516,6 +516,84 @@ struct UserDestructorCopy {
     ~UserDestructorCopy() {}
 };
 
+struct NothrowCopyTraitMember {
+    NothrowCopyTraitMember(const NothrowCopyTraitMember&) noexcept;
+};
+
+struct ImplicitNothrowCopyTrait {
+    NothrowCopyTraitMember member;
+};
+
+struct NothrowMutableCopyTraitMember {
+    NothrowMutableCopyTraitMember(
+        NothrowMutableCopyTraitMember&) noexcept;
+};
+
+struct ImplicitNothrowMutableCopyTrait {
+    NothrowMutableCopyTraitMember member;
+};
+
+struct NothrowCopyWithUserDestructorTrait {
+    NothrowCopyTraitMember member;
+    ~NothrowCopyWithUserDestructorTrait() {}
+};
+
+struct NothrowCopyAssignmentSuppressesMoveTrait {
+    NothrowCopyTraitMember member;
+    NothrowCopyAssignmentSuppressesMoveTrait& operator=(
+        const NothrowCopyAssignmentSuppressesMoveTrait&) = default;
+};
+
+struct MoveAssignmentDeletesCopyTrait {
+    MoveAssignmentDeletesCopyTrait& operator=(
+        MoveAssignmentDeletesCopyTrait&&) = default;
+};
+
+struct ThrowingCopyTraitMember {
+    ThrowingCopyTraitMember(const ThrowingCopyTraitMember&);
+};
+
+struct ImplicitThrowingCopyTrait {
+    ThrowingCopyTraitMember member;
+};
+
+struct NothrowMoveTraitMember {
+    NothrowMoveTraitMember(const NothrowMoveTraitMember&) = delete;
+    NothrowMoveTraitMember(NothrowMoveTraitMember&&) noexcept;
+};
+
+struct ImplicitNothrowMoveTrait {
+    NothrowMoveTraitMember member;
+};
+
+struct DeletedMoveNothrowCopyTraitMember {
+    DeletedMoveNothrowCopyTraitMember(
+        const DeletedMoveNothrowCopyTraitMember&) noexcept;
+    DeletedMoveNothrowCopyTraitMember(
+        DeletedMoveNothrowCopyTraitMember&&) = delete;
+};
+
+struct ImplicitCopyFallbackFromRvalueTrait {
+    DeletedMoveNothrowCopyTraitMember member;
+};
+
+struct DeletedCopyTraitMember {
+    DeletedCopyTraitMember(const DeletedCopyTraitMember&) = delete;
+};
+
+struct ImplicitDeletedCopyTrait {
+    DeletedCopyTraitMember member;
+};
+
+struct PrivateCopyTraitMember {
+private:
+    PrivateCopyTraitMember(const PrivateCopyTraitMember&) noexcept;
+};
+
+struct ImplicitPrivateCopyTrait {
+    PrivateCopyTraitMember member;
+};
+
 void accept_nothrow_value(NothrowValue);
 
 template <typename T>
@@ -856,6 +934,66 @@ static_assert(std::is_constructible<UserDestructorCopy,
 static_assert(std::is_constructible<UserDestructorCopy,
                                    UserDestructorCopy&&>::value,
               "a suppressed implicit move falls back to the copy constructor");
+static_assert(std::is_nothrow_constructible<
+                  ImplicitNothrowCopyTrait,
+                  const ImplicitNothrowCopyTrait&>::value,
+              "implicit copy propagates a noexcept member copy");
+static_assert(std::is_nothrow_constructible<
+                  ImplicitNothrowCopyTrait,
+                  ImplicitNothrowCopyTrait&&>::value,
+              "an implicit move that copies its member retains noexcept");
+static_assert(std::is_nothrow_constructible<
+                  ImplicitNothrowMutableCopyTrait,
+                  ImplicitNothrowMutableCopyTrait&>::value,
+              "implicit copy retains a non-const noexcept member signature");
+static_assert(!std::is_nothrow_constructible<
+                  ImplicitNothrowMutableCopyTrait,
+                  const ImplicitNothrowMutableCopyTrait&>::value,
+              "a non-const member copy rejects a const enclosing source");
+static_assert(!std::is_nothrow_constructible<
+                  ImplicitNothrowMutableCopyTrait,
+                  ImplicitNothrowMutableCopyTrait&&>::value,
+              "a non-const lvalue member copy cannot bind an enclosing rvalue");
+static_assert(std::is_nothrow_constructible<
+                  NothrowCopyWithUserDestructorTrait,
+                  NothrowCopyWithUserDestructorTrait&&>::value,
+              "a user destructor suppresses move but permits noexcept copy fallback");
+static_assert(std::is_nothrow_constructible<
+                  NothrowCopyAssignmentSuppressesMoveTrait,
+                  NothrowCopyAssignmentSuppressesMoveTrait&&>::value,
+              "a copy assignment suppresses move and preserves copy fallback");
+static_assert(!std::is_nothrow_constructible<
+                  MoveAssignmentDeletesCopyTrait,
+                  const MoveAssignmentDeletesCopyTrait&>::value,
+              "a user-declared move assignment deletes implicit copy construction");
+static_assert(!std::is_nothrow_constructible<
+                  MoveAssignmentDeletesCopyTrait,
+                  MoveAssignmentDeletesCopyTrait&&>::value,
+              "a deleted implicit copy is not selected for rvalue construction");
+static_assert(!std::is_nothrow_constructible<
+                  ImplicitThrowingCopyTrait,
+                  const ImplicitThrowingCopyTrait&>::value,
+              "implicit copy propagates a potentially-throwing member copy");
+static_assert(std::is_nothrow_constructible<
+                  ImplicitNothrowMoveTrait,
+                  ImplicitNothrowMoveTrait&&>::value,
+              "implicit move propagates a noexcept member move");
+static_assert(!std::is_nothrow_constructible<
+                  ImplicitNothrowMoveTrait,
+                  const ImplicitNothrowMoveTrait&>::value,
+              "a deleted member copy deletes the implicit outer copy");
+static_assert(std::is_nothrow_constructible<
+                  ImplicitCopyFallbackFromRvalueTrait,
+                  ImplicitCopyFallbackFromRvalueTrait&&>::value,
+              "a deleted implicit move falls back to the noexcept copy");
+static_assert(!std::is_nothrow_constructible<
+                  ImplicitDeletedCopyTrait,
+                  const ImplicitDeletedCopyTrait&>::value,
+              "a deleted member copy makes the implicit outer copy unavailable");
+static_assert(!std::is_nothrow_constructible<
+                  ImplicitPrivateCopyTrait,
+                  const ImplicitPrivateCopyTrait&>::value,
+              "a private member copy makes the implicit outer copy unavailable");
 
 int cxx_libcxx_type_traits_direct_probe() {
     accept_nothrow_value(0);
