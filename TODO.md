@@ -9435,9 +9435,9 @@ remains a separate open item.
       inheritance, friend classes can copy private bases, and protected member
       copies remain inaccessible through composition. `is_constructible` and
       `is_nothrow_constructible` agree with GCC C++20 on both target widths.
-- [x] Preserve the corresponding access context for implicit copy/move
-      assignment subobjects: protected base assignment is usable by an
-      implicit derived assignment but inaccessible to an external query,
+- [x] Preserve the corresponding access context for implicit and explicitly
+      defaulted copy/move assignment subobjects: protected base assignment is
+      usable by a derived assignment but inaccessible to an external query,
       private base assignment deletes that operation, protected member
       assignment remains inaccessible through composition, and a friend-derived
       class can assign its private base. Copy and move cases cover public and

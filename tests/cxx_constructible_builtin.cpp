@@ -249,15 +249,24 @@ struct ImplicitProtectedCopyAssignmentMember {
 };
 
 struct FriendCopyAssignmentBaseDerived;
+struct FriendExplicitCopyAssignmentDerived;
 
 struct FriendCopyAssignmentBase {
 private:
     FriendCopyAssignmentBase& operator=(
         const FriendCopyAssignmentBase&) noexcept = default;
     friend struct FriendCopyAssignmentBaseDerived;
+    friend struct FriendExplicitCopyAssignmentDerived;
 };
 
 struct FriendCopyAssignmentBaseDerived : FriendCopyAssignmentBase {};
+
+struct FriendExplicitCopyAssignmentDerived : FriendCopyAssignmentBase {
+    FriendExplicitCopyAssignmentDerived& operator=(
+        const FriendExplicitCopyAssignmentDerived&) = default;
+    FriendExplicitCopyAssignmentDerived& operator=(
+        FriendExplicitCopyAssignmentDerived&&) = default;
+};
 
 struct ProtectedMoveAssignmentBase {
 protected:
@@ -298,6 +307,40 @@ private:
 };
 
 struct FriendMoveAssignmentDerived : FriendMoveAssignmentBase {};
+
+struct ExplicitProtectedBaseCopyAssignment
+    : ProtectedCopyAssignmentBase {
+    ExplicitProtectedBaseCopyAssignment& operator=(
+        const ExplicitProtectedBaseCopyAssignment&) = default;
+};
+
+struct ExplicitPrivateBaseCopyAssignment : PrivateCopyAssignmentBase {
+    ExplicitPrivateBaseCopyAssignment& operator=(
+        const ExplicitPrivateBaseCopyAssignment&) = default;
+};
+
+struct ExplicitProtectedMemberCopyAssignment {
+    ProtectedCopyAssignmentMember member;
+    ExplicitProtectedMemberCopyAssignment& operator=(
+        const ExplicitProtectedMemberCopyAssignment&) = default;
+};
+
+struct ExplicitProtectedBaseMoveAssignment
+    : ProtectedMoveAssignmentBase {
+    ExplicitProtectedBaseMoveAssignment& operator=(
+        ExplicitProtectedBaseMoveAssignment&&) = default;
+};
+
+struct ExplicitPrivateBaseMoveAssignment : PrivateMoveAssignmentBase {
+    ExplicitPrivateBaseMoveAssignment& operator=(
+        ExplicitPrivateBaseMoveAssignment&&) = default;
+};
+
+struct ExplicitProtectedMemberMoveAssignment {
+    ProtectedMoveAssignmentMember member;
+    ExplicitProtectedMemberMoveAssignment& operator=(
+        ExplicitProtectedMemberMoveAssignment&&) = default;
+};
 
 struct ConstMemberNotAssignable {
     const int value;
@@ -676,6 +719,30 @@ static_assert(!__is_assignable(ProtectedMoveAssignmentMemberOwner&,
 static_assert(__is_assignable(FriendMoveAssignmentDerived&,
                               FriendMoveAssignmentDerived&&),
               "a friend-derived class can use private base move assignment implicitly");
+static_assert(__is_assignable(ExplicitProtectedBaseCopyAssignment&,
+                              const ExplicitProtectedBaseCopyAssignment&),
+              "a defaulted copy assignment can call protected base assignment");
+static_assert(!__is_assignable(ExplicitPrivateBaseCopyAssignment&,
+                               const ExplicitPrivateBaseCopyAssignment&),
+              "a defaulted copy assignment is deleted by private base assignment");
+static_assert(!__is_assignable(ExplicitProtectedMemberCopyAssignment&,
+                               const ExplicitProtectedMemberCopyAssignment&),
+              "a defaulted copy assignment cannot call protected member assignment");
+static_assert(__is_assignable(ExplicitProtectedBaseMoveAssignment&,
+                              ExplicitProtectedBaseMoveAssignment&&),
+              "a defaulted move assignment can call protected base assignment");
+static_assert(!__is_assignable(ExplicitPrivateBaseMoveAssignment&,
+                               ExplicitPrivateBaseMoveAssignment&&),
+              "a defaulted move assignment is deleted by private base assignment");
+static_assert(!__is_assignable(ExplicitProtectedMemberMoveAssignment&,
+                               ExplicitProtectedMemberMoveAssignment&&),
+              "a defaulted move assignment cannot call protected member assignment");
+static_assert(__is_assignable(FriendExplicitCopyAssignmentDerived&,
+                              const FriendExplicitCopyAssignmentDerived&),
+              "a friend-derived defaulted copy assignment can call private base assignment");
+static_assert(__is_assignable(FriendExplicitCopyAssignmentDerived&,
+                              FriendExplicitCopyAssignmentDerived&&),
+              "a friend-derived defaulted move assignment can call private base assignment");
 static_assert(!__is_assignable(ConstMemberNotAssignable&,
                                const ConstMemberNotAssignable&),
               "const subobjects delete implicit copy assignment");
