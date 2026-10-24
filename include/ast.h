@@ -162,6 +162,11 @@ struct TypeMethod {
      * inherited method; NULL keeps the source declaration's owner. */
     struct CxxClass* cxx_access_owner;
     bool is_explicit;
+    /* Preserve declaration status on a materialized member-function-template
+     * candidate so semantic probes can apply deleted/defaulted rules without
+     * re-reading the dependent source declaration. */
+    bool is_deleted;
+    bool is_defaulted;
     bool is_noexcept;
     CxxRefQualifier ref_qualifier;
     /* For a lowered member function, identify the object type expected by
@@ -378,6 +383,9 @@ int rcc_parser_cxx_materialize_member_function_templates(
     TypeMethod** candidates,
     int candidate_capacity,
     bool* constraint_unsupported);
+int rcc_parser_cxx_materialize_constructor_templates(
+    Type* aggregate, struct ExprList* arguments, TypeMethod** candidates,
+    int candidate_capacity, bool* constraint_unsupported);
 Expr* rcc_parse_cxx_concept_expression(void);
 Expr* rcc_parse_cxx_dependent_member(void);
 Expr* rcc_parse_cxx_qualified_template_member(void);

@@ -3835,7 +3835,7 @@ static bool cxx_class_has_visible_member_template_named(
 
 static int cxx_materialize_member_function_templates_internal(
     Type* aggregate, const char* name, ExprList* arguments,
-    bool include_inherited, bool defer_body,
+    bool include_inherited, bool include_constructors, bool defer_body,
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, bool explicit_arguments_specified,
     TypeMethod** candidates, int candidate_capacity,
@@ -3890,6 +3890,7 @@ static bool cxx_eval_dependent_integer_member_template_call(
     }
     materialized_count = cxx_materialize_member_function_templates_internal(
         aggregate, member_expression->member_name, arguments, true, false,
+        false,
         member_expression->member_template_arguments,
         member_expression->member_template_argument_count,
         member_expression->member_has_template_arguments,
@@ -34766,9 +34767,11 @@ static TypeMethod* cxx_materialize_member_function_template(
         !instance->type || instance->type->kind != TYPE_FUNC) {
         return NULL;
     }
-    for (TypeMethod* existing = aggregate->methods;
-         existing; existing = existing->next) {
-        if (existing->function_decl == instance) return existing;
+    if (!method->is_constructor) {
+        for (TypeMethod* existing = aggregate->methods;
+             existing; existing = existing->next) {
+            if (existing->function_decl == instance) return existing;
+        }
     }
     owner_type = method->owner->type;
     if (!owner_type) return NULL;
@@ -34777,7 +34780,10 @@ static TypeMethod* cxx_materialize_member_function_template(
     instance->func_has_cxx_linkage = true;
     instance->func_has_local_linkage =
         owner_type->cxx_scope_identity != NULL;
-    if (!method->is_static && !instance->func_this_param) {
+    instance->func_is_cxx_constructor = method->is_constructor;
+    instance->func_is_cxx_destructor = method->is_destructor;
+    if (!method->is_static && !method->is_constructor &&
+        !instance->func_this_param) {
         Type* qualified_owner = owner_type;
         Type* object_type;
         TypeParam* this_type_parameter;
@@ -34808,7 +34814,7 @@ static TypeMethod* cxx_materialize_member_function_template(
             method_type->params = this_type_parameter;
             instance->type = method_type;
         }
-    } else if (method->is_static) {
+    } else if (method->is_static || method->is_constructor) {
         instance->func_this_param = NULL;
     }
     if (instance->link_name) instance->name = instance->link_name;
@@ -34819,15 +34825,19 @@ static TypeMethod* cxx_materialize_member_function_template(
     lowered->kind = TYPE_METHOD_FUNCTION;
     lowered->cxx_access = (unsigned char)method->access;
     lowered->is_explicit = method->is_explicit;
+    lowered->is_deleted = method->is_deleted;
+    lowered->is_defaulted = method->is_defaulted;
     lowered->is_noexcept = method->is_noexcept;
     lowered->ref_qualifier = method->ref_qualifier;
     lowered->this_owner = owner_type;
     lowered->this_adjustment = this_adjustment;
     lowered->next = NULL;
-    tail = &aggregate->methods;
-    while (*tail) tail = &(*tail)->next;
-    *tail = lowered;
-    if (active_ast) {
+    if (!method->is_constructor) {
+        tail = &aggregate->methods;
+        while (*tail) tail = &(*tail)->next;
+        *tail = lowered;
+    }
+    if (active_ast && !method->is_constructor) {
         bool present = false;
         for (DeclList* item = active_ast->decls; item; item = item->next) {
             if (item->decl == instance) {
@@ -34916,7 +34926,7 @@ static bool cxx_collect_member_function_template_sources(
 
 static int cxx_materialize_member_function_templates_internal(
     Type* aggregate, const char* name, ExprList* arguments,
-    bool include_inherited, bool defer_body,
+    bool include_inherited, bool include_constructors, bool defer_body,
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, bool explicit_arguments_specified,
     TypeMethod** candidates, int candidate_capacity,
@@ -34975,7 +34985,8 @@ static int cxx_materialize_member_function_templates_internal(
         bool constraint_unsupported = false;
         bool matched;
         if (!method || !tmpl || !method->source_name ||
-            strcmp(method->source_name, name) != 0 || method->is_constructor ||
+            strcmp(method->source_name, name) != 0 ||
+            (method->is_constructor && !include_constructors) ||
             method->is_destructor || method->is_virtual) {
             continue;
         }
@@ -35050,9 +35061,19 @@ int rcc_parser_cxx_materialize_member_function_templates(
     TypeMethod** candidates, int candidate_capacity,
     bool* constraint_unsupported) {
     return cxx_materialize_member_function_templates_internal(
-        aggregate, name, arguments, true, true, explicit_arguments,
+        aggregate, name, arguments, true, false, true, explicit_arguments,
         explicit_argument_count, explicit_arguments_specified, candidates,
         candidate_capacity, constraint_unsupported);
+}
+
+int rcc_parser_cxx_materialize_constructor_templates(
+    Type* aggregate, ExprList* arguments, TypeMethod** candidates,
+    int candidate_capacity, bool* constraint_unsupported) {
+    CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
+    return cxx_materialize_member_function_templates_internal(
+        aggregate, cls ? cls->name : NULL, arguments, false, true, true,
+        NULL, 0, false, candidates, candidate_capacity,
+        constraint_unsupported);
 }
 
 /* Function-address template deduction uses the target function type as the

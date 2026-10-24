@@ -40,6 +40,8 @@ extern int rcc_parser_cxx_materialize_member_function_templates(
     Type*, const char*, ExprList*,
     const CxxParsedTemplateArgument*, int, bool, TypeMethod**, int, bool*)
     __attribute__((weak));
+extern int rcc_parser_cxx_materialize_constructor_templates(
+    Type*, ExprList*, TypeMethod**, int, bool*) __attribute__((weak));
 #endif
 
 static bool sema_cxx_class_is_abstract(const CxxClass* cls) {
@@ -105,7 +107,7 @@ static bool is_lvalue(Expr* e);
 static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     Type* type, ExprList* arguments, int argument_count,
     bool allow_explicit, bool include_inaccessible_or_deleted,
-    bool* ambiguous);
+    bool include_member_templates, bool* ambiguous);
 static bool sema_append_cxx_constructor_default_arguments(
     ExprList** arguments, CxxConstructorInfo* constructor,
     int supplied_count);
@@ -4132,7 +4134,8 @@ reference_binding_validated:
         *source_expression = *e;
         constructor_arguments = exprlist_new(source_expression);
         constructor = sema_cxx_select_type_trait_constructor_ex(
-            target, constructor_arguments, 1, false, false, &ambiguous);
+            target, constructor_arguments, 1, false, false, false,
+            &ambiguous);
         if (!ambiguous && constructor && constructor->parameters &&
             implicit_cast_with_explicit_conversion(
                 source_expression, constructor->parameters->type, false) &&
@@ -9562,7 +9565,8 @@ static int cxx_conversion_rank_detail_at_context(
             guard.previous = active_cxx_conversion_guards;
             active_cxx_conversion_guards = &guard;
             constructor = sema_cxx_select_type_trait_constructor_ex(
-                target, constructor_arguments, 1, false, false, &ambiguous);
+                target, constructor_arguments, 1, false, false, false,
+                &ambiguous);
             active_cxx_conversion_guards = guard.previous;
             if (constructor && !ambiguous) return 3;
         }
@@ -9722,7 +9726,7 @@ int rcc_sema_cxx_conversion_constructor_noexcept(
     if (!probe->type) return -1;
     constructor_arguments = exprlist_new(probe);
     constructor = sema_cxx_select_type_trait_constructor_ex(
-        target, constructor_arguments, 1, false, false, &ambiguous);
+        target, constructor_arguments, 1, false, false, false, &ambiguous);
     if (!constructor || ambiguous || !constructor->method ||
         !constructor->method->decl) {
         return -1;
@@ -13173,17 +13177,159 @@ static bool sema_cxx_type_trait_special_subobjects_are_trivial(
     return true;
 }
 
+typedef struct SemaCxxTypeTraitConstructorCandidate {
+    CxxConstructorInfo* constructor;
+    bool is_template;
+} SemaCxxTypeTraitConstructorCandidate;
+
+static CxxConstructorInfo* sema_cxx_make_type_trait_template_constructor(
+    CxxClass* owner, TypeMethod* method) {
+    Decl* declaration = method ? method->function_decl : NULL;
+    CxxConstructorInfo* constructor;
+    CxxMethod* semantic_method;
+    TypeParam* parameters;
+    int parameter_count = 0;
+    if (!owner || !owner->type || !method || !declaration ||
+        !declaration->type || declaration->type->kind != TYPE_FUNC ||
+        !declaration->func_is_cxx_constructor ||
+        declaration->func_method_owner != owner->type ||
+        !declaration->func_is_template_instance) {
+        return NULL;
+    }
+    parameters = declaration->type->params;
+    if (declaration->func_this_param && parameters) {
+        parameters = parameters->next;
+    }
+    for (TypeParam* parameter = parameters; parameter;
+         parameter = parameter->next) {
+        ++parameter_count;
+    }
+    semantic_method = ast_arena_alloc(sizeof(*semantic_method));
+    semantic_method->decl = declaration;
+    semantic_method->source_name = owner->name;
+    semantic_method->owner = owner;
+    semantic_method->access = (AccessSpec)method->cxx_access;
+    semantic_method->is_constructor = true;
+    semantic_method->is_explicit = method->is_explicit;
+    semantic_method->is_deleted = method->is_deleted;
+    semantic_method->is_defaulted = method->is_defaulted;
+    semantic_method->is_noexcept = method->is_noexcept;
+    semantic_method->member_template = declaration->func_template_owner;
+    constructor = ast_arena_alloc(sizeof(*constructor));
+    constructor->method = semantic_method;
+    constructor->parameter_count = parameter_count;
+    constructor->parameters = parameters;
+    constructor->is_deleted = method->is_deleted;
+    constructor->is_defaulted = method->is_defaulted;
+    constructor->access = (AccessSpec)method->cxx_access;
+    return constructor;
+}
+
 static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     Type* type, ExprList* arguments, int argument_count,
     bool allow_explicit, bool include_inaccessible_or_deleted,
-    bool* ambiguous) {
+    bool include_member_templates, bool* ambiguous) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     CxxConstructorInfo* best = NULL;
+    SemaCxxTypeTraitConstructorCandidate* candidates;
+    int constructor_count = 0;
+    int template_count = 0;
+    int candidate_count = 0;
     int* best_ranks;
     Type** best_targets;
     TypeMethod** best_methods;
+    bool best_is_template = false;
+    TypeMethod* template_methods[32] = { NULL };
+    bool template_constraint_unsupported = false;
     if (ambiguous) *ambiguous = false;
     if (!cls || argument_count < 0) return NULL;
+    for (CxxConstructorInfo* constructor = cls->constructors; constructor;
+         constructor = constructor->next) {
+        if (!constructor->method || constructor->method->member_template) {
+            continue;
+        }
+        if (constructor_count == INT_MAX) {
+            rcc_error(constructor->method->decl
+                          ? constructor->method->decl->loc
+                          : (SourceLoc){"<type-trait>", 0, 0},
+                      "too many constructors to evaluate a type trait");
+            return NULL;
+        }
+        ++constructor_count;
+    }
+    if (include_member_templates) {
+#if defined(__GNUC__) || defined(__clang__)
+        if (!rcc_parser_cxx_materialize_constructor_templates) {
+            rcc_error(arguments && arguments->expr
+                          ? arguments->expr->loc
+                          : (SourceLoc){"<type-trait>", 0, 0},
+                      "constructor templates are unavailable to this C++ frontend");
+            if (ambiguous) *ambiguous = true;
+            return NULL;
+        }
+        template_count = rcc_parser_cxx_materialize_constructor_templates(
+            type, arguments, template_methods,
+            (int)(sizeof(template_methods) / sizeof(template_methods[0])),
+            &template_constraint_unsupported);
+#else
+        rcc_error(arguments && arguments->expr
+                      ? arguments->expr->loc
+                      : (SourceLoc){"<type-trait>", 0, 0},
+                  "constructor templates are unavailable to this C++ frontend");
+        if (ambiguous) *ambiguous = true;
+        return NULL;
+#endif
+        if (template_constraint_unsupported) {
+            rcc_error(arguments && arguments->expr
+                          ? arguments->expr->loc
+                          : (SourceLoc){"<type-trait>", 0, 0},
+                      "constructor template constraints could not be evaluated");
+            if (ambiguous) *ambiguous = true;
+            return NULL;
+        }
+    }
+    if (template_count < 0 || template_count >
+            (int)(sizeof(template_methods) / sizeof(template_methods[0])) ||
+        constructor_count > INT_MAX - template_count) {
+        rcc_error(arguments && arguments->expr
+                      ? arguments->expr->loc
+                      : (SourceLoc){"<type-trait>", 0, 0},
+                  "constructor template candidate count exceeds the supported range");
+        if (ambiguous) *ambiguous = true;
+        return NULL;
+    }
+    candidates = ast_arena_alloc(
+        sizeof(*candidates) * (size_t)(constructor_count + template_count > 0
+                                           ? constructor_count + template_count
+                                           : 1));
+    for (CxxConstructorInfo* constructor = cls->constructors; constructor;
+         constructor = constructor->next) {
+        if (!constructor->method || constructor->method->member_template) {
+            continue;
+        }
+        candidates[candidate_count].constructor = constructor;
+        candidates[candidate_count].is_template = false;
+        ++candidate_count;
+    }
+    for (int index = 0; index < template_count; ++index) {
+        CxxConstructorInfo* constructor =
+            sema_cxx_make_type_trait_template_constructor(
+                cls, template_methods[index]);
+        if (!constructor) {
+            Decl* declaration = template_methods[index]
+                ? template_methods[index]->function_decl : NULL;
+            rcc_error(declaration ? declaration->loc
+                                  : arguments && arguments->expr
+                                      ? arguments->expr->loc
+                                      : (SourceLoc){"<type-trait>", 0, 0},
+                      "materialized constructor-template candidate is incomplete");
+            if (ambiguous) *ambiguous = true;
+            return NULL;
+        }
+        candidates[candidate_count].constructor = constructor;
+        candidates[candidate_count].is_template = true;
+        ++candidate_count;
+    }
     best_ranks = argument_count
         ? ast_arena_alloc(sizeof(*best_ranks) * (size_t)argument_count) : NULL;
     best_targets = argument_count
@@ -13192,16 +13338,18 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     best_methods = argument_count
         ? ast_arena_alloc(sizeof(*best_methods) * (size_t)argument_count)
         : NULL;
-    for (CxxConstructorInfo* candidate = cls->constructors; candidate;
-         candidate = candidate->next) {
+    for (int candidate_index = 0; candidate_index < candidate_count;
+         ++candidate_index) {
+        CxxConstructorInfo* candidate =
+            candidates[candidate_index].constructor;
+        bool candidate_is_template = candidates[candidate_index].is_template;
         TypeParam* parameter;
         ExprList* argument;
         int* candidate_ranks;
         Type** candidate_targets;
         TypeMethod** candidate_methods;
         bool viable = true;
-        if (!candidate->method || candidate->method->member_template ||
-            candidate->is_inherited ||
+        if (!candidate->method || candidate->is_inherited ||
             (!include_inaccessible_or_deleted &&
              (candidate->access != ACCESS_PUBLIC || candidate->is_deleted)) ||
             (!allow_explicit && candidate->method->is_explicit) ||
@@ -13263,6 +13411,7 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
                 : 1;
             if (!best || (relation > 0 && (!ambiguous || !*ambiguous))) {
                 best = candidate;
+                best_is_template = candidate_is_template;
                 if (argument_count) {
                     memcpy(best_ranks, candidate_ranks,
                            sizeof(*best_ranks) *
@@ -13275,8 +13424,26 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
                                (size_t)argument_count);
                 }
                 if (ambiguous) *ambiguous = false;
-            } else if (relation == 0 && ambiguous) {
-                *ambiguous = true;
+            } else if (relation == 0) {
+                if (best_is_template && !candidate_is_template) {
+                    best = candidate;
+                    best_is_template = false;
+                    if (argument_count) {
+                        memcpy(best_ranks, candidate_ranks,
+                               sizeof(*best_ranks) *
+                                   (size_t)argument_count);
+                        memcpy(best_targets, candidate_targets,
+                               sizeof(*best_targets) *
+                                   (size_t)argument_count);
+                        memcpy(best_methods, candidate_methods,
+                               sizeof(*best_methods) *
+                                   (size_t)argument_count);
+                    }
+                    if (ambiguous) *ambiguous = false;
+                } else if (best_is_template == candidate_is_template &&
+                           ambiguous) {
+                    *ambiguous = true;
+                }
             }
         }
     }
@@ -13286,7 +13453,7 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
 static CxxConstructorInfo* sema_cxx_select_type_trait_constructor(
     Type* type, ExprList* arguments, int argument_count, bool* ambiguous) {
     return sema_cxx_select_type_trait_constructor_ex(
-        type, arguments, argument_count, true, false, ambiguous);
+        type, arguments, argument_count, true, false, false, ambiguous);
 }
 
 static bool sema_cxx_type_trait_is_aggregate_constructible(
@@ -13795,6 +13962,46 @@ static bool sema_cxx_type_trait_implicit_copy_move_constructible(
         type, false, false, false, depth + 1u);
 }
 
+static bool sema_cxx_type_trait_implicit_copy_move_beats_template(
+    Type* type, CxxTypeTraitArgument* arguments, ExprList* expressions,
+    int argument_count, CxxConstructorInfo* constructor, unsigned depth) {
+    bool has_copy = false;
+    bool has_move = false;
+    Type* source_type;
+    Type* source_base;
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!constructor || !constructor->method ||
+        !constructor->method->member_template || !type || !cls ||
+        argument_count != 1 || !arguments || !expressions ||
+        !expressions->expr ||
+        !sema_cxx_has_declared_copy_move_constructor(type, &has_copy,
+                                                     &has_move) ||
+        has_copy || has_move) {
+        return false;
+    }
+    source_type = arguments->type;
+    source_base = sema_cxx_type_trait_is_reference(source_type)
+        ? source_type->base : source_type;
+    if (!source_base || source_base->cxx_class != cls ||
+        source_base->is_volatile) {
+        return false;
+    }
+    if (is_lvalue(expressions->expr)) return true;
+    if (source_base->is_const) return false;
+
+    /* A forwarding constructor's C&& parameter ties with an implicit move
+     * constructor only while the latter is actually declared and viable.
+     * A user destructor suppresses that move; C&& then beats the fallback
+     * const C& copy binding and must not be rescued by it. */
+    if (sema_cxx_has_declared_special_assignment(type, false) ||
+        sema_cxx_has_declared_special_assignment(type, true) ||
+        cls->destructor_method) {
+        return false;
+    }
+    return sema_cxx_type_trait_copy_subobjects_constructible(
+        type, false, false, true, depth + 1u);
+}
+
 static bool sema_cxx_constructible(Type* type,
                                    CxxTypeTraitArgument* arguments,
                                    unsigned depth) {
@@ -13831,14 +14038,33 @@ static bool sema_cxx_constructible(Type* type,
         bool ambiguous = false;
         CxxConstructorInfo* constructor =
             sema_cxx_select_type_trait_constructor_ex(
-                type, expressions, argument_count, true, true, &ambiguous);
+                type, expressions, argument_count, true, true, true,
+                &ambiguous);
         if (ambiguous || !constructor || constructor->is_deleted ||
             constructor->access != ACCESS_PUBLIC) {
+            if (constructor && constructor->method &&
+                constructor->method->member_template &&
+                !sema_cxx_type_trait_implicit_copy_move_beats_template(
+                    type, arguments, expressions, argument_count,
+                    constructor, depth + 1u)) {
+                return false;
+            }
             bool implicit_applicable = false;
             bool implicit_result = sema_cxx_type_trait_implicit_copy_move_constructible(
                 type, arguments, expressions, argument_count, depth + 1u,
                 &implicit_applicable);
             return implicit_applicable ? implicit_result : false;
+        }
+        if (constructor->method->member_template &&
+            sema_cxx_type_trait_implicit_copy_move_beats_template(
+                type, arguments, expressions, argument_count, constructor,
+                depth + 1u)) {
+            bool implicit_applicable = false;
+            bool implicit_result =
+                sema_cxx_type_trait_implicit_copy_move_constructible(
+                    type, arguments, expressions, argument_count,
+                    depth + 1u, &implicit_applicable);
+            if (implicit_applicable) return implicit_result;
         }
         return true;
     }

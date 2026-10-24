@@ -9,6 +9,70 @@ struct ExplicitOnly {
     explicit ExplicitOnly(int) {}
 };
 
+struct TemplateConstructorValue {
+    template <typename T>
+    TemplateConstructorValue(T&&) {}
+};
+
+struct ConstrainedTemplateConstructorValue {
+    template <typename T>
+        requires (sizeof(T) == sizeof(int))
+    ConstrainedTemplateConstructorValue(T&&) {}
+};
+
+struct DefaultedTemplateConstructorValue {
+    template <typename T>
+    DefaultedTemplateConstructorValue(T&&, int = 0) {}
+};
+
+struct PartialOrderTemplateConstructorValue {
+    template <typename T>
+    PartialOrderTemplateConstructorValue(T*) = delete;
+
+    template <typename T>
+    PartialOrderTemplateConstructorValue(T) {}
+};
+
+struct DeletedTemplateCopyMember {
+    DeletedTemplateCopyMember(const DeletedTemplateCopyMember&) = delete;
+};
+
+struct TemplateConstructorWithDeletedImplicitCopy {
+    DeletedTemplateCopyMember member;
+
+    template <typename T>
+    TemplateConstructorWithDeletedImplicitCopy(T&&) {}
+};
+
+struct DeletedForwardingConstructorWithSuppressedMove {
+    ~DeletedForwardingConstructorWithSuppressedMove() {}
+
+    template <typename T>
+    DeletedForwardingConstructorWithSuppressedMove(T&&) = delete;
+};
+
+struct DeletedTemplatePreferredValue {
+    DeletedTemplatePreferredValue(long) {}
+
+    template <typename T>
+    DeletedTemplatePreferredValue(T&&) = delete;
+};
+
+struct PrivateTemplatePreferredValue {
+    PrivateTemplatePreferredValue(long) {}
+
+private:
+    template <typename T>
+    PrivateTemplatePreferredValue(T&&) {}
+};
+
+struct NonTemplatePreferredValue {
+    NonTemplatePreferredValue(int) {}
+
+    template <typename T>
+    NonTemplatePreferredValue(T&&) = delete;
+};
+
 struct NothrowValue {
     NothrowValue(int) noexcept {}
 };
@@ -146,6 +210,41 @@ static_assert(std::is_constructible<int, double>::value,
               "scalar conversions must be constructible");
 static_assert(std::is_constructible<ExplicitOnly, int>::value,
               "direct construction may select an explicit constructor");
+static_assert(std::is_constructible<TemplateConstructorValue, int>::value,
+              "constructor templates deduce an rvalue-reference parameter");
+static_assert(std::is_constructible<TemplateConstructorValue, int&>::value,
+              "constructor templates deduce lvalue-reference collapsing");
+static_assert(std::is_constructible<ConstrainedTemplateConstructorValue,
+                                    int>::value,
+              "constructor-template constraints are evaluated after deduction");
+static_assert(!std::is_constructible<ConstrainedTemplateConstructorValue,
+                                     long long>::value,
+              "a non-satisfied constructor-template constraint removes the candidate");
+static_assert(std::is_constructible<DefaultedTemplateConstructorValue,
+                                    int>::value,
+              "constructor-template default arguments affect viable arity");
+static_assert(!std::is_constructible<PartialOrderTemplateConstructorValue,
+                                    int*>::value,
+              "constructor-template partial ordering selects the pointer pattern");
+static_assert(std::is_constructible<TemplateConstructorValue,
+                                    const TemplateConstructorValue&>::value,
+              "the implicit copy constructor remains available beside a template");
+static_assert(!std::is_constructible<
+                  TemplateConstructorWithDeletedImplicitCopy,
+                  const TemplateConstructorWithDeletedImplicitCopy&>::value,
+              "a deleted implicit copy constructor is not bypassed by a template");
+static_assert(!std::is_constructible<
+                  DeletedForwardingConstructorWithSuppressedMove,
+                  DeletedForwardingConstructorWithSuppressedMove&&>::value,
+              "a forwarding template beats copy when a destructor suppresses move");
+static_assert(!std::is_constructible<DeletedTemplatePreferredValue,
+                                    int>::value,
+              "a deleted constructor-template best match blocks conversion fallback");
+static_assert(!std::is_constructible<PrivateTemplatePreferredValue,
+                                    int>::value,
+              "an inaccessible constructor-template best match is rejected");
+static_assert(std::is_constructible<NonTemplatePreferredValue, int>::value,
+              "a non-template constructor wins an otherwise equal tie");
 static_assert(!std::is_constructible<DeletedValue, int>::value,
               "deleted constructors are not constructible");
 static_assert(!std::is_constructible<DeletedPreferredValue, int>::value,

@@ -9298,6 +9298,12 @@ remains a separate open item.
       and deleted member copies, non-const copy signatures, and move
       suppression by a user destructor. The focused builtin and direct libcxx
       fixtures pass for both targets and GCC C++20.
-- [ ] Constructor-template, inherited/constrained overload resolution,
-      remaining implicit copy/move deletion and access rules, `is_assignable`,
-      `is_nothrow_constructible`, and broader trait conformance remain open.
+- [x] Include direct constructor-template candidates in `__is_constructible`.
+      Cover forwarding-reference deduction/collapsing, `requires` filtering,
+      default arguments, template partial ordering, non-template tie-breaking,
+      private/deleted best matches, and interaction with implicit copy/move
+      candidates. The focused builtin and direct libcxx fixtures pass for
+      i686/AMD64 and GCC C++20 on Windows and WSL.
+- [ ] Inherited constructor templates, remaining implicit copy/move deletion
+      and access rules, `is_assignable`, `is_nothrow_constructible`, and
+      broader trait conformance remain open.
