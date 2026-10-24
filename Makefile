@@ -13811,7 +13811,8 @@ test-cxx-converting-constructor-posix: $(RCXX_TARGET) \
 		$(TEST_OUT)/cxx-converting-constructor/invalid-x64.log
 	@echo "C++ converting constructor tests completed"
 
-test-cxx-inherited-constructor-posix: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
+test-cxx-inherited-constructor-posix: $(RCXX_TARGET) \
+	$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_HOST_EXCEPTION_RUNTIME_I686)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-inherited-constructor/x86.s \
@@ -13887,18 +13888,46 @@ test-cxx-inherited-constructor-posix: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIM
 		$(TEST_OUT)/cxx-inherited-constructor-array-cleanup/x64.s \
 		$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-inherited-constructor-array-cleanup/x64
-	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.ro \
-		tests/cxx_inherited_constructor_invalid_virtual.cpp \
-		>$(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log 2>&1
-	$(GREP) -q "using-base constructor cannot name a virtual base" \
-		$(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log
-	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x64.ro \
-		tests/cxx_inherited_constructor_invalid_virtual.cpp \
-		>$(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log 2>&1
-	$(GREP) -q "using-base constructor cannot name a virtual base" \
-		$(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log
+	$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-gcc-host \
+		tests/cxx_inherited_constructor_virtual.cpp
+	$(TEST_OUT)/cxx-inherited-constructor/virtual-gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.s \
+		tests/cxx_inherited_constructor_virtual.cpp
+	$(CC) -m32 -no-pie \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x86 \
+		$(TEST_OUT)/cxx-inherited-constructor/virtual-x86.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686)
+	$(TEST_OUT)/cxx-inherited-constructor/virtual-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x64.s \
+		tests/cxx_inherited_constructor_virtual.cpp
+	$(CC) -no-pie \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-x64 \
+		$(TEST_OUT)/cxx-inherited-constructor/virtual-x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-inherited-constructor/virtual-x64
+	$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-diamond-gcc-host \
+		tests/cxx_inherited_constructor_virtual_diamond.cpp
+	$(TEST_OUT)/cxx-inherited-constructor/virtual-diamond-gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-diamond-x86.s \
+		tests/cxx_inherited_constructor_virtual_diamond.cpp
+	$(CC) -m32 -no-pie \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-diamond-x86 \
+		$(TEST_OUT)/cxx-inherited-constructor/virtual-diamond-x86.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME_I686)
+	$(TEST_OUT)/cxx-inherited-constructor/virtual-diamond-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-diamond-x64.s \
+		tests/cxx_inherited_constructor_virtual_diamond.cpp
+	$(CC) -no-pie \
+		-o $(TEST_OUT)/cxx-inherited-constructor/virtual-diamond-x64 \
+		$(TEST_OUT)/cxx-inherited-constructor/virtual-diamond-x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-inherited-constructor/virtual-diamond-x64
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/access-x86.ro \
 		tests/cxx_inherited_constructor_invalid_access.cpp \
@@ -13982,7 +14011,7 @@ test-cxx-converting-constructor: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-converting-constructor/invalid-x64.ro tests/cxx_explicit_copy_initialization_invalid.cpp,$(TEST_OUT)/cxx-converting-constructor/invalid-x64.log)
 	$(GREP) -F -q "no safely lowerable constructor accepts the C++ initializer" $(TEST_OUT)/cxx-converting-constructor/invalid-x64.log
 
-test-cxx-inherited-constructor: $(RCXX_TARGET)
+test-cxx-inherited-constructor: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor)
 	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-inherited-constructor,cxx_inherited_constructor.cpp,cxx_inherited_constructor_run_test.c)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-inherited-constructor/array-order-x86-freestanding.s tests/cxx_inherited_constructor_array_order.cpp
@@ -13997,10 +14026,8 @@ test-cxx-inherited-constructor: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-nested-array,cxx_inherited_constructor_nested_array.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-array-cleanup)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-array-cleanup,cxx_inherited_constructor_array_cleanup.cpp)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.ro tests/cxx_inherited_constructor_invalid_virtual.cpp,$(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log)
-	$(GREP) -F -q "using-base constructor cannot name a virtual base" $(TEST_OUT)/cxx-inherited-constructor/virtual-x86.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/virtual-x64.ro tests/cxx_inherited_constructor_invalid_virtual.cpp,$(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log)
-	$(GREP) -F -q "using-base constructor cannot name a virtual base" $(TEST_OUT)/cxx-inherited-constructor/virtual-x64.log
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-virtual,cxx_inherited_constructor_virtual.cpp,cxx_language_core_host.c)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-virtual-diamond,cxx_inherited_constructor_virtual_diamond.cpp,cxx_language_core_host.c)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/access-x86.ro tests/cxx_inherited_constructor_invalid_access.cpp,$(TEST_OUT)/cxx-inherited-constructor/access-x86.log)
 	$(GREP) -F -q "using-base constructor requires a public direct base" $(TEST_OUT)/cxx-inherited-constructor/access-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/access-x64.ro tests/cxx_inherited_constructor_invalid_access.cpp,$(TEST_OUT)/cxx-inherited-constructor/access-x64.log)

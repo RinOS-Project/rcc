@@ -7377,10 +7377,18 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     CxxConstructorInfo* inherited;
     CxxConstructorInitializer* initializer;
     DeclList* parameter;
+    int direct_base_index = -1;
     if (!cls || !base || !source || !source->method ||
         !cxx_inherited_constructor_source_supported(source)) {
         return NULL;
     }
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (cls->bases[index].base == base) {
+            direct_base_index = index;
+            break;
+        }
+    }
+    if (direct_base_index < 0) return NULL;
     method = cxx_method_new(cls->name, type_void,
                             source->method->decl->func_params, NULL,
                             source->method->decl->loc);
@@ -7438,7 +7446,8 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     initializer->inherited_base_offset = -1;
     initializer->constructor = source;
     initializer->is_base_initializer = true;
-    initializer->is_virtual_base_initializer = false;
+    initializer->is_virtual_base_initializer =
+        cls->bases[direct_base_index].is_virtual;
     initializer->is_delegating_constructor = false;
     initializer->is_default_member_initializer = false;
     initializer->is_pack_expansion = false;
@@ -7459,7 +7468,7 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
 }
 
 /* Materialize only the bounded form of `using Base::Base`: public direct
- * non-virtual bases with scalar fields, safely lowerable class members, and
+ * bases with scalar fields, safely lowerable class members, and
  * constant scalar or bounded scalar-list class default member initializers.
  * The synthesized constructor owns the derived object but delegates base
  * initialization to the original constructor, so no fake function body or
@@ -7485,9 +7494,6 @@ static void cxx_materialize_inherited_constructors(CxxClass* cls) {
             if (cls->bases[base_index].access != ACCESS_PUBLIC) {
                 rcc_error(cls->using_base_members[using_index].loc,
                           "using-base constructor requires a public direct base");
-            } else if (cls->bases[base_index].is_virtual) {
-                rcc_error(cls->using_base_members[using_index].loc,
-                          "using-base constructor cannot name a virtual base");
             } else if (!cxx_inherited_constructor_member_supported(cls)) {
                 rcc_error(cls->using_base_members[using_index].loc,
                           "using-base constructors require safely lowerable derived "
@@ -7535,8 +7541,7 @@ static void cxx_materialize_inherited_constructors(CxxClass* cls) {
     for (int base_index = 0; base_index < cls->base_count; ++base_index) {
         CxxClass* base = cls->bases[base_index].base;
         bool inherited = false;
-        if (!base || cls->bases[base_index].access != ACCESS_PUBLIC ||
-            cls->bases[base_index].is_virtual) continue;
+        if (!base || cls->bases[base_index].access != ACCESS_PUBLIC) continue;
         for (int index = 0; index < cls->using_base_member_count; ++index) {
             const char* member_name = cls->using_base_members[index].member_name;
             if (cxx_using_name_matches_base(
@@ -7969,16 +7974,128 @@ static bool cxx_class_uses_inherited_constructor(CxxClass* cls,
     return false;
 }
 
-/* Return the number of using-inheritance paths from cls to target and retain
- * the sole path in target-to-derived order.  Constructor templates are only
- * candidates when every edge explicitly inherits constructors. */
+static CxxConstructorInfo* cxx_make_implicit_inherited_base_default(
+    CxxClass* cls) {
+    CxxConstructorInfo* constructor;
+    CxxClass lowered;
+    int nonvirtual_base_count = 0;
+    int output_index = 0;
+    if (!cls || !cls->type) return NULL;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        if (member->method && member->method->is_constructor) return NULL;
+    }
+    for (CxxConstructorInfo* existing = cls->constructors;
+         existing; existing = existing->next) {
+        if (!existing->is_inherited) return NULL;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (!cls->bases[index].is_virtual) ++nonvirtual_base_count;
+    }
+    constructor = ast_arena_alloc(sizeof(*constructor));
+    memset(constructor, 0, sizeof(*constructor));
+    constructor->initializers_are_supported = true;
+    constructor->body_is_empty = true;
+    constructor->access = ACCESS_PUBLIC;
+    lowered = *cls;
+    lowered.constructors = constructor;
+    lowered.using_base_member_count = 0;
+    lowered.using_base_members = NULL;
+    lowered.virtual_base_count = 0;
+    lowered.virtual_bases = NULL;
+    lowered.base_count = nonvirtual_base_count;
+    if (nonvirtual_base_count > 0) {
+        lowered.bases = ast_arena_alloc(
+            sizeof(*lowered.bases) * (size_t)nonvirtual_base_count);
+        lowered.base_offsets = ast_arena_alloc(
+            sizeof(*lowered.base_offsets) * (size_t)nonvirtual_base_count);
+        for (int index = 0; index < cls->base_count; ++index) {
+            if (cls->bases[index].is_virtual) continue;
+            lowered.bases[output_index] = cls->bases[index];
+            lowered.base_offsets[output_index] = cls->base_offsets
+                ? cls->base_offsets[index] : -1;
+            ++output_index;
+        }
+    } else {
+        lowered.bases = NULL;
+        lowered.base_offsets = NULL;
+    }
+    complete_cxx_default_member_initializers(&lowered);
+    return constructor->initializers_are_supported ? constructor : NULL;
+}
+
+static bool cxx_inherited_constructor_path_virtual_anchor(
+    CxxClass* complete_class, CxxClass** path, int path_length,
+    CxxClass** anchor, int* anchor_index, int* anchor_offset) {
+    if (anchor) *anchor = NULL;
+    if (anchor_index) *anchor_index = -1;
+    if (anchor_offset) *anchor_offset = -1;
+    if (!complete_class || !path || path_length <= 0 || !anchor ||
+        !anchor_index || !anchor_offset) {
+        return false;
+    }
+    for (int index = 1; index < path_length; ++index) {
+        CxxClass* derived = path[index];
+        CxxClass* base = path[index - 1];
+        for (int base_index = 0; derived && base_index < derived->base_count;
+             ++base_index) {
+            if (derived->bases[base_index].base != base ||
+                !derived->bases[base_index].is_virtual) {
+                continue;
+            }
+            if (!cxx_class_virtual_base_offset(
+                    complete_class, base, anchor_offset)) {
+                return false;
+            }
+            *anchor = base;
+            *anchor_index = index - 1;
+            return true;
+        }
+    }
+    return true;
+}
+
+static bool cxx_inherited_constructor_paths_same_subobject(
+    CxxClass* complete_class, CxxClass** left_path, int left_length,
+    CxxClass** right_path, int right_length) {
+    CxxClass* left_anchor = NULL;
+    CxxClass* right_anchor = NULL;
+    int left_anchor_index = -1;
+    int right_anchor_index = -1;
+    int left_anchor_offset = -1;
+    int right_anchor_offset = -1;
+    bool left_valid = cxx_inherited_constructor_path_virtual_anchor(
+        complete_class, left_path, left_length, &left_anchor,
+        &left_anchor_index, &left_anchor_offset);
+    bool right_valid = cxx_inherited_constructor_path_virtual_anchor(
+        complete_class, right_path, right_length, &right_anchor,
+        &right_anchor_index, &right_anchor_offset);
+    if (!left_valid || !right_valid) return false;
+    if (!left_anchor && !right_anchor) {
+        return left_length == right_length &&
+               memcmp(left_path, right_path,
+                      sizeof(*left_path) * (size_t)left_length) == 0;
+    }
+    if (!left_anchor || !right_anchor || left_anchor != right_anchor ||
+        left_anchor_offset != right_anchor_offset ||
+        left_anchor_index != right_anchor_index) {
+        return false;
+    }
+    return memcmp(left_path, right_path,
+                  sizeof(*left_path) * (size_t)(left_anchor_index + 1)) == 0;
+}
+
+/* Return the number of distinct using-inherited base subobjects and retain a
+ * representative path in target-to-derived order. Paths that converge at
+ * the same virtual-base subobject denote one inherited constructor source. */
 static int cxx_find_inherited_constructor_paths(
-    CxxClass* cls, CxxClass* target, CxxClass** path, int capacity,
-    int* path_length, unsigned depth) {
+    CxxClass* complete_class, CxxClass* cls, CxxClass* target,
+    CxxClass** path, int capacity, int* path_length, unsigned depth) {
     CxxClass* first_path[64];
     int first_length = 0;
     int paths = 0;
-    if (!cls || !target || !path || !path_length || capacity <= 0) return 0;
+    if (!complete_class || !cls || !target || !path || !path_length ||
+        capacity <= 0) return 0;
     if (cls == target) {
         path[0] = target;
         *path_length = 1;
@@ -7991,25 +8108,36 @@ static int cxx_find_inherited_constructor_paths(
         int candidate_length = 0;
         int candidate_count;
         if (!base || cls->bases[index].access != ACCESS_PUBLIC ||
-            cls->bases[index].is_virtual ||
             !cxx_class_uses_inherited_constructor(cls, base)) {
             continue;
         }
         candidate_count = cxx_find_inherited_constructor_paths(
-            base, target, candidate_path, capacity, &candidate_length,
-            depth + 1u);
+            complete_class, base, target, candidate_path, capacity,
+            &candidate_length, depth + 1u);
         if (candidate_count < 0) return candidate_count;
         if (candidate_count == 0) continue;
-        if (paths == 0 && candidate_count == 1 &&
-            candidate_length < capacity) {
+        if (candidate_length >= capacity) return -1;
+        candidate_path[candidate_length++] = cls;
+        if (paths == 0) {
             memcpy(first_path, candidate_path,
                    sizeof(*first_path) * (size_t)candidate_length);
-            first_path[candidate_length] = cls;
-            first_length = candidate_length + 1;
+            first_length = candidate_length;
+            paths = candidate_count;
+            if (paths > 1) {
+                memcpy(path, first_path,
+                       sizeof(*path) * (size_t)first_length);
+                *path_length = first_length;
+                return 2;
+            }
+            continue;
         }
-        paths += candidate_count;
-        if (paths > 1) {
-            *path_length = 0;
+        if (candidate_count > 1 ||
+            !cxx_inherited_constructor_paths_same_subobject(
+                complete_class, first_path, first_length,
+                candidate_path, candidate_length)) {
+            memcpy(path, first_path,
+                   sizeof(*path) * (size_t)first_length);
+            *path_length = first_length;
             return 2;
         }
     }
@@ -8050,7 +8178,7 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
         return false;
     }
     inheritance_path_count = cxx_find_inherited_constructor_paths(
-        cls, base, inheritance_path,
+        cls, cls, base, inheritance_path,
         (int)(sizeof(inheritance_path) / sizeof(inheritance_path[0])),
         &inheritance_path_length, 0u);
     if (inheritance_path_count < 0) {
@@ -8060,12 +8188,12 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
     }
     if (inheritance_path_count > 1) {
         rcc_error(loc,
-                  "inherited constructor template has multiple public non-virtual using-base paths");
+                  "inherited constructor template has multiple public using-base subobjects");
         return false;
     }
     if (inheritance_path_count == 0 || inheritance_path_length < 2) {
         rcc_error(loc,
-                  "inherited constructor template requires an explicit public non-virtual using-base chain");
+                  "inherited constructor template requires an explicit public using-base chain");
         return false;
     }
     for (int path_index = 1; path_index < inheritance_path_length;
@@ -8085,11 +8213,10 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
         }
         if (selected_base_index < 0 ||
             derived_layer->bases[selected_base_index].access != ACCESS_PUBLIC ||
-            derived_layer->bases[selected_base_index].is_virtual ||
             !cxx_constructor_base_layout_supported(
                 derived_layer, selected_base_index)) {
             rcc_error(loc,
-                      "inherited constructor-template lowering requires a unique public non-virtual inherited base with supported layout");
+                      "inherited constructor-template lowering requires a unique public inherited base with supported layout");
             return false;
         }
         selected_base_indices[path_index] = selected_base_index;
@@ -8098,10 +8225,25 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
          --path_index) {
         CxxClass* derived_layer = inheritance_path[path_index];
         int selected_base_index = selected_base_indices[path_index];
-        int64_t base_offset = derived_layer->base_offsets
-            ? derived_layer->base_offsets[selected_base_index] : -1;
-        int64_t absolute_offset =
-            (int64_t)inheritance_layer_offsets[path_index] + base_offset;
+        int64_t base_offset = -1;
+        int64_t absolute_offset;
+        if (derived_layer->bases[selected_base_index].is_virtual) {
+            int virtual_base_offset = -1;
+            if (!cxx_class_virtual_base_offset(
+                    cls, inheritance_path[path_index - 1],
+                    &virtual_base_offset)) {
+                rcc_error(loc,
+                          "inherited constructor-template virtual base has no complete-object layout");
+                return false;
+            }
+            base_offset = virtual_base_offset;
+            absolute_offset = virtual_base_offset;
+        } else {
+            base_offset = derived_layer->base_offsets
+                ? derived_layer->base_offsets[selected_base_index] : -1;
+            absolute_offset =
+                (int64_t)inheritance_layer_offsets[path_index] + base_offset;
+        }
         if (base_offset < 0 || absolute_offset > INT_MAX) {
             rcc_error(loc,
                       "inherited constructor-template base adjustment exceeds the supported object layout");
@@ -8154,6 +8296,10 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
                 return false;
             }
             default_constructor = cxx_find_base_constructor(sibling, 0);
+            if (!default_constructor) {
+                default_constructor =
+                    cxx_make_implicit_inherited_base_default(sibling);
+            }
             if ((!default_constructor && sibling->constructors) ||
                 (!default_constructor &&
                  (sibling->fields || sibling->base_count ||
@@ -35338,8 +35484,7 @@ static bool cxx_collect_constructor_template_sources(
     for (int base_index = 0; base_index < cls->base_count; ++base_index) {
         CxxClass* base = cls->bases[base_index].base;
         bool inherited = false;
-        if (!base || cls->bases[base_index].access != ACCESS_PUBLIC ||
-            cls->bases[base_index].is_virtual) {
+        if (!base || cls->bases[base_index].access != ACCESS_PUBLIC) {
             continue;
         }
         for (int using_index = 0;
