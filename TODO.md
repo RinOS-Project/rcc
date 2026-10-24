@@ -9364,9 +9364,15 @@ remains a separate open item.
   - [ ] C++ union definitions with member functions (including user-defined or
         explicitly defaulted assignment operators) still need the C++ class
         member parser; union bodies currently use the aggregate-field parser.
-  - [ ] Recognize and probe the standard by-value form of a copy-assignment
-        operator (`operator=(T)`) in overload resolution and type traits; the
-        current assignment trait path does not accept this valid form.
+  - [x] Recognize the standard by-value copy-assignment form
+        (`operator=(T)` and top-level-const `operator=(const T)`) as a copy
+        special member. Keep it in ordinary assignment overload resolution,
+        suppress the implicit copy/move assignment candidates it replaces, and
+        require viable copy construction for the by-value argument. Direct
+        libcxx assignability/trivial-copyability probes, an emitted rvalue
+        assignment call, deleted-copy-constructor rejection, and rejection of
+        an invalid defaulted by-value signature pass against GCC C++20 for
+        i686 and AMD64.
 
 ## RCC continuation (2026-10-24, inherited constructor-template base order)
 

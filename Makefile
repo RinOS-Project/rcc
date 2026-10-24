@@ -14329,7 +14329,7 @@ endif
 		-o $(TEST_OUT)/cxx-inline-aggregates/custom-move.ro \
 		tests/cxx_custom_move.cpp
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.ro tests/cxx_unsafe_move_assignment_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log)
-	$(GREP) -q "no matching member overload for 'operator='" \
+	$(GREP) -q "use of deleted member function 'operator='" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
 	@echo "RCC++ inline C ABI aggregate wrapper tests completed"
 
@@ -15347,6 +15347,9 @@ test-cxx-libcxx-type-traits-direct: $(RCXX_TARGET)
 		tests/cxx_libcxx_type_traits_direct.cpp
 	$(CXX) -std=c++20 -ffreestanding -pedantic-errors -Wno-pedantic -fsyntax-only \
 		tests/cxx_libcxx_type_traits_direct.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-libcxx-type-traits-direct/byvalue-defaulted-invalid.ro tests/cxx_byvalue_defaulted_assignment_invalid.cpp,$(TEST_OUT)/cxx-libcxx-type-traits-direct/byvalue-defaulted-invalid.log)
+	$(GREP) -F -q "defaulted copy-assignment operator must take a reference parameter" \
+		$(TEST_OUT)/cxx-libcxx-type-traits-direct/byvalue-defaulted-invalid.log
 	@echo "Direct libcxx type_traits constructor-conversion tests completed"
 
 test-cxx-constructible-builtin: $(RCXX_TARGET)

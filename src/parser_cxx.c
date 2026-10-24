@@ -11386,6 +11386,23 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
          * duplicate symbols. */
         method->decl->func_is_inline = body != NULL;
 
+        if (is_defaulted && !is_static && param_idx == 1 &&
+            cxx_method_source_name(method) &&
+            strcmp(cxx_method_source_name(method), "operator=") == 0 &&
+            method->decl->func_params &&
+            method->decl->func_params->decl) {
+            Type* parameter_type =
+                method->decl->func_params->decl->type;
+            if (parameter_type &&
+                (parameter_type->kind == TYPE_STRUCT ||
+                 parameter_type->kind == TYPE_UNION) &&
+                parameter_type->cxx_class == cls &&
+                !parameter_type->is_reference) {
+                rcc_error(loc,
+                          "defaulted copy-assignment operator must take a reference parameter");
+            }
+        }
+
         if (is_friend) {
             method->owner = NULL;
             method->decl->func_is_hidden_friend = true;
@@ -18995,6 +19012,24 @@ static bool cxx_atomic_parameter_is_same_type_reference(Type* parameter_type,
            type_is_compatible(parameter_type->base, value_type);
 }
 
+static int cxx_atomic_assignment_special_member_kind(
+    Type* parameter_type, Type* value_type) {
+    if (!parameter_type || !value_type || !value_type->cxx_class) return 0;
+    if (parameter_type->kind == TYPE_PTR && parameter_type->is_reference) {
+        if (!parameter_type->base ||
+            parameter_type->base->cxx_class != value_type->cxx_class) {
+            return 0;
+        }
+        return parameter_type->is_rvalue_reference ? 2 : 1;
+    }
+    if ((parameter_type->kind == TYPE_STRUCT ||
+         parameter_type->kind == TYPE_UNION) &&
+        parameter_type->cxx_class == value_type->cxx_class) {
+        return 1;
+    }
+    return 0;
+}
+
 /* GCC's std::atomic primary template checks copy/move construction and
  * assignment in addition to trivial copyability. Deleted special members
  * can leave a type trivially copyable while making one of those operations
@@ -19061,19 +19096,23 @@ static bool cxx_atomic_has_deleted_copy_move_special_member_impl(
             parameter_type = parameter && parameter->decl
                 ? parameter->decl->type : NULL;
             if (!parameter || parameter->next ||
-                !cxx_atomic_parameter_is_same_type_reference(parameter_type,
-                                                            value_type)) {
+                !cxx_atomic_assignment_special_member_kind(parameter_type,
+                                                           value_type)) {
                 continue;
             }
-            if (parameter_type->is_rvalue_reference) {
+            if (cxx_atomic_assignment_special_member_kind(parameter_type,
+                                                          value_type) == 2) {
                 has_move_member = true;
                 if (check_root_move_members && method->is_deleted) {
                     return true;
                 }
             } else {
                 has_copy_assignment = true;
-                if (parameter_type->base->is_const ||
-                    parameter_type->base->is_volatile) {
+                if ((parameter_type->kind == TYPE_PTR &&
+                     (parameter_type->base->is_const ||
+                      parameter_type->base->is_volatile)) ||
+                    (parameter_type->kind != TYPE_PTR &&
+                     has_const_copy_constructor)) {
                     has_const_copy_assignment = true;
                 }
                 if (method->is_deleted) return true;

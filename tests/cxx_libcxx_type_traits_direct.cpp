@@ -315,6 +315,27 @@ struct ConstrainedAssignmentOverload {
     ConstrainedAssignmentOverload& operator=(T&&) = delete;
 };
 
+struct ByValueCopyAssignment {
+    ByValueCopyAssignment& operator=(ByValueCopyAssignment);
+};
+
+struct ByValueConstCopyAssignment {
+    ByValueConstCopyAssignment& operator=(const ByValueConstCopyAssignment);
+};
+
+struct ByValueCopyAssignmentWithDeletedCopyConstructor {
+    ByValueCopyAssignmentWithDeletedCopyConstructor(
+        const ByValueCopyAssignmentWithDeletedCopyConstructor&) = delete;
+    ByValueCopyAssignmentWithDeletedCopyConstructor& operator=(
+        ByValueCopyAssignmentWithDeletedCopyConstructor);
+};
+
+void by_value_copy_assignment_accepts_rvalue(
+    ByValueCopyAssignment& destination,
+    ByValueCopyAssignment&& source) {
+    destination = static_cast<ByValueCopyAssignment&&>(source);
+}
+
 template <typename T>
 struct AssignmentSizeProbe {
     static constexpr bool value = sizeof(T) == sizeof(double);
@@ -1137,6 +1158,24 @@ static_assert(std::is_assignable<RvalueQualifiedAssignment,
 static_assert(!std::is_assignable<DeletedBestAssignment&,
                                   const DeletedBestAssignment&>::value,
               "a deleted best assignment blocks a weaker base overload");
+static_assert(std::is_assignable<ByValueCopyAssignment&,
+                                 const ByValueCopyAssignment&>::value,
+              "a by-value copy-assignment parameter is a copy assignment");
+static_assert(std::is_assignable<ByValueConstCopyAssignment&,
+                                 const ByValueConstCopyAssignment&>::value,
+              "top-level const on a by-value copy parameter is accepted");
+static_assert(!std::is_trivially_copyable<ByValueCopyAssignment>::value,
+              "a user-provided by-value copy assignment is non-trivial");
+static_assert(std::is_constructible<ByValueCopyAssignment,
+                                    ByValueCopyAssignment&&>::value,
+              "the implicit copy constructor accepts an rvalue when move is suppressed");
+static_assert(std::is_assignable<ByValueCopyAssignment&,
+                                 ByValueCopyAssignment&&>::value,
+              "by-value copy assignment accepts an rvalue source");
+static_assert(!std::is_assignable<
+                  ByValueCopyAssignmentWithDeletedCopyConstructor&,
+                  const ByValueCopyAssignmentWithDeletedCopyConstructor&>::value,
+              "by-value assignment requires viable parameter copy construction");
 static_assert(std::is_assignable<ScalarAssignmentUnion&,
                                  const ScalarAssignmentUnion&>::value,
               "trivial scalar union assignment is available");

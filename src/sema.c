@@ -4137,7 +4137,7 @@ reference_binding_validated:
     }
 
     if ((target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
-        type_is_compatible(e->type, target)) {
+        type_is_compatible(sema_cxx_object_type(e->type), target)) {
         return target;
     }
     if (sema_cxx_apply_derived_to_base_value_cast(e, target, false)) {
@@ -10750,6 +10750,27 @@ static bool sema_cxx_has_user_copy_move_constructor(Type* type) {
     return false;
 }
 
+/* An assignment operator is a copy-assignment special member when it takes
+ * the class itself by value or by lvalue reference. Only an rvalue-reference
+ * parameter declares the move-assignment special member. */
+static int sema_cxx_assignment_special_member_kind(
+    Type* class_type, Type* parameter_type) {
+    if (!class_type || !parameter_type || !class_type->cxx_class) return 0;
+    if (parameter_type->kind == TYPE_PTR && parameter_type->is_reference) {
+        if (!parameter_type->base ||
+            parameter_type->base->cxx_class != class_type->cxx_class) {
+            return 0;
+        }
+        return parameter_type->is_rvalue_reference ? 2 : 1;
+    }
+    if ((parameter_type->kind == TYPE_STRUCT ||
+         parameter_type->kind == TYPE_UNION) &&
+        parameter_type->cxx_class == class_type->cxx_class) {
+        return 1;
+    }
+    return 0;
+}
+
 static bool sema_cxx_has_user_copy_move_assignment(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
     if (!cls) return false;
@@ -10767,10 +10788,8 @@ static bool sema_cxx_has_user_copy_move_assignment(Type* type) {
         parameter = method->decl->func_params;
         parameter_type = parameter && parameter->decl
             ? parameter->decl->type : NULL;
-        if (parameter && !parameter->next && parameter_type &&
-            parameter_type->kind == TYPE_PTR && parameter_type->is_reference &&
-            parameter_type->base &&
-            type_is_compatible(parameter_type->base, type)) {
+        if (parameter && !parameter->next &&
+            sema_cxx_assignment_special_member_kind(type, parameter_type)) {
             return true;
         }
     }
@@ -13181,12 +13200,9 @@ static bool sema_cxx_has_declared_special_assignment(Type* type,
         parameter = method->decl->func_params;
         parameter_type = parameter && parameter->decl
             ? parameter->decl->type : NULL;
-        if (parameter && !parameter->next && parameter_type &&
-            parameter_type->kind == TYPE_PTR &&
-            parameter_type->is_reference &&
-            parameter_type->is_rvalue_reference == is_move &&
-            parameter_type->base &&
-            parameter_type->base->cxx_class == cls) {
+        if (parameter && !parameter->next &&
+            sema_cxx_assignment_special_member_kind(type, parameter_type) ==
+                (is_move ? 2 : 1)) {
             return true;
         }
     }
@@ -15660,6 +15676,7 @@ static Type* sema_cxx_type_trait_assignment_type(Type* owner_type,
             is_defaulted, source_method->is_noexcept,
             source_method->ref_qualifier, source_method->decl->loc);
         if (!lowered) continue;
+        lowered->source_decl = source_method->decl;
         *tail = lowered;
         tail = &lowered->next;
     }
@@ -17420,6 +17437,56 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
     if (template_candidate_count > 0) {
         sema_register_materialized_member_templates(aggregate);
     }
+    /* Ordinary C++ methods remain in the frontend's CxxClass member list;
+     * Type.methods is populated lazily for semantic operations that need
+     * overload resolution.  Assignment expressions need their declared
+     * operator= candidates here just as the type-trait probe does. */
+    if (expression->kind == EXPR_ASSIGN && aggregate->cxx_class) {
+        TypeMethod** tail = &aggregate->methods;
+        for (TypeMethod* existing = aggregate->methods; existing;
+             existing = existing->next) {
+            tail = &existing->next;
+        }
+        for (struct CxxMember* item = aggregate->cxx_class->members;
+             item; item = item->next) {
+            CxxMethod* source_method = item->method;
+            TypeMethod* lowered;
+            bool is_deleted;
+            bool is_defaulted;
+            if (!source_method || source_method->is_static ||
+                source_method->member_template || !source_method->decl ||
+                !source_method->source_name ||
+                strcmp(source_method->source_name, name) != 0 ||
+                sema_cxx_type_trait_assignment_method_is_present(
+                    aggregate->methods, source_method->decl)) {
+                continue;
+            }
+            is_deleted = source_method->is_deleted;
+            is_defaulted = source_method->is_defaulted;
+            if (is_defaulted && !is_deleted &&
+                source_method->decl->func_params &&
+                !source_method->decl->func_params->next &&
+                source_method->decl->func_params->decl) {
+                Type* parameter_type =
+                    source_method->decl->func_params->decl->type;
+                if (parameter_type && parameter_type->kind == TYPE_PTR &&
+                    parameter_type->is_reference && parameter_type->base &&
+                    parameter_type->base->cxx_class == aggregate->cxx_class) {
+                    is_deleted =
+                        !sema_cxx_type_trait_assignment_subobjects_are_assignable(
+                            aggregate, parameter_type, 0u);
+                }
+            }
+            lowered = sema_cxx_type_trait_assignment_method(
+                aggregate, source_method->decl, NULL, item->access,
+                is_deleted, is_defaulted, source_method->is_noexcept,
+                source_method->ref_qualifier, source_method->decl->loc);
+            if (!lowered) continue;
+            lowered->source_decl = source_method->decl;
+            *tail = lowered;
+            tail = &lowered->next;
+        }
+    }
     method = sema_find_function_method(aggregate, name);
     if ((!method || !method->function_decl) &&
         template_candidate_count == 0) {
@@ -18146,11 +18213,16 @@ static bool sema_prepare_cxx_move_assignment(Expr* expression, Type* target) {
             cast_type->is_reference && cast_type->is_rvalue_reference &&
             cast_type->base && type_is_compatible(cast_type->base, target);
     }
+    /* This lowering is exclusively for the SDK's structurally validated
+     * cleanup-handle type.  An arbitrary class xvalue is not evidence that
+     * it uses the ownership protocol; ordinary operator= overload resolution
+     * and implicit copy assignment must remain available. */
+    if (!target->cleanup_function || !target->cleanup_field) {
+        return false;
+    }
     if (!target->move_assignment_method && !names_move) {
-        if (target->cleanup_function && target->cleanup_field) {
-            rcc_error(expression->loc,
-                      "C++ scope-cleanup object assignment requires a validated operator=");
-        }
+        rcc_error(expression->loc,
+                  "C++ scope-cleanup object assignment requires a validated operator=");
         return false;
     }
     if (!target->move_assignment_method || !names_move) {
