@@ -4,11 +4,11 @@ struct InheritedMultipleBaseTemplate {
 };
 
 struct InheritedAdditionalBase {
-    InheritedAdditionalBase() {}
+    InheritedAdditionalBase() = delete;
 };
 
 struct InheritedMultipleBaseDerived
-    : InheritedAdditionalBase, InheritedMultipleBaseTemplate {
+    : InheritedMultipleBaseTemplate, InheritedAdditionalBase {
     using InheritedMultipleBaseTemplate::InheritedMultipleBaseTemplate;
 };
 

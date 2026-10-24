@@ -7422,6 +7422,8 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     inherited->is_deleted = false;
     inherited->is_defaulted = false;
     inherited->is_inherited = true;
+    inherited->inherited_base_initializers = NULL;
+    inherited->inherited_selected_base_index = -1;
     inherited->inherited_member_initializers = NULL;
     inherited->access = source->access;
 
@@ -8026,6 +8028,10 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
     int inheritance_path_length = 0;
     int inheritance_path_count;
     int initializer_count = 0;
+    int final_selected_base_index = -1;
+    CxxConstructorInitializer* leading_sibling_bases = NULL;
+    CxxConstructorInitializer** leading_sibling_tail =
+        &leading_sibling_bases;
     SourceLoc loc = constructor && constructor->method &&
             constructor->method->decl
         ? constructor->method->decl->loc
@@ -8082,13 +8088,12 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
             }
         }
         if (selected_base_index < 0 ||
-            selected_base_index != 0 ||
             derived_layer->bases[selected_base_index].access != ACCESS_PUBLIC ||
             derived_layer->bases[selected_base_index].is_virtual ||
             (path_index + 1 < inheritance_path_length &&
              derived_layer->base_count != 1)) {
             rcc_error(loc,
-                      "inherited constructor-template lowering requires a unique public non-virtual inherited base first in declaration order");
+                      "inherited constructor-template lowering requires a unique public non-virtual inherited base and single-base intermediate layers");
             return false;
         }
         if (!cxx_inherited_constructor_member_supported(derived_layer)) {
@@ -8097,14 +8102,17 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
             return false;
         }
         if (path_index + 1 == inheritance_path_length) {
+            final_selected_base_index = selected_base_index;
             /* The selected inherited base is initialized by the constructor
-             * itself. Preserve C++ declaration order by emitting any later
-             * direct bases before the derived member initializers below. */
-            for (int base_index = selected_base_index + 1;
+             * itself. Preserve C++ declaration order by placing earlier
+             * siblings before it and later siblings before derived members. */
+            for (int base_index = 0;
                  base_index < derived_layer->base_count; ++base_index) {
+                CxxConstructorInitializer*** sibling_tail_target;
                 CxxClass* sibling = derived_layer->bases[base_index].base;
                 CxxConstructorInfo* default_constructor;
                 CxxConstructorInitializer* initializer;
+                if (base_index == selected_base_index) continue;
                 if (!sibling ||
                     derived_layer->bases[base_index].is_virtual ||
                     !cxx_constructor_base_layout_supported(
@@ -8132,9 +8140,11 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
                 initializer->field = rcc_intern(sibling->name);
                 initializer->constructor = default_constructor;
                 initializer->is_base_initializer = true;
-                *sibling_tail = initializer;
-                sibling_tail = &initializer->next;
-                ++sibling_count;
+                sibling_tail_target = base_index < selected_base_index
+                    ? &leading_sibling_tail : &sibling_tail;
+                **sibling_tail_target = initializer;
+                *sibling_tail_target = &initializer->next;
+                if (base_index >= selected_base_index) ++sibling_count;
             }
         }
         layer_initializers = ast_arena_alloc(sizeof(*layer_initializers));
@@ -8166,6 +8176,8 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
             initializer_tail = &(*initializer_tail)->next;
         }
     }
+    constructor->inherited_base_initializers = leading_sibling_bases;
+    constructor->inherited_selected_base_index = final_selected_base_index;
     member_initializers->initializer_count = initializer_count;
     constructor->inherited_member_initializers = member_initializers;
     return true;
@@ -11048,6 +11060,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                                   body->block_stmts == NULL;
             info->is_deleted = is_deleted;
             info->is_defaulted = is_defaulted;
+            info->inherited_base_initializers = NULL;
+            info->inherited_selected_base_index = -1;
             info->inherited_member_initializers = NULL;
             info->access = current_access;
             info->next = NULL;

@@ -4,6 +4,7 @@ int cxx_inherited_template_order_error = 0;
 int cxx_inherited_template_order_complete = 0;
 int cxx_inherited_template_multi_order = 0;
 int cxx_inherited_template_multi_error = 0;
+int cxx_inherited_template_multi_complete = 0;
 }
 
 struct InheritedBase {
@@ -93,21 +94,32 @@ struct InheritedTemplateMultiBase {
     template <typename T>
     explicit InheritedTemplateMultiBase(T value)
         : value_(value + sizeof(T)) {
+        if (cxx_inherited_template_multi_order != 1) {
+            cxx_inherited_template_multi_error = 1;
+        }
+        cxx_inherited_template_multi_order = 2;
+    }
+
+    int value_;
+};
+
+struct InheritedTemplateMultiPrefix {
+    InheritedTemplateMultiPrefix() : prefix_value_(11) {
         if (cxx_inherited_template_multi_order != 0) {
             cxx_inherited_template_multi_error = 1;
         }
         cxx_inherited_template_multi_order = 1;
     }
 
-    int value_;
+    int prefix_value_;
 };
 
 struct InheritedTemplateSiblingBase {
     InheritedTemplateSiblingBase() : sibling_value_(17) {
-        if (cxx_inherited_template_multi_order != 1) {
+        if (cxx_inherited_template_multi_order != 2) {
             cxx_inherited_template_multi_error = 1;
         }
-        cxx_inherited_template_multi_order = 2;
+        cxx_inherited_template_multi_order = 3;
     }
 
     int sibling_value_;
@@ -115,14 +127,16 @@ struct InheritedTemplateSiblingBase {
 
 struct InheritedTemplateMultiMember {
     InheritedTemplateMultiMember() {
-        if (cxx_inherited_template_multi_order != 2) {
+        if (cxx_inherited_template_multi_order != 3) {
             cxx_inherited_template_multi_error = 1;
         }
-        cxx_inherited_template_multi_order = 3;
+        cxx_inherited_template_multi_order = 0;
+        cxx_inherited_template_multi_complete += 1;
     }
 };
 
-struct InheritedTemplateMultiDerived : InheritedTemplateMultiBase,
+struct InheritedTemplateMultiDerived : InheritedTemplateMultiPrefix,
+                                       InheritedTemplateMultiBase,
                                        InheritedTemplateSiblingBase {
     using InheritedTemplateMultiBase::InheritedTemplateMultiBase;
     int extra_ = 9;
@@ -139,10 +153,13 @@ extern "C" int cxx_inherited_constructor_probe(void) {
     InheritedTemplateEmptyDerived seven{2};
     InheritedTemplateLeaf eight{10};
     InheritedTemplateMultiDerived nine{3};
+    InheritedTemplateMultiDerived ten{4};
     return one.value_ + two.value_ + three.value_ + three.member_.value_ +
            four.value_ + five.value_ + six.value_ + four.extra_ +
            five.extra_ + six.extra_ + seven.value_ + seven.extra_ +
            eight.value_ + eight.extra_ +
-           nine.value_ + nine.sibling_value_ + nine.extra_ +
+           nine.prefix_value_ + nine.value_ + nine.sibling_value_ +
+           nine.extra_ + ten.prefix_value_ + ten.value_ +
+           ten.sibling_value_ + ten.extra_ +
            cxx_inherited_template_order_complete;
 }

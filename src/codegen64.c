@@ -6386,6 +6386,49 @@ static void gen64_cxx_initialize_inherited_members(
     gen64_cxx_initialize_member_initializers(
         mod, object_type, constructor->inherited_member_initializers,
         NULL, false);
+    for (CxxConstructorInitializer* initializer =
+             constructor->inherited_base_initializers;
+         initializer; initializer = initializer->next) {
+        Type* base_type = NULL;
+        int base_offset = gen64_cxx_constructor_base(
+            object_type, initializer->field, &base_type);
+        if (base_offset >= 0 && base_type) {
+            gen64_cxx_exception_change_at_offset(
+                mod, base_type, RCX, base_offset,
+                active_cxx_exception_cleanup_frame_offset64, true);
+        }
+    }
+}
+
+static void gen64_cxx_initialize_inherited_bases(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor) {
+    if (!constructor || !constructor->is_inherited) return;
+    for (CxxConstructorInitializer* initializer =
+             constructor->inherited_base_initializers;
+         initializer; initializer = initializer->next) {
+        Type* base_type = NULL;
+        int base_offset = gen64_cxx_constructor_base(
+            object_type, initializer->field, &base_type);
+        if (base_offset < 0 || !base_type) {
+            rcc_error((SourceLoc){"<constructor>", 0, 0},
+                      "validated inherited C++ base initializer is incomplete");
+            return;
+        }
+        emit64_push_reg(mod, RCX);
+        if (base_offset != 0) {
+            emit64_add_reg_imm(mod, RCX, (uint32_t)base_offset);
+        }
+        if (initializer->constructor) {
+            gen64_cxx_initialize_object_mode(
+                mod, base_type, initializer->constructor, NULL, false);
+        } else {
+            gen64_cxx_zero_object(mod, base_type, RCX);
+        }
+        emit64_pop_reg(mod, RCX);
+        gen64_cxx_exception_change_at_offset(
+            mod, base_type, RCX, base_offset,
+            active_cxx_exception_cleanup_frame_offset64, false);
+    }
 }
 
 static void gen64_cxx_initialize_object_mode_impl(
@@ -6402,10 +6445,25 @@ static void gen64_cxx_initialize_object_mode_impl(
         return;
     }
     if (!constructor->body_is_empty) {
+        gen64_cxx_initialize_inherited_bases(
+            mod, object_type, constructor);
         emit64_push_reg(mod, RCX);
         gen64_cxx_initialize_member_initializers(
             mod, object_type, constructor, arguments,
             initialize_virtual_bases);
+        if (constructor->is_inherited && object_type &&
+            object_type->cxx_class &&
+            constructor->inherited_selected_base_index > 0 &&
+            constructor->inherited_selected_base_index <
+                object_type->cxx_class->base_count &&
+            object_type->cxx_class->base_offsets &&
+            object_type->cxx_class->base_offsets[
+                constructor->inherited_selected_base_index] > 0) {
+            emit64_add_reg_imm(
+                mod, RCX,
+                (uint32_t)object_type->cxx_class->base_offsets[
+                    constructor->inherited_selected_base_index]);
+        }
         gen64_cxx_call_constructor(mod, constructor, arguments);
         emit64_pop_reg(mod, RCX);
         gen64_cxx_initialize_inherited_members(
@@ -6455,6 +6513,8 @@ static void gen64_cxx_initialize_object_mode_impl(
     } else {
         gen64_cxx_zero_object(mod, object_type, address_reg);
     }
+    gen64_cxx_initialize_inherited_bases(
+        mod, object_type, constructor);
     if (constructor->initializers) {
         for (initializer = constructor->initializers; initializer;
              initializer = initializer->next) {

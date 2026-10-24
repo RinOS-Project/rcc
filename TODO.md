@@ -9319,9 +9319,10 @@ remains a separate open item.
       constructors as inherited. Both target-width fixtures match GCC C++20.
 - [x] Ordinary runtime construction through bounded inherited constructor
       templates is covered for direct and linear multi-level public
-      non-virtual chains. Additional final-layer direct bases are covered when
-      the selected inherited base is first and later bases have supported
-      public zero-argument constructors.
+      non-virtual chains. Final-layer direct bases may precede or follow the
+      selected inherited base when each sibling has a safely lowerable public
+      zero-argument constructor; i686/AMD64 runtime probes verify declaration
+      order across repeated constructions.
 - [ ] Remaining implicit copy/move deletion and access rules,
       `is_nothrow_constructible`, virtual-base inherited constructor templates,
       and broader trait conformance remain open.
@@ -9348,6 +9349,20 @@ remains a separate open item.
       special-member rules, complete implicit copy/move access/deletion
       conformance, `is_nothrow_constructible`, and broader type-trait coverage
       remain open.
+
+## RCC continuation (2026-10-24, inherited constructor-template base order)
+
+- [x] Initialize safely lowerable direct sibling bases declared before the
+      selected inherited constructor-template base before invoking it, adjust
+      the selected base `this` pointer, then initialize later sibling bases
+      and derived members in declaration order. Repeated constructions verify
+      prefix/suffix order and initialized values on i686 and AMD64; the focused
+      inherited-constructor execution gate and full `make test-cxx` aggregate
+      pass under WSL, and the GCC C++20 execution oracle passes.
+- [ ] Multiple-base intermediate layers, virtual-base constructor-template
+      chains, broader constructor lifetime/exception cleanup, remaining
+      implicit copy/move access/deletion rules, `is_nothrow_constructible`,
+      and broader type-trait coverage remain open.
 
 ## RCC continuation (2026-10-24, inherited constructor-template traits)
 
