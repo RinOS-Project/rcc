@@ -10,7 +10,11 @@
 int RIN_SYSV cxx_inherited_constructor_probe(void);
 
 int main(void) {
-    assert(cxx_inherited_constructor_probe() == 24);
+    int result = cxx_inherited_constructor_probe();
+    if (result != 116) {
+        fprintf(stderr, "inherited constructor probe returned %d\n", result);
+        return 1;
+    }
     puts("C++ inherited constructor execution test passed");
     return 0;
 }

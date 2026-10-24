@@ -42,6 +42,8 @@ extern int rcc_parser_cxx_materialize_member_function_templates(
     __attribute__((weak));
 extern int rcc_parser_cxx_materialize_constructor_templates(
     Type*, ExprList*, bool, TypeMethod**, int, bool*) __attribute__((weak));
+extern bool rcc_parser_cxx_has_constructor_template(
+    Type*) __attribute__((weak));
 extern bool rcc_parser_cxx_normalize_constructor_body(
     CxxClass*, CxxConstructorInfo*) __attribute__((weak));
 #endif
@@ -12833,26 +12835,22 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
     uint32_t mask;
 
     if (!cls || argument_count < 0 || argument_count >= 32) return NULL;
-    for (struct CxxMember* member = cls->members; member;
-         member = member->next) {
-        CxxMethod* method = member->method;
-        if (method && method->is_constructor && method->member_template) {
-            bool template_ambiguous = false;
-            CxxConstructorInfo* selected =
-                sema_cxx_select_type_trait_constructor_ex(
-                    object_type, supplied_arguments, argument_count,
-                    allow_explicit, true, true, false,
-                    &template_ambiguous);
-            Decl* declaration = selected && selected->method
-                ? selected->method->decl : NULL;
-            if (template_ambiguous) {
-                rcc_error(loc, "ambiguous constructor for C++ initialization");
-                return NULL;
-            }
-            if (!selected || !selected->method ||
-                !selected->method->member_template) {
-                break;
-            }
+    if (rcc_parser_cxx_has_constructor_template &&
+        rcc_parser_cxx_has_constructor_template(object_type)) {
+        bool template_ambiguous = false;
+        CxxConstructorInfo* selected =
+            sema_cxx_select_type_trait_constructor_ex(
+                object_type, supplied_arguments, argument_count,
+                allow_explicit, true, true, false,
+                &template_ambiguous);
+        Decl* declaration = selected && selected->method
+            ? selected->method->decl : NULL;
+        if (template_ambiguous) {
+            rcc_error(loc, "ambiguous constructor for C++ initialization");
+            return NULL;
+        }
+        if (selected && selected->method &&
+            selected->method->member_template) {
             if (selected->access != ACCESS_PUBLIC) {
                 rcc_error(loc, "selected C++ constructor is not accessible");
                 return NULL;
@@ -13345,12 +13343,17 @@ static CxxConstructorInfo* sema_cxx_make_type_trait_template_constructor(
     CxxMethod* semantic_method;
     CxxConstructorInfo* pattern = method
         ? method->cxx_constructor_info : NULL;
+    CxxClass* pattern_owner = pattern && pattern->method
+        ? pattern->method->owner : NULL;
+    bool inherited = pattern_owner && pattern_owner != owner;
     TypeParam* parameters;
     int parameter_count = 0;
     if (!owner || !owner->type || !method || !declaration ||
         !declaration->type || declaration->type->kind != TYPE_FUNC ||
         !declaration->func_is_cxx_constructor ||
-        declaration->func_method_owner != owner->type ||
+        (declaration->func_method_owner != owner->type &&
+         (!inherited || !pattern_owner->type ||
+          declaration->func_method_owner != pattern_owner->type)) ||
         !declaration->func_is_template_instance) {
         return NULL;
     }
@@ -13380,6 +13383,7 @@ static CxxConstructorInfo* sema_cxx_make_type_trait_template_constructor(
     constructor->parameters = parameters;
     constructor->is_deleted = method->is_deleted;
     constructor->is_defaulted = method->is_defaulted;
+    constructor->is_inherited = inherited;
     constructor->access = (AccessSpec)method->cxx_access;
     /* Candidate viability depends on the declaration and parameter list, not
      * on an instantiated body.  Runtime lowering is finalized only after

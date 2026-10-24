@@ -35204,18 +35204,6 @@ static int cxx_materialize_member_function_templates_internal(
                 this_adjustment);
             if (!lowered) continue;
             lowered->cxx_access = (unsigned char)matched_accesses[index];
-            if (method->is_constructor && method->owner != cls) {
-                Decl* inherited_declaration = ast_arena_alloc(
-                    sizeof(*inherited_declaration));
-                TypeMethod* inherited_method = ast_arena_alloc(
-                    sizeof(*inherited_method));
-                *inherited_declaration = *lowered->function_decl;
-                inherited_declaration->func_method_owner = cls->type;
-                *inherited_method = *lowered;
-                inherited_method->function_decl = inherited_declaration;
-                inherited_method->this_owner = cls->type;
-                lowered = inherited_method;
-            }
             if (result_count >= candidate_capacity || !candidates) {
                 rcc_error(lowered->function_decl->loc,
                           "member function template candidate limit exceeded for '%s'",
@@ -35253,15 +35241,13 @@ int rcc_parser_cxx_materialize_constructor_templates(
 
 bool rcc_parser_cxx_has_constructor_template(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
-    if (!cls) return false;
-    for (struct CxxMember* member = cls->members; member;
-         member = member->next) {
-        CxxMethod* method = member->method;
-        if (method && method->is_constructor && method->member_template) {
-            return true;
-        }
-    }
-    return false;
+    CxxMethod* methods[32] = { NULL };
+    AccessSpec accesses[32] = { ACCESS_PUBLIC };
+    int count = 0;
+    return cls && cxx_collect_constructor_template_sources(
+                      cls, true, methods, accesses,
+                      (int)(sizeof(methods) / sizeof(methods[0])), &count) &&
+           count > 0;
 }
 
 /* Function-address template deduction uses the target function type as the
