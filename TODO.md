@@ -4750,10 +4750,13 @@ remains a separate open item.
   aggregates after this parser change (both exit 0).
 - [ ] Forward dependent template-template packs through nested alias-template
   specializations and support deeper multi-source-pack expansion.
-- [ ] Add explicit/partial nested member specializations for dependent owners
-  and outer class-template-specialization owner patterns. Structural
-  non-integral owner packs and deeper cross-kind dependent-owner expansion also
-  remain open.
+- [x] Add explicit/partial nested member specializations under dependent and
+  outer class-template-specialization owners, including representative
+  structural class-type, enum, pointer/nullptr, array, and packed NTTP patterns.
+  The dedicated owner-partial and structural-value-pack targets pass exact GCC
+  Itanium symbol checks, i686/AMD64 generation, and GCC/RCC host execution.
+- [ ] Extend deeper cross-kind dependent-owner combinations and defaults or
+  constraints in nested template-template signatures.
 - [ ] Extend structural non-integral NTTP packs and defaults/constraints in
   nested template-template signatures.
 - [x] Commit the parser implementation, regression fixture, and test record
@@ -4799,9 +4802,11 @@ remains a separate open item.
 - [x] Support dependent owners before the enclosing class template is
   instantiated, including a multi-level `Outer<T>::Inner<U>::Leaf<V>` chain;
   owner specialization identity and nested access are covered by regressions.
-- [ ] Add nested member specializations owned by outer class-template
-  specializations, including structural NTTP owner arguments and dependent
-  owner declarations.
+- [x] Add nested member specializations owned by outer class-template
+  specializations, including dependent owner declarations and structural NTTP
+  owner arguments. The owner-partial and structural-value-pack target pair
+  passes exact GCC symbol comparison, both target widths, and runtime checks;
+  deeper cross-kind combinations remain tracked separately below.
 
 ## RCC continuation (2026-10-14, nested templates on concrete template owners)
 
@@ -4844,8 +4849,10 @@ remains a separate open item.
   change (exit 0).
 - [x] Pass the full native-Windows MinGW GCC `test-debug-info` aggregate after
   this change (exit 0).
-- [ ] Add explicit/partial nested member specializations for dependent or outer
-  class-template-specialization owners, plus structural NTTP owner packs.
+- [x] Add explicit/partial nested member specializations for dependent or outer
+  class-template-specialization owners, plus representative structural NTTP
+  owner packs. Focused owner-partial and structural-value-pack gates pass GCC
+  ABI comparison, i686/AMD64 generation, and runtime.
 
 ## RCC continuation (2026-10-15, dependent nested class-template owner chains)
 
