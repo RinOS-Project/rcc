@@ -9885,5 +9885,16 @@ remains a separate open item.
       expression checks cover signed operators and the unsigned boundary on
       i686/AMD64 for legacy and verified objects. The focused inline-expression
       test passes.
-- [ ] Mixed-type conversions, i686 comparisons wider than its DWARF stack,
-      and other unsupported runtime expression trees remain open.
+- [ ] Implicit usual arithmetic conversions, i686 comparisons wider than its
+      DWARF stack, and other unsupported runtime expression trees remain open.
+
+## RCC continuation (2026-10-25, integer casts in inline DWARF expressions)
+
+- [x] Compose an explicit integer cast inside a runtime comparison argument
+      when source and destination fit the target DWARF stack. Normalize the
+      source value first and then the cast destination; verify signed `int` to
+      `unsigned int` followed by full-width unsigned ordering on i686/AMD64.
+      Focused inline-expression and full `test-debug-info` pass for legacy and
+      verified objects.
+- [ ] Implicit usual arithmetic conversions, casts involving i686-wide
+      operands, and other unsupported expression trees remain open.

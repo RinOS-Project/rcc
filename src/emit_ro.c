@@ -5386,6 +5386,20 @@ static bool debug_build_inline_integer_value_expression(
                 architecture);
     }
 
+    if (expression->kind == EXPR_CAST && expression->cast_expr &&
+        (unsigned int)expression->type->size <=
+            (architecture == ARCH_X64 ? 8u : 4u) &&
+        debug_inline_integer_expression_type(expression->cast_expr->type) &&
+        (unsigned int)expression->cast_expr->type->size <=
+            (architecture == ARCH_X64 ? 8u : 4u) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->cast_expr, output, capacity,
+            output_size, depth + 1u) &&
+        debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture)) {
+        return true;
+    }
+
     if ((expression->kind == EXPR_NEG ||
          expression->kind == EXPR_BITNOT) && expression->unary_operand &&
         debug_inline_integer_expression_type(
