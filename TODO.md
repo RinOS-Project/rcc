@@ -9600,3 +9600,24 @@ remains a separate open item.
       `test-cxx-class-template-methods` and `test-cxx-member-methods-invalid`.
 - [ ] Explicit member specializations and deeper nested/template owner
       qualification remain open.
+
+## RCC continuation (2026-10-25, member-template lookahead and glvalue category)
+
+- [x] Keep out-of-class member-template declaration lookahead non-diagnostic:
+      skip declaration attributes/specifiers and scan for the qualified
+      member-id without invoking type parsing that performs semantic checks.
+      Dependent `typename U::value_type` return types and the full C++20
+      regression aggregate pass under WSL.
+- [x] Preserve class-reference value category through conversion-function
+      overload resolution. An xvalue now selects an `&&`-qualified conversion
+      rather than an `&`-qualified overload; both-width invalid reference and
+      runtime tests pass in `test-cxx-conversion-operator-posix`.
+- [x] Preserve function designator addresses in both code generators instead
+      of loading instruction bytes when dereferencing a function reference.
+      The verified function-reference runtime regression passes.
+- [x] Materialize the i686 host float-to-double reference value in the
+      optimizer runtime test, avoiding a host-side decimal-constant mismatch.
+      `test-optimize` passes on the native Windows target; the POSIX run passed
+      its optimizer execution checks before the WSL shared-drive I/O failure.
+- [ ] Explicit member specializations, deeper nested/template owner
+      qualification, and remaining ABI/lifetime cases remain open.

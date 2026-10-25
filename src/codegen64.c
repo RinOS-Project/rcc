@@ -8056,6 +8056,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
              * dereference into the array's first element and break the
              * subsequent index operation. */
             if (expr->type && (expr->type->kind == TYPE_ARRAY ||
+                               expr->type->kind == TYPE_FUNC ||
                                expr->type->kind == TYPE_STRUCT ||
                                expr->type->kind == TYPE_UNION ||
                                expr->type->kind == TYPE_VECTOR ||

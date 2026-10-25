@@ -16884,14 +16884,131 @@ static Type* cxx_member_definition_return_type(Type* base_type) {
     return result;
 }
 
+static void cxx_template_lookahead_skip_attributes(void) {
+    while (check(TOK_LBRACKET) && check_next(TOK_LBRACKET)) {
+        int depth = 1;
+        advance();
+        advance();
+        while (depth > 0 && !at_end()) {
+            if (check(TOK_LBRACKET) && check_next(TOK_LBRACKET)) {
+                advance();
+                advance();
+                ++depth;
+            } else if (check(TOK_RBRACKET) && check_next(TOK_RBRACKET)) {
+                advance();
+                advance();
+                --depth;
+            } else {
+                advance();
+            }
+        }
+    }
+}
+
 static bool cxx_out_of_class_member_template_definition_starts(void) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
-    Type* return_type = parse_cxx_type_spec();
     bool starts = false;
-    if (return_type) {
-        return_type = cxx_member_definition_return_type(return_type);
+    /* This is a non-diagnostic lookahead. Template declarations may begin
+     * with function or storage specifiers, which must not be mistaken for
+     * the return type (notably `constexpr` in standard-library headers). */
+    for (;;) {
+        cxx_template_lookahead_skip_attributes();
+        if (match(TOK_INLINE) || match(TOK_CONSTEXPR) ||
+            match(TOK_CONSTEVAL) || match(TOK_STATIC) ||
+            match(TOK_EXTERN)) {
+            continue;
+        }
+        break;
+    }
+    if (match(TOK_AUTO)) {
         starts = cxx_qualified_member_definition_starts();
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return starts;
+    }
+
+    /* Do not parse a type here. Type parsing can perform access checks and
+     * register semantic uses, even though this routine only needs to decide
+     * whether the declaration has an out-of-class qualified member-id. Scan
+     * top-level token positions for that id instead. */
+    {
+        Token* token = parser.cur;
+        Token* type_start = parser.cur;
+        int parentheses = 0;
+        int brackets = 0;
+        int braces = 0;
+        int template_depth = 0;
+        while (token && token->type != TOK_EOF) {
+            if (parentheses == 0 && brackets == 0 && braces == 0 &&
+                template_depth == 0) {
+                if (token->type == TOK_SEMICOLON ||
+                    token->type == TOK_LBRACE || token->type == TOK_ASSIGN ||
+                    token->type == TOK_RPAREN || token->type == TOK_RBRACE) {
+                    break;
+                }
+                if (token != type_start &&
+                    (token->type == TOK_IDENT || token->type == TOK_SCOPE)) {
+                    parser.cur = token;
+                    if (cxx_qualified_member_definition_starts()) {
+                        starts = true;
+                        break;
+                    }
+                }
+                if (token->type == TOK_LBRACKET && token->next &&
+                    token->next->type == TOK_LBRACKET) {
+                    int attribute_depth = 1;
+                    token = token->next->next;
+                    while (token && token->type != TOK_EOF &&
+                           attribute_depth > 0) {
+                        if (token->type == TOK_LBRACKET && token->next &&
+                            token->next->type == TOK_LBRACKET) {
+                            ++attribute_depth;
+                            token = token->next->next;
+                        } else if (token->type == TOK_RBRACKET &&
+                                   token->next &&
+                                   token->next->type == TOK_RBRACKET) {
+                            --attribute_depth;
+                            token = token->next->next;
+                        } else {
+                            token = token->next;
+                        }
+                    }
+                    continue;
+                }
+            }
+
+            switch (token->type) {
+                case TOK_LPAREN: ++parentheses; break;
+                case TOK_RPAREN:
+                    if (parentheses > 0) --parentheses;
+                    break;
+                case TOK_LBRACKET: ++brackets; break;
+                case TOK_RBRACKET:
+                    if (brackets > 0) --brackets;
+                    break;
+                case TOK_LBRACE: ++braces; break;
+                case TOK_RBRACE:
+                    if (braces > 0) --braces;
+                    break;
+                case TOK_LT:
+                    if (parentheses == 0 && brackets == 0 && braces == 0) {
+                        ++template_depth;
+                    }
+                    break;
+                case TOK_GT:
+                    if (template_depth > 0) --template_depth;
+                    break;
+                case TOK_RSHIFT:
+                    if (template_depth > 0) {
+                        template_depth = template_depth > 1
+                            ? template_depth - 2 : 0;
+                    }
+                    break;
+                default: break;
+            }
+            token = token->next;
+        }
     }
     parser.cur = saved_cur;
     parser.prev = saved_prev;

@@ -3536,8 +3536,13 @@ int main(int argc, char** argv)
         assert(inlined_unsigned64_to_signed64_parameter_call(UINT64_MAX) ==
                -1ll);
         assert(inlined_signed_to_unsigned_parameter_call(-1) == UINT32_MAX);
-        assert(inlined_float_to_double_parameter_call(1.1f) ==
-               (double)1.1f);
+        {
+            /* Materialize the host's i686 float-to-double reference value. */
+            volatile float float_to_double_input = 1.1f;
+            double expected_float_to_double = float_to_double_input;
+            assert(inlined_float_to_double_parameter_call(
+                       float_to_double_input) == expected_float_to_double);
+        }
         assert(inlined_double_to_float_parameter_call(1.1) == (float)1.1);
         assert(preserved_large_inline_call(2) == 32);
         assert(inlined_forward_chain(-8) == 1);

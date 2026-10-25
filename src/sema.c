@@ -3233,7 +3233,7 @@ static int sema_cxx_conversion_object_qualification_rank(
     source_is_lvalue = is_lvalue(source_expression);
     if (method->ref_qualifier == CXX_REF_QUAL_LVALUE &&
         !source_is_lvalue) {
-        if (!this_type->is_const) return -1;
+        return -1;
     } else if (method->ref_qualifier == CXX_REF_QUAL_RVALUE &&
                source_is_lvalue) {
         return -1;
@@ -4017,14 +4017,17 @@ reference_binding_validated:
         return target;
     }
 
-    /* A function returning T& or T&& produces a glvalue. In a value context,
-     * apply the lvalue-to-rvalue transformation before considering the usual
-     * arithmetic, pointer, or class conversions. Keep the reference expression
-     * intact when binding another reference (handled above), and represent the
-     * value read explicitly so the backend loads through the returned address. */
+    /* A function returning T& or T&& produces a glvalue. Apply the
+     * lvalue-to-rvalue transformation to scalar and pointer values before
+     * arithmetic conversions, and represent the read so codegen loads through
+     * the returned address. Class glvalues must keep their value category
+     * through user-defined conversion lookup (for example, selecting an &&-
+     * qualified conversion function from a T&& expression). */
     if (rcc_parser_is_cxx_mode() && e->kind != EXPR_DEREF &&
-        e->type->kind == TYPE_PTR &&
-        e->type->is_reference && e->type->base) {
+        e->type->kind == TYPE_PTR && e->type->is_reference &&
+        e->type->base &&
+        e->type->base->kind != TYPE_STRUCT &&
+        e->type->base->kind != TYPE_UNION) {
         Type* referred_type = e->type->base;
         Expr* reference = ast_arena_alloc(sizeof(*reference));
         Expr* value;

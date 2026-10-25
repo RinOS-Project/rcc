@@ -13718,6 +13718,7 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
              * `(*row)[index]` must index the array object, not load its first
              * element before applying the index. */
             if (expr->type && (expr->type->kind == TYPE_ARRAY ||
+                               expr->type->kind == TYPE_FUNC ||
                                expr->type->kind == TYPE_STRUCT ||
                                expr->type->kind == TYPE_UNION ||
                                expr->type->kind == TYPE_VECTOR ||
