@@ -9915,6 +9915,10 @@ static void verify_inline_integer_expression_parameter(
         ? "debug_inline_nonconstant_signed_long_long_lshift_computed_mod64_count_entry"
         : expected_operation == 0x29u &&
               strcmp(source_name,
+                     "debug_inline_nonconstant_integer_logical_not_equality_source") == 0
+        ? "debug_inline_nonconstant_integer_logical_not_equality_entry"
+        : expected_operation == 0x29u &&
+              strcmp(source_name,
                      "debug_inline_nonconstant_integer_logical_not_wide_source") == 0
         ? "debug_inline_nonconstant_integer_logical_not_wide_entry"
         : expected_operation == 0x29u
@@ -10390,10 +10394,23 @@ static void verify_inline_integer_expression_parameter(
             is_unsigned, value_size);
     } else {
         if (expected_operation == 0x29u) {
-            assert(expression_offset < expression_end &&
-                   info->data[expression_offset++] == 0x10u &&
-                   read_uleb(info->data, expression_end,
-                             &expression_offset) == 0u);
+            if (strcmp(source_name,
+                       "debug_inline_nonconstant_integer_logical_not_equality_source") == 0) {
+                verify_inline_expression_byte(
+                    info->data, expression_end, &expression_offset, 0x11u);
+                assert(read_sleb(info->data, expression_end,
+                                 &expression_offset) == 0);
+                verify_inline_integer_expression_normalization(
+                    info->data, expression_end, &expression_offset,
+                    architecture, false, 4u);
+                verify_inline_expression_byte(
+                    info->data, expression_end, &expression_offset, 0x29u);
+                verify_inline_integer_expression_normalization(
+                    info->data, expression_end, &expression_offset,
+                    architecture, false, 4u);
+            }
+            verify_inline_expression_constu(
+                info->data, expression_end, &expression_offset, 0u);
         } else if (expected_operation != 0x1fu &&
                    expected_operation != 0x20u) {
             if (is_unsigned) {
@@ -10469,6 +10486,9 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_integer_parameter_inline",
          "debug_inline_nonconstant_integer_logical_not_wide_source", false,
          8u, 0x29u, 0, NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_logical_not_equality_source",
+         false, 4u, 0x29u, 0, NULL, false},
         {"debug_nonconstant_integer_bitand_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 4u, 0x1au, 7,
          NULL, false},

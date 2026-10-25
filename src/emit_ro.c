@@ -5454,6 +5454,32 @@ static bool debug_build_inline_integer_value_expression(
                 architecture);
     }
 
+    if (expression->kind == EXPR_EQ && expression->binary_lhs &&
+        expression->binary_rhs &&
+        debug_inline_integer_expression_type(
+            expression->binary_lhs->type) &&
+        debug_inline_integer_expression_type(
+            expression->binary_rhs->type) &&
+        (unsigned int)expression->binary_lhs->type->size <=
+            (architecture == ARCH_X64 ? 8u : 4u) &&
+        (unsigned int)expression->binary_rhs->type->size <=
+            (architecture == ARCH_X64 ? 8u : 4u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_lhs->type, expression->binary_rhs->type,
+            0u) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->binary_lhs, output, capacity,
+            output_size, depth + 1u) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->binary_rhs, output, capacity,
+            output_size, depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            output, capacity, output_size, 0x29u) && /* DW_OP_eq */
+        debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture)) {
+        return true;
+    }
+
     if (expression->kind == EXPR_NOT && expression->unary_operand &&
         debug_inline_integer_expression_type(
             expression->unary_operand->type) &&
@@ -7838,6 +7864,7 @@ static bool debug_inline_parameter_integer_expression(
          argument->expr->kind != EXPR_BITXOR &&
          argument->expr->kind != EXPR_LSHIFT &&
          argument->expr->kind != EXPR_RSHIFT &&
+         argument->expr->kind != EXPR_EQ &&
          argument->expr->kind != EXPR_NEG &&
          argument->expr->kind != EXPR_NOT &&
          argument->expr->kind != EXPR_BITNOT) ||

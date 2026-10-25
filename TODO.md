@@ -9865,3 +9865,13 @@ remains a separate open item.
       `test-debug-info` pass.
 - [ ] Computed wide logical-not operands, non-frame-backed 64-bit sources, and
       broader optimized multi-piece variable locations remain open.
+
+## RCC continuation (2026-10-25, inline logical-not of integer equality DWARF)
+
+- [x] Preserve `!(frame_local == 0)` for a read-only inline integer parameter
+      when both equality operands have the same integer type and fit the target
+      DWARF stack width. Emit the comparison and outer logical-not with each
+      target-width normalization represented explicitly. Focused and full
+      `test-debug-info` pass for legacy and verified i686/AMD64 objects.
+- [ ] Mixed-type conversions, ordered comparisons, i686 wide comparisons, and
+      other unsupported runtime expression trees remain open.
