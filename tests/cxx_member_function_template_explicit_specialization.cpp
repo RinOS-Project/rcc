@@ -21,14 +21,10 @@ struct MemberFunctionSpecializationOwner {
     int ellipsis(T input, ...);
 
     template <typename T>
-    constexpr int constant(T input) {
-        return static_cast<int>(input) + 3;
-    }
+    constexpr int constant(T input);
 
     template <typename T>
-    consteval int immediate(T input) {
-        return static_cast<int>(input) + 4;
-    }
+    consteval int immediate(T input);
 };
 
 template <>
@@ -130,6 +126,16 @@ int MemberFunctionSpecializationOwner::overloaded(T* input) {
 template <typename T>
 int MemberFunctionSpecializationOwner::ellipsis(T input, ...) {
     return static_cast<int>(input) + 8;
+}
+
+template <typename T>
+constexpr int MemberFunctionSpecializationOwner::constant(T input) {
+    return static_cast<int>(input) + 3;
+}
+
+template <typename T>
+consteval int MemberFunctionSpecializationOwner::immediate(T input) {
+    return static_cast<int>(input) + 4;
 }
 
 int main() {

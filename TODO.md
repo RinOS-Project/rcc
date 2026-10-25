@@ -3384,10 +3384,15 @@ remains a separate open item.
       generated AMD64 result; existing
       `test-cxx-function-templates`, `test-cxx-class-template-methods`, and
       `test-cxx-class-template-specialization` gates pass.
-- [ ] Accept `constexpr` and `consteval` on out-of-class member-template
-      definitions; explicit specializations do not inherit those specifiers,
-      so a valid non-`constexpr`/non-`consteval` specialization must still
-      match its primary.
+- [x] Parse `inline`, `constexpr`, and `consteval` on out-of-class
+      member-template definitions and require the `constexpr`/`consteval`
+      specifiers to match the in-class declaration exactly. Explicit
+      specializations remain independent and do not inherit the primary's
+      specifiers. Positive i686/AMD64 generation, GCC symbol comparison, and
+      AMD64 execution pass in
+      `test-cxx-member-function-template-explicit-specialization`; mismatch
+      diagnostics pass on both widths in `test-cxx-member-methods-invalid`,
+      along with the existing class/function-template regression gates.
 - [ ] Complete member-template deduction and overload selection for remaining
       general dependent non-type expressions and template-template forms,
       expansions involving multiple distinct packs and other nested patterns,

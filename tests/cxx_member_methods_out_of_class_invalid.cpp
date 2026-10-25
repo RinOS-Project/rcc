@@ -54,6 +54,26 @@ long OutOfClassMemberTemplateDefinitionProbe::value(T input) {
     return static_cast<long>(input);
 }
 
+struct OutOfClassConstexprTemplateSpecifierProbe {
+    template<typename T>
+    constexpr int value(T input);
+};
+
+template<typename T>
+int OutOfClassConstexprTemplateSpecifierProbe::value(T input) {
+    return static_cast<int>(input);
+}
+
+struct OutOfClassConstevalTemplateSpecifierProbe {
+    template<typename T>
+    consteval int value(T input);
+};
+
+template<typename T>
+int OutOfClassConstevalTemplateSpecifierProbe::value(T input) {
+    return static_cast<int>(input);
+}
+
 template<typename T>
 struct OutOfClassTemplateOperatorProbe {
     T operator+(T value) const;

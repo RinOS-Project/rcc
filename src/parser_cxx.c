@@ -15579,14 +15579,27 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     } else {
         tmpl->kind = TMPL_FUNCTION;
         CxxTemplate* outer_template = active_template;
+        bool is_inline = false;
+        bool is_constexpr = false;
         bool is_consteval = false;
         active_template = tmpl;
         if (cxx_out_of_class_member_template_definition_starts()) {
+            while (match(TOK_INLINE) || match(TOK_CONSTEXPR) ||
+                   match(TOK_CONSTEVAL)) {
+                if (previous()->type == TOK_INLINE) is_inline = true;
+                else if (previous()->type == TOK_CONSTEXPR) {
+                    is_constexpr = true;
+                } else {
+                    is_constexpr = true;
+                    is_consteval = true;
+                }
+            }
+            tmpl->is_constexpr = is_constexpr;
             tmpl->is_member_template_definition = true;
             Type* return_type = parse_cxx_type_spec();
             return_type = cxx_member_definition_return_type(return_type);
             (void)rcc_parse_cxx_qualified_member_definition(
-                return_type, false, tmpl->is_constexpr, is_consteval, loc);
+                return_type, is_inline, is_constexpr, is_consteval, loc);
             if (tmpl->member_method) {
                 tmpl->func_def = tmpl->member_method->decl;
                 tmpl->name = ast_arena_strdup(
@@ -17318,7 +17331,7 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
         return stmt_null(loc);
     }
     if (is_consteval != selected->decl->func_is_consteval ||
-        (is_constexpr && !selected->is_constexpr)) {
+        is_constexpr != selected->is_constexpr) {
         rcc_error(loc,
                   "out-of-class constructor constexpr specifiers do not match '%s'",
                   qualified);
@@ -17549,7 +17562,7 @@ Stmt* rcc_parse_cxx_qualified_destructor_definition(
         return stmt_null(loc);
     }
     if (is_consteval != method->decl->func_is_consteval ||
-        (is_constexpr && !method->is_constexpr)) {
+        is_constexpr != method->is_constexpr) {
         rcc_error(loc,
                   "out-of-class destructor constexpr specifiers do not match '%s'",
                   qualified);
@@ -17807,7 +17820,7 @@ Stmt* rcc_parse_cxx_qualified_conversion_definition(
         return stmt_null(loc);
     }
     if (is_consteval != selected->decl->func_is_consteval ||
-        (is_constexpr && !selected->is_constexpr)) {
+        is_constexpr != selected->is_constexpr) {
         rcc_error(loc,
                   "out-of-class conversion constexpr specifiers do not match '%s'",
                   qualified);
@@ -18077,7 +18090,7 @@ owner_resolved:
                   qualified);
     }
     if (is_consteval != selected->decl->func_is_consteval ||
-        (is_constexpr && !selected->is_constexpr)) {
+        is_constexpr != selected->is_constexpr) {
         rcc_error(loc,
                   "out-of-class member constexpr specifiers do not match '%s'",
                   qualified);
