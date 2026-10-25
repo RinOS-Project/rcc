@@ -13387,6 +13387,7 @@ test-cxx-member-methods-invalid: $(RCXX_TARGET)
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassOperatorProbe::operator+'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "redefinition of out-of-class member function 'OutOfClassOperatorRedefinitionProbe::operator+'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassConversionProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassPointerConversionProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "out-of-class exception specification does not match 'OutOfClassConversionNoexceptProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "redefinition of out-of-class member function 'OutOfClassConversionRedefinitionProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-methods/invalid-x64.ro tests/cxx_member_methods_out_of_class_invalid.cpp,$(TEST_OUT)/cxx-member-methods/invalid-x64.log)
@@ -13402,6 +13403,7 @@ test-cxx-member-methods-invalid: $(RCXX_TARGET)
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassOperatorProbe::operator+'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "redefinition of out-of-class member function 'OutOfClassOperatorRedefinitionProbe::operator+'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassConversionProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassPointerConversionProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "out-of-class exception specification does not match 'OutOfClassConversionNoexceptProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "redefinition of out-of-class member function 'OutOfClassConversionRedefinitionProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	@echo "RCC++ out-of-class member definition diagnostic tests completed"

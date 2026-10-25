@@ -18,6 +18,14 @@ struct OutOfClassConversionProbe {
 
 OutOfClassConversionProbe::operator int() const noexcept { return 0; }
 
+struct OutOfClassPointerConversionProbe {
+    operator int*() const;
+};
+
+OutOfClassPointerConversionProbe::operator const int*() const {
+    return nullptr;
+}
+
 struct OutOfClassConversionNoexceptProbe {
     operator bool() const noexcept;
 };

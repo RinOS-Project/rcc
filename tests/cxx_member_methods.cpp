@@ -100,6 +100,21 @@ struct Truthy {
     int value;
     operator bool() const noexcept;
 };
+
+struct Numeric {
+    int value;
+    operator int() const;
+};
+
+struct Pointer {
+    int* value;
+    operator int*() const;
+};
+
+struct Reference {
+    int value;
+    operator int&();
+};
 }
 
 namespace out_of_class_constructors {
@@ -225,6 +240,18 @@ out_of_class_conversions::Truthy::operator bool() const noexcept {
     return value != 0;
 }
 
+out_of_class_conversions::Numeric::operator int() const {
+    return value;
+}
+
+out_of_class_conversions::Pointer::operator int*() const {
+    return value;
+}
+
+out_of_class_conversions::Reference::operator int&() {
+    return value;
+}
+
 int cxx_out_of_class_member_method_probe() {
     out_of_class_methods::Point point;
     point.x = 6;
@@ -300,7 +327,21 @@ int cxx_out_of_class_conversion_probe() {
     out_of_class_conversions::Truthy value;
     value.value = 1;
     bool converted = value;
-    return converted ? 0 : 1;
+    out_of_class_conversions::Numeric numeric;
+    numeric.value = 31;
+    int converted_numeric = numeric;
+    int target = 47;
+    out_of_class_conversions::Pointer pointer;
+    pointer.value = &target;
+    int* converted_pointer = pointer;
+    out_of_class_conversions::Reference reference;
+    reference.value = 12;
+    int& converted_reference = reference;
+    converted_reference = 53;
+    return converted && converted_numeric == 31 &&
+           converted_pointer == &target && *converted_pointer == 47
+           && reference.value == 53
+        ? 0 : 1;
 }
 
 int main() {
