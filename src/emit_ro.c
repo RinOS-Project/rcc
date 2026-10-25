@@ -4938,6 +4938,50 @@ static uint8_t debug_inline_integer_comparison_opcode(ExprKind kind) {
     }
 }
 
+static const Type* debug_inline_integer_comparison_common_type(
+    const Type* left, const Type* right, Type promoted[2]) {
+    const Type* operands[2] = {left, right};
+    const Type* unsigned_type;
+    const Type* signed_type;
+    if (!left || !right || !promoted) return NULL;
+    for (size_t index = 0u; index < 2u; ++index) {
+        if (operands[index]->kind < TYPE_INT) {
+            promoted[index] = *operands[index];
+            promoted[index].kind = TYPE_INT;
+            promoted[index].size = 4;
+            promoted[index].is_unsigned = false;
+            promoted[index].is_const = false;
+            promoted[index].is_volatile = false;
+            operands[index] = &promoted[index];
+        }
+    }
+    if (operands[0]->is_unsigned == operands[1]->is_unsigned) {
+        if (operands[0]->size != operands[1]->size) {
+            return operands[0]->size > operands[1]->size
+                ? operands[0] : operands[1];
+        }
+        return operands[0]->kind >= operands[1]->kind
+            ? operands[0] : operands[1];
+    }
+    unsigned_type = operands[0]->is_unsigned ? operands[0] : operands[1];
+    signed_type = operands[0]->is_unsigned ? operands[1] : operands[0];
+    if (unsigned_type->kind >= signed_type->kind ||
+        signed_type->size <= unsigned_type->size) {
+        return unsigned_type;
+    }
+    return signed_type;
+}
+
+static bool debug_inline_integer_representation_matches(
+    const Type* left, const Type* right) {
+    bool left_unsigned;
+    bool right_unsigned;
+    if (!left || !right) return false;
+    left_unsigned = left->is_unsigned || left->kind == TYPE_BOOL;
+    right_unsigned = right->is_unsigned || right->kind == TYPE_BOOL;
+    return left->size == right->size && left_unsigned == right_unsigned;
+}
+
 static bool debug_inline_integer_expression_append_byte(
     uint8_t* expression, size_t capacity, size_t* size, uint8_t value) {
     if (!expression || !size || *size >= capacity) return false;
@@ -5490,43 +5534,62 @@ static bool debug_build_inline_integer_value_expression(
         (unsigned int)expression->binary_lhs->type->size <=
             (architecture == ARCH_X64 ? 8u : 4u) &&
         (unsigned int)expression->binary_rhs->type->size <=
-            (architecture == ARCH_X64 ? 8u : 4u) &&
-        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-            expression->binary_lhs->type, expression->binary_rhs->type,
-            0u)) {
-        const Type* operand_type = expression->binary_lhs->type;
+            (architecture == ARCH_X64 ? 8u : 4u)) {
+        Type promoted_types[2];
+        const Type* comparison_type =
+            debug_inline_integer_comparison_common_type(
+                expression->binary_lhs->type,
+                expression->binary_rhs->type, promoted_types);
+        const Type* left_type = expression->binary_lhs->type;
+        const Type* right_type = expression->binary_rhs->type;
         uint8_t comparison_opcode =
             debug_inline_integer_comparison_opcode(expression->kind);
         bool ordered = expression->kind != EXPR_EQ &&
             expression->kind != EXPR_NE;
         unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
-        bool full_width_unsigned_ordering = ordered &&
-            operand_type->is_unsigned &&
-            (unsigned int)operand_type->size == address_size;
+        bool full_width_unsigned_ordering;
         uint64_t sign_bit = UINT64_C(1) << (address_size * 8u - 1u);
-        if (debug_build_inline_integer_value_expression(
+        if (!debug_inline_integer_expression_type(comparison_type) ||
+            (unsigned int)comparison_type->size > address_size) {
+            return false;
+        }
+        full_width_unsigned_ordering = ordered &&
+            comparison_type->is_unsigned &&
+            (unsigned int)comparison_type->size == address_size;
+        if (!debug_build_inline_integer_value_expression(
                 mod, architecture, expression->binary_lhs, output, capacity,
-                output_size, depth + 1u) &&
-            (!full_width_unsigned_ordering ||
-             (debug_inline_integer_expression_append_constu(
-                  output, capacity, output_size, sign_bit) &&
-              debug_inline_integer_expression_append_byte(
-                  output, capacity, output_size, 0x27u))) &&
-            debug_build_inline_integer_value_expression(
+                output_size, depth + 1u) ||
+            (!debug_inline_integer_representation_matches(
+                 left_type, comparison_type) &&
+             !debug_inline_integer_expression_normalize(
+                 output, capacity, output_size, comparison_type,
+                 architecture)) ||
+            (full_width_unsigned_ordering &&
+             (!debug_inline_integer_expression_append_constu(
+                  output, capacity, output_size, sign_bit) ||
+              !debug_inline_integer_expression_append_byte(
+                  output, capacity, output_size, 0x27u))) ||
+            !debug_build_inline_integer_value_expression(
                 mod, architecture, expression->binary_rhs, output, capacity,
-                output_size, depth + 1u) &&
-            (!full_width_unsigned_ordering ||
-             (debug_inline_integer_expression_append_constu(
-                  output, capacity, output_size, sign_bit) &&
-              debug_inline_integer_expression_append_byte(
-                  output, capacity, output_size, 0x27u))) &&
-            debug_inline_integer_expression_append_byte(
-                output, capacity, output_size, comparison_opcode) &&
-            debug_inline_integer_expression_normalize(
+                output_size, depth + 1u) ||
+            (!debug_inline_integer_representation_matches(
+                 right_type, comparison_type) &&
+             !debug_inline_integer_expression_normalize(
+                 output, capacity, output_size, comparison_type,
+                 architecture)) ||
+            (full_width_unsigned_ordering &&
+             (!debug_inline_integer_expression_append_constu(
+                  output, capacity, output_size, sign_bit) ||
+              !debug_inline_integer_expression_append_byte(
+                  output, capacity, output_size, 0x27u))) ||
+            !debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, comparison_opcode) ||
+            !debug_inline_integer_expression_normalize(
                 output, capacity, output_size, expression->type,
                 architecture)) {
-            return true;
+            return false;
         }
+        return true;
     }
 
     if (expression->kind == EXPR_NOT && expression->unary_operand &&

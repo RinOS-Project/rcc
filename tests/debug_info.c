@@ -340,6 +340,16 @@ int debug_inline_nonconstant_integer_compare_mixed_entry(int value)
           0x80000000u));
 }
 
+int debug_inline_nonconstant_integer_compare_implicit_entry(int value)
+{
+    int debug_inline_nonconstant_integer_compare_implicit_entry_source = value;
+    debug_inline_nonconstant_integer_escape =
+        &debug_inline_nonconstant_integer_compare_implicit_entry_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_nonconstant_integer_compare_implicit_entry_source <
+          0x80000000u));
+}
+
 int debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry(int value)
 {
     unsigned long long

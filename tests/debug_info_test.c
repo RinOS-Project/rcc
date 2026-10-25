@@ -9916,7 +9916,9 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_nonconstant_unsigned_integer_compare_less_entry_source",
          "debug_inline_nonconstant_unsigned_integer_compare_less_entry"},
         {"debug_inline_nonconstant_integer_compare_mixed_entry_source",
-         "debug_inline_nonconstant_integer_compare_mixed_entry"}
+         "debug_inline_nonconstant_integer_compare_mixed_entry"},
+        {"debug_inline_nonconstant_integer_compare_implicit_entry_source",
+         "debug_inline_nonconstant_integer_compare_implicit_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -9956,9 +9958,12 @@ static void verify_inline_integer_expression_parameter(
     const char* comparison_entry =
         inline_integer_comparison_entry_for_source(source_name);
     bool mixed_conversion_comparison = source_name &&
-        strcmp(source_name,
-               "debug_inline_nonconstant_integer_compare_mixed_entry_source")
-            == 0;
+        (strcmp(source_name,
+                "debug_inline_nonconstant_integer_compare_mixed_entry_source")
+             == 0 ||
+         strcmp(source_name,
+                "debug_inline_nonconstant_integer_compare_implicit_entry_source")
+             == 0);
     const char* call_site_name = comparison_entry ? comparison_entry :
         expected_operation == 0xc4u
         ? "debug_inline_nonconstant_signed_long_long_lshift_computed_mod64_count_entry"
@@ -10630,6 +10635,9 @@ static void verify_inline_integer_expression_cases(
          true, 4u, 0x2du, INT64_C(0x80000000), NULL, false},
         {"debug_nonconstant_integer_parameter_inline",
          "debug_inline_nonconstant_integer_compare_mixed_entry_source",
+         true, 4u, 0x2du, INT64_C(0x80000000), NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_compare_implicit_entry_source",
          true, 4u, 0x2du, INT64_C(0x80000000), NULL, false},
         {"debug_nonconstant_integer_bitand_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 4u, 0x1au, 7,

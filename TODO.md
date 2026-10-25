@@ -9885,8 +9885,9 @@ remains a separate open item.
       expression checks cover signed operators and the unsigned boundary on
       i686/AMD64 for legacy and verified objects. The focused inline-expression
       test passes.
-- [ ] Implicit usual arithmetic conversions, i686 comparisons wider than its
-      DWARF stack, and other unsupported runtime expression trees remain open.
+- [ ] Mixed-rank conversions beyond the tested `int`/`unsigned int` pair,
+      i686 comparisons wider than its DWARF stack, and other unsupported
+      runtime expression trees remain open.
 
 ## RCC continuation (2026-10-25, integer casts in inline DWARF expressions)
 
@@ -9896,5 +9897,17 @@ remains a separate open item.
       `unsigned int` followed by full-width unsigned ordering on i686/AMD64.
       Focused inline-expression and full `test-debug-info` pass for legacy and
       verified objects.
-- [ ] Implicit usual arithmetic conversions, casts involving i686-wide
-      operands, and other unsupported expression trees remain open.
+- [ ] Other implicit conversions outside this integer-comparison path, casts
+      involving i686-wide operands, and unsupported expression trees remain
+      open.
+
+## RCC continuation (2026-10-25, implicit integer comparison conversions)
+
+- [x] Apply integer promotions and the common signed/unsigned integer type
+      when composing inline comparison operands. Verify both an explicit
+      `int`-to-`unsigned int` cast and the implicit `int`/`unsigned int`
+      conversion for a full-width unsigned ordering comparison on i686/AMD64.
+      Focused inline-expression and full `test-debug-info` pass for legacy and
+      verified objects.
+- [ ] Broader mixed-rank matrices, enum conversion cases, and i686-wide
+      comparisons remain open.
