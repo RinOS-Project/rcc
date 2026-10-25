@@ -1,5 +1,3 @@
-static int member_template_operator_specialization_value;
-
 template <typename Owner>
 struct ClassTemplateMemberFunctionSpecialization {
     template <typename T>
@@ -28,6 +26,7 @@ struct PartialMemberFunctionTemplateOwner<Owner*> {
 template <typename Owner>
 struct MemberTemplateOperatorOwner {
     int primary_address_value;
+    int specialized_address_value;
 
     template <typename T>
     int operator+(T input) const {
@@ -154,7 +153,7 @@ int MemberTemplateOperatorOwner<int>::operator~<char>() const {
 template <>
 template <>
 int* MemberTemplateOperatorOwner<int>::operator&<char>() {
-    return &member_template_operator_specialization_value;
+    return &specialized_address_value;
 }
 
 template <>
@@ -184,8 +183,9 @@ int main() {
     MemberTemplateOperatorOwner<double> other_operator_owner;
     NonTemplateMemberOperatorOwner non_template_operator_owner;
     operator_owner.primary_address_value = 11;
+    operator_owner.specialized_address_value = 100;
     other_operator_owner.primary_address_value = 12;
-    member_template_operator_specialization_value = 100;
+    other_operator_owner.specialized_address_value = 101;
     double floating = 2.0;
     int integer = 2;
     return exact_owner.value(2.0) == 42 && exact_owner.value(2) == 3 &&

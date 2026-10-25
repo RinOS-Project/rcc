@@ -9712,7 +9712,13 @@ remains a separate open item.
       plus `test-cxx-operator-overload`, `test-cxx-member-operator-forms`,
       and `test-cxx-nonmember-operator` pass natively on Windows; the latter
       two also verify GCC's unary `operator-` ABI name.
+- [x] Preserve class-member scope in explicit out-of-class member-template
+      specializations. Materialize the selected concrete member instance before
+      semantic analysis so its implicit object and field lookup are available;
+      the unary `operator&` specialization now refers to an unqualified member
+      field and returns a distinct address from the primary template. GCC C++20
+      syntax/symbol comparison, i686/AMD64 assembly, AMD64 execution, and the
+      focused native-Windows specialization target pass.
 - [ ] Explicit member specializations through dependent owner chains, other
-      overloaded operator forms beyond those covered above, unqualified class
-      member lookup in explicit member-template specialization bodies, and
-      remaining ABI/lifetime cases remain open.
+      overloaded operator forms beyond those covered above, and remaining
+      ABI/lifetime cases remain open.

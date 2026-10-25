@@ -2157,6 +2157,8 @@ static bool cxx_explicit_member_function_template_specialization_starts(void);
 static bool cxx_parse_explicit_member_function_template_specialization(
     Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
     SourceLoc loc, CxxTemplate* specialization, int template_head_count);
+static TypeMethod* cxx_materialize_member_function_template(
+    Type* aggregate, CxxMethod* method, Decl* instance, int this_adjustment);
 Stmt* rcc_parse_cxx_qualified_member_definition(
     Type* base_type, bool is_inline, bool is_constexpr, bool is_consteval,
     SourceLoc loc);
@@ -37692,6 +37694,13 @@ static bool cxx_parse_explicit_member_function_template_specialization(
         parser.prev = saved_prev;
         return false;
     }
+
+    /* Explicit specializations are parsed outside the class scope, but their
+     * body still has the selected member's implicit object and field lookup.
+     * Materialize its ordinary member metadata before the body is semantically
+     * analyzed, just as call-site template selection does. */
+    (void)cxx_materialize_member_function_template(
+        cls->type, selected_method, selected_instance, 0);
 
     first_explicit_declaration =
         !selected_instance->func_is_explicit_template_specialization;
