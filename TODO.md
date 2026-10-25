@@ -9426,6 +9426,13 @@ remains a separate open item.
         member ABI, perform the implicit conversion at a call site, and verify
         exception-specification, target mismatch, and redefinition diagnostics
         for i686 and AMD64.
+  - [x] Define ref-qualified unary `operator*() &` and `operator*() &&`
+        outside a named non-template class. Verify declaration matching,
+        lvalue/rvalue-reference result categories, i686/AMD64 output, and AMD64
+        execution; convert a class to a namespace-aliased function-pointer type
+        through an out-of-class conversion function and execute the result.
+        GCC C++20 `-Werror` execution agrees, and a definition with the wrong
+        ref-qualifier is rejected for both targets.
   - [ ] Extend out-of-class definitions to remaining overloaded operators and
         conversion-type-id declarators, member templates and explicit
         specializations, advanced nested/template owner qualification, and

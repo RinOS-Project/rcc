@@ -4,6 +4,13 @@ struct OutOfClassOperatorProbe {
 
 long OutOfClassOperatorProbe::operator+(int value) const { return value; }
 
+struct OutOfClassRefQualifiedOperatorProbe {
+    int value;
+    int& operator*() &;
+};
+
+int& OutOfClassRefQualifiedOperatorProbe::operator*() && { return value; }
+
 struct OutOfClassOperatorRedefinitionProbe {
     int operator+(int value) const;
 };

@@ -100,6 +100,12 @@ struct Negatable {
     int operator-() const;
 };
 
+struct Dereference {
+    int value;
+    int& operator*() &;
+    int&& operator*() &&;
+};
+
 struct IncrementCounter {
     int value;
     int operator++();
@@ -117,6 +123,8 @@ struct ArrowHandle {
 }
 
 namespace out_of_class_conversions {
+using FunctionPointer = int (*)(int);
+
 struct Truthy {
     int value;
     operator bool() const noexcept;
@@ -136,6 +144,14 @@ struct Reference {
     int value;
     operator int&();
 };
+
+struct Function {
+    operator FunctionPointer() const;
+};
+}
+
+int out_of_class_conversion_function(int value) {
+    return value + 37;
 }
 
 namespace out_of_class_constructors {
@@ -269,6 +285,14 @@ int out_of_class_operators::Negatable::operator-() const {
     return -value;
 }
 
+int& out_of_class_operators::Dereference::operator*() & {
+    return value;
+}
+
+int&& out_of_class_operators::Dereference::operator*() && {
+    return static_cast<int&&>(value);
+}
+
 int out_of_class_operators::IncrementCounter::operator++() {
     return ++value;
 }
@@ -296,6 +320,10 @@ out_of_class_conversions::Pointer::operator int*() const {
 
 out_of_class_conversions::Reference::operator int&() {
     return value;
+}
+
+out_of_class_conversions::Function::operator FunctionPointer() const {
+    return &out_of_class_conversion_function;
 }
 
 int cxx_out_of_class_member_method_probe() {
@@ -372,6 +400,14 @@ int cxx_out_of_class_call_operators_probe() {
     counter.value = 3;
     int postfix = counter++;
     int prefix = ++counter;
+    out_of_class_operators::Dereference lvalue_dereference{13};
+    out_of_class_operators::Dereference xvalue_dereference{17};
+    int& lvalue_result = *lvalue_dereference;
+    int&& xvalue_result =
+        *static_cast<out_of_class_operators::Dereference&&>(
+            xvalue_dereference);
+    lvalue_result = 19;
+    xvalue_result = 23;
     out_of_class_operators::ArrowTarget target;
     target.value = 29;
     out_of_class_operators::ArrowHandle handle;
@@ -379,7 +415,8 @@ int cxx_out_of_class_call_operators_probe() {
     int arrow_value = handle->value;
     return first == 4 && second == 8 && called == 18 &&
            -negatable == -9 && postfix == 3 && prefix == 5 &&
-           counter.value == 5 && arrow_value == 29 ? 0 : 1;
+           counter.value == 5 && lvalue_dereference.value == 19 &&
+           xvalue_dereference.value == 23 && arrow_value == 29 ? 0 : 1;
 }
 
 int cxx_out_of_class_conversion_probe() {
@@ -397,9 +434,11 @@ int cxx_out_of_class_conversion_probe() {
     reference.value = 12;
     int& converted_reference = reference;
     converted_reference = 53;
+    out_of_class_conversions::Function function;
+    out_of_class_conversions::FunctionPointer converted_function = function;
     return converted && converted_numeric == 31 &&
            converted_pointer == &target && *converted_pointer == 47
-           && reference.value == 53
+           && reference.value == 53 && converted_function(5) == 42
         ? 0 : 1;
 }
 
