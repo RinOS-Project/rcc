@@ -9971,6 +9971,12 @@ remains a separate open item.
       `>=`). Evaluate signed and unsigned boundary values in legacy and verified
       i686 DWARF; exercise the unchanged AMD64 path as well. Focused and full
       `test-debug-info` pass.
-- [ ] Computed/non-frame-backed wide operands, conversions from narrower than
-      64 bits, other mixed-rank matrices, and enum underlying-width combinations
-      remain open.
+- [x] Convert 32-bit integer constants to the 64-bit common comparison type
+      before composing i686 high/low words. Verify zero-extension of
+      `0x80000000u` in `long long < unsigned int` and sign-extension of `-1`
+      in `unsigned long long < int`, evaluating signed/unsigned 64-bit
+      boundaries on legacy and verified i686/AMD64 objects. Focused and full
+      `test-debug-info` pass; GCC C++20 accepts the fixture.
+- [ ] Runtime narrow-operand conversions, computed/non-frame-backed wide
+      operands, other mixed-rank matrices, and enum underlying-width
+      combinations remain open.

@@ -5597,8 +5597,7 @@ static bool debug_build_inline_integer_value_expression(
         if (!debug_inline_integer_expression_type(comparison_type)) {
             return false;
         }
-        if (architecture == ARCH_X86 && comparison_type->size == 8 &&
-            left_type->size == 8 && right_type->size == 8) {
+        if (architecture == ARCH_X86 && comparison_type->size == 8) {
             if (!debug_inline_parameter_i686_u64_comparison_expression(
                     mod, expression->kind, expression->binary_lhs,
                     expression->binary_rhs, comparison_type, output,
@@ -5800,18 +5799,20 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
     uint64_t literal_bits;
     if (!mod || !value || !expression || !expression_size || depth >= 32u ||
         !debug_inline_integer_expression_type(value->type) ||
-        value->type->size != 8) {
+        value->type->size <= 0 || value->type->size > 8) {
         return false;
     }
     if (value->kind == EXPR_CAST && value->cast_expr &&
-        value->cast_expr->type && value->cast_expr->type->size == 8) {
+        value->cast_expr->type && value->cast_expr->type->size > 0 &&
+        value->cast_expr->type->size <= 8) {
         return debug_inline_parameter_i686_u64_append_word_expression(
             mod, value->cast_expr, high_word, expression, capacity,
             expression_size, depth + 1u);
     }
     if (value->kind == EXPR_POS && value->unary_operand &&
         value->unary_operand->type &&
-        value->unary_operand->type->size == 8) {
+        value->unary_operand->type->size > 0 &&
+        value->unary_operand->type->size <= 8) {
         return debug_inline_parameter_i686_u64_append_word_expression(
             mod, value->unary_operand, high_word, expression, capacity,
             expression_size, depth + 1u);

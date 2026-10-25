@@ -176,3 +176,27 @@ extern "C" int debug_inline_unsigned_long_long_not_equal_entry(
         !(debug_inline_unsigned_long_long_not_equal_entry_source !=
           0x8000000000000000ULL));
 }
+
+extern "C" int debug_inline_signed_long_long_unsigned_int_compare_entry(
+    long long value)
+{
+    long long debug_inline_signed_long_long_unsigned_int_compare_entry_source =
+        value;
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_unsigned_int_compare_entry_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_unsigned_int_compare_entry_source <
+          0x80000000u));
+}
+
+extern "C" int debug_inline_unsigned_long_long_signed_int_compare_entry(
+    unsigned long long value)
+{
+    unsigned long long
+        debug_inline_unsigned_long_long_signed_int_compare_entry_source = value;
+    debug_inline_unsigned_long_long_comparison_escape =
+        &debug_inline_unsigned_long_long_signed_int_compare_entry_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_unsigned_long_long_signed_int_compare_entry_source <
+          -1));
+}

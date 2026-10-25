@@ -10086,7 +10086,11 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_unsigned_long_long_equal_entry_source",
          "debug_inline_unsigned_long_long_equal_entry"},
         {"debug_inline_unsigned_long_long_not_equal_entry_source",
-         "debug_inline_unsigned_long_long_not_equal_entry"}
+         "debug_inline_unsigned_long_long_not_equal_entry"},
+        {"debug_inline_signed_long_long_unsigned_int_compare_entry_source",
+         "debug_inline_signed_long_long_unsigned_int_compare_entry"},
+        {"debug_inline_unsigned_long_long_signed_int_compare_entry_source",
+         "debug_inline_unsigned_long_long_signed_int_compare_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -10179,7 +10183,16 @@ static void verify_inline_integer_expression_parameter(
          strcmp(source_name,
                 "debug_inline_unsigned_long_long_equal_entry_source") == 0 ||
          strcmp(source_name,
-                "debug_inline_unsigned_long_long_not_equal_entry_source") == 0);
+                "debug_inline_unsigned_long_long_not_equal_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_unsigned_int_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_unsigned_long_long_signed_int_compare_entry_source") == 0);
+    bool narrow_wide_comparison = source_name &&
+        (strcmp(source_name,
+                "debug_inline_signed_long_long_unsigned_int_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_unsigned_long_long_signed_int_compare_entry_source") == 0);
     bool comparison_is_unsigned = is_unsigned;
     uint8_t comparison_value_size = value_size;
     const char* call_site_name = comparison_entry ? comparison_entry :
@@ -10407,7 +10420,8 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (wide_integer_comparison && architecture == ARCH_X86) {
+    if (wide_integer_comparison &&
+        (architecture == ARCH_X86 || narrow_wide_comparison)) {
         static const uint64_t signed_values[] = {
             UINT64_C(0x8000000000000000), UINT64_MAX, 0u, 1u,
             UINT64_C(0x7fffffffffffffff)
@@ -11791,7 +11805,11 @@ int main(int argc, char** argv)
             {"debug_inline_unsigned_long_long_equal_entry_source",
              true, 0x29u, INT64_MIN},
             {"debug_inline_unsigned_long_long_not_equal_entry_source",
-             true, 0x2eu, INT64_MIN}
+             true, 0x2eu, INT64_MIN},
+            {"debug_inline_signed_long_long_unsigned_int_compare_entry_source",
+             false, 0x2du, INT64_C(0x80000000)},
+            {"debug_inline_unsigned_long_long_signed_int_compare_entry_source",
+             true, 0x2du, -1}
         };
         const char* wide_paths[] = {argv[6], argv[7], argv[8], argv[9]};
         const uint16_t wide_architectures[] = {
