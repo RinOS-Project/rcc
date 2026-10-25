@@ -44,6 +44,11 @@ struct MemberTemplateOperatorOwner {
     }
 
     template <typename T>
+    int operator*(T input) const {
+        return static_cast<int>(input) + 30;
+    }
+
+    template <typename T>
     int operator[](T input) const {
         return static_cast<int>(input) + 6;
     }
@@ -61,6 +66,11 @@ struct MemberTemplateOperatorOwner {
     template <typename T = char>
     int operator~() const {
         return 11;
+    }
+
+    template <typename T = char>
+    int operator*() const {
+        return 13;
     }
 
     template <typename T = char>
@@ -152,6 +162,12 @@ int MemberTemplateOperatorOwner<int>::operator~<char>() const {
 
 template <>
 template <>
+int MemberTemplateOperatorOwner<int>::operator*<char>() const {
+    return 120;
+}
+
+template <>
+template <>
 int* MemberTemplateOperatorOwner<int>::operator&<char>() {
     return &specialized_address_value;
 }
@@ -200,6 +216,7 @@ int main() {
                    operator_owner + 'A' == 115 && operator_owner + 2 == 4 &&
                    operator_owner + &integer == 5 &&
                    (operator_owner & 2) == 22 &&
+                   (operator_owner * 2) == 32 &&
                    operator_owner['A'] == 145 && operator_owner[2] == 8 &&
                    other_operator_owner + 'A' == 67 &&
                    operator_owner('A') == 125 && operator_owner(2) == 6 &&
@@ -207,6 +224,8 @@ int main() {
                    (!other_operator_owner) == 9 &&
                    (~operator_owner) == 100 &&
                    (~other_operator_owner) == 11 &&
+                   (*operator_owner) == 120 &&
+                   (*other_operator_owner) == 13 &&
                    *(&operator_owner) == 100 &&
                    *(&other_operator_owner) == 12 &&
                    non_template_operator_owner + 'A' == 135 &&

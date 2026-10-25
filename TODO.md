@@ -9719,6 +9719,11 @@ remains a separate open item.
       field and returns a distinct address from the primary template. GCC C++20
       syntax/symbol comparison, i686/AMD64 assembly, AMD64 execution, and the
       focused native-Windows specialization target pass.
+- [x] Cover unary and binary member `operator*` function-template
+      specializations through operator syntax. RCC and GCC emit matching
+      Itanium symbols (`de` and `ml`), both target widths assemble, AMD64 runtime
+      checks distinguish specialized and primary implementations, and missing/
+      excess template-head diagnostics pass in the focused target.
 - [ ] Explicit member specializations through dependent owner chains, other
       overloaded operator forms beyond those covered above, and remaining
       ABI/lifetime cases remain open.
