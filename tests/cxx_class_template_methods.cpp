@@ -49,6 +49,8 @@ public:
 
     T get() const;
     T operator+(T rhs) const;
+    T operator()(T rhs) const;
+    T operator[](T index) const;
 
     template<typename U = T>
     U add_to(U input) const;
@@ -81,6 +83,16 @@ T OutOfClassClassTemplateOwner<T>::get() const {
 template<typename T>
 T OutOfClassClassTemplateOwner<T>::operator+(T rhs) const {
     return value + rhs;
+}
+
+template<typename T>
+T OutOfClassClassTemplateOwner<T>::operator()(T rhs) const {
+    return value + rhs;
+}
+
+template<typename T>
+T OutOfClassClassTemplateOwner<T>::operator[](T index) const {
+    return value + index;
 }
 
 template<typename T>
@@ -150,6 +162,8 @@ int main() {
            member_template.non_type_default<9>() == 9 &&
            out_of_class_owner.get() == 4 &&
            out_of_class_owner + 5 == 9 &&
+           out_of_class_owner(6) == 10 &&
+           out_of_class_owner[7] == 11 &&
            out_of_class_owner.add_to(3) == 7 &&
            out_of_class_owner.add_to<long>(9L) == 13L &&
            out_of_class_owner.multiply(4) == 8 &&

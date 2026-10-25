@@ -64,6 +64,16 @@ long OutOfClassTemplateOperatorProbe<T>::operator+(T value) const {
     return static_cast<long>(value);
 }
 
+template<typename T>
+struct OutOfClassTemplateSubscriptProbe {
+    T operator[](T index) const;
+};
+
+template<typename T>
+long OutOfClassTemplateSubscriptProbe<T>::operator[](T index) const {
+    return static_cast<long>(index);
+}
+
 int OutOfClassOperatorRedefinitionProbe::operator+(int value) const {
     return value;
 }

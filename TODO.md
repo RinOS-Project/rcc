@@ -9593,5 +9593,10 @@ remains a separate open item.
       execution, and mismatched-return diagnostics for both target widths in
       `test-cxx-class-template-methods` and
       `test-cxx-member-methods-invalid`.
+- [x] Route out-of-class class-template `operator()` and `operator[]` through
+      the shared qualified-operator scanner. Verify calls and subscripting at
+      runtime, GCC C++20 syntax, both target widths, and mismatched-return
+      diagnostics in `test-cxx-class-template-methods` and
+      `test-cxx-member-methods-invalid`.
 - [ ] Explicit member specializations and deeper nested/template owner
       qualification remain open.

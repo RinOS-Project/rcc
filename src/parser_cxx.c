@@ -16568,6 +16568,84 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
     return stmt_null(loc);
 }
 
+static bool cxx_operator_member_definition_starts(Token* token) {
+    Token* operator_name;
+    if (!token || token->type != TOK_OPERATOR) return false;
+    operator_name = token->next;
+    if (!operator_name) return false;
+    switch (operator_name->type) {
+        case TOK_LPAREN:
+            if (!operator_name->next ||
+                operator_name->next->type != TOK_RPAREN ||
+                !operator_name->next->next ||
+                operator_name->next->next->type != TOK_LPAREN)
+                return false;
+            return true;
+        case TOK_LBRACKET:
+            return operator_name->next &&
+                   operator_name->next->type == TOK_RBRACKET &&
+                   operator_name->next->next &&
+                   operator_name->next->next->type == TOK_LPAREN;
+        case TOK_NEW:
+        case TOK_DELETE:
+            if (operator_name->next &&
+                operator_name->next->type == TOK_LBRACKET) {
+                operator_name = operator_name->next->next;
+                if (!operator_name || operator_name->type != TOK_RBRACKET)
+                    return false;
+            }
+            return operator_name->next &&
+                   operator_name->next->type == TOK_LPAREN;
+        case TOK_STRING_LIT:
+            return operator_name->next &&
+                   operator_name->next->type == TOK_IDENT &&
+                   operator_name->next->next &&
+                   operator_name->next->next->type == TOK_LPAREN;
+        case TOK_ASSIGN:
+        case TOK_PLUS_ASSIGN:
+        case TOK_MINUS_ASSIGN:
+        case TOK_STAR_ASSIGN:
+        case TOK_SLASH_ASSIGN:
+        case TOK_PERCENT_ASSIGN:
+        case TOK_AMP_ASSIGN:
+        case TOK_PIPE_ASSIGN:
+        case TOK_CARET_ASSIGN:
+        case TOK_LSHIFT_ASSIGN:
+        case TOK_RSHIFT_ASSIGN:
+        case TOK_PLUS:
+        case TOK_MINUS:
+        case TOK_STAR:
+        case TOK_SLASH:
+        case TOK_PERCENT:
+        case TOK_INC:
+        case TOK_DEC:
+        case TOK_EQ:
+        case TOK_NE:
+        case TOK_LT:
+        case TOK_LE:
+        case TOK_GT:
+        case TOK_GE:
+        case TOK_SPACESHIP:
+        case TOK_AMP:
+        case TOK_PIPE:
+        case TOK_CARET:
+        case TOK_TILDE:
+        case TOK_NOT:
+        case TOK_AND:
+        case TOK_OR:
+        case TOK_LSHIFT:
+        case TOK_RSHIFT:
+        case TOK_COMMA:
+        case TOK_ARROW:
+        case TOK_DOT_STAR:
+        case TOK_ARROW_STAR:
+            return operator_name->next &&
+                   operator_name->next->type == TOK_LPAREN;
+        default:
+            return false;
+    }
+}
+
 static bool cxx_qualified_member_definition_starts(void) {
     Token* token = parser.cur;
     Token* qualified_start = token;
@@ -16637,9 +16715,7 @@ static bool cxx_qualified_member_definition_starts(void) {
             if (!component) return false;
             if (component->type == TOK_OPERATOR) {
                 if (!saw_template_id) break;
-                Token* operator_name = component->next;
-                return operator_name && operator_name->next &&
-                       operator_name->next->type == TOK_LPAREN;
+                return cxx_operator_member_definition_starts(component);
             }
             if (component->type == TOK_IDENT && component->next &&
                 component->next->type == TOK_LPAREN) {
@@ -16672,80 +16748,7 @@ static bool cxx_qualified_member_definition_starts(void) {
         token = token->next;
         if (!token) return false;
         if (token->type == TOK_OPERATOR) {
-            Token* operator_name = token->next;
-            if (!operator_name) return false;
-            switch (operator_name->type) {
-                case TOK_LPAREN:
-                    if (!operator_name->next ||
-                        operator_name->next->type != TOK_RPAREN ||
-                        !operator_name->next->next ||
-                        operator_name->next->next->type != TOK_LPAREN)
-                        return false;
-                    return true;
-                case TOK_LBRACKET:
-                    return operator_name->next &&
-                           operator_name->next->type == TOK_RBRACKET &&
-                           operator_name->next->next &&
-                           operator_name->next->next->type == TOK_LPAREN;
-                case TOK_NEW:
-                case TOK_DELETE:
-                    if (operator_name->next &&
-                        operator_name->next->type == TOK_LBRACKET) {
-                        operator_name = operator_name->next->next;
-                        if (!operator_name ||
-                            operator_name->type != TOK_RBRACKET)
-                            return false;
-                    }
-                    return operator_name->next &&
-                           operator_name->next->type == TOK_LPAREN;
-                case TOK_STRING_LIT:
-                    return operator_name->next &&
-                           operator_name->next->type == TOK_IDENT &&
-                           operator_name->next->next &&
-                           operator_name->next->next->type == TOK_LPAREN;
-                case TOK_ASSIGN:
-                case TOK_PLUS_ASSIGN:
-                case TOK_MINUS_ASSIGN:
-                case TOK_STAR_ASSIGN:
-                case TOK_SLASH_ASSIGN:
-                case TOK_PERCENT_ASSIGN:
-                case TOK_AMP_ASSIGN:
-                case TOK_PIPE_ASSIGN:
-                case TOK_CARET_ASSIGN:
-                case TOK_LSHIFT_ASSIGN:
-                case TOK_RSHIFT_ASSIGN:
-                case TOK_PLUS:
-                case TOK_MINUS:
-                case TOK_STAR:
-                case TOK_SLASH:
-                case TOK_PERCENT:
-                case TOK_INC:
-                case TOK_DEC:
-                case TOK_EQ:
-                case TOK_NE:
-                case TOK_LT:
-                case TOK_LE:
-                case TOK_GT:
-                case TOK_GE:
-                case TOK_SPACESHIP:
-                case TOK_AMP:
-                case TOK_PIPE:
-                case TOK_CARET:
-                case TOK_TILDE:
-                case TOK_NOT:
-                case TOK_AND:
-                case TOK_OR:
-                case TOK_LSHIFT:
-                case TOK_RSHIFT:
-                case TOK_COMMA:
-                case TOK_ARROW:
-                case TOK_DOT_STAR:
-                case TOK_ARROW_STAR:
-                    return operator_name->next &&
-                           operator_name->next->type == TOK_LPAREN;
-                default:
-                    return false;
-            }
+            return cxx_operator_member_definition_starts(token);
         }
         if (token->type != TOK_IDENT) return false;
         token = token->next;
@@ -17636,9 +17639,10 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
 
     if (!cxx_qualified_member_definition_starts()) return NULL;
     return_type = cxx_member_definition_return_type(base_type);
-    if (check(TOK_SCOPE) || cxx_template_id_followed_by_scope(NULL) ||
+    if (check(TOK_SCOPE) ||
         (parser.cur && parser.cur->next &&
-         parser.cur->next->type == TOK_SCOPE)) {
+         parser.cur->next->type == TOK_SCOPE) ||
+        cxx_template_id_followed_by_scope(NULL)) {
         Token* token = parser.cur;
         if (token && token->type == TOK_SCOPE) token = token->next;
         while (token && token->type == TOK_IDENT && token->next &&
