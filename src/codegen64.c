@@ -12423,9 +12423,21 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
     int destination_control;
     int32_t displacement;
     uint64_t immediate_value;
+    int mnemonic_width = 0;
 
-    if (length < 4u || strncmp(text, "mov", 3u) != 0 ||
-        (text[3] != ' ' && text[3] != '\t')) return false;
+    if (length < 4u || strncmp(text, "mov", 3u) != 0) return false;
+    if (length >= 5u && (text[4] == ' ' || text[4] == '\t')) {
+        switch (text[3]) {
+            case 'b': mnemonic_width = 1; break;
+            case 'w': mnemonic_width = 2; break;
+            case 'l': mnemonic_width = 4; break;
+            case 'q': mnemonic_width = 8; break;
+            default: return false;
+        }
+        cursor = 4u;
+    } else if (text[3] != ' ' && text[3] != '\t') {
+        return false;
+    }
     while (cursor < length && (text[cursor] == ' ' || text[cursor] == '\t')) {
         ++cursor;
     }
@@ -12455,7 +12467,8 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
         codegen64_asm_parse_register_width(text + destination_begin,
                                             destination_length, &destination,
                                             &destination_width)) {
-        if (destination_width != 8) return false;
+        if (destination_width != 8 ||
+            (mnemonic_width && mnemonic_width != 8)) return false;
         emit_rex(mod, false, source_control, 0, destination);
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x20);
@@ -12468,7 +12481,8 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
         codegen64_asm_parse_control_register(text + destination_begin,
                                              destination_length,
                                              &destination_control)) {
-        if (source_width != 8) return false;
+        if (source_width != 8 ||
+            (mnemonic_width && mnemonic_width != 8)) return false;
         emit_rex(mod, false, destination_control, 0, source);
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x22);
@@ -12481,7 +12495,8 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
         codegen64_asm_parse_memory(text + destination_begin,
                                    destination_length, &destination,
                                    &displacement)) {
-        if (source_width != 8) return false;
+        if (source_width != 8 ||
+            (mnemonic_width && mnemonic_width != source_width)) return false;
         emit_rex(mod, true, source, 0, destination);
         emit_byte(mod, 0x89);
         codegen64_asm_emit_modrm_memory(mod, source, destination,
@@ -12493,7 +12508,10 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
         codegen64_asm_parse_register_width(text + destination_begin,
                                             destination_length, &destination,
                                             &destination_width)) {
-        if (destination_width != 8) return false;
+        if (destination_width != 8 ||
+            (mnemonic_width && mnemonic_width != destination_width)) {
+            return false;
+        }
         emit_rex(mod, true, destination, 0, source);
         emit_byte(mod, 0x8B);
         codegen64_asm_emit_modrm_memory(mod, destination, source,
@@ -12503,6 +12521,7 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
     if (codegen64_asm_parse_register_width(text + destination_begin,
                                             destination_length, &destination,
                                             &destination_width) &&
+        (!mnemonic_width || mnemonic_width == destination_width) &&
         codegen64_asm_parse_immediate_width(text + source_begin,
                                              source_length, destination_width,
                                              &immediate_value)) {
@@ -12532,7 +12551,8 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
         !codegen64_asm_parse_register_width(text + destination_begin,
                                             destination_length, &destination,
                                             &destination_width) ||
-        source_width != destination_width) return false;
+        source_width != destination_width ||
+        (mnemonic_width && mnemonic_width != source_width)) return false;
     if (source_width == 8) {
         emit64_mov_reg_reg(mod, destination, source);
     } else {
@@ -12989,8 +13009,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
         ++asm_input_count;
-        int reg = codegen64_asm_register_for_operand(operand->constraint,
-                                                     operand->expr);
+        int reg = codegen64_asm_operand_register(operand);
         if (reg != -2) ++input_count;
     }
     inputs = input_count > 0
@@ -13004,8 +13023,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         }
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
-        int reg = codegen64_asm_register_for_operand(operand->constraint,
-                                                     operand->expr);
+        int reg = codegen64_asm_operand_register(operand);
         if (reg < 0 && reg != -2) {
             rcc_error(stmt->loc,
                       "unsupported AMD64 inline asm constraint '%s'",
@@ -13035,8 +13053,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
             codegen64_asm_operand_register(operand);
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
-        int reg = codegen64_asm_register_for_operand(operand->constraint,
-                                                     operand->expr);
+        int reg = codegen64_asm_operand_register(operand);
         immediate_flags[template_index] = reg == -2;
         if (reg == -2 &&
             !expr_eval_integer_constant(operand->expr,
@@ -13051,8 +13068,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
             return;
         }
         template_registers[template_index++] =
-            codegen64_asm_register_for_operand(operand->constraint,
-                                               operand->expr);
+            codegen64_asm_operand_register(operand);
     }
     for (AsmClobber* clobber = stmt->asm_clobbers; clobber;
          clobber = clobber->next) {
