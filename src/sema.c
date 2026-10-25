@@ -17414,7 +17414,10 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     Expr* member;
     Expr* call;
     if (!expression || !left_type) return false;
-    aggregate = generic_selection_type(left_type);
+    /* Reference expressions carry a pointer-shaped type in the front end.
+     * Inspect the referred-to class for member/non-member operator lookup,
+     * but keep the source expressions intact for value-category ranking. */
+    aggregate = generic_selection_type(sema_cxx_object_type(left_type));
     name = sema_cxx_binary_operator_name(expression->kind);
     if (!name) return false;
     method = sema_find_function_method(aggregate, name);
@@ -17454,7 +17457,8 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
             }
         }
     }
-    right_aggregate = generic_selection_type(right_type);
+    right_aggregate = generic_selection_type(
+        sema_cxx_object_type(right_type));
     if ((!aggregate || (aggregate->kind != TYPE_STRUCT &&
                         aggregate->kind != TYPE_UNION)) &&
         (!right_aggregate || (right_aggregate->kind != TYPE_STRUCT &&

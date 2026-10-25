@@ -106,6 +106,16 @@ struct Dereference {
     int&& operator*() &&;
 };
 
+struct RefQualifiedBinary {
+    int value;
+    int operator+(int amount) &;
+    int operator+(int amount) &&;
+};
+
+struct FreeOperatorRhs {
+    int value;
+};
+
 struct IncrementCounter {
     int value;
     int operator++();
@@ -293,6 +303,19 @@ int&& out_of_class_operators::Dereference::operator*() && {
     return static_cast<int&&>(value);
 }
 
+int out_of_class_operators::RefQualifiedBinary::operator+(int amount) & {
+    return value + amount;
+}
+
+int out_of_class_operators::RefQualifiedBinary::operator+(int amount) && {
+    return value + amount + 100;
+}
+
+int operator+(int amount,
+              out_of_class_operators::FreeOperatorRhs&& right) {
+    return amount + right.value + 200;
+}
+
 int out_of_class_operators::IncrementCounter::operator++() {
     return ++value;
 }
@@ -408,6 +431,16 @@ int cxx_out_of_class_call_operators_probe() {
             xvalue_dereference);
     lvalue_result = 19;
     xvalue_result = 23;
+    out_of_class_operators::RefQualifiedBinary lvalue_binary{29};
+    out_of_class_operators::RefQualifiedBinary xvalue_binary{29};
+    int lvalue_sum = lvalue_binary + 2;
+    int xvalue_sum =
+        static_cast<out_of_class_operators::RefQualifiedBinary&&>(
+            xvalue_binary) + 2;
+    out_of_class_operators::FreeOperatorRhs free_operator_right{31};
+    int free_operator_sum =
+        2 + static_cast<out_of_class_operators::FreeOperatorRhs&&>(
+            free_operator_right);
     out_of_class_operators::ArrowTarget target;
     target.value = 29;
     out_of_class_operators::ArrowHandle handle;
@@ -416,7 +449,9 @@ int cxx_out_of_class_call_operators_probe() {
     return first == 4 && second == 8 && called == 18 &&
            -negatable == -9 && postfix == 3 && prefix == 5 &&
            counter.value == 5 && lvalue_dereference.value == 19 &&
-           xvalue_dereference.value == 23 && arrow_value == 29 ? 0 : 1;
+           xvalue_dereference.value == 23 && lvalue_sum == 31 &&
+           xvalue_sum == 131 && free_operator_sum == 233 &&
+           arrow_value == 29 ? 0 : 1;
 }
 
 int cxx_out_of_class_conversion_probe() {

@@ -9433,6 +9433,12 @@ remains a separate open item.
         through an out-of-class conversion function and execute the result.
         GCC C++20 `-Werror` execution agrees, and a definition with the wrong
         ref-qualifier is rejected for both targets.
+  - [x] Normalize reference types to their referred-to class during binary
+        operator lookup without replacing operand expressions, so ref-qualified
+        member overload selection sees lvalue/xvalue category and a non-member
+        overload is discovered when its right operand is an xvalue. Regressions
+        cover `T& + int`, `T&& + int`, and `int + T&&`; GCC C++20 `-Werror`,
+        i686/AMD64 generation, and AMD64 execution pass.
   - [ ] Extend out-of-class definitions to remaining overloaded operators and
         conversion-type-id declarators, member templates and explicit
         specializations, advanced nested/template owner qualification, and
