@@ -44,6 +44,16 @@ OutOfClassConversionRedefinitionProbe::operator bool() const noexcept {
     return true;
 }
 
+struct OutOfClassMemberTemplateDefinitionProbe {
+    template<typename T>
+    T value(T input);
+};
+
+template<typename T>
+long OutOfClassMemberTemplateDefinitionProbe::value(T input) {
+    return static_cast<long>(input);
+}
+
 int OutOfClassOperatorRedefinitionProbe::operator+(int value) const {
     return value;
 }

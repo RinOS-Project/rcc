@@ -6612,6 +6612,8 @@ test-cxx-member-pointer-functions-invalid: $(RCXX_TARGET)
 
 test-cxx-class-template-methods-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-methods)
+	$(CC) -x c++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+		tests/cxx_class_template_methods.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-class-template-methods/x86.s \
 		tests/cxx_class_template_methods.cpp
@@ -6687,6 +6689,7 @@ test-cxx-class-template-specialization-posix: $(RCXX_TARGET)
 ifeq ($(OS),Windows_NT)
 test-cxx-class-template-methods: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-methods)
+	$(CC) -x c++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_methods.cpp
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-methods,cxx_class_template_methods.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S -o $(TEST_OUT)/cxx-class-template-methods/x86-o2.s tests/cxx_class_template_methods.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-class-template-methods/x86-o2.o $(TEST_OUT)/cxx-class-template-methods/x86-o2.s
@@ -13390,6 +13393,7 @@ test-cxx-member-methods-invalid: $(RCXX_TARGET)
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassPointerConversionProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "out-of-class exception specification does not match 'OutOfClassConversionNoexceptProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "redefinition of out-of-class member function 'OutOfClassConversionRedefinitionProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassMemberTemplateDefinitionProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-methods/invalid-x64.ro tests/cxx_member_methods_out_of_class_invalid.cpp,$(TEST_OUT)/cxx-member-methods/invalid-x64.log)
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassDefinitionProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "default arguments cannot be added to an out-of-class member definition" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
@@ -13406,6 +13410,7 @@ test-cxx-member-methods-invalid: $(RCXX_TARGET)
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassPointerConversionProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "out-of-class exception specification does not match 'OutOfClassConversionNoexceptProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "redefinition of out-of-class member function 'OutOfClassConversionRedefinitionProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassMemberTemplateDefinitionProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	@echo "RCC++ out-of-class member definition diagnostic tests completed"
 
 .PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-class-template-static-data test-cxx-class-template-static-data-odr test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-cxx-constructor-initializer-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi

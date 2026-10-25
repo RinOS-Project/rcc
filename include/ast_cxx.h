@@ -340,6 +340,9 @@ struct CxxTemplate {
     /* Preserve member qualifiers and owning-class ABI metadata when a
      * function-template specialization is selected. */
     CxxMethod* member_method;
+    /* Namespace-scope definitions of class member templates are consumed by
+     * their owning class and must not enter ordinary namespace lookup. */
+    bool is_member_template_definition;
 
     /* The expanded type of a bounded alias template.  Alias templates do
      * not have an object or function body; their specialization is resolved

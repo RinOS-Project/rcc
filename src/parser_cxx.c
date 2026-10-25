@@ -2143,6 +2143,11 @@ static Stmt* parse_cxx_statement(void);
 static DeclList* parse_cxx_parameter_declarations(bool* is_variadic);
 static Type* parse_cxx_type_spec(void);
 static Type* parse_cxx_template_type_argument(void);
+static Type* cxx_member_definition_return_type(Type* base_type);
+static bool cxx_out_of_class_member_template_definition_starts(void);
+Stmt* rcc_parse_cxx_qualified_member_definition(
+    Type* base_type, bool is_inline, bool is_constexpr, bool is_consteval,
+    SourceLoc loc);
 static int cxx_parse_class_member_alignment(Expr** deferred_expression);
 static Type* cxx_apply_class_member_alignment(
     Type* type, int alignment, Expr* deferred_expression, SourceLoc loc);
@@ -12954,7 +12959,10 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
             cxx_namespace_add_class(ns, cls);
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template(ACCESS_PUBLIC);
-            cxx_namespace_add_template(ns, tmpl);
+            if (tmpl && !tmpl->member_method &&
+                !tmpl->is_member_template_definition) {
+                cxx_namespace_add_template(ns, tmpl);
+            }
         } else if (check(TOK_INLINE) && check_next(TOK_NAMESPACE)) {
             advance();
             advance();
@@ -15510,13 +15518,28 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         CxxTemplate* outer_template = active_template;
         bool is_consteval = false;
         active_template = tmpl;
-        tmpl->func_def = parse_cxx_function_declaration(
-            true, &tmpl->is_constexpr, &tmpl->is_noexcept, &is_consteval);
+        if (cxx_out_of_class_member_template_definition_starts()) {
+            tmpl->is_member_template_definition = true;
+            Type* return_type = parse_cxx_type_spec();
+            return_type = cxx_member_definition_return_type(return_type);
+            (void)rcc_parse_cxx_qualified_member_definition(
+                return_type, false, tmpl->is_constexpr, is_consteval, loc);
+            if (tmpl->member_method) {
+                tmpl->func_def = tmpl->member_method->decl;
+                tmpl->name = ast_arena_strdup(
+                    tmpl->member_method->source_name);
+            }
+        } else {
+            tmpl->func_def = parse_cxx_function_declaration(
+                true, &tmpl->is_constexpr, &tmpl->is_noexcept, &is_consteval);
+        }
         active_template = outer_template;
         if (tmpl->func_def) {
-            tmpl->name = ast_arena_strdup(tmpl->func_def->name);
+            if (!tmpl->name) {
+                tmpl->name = ast_arena_strdup(tmpl->func_def->name);
+            }
         }
-        recognize_versioned_function_template(tmpl);
+        if (!tmpl->member_method) recognize_versioned_function_template(tmpl);
     }
 
     for (int index = 0; index < tmpl->param_count; ++index) {
@@ -16685,6 +16708,41 @@ static bool cxx_member_definition_parameters_match(
     return declared == NULL && parameters == NULL;
 }
 
+static bool cxx_member_definition_template_parameters_match(
+    const CxxMethod* method, const CxxTemplate* definition_template) {
+    const CxxTemplate* declared_template;
+    if (!method) return false;
+    declared_template = method->member_template;
+    if (!declared_template) return definition_template == NULL;
+    if (!definition_template ||
+        definition_template->kind != TMPL_FUNCTION ||
+        declared_template->param_count != definition_template->param_count) {
+        return false;
+    }
+    for (int index = 0; index < declared_template->param_count; ++index) {
+        const TemplateParam* declared = &declared_template->params[index];
+        const TemplateParam* definition = &definition_template->params[index];
+        if (declared->kind != definition->kind ||
+            declared->is_pack != definition->is_pack) {
+            return false;
+        }
+        if (declared->kind == TPARAM_NONTYPE &&
+            (!declared->type || !definition->type ||
+             !type_is_compatible(declared->type, definition->type))) {
+            return false;
+        }
+        if (declared->kind == TPARAM_TEMPLATE &&
+            ((!declared->template_signature) !=
+             (!definition->template_signature) ||
+             (declared->template_signature && definition->template_signature &&
+              declared->template_signature->param_count !=
+                  definition->template_signature->param_count))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static Type* cxx_member_definition_return_type(Type* base_type) {
     Type* result = base_type;
     while (check(TOK_STAR) || check(TOK_AMP) || check(TOK_AND)) {
@@ -16713,6 +16771,20 @@ static Type* cxx_member_definition_return_type(Type* base_type) {
         }
     }
     return result;
+}
+
+static bool cxx_out_of_class_member_template_definition_starts(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    Type* return_type = parse_cxx_type_spec();
+    bool starts = false;
+    if (return_type) {
+        return_type = cxx_member_definition_return_type(return_type);
+        starts = cxx_qualified_member_definition_starts();
+    }
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return starts;
 }
 
 static Stmt* cxx_parse_qualified_member_definition_body(
@@ -17544,7 +17616,9 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
     for (struct CxxMember* member = cls->members; member;
          member = member->next) {
         CxxMethod* candidate = member->method;
-        if (!candidate || !candidate->decl || candidate->member_template ||
+        if (!candidate || !candidate->decl ||
+            !cxx_member_definition_template_parameters_match(
+                candidate, active_template) ||
             candidate->is_constructor || candidate->is_destructor ||
             !candidate->source_name ||
             strcmp(candidate->source_name, member_name) != 0 ||
@@ -17595,6 +17669,34 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
         rcc_error(loc,
                   "out-of-class member constexpr specifiers do not match '%s'",
                   qualified);
+    }
+    if (selected->member_template && active_template) {
+        CxxTemplate* declared_template = selected->member_template;
+        CxxTemplate* definition_template = active_template;
+        for (int index = 0; index < declared_template->param_count; ++index) {
+            TemplateParam* declared = &declared_template->params[index];
+            TemplateParam* definition = &definition_template->params[index];
+            if (declared->has_default && !definition->has_default) {
+                definition->has_default = true;
+                if (declared->kind == TPARAM_NONTYPE) {
+                    definition->default_value = declared->default_value;
+                } else {
+                    definition->default_type = declared->default_type;
+                }
+                definition->default_context = declared->default_context;
+            }
+        }
+        if (!definition_template->constraint) {
+            definition_template->constraint = declared_template->constraint;
+            definition_template->constraint_context =
+                declared_template->constraint_context;
+        }
+        definition_template->member_method = selected;
+        definition_template->func_def = selected->decl;
+        definition_template->enclosing_class = cls;
+        definition_template->ns = cls->ns ? cls->ns : g_global_namespace;
+        definition_template->name = ast_arena_strdup(selected->source_name);
+        selected->member_template = definition_template;
     }
     if (!cxx_method_exception_spec_value(selected, &declaration_noexcept)) {
         rcc_error(loc,
@@ -41801,7 +41903,9 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template(ACCESS_PUBLIC);
             if (g_global_namespace && tmpl &&
-                tmpl->kind != TMPL_DEDUCTION_GUIDE) {
+                tmpl->kind != TMPL_DEDUCTION_GUIDE &&
+                !tmpl->member_method &&
+                !tmpl->is_member_template_definition) {
                 cxx_namespace_add_template(g_global_namespace, tmpl);
             }
         } else if (rcc_parse_cxx_deduction_guide()) {
