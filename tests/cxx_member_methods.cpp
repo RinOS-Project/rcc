@@ -93,6 +93,15 @@ struct IncrementCounter {
     int operator++();
     int operator++(int);
 };
+
+struct ArrowTarget {
+    int value;
+};
+
+struct ArrowHandle {
+    ArrowTarget* target;
+    ArrowTarget* operator->();
+};
 }
 
 namespace out_of_class_conversions {
@@ -236,6 +245,11 @@ int out_of_class_operators::IncrementCounter::operator++(int) {
     return value++;
 }
 
+out_of_class_operators::ArrowTarget*
+out_of_class_operators::ArrowHandle::operator->() {
+    return target;
+}
+
 out_of_class_conversions::Truthy::operator bool() const noexcept {
     return value != 0;
 }
@@ -318,9 +332,14 @@ int cxx_out_of_class_call_operators_probe() {
     counter.value = 3;
     int postfix = counter++;
     int prefix = ++counter;
+    out_of_class_operators::ArrowTarget target;
+    target.value = 29;
+    out_of_class_operators::ArrowHandle handle;
+    handle.target = &target;
+    int arrow_value = handle->value;
     return first == 4 && second == 8 && called == 18 &&
            -negatable == -9 && postfix == 3 && prefix == 5 &&
-           counter.value == 5 ? 0 : 1;
+           counter.value == 5 && arrow_value == 29 ? 0 : 1;
 }
 
 int cxx_out_of_class_conversion_probe() {
