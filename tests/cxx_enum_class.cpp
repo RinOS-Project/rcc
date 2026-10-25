@@ -15,6 +15,23 @@ enum ArithmeticEnumerator {
     third = second == 14 ? first : 0,
 };
 
+enum UnscopedUnsignedByte : unsigned char {
+    unscoped_unsigned_byte_maximum = 255,
+};
+
+static_assert(sizeof(unscoped_unsigned_byte_maximum << 1) == sizeof(int),
+              "fixed-underlying enum shift uses integer promotion");
+static_assert((unscoped_unsigned_byte_maximum << 1) == 510,
+              "fixed-underlying enum shift preserves promoted value");
+static_assert(sizeof(-unscoped_unsigned_byte_maximum) == sizeof(int),
+              "fixed-underlying enum negation uses integer promotion");
+static_assert((-unscoped_unsigned_byte_maximum) == -255,
+              "fixed-underlying enum negation is evaluated as int");
+static_assert(sizeof(~unscoped_unsigned_byte_maximum) == sizeof(int),
+              "fixed-underlying enum complement uses integer promotion");
+static_assert((~unscoped_unsigned_byte_maximum) == -256,
+              "fixed-underlying enum complement is evaluated as int");
+
 enum class UnsignedByte : unsigned char {
     maximum = 255,
 };
@@ -104,6 +121,10 @@ int cxx_enum_class_probe() {
     if (first != 7) return 3;
     if (second != 14) return 4;
     if (third != 7) return 5;
+    UnscopedUnsignedByte byte_value = unscoped_unsigned_byte_maximum;
+    if ((byte_value << 1) != 510) return 17;
+    if (-byte_value != -255) return 19;
+    if ((~byte_value) != -256) return 18;
     if (static_cast<unsigned>(UnsignedByte::maximum) != 255u) return 6;
     if (static_cast<int>(SignedByte::minimum) != -128) return 7;
     if (static_cast<int>(SignedByte::maximum) != 127) return 8;

@@ -2964,6 +2964,18 @@ static Type* sema_integer_promotion(Type* type) {
     return type;
 }
 
+/* Built-in operators apply the integral promotion of an unscoped enum's
+ * underlying integer type. Keep sema_integer_promotion's direct underlying
+ * destination for overload ranking, where both the fixed underlying type and
+ * its promoted type are viable promotion sequences. */
+static Type* sema_builtin_integer_promotion(Type* type) {
+    if (type && type->kind == TYPE_ENUM && !type->enum_is_scoped) {
+        Type* underlying = type->enum_underlying_type;
+        return sema_integer_promotion(underlying ? underlying : type_int);
+    }
+    return sema_integer_promotion(type);
+}
+
 static bool sema_is_arithmetic_type(Type* type) {
     return type_is_arithmetic(type) ||
            (type && type->kind == TYPE_ENUM &&
@@ -2971,8 +2983,12 @@ static bool sema_is_arithmetic_type(Type* type) {
 }
 
 static Type* sema_common_arithmetic_type(Type* left, Type* right) {
-    if (left && left->kind == TYPE_ENUM) left = sema_integer_promotion(left);
-    if (right && right->kind == TYPE_ENUM) right = sema_integer_promotion(right);
+    if (left && left->kind == TYPE_ENUM) {
+        left = sema_builtin_integer_promotion(left);
+    }
+    if (right && right->kind == TYPE_ENUM) {
+        right = sema_builtin_integer_promotion(right);
+    }
     return type_common(left, right);
 }
 
@@ -5045,12 +5061,12 @@ static bool sema_eval_constexpr_expr(
                 if (left_type && right_type &&
                     sema_constexpr_integer_type(left_type) &&
                     sema_constexpr_integer_type(right_type)) {
-                    left_type = sema_integer_promotion(left_type);
+                    left_type = sema_builtin_integer_promotion(left_type);
                     if (expression->kind == EXPR_LSHIFT_ASSIGN ||
                         expression->kind == EXPR_RSHIFT_ASSIGN) {
                         operation_type = left_type;
                     } else {
-                        right_type = sema_integer_promotion(right_type);
+                        right_type = sema_builtin_integer_promotion(right_type);
                         operation_type = type_common(left_type, right_type);
                     }
                 }
@@ -5144,7 +5160,7 @@ static bool sema_eval_constexpr_expr(
             }
             Type* value_type = bindings[binding_index].declaration->type;
             Type* operation_type = sema_constexpr_integer_type(value_type)
-                ? sema_integer_promotion(value_type) : value_type;
+                ? sema_builtin_integer_promotion(value_type) : value_type;
             if (sema_constexpr_signed_expression_overflows(
                     operation_type, right)) return false;
             if (!sema_constexpr_convert(
@@ -7410,14 +7426,14 @@ static bool sema_constexpr_scalar_assign(
         Type* right_type = right->type;
         if (operation == EXPR_LSHIFT || operation == EXPR_RSHIFT) {
             if (sema_constexpr_integer_type(left_type)) {
-                operation_type = sema_integer_promotion(left_type);
+                operation_type = sema_builtin_integer_promotion(left_type);
             }
         } else {
             if (sema_constexpr_integer_type(left_type)) {
-                left_type = sema_integer_promotion(left_type);
+                left_type = sema_builtin_integer_promotion(left_type);
             }
             if (sema_constexpr_integer_type(right_type)) {
-                right_type = sema_integer_promotion(right_type);
+                right_type = sema_builtin_integer_promotion(right_type);
             }
             operation_type = type_common(left_type, right_type);
         }
@@ -8245,7 +8261,8 @@ static bool sema_eval_constexpr_scalar_function(
                     return false;
                 }
                 promoted_type = argument_type->kind == TYPE_FLOAT
-                    ? type_double : sema_integer_promotion(argument_type);
+                    ? type_double
+                    : sema_builtin_integer_promotion(argument_type);
                 if (!sema_constexpr_scalar_convert(
                         &argument_value, promoted_type, &argument_value)) {
                     return false;
@@ -19192,7 +19209,7 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc, "invalid operand type for unary operator");
             }
             expr->type = sema_is_integer_type(t)
-                ? sema_integer_promotion(t) : t;
+                ? sema_builtin_integer_promotion(t) : t;
             break;
         }
 
@@ -19205,7 +19222,7 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc,
                           "bitwise complement requires integer operand");
             }
-            expr->type = sema_integer_promotion(t);
+            expr->type = sema_builtin_integer_promotion(t);
             break;
         }
 
@@ -20118,8 +20135,8 @@ static Type* sema_expr(Expr* expr) {
                        sema_is_scoped_enum(rt)) {
                 rcc_error(expr->loc, "remainder operator requires integer operands");
             }
-            expr->type = type_common(sema_integer_promotion(lt),
-                                     sema_integer_promotion(rt));
+            expr->type = type_common(sema_builtin_integer_promotion(lt),
+                                     sema_builtin_integer_promotion(rt));
             break;
         }
 
@@ -20140,8 +20157,8 @@ static Type* sema_expr(Expr* expr) {
                        sema_is_scoped_enum(rt)) {
                 rcc_error(expr->loc, "bitwise operator requires integer operands");
             }
-            expr->type = type_common(sema_integer_promotion(lt),
-                                     sema_integer_promotion(rt));
+            expr->type = type_common(sema_builtin_integer_promotion(lt),
+                                     sema_builtin_integer_promotion(rt));
             break;
         }
 
@@ -20164,7 +20181,7 @@ static Type* sema_expr(Expr* expr) {
             /* C17 6.5.7 promotes each operand independently; unlike most
              * binary operators, the right operand never changes the result
              * type or the signedness of right shift. */
-            expr->type = sema_integer_promotion(lt);
+            expr->type = sema_builtin_integer_promotion(lt);
             break;
         }
 
