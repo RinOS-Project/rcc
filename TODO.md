@@ -4716,8 +4716,13 @@ remains a separate open item.
   final dependent-signature validation change (exit 0).
 - [x] Pass the full native-Windows MinGW GCC `test-debug-info` aggregate after
   the final dependent-signature validation change (exit 0).
-- [ ] Extend deeper dependent-owner/cross-kind pack combinations. Structural
-  non-integral NTTP packs remain open.
+- [x] Add representative structural non-integral NTTP packs to nested-owner
+  and nested-member-specialization coverage, including class-type, enum,
+  nullptr, array, and floating representations. The structural owner-pack and
+  owner-partial targets pass GCC symbol checks and i686/AMD64 generation and
+  runtime.
+- [ ] Continue additional and deeper dependent-owner/cross-kind pack
+  combinations.
 
 ## RCC continuation (2026-10-14, nested template-template signatures)
 
@@ -4734,9 +4739,10 @@ remains a separate open item.
   mixed alias/class packs, and invalid-signature diagnostics. The focused
   `test-cxx-alias-templates` gate passed for i686/x86_64, with x86_64 runtime,
   GCC C++20 runtime, and negative GCC parity.
-- [ ] Expand deeper dependent-owner/cross-kind pack coverage. Defaults and
-  constraints in nested signatures and structural non-integral NTTP packs
-  remain open.
+- [ ] Expand deeper dependent-owner/cross-kind pack coverage and add defaults
+  or constraints to nested template-template signatures. Representative
+  structural non-integral owner packs are covered by the dedicated owner
+  structural-value-pack target.
 
 ## RCC continuation (2026-10-14, alias-template owners of nested aliases)
 
@@ -4748,8 +4754,13 @@ remains a separate open item.
   `-Wall -Wextra -Werror` execution.
 - [x] Pass the full native-Windows MinGW GCC `test-cxx` and `test-debug-info`
   aggregates after this parser change (both exit 0).
-- [ ] Forward dependent template-template packs through nested alias-template
-  specializations and support deeper multi-source-pack expansion.
+- [x] Forward dependent template-template packs through nested alias-template
+  specializations, zip them with owner type packs, and reject mismatched pack
+  lengths. The focused `test-cxx-alias-templates` target passes on i686/AMD64
+  with GCC parity; the implementation continuation records full C++ and
+  debug-info aggregate passes.
+- [ ] Extend deeper multi-source-pack coverage to remaining cross-kind
+  dependent-owner patterns.
 - [x] Add explicit/partial nested member specializations under dependent and
   outer class-template-specialization owners, including representative
   structural class-type, enum, pointer/nullptr, array, and packed NTTP patterns.
@@ -4757,8 +4768,8 @@ remains a separate open item.
   Itanium symbol checks, i686/AMD64 generation, and GCC/RCC host execution.
 - [ ] Extend deeper cross-kind dependent-owner combinations and defaults or
   constraints in nested template-template signatures.
-- [ ] Extend structural non-integral NTTP packs and defaults/constraints in
-  nested template-template signatures.
+- [ ] Add further structural NTTP combinations specifically inside nested
+  template-template signatures and implement defaults/constraints there.
 - [x] Commit the parser implementation, regression fixture, and test record
   on RCC `main` as `cfa1568fb5c2083612a1b973c6e16022af9eba19`; no push.
 
