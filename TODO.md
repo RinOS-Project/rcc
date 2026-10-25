@@ -9761,3 +9761,14 @@ remains a separate open item.
 - [ ] Additional partially dependent owner patterns, other overloaded
       operator forms beyond those covered above, and remaining ABI/lifetime
       cases remain open.
+
+## RCC continuation (2026-10-25, dependent out-of-class conversion target)
+
+- [x] Parse an out-of-class conversion-function definition on a dependent
+      class-template owner when its conversion type-id is `const T*`.
+      Preserve the primary templated owner while its specialization remains
+      dependent, then match and instantiate the conversion member. GCC C++20
+      syntax validation and RCC i686/AMD64 generation plus `-O0`/`-O2` runtime
+      checks pass in `test-cxx-class-template-methods`; the member-method and
+      conversion-operator regression targets pass as well. Reference-target
+      conversions and more deeply qualified dependent owners remain open.

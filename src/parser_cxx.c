@@ -2144,7 +2144,13 @@ static DeclList* parse_cxx_parameter_declarations(bool* is_variadic);
 static Type* parse_cxx_type_spec(void);
 static Type* parse_cxx_template_type_argument(void);
 static Type* cxx_member_definition_return_type(Type* base_type);
+static void cxx_template_lookahead_skip_attributes(void);
 static bool cxx_out_of_class_member_template_definition_starts(void);
+static bool cxx_out_of_class_conversion_member_template_definition_starts(
+    void);
+static bool cxx_qualified_conversion_definition_starts(void);
+Stmt* rcc_parse_cxx_qualified_conversion_definition(
+    bool is_inline, bool is_constexpr, bool is_consteval, SourceLoc loc);
 static CxxMethod* substitute_template_method(
     CxxTemplate* tmpl, CxxMethod* method, Type** arguments,
     int argument_count, const int64_t* value_args,
@@ -15685,7 +15691,23 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         bool is_constexpr = false;
         bool is_consteval = false;
         active_template = tmpl;
-        if (cxx_out_of_class_member_template_definition_starts()) {
+        if (cxx_out_of_class_conversion_member_template_definition_starts()) {
+            for (;;) {
+                cxx_template_lookahead_skip_attributes();
+                if (match(TOK_INLINE)) is_inline = true;
+                else if (match(TOK_CONSTEXPR)) is_constexpr = true;
+                else if (match(TOK_CONSTEVAL)) {
+                    is_constexpr = true;
+                    is_consteval = true;
+                } else {
+                    break;
+                }
+            }
+            tmpl->is_constexpr = is_constexpr;
+            tmpl->is_member_template_definition = true;
+            (void)rcc_parse_cxx_qualified_conversion_definition(
+                is_inline, is_constexpr, is_consteval, loc);
+        } else if (cxx_out_of_class_member_template_definition_starts()) {
             while (match(TOK_INLINE) || match(TOK_CONSTEXPR) ||
                    match(TOK_CONSTEVAL)) {
                 if (previous()->type == TOK_INLINE) is_inline = true;
@@ -17325,6 +17347,27 @@ static bool cxx_out_of_class_member_template_definition_starts(void) {
     return starts;
 }
 
+static bool cxx_out_of_class_conversion_member_template_definition_starts(
+    void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    bool starts;
+
+    for (;;) {
+        cxx_template_lookahead_skip_attributes();
+        if (match(TOK_INLINE) || match(TOK_CONSTEXPR) ||
+            match(TOK_CONSTEVAL) || match(TOK_STATIC) ||
+            match(TOK_EXTERN)) {
+            continue;
+        }
+        break;
+    }
+    starts = cxx_qualified_conversion_definition_starts();
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return starts;
+}
+
 static Stmt* cxx_parse_qualified_member_definition_body(
     CxxClass* cls, CxxMethod* method, DeclList* parameters, SourceLoc loc) {
     StmtList* statements = NULL;
@@ -17816,25 +17859,31 @@ static bool cxx_conversion_target_starts(Token* token) {
 
 static bool cxx_qualified_conversion_definition_starts(void) {
     Token* token = parser.cur;
-    bool qualified = false;
     if (token && token->type == TOK_SCOPE) token = token->next;
     while (token && token->type == TOK_IDENT) {
         token = token->next;
+        if (token && token->type == TOK_LT) {
+            token = cxx_template_id_end(token);
+        }
         if (!token || token->type != TOK_SCOPE || !token->next) return false;
-        qualified = true;
-        if (token->next->type == TOK_OPERATOR)
-            return qualified &&
-                   cxx_conversion_target_starts(token->next->next);
         token = token->next;
+        if (token->type == TOK_OPERATOR) {
+            return cxx_conversion_target_starts(token->next);
+        }
+        if (token->type != TOK_IDENT) return false;
     }
     return false;
 }
 
 static bool cxx_parse_qualified_conversion_owner(
-    char* owner_name, size_t owner_capacity) {
+    char* owner_name, size_t owner_capacity, CxxClass** owner_class,
+    bool* owner_is_dependent, SourceLoc loc) {
     size_t length = 0u;
-    if (!owner_name || owner_capacity == 0u) return false;
+    if (!owner_name || owner_capacity == 0u || !owner_class ||
+        !owner_is_dependent) return false;
     owner_name[0] = '\0';
+    *owner_class = NULL;
+    *owner_is_dependent = false;
     if (match(TOK_SCOPE)) {
         if (owner_capacity < 3u) return false;
         memcpy(owner_name, "::", 3u);
@@ -17848,10 +17897,32 @@ static bool cxx_parse_qualified_conversion_owner(
                component_length);
         length += component_length;
         owner_name[length] = '\0';
+        if (check(TOK_LT)) {
+            CxxTemplate* owner_template =
+                find_class_template(rcc_intern(owner_name));
+            Type* owner_type;
+            CxxClass* cls;
+            if (!owner_template) return false;
+            owner_type = parse_class_template_specialization(
+                owner_template, loc);
+            if (!owner_type || !match(TOK_SCOPE)) return false;
+            cls = owner_type->cxx_dependent
+                ? owner_template->templated_class
+                : owner_type->cxx_class;
+            if (!cls && owner_type->cxx_template &&
+                owner_type->cxx_template->kind == TMPL_CLASS) {
+                cls = owner_type->cxx_template->templated_class;
+            }
+            if (!cls) return false;
+            *owner_class = cls;
+            *owner_is_dependent = owner_type->cxx_dependent;
+            return true;
+        }
         if (!check(TOK_SCOPE) || !parser.cur->next) return false;
         if (parser.cur->next->type == TOK_OPERATOR) {
             advance();
-            return true;
+            *owner_class = find_class(owner_name);
+            return *owner_class != NULL;
         }
         if (length + 2u >= owner_capacity) return false;
         owner_name[length++] = ':';
@@ -17871,7 +17942,8 @@ Stmt* rcc_parse_cxx_qualified_conversion_definition(
     char owner_name[512];
     char qualified_buffer[1024];
     const char* qualified;
-    CxxClass* cls;
+    CxxClass* cls = NULL;
+    bool owner_is_dependent = false;
     CxxMethod* selected = NULL;
     Type* conversion_type;
     DeclList* parameters;
@@ -17889,13 +17961,14 @@ Stmt* rcc_parse_cxx_qualified_conversion_definition(
 
     if (!cxx_qualified_conversion_definition_starts()) return NULL;
     if (!cxx_parse_qualified_conversion_owner(
-            owner_name, sizeof(owner_name)) || !match(TOK_OPERATOR)) {
+            owner_name, sizeof(owner_name), &cls, &owner_is_dependent, loc) ||
+        !match(TOK_OPERATOR)) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
     }
-    cls = find_class(owner_name);
-    if (!cls || !cls->type || !cls->type->is_complete) {
+    if (!cls || !cls->type ||
+        (!cls->type->is_complete && !owner_is_dependent)) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
