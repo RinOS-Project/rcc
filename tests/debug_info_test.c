@@ -9920,7 +9920,9 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_nonconstant_integer_compare_implicit_entry_source",
          "debug_inline_nonconstant_integer_compare_implicit_entry"},
         {"debug_inline_nonconstant_integer_compare_promoted_short_entry_source",
-         "debug_inline_nonconstant_integer_compare_promoted_short_entry"}
+         "debug_inline_nonconstant_integer_compare_promoted_short_entry"},
+        {"debug_inline_nonconstant_integer_compare_promoted_unsigned_short_entry_source",
+         "debug_inline_nonconstant_integer_compare_promoted_unsigned_short_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -9969,6 +9971,10 @@ static void verify_inline_integer_expression_parameter(
     bool integer_promotion_comparison = source_name &&
         strcmp(source_name,
                "debug_inline_nonconstant_integer_compare_promoted_short_entry_source")
+            == 0;
+    bool unsigned_integer_promotion_comparison = source_name &&
+        strcmp(source_name,
+               "debug_inline_nonconstant_integer_compare_promoted_unsigned_short_entry_source")
             == 0;
     const char* call_site_name = comparison_entry ? comparison_entry :
         expected_operation == 0xc4u
@@ -10188,7 +10194,17 @@ static void verify_inline_integer_expression_parameter(
                (expected_operation >= 0x2au && expected_operation <= 0x2eu));
         verify_inline_expression_frame_u32_for_architecture(
             info->data, expression_end, &offset, architecture, frame_offset);
-        if (integer_promotion_comparison) {
+        if (unsigned_integer_promotion_comparison) {
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &offset, architecture,
+                false, value_size);
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &offset, architecture,
+                true, 2u);
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &offset, architecture,
+                true, value_size);
+        } else if (integer_promotion_comparison) {
             verify_inline_integer_expression_normalization(
                 info->data, expression_end, &offset, architecture,
                 false, value_size);
@@ -10658,6 +10674,9 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_integer_parameter_inline",
          "debug_inline_nonconstant_integer_compare_promoted_short_entry_source",
          false, 4u, 0x2du, 0, NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_compare_promoted_unsigned_short_entry_source",
+         true, 4u, 0x2du, 0x8000, NULL, false},
         {"debug_nonconstant_integer_bitand_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 4u, 0x1au, 7,
          NULL, false},
