@@ -116,6 +116,12 @@ struct FreeOperatorRhs {
     int value;
 };
 
+struct RefQualifiedSpaceship {
+    int value;
+    int operator<=>(int amount) &;
+    int operator<=>(int amount) &&;
+};
+
 struct IncrementCounter {
     int value;
     int operator++();
@@ -316,6 +322,16 @@ int operator+(int amount,
     return amount + right.value + 200;
 }
 
+int out_of_class_operators::RefQualifiedSpaceship::operator<=>(
+    int amount) & {
+    return value - amount;
+}
+
+int out_of_class_operators::RefQualifiedSpaceship::operator<=>(
+    int amount) && {
+    return value - amount + 100;
+}
+
 int out_of_class_operators::IncrementCounter::operator++() {
     return ++value;
 }
@@ -441,6 +457,12 @@ int cxx_out_of_class_call_operators_probe() {
     int free_operator_sum =
         2 + static_cast<out_of_class_operators::FreeOperatorRhs&&>(
             free_operator_right);
+    out_of_class_operators::RefQualifiedSpaceship lvalue_spaceship{29};
+    out_of_class_operators::RefQualifiedSpaceship xvalue_spaceship{29};
+    bool lvalue_spaceship_less = lvalue_spaceship < 30;
+    bool xvalue_spaceship_less =
+        static_cast<out_of_class_operators::RefQualifiedSpaceship&&>(
+            xvalue_spaceship) < 30;
     out_of_class_operators::ArrowTarget target;
     target.value = 29;
     out_of_class_operators::ArrowHandle handle;
@@ -451,6 +473,7 @@ int cxx_out_of_class_call_operators_probe() {
            counter.value == 5 && lvalue_dereference.value == 19 &&
            xvalue_dereference.value == 23 && lvalue_sum == 31 &&
            xvalue_sum == 131 && free_operator_sum == 233 &&
+           lvalue_spaceship_less && !xvalue_spaceship_less &&
            arrow_value == 29 ? 0 : 1;
 }
 

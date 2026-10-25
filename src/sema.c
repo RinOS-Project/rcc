@@ -17323,7 +17323,11 @@ static bool sema_rewrite_cxx_spaceship_comparison(
                                             &comparison_kind)) {
         return false;
     }
-    aggregate = generic_selection_type(left_type);
+    /* Relational rewriting performs operator<=> lookup after direct
+     * operators have been considered.  As in ordinary operator lookup,
+     * references must be unwrapped for class discovery without changing the
+     * original operand expression or its value category. */
+    aggregate = generic_selection_type(sema_cxx_object_type(left_type));
     if (aggregate && (aggregate->kind == TYPE_STRUCT ||
                       aggregate->kind == TYPE_UNION)) {
         method = sema_find_function_method(aggregate, "operator<=>");
@@ -17336,7 +17340,8 @@ static bool sema_rewrite_cxx_spaceship_comparison(
         }
     }
     right_type = sema_expr(expression->binary_rhs);
-    right_aggregate = generic_selection_type(right_type);
+    right_aggregate = generic_selection_type(
+        sema_cxx_object_type(right_type));
     if (!method &&
         (!aggregate || (aggregate->kind != TYPE_STRUCT &&
                         aggregate->kind != TYPE_UNION)) &&

@@ -9439,6 +9439,10 @@ remains a separate open item.
         overload is discovered when its right operand is an xvalue. Regressions
         cover `T& + int`, `T&& + int`, and `int + T&&`; GCC C++20 `-Werror`,
         i686/AMD64 generation, and AMD64 execution pass.
+  - [x] Apply the same reference-aware lookup to C++20 relational rewriting
+        through integer-returning `operator<=>`. A ref-qualified spaceship
+        selects distinct lvalue/xvalue results for `T < int`; GCC C++20
+        `-Werror`, i686/AMD64 generation, and AMD64 execution pass.
   - [ ] Extend out-of-class definitions to remaining overloaded operators and
         conversion-type-id declarators, member templates and explicit
         specializations, advanced nested/template owner qualification, and
