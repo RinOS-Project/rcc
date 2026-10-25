@@ -40,6 +40,10 @@ long long* debug_inline_signed_long_long_comparison_escape;
 unsigned long long* debug_inline_unsigned_long_long_comparison_escape;
 int* debug_inline_signed_int_comparison_escape;
 unsigned int* debug_inline_unsigned_int_comparison_escape;
+signed char* debug_inline_signed_char_comparison_escape;
+unsigned char* debug_inline_unsigned_char_comparison_escape;
+short* debug_inline_signed_short_comparison_escape;
+unsigned short* debug_inline_unsigned_short_comparison_escape;
 
 extern "C" int debug_inline_unsigned_enum_long_compare_entry(
     unsigned int value)
@@ -232,4 +236,69 @@ extern "C" int debug_inline_unsigned_long_long_unsigned_int_compare_entry(
     return debug_nonconstant_integer_parameter_inline(
         !(debug_inline_unsigned_long_long_unsigned_int_compare_entry_source <
           debug_inline_unsigned_long_long_unsigned_int_compare_rhs));
+}
+
+extern "C" int debug_inline_signed_long_long_signed_char_compare_entry(
+    long long value, signed char rhs)
+{
+    long long debug_inline_signed_long_long_signed_char_compare_entry_source =
+        value;
+    signed char debug_inline_signed_long_long_signed_char_compare_rhs = rhs;
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_signed_char_compare_entry_source;
+    debug_inline_signed_char_comparison_escape =
+        &debug_inline_signed_long_long_signed_char_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_signed_char_compare_entry_source <
+          debug_inline_signed_long_long_signed_char_compare_rhs));
+}
+
+extern "C" int debug_inline_signed_long_long_unsigned_char_compare_entry(
+    long long value, unsigned char rhs)
+{
+    long long
+        debug_inline_signed_long_long_unsigned_char_compare_entry_source =
+            value;
+    unsigned char debug_inline_signed_long_long_unsigned_char_compare_rhs =
+        rhs;
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_unsigned_char_compare_entry_source;
+    debug_inline_unsigned_char_comparison_escape =
+        &debug_inline_signed_long_long_unsigned_char_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_unsigned_char_compare_entry_source <
+          debug_inline_signed_long_long_unsigned_char_compare_rhs));
+}
+
+extern "C" int debug_inline_unsigned_long_long_signed_short_compare_entry(
+    unsigned long long value, short rhs)
+{
+    unsigned long long
+        debug_inline_unsigned_long_long_signed_short_compare_entry_source =
+            value;
+    short debug_inline_unsigned_long_long_signed_short_compare_rhs = rhs;
+    debug_inline_unsigned_long_long_comparison_escape =
+        &debug_inline_unsigned_long_long_signed_short_compare_entry_source;
+    debug_inline_signed_short_comparison_escape =
+        &debug_inline_unsigned_long_long_signed_short_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_unsigned_long_long_signed_short_compare_entry_source <
+          debug_inline_unsigned_long_long_signed_short_compare_rhs));
+}
+
+extern "C" int debug_inline_unsigned_long_long_unsigned_short_compare_entry(
+    unsigned long long value, unsigned short rhs)
+{
+    unsigned long long
+        debug_inline_unsigned_long_long_unsigned_short_compare_entry_source =
+            value;
+    unsigned short debug_inline_unsigned_long_long_unsigned_short_compare_rhs =
+        rhs;
+    debug_inline_unsigned_long_long_comparison_escape =
+        &debug_inline_unsigned_long_long_unsigned_short_compare_entry_source;
+    debug_inline_unsigned_short_comparison_escape =
+        &debug_inline_unsigned_long_long_unsigned_short_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_unsigned_long_long_unsigned_short_compare_entry_source <
+          debug_inline_unsigned_long_long_unsigned_short_compare_rhs));
 }

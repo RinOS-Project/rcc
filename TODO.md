@@ -9983,6 +9983,10 @@ remains a separate open item.
       `unsigned long long < unsigned int`, evaluating 32-bit RHS boundaries
       against signed/unsigned 64-bit LHS boundaries on legacy and verified
       i686/AMD64 objects. Focused and full `test-debug-info` pass.
-- [ ] Other sub-32-bit runtime conversions, computed/non-frame-backed wide
-      operands, other mixed-rank matrices, and enum underlying-width
-      combinations remain open.
+- [x] Preserve frame-backed `signed char`, `unsigned char`, `short`, and
+      `unsigned short` operands through integer promotion and 64-bit comparison
+      conversion. Evaluate each source's signed/unsigned boundary values against
+      wide signed or unsigned locals on legacy and verified i686/AMD64 objects.
+      Focused and full `test-debug-info` pass.
+- [ ] `bool` and enum operands, computed/non-frame-backed wide operands, other
+      mixed-rank matrices, and enum underlying-width combinations remain open.
