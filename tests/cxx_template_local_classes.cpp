@@ -194,6 +194,8 @@ struct LocalClassTemplateInheritedCtorPackBaseA {
             local_class_template_inherited_ctor_pack_events * 10 + 1;
         local_class_template_inherited_ctor_pack_value = input;
     }
+
+    int read(int input) const { return input + 3; }
 };
 
 struct LocalClassTemplateInheritedCtorPackBaseB {
@@ -206,6 +208,8 @@ struct LocalClassTemplateInheritedCtorPackBaseB {
             local_class_template_inherited_ctor_pack_events * 10 + 2;
         local_class_template_inherited_ctor_pack_value = (int)input;
     }
+
+    long long read(long long input) const { return input + 5; }
 };
 
 template <typename T, typename... Bases>
@@ -226,6 +230,16 @@ int local_class_template_dependent_using_base_pack_empty() {
     Local local;
     (void)local;
     return (int)sizeof(Local);
+}
+
+template <typename T, typename... Bases>
+T local_class_template_dependent_using_member_pack(T input) {
+    struct Local : Bases... {
+        using Bases::Bases...;
+        using Bases::read...;
+    };
+    Local local(input);
+    return local.read(input);
 }
 
 template <typename T>
@@ -353,6 +367,20 @@ int main() {
             long long, LocalClassTemplateInheritedCtorPackBaseA,
             LocalClassTemplateInheritedCtorPackBaseB>(61LL) != 61 ||
         local_class_template_inherited_ctor_pack_events != 2) return 33;
+    if (local_class_template_dependent_using_member_pack<
+            int, LocalClassTemplateInheritedCtorPackBaseA>(67) != 70)
+        return 35;
+    if (local_class_template_dependent_using_member_pack<
+            long long, LocalClassTemplateInheritedCtorPackBaseB>(71LL) != 76)
+        return 36;
+    if (local_class_template_dependent_using_member_pack<
+            int, LocalClassTemplateInheritedCtorPackBaseA,
+            LocalClassTemplateInheritedCtorPackBaseB>(73) != 76)
+        return 37;
+    if (local_class_template_dependent_using_member_pack<
+            long long, LocalClassTemplateInheritedCtorPackBaseA,
+            LocalClassTemplateInheritedCtorPackBaseB>(79LL) != 84)
+        return 38;
     if (nested_local_class_template_value(11) != 22) return 17;
     if (nested_local_class_template_value(23LL) != 46) return 18;
     if (discarded_local_class_template_branch(23LL) != 17) return 19;

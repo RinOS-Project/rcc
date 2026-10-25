@@ -16665,10 +16665,81 @@ static int cxx_member_ref_qualifier_rank(Expr* call, TypeMethod* method) {
     return object_is_lvalue ? -1 : 0;
 }
 
+static bool sema_cxx_class_contains_base(CxxClass* derived,
+                                        CxxClass* target,
+                                        unsigned depth) {
+    if (!derived || !target || depth > 64u) return false;
+    if (derived == target) return true;
+    for (int index = 0; index < derived->base_count; ++index) {
+        if (sema_cxx_class_contains_base(
+                derived->bases[index].base, target, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sema_cxx_class_has_using_member(CxxClass* cls,
+                                            const char* name) {
+    const char* name_tail = sema_cxx_unqualified_name(name);
+    if (!cls || !name_tail) return false;
+    for (int index = 0; index < cls->using_base_member_count; ++index) {
+        const char* member_tail = sema_cxx_unqualified_name(
+            cls->using_base_members[index].member_name);
+        if (member_tail && strcmp(member_tail, name_tail) == 0) return true;
+    }
+    return false;
+}
+
+static bool sema_cxx_method_owner_selected_by_using(
+    CxxClass* cls, const char* name, CxxClass* owner) {
+    const char* name_tail = sema_cxx_unqualified_name(name);
+    if (!cls || !name_tail || !owner) return false;
+    for (int using_index = 0;
+         using_index < cls->using_base_member_count; ++using_index) {
+        const char* member_tail = sema_cxx_unqualified_name(
+            cls->using_base_members[using_index].member_name);
+        const char* declared_base =
+            cls->using_base_members[using_index].base_name;
+        const char* declared_base_tail =
+            sema_cxx_unqualified_name(declared_base);
+        if (!member_tail || strcmp(member_tail, name_tail) != 0 ||
+            !declared_base_tail) {
+            continue;
+        }
+        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+            CxxClass* direct_base = cls->bases[base_index].base;
+            const char* base_tail = sema_cxx_unqualified_name(
+                direct_base ? direct_base->name : NULL);
+            bool selected = direct_base && declared_base &&
+                ((direct_base->name &&
+                  strcmp(direct_base->name, declared_base) == 0) ||
+                 (cls->bases[base_index].base_name &&
+                  strcmp(cls->bases[base_index].base_name,
+                         declared_base) == 0) ||
+                 (base_tail && strcmp(base_tail, declared_base_tail) == 0));
+            if (selected && sema_cxx_class_contains_base(
+                    direct_base, owner, 0u)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static CxxClass* sema_cxx_declaring_method_owner(TypeMethod* method) {
+    Decl* declaration = method
+        ? (method->source_decl ? method->source_decl : method->function_decl)
+        : NULL;
+    return declaration && declaration->func_method_owner
+        ? declaration->func_method_owner->cxx_class : NULL;
+}
+
 static bool sema_cxx_member_method_lookup_ambiguous(
     Type* aggregate, const char* name) {
     TypeMethod* first = NULL;
     CxxClass* aggregate_class = aggregate ? aggregate->cxx_class : NULL;
+    bool has_using = sema_cxx_class_has_using_member(aggregate_class, name);
     if (!aggregate || !name) return false;
     for (TypeMethod* method = aggregate->methods; method;
          method = method->next) {
@@ -16684,6 +16755,11 @@ static bool sema_cxx_member_method_lookup_ambiguous(
             ? method->source_decl : method->function_decl;
         owner = declaration->func_method_owner
             ? declaration->func_method_owner->cxx_class : NULL;
+        if (has_using && owner != aggregate_class &&
+            !sema_cxx_method_owner_selected_by_using(
+                aggregate_class, name, owner)) {
+            continue;
+        }
         if (owner == aggregate_class) {
             /* A declaration in the derived class hides every base
              * declaration with the same name before overload selection. */
@@ -16697,6 +16773,13 @@ static bool sema_cxx_member_method_lookup_ambiguous(
             ? first->source_decl : first->function_decl;
         first_owner = first_declaration->func_method_owner
             ? first_declaration->func_method_owner->cxx_class : NULL;
+        if (owner != first_owner && has_using &&
+            sema_cxx_method_owner_selected_by_using(
+                aggregate_class, name, first_owner) &&
+            sema_cxx_method_owner_selected_by_using(
+                aggregate_class, name, owner)) {
+            continue;
+        }
         if (owner != first_owner ||
             method->this_adjustment != first->this_adjustment) {
             return true;
@@ -17071,6 +17154,7 @@ static TypeMethod* sema_select_cxx_member_method(
     TypeMethod** overload_methods;
     int overload_method_count = 0;
     int argument_count;
+    bool restrict_to_using_set;
     typedef struct {
         TypeMethod* method;
         int* ranks;
@@ -17086,6 +17170,9 @@ static TypeMethod* sema_select_cxx_member_method(
         if (ambiguous_lookup) *ambiguous_lookup = true;
         return NULL;
     }
+    restrict_to_using_set =
+        sema_cxx_class_has_using_member(aggregate->cxx_class, name) &&
+        !sema_cxx_class_declares_method_name(aggregate, name);
     argument_count = sema_cxx_argument_count(call->call_args);
     if (argument_count < 0 || argument_count == INT_MAX) {
         rcc_error(call->loc, "too many arguments for member overload '%s'",
@@ -17096,7 +17183,11 @@ static TypeMethod* sema_select_cxx_member_method(
         if (method->kind == TYPE_METHOD_FUNCTION && method->function_decl &&
             method->name && strcmp(method->name, name) == 0 &&
             !method->function_decl->func_is_template_instance &&
-            !template_arguments_specified) {
+            !template_arguments_specified &&
+            (!restrict_to_using_set ||
+             sema_cxx_method_owner_selected_by_using(
+                 aggregate->cxx_class, name,
+                 sema_cxx_declaring_method_owner(method)))) {
             ++overload_method_count;
         }
     }
@@ -17113,7 +17204,11 @@ static TypeMethod* sema_select_cxx_member_method(
                 method->function_decl && method->name &&
                 strcmp(method->name, name) == 0 &&
                 !method->function_decl->func_is_template_instance &&
-                !template_arguments_specified) {
+                !template_arguments_specified &&
+                (!restrict_to_using_set ||
+                 sema_cxx_method_owner_selected_by_using(
+                     aggregate->cxx_class, name,
+                     sema_cxx_declaring_method_owner(method)))) {
                 overload_methods[overload_index++] = method;
             }
         }
