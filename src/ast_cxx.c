@@ -1670,10 +1670,17 @@ static void mangle_class_name_context(
     int64_t* template_value_args;
     bool* template_value_present;
     bool expanded_pack;
+    bool ordinary_nested_class = false;
     int pack_parameter_index = -1;
     if (!cls) return;
     tmpl = cls->template_identity_tmpl
         ? cls->template_identity_tmpl : cls->templ;
+    /* Ordinary nested classes are stored in the same owner registry as
+     * nested class templates, but their zero-parameter declaration is not a
+     * template-id in the Itanium ABI. */
+    ordinary_nested_class = cls->enclosing_class && tmpl &&
+        tmpl->kind == TMPL_CLASS && tmpl->param_count == 0 &&
+        !tmpl->primary_template && tmpl->specialization_arg_count == 0;
     template_args = cls->template_identity_tmpl
         ? cls->template_identity_args : cls->template_args;
     template_arg_count = cls->template_identity_tmpl
@@ -1691,6 +1698,15 @@ static void mangle_class_name_context(
     if (cls->enclosing_class) {
         mangle_class_name_context(
             buf, pos, cls->enclosing_class, template_argument_context);
+    }
+    if (ordinary_nested_class) {
+        mangle_name(buf, pos, tmpl->name);
+        if (template_argument_context->class_name_depth > 1u && cls->type) {
+            cxx_mangle_record_class_type(template_argument_context,
+                                         cls->type);
+        }
+        --template_argument_context->class_name_depth;
+        return;
     }
     if (tmpl) {
         for (int index = 0; index < tmpl->param_count; ++index) {

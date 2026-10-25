@@ -9794,5 +9794,14 @@ remains a separate open item.
       operator's exact Itanium symbols against GCC for one- and two-level
       namespace-qualified owners on i686 and AMD64, and execute both cases at
       `-O0`/`-O2` in `test-cxx-class-template-methods`. Adjacent member-method
-      and conversion-operator regression targets pass. Nested class/template
-      owner chains remain open.
+      and conversion-operator regression targets pass. Nested member class
+      templates with their own template arguments remain open.
+- [x] Resolve an out-of-class conversion definition through a dependent
+      class-template owner to its ordinary nested class (`Owner<T>::Inner`).
+      Mangle the nested class by its source name, without an empty template-id
+      or internal instance tag; the exact conversion symbol matches GCC on
+      i686/AMD64. `test-cxx-class-template-methods` passes syntax, ABI, and
+      `-O0`/`-O2` runtime checks; member-method, conversion-operator, and
+      class-template-specialization targets plus the full `test-cxx` suite
+      pass. Nested member class templates with their own template arguments
+      remain open.

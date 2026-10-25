@@ -17914,9 +17914,54 @@ static bool cxx_parse_qualified_conversion_owner(
                 cls = owner_type->cxx_template->templated_class;
             }
             if (!cls) return false;
-            *owner_class = cls;
             *owner_is_dependent = owner_type->cxx_dependent;
-            return true;
+            for (;;) {
+                Token* nested_token;
+                CxxNestedClassTemplate* nested_entry;
+                CxxTemplate* nested_declaration;
+                CxxClass* nested_class;
+                size_t nested_name_length;
+                if (check(TOK_OPERATOR)) {
+                    *owner_class = cls;
+                    return true;
+                }
+                if (!check(TOK_IDENT) || !parser.cur->next ||
+                    parser.cur->next->type != TOK_SCOPE) {
+                    return false;
+                }
+                nested_token = advance();
+                nested_name_length =
+                    strlen(nested_token->value.str_val);
+                nested_entry = cxx_class_find_nested_template(
+                    cls, nested_token->value.str_val);
+                if (!nested_entry && cls->templ &&
+                    cls->templ->templated_class != cls) {
+                    nested_entry = cxx_class_find_nested_template(
+                        cls->templ->templated_class,
+                        nested_token->value.str_val);
+                }
+                nested_declaration = nested_entry
+                    ? nested_entry->declaration : NULL;
+                nested_class = nested_declaration
+                    ? nested_declaration->templated_class : NULL;
+                /* This route handles ordinary nested classes. A nested
+                 * class-template-id needs a separate argument-resolution
+                 * path and remains outside this conversion-owner route. */
+                if (!nested_declaration ||
+                    nested_declaration->param_count != 0 ||
+                    !nested_class ||
+                    length + nested_name_length + 2u >= owner_capacity) {
+                    return false;
+                }
+                owner_name[length++] = ':';
+                owner_name[length++] = ':';
+                memcpy(owner_name + length, nested_token->value.str_val,
+                       nested_name_length);
+                length += nested_name_length;
+                owner_name[length] = '\0';
+                if (!match(TOK_SCOPE)) return false;
+                cls = nested_class;
+            }
         }
         if (!check(TOK_SCOPE) || !parser.cur->next) return false;
         if (parser.cur->next->type == TOK_OPERATOR) {
