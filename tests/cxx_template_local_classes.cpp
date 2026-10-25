@@ -181,6 +181,53 @@ T local_class_template_dependent_using_base(T input) {
     return local.value;
 }
 
+int local_class_template_inherited_ctor_pack_events;
+int local_class_template_inherited_ctor_pack_value;
+
+struct LocalClassTemplateInheritedCtorPackBaseA {
+    int value;
+
+    LocalClassTemplateInheritedCtorPackBaseA() : value(0) {}
+    explicit LocalClassTemplateInheritedCtorPackBaseA(int input)
+        : value(input) {
+        local_class_template_inherited_ctor_pack_events =
+            local_class_template_inherited_ctor_pack_events * 10 + 1;
+        local_class_template_inherited_ctor_pack_value = input;
+    }
+};
+
+struct LocalClassTemplateInheritedCtorPackBaseB {
+    long long value;
+
+    LocalClassTemplateInheritedCtorPackBaseB() : value(0) {}
+    explicit LocalClassTemplateInheritedCtorPackBaseB(long long input)
+        : value(input) {
+        local_class_template_inherited_ctor_pack_events =
+            local_class_template_inherited_ctor_pack_events * 10 + 2;
+        local_class_template_inherited_ctor_pack_value = (int)input;
+    }
+};
+
+template <typename T, typename... Bases>
+int local_class_template_dependent_using_base_pack(T input) {
+    struct Local : Bases... {
+        using Bases::Bases...;
+    };
+    Local local(input);
+    (void)local;
+    return local_class_template_inherited_ctor_pack_value;
+}
+
+template <typename... Bases>
+int local_class_template_dependent_using_base_pack_empty() {
+    struct Local : Bases... {
+        using Bases::Bases...;
+    };
+    Local local;
+    (void)local;
+    return (int)sizeof(Local);
+}
+
 template <typename T>
 struct LocalClassTemplateDependentLookupBase {
     T value;
@@ -286,6 +333,26 @@ int main() {
         != 12) return 14;
     if (local_class_template_dependent_using_base(41) != 41) return 15;
     if (local_class_template_dependent_using_base(43LL) != 43) return 16;
+    if (local_class_template_dependent_using_base_pack_empty<>() != 1)
+        return 34;
+    local_class_template_inherited_ctor_pack_events = 0;
+    if (local_class_template_dependent_using_base_pack<
+            int, LocalClassTemplateInheritedCtorPackBaseA>(47) != 47 ||
+        local_class_template_inherited_ctor_pack_events != 1) return 30;
+    local_class_template_inherited_ctor_pack_events = 0;
+    if (local_class_template_dependent_using_base_pack<
+            long long, LocalClassTemplateInheritedCtorPackBaseB>(53LL) != 53 ||
+        local_class_template_inherited_ctor_pack_events != 2) return 31;
+    local_class_template_inherited_ctor_pack_events = 0;
+    if (local_class_template_dependent_using_base_pack<
+            int, LocalClassTemplateInheritedCtorPackBaseA,
+            LocalClassTemplateInheritedCtorPackBaseB>(59) != 59 ||
+        local_class_template_inherited_ctor_pack_events != 1) return 32;
+    local_class_template_inherited_ctor_pack_events = 0;
+    if (local_class_template_dependent_using_base_pack<
+            long long, LocalClassTemplateInheritedCtorPackBaseA,
+            LocalClassTemplateInheritedCtorPackBaseB>(61LL) != 61 ||
+        local_class_template_inherited_ctor_pack_events != 2) return 33;
     if (nested_local_class_template_value(11) != 22) return 17;
     if (nested_local_class_template_value(23LL) != 46) return 18;
     if (discarded_local_class_template_branch(23LL) != 17) return 19;

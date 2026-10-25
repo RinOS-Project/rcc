@@ -145,6 +145,8 @@ struct CxxClass {
         Type* base_type_pattern; /* Dependent base retained until substitution. */
         AccessSpec access;
         SourceLoc loc;
+        bool is_pack_expansion;
+        int pack_parameter_index;
     } *using_base_members;
     int using_base_member_count;
     /* Friend class declarations are retained as source-qualified names so a

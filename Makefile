@@ -3512,6 +3512,9 @@ test-cxx-variadic-aggregate: $(RCXX_TARGET)
 
 test-cxx-template-local-classes: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-local-classes)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-include typeinfo \
+		-fsyntax-only tests/cxx_template_local_classes.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-template-local-classes/x86.ro \
 		tests/cxx_template_local_classes.cpp

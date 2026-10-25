@@ -12242,6 +12242,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                     continue;
                 }
                 const char* qualified = parse_qualified_name();
+                bool is_pack_expansion = match(TOK_ELLIPSIS);
                 const char* separator = qualified
                     ? strrchr(qualified, ':') : NULL;
                 if (!separator || separator == qualified ||
@@ -12257,10 +12258,41 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                     } else {
                         memcpy(base_name, qualified, base_length);
                         base_name[base_length] = '\0';
+                        int pack_parameter_index = -1;
+                        if (is_pack_expansion && active_template) {
+                            for (int parameter_index = 0;
+                                 parameter_index <
+                                     active_template->param_count;
+                                 ++parameter_index) {
+                                TemplateParam* parameter =
+                                    &active_template->params[parameter_index];
+                                if (parameter->is_pack &&
+                                    parameter->kind == TPARAM_TYPE &&
+                                    parameter->name &&
+                                    strcmp(parameter->name, base_name) == 0) {
+                                    pack_parameter_index = parameter_index;
+                                    break;
+                                }
+                            }
+                        }
+                        if (is_pack_expansion &&
+                            pack_parameter_index < 0) {
+                            rcc_error(using_loc,
+                                      "using-declaration pack expansion requires a type parameter pack as its base");
+                        }
                         cxx_class_add_using_base_member(
                             cls, rcc_intern(base_name),
                             rcc_intern(separator + 1), NULL,
                             NULL, current_access, using_loc);
+                        if (is_pack_expansion &&
+                            pack_parameter_index >= 0) {
+                            int entry_index = cls->using_base_member_count - 1;
+                            cls->using_base_members[entry_index]
+                                .is_pack_expansion = true;
+                            cls->using_base_members[entry_index]
+                                .pack_parameter_index =
+                                    pack_parameter_index;
+                        }
                     }
                 }
                 expect(TOK_SEMICOLON, ";");
@@ -21214,6 +21246,110 @@ static bool cxx_atomic_has_deleted_copy_move_special_member(Type* value_type) {
                                                                 true);
 }
 
+static bool cxx_template_expand_local_using_base_pack(
+    CxxTemplate* tmpl, CxxClass* instance, int using_index) {
+    int pack_index;
+    int pack_count;
+    int old_count;
+    int new_count;
+    const char* pack_name;
+    const char* member_name;
+    Type* conversion_type;
+    AccessSpec access;
+    SourceLoc loc;
+    if (!tmpl || !instance || using_index < 0 ||
+        using_index >= instance->using_base_member_count) {
+        return false;
+    }
+    pack_index = instance->using_base_members[using_index]
+                     .pack_parameter_index;
+    if (pack_index < 0 || pack_index >= tmpl->param_count ||
+        !tmpl->params[pack_index].is_pack ||
+        tmpl->params[pack_index].kind != TPARAM_TYPE) {
+        rcc_error(instance->using_base_members[using_index].loc,
+                  "using-declaration pack expansion lost its type parameter pack");
+        return false;
+    }
+    if (tmpl->pending_pack_count < 0 ||
+        (tmpl->pending_pack_count > 0 && !tmpl->pending_pack_args)) {
+        rcc_error(instance->using_base_members[using_index].loc,
+                  "using-declaration type pack was not resolved during local class specialization");
+        return false;
+    }
+    pack_count = tmpl->pending_pack_count;
+    old_count = instance->using_base_member_count;
+    new_count = old_count - 1;
+    if (pack_count > INT_MAX - new_count) {
+        rcc_error(instance->using_base_members[using_index].loc,
+                  "using-declaration pack expansion exceeds compiler limits");
+        return false;
+    }
+    new_count += pack_count;
+    pack_name = tmpl->params[pack_index].name;
+    member_name = instance->using_base_members[using_index].member_name;
+    conversion_type =
+        instance->using_base_members[using_index].conversion_type;
+    access = instance->using_base_members[using_index].access;
+    loc = instance->using_base_members[using_index].loc;
+
+    if (new_count == 0) {
+        instance->using_base_member_count = 0;
+        return true;
+    }
+    if ((size_t)new_count >
+        SIZE_MAX / sizeof(instance->using_base_members[0])) {
+        rcc_error(loc,
+                  "using-declaration pack expansion exceeds compiler limits");
+        return false;
+    }
+    instance->using_base_members = ast_arena_grow(
+        instance->using_base_members,
+        sizeof(instance->using_base_members[0]) * (size_t)old_count,
+        sizeof(instance->using_base_members[0]) * (size_t)new_count);
+    if (using_index + 1 < old_count) {
+        memmove(&instance->using_base_members[using_index + pack_count],
+                &instance->using_base_members[using_index + 1],
+                sizeof(instance->using_base_members[0]) *
+                    (size_t)(old_count - using_index - 1));
+    }
+    instance->using_base_member_count = new_count;
+    for (int pack_value = 0; pack_value < pack_count; ++pack_value) {
+        Type* base_type = tmpl->pending_pack_args[pack_value];
+        CxxClass* used_base = base_type ? base_type->cxx_class : NULL;
+        bool is_direct_base = false;
+        int entry_index = using_index + pack_value;
+        if (!base_type || base_type->kind != TYPE_STRUCT || !used_base) {
+            rcc_error(loc,
+                      "using-declaration pack element is not a class type");
+            return false;
+        }
+        for (int base_index = 0; base_index < instance->base_count;
+             ++base_index) {
+            if (instance->bases[base_index].base == used_base) {
+                is_direct_base = true;
+                break;
+            }
+        }
+        if (!is_direct_base) {
+            rcc_error(loc,
+                      "using-declaration pack element is not a direct base");
+            return false;
+        }
+        instance->using_base_members[entry_index].base_name = used_base->name;
+        instance->using_base_members[entry_index].member_name =
+            pack_name && member_name && strcmp(member_name, pack_name) == 0
+                ? used_base->name : member_name;
+        instance->using_base_members[entry_index].conversion_type =
+            conversion_type;
+        instance->using_base_members[entry_index].base_type_pattern = NULL;
+        instance->using_base_members[entry_index].access = access;
+        instance->using_base_members[entry_index].loc = loc;
+        instance->using_base_members[entry_index].is_pack_expansion = false;
+        instance->using_base_members[entry_index].pack_parameter_index = -1;
+    }
+    return true;
+}
+
 static Type* instantiate_class_template_for_owner(
     CxxTemplate* tmpl, Type** arguments, const int64_t* value_args,
     const bool* value_present, int argument_count, CxxClass* owner_class,
@@ -21900,6 +22036,11 @@ static Type* instantiate_class_template_for_owner(
     }
     for (int using_index = 0;
          using_index < instance->using_base_member_count; ++using_index) {
+        if (instance->using_base_members[using_index].is_pack_expansion &&
+            !cxx_template_expand_local_using_base_pack(
+                tmpl, instance, using_index)) {
+            continue;
+        }
         Type* pattern = instance->using_base_members[using_index]
                             .base_type_pattern;
         Type* resolved;

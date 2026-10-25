@@ -14132,6 +14132,10 @@ void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
         base_type_pattern;
     cls->using_base_members[cls->using_base_member_count].access = access;
     cls->using_base_members[cls->using_base_member_count].loc = loc;
+    cls->using_base_members[cls->using_base_member_count].is_pack_expansion =
+        false;
+    cls->using_base_members[cls->using_base_member_count].pack_parameter_index =
+        -1;
     ++cls->using_base_member_count;
 }
 
