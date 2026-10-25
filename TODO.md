@@ -9443,6 +9443,9 @@ remains a separate open item.
         through integer-returning `operator<=>`. A ref-qualified spaceship
         selects distinct lvalue/xvalue results for `T < int`; GCC C++20
         `-Werror`, i686/AMD64 generation, and AMD64 execution pass.
+  - [x] Cover non-member integer-returning `operator<=>` lookup when the only
+        class operand is an xvalue on the right (`int < T&&`). GCC C++20
+        `-Werror`, i686/AMD64 generation, and AMD64 execution pass.
   - [ ] Extend out-of-class definitions to remaining overloaded operators and
         conversion-type-id declarators, member templates and explicit
         specializations, advanced nested/template owner qualification, and
