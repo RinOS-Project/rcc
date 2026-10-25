@@ -18,3 +18,15 @@ int OutOfClassDefinitionProbe::value() {
 int OutOfClassDefinitionProbe::value() {
     return 3;
 }
+
+struct OutOfClassConstructorProbe {
+    explicit OutOfClassConstructorProbe(int);
+};
+
+OutOfClassConstructorProbe::OutOfClassConstructorProbe(long value) {}
+
+OutOfClassConstructorProbe::OutOfClassConstructorProbe(int value = 1) {}
+
+OutOfClassConstructorProbe::OutOfClassConstructorProbe(int value) {}
+
+OutOfClassConstructorProbe::OutOfClassConstructorProbe(int value) {}

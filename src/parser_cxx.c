@@ -301,6 +301,8 @@ static bool cxx_leading_alignas_class_starts(void) {
 
 static const char* cxx_method_source_name(CxxMethod* method);
 static CxxClass* find_class(const char* qualified_name);
+static TypeParam* constructor_parameters_from_method(DeclList* parameters,
+                                                     int* parameter_count);
 static bool cxx_class_access_context_is_derived_from(
     CxxClass* context, CxxClass* target, CxxClass* access_context,
     unsigned depth);
@@ -16642,6 +16644,215 @@ static Stmt* cxx_parse_qualified_member_definition_body(
     rcc_parser_enum_scope_restore(enum_scope);
     rcc_parser_cxx_end_function_parameters();
     return stmt_block(statements, loc);
+}
+
+static bool cxx_qualified_constructor_definition_starts(void) {
+    Token* token = parser.cur;
+    bool qualified = false;
+    if (token && token->type == TOK_SCOPE) token = token->next;
+    while (token && token->type == TOK_IDENT) {
+        token = token->next;
+        if (!token || token->type != TOK_SCOPE) break;
+        qualified = true;
+        token = token->next;
+    }
+    return qualified && token && token->type == TOK_LPAREN;
+}
+
+/* Constructors have no return type, so their qualified definitions must be
+ * recognized before the shared declaration parser consumes the leading class
+ * name as a type-specifier. The declaration remains the single source of
+ * overload, exception-specification, and ABI metadata. */
+Stmt* rcc_parse_cxx_qualified_constructor_definition(
+    bool is_inline, bool is_constexpr, bool is_consteval, SourceLoc loc) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    CxxClass* saved_class = active_class;
+    CxxNamespace* saved_namespace = active_namespace;
+    const char* qualified;
+    const char* separator;
+    const char* member_name;
+    char owner_name[512];
+    size_t owner_length;
+    CxxClass* cls;
+    CxxMethod* selected = NULL;
+    DeclList* parameters;
+    bool is_variadic = false;
+    bool is_noexcept = false;
+    Expr* noexcept_expr = NULL;
+    bool declaration_noexcept = false;
+    bool definition_noexcept = false;
+    int64_t noexcept_value = 0;
+    ParsedConstructorInitializer constructor_initializer;
+    Stmt* body;
+
+    if (!cxx_qualified_constructor_definition_starts()) return NULL;
+    qualified = parse_qualified_name();
+    separator = qualified ? strrchr(qualified, ':') : NULL;
+    if (!separator || separator <= qualified || separator[-1] != ':') {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    owner_length = (size_t)(separator - qualified - 1);
+    if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    memcpy(owner_name, qualified, owner_length);
+    owner_name[owner_length] = '\0';
+    member_name = separator + 1;
+    cls = find_class(owner_name);
+    if (!cls || !cls->type || !cls->type->is_complete ||
+        !cls->name || strcmp(member_name, cls->name) != 0) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+
+    active_class = cls;
+    active_namespace = cls->ns ? cls->ns : g_global_namespace;
+    if (!match(TOK_LPAREN)) {
+        active_class = saved_class;
+        active_namespace = saved_namespace;
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    parameters = parse_cxx_parameter_declarations(&is_variadic);
+    expect(TOK_RPAREN, ")");
+    if (match(TOK_NOEXCEPT)) {
+        if (match(TOK_LPAREN)) {
+            noexcept_expr = parse_expression();
+            expect(TOK_RPAREN, ")");
+        } else {
+            is_noexcept = true;
+        }
+    }
+    constructor_initializer = parse_ctor_initializer();
+
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* candidate = member->method;
+        if (!candidate || !candidate->is_constructor || !candidate->decl ||
+            !cxx_member_definition_parameters_match(
+                candidate, parameters, is_variadic)) {
+            continue;
+        }
+        if (selected) {
+            rcc_error(loc,
+                      "out-of-class constructor definition for '%s' is ambiguous",
+                      qualified);
+            selected = NULL;
+            break;
+        }
+        selected = candidate;
+    }
+    if (!selected || selected->decl->func_body || selected->is_deleted ||
+        selected->is_defaulted) {
+        if (!selected) {
+            rcc_error(loc,
+                      "out-of-class constructor definition does not match a member declaration '%s'",
+                      qualified);
+        } else {
+            rcc_error(loc,
+                      "redefinition of out-of-class constructor '%s'",
+                      qualified);
+        }
+        if (check(TOK_LBRACE)) skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        active_class = saved_class;
+        active_namespace = saved_namespace;
+        return stmt_null(loc);
+    }
+    if (is_consteval != selected->decl->func_is_consteval ||
+        (is_constexpr && !selected->is_constexpr)) {
+        rcc_error(loc,
+                  "out-of-class constructor constexpr specifiers do not match '%s'",
+                  qualified);
+    }
+    if (!cxx_method_exception_spec_value(selected, &declaration_noexcept)) {
+        rcc_error(loc,
+                  "cannot resolve the declared exception specification for '%s'",
+                  qualified);
+    } else {
+        if (noexcept_expr) {
+            if (!expr_eval_integer_constant(noexcept_expr, &noexcept_value)) {
+                rcc_error(noexcept_expr->loc,
+                          "out-of-class noexcept specification is not constant");
+            } else {
+                definition_noexcept = noexcept_value != 0;
+            }
+        } else {
+            definition_noexcept = is_noexcept;
+        }
+        if (declaration_noexcept != definition_noexcept) {
+            rcc_error(loc,
+                      "out-of-class exception specification does not match '%s'",
+                      qualified);
+        }
+    }
+    for (DeclList* parameter = parameters,
+                  *declared = selected->decl->func_params;
+         parameter && declared; parameter = parameter->next,
+             declared = declared->next) {
+        if (parameter->decl && parameter->decl->param_default) {
+            rcc_error(parameter->decl->loc,
+                      "default arguments cannot be added to an out-of-class constructor definition");
+        }
+        if (parameter->decl && declared->decl) {
+            parameter->decl->param_default = declared->decl->param_default;
+        }
+    }
+
+    body = cxx_parse_qualified_member_definition_body(
+        cls, selected, parameters, loc);
+    if (!body) {
+        rcc_error(peek()->loc,
+                  "expected body for out-of-class constructor '%s'",
+                  qualified);
+        active_class = saved_class;
+        active_namespace = saved_namespace;
+        return stmt_null(loc);
+    }
+    selected->decl->func_params = parameters;
+    selected->decl->func_body = body;
+    selected->decl->loc = loc;
+    selected->decl->func_is_defined = true;
+    selected->decl->func_is_inline = is_inline;
+    if (selected->constructor_info) {
+        CxxConstructorInfo* info = selected->constructor_info;
+        info->parameters = constructor_parameters_from_method(
+            parameters, &info->parameter_count);
+        info->initializers = constructor_initializer.items;
+        info->initializer_count = constructor_initializer.count;
+        info->has_explicit_initializers = constructor_initializer.count > 0;
+        info->initializers_are_supported =
+            constructor_initializer.count == 0 ||
+            constructor_initializer.is_supported;
+        info->body_is_empty = body->kind == STMT_BLOCK &&
+                              body->block_stmts == NULL;
+        info->is_deleted = false;
+        info->is_defaulted = false;
+        (void)lowerable_constructor_body(cls, info);
+        complete_cxx_default_member_initializers(cls);
+    }
+    {
+        CxxNamespace* registration_namespace = active_namespace;
+        active_namespace = cls->ns ? cls->ns : g_global_namespace;
+        register_ordinary_class_methods(cls);
+        active_namespace = registration_namespace;
+    }
+    if (selected->constructor_info) {
+        uint32_t constructor_mask = lowerable_constructor_arity_mask(cls);
+        if (constructor_mask != 0u) {
+            rcc_parser_define_cxx_constructor_type(
+                cls->name, cls->type, constructor_mask);
+        }
+    }
+    active_class = saved_class;
+    active_namespace = saved_namespace;
+    return stmt_null(loc);
 }
 
 /* Attach a namespace-scope definition to the method declaration already

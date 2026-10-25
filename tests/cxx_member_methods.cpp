@@ -67,6 +67,37 @@ union Word {
 };
 }
 
+namespace out_of_class_constructors {
+struct Values {
+    int first;
+    int second;
+    Values();
+    explicit Values(int);
+    Values(int, int);
+};
+
+struct DefaultedArgument {
+    int value;
+    explicit DefaultedArgument(int seed = 8);
+};
+}
+
+out_of_class_constructors::Values::Values()
+    : first(3), second(4) {}
+
+out_of_class_constructors::Values::Values(int seed)
+    : first(seed), second(seed + 1) {}
+
+out_of_class_constructors::Values::Values(int left, int right)
+    : first(left), second(right) {
+    first += second;
+}
+
+namespace out_of_class_constructors {
+DefaultedArgument::DefaultedArgument(int initial_value)
+    : value(initial_value) {}
+}
+
 int out_of_class_methods::Point::add(int amount) {
     return x + amount;
 }
@@ -145,11 +176,21 @@ int cxx_out_of_class_member_method_probe() {
            (precise == 7.25 ? 0 : 1000);
 }
 
+int cxx_out_of_class_constructor_probe() {
+    out_of_class_constructors::Values defaults;
+    out_of_class_constructors::Values one(5);
+    out_of_class_constructors::Values pair(3, 4);
+    out_of_class_constructors::DefaultedArgument defaulted;
+    return defaults.first + defaults.second + one.first + one.second +
+           pair.first + pair.second + defaulted.value;
+}
+
 int main() {
     return cxx_member_method_probe() == 53 &&
            cxx_pointer_method_probe() == 27 &&
            cxx_member_overload_probe() == 0 &&
            cxx_out_of_class_member_method_probe() ==
-               13 + 113 + 6 + 6 + 9 + 10 + 6 + 18 + 6 + 2 + 6
+               13 + 113 + 6 + 6 + 9 + 10 + 6 + 18 + 6 + 2 + 6 &&
+           cxx_out_of_class_constructor_probe() == 37
                ? 0 : 1;
 }

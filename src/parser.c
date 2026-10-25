@@ -67,6 +67,9 @@ extern Stmt* rcc_parse_cxx_qualified_data_definition(
 extern Stmt* rcc_parse_cxx_qualified_member_definition(
     Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
     SourceLoc loc) RCC_OPTIONAL_CXX;
+extern Stmt* rcc_parse_cxx_qualified_constructor_definition(
+    bool is_inline, bool is_constexpr, bool is_consteval,
+    SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_operator_declaration(
     Type* return_type, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_deduction_guide(void) RCC_OPTIONAL_CXX;
@@ -6086,6 +6089,12 @@ Stmt* parse_declaration(void) {
         is_consteval = true;
     }
     if (parser_cxx_mode && match(TOK_CONSTINIT)) is_constinit = true;
+    if (parser_cxx_mode && rcc_parse_cxx_qualified_constructor_definition) {
+        Stmt* constructor_definition =
+            rcc_parse_cxx_qualified_constructor_definition(
+                false, is_constexpr, is_consteval, peek()->loc);
+        if (constructor_definition) return constructor_definition;
+    }
     if (parser_cxx_mode &&
         rcc_parser_cxx_begin_function_signature_access) {
         friend_signature_context =
@@ -6136,6 +6145,20 @@ Stmt* parse_declaration(void) {
         }
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else break;
+    }
+
+    if (parser_cxx_mode && rcc_parse_cxx_qualified_constructor_definition) {
+        Stmt* constructor_definition =
+            rcc_parse_cxx_qualified_constructor_definition(
+                is_inline, is_constexpr, is_consteval, loc);
+        if (constructor_definition) {
+            if (friend_signature_context &&
+                rcc_parser_cxx_end_function_signature_access) {
+                rcc_parser_cxx_end_function_signature_access(
+                    friend_signature_context, NULL, NULL, NULL, loc);
+            }
+            return constructor_definition;
+        }
     }
 
     base_type = parse_type_spec();

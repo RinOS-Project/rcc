@@ -9378,7 +9378,15 @@ remains a separate open item.
         defaults, cv/ref qualifiers, `noexcept`, pointer/reference results, and
         overloads. GCC C++20 syntax and symbol names match, and i686/AMD64
         execution tests include assignment through returned references.
-  - [ ] Extend out-of-class definitions to constructors, destructors,
+  - [x] Define previously declared non-template constructors outside their
+        class, matching the declaration overload and preserving its default
+        arguments while binding definition parameter names to constructor
+        initialization. Cover namespace-qualified and namespace-relative
+        owners, default/explicit/overloaded constructors, member initializer
+        lists, constructor bodies, mismatched signatures, added defaults, and
+        redefinitions. GCC C++20 syntax plus i686/AMD64 generation and runtime
+        tests pass.
+  - [ ] Extend out-of-class definitions to destructors,
         operators/conversion functions, member templates and explicit
         specializations, advanced nested/template owner qualification, and
         associated ABI/lifetime coverage.
