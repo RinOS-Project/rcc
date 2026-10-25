@@ -9726,9 +9726,11 @@ remains a separate open item.
       excess template-head diagnostics pass in the focused target.
 - [x] Preserve the selected nested class-template owner's member scope while
       analyzing out-of-class explicit member-function-template specializations.
-      Regressions use unqualified fields from both a nested owner and a deeper
-      nested owner; the focused target passes exact GCC symbol checks,
-      i686/AMD64 assembly, AMD64 execution, and missing/excess owner-head
-      diagnostics.
-- [ ] Partially dependent owner patterns, other overloaded operator forms
-      beyond those covered above, and remaining ABI/lifetime cases remain open.
+      Regressions use unqualified fields from a nested and deeper owner, from a
+      nested owner selected by an outer partial specialization, and from a
+      nested member-class partial specialization. The focused target passes
+      exact GCC symbol checks, i686/AMD64 assembly, AMD64 execution, and
+      missing/excess owner-head diagnostics.
+- [ ] Additional partially dependent owner patterns, other overloaded
+      operator forms beyond those covered above, and remaining ABI/lifetime
+      cases remain open.

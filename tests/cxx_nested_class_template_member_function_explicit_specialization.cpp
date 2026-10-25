@@ -21,6 +21,30 @@ struct NestedClassTemplateMemberFunctionSpecialization {
     };
 };
 
+template <typename Owner>
+template <typename Inner>
+struct NestedClassTemplateMemberFunctionSpecialization<Owner>::Nested<Inner*> {
+    int nested_partial_specialized_value;
+
+    template <typename T>
+    int value(T input) {
+        return static_cast<int>(input) + 3;
+    }
+};
+
+template <typename Owner>
+struct NestedClassTemplateMemberFunctionSpecialization<Owner*> {
+    template <typename Inner>
+    struct Nested {
+        int partial_nested_specialized_value;
+
+        template <typename T>
+        int value(T input) {
+            return static_cast<int>(input) + 2;
+        }
+    };
+};
+
 struct NonTemplateOuterNestedMemberFunctionSpecialization {
     template <typename Inner>
     struct Nested {
@@ -68,6 +92,42 @@ int NestedClassTemplateMemberFunctionSpecialization<int>::Nested<double>::
     return static_cast<int>(input) + nested_specialized_value;
 }
 
+#if defined(RCC_TEST_MISSING_PARTIAL_NESTED_OWNER_TEMPLATE_HEAD)
+template <>
+template <>
+#elif defined(RCC_TEST_EXTRA_PARTIAL_NESTED_OWNER_TEMPLATE_HEAD)
+template <>
+template <>
+template <>
+template <>
+#else
+template <>
+template <>
+template <>
+#endif
+int NestedClassTemplateMemberFunctionSpecialization<int*>::Nested<double>::
+    value<char>(char input) {
+    return static_cast<int>(input) + partial_nested_specialized_value;
+}
+
+#if defined(RCC_TEST_MISSING_NESTED_PARTIAL_OWNER_TEMPLATE_HEAD)
+template <>
+template <>
+#elif defined(RCC_TEST_EXTRA_NESTED_PARTIAL_OWNER_TEMPLATE_HEAD)
+template <>
+template <>
+template <>
+template <>
+#else
+template <>
+template <>
+template <>
+#endif
+int NestedClassTemplateMemberFunctionSpecialization<int>::Nested<char*>::
+    value<char>(char input) {
+    return static_cast<int>(input) + nested_partial_specialized_value;
+}
+
 #if defined(RCC_TEST_MISSING_NON_TEMPLATE_OWNER_TEMPLATE_HEAD)
 template <>
 #elif defined(RCC_TEST_EXTRA_NON_TEMPLATE_OWNER_TEMPLATE_HEAD)
@@ -94,17 +154,27 @@ int NonTemplateOuterNestedMemberFunctionSpecialization::Nested<double>::
 int main() {
     NestedClassTemplateMemberFunctionSpecialization<int>::Nested<double>
         exact_owner;
+    NestedClassTemplateMemberFunctionSpecialization<int*>::Nested<double>
+        partial_owner;
+    NestedClassTemplateMemberFunctionSpecialization<int>::Nested<char*>
+        nested_partial_owner;
     NestedClassTemplateMemberFunctionSpecialization<double>::Nested<double>
         other_owner;
     NestedClassTemplateMemberFunctionSpecialization<int>::Nested<double>::
         Deeper<long> exact_deeper_owner;
     exact_owner.nested_specialized_value = 40;
+    partial_owner.partial_nested_specialized_value = 60;
+    nested_partial_owner.nested_partial_specialized_value = 70;
     exact_deeper_owner.deeper_specialized_value = 80;
     NonTemplateOuterNestedMemberFunctionSpecialization::Nested<double>
         non_template_outer_owner;
     NonTemplateOuterNestedMemberFunctionSpecialization::Nested<double>::
         Deeper<long> non_template_outer_deeper_owner;
     return exact_owner.value('A') == 105 && exact_owner.value(2) == 3 &&
+                   partial_owner.value('A') == 125 &&
+                   partial_owner.value(2) == 4 &&
+                   nested_partial_owner.value('A') == 135 &&
+                   nested_partial_owner.value(2) == 5 &&
                    other_owner.value('A') == 66 &&
                    exact_deeper_owner.nested_value('A') == 145 &&
                    exact_deeper_owner.nested_value(2) == 4 &&
