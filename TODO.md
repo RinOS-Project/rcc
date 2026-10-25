@@ -9917,5 +9917,11 @@ remains a separate open item.
       normalization, frame load width, and the i686 unsigned ordering remap.
       Focused inline-expression and full `test-debug-info` pass for legacy and
       verified objects.
-- [ ] Broader mixed-rank matrices, enum conversions, and i686-wide comparisons
-      remain open.
+- [x] Promote non-scoped enum comparison operands through their underlying
+      integer type before deriving the common type. Verify an enum with fixed
+      `unsigned int` underlying type compared with `-1L`: i686 uses unsigned
+      32-bit ordering while AMD64 uses signed 64-bit ordering. Evaluate boundary
+      values in the emitted DWARF expression for legacy/verified objects.
+      Focused inline-expression and full `test-debug-info` pass.
+- [ ] Other mixed-rank matrices, enum underlying-width combinations, and
+      i686-wide comparisons remain open.

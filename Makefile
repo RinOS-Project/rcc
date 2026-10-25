@@ -1764,7 +1764,7 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-debug-info-inli
 		$(TEST_OUT)/debug-info/verified-cxx-member-nullptr-x64-g.ro
 	@echo "Relocatable DWARF line/info/location-list/frame tests completed"
 
-test-debug-info-inline-expression: $(RCC_TARGET)
+test-debug-info-inline-expression: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/debug-info-inline-expression)
 	$(RCC_TARGET) --target i686-unknown-rinos -g -O1 -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/x86-inline-g.ro \
@@ -1778,6 +1778,20 @@ test-debug-info-inline-expression: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -g -O1 -fverified-backend -c \
 		-o $(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-g.ro \
 		tests/debug_info.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/cxx-enum-x86-inline-g.ro \
+		tests/debug_info_inline_integer.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/cxx-enum-x64-inline-g.ro \
+		tests/debug_info_inline_integer.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O1 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-cxx-enum-x86-inline-g.ro \
+		tests/debug_info_inline_integer.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O1 \
+		-fverified-backend -c \
+		-o $(TEST_OUT)/debug-info-inline-expression/verified-cxx-enum-x64-inline-g.ro \
+		tests/debug_info_inline_integer.cpp
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/debug-info-inline-expression/verify \
 		tests/debug_info_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
@@ -1786,7 +1800,11 @@ test-debug-info-inline-expression: $(RCC_TARGET)
 		$(TEST_OUT)/debug-info-inline-expression/x86-inline-g.ro \
 		$(TEST_OUT)/debug-info-inline-expression/x64-inline-g.ro \
 		$(TEST_OUT)/debug-info-inline-expression/verified-inline-x86-g.ro \
-		$(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-g.ro
+		$(TEST_OUT)/debug-info-inline-expression/verified-inline-x64-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/cxx-enum-x86-inline-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/cxx-enum-x64-inline-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-enum-x86-inline-g.ro \
+		$(TEST_OUT)/debug-info-inline-expression/verified-cxx-enum-x64-inline-g.ro
 	@echo "Bounded inline integer-expression DWARF tests completed"
 
 test-aqc: $(AQC_TARGET)

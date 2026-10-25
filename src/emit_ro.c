@@ -4945,7 +4945,21 @@ static const Type* debug_inline_integer_comparison_common_type(
     const Type* signed_type;
     if (!left || !right || !promoted) return NULL;
     for (size_t index = 0u; index < 2u; ++index) {
-        if (operands[index]->kind < TYPE_INT) {
+        if (operands[index]->kind == TYPE_ENUM &&
+            !operands[index]->enum_is_scoped) {
+            const Type* underlying = operands[index]->enum_underlying_type;
+            promoted[index] = underlying
+                ? *underlying : *operands[index];
+            if (!underlying) {
+                promoted[index].kind = TYPE_INT;
+                promoted[index].size = 4;
+                promoted[index].align = 4;
+                promoted[index].is_unsigned = false;
+            }
+            promoted[index].is_const = false;
+            promoted[index].is_volatile = false;
+            operands[index] = &promoted[index];
+        } else if (operands[index]->kind < TYPE_INT) {
             promoted[index] = *operands[index];
             promoted[index].kind = TYPE_INT;
             promoted[index].size = 4;
