@@ -7211,6 +7211,8 @@ test-cxx-class-template-non-type: $(RCXX_TARGET)
 test-cxx-operator-overload: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-operator-overload)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-operator-overload,cxx_operator_overload.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-fsyntax-only tests/cxx_operator_overload.cpp
 
 test-cxx-member-operator-forms: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-operator-forms)

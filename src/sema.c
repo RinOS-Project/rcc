@@ -9149,8 +9149,10 @@ static Symbol* sema_cxx_operator_function(const char* name,
         ++argument_count;
     }
     functions = sema_cxx_lookup_name(name, (SourceLoc){"<sema>", 0, 0});
-    if (!functions && arguments) {
-        functions = sema_cxx_adl_lookup(name, arguments, NULL);
+    if (arguments) {
+        /* Operator lookup combines ordinary non-member declarations with
+         * candidates from the operands' associated namespaces. */
+        functions = sema_cxx_adl_lookup(name, arguments, functions);
     }
     for (Decl* candidate = functions ? functions->decl : NULL;
          candidate; candidate = candidate->func_overload_next) {
