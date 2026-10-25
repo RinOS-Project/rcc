@@ -162,7 +162,7 @@ int MemberTemplateOperatorOwner<int>::operator~<char>() const {
 
 template <>
 template <>
-int MemberTemplateOperatorOwner<int>::operator*<char>() const {
+int MemberTemplateOperatorOwner<int>::operator*() const {
     return 120;
 }
 

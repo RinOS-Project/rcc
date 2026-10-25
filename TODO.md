@@ -9721,9 +9721,11 @@ remains a separate open item.
       focused native-Windows specialization target pass.
 - [x] Cover unary and binary member `operator*` function-template
       specializations through operator syntax. RCC and GCC emit matching
-      Itanium symbols (`de` and `ml`), both target widths assemble, AMD64 runtime
-      checks distinguish specialized and primary implementations, and missing/
-      excess template-head diagnostics pass in the focused target.
+      Itanium symbols (`de` and `ml`), including unary specialization that
+      omits the explicit template argument and selects its default. Both target
+      widths assemble, AMD64 runtime checks distinguish specialized and
+      primary implementations, and missing/excess template-head diagnostics
+      pass in the focused target.
 - [x] Preserve the selected nested class-template owner's member scope while
       analyzing out-of-class explicit member-function-template specializations.
       Regressions use unqualified fields from a nested and deeper owner, from a
