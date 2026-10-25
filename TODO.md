@@ -9906,8 +9906,9 @@ remains a separate open item.
 - [x] Apply integer promotions and the common signed/unsigned integer type
       when composing inline comparison operands. Verify both an explicit
       `int`-to-`unsigned int` cast and the implicit `int`/`unsigned int`
-      conversion for a full-width unsigned ordering comparison on i686/AMD64.
-      Focused inline-expression and full `test-debug-info` pass for legacy and
-      verified objects.
-- [ ] Broader mixed-rank matrices, enum conversion cases, and i686-wide
-      comparisons remain open.
+      conversion for a full-width unsigned ordering comparison, plus
+      `(short)frame_local < 0` promotion to `int`, on i686/AMD64. Focused
+      inline-expression and full `test-debug-info` pass for legacy and verified
+      objects.
+- [ ] Broader mixed-rank matrices, enum conversions, and i686-wide comparisons
+      remain open.
