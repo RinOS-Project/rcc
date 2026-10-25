@@ -48,6 +48,7 @@ public:
     explicit OutOfClassClassTemplateOwner(T input) : value(input) {}
 
     T get() const;
+    T operator+(T rhs) const;
 
     template<typename U = T>
     U add_to(U input) const;
@@ -75,6 +76,11 @@ int OutOfClassMemberTemplate::non_type_default() const {
 template<typename T>
 T OutOfClassClassTemplateOwner<T>::get() const {
     return value;
+}
+
+template<typename T>
+T OutOfClassClassTemplateOwner<T>::operator+(T rhs) const {
+    return value + rhs;
 }
 
 template<typename T>
@@ -143,6 +149,7 @@ int main() {
            member_template.non_type_default() == 7 &&
            member_template.non_type_default<9>() == 9 &&
            out_of_class_owner.get() == 4 &&
+           out_of_class_owner + 5 == 9 &&
            out_of_class_owner.add_to(3) == 7 &&
            out_of_class_owner.add_to<long>(9L) == 13L &&
            out_of_class_owner.multiply(4) == 8 &&

@@ -16635,6 +16635,12 @@ static bool cxx_qualified_member_definition_starts(void) {
             if (!component || component->type != TOK_SCOPE) break;
             component = component->next;
             if (!component) return false;
+            if (component->type == TOK_OPERATOR) {
+                if (!saw_template_id) break;
+                Token* operator_name = component->next;
+                return operator_name && operator_name->next &&
+                       operator_name->next->type == TOK_LPAREN;
+            }
             if (component->type == TOK_IDENT && component->next &&
                 component->next->type == TOK_LPAREN) {
                 if (saw_template_id) return true;
@@ -17665,13 +17671,21 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
                 int written;
                 owner_type = parse_class_template_specialization(
                     owner_template, loc);
-                if (!owner_type || !match(TOK_SCOPE) ||
-                    !check(TOK_IDENT)) {
+                if (!owner_type || !match(TOK_SCOPE)) {
                     parser.cur = saved_cur;
                     parser.prev = saved_prev;
                     return NULL;
                 }
-                member_name = advance()->value.str_val;
+                if (match(TOK_OPERATOR)) {
+                    member_name = parse_operator_name();
+                } else if (check(TOK_IDENT)) {
+                    member_name = advance()->value.str_val;
+                }
+                if (!member_name) {
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return NULL;
+                }
                 written = snprintf(qualified_buffer,
                                    sizeof(qualified_buffer), "%s::%s",
                                    qualified, member_name);

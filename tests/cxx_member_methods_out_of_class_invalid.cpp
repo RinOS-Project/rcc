@@ -54,6 +54,16 @@ long OutOfClassMemberTemplateDefinitionProbe::value(T input) {
     return static_cast<long>(input);
 }
 
+template<typename T>
+struct OutOfClassTemplateOperatorProbe {
+    T operator+(T value) const;
+};
+
+template<typename T>
+long OutOfClassTemplateOperatorProbe<T>::operator+(T value) const {
+    return static_cast<long>(value);
+}
+
 int OutOfClassOperatorRedefinitionProbe::operator+(int value) const {
     return value;
 }

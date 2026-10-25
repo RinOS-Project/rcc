@@ -9587,5 +9587,11 @@ remains a separate open item.
       parameters, deduced and explicit calls, GCC C++20 syntax, i686/AMD64
       generation, PE architecture, optimized/unoptimized output, and AMD64
       runtime in `test-cxx-class-template-methods`.
+- [x] Define a primary class-template owner's binary `operator+` outside the
+      class. Verify dependent return and parameter types, GCC C++20 syntax,
+      i686/AMD64 generation, PE architecture, optimized/unoptimized AMD64
+      execution, and mismatched-return diagnostics for both target widths in
+      `test-cxx-class-template-methods` and
+      `test-cxx-member-methods-invalid`.
 - [ ] Explicit member specializations and deeper nested/template owner
       qualification remain open.
