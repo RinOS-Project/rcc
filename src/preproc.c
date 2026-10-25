@@ -207,6 +207,36 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__CHAR16_TYPE__", "unsigned short");
     pp_define(pp, "__CHAR32_TYPE__", "unsigned int");
     pp_define(pp, "__WCHAR_TYPE__", "int");
+    pp_define(pp, "__CHAR_BIT__", "8");
+    pp_define(pp, "__SCHAR_MAX__", "127");
+    pp_define(pp, "__SHRT_MAX__", "32767");
+    pp_define(pp, "__INT_MAX__", "2147483647");
+    pp_define(pp, "__LONG_LONG_MAX__", "9223372036854775807LL");
+    pp_define(pp, "__INT8_MAX__", "127");
+    pp_define(pp, "__UINT8_MAX__", "255");
+    pp_define(pp, "__INT16_MAX__", "32767");
+    pp_define(pp, "__UINT16_MAX__", "65535");
+    pp_define(pp, "__INT32_MAX__", "2147483647");
+    pp_define(pp, "__UINT32_MAX__", "4294967295U");
+    pp_define(pp, "__INT64_MAX__", "9223372036854775807LL");
+    pp_define(pp, "__UINT64_MAX__", "18446744073709551615ULL");
+    pp_define(pp, "__INT_FAST8_MAX__", "127");
+    pp_define(pp, "__UINT_FAST8_MAX__", "255");
+    pp_define(pp, "__INT_FAST16_MAX__", "2147483647");
+    pp_define(pp, "__UINT_FAST16_MAX__", "4294967295U");
+    pp_define(pp, "__INT_FAST32_MAX__", "2147483647");
+    pp_define(pp, "__UINT_FAST32_MAX__", "4294967295U");
+    pp_define(pp, "__INT_FAST64_MAX__", "9223372036854775807LL");
+    pp_define(pp, "__UINT_FAST64_MAX__", "18446744073709551615ULL");
+    pp_define(pp, "__WCHAR_MAX__", "2147483647");
+    pp_define(pp, "__SIZEOF_SHORT__", "2");
+    pp_define(pp, "__SIZEOF_INT__", "4");
+    pp_define(pp, "__SIZEOF_LONG_LONG__", "8");
+    pp_define(pp, "__SIZEOF_WCHAR_T__", "4");
+    pp_define(pp, "__ORDER_LITTLE_ENDIAN__", "1234");
+    pp_define(pp, "__ORDER_BIG_ENDIAN__", "4321");
+    pp_define(pp, "__ORDER_PDP_ENDIAN__", "3412");
+    pp_define(pp, "__BYTE_ORDER__", "1234");
     if (g_opts.sse_enabled) pp_define(pp, "__SSE__", "1");
     if (g_opts.sse_enabled && g_opts.sse2_enabled) {
         pp_define(pp, "__SSE2__", "1");
@@ -220,6 +250,14 @@ Preprocessor* pp_new(void) {
         pp_define(pp, "__PTRDIFF_TYPE__", "int");
         pp_define(pp, "__INTPTR_TYPE__", "int");
         pp_define(pp, "__UINTPTR_TYPE__", "unsigned int");
+        pp_define(pp, "__LONG_MAX__", "2147483647L");
+        pp_define(pp, "__SIZE_MAX__", "4294967295U");
+        pp_define(pp, "__INTPTR_MAX__", "2147483647");
+        pp_define(pp, "__UINTPTR_MAX__", "4294967295U");
+        pp_define(pp, "__PTRDIFF_MAX__", "2147483647");
+        pp_define(pp, "__SIZEOF_LONG__", "4");
+        pp_define(pp, "__SIZEOF_POINTER__", "4");
+        pp_define(pp, "__SIZEOF_SIZE_T__", "4");
     } else {
         pp_define(pp, "__x86_64__", "1");
         pp_define(pp, "__amd64__", "1");
@@ -227,6 +265,14 @@ Preprocessor* pp_new(void) {
         pp_define(pp, "__PTRDIFF_TYPE__", "long long");
         pp_define(pp, "__INTPTR_TYPE__", "long long");
         pp_define(pp, "__UINTPTR_TYPE__", "unsigned long long");
+        pp_define(pp, "__LONG_MAX__", "9223372036854775807L");
+        pp_define(pp, "__SIZE_MAX__", "18446744073709551615ULL");
+        pp_define(pp, "__INTPTR_MAX__", "9223372036854775807LL");
+        pp_define(pp, "__UINTPTR_MAX__", "18446744073709551615ULL");
+        pp_define(pp, "__PTRDIFF_MAX__", "9223372036854775807LL");
+        pp_define(pp, "__SIZEOF_LONG__", "8");
+        pp_define(pp, "__SIZEOF_POINTER__", "8");
+        pp_define(pp, "__SIZEOF_SIZE_T__", "8");
     }
 
     return pp;

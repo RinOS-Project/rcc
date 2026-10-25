@@ -44,6 +44,11 @@ struct MemberTemplateOperatorOwner {
     int operator()(T input) const {
         return static_cast<int>(input) + 4;
     }
+
+    template <typename T = char>
+    int operator!() const {
+        return 9;
+    }
 };
 
 struct NonTemplateMemberOperatorOwner {
@@ -107,6 +112,20 @@ int MemberTemplateOperatorOwner<int>::operator()<char>(char input) const {
     return static_cast<int>(input) + 60;
 }
 
+#if defined(RCC_TEST_MISSING_UNARY_OPERATOR_TEMPLATE_HEAD)
+template <>
+#elif defined(RCC_TEST_EXTRA_UNARY_OPERATOR_TEMPLATE_HEAD)
+template <>
+template <>
+template <>
+#else
+template <>
+template <>
+#endif
+int MemberTemplateOperatorOwner<int>::operator!<char>() const {
+    return 90;
+}
+
 template <>
 int NonTemplateMemberOperatorOwner::operator+<char>(char input) const {
     return static_cast<int>(input) + 70;
@@ -149,6 +168,8 @@ int main() {
                    operator_owner['A'] == 145 && operator_owner[2] == 8 &&
                    other_operator_owner + 'A' == 67 &&
                    operator_owner('A') == 125 && operator_owner(2) == 6 &&
+                   (!operator_owner) == 90 &&
+                   (!other_operator_owner) == 9 &&
                    non_template_operator_owner + 'A' == 135 &&
                    non_template_operator_owner + 2 == 7
                ? 0

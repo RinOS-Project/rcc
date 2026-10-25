@@ -9622,16 +9622,18 @@ remains a separate open item.
       target widths, and mismatched-return diagnostics in
       `test-cxx-class-template-methods` and `test-cxx-member-methods-invalid`.
 - [x] Support explicit specializations of overloaded member-function
-      operators `operator+`, `operator[]`, and `operator()` on a fully
-      specialized class-template owner, plus `operator+` on an ordinary class
-      owner. Materialize member-template candidates during infix, subscript,
-      and call-operator resolution so the specialization and competing
-      overloads are selected correctly. GCC C++20 syntax and exact Itanium
-      symbols, i686/AMD64 assembly, AMD64 runtime, and RCC/GCC rejection of
-      missing/surplus template heads pass in
+      operators `operator+`, `operator[]`, `operator()`, and unary
+      `operator!` on a fully specialized class-template owner, plus `operator+`
+      on an ordinary class owner. Materialize member-template candidates during
+      infix, subscript, call-operator, and unary-operator resolution so the
+      specialization and competing overloads are selected correctly. The
+      unary case uses a defaulted member-template parameter, which unary syntax
+      cannot deduce from an argument. GCC C++20 syntax and exact Itanium symbols,
+      i686/AMD64 assembly, AMD64 runtime, and RCC/GCC rejection of missing/
+      surplus template heads pass in
       `test-cxx-class-template-member-function-explicit-specialization`.
-- [ ] Explicit member specializations through dependent owner chains, other
-      overloaded operator forms, and remaining ABI/lifetime cases remain open.
+- [ ] Explicit member specializations through dependent owner chains, remaining
+      overloaded operator forms, and other ABI/lifetime cases remain open.
 
 ## RCC continuation (2026-10-25, member-template lookahead and glvalue category)
 
