@@ -9939,5 +9939,11 @@ remains a separate open item.
       zero, and `SCHAR_MAX` boundary behavior in legacy/verified i686/AMD64
       DWARF expressions. Focused and full `test-debug-info` pass; GCC C++20
       confirms the expression semantics.
+- [x] Promote both fixed-underlying operands before deriving the common type
+      for different `unsigned char` and `signed char` enums. This fixes the
+      incorrect unsigned-char common type for `unsigned_enum < signed_enum`;
+      evaluate the result for every unsigned-char boundary region in legacy and
+      verified i686/AMD64 DWARF. Focused and full `test-debug-info` pass; GCC
+      C++20 confirms the enum-to-enum semantics.
 - [ ] Other mixed-rank matrices, enum underlying-width combinations, and
       i686-wide comparisons remain open.

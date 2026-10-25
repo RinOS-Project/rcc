@@ -4955,6 +4955,12 @@ static const Type* debug_inline_integer_comparison_common_type(
                 promoted[index].size = 4;
                 promoted[index].align = 4;
                 promoted[index].is_unsigned = false;
+            } else if (underlying->kind < TYPE_INT) {
+                promoted[index].kind = TYPE_INT;
+                promoted[index].size = 4;
+                promoted[index].align = 4;
+                promoted[index].is_unsigned =
+                    underlying->is_unsigned && underlying->size >= 4;
             }
             promoted[index].is_const = false;
             promoted[index].is_volatile = false;

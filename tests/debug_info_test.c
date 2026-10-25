@@ -10017,6 +10017,8 @@ static const char* inline_integer_comparison_entry_for_source(
          "debug_inline_unsigned_enum_long_compare_entry"},
         {"debug_inline_unsigned_char_enum_int_compare_entry_source",
          "debug_inline_unsigned_char_enum_int_compare_entry"},
+        {"debug_inline_unsigned_char_enum_signed_char_enum_compare_entry_source",
+         "debug_inline_unsigned_char_enum_signed_char_enum_compare_entry"},
         {"debug_inline_signed_char_enum_unsigned_int_compare_entry_source",
          "debug_inline_signed_char_enum_unsigned_int_compare_entry"}
     };
@@ -10082,6 +10084,10 @@ static void verify_inline_integer_expression_parameter(
     bool promoted_enum_comparison = source_name &&
         strcmp(source_name,
                "debug_inline_unsigned_char_enum_int_compare_entry_source") == 0;
+    bool enum_to_enum_comparison = source_name &&
+        strcmp(source_name,
+               "debug_inline_unsigned_char_enum_signed_char_enum_compare_entry_source")
+            == 0;
     bool signed_char_enum_conversion_comparison = source_name &&
         strcmp(source_name,
                "debug_inline_signed_char_enum_unsigned_int_compare_entry_source")
@@ -10189,6 +10195,9 @@ static void verify_inline_integer_expression_parameter(
     } else if (unsigned_long_conversion_comparison) {
         comparison_value_size = (uint8_t)address_size;
     } else if (promoted_enum_comparison) {
+        comparison_is_unsigned = false;
+        comparison_value_size = 4u;
+    } else if (enum_to_enum_comparison) {
         comparison_is_unsigned = false;
         comparison_value_size = 4u;
     } else if (signed_char_enum_conversion_comparison) {
@@ -10321,7 +10330,7 @@ static void verify_inline_integer_expression_parameter(
             (expected_operation == 0x2au || expected_operation == 0x2bu ||
              expected_operation == 0x2cu || expected_operation == 0x2du);
         uint64_t sign_bit = UINT64_C(1) << (address_size * 8u - 1u);
-        assert((promoted_enum_comparison ||
+        assert((promoted_enum_comparison || enum_to_enum_comparison ||
                 signed_char_enum_conversion_comparison
                     ? comparison_value_size == 4u
                     : ((mixed_rank_comparison || enum_rank_comparison ||
@@ -10332,7 +10341,7 @@ static void verify_inline_integer_expression_parameter(
         verify_inline_expression_frame_for_architecture(
             info->data, expression_end, &offset, architecture, frame_offset,
             enum_rank_comparison ? 4u :
-                (promoted_enum_comparison ||
+                (promoted_enum_comparison || enum_to_enum_comparison ||
                  signed_char_enum_conversion_comparison)
                 ? value_size : comparison_value_size);
         if (mixed_rank_comparison) {
@@ -10353,6 +10362,13 @@ static void verify_inline_integer_expression_parameter(
                 info->data, expression_end, &offset, architecture,
                 comparison_is_unsigned, comparison_value_size);
         } else if (promoted_enum_comparison) {
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &offset, architecture,
+                true, value_size);
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &offset, architecture,
+                false, comparison_value_size);
+        } else if (enum_to_enum_comparison) {
             verify_inline_integer_expression_normalization(
                 info->data, expression_end, &offset, architecture,
                 true, value_size);
@@ -10422,6 +10438,14 @@ static void verify_inline_integer_expression_parameter(
                 info->data, expression_end, &offset, 0x11u);
             assert(read_sleb(info->data, expression_end, &offset) ==
                    expected_constant);
+        } else if (enum_to_enum_comparison) {
+            verify_inline_expression_byte(
+                info->data, expression_end, &offset, 0x11u);
+            assert(read_sleb(info->data, expression_end, &offset) ==
+                   expected_constant);
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &offset, architecture,
+                false, 1u);
         } else if (comparison_is_unsigned || mixed_rank_comparison) {
             verify_inline_expression_constu(
                 info->data, expression_end, &offset,
@@ -10506,6 +10530,16 @@ static void verify_inline_integer_expression_parameter(
                 assert(actual == (values[index] == maximum));
             }
         } else if (promoted_enum_comparison) {
+            static const uint64_t values[] = {0u, 1u, 127u, 128u, 254u, 255u};
+            for (size_t index = 0u;
+                 index < sizeof(values) / sizeof(values[0]); ++index) {
+                uint64_t actual =
+                    evaluate_inline_integer_comparison_expression(
+                        info->data, expression_end, expression_start,
+                        architecture, frame_offset, value_size, values[index]);
+                assert(actual == 1u);
+            }
+        } else if (enum_to_enum_comparison) {
             static const uint64_t values[] = {0u, 1u, 127u, 128u, 254u, 255u};
             for (size_t index = 0u;
                  index < sizeof(values) / sizeof(values[0]); ++index) {
@@ -11581,6 +11615,10 @@ int main(int argc, char** argv)
             false, 0x2du, 1u, -1, NULL, false);
         verify_inline_integer_expression_parameter(
             argv[6], ARCH_X86, "debug_nonconstant_integer_parameter_inline",
+            "debug_inline_unsigned_char_enum_signed_char_enum_compare_entry_source",
+            false, 0x2du, 1u, -1, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86, "debug_nonconstant_integer_parameter_inline",
             "debug_inline_signed_char_enum_unsigned_int_compare_entry_source",
             true, 0x2du, 1u, INT64_C(0x80000000), NULL, false);
         verify_inline_integer_expression_parameter(
@@ -11590,6 +11628,10 @@ int main(int argc, char** argv)
         verify_inline_integer_expression_parameter(
             argv[7], ARCH_X64, "debug_nonconstant_integer_parameter_inline",
             "debug_inline_unsigned_char_enum_int_compare_entry_source",
+            false, 0x2du, 1u, -1, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[7], ARCH_X64, "debug_nonconstant_integer_parameter_inline",
+            "debug_inline_unsigned_char_enum_signed_char_enum_compare_entry_source",
             false, 0x2du, 1u, -1, NULL, false);
         verify_inline_integer_expression_parameter(
             argv[7], ARCH_X64, "debug_nonconstant_integer_parameter_inline",
@@ -11605,6 +11647,10 @@ int main(int argc, char** argv)
             false, 0x2du, 1u, -1, NULL, false);
         verify_inline_integer_expression_parameter(
             argv[8], ARCH_X86, "debug_nonconstant_integer_parameter_inline",
+            "debug_inline_unsigned_char_enum_signed_char_enum_compare_entry_source",
+            false, 0x2du, 1u, -1, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86, "debug_nonconstant_integer_parameter_inline",
             "debug_inline_signed_char_enum_unsigned_int_compare_entry_source",
             true, 0x2du, 1u, INT64_C(0x80000000), NULL, false);
         verify_inline_integer_expression_parameter(
@@ -11614,6 +11660,10 @@ int main(int argc, char** argv)
         verify_inline_integer_expression_parameter(
             argv[9], ARCH_X64, "debug_nonconstant_integer_parameter_inline",
             "debug_inline_unsigned_char_enum_int_compare_entry_source",
+            false, 0x2du, 1u, -1, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[9], ARCH_X64, "debug_nonconstant_integer_parameter_inline",
+            "debug_inline_unsigned_char_enum_signed_char_enum_compare_entry_source",
             false, 0x2du, 1u, -1, NULL, false);
         verify_inline_integer_expression_parameter(
             argv[9], ARCH_X64, "debug_nonconstant_integer_parameter_inline",

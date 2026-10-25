@@ -64,3 +64,16 @@ extern "C" int debug_inline_signed_char_enum_unsigned_int_compare_entry(
         !(debug_inline_signed_char_enum_unsigned_int_compare_entry_source <
           0x80000000u));
 }
+
+extern "C" int debug_inline_unsigned_char_enum_signed_char_enum_compare_entry(
+    unsigned char value)
+{
+    DebugInlineUnsignedCharComparisonEnum
+        debug_inline_unsigned_char_enum_signed_char_enum_compare_entry_source =
+            static_cast<DebugInlineUnsignedCharComparisonEnum>(value);
+    debug_inline_unsigned_char_comparison_enum_escape =
+        &debug_inline_unsigned_char_enum_signed_char_enum_compare_entry_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_unsigned_char_enum_signed_char_enum_compare_entry_source <
+          debug_inline_signed_char_comparison_enum_negative));
+}
