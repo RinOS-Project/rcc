@@ -8281,9 +8281,10 @@ static int64_t verify_inline_integer_signed_bits(
     return -1 - (int64_t)(mask ^ value);
 }
 
-static uint64_t evaluate_inline_enum_comparison_expression(
+static uint64_t evaluate_inline_integer_comparison_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_offset,
-    uint16_t architecture, int64_t source_frame_offset, uint32_t source_value) {
+    uint16_t architecture, int64_t source_frame_offset,
+    uint8_t source_value_size, uint64_t source_value) {
     uint64_t stack[16];
     size_t stack_size = 0u;
     int64_t pending_frame_offset = 0;
@@ -8307,8 +8308,9 @@ static uint64_t evaluate_inline_enum_comparison_expression(
                    has_pending_frame_offset &&
                    pending_frame_offset == source_frame_offset);
             value_size = data[expression_offset++];
-            assert(value_size == 4u);
-            value_mask = (UINT64_C(1) << (value_size * 8u)) - 1u;
+            assert(value_size == source_value_size);
+            value_mask = value_size == 8u ? UINT64_MAX
+                : (UINT64_C(1) << (value_size * 8u)) - 1u;
             stack[stack_size++] = (uint64_t)source_value & value_mask;
             has_pending_frame_offset = false;
         } else if (opcode == 0x10u) {
@@ -10009,6 +10011,8 @@ static const char* inline_integer_comparison_entry_for_source(
          "debug_inline_nonconstant_integer_compare_promoted_unsigned_short_entry"},
         {"debug_inline_nonconstant_long_compare_unsigned_int_entry_source",
          "debug_inline_nonconstant_long_compare_unsigned_int_entry"},
+        {"debug_inline_nonconstant_unsigned_long_compare_signed_int_entry_source",
+         "debug_inline_nonconstant_unsigned_long_compare_signed_int_entry"},
         {"debug_inline_unsigned_enum_long_compare_entry_source",
          "debug_inline_unsigned_enum_long_compare_entry"}
     };
@@ -10071,6 +10075,10 @@ static void verify_inline_integer_expression_parameter(
     bool enum_rank_comparison = source_name &&
         strcmp(source_name,
                "debug_inline_unsigned_enum_long_compare_entry_source") == 0;
+    bool unsigned_long_conversion_comparison = source_name &&
+        strcmp(source_name,
+               "debug_inline_nonconstant_unsigned_long_compare_signed_int_entry_source")
+            == 0;
     bool comparison_is_unsigned = is_unsigned;
     uint8_t comparison_value_size = value_size;
     const char* call_site_name = comparison_entry ? comparison_entry :
@@ -10166,6 +10174,8 @@ static void verify_inline_integer_expression_parameter(
         comparison_value_size = (uint8_t)address_size;
     } else if (enum_rank_comparison) {
         comparison_is_unsigned = architecture == ARCH_X86;
+        comparison_value_size = (uint8_t)address_size;
+    } else if (unsigned_long_conversion_comparison) {
         comparison_value_size = (uint8_t)address_size;
     }
     assert(object != NULL && object->arch == architecture && inline_name &&
@@ -10294,7 +10304,8 @@ static void verify_inline_integer_expression_parameter(
             (expected_operation == 0x2au || expected_operation == 0x2bu ||
              expected_operation == 0x2cu || expected_operation == 0x2du);
         uint64_t sign_bit = UINT64_C(1) << (address_size * 8u - 1u);
-        assert((mixed_rank_comparison || enum_rank_comparison
+        assert((mixed_rank_comparison || enum_rank_comparison ||
+                unsigned_long_conversion_comparison
                     ? comparison_value_size == address_size
                     : value_size == 4u) &&
                (expected_operation >= 0x2au && expected_operation <= 0x2eu));
@@ -10311,6 +10322,10 @@ static void verify_inline_integer_expression_parameter(
         } else if (enum_rank_comparison) {
             verify_inline_integer_expression_normalization(
                 info->data, expression_end, &offset, architecture, true, 4u);
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &offset, architecture,
+                comparison_is_unsigned, comparison_value_size);
+        } else if (unsigned_long_conversion_comparison) {
             verify_inline_integer_expression_normalization(
                 info->data, expression_end, &offset, architecture,
                 comparison_is_unsigned, comparison_value_size);
@@ -10357,6 +10372,14 @@ static void verify_inline_integer_expression_parameter(
                 info->data, expression_end, &offset, 0x11u);
             assert(read_sleb(info->data, expression_end, &offset) ==
                    expected_constant);
+        } else if (unsigned_long_conversion_comparison) {
+            verify_inline_expression_byte(
+                info->data, expression_end, &offset, 0x11u);
+            assert(read_sleb(info->data, expression_end, &offset) ==
+                   expected_constant);
+            verify_inline_integer_expression_normalization(
+                info->data, expression_end, &offset, architecture,
+                false, 4u);
         } else if (comparison_is_unsigned || mixed_rank_comparison) {
             verify_inline_expression_constu(
                 info->data, expression_end, &offset,
@@ -10408,12 +10431,37 @@ static void verify_inline_integer_expression_parameter(
             for (size_t index = 0u;
                  index < sizeof(values) / sizeof(values[0]); ++index) {
                 uint64_t actual =
-                    evaluate_inline_enum_comparison_expression(
+                    evaluate_inline_integer_comparison_expression(
                         info->data, expression_end, expression_start,
-                        architecture, frame_offset, values[index]);
+                        architecture, frame_offset, 4u, values[index]);
                 uint64_t expected = architecture == ARCH_X64 ||
                     values[index] == UINT32_MAX;
                 assert(actual == expected);
+            }
+        } else if (unsigned_long_conversion_comparison) {
+            static const uint64_t values32[] = {
+                0u, 1u, UINT64_C(0x7fffffff), UINT64_C(0x80000000),
+                UINT64_C(0xfffffffe), UINT32_MAX
+            };
+            static const uint64_t values64[] = {
+                0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
+                UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000000),
+                UINT64_MAX - 1u, UINT64_MAX
+            };
+            const uint64_t* values = architecture == ARCH_X64
+                ? values64 : values32;
+            size_t value_count = architecture == ARCH_X64
+                ? sizeof(values64) / sizeof(values64[0])
+                : sizeof(values32) / sizeof(values32[0]);
+            uint64_t maximum = architecture == ARCH_X64
+                ? UINT64_MAX : UINT32_MAX;
+            for (size_t index = 0u; index < value_count; ++index) {
+                uint64_t actual =
+                    evaluate_inline_integer_comparison_expression(
+                        info->data, expression_end, expression_start,
+                        architecture, frame_offset,
+                        comparison_value_size, values[index]);
+                assert(actual == (values[index] == maximum));
             }
         }
         objfile_free(object);
@@ -10827,6 +10875,9 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_integer_parameter_inline",
          "debug_inline_nonconstant_long_compare_unsigned_int_entry_source",
          false, 0u, 0x2du, INT64_C(0x80000000), NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_unsigned_long_compare_signed_int_entry_source",
+         true, 0u, 0x2du, -1, NULL, false},
         {"debug_nonconstant_integer_bitand_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 4u, 0x1au, 7,
          NULL, false},

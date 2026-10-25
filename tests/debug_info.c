@@ -52,6 +52,7 @@ int** debug_inline_escaped_pointer;
 int* debug_inline_escaped_object_address;
 int* debug_inline_nonconstant_integer_escape;
 long* debug_inline_nonconstant_long_escape;
+unsigned long* debug_inline_nonconstant_unsigned_long_escape;
 long long* debug_inline_nonconstant_integer_logical_not_wide_escape;
 unsigned int* debug_inline_nonconstant_unsigned_integer_escape;
 unsigned int* debug_inline_nonconstant_unsigned_high_divisor_escape;
@@ -386,6 +387,19 @@ int debug_inline_nonconstant_long_compare_unsigned_int_entry(long value)
     return debug_nonconstant_integer_parameter_inline(
         !(debug_inline_nonconstant_long_compare_unsigned_int_entry_source <
           0x80000000u));
+}
+
+int debug_inline_nonconstant_unsigned_long_compare_signed_int_entry(
+    unsigned long value)
+{
+    unsigned long
+        debug_inline_nonconstant_unsigned_long_compare_signed_int_entry_source =
+            value;
+    debug_inline_nonconstant_unsigned_long_escape =
+        &debug_inline_nonconstant_unsigned_long_compare_signed_int_entry_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_nonconstant_unsigned_long_compare_signed_int_entry_source <
+          -1));
 }
 
 int debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry(int value)

@@ -9923,5 +9923,10 @@ remains a separate open item.
       32-bit ordering while AMD64 uses signed 64-bit ordering. Evaluate boundary
       values in the emitted DWARF expression for legacy/verified objects.
       Focused inline-expression and full `test-debug-info` pass.
+- [x] Apply usual arithmetic conversions to an `unsigned long` frame local
+      compared with signed `-1`. Verify the target-width unsigned common type,
+      literal and source normalization, and the boundary result at the maximum
+      value on i686 and AMD64. Evaluate boundary values in legacy and verified
+      DWARF expressions; focused and full `test-debug-info` pass.
 - [ ] Other mixed-rank matrices, enum underlying-width combinations, and
       i686-wide comparisons remain open.
