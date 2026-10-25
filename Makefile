@@ -3905,6 +3905,9 @@ test-cxx-function-template-references-posix: $(RCXX_TARGET)
 
 test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-temporaries)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-fsyntax-only -DRCC_STATIC_REFERENCE_TLS_TEST \
+		tests/cxx_static_reference_temporaries.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-DRCC_STATIC_REFERENCE_TLS_TEST -S \
 		-o $(TEST_OUT)/cxx-static-reference-temporaries/x86.s \
@@ -3914,6 +3917,8 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z28thread_local_block_referencei" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
 	$(GREP) -F -q "_Z40thread_local_conditional_block_referenceii" \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
+	$(GREP) -F -q "thread_local_conditional_reference" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x86.o \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
@@ -3930,6 +3935,8 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z28thread_local_block_referencei" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
 	$(GREP) -F -q "_Z40thread_local_conditional_block_referenceii" \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
+	$(GREP) -F -q "thread_local_conditional_reference" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x64.o \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s

@@ -135,6 +135,14 @@ thread_local const ThreadLocalReferenceBase&
         ThreadLocalReferenceConversionSource{
             cxx_static_reference_thread_value + 20};
 
+thread_local const ThreadLocalReferenceBase&
+    thread_local_conditional_reference =
+        (cxx_static_reference_thread_value & 1) != 0
+            ? ThreadLocalReferenceDerived{
+                  cxx_static_reference_thread_value + 30}
+            : ThreadLocalReferenceDerived{
+                  cxx_static_reference_thread_value + 40};
+
 thread_local const int& thread_local_member_reference =
     ThreadLocalReferenceMemberOwner{
         cxx_static_reference_thread_value + 60}.*
@@ -182,6 +190,15 @@ extern "C" int cxx_static_reference_tls_worker(int value) {
     if (conditional_first != conditional_second ||
         conditional_first->value != value + 80) {
         return 7;
+    }
+    const ThreadLocalReferenceBase* namespace_conditional_first =
+        &thread_local_conditional_reference;
+    const ThreadLocalReferenceBase* namespace_conditional_second =
+        &thread_local_conditional_reference;
+    int namespace_conditional_value = value + ((value & 1) ? 30 : 40);
+    if (namespace_conditional_first != namespace_conditional_second ||
+        namespace_conditional_first->value != namespace_conditional_value) {
+        return 9;
     }
     return 0;
 }
