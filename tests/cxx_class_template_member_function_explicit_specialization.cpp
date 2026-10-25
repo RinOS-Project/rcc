@@ -1,14 +1,10 @@
 template <typename Owner>
 struct ClassTemplateMemberFunctionSpecialization {
     template <typename T>
-    int value(T input) {
-        return static_cast<int>(input) + 1;
-    }
+    int value(T input);
 
     template <typename T>
-    int value(T* input) {
-        return static_cast<int>(*input) + 1;
-    }
+    int value(T* input);
 };
 
 template <>
@@ -23,6 +19,18 @@ template <>
 int ClassTemplateMemberFunctionSpecialization<int>::value<double>(
     double* input) {
     return static_cast<int>(*input) + 40;
+}
+
+template <typename Owner>
+template <typename T>
+int ClassTemplateMemberFunctionSpecialization<Owner>::value(T input) {
+    return static_cast<int>(input) + 1;
+}
+
+template <typename Owner>
+template <typename T>
+int ClassTemplateMemberFunctionSpecialization<Owner>::value(T* input) {
+    return static_cast<int>(*input) + 1;
 }
 
 int main() {

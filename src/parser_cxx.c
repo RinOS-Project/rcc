@@ -2145,6 +2145,12 @@ static Type* parse_cxx_type_spec(void);
 static Type* parse_cxx_template_type_argument(void);
 static Type* cxx_member_definition_return_type(Type* base_type);
 static bool cxx_out_of_class_member_template_definition_starts(void);
+static CxxMethod* substitute_template_method(
+    CxxTemplate* tmpl, CxxMethod* method, Type** arguments,
+    int argument_count, const int64_t* value_args,
+    const bool* value_present);
+static void cxx_refresh_cached_class_template_member_definition(
+    CxxTemplate* class_template, CxxMethod* source_method);
 static bool cxx_explicit_class_template_member_function_specialization_starts(
     void);
 static bool cxx_explicit_member_function_template_specialization_starts(void);
@@ -18287,6 +18293,12 @@ owner_resolved:
     selected->decl->loc = loc;
     selected->decl->func_is_defined = true;
     selected->decl->func_is_inline = is_inline;
+    if (owner_template && owner_type && owner_type->cxx_dependent &&
+        cls == owner_template->templated_class &&
+        !owner_template->enclosing_class && selected->member_template) {
+        cxx_refresh_cached_class_template_member_definition(
+            owner_template, selected);
+    }
     {
         CxxNamespace* registration_namespace = active_namespace;
         active_namespace = cls->ns ? cls->ns : g_global_namespace;
@@ -20526,6 +20538,166 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
             value_args, value_present);
     }
     return copy;
+}
+
+static int cxx_template_class_method_ordinal(CxxClass* cls,
+                                             CxxMethod* method) {
+    int ordinal = 0;
+    for (struct CxxMember* member = cls ? cls->members : NULL;
+         member; member = member->next) {
+        if (!member->method) continue;
+        if (member->method == method) return ordinal;
+        ++ordinal;
+    }
+    return -1;
+}
+
+static CxxMethod* cxx_template_class_method_at_ordinal(CxxClass* cls,
+                                                        int ordinal) {
+    if (!cls || ordinal < 0) return NULL;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        if (!member->method) continue;
+        if (ordinal == 0) return member->method;
+        --ordinal;
+    }
+    return NULL;
+}
+
+/* An explicit member-template specialization can materialize its concrete
+ * class-template owner before that owner's out-of-class primary member
+ * definition is parsed. Refresh those cached method declarations now, while
+ * retaining each instantiated member-template object and its specialization
+ * cache. */
+static void cxx_refresh_cached_class_template_member_definition(
+    CxxTemplate* class_template, CxxMethod* source_method) {
+    int method_ordinal;
+    int pack_index;
+    CxxClass* saved_active_class;
+    CxxNamespace* saved_active_namespace;
+    CxxTemplate* saved_active_template;
+    CxxClass* saved_active_class_instance;
+    CxxClass* saved_local_class_instance;
+    int saved_pending_pack_count;
+    Type** saved_pending_pack_args;
+    bool* saved_pending_pack_expansions;
+    int64_t* saved_pending_pack_values;
+    bool* saved_pending_pack_value_present;
+    Expr** saved_pending_pack_value_expressions;
+    int* saved_pending_pack_offsets;
+    int* saved_pending_pack_counts;
+
+    if (!class_template || class_template->kind != TMPL_CLASS ||
+        !class_template->templated_class || !source_method ||
+        !source_method->decl || !source_method->member_template) {
+        return;
+    }
+    method_ordinal = cxx_template_class_method_ordinal(
+        class_template->templated_class, source_method);
+    if (method_ordinal < 0) return;
+    pack_index = cxx_class_pack_index(class_template);
+
+    saved_active_class = active_class;
+    saved_active_namespace = active_namespace;
+    saved_active_template = active_template;
+    saved_active_class_instance = class_template->active_class_instance;
+    saved_local_class_instance = class_template->local_class_instance;
+    saved_pending_pack_count = class_template->pending_pack_count;
+    saved_pending_pack_args = class_template->pending_pack_args;
+    saved_pending_pack_expansions =
+        class_template->pending_pack_expansions;
+    saved_pending_pack_values = class_template->pending_pack_values;
+    saved_pending_pack_value_present =
+        class_template->pending_pack_value_present;
+    saved_pending_pack_value_expressions =
+        class_template->pending_pack_value_expressions;
+    saved_pending_pack_offsets = class_template->pending_pack_offsets;
+    saved_pending_pack_counts = class_template->pending_pack_counts;
+
+    for (int index = 0; index < class_template->instance_count; ++index) {
+        CxxClass* instance = (CxxClass*)
+            class_template->instances[index].instantiated;
+        CxxMethod* instance_method;
+        CxxMethod* refreshed_method;
+        if (!instance || instance->templ != class_template ||
+            !cxx_class_instance_matches_template(instance, class_template) ||
+            class_template->instances[index].arg_count !=
+                class_template->param_count) {
+            continue;
+        }
+        instance_method = cxx_template_class_method_at_ordinal(
+            instance, method_ordinal);
+        if (!instance_method || !instance_method->decl ||
+            !instance_method->member_template ||
+            !instance_method->source_name || !source_method->source_name ||
+            strcmp(instance_method->source_name,
+                   source_method->source_name) != 0) {
+            continue;
+        }
+
+        class_template->active_class_instance = instance;
+        class_template->pending_pack_count = pack_index >= 0
+            ? class_template->instances[index].pack_count : -1;
+        class_template->pending_pack_args =
+            class_template->instances[index].pack_args;
+        class_template->pending_pack_expansions = NULL;
+        class_template->pending_pack_values =
+            class_template->instances[index].pack_values;
+        class_template->pending_pack_value_present =
+            class_template->instances[index].pack_value_present;
+        class_template->pending_pack_value_expressions = NULL;
+        class_template->pending_pack_offsets =
+            class_template->instances[index].pack_offsets;
+        class_template->pending_pack_counts =
+            class_template->instances[index].pack_counts;
+        active_class = instance;
+        active_namespace = instance->ns
+            ? instance->ns : g_global_namespace;
+        active_template = class_template;
+        refreshed_method = substitute_template_method(
+            class_template, source_method,
+            class_template->instances[index].args,
+            class_template->instances[index].arg_count,
+            class_template->instances[index].value_args,
+            class_template->instances[index].value_present);
+        if (!refreshed_method || !refreshed_method->decl) continue;
+
+        instance_method->decl->func_body = refreshed_method->decl->func_body;
+        instance_method->decl->func_is_defined =
+            refreshed_method->decl->func_is_defined;
+        instance_method->decl->func_is_inline =
+            refreshed_method->decl->func_is_inline;
+        instance_method->decl->func_is_constexpr =
+            refreshed_method->decl->func_is_constexpr;
+        instance_method->decl->func_is_consteval =
+            refreshed_method->decl->func_is_consteval;
+        instance_method->decl->func_is_noexcept =
+            refreshed_method->decl->func_is_noexcept;
+        instance_method->decl->func_noexcept_expr =
+            refreshed_method->decl->func_noexcept_expr;
+        instance_method->decl->func_is_auto_return =
+            refreshed_method->decl->func_is_auto_return;
+        instance_method->decl->func_is_decltype_auto_return =
+            refreshed_method->decl->func_is_decltype_auto_return;
+        instance_method->decl->func_template_body_deferred = false;
+    }
+
+    active_class = saved_active_class;
+    active_namespace = saved_active_namespace;
+    active_template = saved_active_template;
+    class_template->active_class_instance = saved_active_class_instance;
+    class_template->local_class_instance = saved_local_class_instance;
+    class_template->pending_pack_count = saved_pending_pack_count;
+    class_template->pending_pack_args = saved_pending_pack_args;
+    class_template->pending_pack_expansions =
+        saved_pending_pack_expansions;
+    class_template->pending_pack_values = saved_pending_pack_values;
+    class_template->pending_pack_value_present =
+        saved_pending_pack_value_present;
+    class_template->pending_pack_value_expressions =
+        saved_pending_pack_value_expressions;
+    class_template->pending_pack_offsets = saved_pending_pack_offsets;
+    class_template->pending_pack_counts = saved_pending_pack_counts;
 }
 
 static CxxMethod* instantiated_constructor_method(CxxClass* instance,

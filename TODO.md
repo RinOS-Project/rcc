@@ -9662,5 +9662,11 @@ remains a separate open item.
       pointer primary instantiations; GCC symbols match, i686/AMD64 assembly,
       and AMD64 execution pass in
       `test-cxx-class-template-member-function-explicit-specialization`.
-- [ ] Specialized or dependent owner chains and the out-of-class primary-
-      definition ordering case remain open.
+- [x] Define the primary member-template overloads out-of-class after explicit
+      specializations on a fully specialized direct class-template owner.
+      Refresh already-cached concrete owner declarations using the later
+      primary body while preserving their member-template specialization cache;
+      GCC C++20 syntax and symbols, i686/AMD64 assembly, and AMD64 link/run pass
+      in `test-cxx-class-template-member-function-explicit-specialization`.
+- [ ] Specialized or dependent owner chains and remaining ABI/lifetime cases
+      remain open.
