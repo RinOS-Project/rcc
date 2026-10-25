@@ -20178,8 +20178,10 @@ static Type* sema_expr(Expr* expr) {
                 expr->binary_lhs, preanalyzed_binary_lhs,
                 preanalyzed_binary_lhs_type);
             Type* right = sema_expr(expr->binary_rhs);
-            Type* left_value = generic_selection_type(left);
-            Type* right_value = generic_selection_type(right);
+            Type* left_value = generic_selection_type(
+                type_remove_reference(left));
+            Type* right_value = generic_selection_type(
+                type_remove_reference(right));
             bool equality = expr->kind == EXPR_EQ || expr->kind == EXPR_NE;
             bool typeinfo_equality = equality &&
                 left_value == rcc_cxx_type_info_type() &&

@@ -60,6 +60,15 @@ public:
     T multiply(T input) const;
 };
 
+template<typename T>
+class OutOfClassReferenceConversionOwner {
+    T value;
+
+public:
+    explicit OutOfClassReferenceConversionOwner(T input) : value(input) {}
+    operator const T&() const;
+};
+
 struct OutOfClassArrowTarget {
     int value;
 };
@@ -97,6 +106,11 @@ T OutOfClassClassTemplateOwner<T>::get() const {
 template<typename T>
 OutOfClassClassTemplateOwner<T>::operator const T*() const {
     return &value;
+}
+
+template<typename T>
+OutOfClassReferenceConversionOwner<T>::operator const T&() const {
+    return value;
 }
 
 template<typename T>
@@ -172,6 +186,8 @@ int main() {
     Box<int> box{};
     OutOfClassMemberTemplate member_template{};
     OutOfClassClassTemplateOwner<int> out_of_class_owner{4};
+    OutOfClassReferenceConversionOwner<int> reference_conversion_owner{6};
+    const int& converted_reference = reference_conversion_owner;
     OutOfClassArrowTarget arrow_target{31};
     OutOfClassArrowOwner<OutOfClassArrowTarget> arrow_owner{&arrow_target};
     IntMemberTemplateValue int_member_value{13};
@@ -188,6 +204,8 @@ int main() {
            member_template.non_type_default<9>() == 9 &&
            out_of_class_owner.get() == 4 &&
            *static_cast<const int*>(out_of_class_owner) == 4 &&
+           converted_reference == 6 &&
+           static_cast<const int&>(reference_conversion_owner) == 6 &&
            out_of_class_owner + 5 == 9 &&
            out_of_class_owner(6) == 10 &&
            out_of_class_owner[7] == 11 &&

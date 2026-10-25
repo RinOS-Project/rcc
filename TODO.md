@@ -9770,5 +9770,14 @@ remains a separate open item.
       dependent, then match and instantiate the conversion member. GCC C++20
       syntax validation and RCC i686/AMD64 generation plus `-O0`/`-O2` runtime
       checks pass in `test-cxx-class-template-methods`; the member-method and
-      conversion-operator regression targets pass as well. Reference-target
-      conversions and more deeply qualified dependent owners remain open.
+      conversion-operator regression targets pass as well. Other cv/ref-
+      qualified conversion targets and more deeply qualified dependent owners
+      remain open.
+- [x] Define `operator const T&()` out-of-class for a dependent class-template
+      owner and bind it to a local `const int&`. Classify reference-valued
+      operands by their referred-to type for built-in comparisons, including
+      an explicit `static_cast<const int&>` comparison. GCC C++20 syntax and
+      i686/AMD64 `-O0`/`-O2` runtime checks pass in
+      `test-cxx-class-template-methods`; adjacent member and conversion
+      operator suites pass. Other cv/ref target forms and deeper owner chains
+      remain open.
