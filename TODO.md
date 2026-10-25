@@ -9791,8 +9791,8 @@ remains a separate open item.
       chains remain open.
 - [x] Preserve the namespace of a class-template owner when registering its
       instantiated member functions. Compare the ref-qualified conversion
-      operator's exact Itanium symbol against GCC for the namespace-qualified
-      owner on i686 and AMD64, and execute the case at `-O0`/`-O2` in
-      `test-cxx-class-template-methods`. Adjacent member-method and conversion
-      operator regression targets pass. More deeply nested namespace/owner
-      combinations remain open.
+      operator's exact Itanium symbols against GCC for one- and two-level
+      namespace-qualified owners on i686 and AMD64, and execute both cases at
+      `-O0`/`-O2` in `test-cxx-class-template-methods`. Adjacent member-method
+      and conversion-operator regression targets pass. Nested class/template
+      owner chains remain open.
