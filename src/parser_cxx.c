@@ -16692,39 +16692,34 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
     return stmt_null(loc);
 }
 
-static bool cxx_operator_member_definition_starts(Token* token) {
+static Token* cxx_operator_member_name_end(Token* token) {
     Token* operator_name;
-    if (!token || token->type != TOK_OPERATOR) return false;
+    if (!token || token->type != TOK_OPERATOR) return NULL;
     operator_name = token->next;
-    if (!operator_name) return false;
+    if (!operator_name) return NULL;
     switch (operator_name->type) {
         case TOK_LPAREN:
             if (!operator_name->next ||
-                operator_name->next->type != TOK_RPAREN ||
-                !operator_name->next->next ||
-                operator_name->next->next->type != TOK_LPAREN)
-                return false;
-            return true;
+                operator_name->next->type != TOK_RPAREN) return NULL;
+            return operator_name->next->next;
         case TOK_LBRACKET:
             return operator_name->next &&
-                   operator_name->next->type == TOK_RBRACKET &&
-                   operator_name->next->next &&
-                   operator_name->next->next->type == TOK_LPAREN;
+                    operator_name->next->type == TOK_RBRACKET
+                ? operator_name->next->next : NULL;
         case TOK_NEW:
         case TOK_DELETE:
             if (operator_name->next &&
                 operator_name->next->type == TOK_LBRACKET) {
                 operator_name = operator_name->next->next;
                 if (!operator_name || operator_name->type != TOK_RBRACKET)
-                    return false;
+                    return NULL;
             }
-            return operator_name->next &&
-                   operator_name->next->type == TOK_LPAREN;
+            return operator_name->next;
         case TOK_STRING_LIT:
             return operator_name->next &&
                    operator_name->next->type == TOK_IDENT &&
-                   operator_name->next->next &&
-                   operator_name->next->next->type == TOK_LPAREN;
+                   operator_name->next->next
+                ? operator_name->next->next : NULL;
         case TOK_ASSIGN:
         case TOK_PLUS_ASSIGN:
         case TOK_MINUS_ASSIGN:
@@ -16763,11 +16758,16 @@ static bool cxx_operator_member_definition_starts(Token* token) {
         case TOK_ARROW:
         case TOK_DOT_STAR:
         case TOK_ARROW_STAR:
-            return operator_name->next &&
-                   operator_name->next->type == TOK_LPAREN;
+            return operator_name->next;
         default:
-            return false;
+            return NULL;
     }
+}
+
+static bool cxx_operator_member_definition_starts(Token* token) {
+    Token* after_operator_name = cxx_operator_member_name_end(token);
+    return after_operator_name &&
+           after_operator_name->type == TOK_LPAREN;
 }
 
 static Token* cxx_template_id_end(Token* less_than) {
@@ -16800,6 +16800,16 @@ static Token* cxx_template_id_end(Token* less_than) {
     return NULL;
 }
 
+static bool cxx_operator_member_template_specialization_starts(
+    Token* operator_token) {
+    Token* after_operator_name = cxx_operator_member_name_end(operator_token);
+    if (after_operator_name && after_operator_name->type == TOK_LT) {
+        after_operator_name = cxx_template_id_end(after_operator_name);
+    }
+    return after_operator_name &&
+           after_operator_name->type == TOK_LPAREN;
+}
+
 static bool cxx_explicit_class_template_member_function_specialization_starts(
     void) {
     Token* token;
@@ -16818,9 +16828,17 @@ static bool cxx_explicit_class_template_member_function_specialization_starts(
         }
         after_owner = cxx_template_id_end(token->next);
         if (!after_owner || after_owner->type != TOK_SCOPE ||
-            !after_owner->next || after_owner->next->type != TOK_IDENT) {
+            !after_owner->next) {
             continue;
         }
+        if (after_owner->next->type == TOK_OPERATOR) {
+            if (cxx_operator_member_template_specialization_starts(
+                    after_owner->next)) {
+                return true;
+            }
+            continue;
+        }
+        if (after_owner->next->type != TOK_IDENT) continue;
         member = after_owner->next;
         after_member = member->next;
         if (after_member && after_member->type == TOK_LT) {
@@ -17131,10 +17149,17 @@ static bool cxx_explicit_member_function_template_specialization_starts(void) {
         }
         if (component->type != TOK_IDENT) continue;
         while (component->next && component->next->type == TOK_SCOPE &&
-               component->next->next &&
-               component->next->next->type == TOK_IDENT) {
-            component = component->next->next;
+               component->next->next) {
+            Token* next_component = component->next->next;
             ++scope_count;
+            if (next_component->type == TOK_OPERATOR) {
+                starts = scope_count > 0 &&
+                    cxx_operator_member_template_specialization_starts(
+                        next_component);
+                break;
+            }
+            if (next_component->type != TOK_IDENT) break;
+            component = next_component;
             if (component->next && component->next->type == TOK_LT) {
                 Token* after_template_id =
                     cxx_template_id_end(component->next);
@@ -37201,7 +37226,25 @@ static bool cxx_resolve_explicit_member_template_owner_suffix(
         size_t qualified_remaining;
         int written;
 
-        if (!match(TOK_SCOPE) || !check(TOK_IDENT)) return false;
+        if (!match(TOK_SCOPE)) return false;
+        if (match(TOK_OPERATOR)) {
+            size_t qualified_length = strlen(qualified_buffer);
+            size_t qualified_remaining;
+            int written;
+            component_name = parse_operator_name();
+            if (!component_name || qualified_length >= qualified_capacity) {
+                return false;
+            }
+            qualified_remaining = qualified_capacity - qualified_length;
+            written = snprintf(qualified_buffer + qualified_length,
+                               qualified_remaining, "::%s", component_name);
+            if (written < 0 || (size_t)written >= qualified_remaining) {
+                return false;
+            }
+            *member_name = component_name;
+            return true;
+        }
+        if (!check(TOK_IDENT)) return false;
         component_token = advance();
         component_name = component_token->value.str_val;
         qualified_length = strlen(qualified_buffer);
@@ -37249,9 +37292,11 @@ static bool cxx_parse_explicit_member_function_template_specialization(
     CxxTemplate* saved_template = active_template;
     Token* name_start = parser.cur;
     Token* name_prev = parser.prev;
-    const char* parsed_name = parse_qualified_name();
+    const char* parsed_name = NULL;
     const char* qualified = NULL;
     const char* separator;
+    char operator_owner_name[512];
+    const char* operator_member_name = NULL;
     char owner_name[512];
     char qualified_buffer[1024];
     size_t owner_length;
@@ -37281,8 +37326,36 @@ static bool cxx_parse_explicit_member_function_template_specialization(
     Decl* selected_instance = NULL;
     bool first_explicit_declaration = false;
     Stmt* body = NULL;
+    bool operator_owner_parsed;
 
-    if (check(TOK_LT) &&
+    operator_owner_parsed = cxx_parse_qualified_operator_member_id(
+        operator_owner_name, sizeof(operator_owner_name),
+        &operator_member_name);
+    if (operator_owner_parsed) {
+        int written;
+        cls = find_class(operator_owner_name);
+        if (!cls || !operator_member_name) {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return false;
+        }
+        member_name = operator_member_name;
+        written = snprintf(qualified_buffer, sizeof(qualified_buffer),
+                           "%s::%s", operator_owner_name,
+                           operator_member_name);
+        if (written < 0 || (size_t)written >= sizeof(qualified_buffer)) {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return false;
+        }
+        qualified = rcc_intern(qualified_buffer);
+    } else {
+        parser.cur = name_start;
+        parser.prev = name_prev;
+        parsed_name = parse_qualified_name();
+    }
+
+    if (!operator_owner_parsed && check(TOK_LT) &&
         (owner_template = find_class_template(parsed_name)) != NULL &&
         owner_template->kind == TMPL_CLASS) {
         owner_type = parse_class_template_specialization(owner_template, loc);
@@ -37316,62 +37389,89 @@ static bool cxx_parse_explicit_member_function_template_specialization(
             return false;
         }
         qualified = rcc_intern(qualified_buffer);
-    } else {
+    } else if (!operator_owner_parsed) {
+        int operator_qualified_length;
         parser.cur = name_start;
         parser.prev = name_prev;
-        qualified = parse_qualified_name();
-        separator = qualified ? strrchr(qualified, ':') : NULL;
-        if (!separator || separator <= qualified || separator[-1] != ':') {
-            parser.cur = saved_cur;
-            parser.prev = saved_prev;
-            return false;
-        }
-        owner_length = (size_t)(separator - qualified - 1);
-        if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
-            parser.cur = saved_cur;
-            parser.prev = saved_prev;
-            return false;
-        }
-        memcpy(owner_name, qualified, owner_length);
-        owner_name[owner_length] = '\0';
-        member_name = separator + 1;
-        cls = find_class(owner_name);
-        if (cls && check(TOK_LT)) {
-            CxxNestedClassTemplate* nested_template =
-                cxx_class_find_nested_template(cls, member_name);
-            if (nested_template && nested_template->declaration) {
-                if (strlen(qualified) >= sizeof(qualified_buffer)) {
-                    parser.cur = saved_cur;
-                    parser.prev = saved_prev;
-                    return false;
+        if (cxx_parse_qualified_operator_member_id(
+                owner_name, sizeof(owner_name), &member_name)) {
+            cls = find_class(owner_name);
+            if (!cls) {
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+                return false;
+            }
+            operator_qualified_length = snprintf(
+                qualified_buffer, sizeof(qualified_buffer), "%s::%s",
+                owner_name, member_name);
+            if (operator_qualified_length < 0 ||
+                (size_t)operator_qualified_length >=
+                    sizeof(qualified_buffer)) {
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+                return false;
+            }
+            qualified = rcc_intern(qualified_buffer);
+        } else {
+            parser.cur = name_start;
+            parser.prev = name_prev;
+            qualified = parse_qualified_name();
+            separator = qualified ? strrchr(qualified, ':') : NULL;
+            if (!separator || separator <= qualified || separator[-1] != ':') {
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+                return false;
+            }
+            owner_length = (size_t)(separator - qualified - 1);
+            if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+                return false;
+            }
+            memcpy(owner_name, qualified, owner_length);
+            owner_name[owner_length] = '\0';
+            member_name = separator + 1;
+            cls = find_class(owner_name);
+            if (cls && check(TOK_LT)) {
+                CxxNestedClassTemplate* nested_template =
+                    cxx_class_find_nested_template(cls, member_name);
+                if (nested_template && nested_template->declaration) {
+                    if (strlen(qualified) >= sizeof(qualified_buffer)) {
+                        parser.cur = saved_cur;
+                        parser.prev = saved_prev;
+                        return false;
+                    }
+                    strcpy(qualified_buffer, qualified);
+                    owner_type =
+                        parse_class_template_specialization_for_owner(
+                            nested_template->declaration, cls, loc);
+                    if (!owner_type) {
+                        parser.cur = saved_cur;
+                        parser.prev = saved_prev;
+                        return false;
+                    }
+                    cls = owner_type->cxx_class;
+                    if (!cls &&
+                        nested_template->declaration->templated_class) {
+                        cls =
+                            nested_template->declaration->templated_class;
+                    }
+                    if (!cls || !cls->type) {
+                        parser.cur = saved_cur;
+                        parser.prev = saved_prev;
+                        return false;
+                    }
+                    nested_owner_template_count = 1;
+                    if (!cxx_resolve_explicit_member_template_owner_suffix(
+                            &owner_type, &cls, &member_name,
+                            qualified_buffer, sizeof(qualified_buffer),
+                            &nested_owner_template_count, loc)) {
+                        parser.cur = saved_cur;
+                        parser.prev = saved_prev;
+                        return false;
+                    }
+                    qualified = rcc_intern(qualified_buffer);
                 }
-                strcpy(qualified_buffer, qualified);
-                owner_type = parse_class_template_specialization_for_owner(
-                    nested_template->declaration, cls, loc);
-                if (!owner_type) {
-                    parser.cur = saved_cur;
-                    parser.prev = saved_prev;
-                    return false;
-                }
-                cls = owner_type->cxx_class;
-                if (!cls && nested_template->declaration->templated_class) {
-                    cls = nested_template->declaration->templated_class;
-                }
-                if (!cls || !cls->type) {
-                    parser.cur = saved_cur;
-                    parser.prev = saved_prev;
-                    return false;
-                }
-                nested_owner_template_count = 1;
-                if (!cxx_resolve_explicit_member_template_owner_suffix(
-                        &owner_type, &cls, &member_name, qualified_buffer,
-                        sizeof(qualified_buffer),
-                        &nested_owner_template_count, loc)) {
-                    parser.cur = saved_cur;
-                    parser.prev = saved_prev;
-                    return false;
-                }
-                qualified = rcc_intern(qualified_buffer);
             }
         }
     }

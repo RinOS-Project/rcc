@@ -17378,6 +17378,9 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     Type* right_type;
     Type* right_aggregate;
     TypeMethod* method;
+    TypeMethod* template_candidates[32];
+    int template_candidate_count = 0;
+    bool template_constraint_unsupported = false;
     ExprList* arguments = NULL;
     Symbol* function;
     Expr* function_expression;
@@ -17398,6 +17401,32 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
         return true;
     }
     right_type = sema_expr(expression->binary_rhs);
+    if (aggregate && (aggregate->kind == TYPE_STRUCT ||
+                      aggregate->kind == TYPE_UNION) &&
+        rcc_parser_cxx_materialize_member_function_templates) {
+        template_candidate_count =
+            rcc_parser_cxx_materialize_member_function_templates(
+                aggregate, name, exprlist_new(expression->binary_rhs),
+                NULL, 0, false, template_candidates,
+                (int)(sizeof(template_candidates) /
+                      sizeof(template_candidates[0])),
+                &template_constraint_unsupported);
+        if (template_candidate_count > 0) {
+            sema_register_materialized_member_templates(aggregate);
+        }
+        if (!template_constraint_unsupported) {
+            method = sema_find_function_method(aggregate, name);
+            if (method && method->function_decl) {
+                member = expr_member(expression->binary_lhs, name,
+                                     expression->loc);
+                call = expr_call(
+                    member, exprlist_new(expression->binary_rhs),
+                    expression->loc);
+                *expression = *call;
+                return true;
+            }
+        }
+    }
     right_aggregate = generic_selection_type(right_type);
     if ((!aggregate || (aggregate->kind != TYPE_STRUCT &&
                         aggregate->kind != TYPE_UNION)) &&
@@ -17651,6 +17680,9 @@ static bool sema_rewrite_cxx_subscript_operator(Expr* expression,
                                                 Type* object_type) {
     Type* aggregate;
     TypeMethod* method;
+    TypeMethod* template_candidates[32];
+    int template_candidate_count = 0;
+    bool template_constraint_unsupported = false;
     ExprList* arguments = NULL;
     Symbol* function;
     Expr* function_expression;
@@ -17674,6 +17706,30 @@ static bool sema_rewrite_cxx_subscript_operator(Expr* expression,
         return true;
     }
     sema_expr(expression->index_expr);
+    if (rcc_parser_cxx_materialize_member_function_templates) {
+        template_candidate_count =
+            rcc_parser_cxx_materialize_member_function_templates(
+                aggregate, "operator[]", exprlist_new(expression->index_expr),
+                NULL, 0, false, template_candidates,
+                (int)(sizeof(template_candidates) /
+                      sizeof(template_candidates[0])),
+                &template_constraint_unsupported);
+        if (template_candidate_count > 0) {
+            sema_register_materialized_member_templates(aggregate);
+        }
+        if (!template_constraint_unsupported) {
+            method = sema_find_function_method(aggregate, "operator[]");
+            if (method && method->function_decl) {
+                member = expr_member(expression->index_base, "operator[]",
+                                     expression->loc);
+                call = expr_call(
+                    member, exprlist_new(expression->index_expr),
+                    expression->loc);
+                *expression = *call;
+                return true;
+            }
+        }
+    }
     exprlist_append(&arguments, expression->index_base);
     exprlist_append(&arguments, expression->index_expr);
     function = sema_cxx_operator_function("operator[]", arguments);
@@ -17823,6 +17879,9 @@ static bool sema_rewrite_cxx_call_operator(Expr* expression,
                                            Type* object_type) {
     Type* aggregate;
     TypeMethod* method;
+    TypeMethod* template_candidates[32];
+    int template_candidate_count = 0;
+    bool template_constraint_unsupported = false;
     Expr* member;
     Expr* call;
     if (!expression || !object_type || expression->kind != EXPR_CALL ||
@@ -17840,6 +17899,26 @@ static bool sema_rewrite_cxx_call_operator(Expr* expression,
         return false;
     }
     method = sema_find_function_method(aggregate, "operator()");
+    if ((!method || !method->function_decl) &&
+        rcc_parser_cxx_materialize_member_function_templates) {
+        for (ExprList* argument = expression->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+        }
+        template_candidate_count =
+            rcc_parser_cxx_materialize_member_function_templates(
+                aggregate, "operator()", expression->call_args, NULL, 0,
+                false, template_candidates,
+                (int)(sizeof(template_candidates) /
+                      sizeof(template_candidates[0])),
+                &template_constraint_unsupported);
+        if (template_candidate_count > 0) {
+            sema_register_materialized_member_templates(aggregate);
+        }
+        if (!template_constraint_unsupported) {
+            method = sema_find_function_method(aggregate, "operator()");
+        }
+    }
     if (!method || !method->function_decl) return false;
     member = expr_member(expression->call_func, "operator()", expression->loc);
     call = expr_call(member, expression->call_args, expression->loc);

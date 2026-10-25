@@ -13377,6 +13377,19 @@ test-cxx-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIdE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(GREP) -F -q "_ZN34PartialMemberFunctionTemplateOwnerIPiE5valueIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
 	$(GREP) -F -q "_ZN34PartialMemberFunctionTemplateOwnerIPiE5valueIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEixIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEixIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEclIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEclIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNK30NonTemplateMemberOperatorOwnerplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZNK30NonTemplateMemberOperatorOwnerplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEixIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIiEEiPT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIdEplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEclIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s tests/cxx_class_template_member_function_explicit_specialization.cpp
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiPT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
@@ -13384,6 +13397,15 @@ test-cxx-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIiEEiPT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIdE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZN34PartialMemberFunctionTemplateOwnerIPiE5valueIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEixIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEclIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNK30NonTemplateMemberOperatorOwnerplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEixIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIiEEiPT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIdEplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEclIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_MISSING_PARTIAL_OWNER_TEMPLATE_HEAD -c -o $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/partial-missing-head.ro tests/cxx_class_template_member_function_explicit_specialization.cpp,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/partial-missing-head-rcc.log)
 	$(GREP) -F -q "explicit member function-template specialization does not match a declared member template" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/partial-missing-head-rcc.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/partial-missing-head.ro)
@@ -13394,6 +13416,16 @@ test-cxx-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/partial-missing-head-gcc.o)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DRCC_TEST_EXTRA_PARTIAL_OWNER_TEMPLATE_HEAD -c -o $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/partial-extra-head-gcc.o tests/cxx_class_template_member_function_explicit_specialization.cpp,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/partial-extra-head-gcc.log)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/partial-extra-head-gcc.o)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_MISSING_OPERATOR_TEMPLATE_HEAD -c -o $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-missing-head.ro tests/cxx_class_template_member_function_explicit_specialization.cpp,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-missing-head-rcc.log)
+	$(GREP) -F -q "explicit member function-template specialization does not match a declared member template" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-missing-head-rcc.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-missing-head.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_EXTRA_OPERATOR_TEMPLATE_HEAD -c -o $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-extra-head.ro tests/cxx_class_template_member_function_explicit_specialization.cpp,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-extra-head-rcc.log)
+	$(GREP) -F -q "explicit member function-template specialization does not match a declared member template" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-extra-head-rcc.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-extra-head.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DRCC_TEST_MISSING_OPERATOR_TEMPLATE_HEAD -c -o $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-missing-head-gcc.o tests/cxx_class_template_member_function_explicit_specialization.cpp,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-missing-head-gcc.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-missing-head-gcc.o)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DRCC_TEST_EXTRA_OPERATOR_TEMPLATE_HEAD -c -o $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-extra-head-gcc.o tests/cxx_class_template_member_function_explicit_specialization.cpp,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-extra-head-gcc.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/operator-extra-head-gcc.o)
 	@echo "RCC++ class-template-owner member function-template specialization tests completed"
 
 test-cxx-nested-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
