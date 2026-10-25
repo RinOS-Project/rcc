@@ -9933,5 +9933,11 @@ remains a separate open item.
       four-byte comparison, and values from zero through `UCHAR_MAX` in legacy
       and verified i686/AMD64 DWARF expressions. Focused and full
       `test-debug-info` pass; GCC C++20 confirms the expression semantics.
+- [x] Promote a fixed-underlying `signed char` enum to `int`, then apply the
+      common unsigned type for comparison with `0x80000000u`. Verify sign
+      extension followed by unsigned-int conversion and the `SCHAR_MIN`, `-1`,
+      zero, and `SCHAR_MAX` boundary behavior in legacy/verified i686/AMD64
+      DWARF expressions. Focused and full `test-debug-info` pass; GCC C++20
+      confirms the expression semantics.
 - [ ] Other mixed-rank matrices, enum underlying-width combinations, and
       i686-wide comparisons remain open.
