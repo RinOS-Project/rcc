@@ -14797,7 +14797,9 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
      * calls and out-of-class definitions. */
     if (!active_class && !parameter_outer_template &&
         tmpl->param_count == 0 &&
-        cxx_explicit_member_function_template_specialization_starts()) {
+        !cxx_empty_template_head_starts_at(parser.cur) &&
+        (cxx_explicit_member_function_template_specialization_starts() ||
+         cxx_explicit_class_template_member_function_specialization_starts())) {
         bool is_inline = false;
         bool is_constexpr = false;
         bool is_consteval = false;

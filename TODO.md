@@ -9650,11 +9650,13 @@ remains a separate open item.
 ## RCC continuation (2026-10-25, class-template-owner member-template specialization)
 
 - [x] Parse an explicit specialization of a named member-function template
-      whose owner is a fully specialized class-template-id. Resolve the
-      concrete owner before matching the declared member template, emit both
-      its specialization and unaffected primary-template instantiations, and
-      compare their exact Itanium symbols with GCC. Verify GCC C++20 syntax,
-      i686/AMD64 assembly, and AMD64 execution in
+      whose owner is a fully specialized class-template-id, including a
+      concrete owner selected from a class-template partial specialization.
+      Resolve the final owner before matching the declared member template,
+      emit its specialization and unaffected primary-template instantiations,
+      and compare exact Itanium symbols with GCC. Verify GCC C++20 syntax,
+      i686/AMD64 assembly, AMD64 execution, and rejection of missing/surplus
+      template heads in
       `test-cxx-class-template-member-function-explicit-specialization`.
 - [x] Cover overloaded member-function-template specializations on a fully
       specialized class-template owner. Match the explicit pointer-signature
@@ -9677,6 +9679,5 @@ remains a separate open item.
       owner plus the member template; RCC and GCC reject missing and surplus
       heads without producing an object. The focused nested-owner test and
       complete native-Windows `test-cxx-nested-class-templates` aggregate pass.
-- [ ] Dependent owner chains, owners introduced by class-template partial
-      specializations, overloaded member operators, and remaining ABI/lifetime
-      cases remain open.
+- [ ] Dependent owner chains, overloaded member operators, and remaining
+      ABI/lifetime cases remain open.
