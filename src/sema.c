@@ -9139,14 +9139,37 @@ static TypeMethod* sema_find_function_method(Type* aggregate,
 
 static Symbol* sema_cxx_operator_function(const char* name,
                                           ExprList* arguments) {
-    Symbol* function;
+    Symbol* functions;
+    SemaCxxAdlCandidates matching = {0};
+    int argument_count = 0;
     if (!name) return NULL;
-    function = sema_cxx_lookup_name(name, (SourceLoc){"<sema>", 0, 0});
-    if (!function && arguments) {
-        function = sema_cxx_adl_lookup(name, arguments, NULL);
+    for (ExprList* argument = arguments; argument;
+         argument = argument->next) {
+        if (argument_count == INT_MAX) return NULL;
+        ++argument_count;
     }
-    return function && function->kind == SYM_FUNC && function->decl
-        ? function : NULL;
+    functions = sema_cxx_lookup_name(name, (SourceLoc){"<sema>", 0, 0});
+    if (!functions && arguments) {
+        functions = sema_cxx_adl_lookup(name, arguments, NULL);
+    }
+    for (Decl* candidate = functions ? functions->decl : NULL;
+         candidate; candidate = candidate->func_overload_next) {
+        int parameter_count = 0;
+        if (!candidate->type || candidate->type->kind != TYPE_FUNC) continue;
+        for (TypeParam* parameter = candidate->type->params; parameter;
+             parameter = parameter->next) {
+            if (parameter_count == INT_MAX) break;
+            ++parameter_count;
+        }
+        /* Unary and binary overloads commonly share a name. Keep only
+         * declarations with the operator-expression's actual arity so an
+         * unrelated overload cannot suppress a built-in operator (notably
+         * unary address-of when only binary operator& is declared). */
+        if (parameter_count == argument_count) {
+            sema_cxx_adl_append_candidate(&matching, candidate);
+        }
+    }
+    return sema_cxx_make_function_symbol(name, &matching);
 }
 
 static TypeMethod* sema_find_contextual_bool_method(Type* aggregate) {
@@ -21778,8 +21801,13 @@ static Type* sema_expr(Expr* expr) {
                                         field->name);
                         }
                     }
-                    if ((bt->is_const && !expr->type->is_const) ||
-                        (bt->is_volatile && !expr->type->is_volatile)) {
+                    /* cv-qualification of the containing object does not
+                     * propagate through a reference data member: a const
+                     * member function still observes the referred object
+                     * with its original cv-qualification. */
+                    if ((!field->type || !field->type->is_reference) &&
+                        ((bt->is_const && !expr->type->is_const) ||
+                         (bt->is_volatile && !expr->type->is_volatile))) {
                         Type* qualified = ast_arena_alloc(sizeof(*qualified));
                         *qualified = *expr->type;
                         qualified->is_const = qualified->is_const ||
