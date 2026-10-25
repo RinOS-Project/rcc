@@ -9386,10 +9386,15 @@ remains a separate open item.
         lists, constructor bodies, mismatched signatures, added defaults, and
         redefinitions. GCC C++20 syntax plus i686/AMD64 generation and runtime
         tests pass.
-  - [ ] Extend out-of-class definitions to destructors,
-        operators/conversion functions, member templates and explicit
-        specializations, advanced nested/template owner qualification, and
-        associated ABI/lifetime coverage.
+  - [x] Define namespace-qualified and namespace-relative non-template
+        destructors outside their classes. Match the declared destructor,
+        preserve its exception specification, register its body for ordinary
+        method emission and recognized cleanup lowering, and verify automatic
+        object lifetime execution plus mismatch/redefinition diagnostics on
+        i686 and AMD64.
+  - [ ] Extend out-of-class definitions to operators/conversion functions,
+        member templates and explicit specializations, advanced nested/template
+        owner qualification, and remaining ABI/lifetime coverage.
   - [x] Recognize the standard by-value copy-assignment form
         (`operator=(T)` and top-level-const `operator=(const T)`) as a copy
         special member. Keep it in ordinary assignment overload resolution,

@@ -16855,6 +16855,208 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
     return stmt_null(loc);
 }
 
+static bool cxx_qualified_destructor_definition_starts(void) {
+    Token* token = parser.cur;
+    bool qualified = false;
+    if (token && token->type == TOK_SCOPE) token = token->next;
+    while (token && token->type == TOK_IDENT) {
+        token = token->next;
+        if (!token || token->type != TOK_SCOPE) break;
+        qualified = true;
+        token = token->next;
+        if (token && token->type == TOK_TILDE) {
+            token = token->next;
+            return qualified && token && token->type == TOK_IDENT &&
+                   token->next && token->next->type == TOK_LPAREN;
+        }
+    }
+    return false;
+}
+
+/* Parse an owner-qualified destructor-id without treating `~Class` as an
+ * ordinary identifier component. On failure the caller restores the token
+ * cursor so other declaration forms retain their existing parsing path. */
+static bool cxx_parse_qualified_destructor_owner(
+    char* owner_name, size_t owner_capacity, const char** destructor_name) {
+    size_t length = 0u;
+    bool saw_scope = false;
+    if (!owner_name || owner_capacity == 0u || !destructor_name) return false;
+    owner_name[0] = '\0';
+    *destructor_name = NULL;
+    if (match(TOK_SCOPE)) {
+        if (owner_capacity < 3u) return false;
+        memcpy(owner_name, "::", 3u);
+        length = 2u;
+    }
+    while (check(TOK_IDENT)) {
+        Token* component = advance();
+        size_t component_length = strlen(component->value.str_val);
+        if (length + component_length + 1u >= owner_capacity) return false;
+        memcpy(owner_name + length, component->value.str_val,
+               component_length);
+        length += component_length;
+        owner_name[length] = '\0';
+        if (!check(TOK_SCOPE) || !parser.cur->next) return false;
+        if (parser.cur->next->type == TOK_TILDE) {
+            advance();
+            advance();
+            Token* destructor = expect(TOK_IDENT, "destructor class name");
+            if (!destructor) return false;
+            *destructor_name = destructor->value.str_val;
+            return saw_scope || length != 0u;
+        }
+        if (length + 2u >= owner_capacity) return false;
+        owner_name[length++] = ':';
+        owner_name[length++] = ':';
+        owner_name[length] = '\0';
+        advance();
+        saw_scope = true;
+    }
+    return false;
+}
+
+Stmt* rcc_parse_cxx_qualified_destructor_definition(
+    bool is_inline, bool is_constexpr, bool is_consteval, SourceLoc loc) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    CxxClass* saved_class = active_class;
+    CxxNamespace* saved_namespace = active_namespace;
+    char owner_name[512];
+    char qualified_buffer[1024];
+    const char* destructor_name = NULL;
+    const char* qualified;
+    CxxClass* cls;
+    CxxMethod* method;
+    DeclList* parameters;
+    bool is_variadic = false;
+    bool is_noexcept = false;
+    Expr* noexcept_expr = NULL;
+    bool declaration_noexcept = false;
+    bool definition_noexcept = false;
+    int64_t noexcept_value = 0;
+    Stmt* body;
+
+    if (!cxx_qualified_destructor_definition_starts()) return NULL;
+    if (!cxx_parse_qualified_destructor_owner(
+            owner_name, sizeof(owner_name), &destructor_name) ||
+        !destructor_name || !check(TOK_LPAREN)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    if (snprintf(qualified_buffer, sizeof(qualified_buffer), "%s::~%s",
+                 owner_name, destructor_name) < 0 ||
+        strlen(owner_name) + strlen(destructor_name) + 4u >=
+            sizeof(qualified_buffer)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    qualified = rcc_intern(qualified_buffer);
+    cls = find_class(owner_name);
+    if (!cls || !cls->type || !cls->type->is_complete || !cls->name ||
+        strcmp(destructor_name, cls->name) != 0) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+
+    active_class = cls;
+    active_namespace = cls->ns ? cls->ns : g_global_namespace;
+    expect(TOK_LPAREN, "(");
+    parameters = parse_cxx_parameter_declarations(&is_variadic);
+    expect(TOK_RPAREN, ")");
+    if (match(TOK_NOEXCEPT)) {
+        if (match(TOK_LPAREN)) {
+            noexcept_expr = parse_expression();
+            expect(TOK_RPAREN, ")");
+        } else {
+            is_noexcept = true;
+        }
+    }
+
+    method = cls->destructor_method;
+    if (!method || !method->decl ||
+        !cxx_member_definition_parameters_match(
+            method, parameters, is_variadic)) {
+        rcc_error(loc,
+                  "out-of-class destructor definition does not match a member declaration '%s'",
+                  qualified);
+        if (check(TOK_LBRACE)) skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        active_class = saved_class;
+        active_namespace = saved_namespace;
+        return stmt_null(loc);
+    }
+    if (method->decl->func_body || method->is_deleted ||
+        method->is_defaulted) {
+        rcc_error(loc, "redefinition of out-of-class destructor '%s'",
+                  qualified);
+        if (check(TOK_LBRACE)) skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        active_class = saved_class;
+        active_namespace = saved_namespace;
+        return stmt_null(loc);
+    }
+    if (is_consteval != method->decl->func_is_consteval ||
+        (is_constexpr && !method->is_constexpr)) {
+        rcc_error(loc,
+                  "out-of-class destructor constexpr specifiers do not match '%s'",
+                  qualified);
+    }
+    if (!cxx_method_exception_spec_value(method, &declaration_noexcept)) {
+        rcc_error(loc,
+                  "cannot resolve the declared exception specification for '%s'",
+                  qualified);
+    } else {
+        if (noexcept_expr) {
+            if (!expr_eval_integer_constant(noexcept_expr, &noexcept_value)) {
+                rcc_error(noexcept_expr->loc,
+                          "out-of-class noexcept specification is not constant");
+            } else {
+                definition_noexcept = noexcept_value != 0;
+            }
+        } else {
+            definition_noexcept = is_noexcept;
+        }
+        if (declaration_noexcept != definition_noexcept) {
+            rcc_error(loc,
+                      "out-of-class exception specification does not match '%s'",
+                      qualified);
+        }
+    }
+
+    body = cxx_parse_qualified_member_definition_body(
+        cls, method, parameters, loc);
+    if (!body) {
+        rcc_error(peek()->loc, "expected body for out-of-class destructor '%s'",
+                  qualified);
+        active_class = saved_class;
+        active_namespace = saved_namespace;
+        return stmt_null(loc);
+    }
+    method->decl->func_params = parameters;
+    method->decl->func_body = body;
+    method->decl->loc = loc;
+    method->decl->func_is_defined = true;
+    method->decl->func_is_inline = is_inline;
+    register_inline_class_cleanup(cls);
+    {
+        CxxNamespace* registration_namespace = active_namespace;
+        active_namespace = cls->ns ? cls->ns : g_global_namespace;
+        register_ordinary_class_methods(cls);
+        active_namespace = registration_namespace;
+    }
+    {
+        uint32_t constructor_mask = lowerable_constructor_arity_mask(cls);
+        if (constructor_mask != 0u) {
+            rcc_parser_define_cxx_constructor_type(
+                cls->name, cls->type, constructor_mask);
+        }
+    }
+    active_class = saved_class;
+    active_namespace = saved_namespace;
+    return stmt_null(loc);
+}
+
 /* Attach a namespace-scope definition to the method declaration already
  * recorded by the class parser. This deliberately shares that declaration so
  * name mangling, overload lookup, access, and the implicit-object ABI remain

@@ -30,3 +30,21 @@ OutOfClassConstructorProbe::OutOfClassConstructorProbe(int value = 1) {}
 OutOfClassConstructorProbe::OutOfClassConstructorProbe(int value) {}
 
 OutOfClassConstructorProbe::OutOfClassConstructorProbe(int value) {}
+
+struct OutOfClassDestructorProbe {
+    ~OutOfClassDestructorProbe() noexcept;
+};
+
+OutOfClassDestructorProbe::~OutOfClassDestructorProbe(int value) noexcept {}
+
+OutOfClassDestructorProbe::~OutOfClassDestructorProbe() noexcept {}
+
+OutOfClassDestructorProbe::~OutOfClassDestructorProbe() noexcept {}
+
+OutOfClassDestructorProbe::~OutOfClassDestructorProbe(int value) noexcept {}
+
+struct OutOfClassDestructorNoexceptProbe {
+    ~OutOfClassDestructorNoexceptProbe() noexcept;
+};
+
+OutOfClassDestructorNoexceptProbe::~OutOfClassDestructorNoexceptProbe() {}

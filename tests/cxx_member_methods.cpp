@@ -80,6 +80,11 @@ struct DefaultedArgument {
     int value;
     explicit DefaultedArgument(int seed = 8);
 };
+
+struct Tracked {
+    int* count;
+    ~Tracked() noexcept;
+};
 }
 
 out_of_class_constructors::Values::Values()
@@ -96,6 +101,10 @@ out_of_class_constructors::Values::Values(int left, int right)
 namespace out_of_class_constructors {
 DefaultedArgument::DefaultedArgument(int initial_value)
     : value(initial_value) {}
+}
+
+out_of_class_constructors::Tracked::~Tracked() noexcept {
+    *count += 3;
 }
 
 int out_of_class_methods::Point::add(int amount) {
@@ -185,12 +194,22 @@ int cxx_out_of_class_constructor_probe() {
            pair.first + pair.second + defaulted.value;
 }
 
+int cxx_out_of_class_destructor_probe() {
+    int count = 0;
+    {
+        out_of_class_constructors::Tracked value;
+        value.count = &count;
+    }
+    return count == 3 ? 0 : 1;
+}
+
 int main() {
     return cxx_member_method_probe() == 53 &&
            cxx_pointer_method_probe() == 27 &&
            cxx_member_overload_probe() == 0 &&
            cxx_out_of_class_member_method_probe() ==
                13 + 113 + 6 + 6 + 9 + 10 + 6 + 18 + 6 + 2 + 6 &&
-           cxx_out_of_class_constructor_probe() == 37
+           cxx_out_of_class_constructor_probe() == 37 &&
+           cxx_out_of_class_destructor_probe() == 0
                ? 0 : 1;
 }

@@ -70,6 +70,9 @@ extern Stmt* rcc_parse_cxx_qualified_member_definition(
 extern Stmt* rcc_parse_cxx_qualified_constructor_definition(
     bool is_inline, bool is_constexpr, bool is_consteval,
     SourceLoc loc) RCC_OPTIONAL_CXX;
+extern Stmt* rcc_parse_cxx_qualified_destructor_definition(
+    bool is_inline, bool is_constexpr, bool is_consteval,
+    SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_operator_declaration(
     Type* return_type, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_deduction_guide(void) RCC_OPTIONAL_CXX;
@@ -6094,6 +6097,10 @@ Stmt* parse_declaration(void) {
             rcc_parse_cxx_qualified_constructor_definition(
                 false, is_constexpr, is_consteval, peek()->loc);
         if (constructor_definition) return constructor_definition;
+        Stmt* destructor_definition =
+            rcc_parse_cxx_qualified_destructor_definition(
+                false, is_constexpr, is_consteval, peek()->loc);
+        if (destructor_definition) return destructor_definition;
     }
     if (parser_cxx_mode &&
         rcc_parser_cxx_begin_function_signature_access) {
@@ -6158,6 +6165,17 @@ Stmt* parse_declaration(void) {
                     friend_signature_context, NULL, NULL, NULL, loc);
             }
             return constructor_definition;
+        }
+        Stmt* destructor_definition =
+            rcc_parse_cxx_qualified_destructor_definition(
+                is_inline, is_constexpr, is_consteval, loc);
+        if (destructor_definition) {
+            if (friend_signature_context &&
+                rcc_parser_cxx_end_function_signature_access) {
+                rcc_parser_cxx_end_function_signature_access(
+                    friend_signature_context, NULL, NULL, NULL, loc);
+            }
+            return destructor_definition;
         }
     }
 

@@ -13381,6 +13381,9 @@ test-cxx-member-methods-invalid: $(RCXX_TARGET)
 	$(GREP) -F -q "out-of-class constructor definition does not match a member declaration 'OutOfClassConstructorProbe::OutOfClassConstructorProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "default arguments cannot be added to an out-of-class constructor definition" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "redefinition of out-of-class constructor 'OutOfClassConstructorProbe::OutOfClassConstructorProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(call CHECK_COUNT,out-of-class destructor definition does not match a member declaration 'OutOfClassDestructorProbe::~OutOfClassDestructorProbe',$(TEST_OUT)/cxx-member-methods/invalid-x86.log,2)
+	$(GREP) -F -q "redefinition of out-of-class destructor 'OutOfClassDestructorProbe::~OutOfClassDestructorProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(GREP) -F -q "out-of-class exception specification does not match 'OutOfClassDestructorNoexceptProbe::~OutOfClassDestructorNoexceptProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-methods/invalid-x64.ro tests/cxx_member_methods_out_of_class_invalid.cpp,$(TEST_OUT)/cxx-member-methods/invalid-x64.log)
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassDefinitionProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "default arguments cannot be added to an out-of-class member definition" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
@@ -13388,6 +13391,9 @@ test-cxx-member-methods-invalid: $(RCXX_TARGET)
 	$(GREP) -F -q "out-of-class constructor definition does not match a member declaration 'OutOfClassConstructorProbe::OutOfClassConstructorProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "default arguments cannot be added to an out-of-class constructor definition" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "redefinition of out-of-class constructor 'OutOfClassConstructorProbe::OutOfClassConstructorProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	$(call CHECK_COUNT,out-of-class destructor definition does not match a member declaration 'OutOfClassDestructorProbe::~OutOfClassDestructorProbe',$(TEST_OUT)/cxx-member-methods/invalid-x64.log,2)
+	$(GREP) -F -q "redefinition of out-of-class destructor 'OutOfClassDestructorProbe::~OutOfClassDestructorProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	$(GREP) -F -q "out-of-class exception specification does not match 'OutOfClassDestructorNoexceptProbe::~OutOfClassDestructorNoexceptProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	@echo "RCC++ out-of-class member definition diagnostic tests completed"
 
 .PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-class-template-static-data test-cxx-class-template-static-data-odr test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-cxx-constructor-initializer-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
