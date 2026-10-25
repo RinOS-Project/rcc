@@ -9656,6 +9656,11 @@ remains a separate open item.
       compare their exact Itanium symbols with GCC. Verify GCC C++20 syntax,
       i686/AMD64 assembly, and AMD64 execution in
       `test-cxx-class-template-member-function-explicit-specialization`.
-- [ ] Overloaded member-function-template specializations, specialized or
-      dependent owner chains, and the out-of-class primary-definition ordering
-      case remain open.
+- [x] Cover overloaded member-function-template specializations on a fully
+      specialized class-template owner. Match the explicit pointer-signature
+      specialization to the correct overload while preserving scalar and
+      pointer primary instantiations; GCC symbols match, i686/AMD64 assembly,
+      and AMD64 execution pass in
+      `test-cxx-class-template-member-function-explicit-specialization`.
+- [ ] Specialized or dependent owner chains and the out-of-class primary-
+      definition ordering case remain open.

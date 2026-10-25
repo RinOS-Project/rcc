@@ -13368,11 +13368,16 @@ test-cxx-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-class-template-member-function-explicit-specialization,cxx_class_template_member_function_explicit_specialization.cpp)
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiPT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiPT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIiEEiPT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIdE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s tests/cxx_class_template_member_function_explicit_specialization.cpp
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiPT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIiEEiPT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIdE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	@echo "RCC++ class-template-owner member function-template specialization tests completed"
 
