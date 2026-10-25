@@ -9621,8 +9621,9 @@ remains a separate open item.
       subscript, and arrow-member access at runtime, GCC C++20 syntax, both
       target widths, and mismatched-return diagnostics in
       `test-cxx-class-template-methods` and `test-cxx-member-methods-invalid`.
-- [ ] Explicit member specializations and deeper nested/template owner
-      qualification remain open.
+- [ ] Explicit member specializations beyond a fully specialized direct class-
+      template owner, overloaded member operators, and deeper nested/template
+      owner qualification remain open.
 
 ## RCC continuation (2026-10-25, member-template lookahead and glvalue category)
 
@@ -9642,5 +9643,19 @@ remains a separate open item.
       optimizer runtime test, avoiding a host-side decimal-constant mismatch.
       `test-optimize` passes on the native Windows target; the POSIX run passed
       its optimizer execution checks before the WSL shared-drive I/O failure.
-- [ ] Explicit member specializations, deeper nested/template owner
-      qualification, and remaining ABI/lifetime cases remain open.
+- [ ] Explicit member specializations beyond a fully specialized direct class-
+      template owner, deeper nested/template owner qualification, and remaining
+      ABI/lifetime cases remain open.
+
+## RCC continuation (2026-10-25, class-template-owner member-template specialization)
+
+- [x] Parse an explicit specialization of a named member-function template
+      whose owner is a fully specialized class-template-id. Resolve the
+      concrete owner before matching the declared member template, emit both
+      its specialization and unaffected primary-template instantiations, and
+      compare their exact Itanium symbols with GCC. Verify GCC C++20 syntax,
+      i686/AMD64 assembly, and AMD64 execution in
+      `test-cxx-class-template-member-function-explicit-specialization`.
+- [ ] Overloaded member-function-template specializations, specialized or
+      dependent owner chains, and the out-of-class primary-definition ordering
+      case remain open.

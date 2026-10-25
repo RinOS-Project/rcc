@@ -643,6 +643,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-variadic-scalar-promotions
 .PHONY: test-cxx-variadic-aggregate
 .PHONY: test-cxx-member-function-template-explicit-specialization
+.PHONY: test-cxx-class-template-member-function-explicit-specialization
 .PHONY: test-tls-runtime-posix
 
 CXX_REGRESSION_TARGETS = \
@@ -681,6 +682,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-language-core \
 	test-cxx-parser-recovery \
 	test-cxx-member-function-template-explicit-specialization \
+	test-cxx-class-template-member-function-explicit-specialization \
 	test-cxx-multi-declarator \
 	test-cxx-numeric-separators \
 	test-cxx-user-defined-literals \
@@ -6297,7 +6299,7 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-x64.ro tests/cxx_nested_member_explicit_specialization_missing_owner_header_invalid.cpp,$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-x64.log)
 	$(GREP) -F -q "nested member-template explicit specialization requires an explicitly specialized class-template owner" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-x64.ro)
-	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_nested_member_explicit_specialization_missing_owner_header_invalid.cpp,$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -fsyntax-only tests/cxx_nested_member_explicit_specialization_missing_owner_header_invalid.cpp,$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-gcc.log)
 	$(GREP) -F -q "too few template-parameter-lists" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-gcc.log
 
 test-cxx-nested-class-template-owner-explicit-chain-10: $(RCXX_TARGET)
@@ -13360,6 +13362,19 @@ test-cxx-member-function-template-explicit-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8constantIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner9immediateIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
 	@echo "RCC++ explicit member function-template specialization tests completed"
+
+test-cxx-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-member-function-explicit-specialization)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-class-template-member-function-explicit-specialization,cxx_class_template_member_function_explicit_specialization.cpp)
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIdE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s tests/cxx_class_template_member_function_explicit_specialization.cpp
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIdE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	@echo "RCC++ class-template-owner member function-template specialization tests completed"
 
 ifeq ($(OS),Windows_NT)
 test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET) test-cxx-member-methods-invalid

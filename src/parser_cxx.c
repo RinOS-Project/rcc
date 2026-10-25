@@ -2145,6 +2145,8 @@ static Type* parse_cxx_type_spec(void);
 static Type* parse_cxx_template_type_argument(void);
 static Type* cxx_member_definition_return_type(Type* base_type);
 static bool cxx_out_of_class_member_template_definition_starts(void);
+static bool cxx_explicit_class_template_member_function_specialization_starts(
+    void);
 static bool cxx_explicit_member_function_template_specialization_starts(void);
 static bool cxx_parse_explicit_member_function_template_specialization(
     Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
@@ -14820,6 +14822,62 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         return tmpl;
     }
 
+    /* An explicit member-function-template specialization on a fully
+     * specialized class-template owner has two empty template heads. The
+     * first belongs to the class owner and the second to the member template;
+     * consume the second only when the following declarator is a named
+     * qualified member function. Nested class-template specializations keep
+     * flowing through the dedicated class path below. */
+    if (!active_class && !parameter_outer_template &&
+        tmpl->param_count == 0 &&
+        cxx_empty_template_head_starts_at(parser.cur)) {
+        Token* saved_cur = parser.cur;
+        Token* saved_prev = parser.prev;
+        advance();
+        expect(TOK_LT, "< in explicit member-template specialization");
+        expect(TOK_GT, "> in explicit member-template specialization");
+        if (cxx_explicit_member_function_template_specialization_starts() ||
+            cxx_explicit_class_template_member_function_specialization_starts()) {
+            bool is_inline = false;
+            bool is_constexpr = false;
+            bool is_consteval = false;
+            Type* return_type;
+            while (match(TOK_INLINE) || match(TOK_CONSTEXPR) ||
+                   match(TOK_CONSTEVAL)) {
+                if (previous()->type == TOK_INLINE) is_inline = true;
+                else if (previous()->type == TOK_CONSTEXPR) {
+                    is_constexpr = true;
+                } else {
+                    is_constexpr = true;
+                    is_consteval = true;
+                }
+            }
+            return_type = cxx_member_definition_return_type(
+                parse_cxx_type_spec());
+            tmpl->kind = TMPL_FUNCTION;
+            tmpl->is_member_template_definition = true;
+            if (!cxx_parse_explicit_member_function_template_specialization(
+                    return_type, is_inline, is_constexpr, is_consteval, loc,
+                    tmpl)) {
+                rcc_error(loc,
+                          "explicit member function-template specialization does not match a declared member template");
+                while (!at_end() && !check(TOK_SEMICOLON) &&
+                       !check(TOK_LBRACE) && !check(TOK_RBRACE)) {
+                    advance();
+                }
+                if (match(TOK_LBRACE)) {
+                    skip_balanced(TOK_LBRACE, TOK_RBRACE);
+                } else {
+                    match(TOK_SEMICOLON);
+                }
+            }
+            active_template = parameter_outer_template;
+            return tmpl;
+        }
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+    }
+
     /* A fully specialized enclosing class-template owner uses two explicit
      * template heads: `template<> template<> struct Outer<int>::Inner<char>`.
      * Consume this bounded form here so it reaches the same specialization
@@ -16729,6 +16787,37 @@ static Token* cxx_template_id_end(Token* less_than) {
         }
     }
     return NULL;
+}
+
+static bool cxx_explicit_class_template_member_function_specialization_starts(
+    void) {
+    Token* token;
+    for (token = parser.cur; token && token->type != TOK_EOF;
+         token = token->next) {
+        Token* after_owner;
+        Token* member;
+        Token* after_member;
+        if (token->type == TOK_SEMICOLON || token->type == TOK_LBRACE ||
+            token->type == TOK_ASSIGN || token->type == TOK_RBRACE) {
+            break;
+        }
+        if (token->type != TOK_IDENT || !token->next ||
+            token->next->type != TOK_LT) {
+            continue;
+        }
+        after_owner = cxx_template_id_end(token->next);
+        if (!after_owner || after_owner->type != TOK_SCOPE ||
+            !after_owner->next || after_owner->next->type != TOK_IDENT) {
+            continue;
+        }
+        member = after_owner->next;
+        after_member = member->next;
+        if (after_member && after_member->type == TOK_LT) {
+            after_member = cxx_template_id_end(after_member);
+        }
+        if (after_member && after_member->type == TOK_LPAREN) return true;
+    }
+    return false;
 }
 
 static bool cxx_qualified_member_definition_starts(void) {
@@ -36926,12 +37015,18 @@ static bool cxx_parse_explicit_member_function_template_specialization(
     CxxClass* saved_class = active_class;
     CxxNamespace* saved_namespace = active_namespace;
     CxxTemplate* saved_template = active_template;
-    const char* qualified = parse_qualified_name();
-    const char* separator = qualified ? strrchr(qualified, ':') : NULL;
+    Token* name_start = parser.cur;
+    Token* name_prev = parser.prev;
+    const char* parsed_name = parse_qualified_name();
+    const char* qualified = NULL;
+    const char* separator;
     char owner_name[512];
+    char qualified_buffer[1024];
     size_t owner_length;
-    const char* member_name;
-    CxxClass* cls;
+    const char* member_name = NULL;
+    CxxClass* cls = NULL;
+    CxxTemplate* owner_template = NULL;
+    Type* owner_type = NULL;
     CxxMethod* source_methods[32] = { NULL };
     CxxTemplate* first_template = NULL;
     int source_count = 0;
@@ -36954,21 +37049,51 @@ static bool cxx_parse_explicit_member_function_template_specialization(
     bool first_explicit_declaration = false;
     Stmt* body = NULL;
 
-    if (!separator || separator <= qualified || separator[-1] != ':') {
-        parser.cur = saved_cur;
-        parser.prev = saved_prev;
-        return false;
+    if (check(TOK_LT) &&
+        (owner_template = find_class_template(parsed_name)) != NULL &&
+        owner_template->kind == TMPL_CLASS) {
+        int written;
+        owner_type = parse_class_template_specialization(owner_template, loc);
+        if (!owner_type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return false;
+        }
+        member_name = advance()->value.str_val;
+        cls = owner_type->cxx_class;
+        if (!cls && owner_type->cxx_template &&
+            owner_type->cxx_template->kind == TMPL_CLASS) {
+            cls = owner_type->cxx_template->templated_class;
+        }
+        written = snprintf(qualified_buffer, sizeof(qualified_buffer),
+                           "%s::%s", parsed_name, member_name);
+        if (written < 0 || (size_t)written >= sizeof(qualified_buffer)) {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return false;
+        }
+        qualified = rcc_intern(qualified_buffer);
+    } else {
+        parser.cur = name_start;
+        parser.prev = name_prev;
+        qualified = parse_qualified_name();
+        separator = qualified ? strrchr(qualified, ':') : NULL;
+        if (!separator || separator <= qualified || separator[-1] != ':') {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return false;
+        }
+        owner_length = (size_t)(separator - qualified - 1);
+        if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return false;
+        }
+        memcpy(owner_name, qualified, owner_length);
+        owner_name[owner_length] = '\0';
+        member_name = separator + 1;
+        cls = find_class(owner_name);
     }
-    owner_length = (size_t)(separator - qualified - 1);
-    if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
-        parser.cur = saved_cur;
-        parser.prev = saved_prev;
-        return false;
-    }
-    memcpy(owner_name, qualified, owner_length);
-    owner_name[owner_length] = '\0';
-    member_name = separator + 1;
-    cls = find_class(owner_name);
     if (!cls || !cls->type || !cls->type->is_complete ||
         !member_name || !*member_name ||
         (!check(TOK_LT) && !check(TOK_LPAREN))) {
