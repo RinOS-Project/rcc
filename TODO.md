@@ -9789,3 +9789,10 @@ remains a separate open item.
       `test-cxx-class-template-conversion-abi`; `-O0`/`-O2` execution passes in
       `test-cxx-class-template-methods`. Further cv/ref forms and deeper owner
       chains remain open.
+- [x] Preserve the namespace of a class-template owner when registering its
+      instantiated member functions. Compare the ref-qualified conversion
+      operator's exact Itanium symbol against GCC for the namespace-qualified
+      owner on i686 and AMD64, and execute the case at `-O0`/`-O2` in
+      `test-cxx-class-template-methods`. Adjacent member-method and conversion
+      operator regression targets pass. More deeply nested namespace/owner
+      combinations remain open.

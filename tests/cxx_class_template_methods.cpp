@@ -70,6 +70,19 @@ public:
     operator const T&() const;
 };
 
+namespace qualified_template_owner {
+
+template<typename T>
+class ConversionOwner {
+    T value;
+
+public:
+    explicit ConversionOwner(T input) : value(input) {}
+    operator const T*() const &;
+};
+
+}
+
 struct OutOfClassArrowTarget {
     int value;
 };
@@ -117,6 +130,11 @@ OutOfClassClassTemplateOwner<T>::operator T*() && {
 template<typename T>
 OutOfClassReferenceConversionOwner<T>::operator const T&() const {
     return value;
+}
+
+template<typename T>
+qualified_template_owner::ConversionOwner<T>::operator const T*() const & {
+    return &value;
 }
 
 template<typename T>
@@ -194,6 +212,7 @@ int main() {
     OutOfClassClassTemplateOwner<int> out_of_class_owner{4};
     OutOfClassReferenceConversionOwner<int> reference_conversion_owner{6};
     const int& converted_reference = reference_conversion_owner;
+    qualified_template_owner::ConversionOwner<int> qualified_owner{8};
     OutOfClassArrowTarget arrow_target{31};
     OutOfClassArrowOwner<OutOfClassArrowTarget> arrow_owner{&arrow_target};
     IntMemberTemplateValue int_member_value{13};
@@ -213,6 +232,7 @@ int main() {
            *static_cast<int*>(OutOfClassClassTemplateOwner<int>{5}) == 5 &&
            converted_reference == 6 &&
            static_cast<const int&>(reference_conversion_owner) == 6 &&
+           *static_cast<const int*>(qualified_owner) == 8 &&
            out_of_class_owner + 5 == 9 &&
            out_of_class_owner(6) == 10 &&
            out_of_class_owner[7] == 11 &&

@@ -3725,7 +3725,17 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     CxxMangleContext template_argument_context = { 0 };
 
     if (!func || !tmpl) return cxx_mangle_function(func, ns, cls);
-    mangling_namespace = ns == g_global_namespace ? NULL : ns;
+    /* Member-template definitions can be parsed while the active namespace
+     * is global even though their owning class lives in a named namespace.
+     * The class scope is authoritative for a member's ABI name. */
+    mangling_namespace = ns;
+    if ((!mangling_namespace || mangling_namespace == g_global_namespace) &&
+        cls && cls->ns) {
+        mangling_namespace = cls->ns;
+    }
+    if (mangling_namespace == g_global_namespace) {
+        mangling_namespace = NULL;
+    }
     template_argument_context.class_type_index_base =
         cxx_mangle_free_template_substitution_base(mangling_namespace);
     encode_member_signature = tmpl->member_method &&

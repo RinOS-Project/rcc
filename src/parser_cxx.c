@@ -10830,7 +10830,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
             continue;
         }
         link_name = rcc_intern(cxx_mangle_function(
-            declaration, active_namespace, cls));
+            declaration, cls->ns ? cls->ns : active_namespace, cls));
 
         /* Ordinary member names are not source-visible global symbols, so the
          * ABI spelling is also their semantic key.  Static members are
