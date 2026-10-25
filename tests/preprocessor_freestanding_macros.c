@@ -11,29 +11,7 @@ int rcc_freestanding_hosted_value = __STDC_HOSTED__;
 #error "freestanding preprocessing must report __STDC_HOSTED__ as 0"
 #endif
 
-#if !defined(__LONG_MAX__) || !defined(__SIZE_MAX__) || \
-    !defined(__UINTPTR_MAX__) || !defined(__PTRDIFF_MAX__) || \
-    !defined(__SIZEOF_POINTER__) || !defined(__SIZEOF_SIZE_T__)
-#error "RinOS target integer and pointer limits must be predefined"
-#endif
-
-#if defined(__i386__)
-#if __LONG_MAX__ != 2147483647L || __SIZE_MAX__ != 4294967295U || \
-    __UINTPTR_MAX__ != 4294967295U || __PTRDIFF_MAX__ != 2147483647 || \
-    __SIZEOF_POINTER__ != 4 || __SIZEOF_SIZE_T__ != 4
-#error "i686 predefined limits must match the RinOS ILP32 ABI"
-#endif
-#elif defined(__x86_64__)
-#if __LONG_MAX__ != 9223372036854775807L || \
-    __SIZE_MAX__ != 18446744073709551615ULL || \
-    __UINTPTR_MAX__ != 18446744073709551615ULL || \
-    __PTRDIFF_MAX__ != 9223372036854775807LL || \
-    __SIZEOF_POINTER__ != 8 || __SIZEOF_SIZE_T__ != 8
-#error "x86_64 predefined limits must match the RinOS LP64 ABI"
-#endif
-#else
-#error "RinOS predefined-limit tests require an x86 target"
-#endif
+#include "preprocessor_target_limits.h"
 
 typedef __SIZE_TYPE__ rcc_predefined_size_type;
 typedef __PTRDIFF_TYPE__ rcc_predefined_ptrdiff_type;

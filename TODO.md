@@ -9076,9 +9076,10 @@ remains a separate open item.
       Continue instantiating real traits and comparing with GCC rather than
       treating header parsing as complete support.
 - [x] Define target-accurate `__SIZE_TYPE__`, `__PTRDIFF_TYPE__`, pointer-sized,
-      fixed-width, fast-width, and character type macros. C and C++ regressions
-      verify their widths against `sizeof(void*)`, the fixed-width integer ABI,
-      and RinOS UTF character widths on i686 and AMD64; the
+      fixed-width, fast-width, character, integer-limit, `__SIZEOF_*`, and
+      byte-order macros. A shared preprocessor fixture checks the exact common
+      and ILP32/LP64 values from both C and C++20 freestanding sources; existing
+      type-width and UTF-character checks remain. The native-Windows
       `test-preprocessor-standard-macros` gate passes.
 - [x] Implement the C++ `__is_trivially_copyable(T)` type intrinsic using RCC's
       semantic classifier. C++20 static assertions cover scalar, pointer,

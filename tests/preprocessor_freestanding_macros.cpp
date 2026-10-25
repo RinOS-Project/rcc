@@ -11,6 +11,8 @@ constexpr int rcc_cpp_freestanding_hosted_value = __STDC_HOSTED__;
 #error "freestanding preprocessing must report __STDC_HOSTED__ as 0"
 #endif
 
+#include "preprocessor_target_limits.h"
+
 using rcc_predefined_size_type = __SIZE_TYPE__;
 using rcc_predefined_ptrdiff_type = __PTRDIFF_TYPE__;
 using rcc_predefined_intptr_type = __INTPTR_TYPE__;
