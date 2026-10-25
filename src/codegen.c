@@ -14481,7 +14481,12 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
         }
 
-        case EXPR_ASSIGN:
+        case EXPR_ASSIGN: {
+            Type* lhs_type = expr->binary_lhs
+                ? expr->binary_lhs->type : NULL;
+            if (lhs_type && lhs_type->is_reference) {
+                lhs_type = lhs_type->base;
+            }
             if (gen_cxx_move_assignment(mod, expr)) break;
             if (expr->binary_lhs &&
                 (expr->binary_lhs->kind == EXPR_MEMBER ||
@@ -14501,9 +14506,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 emit_bitfield_store32(mod, expr->binary_lhs->member_field);
                 break;
             }
-            if (expr->binary_lhs && expr->binary_lhs->type &&
-                expr->binary_lhs->type->is_atomic) {
-                Type* type = expr->binary_lhs->type;
+            if (lhs_type && lhs_type->is_atomic) {
+                Type* type = lhs_type;
                 if (type->size == 8) {
                     gen_expr_as_type(mod, expr->binary_rhs, type);
                     emit_push_reg(mod, EDX);
@@ -14531,8 +14535,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 }
                 break;
             }
-            if (gen_is_floating(expr->binary_lhs->type)) {
-                Type* type = expr->binary_lhs->type;
+            if (gen_is_floating(lhs_type)) {
+                Type* type = lhs_type;
                 gen_expr_as_type(mod, expr->binary_rhs, type);
                 if (gen_float_width(type) == 4) {
                     emit_push_reg(mod, EAX);
@@ -14552,10 +14556,7 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 break;
             }
             {
-                Type* aggregate_type = expr->binary_lhs->type;
-                if (aggregate_type && aggregate_type->is_reference) {
-                    aggregate_type = aggregate_type->base;
-                }
+                Type* aggregate_type = lhs_type;
                 if (aggregate_type &&
                     (aggregate_type->kind == TYPE_STRUCT ||
                      aggregate_type->kind == TYPE_UNION)) {
@@ -14589,24 +14590,24 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 }
             }
             gen_expr(mod, expr->binary_rhs);
-            if (type_is_integer(expr->binary_lhs->type) ||
-                expr->binary_lhs->type->kind == TYPE_ENUM) {
+            if (type_is_integer(lhs_type) ||
+                (lhs_type && lhs_type->kind == TYPE_ENUM)) {
                 emit_convert_integer_value(mod, EAX,
                                            expr->binary_rhs->type,
-                                           expr->binary_lhs->type);
+                                           lhs_type);
             }
             emit_push_reg(mod, EAX);
             gen_lvalue(mod, expr->binary_lhs);
             emit_pop_reg(mod, ECX);
-            if (type_is_integer(expr->binary_lhs->type) ||
-                expr->binary_lhs->type->kind == TYPE_ENUM) {
-                emit_normalize_atomic_value(mod, ECX,
-                                            expr->binary_lhs->type);
+            if (type_is_integer(lhs_type) ||
+                (lhs_type && lhs_type->kind == TYPE_ENUM)) {
+                emit_normalize_atomic_value(mod, ECX, lhs_type);
             }
             emit_store_typed32(mod, EAX, 0, ECX,
-                               expr->binary_lhs->type);
+                               lhs_type);
             emit_mov_reg_reg(mod, EAX, ECX);
             break;
+        }
 
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN: {

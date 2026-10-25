@@ -10,6 +10,11 @@ int update_rvalue_reference_local(int&& value) {
     return value;
 }
 
+int assign_lvalue_reference(int& value, int replacement) {
+    value = replacement;
+    return value;
+}
+
 struct VerifiedBase {
     int* cleanup_order;
     int value;
@@ -236,6 +241,10 @@ int main() {
     }
     if (update_rvalue_reference_local(static_cast<int&&>(value)) != 43) {
         return 2;
+    }
+    int assigned = 45;
+    if (assign_lvalue_reference(assigned, 47) != 47 || assigned != 47) {
+        return 10;
     }
     if (verified_body_constructor_result() != 41) {
         return 3;

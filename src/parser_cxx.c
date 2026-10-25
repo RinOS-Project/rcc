@@ -10761,7 +10761,10 @@ static void register_ordinary_class_methods(CxxClass* cls) {
 
     tail = &cls->type->methods;
     while (*tail) tail = &(*tail)->next;
-    register_inherited_class_methods(cls, &tail);
+    if (!cls->ordinary_methods_registered) {
+        register_inherited_class_methods(cls, &tail);
+        cls->ordinary_methods_registered = true;
+    }
     for (member = cls->members; member; member = member->next) {
         CxxMethod* method = member->method;
         CxxConstructorInfo* constructor;
@@ -10780,6 +10783,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
             (!method->decl->func_body && !method->is_pure_virtual) ||
             method->is_deleted ||
             method->is_defaulted ||
+            class_has_method_declaration(cls, method->decl) ||
             (method->is_constructor &&
              (!constructor ||
               (constructor->body_is_empty &&
@@ -16515,6 +16519,325 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
     }
     if (storage == STORAGE_EXTERN) declaration->storage = STORAGE_EXTERN;
     if (is_inline) declaration->var_is_inline = true;
+    return stmt_null(loc);
+}
+
+static bool cxx_qualified_member_definition_starts(void) {
+    Token* token = parser.cur;
+    while (token && (token->type == TOK_STAR || token->type == TOK_AMP ||
+                     token->type == TOK_AND)) {
+        if (token->type == TOK_STAR) {
+            token = token->next;
+            while (token && (token->type == TOK_CONST ||
+                             token->type == TOK_VOLATILE ||
+                             token->type == TOK_RESTRICT)) {
+                token = token->next;
+            }
+        } else {
+            token = token->next;
+        }
+    }
+    if (token && token->type == TOK_SCOPE) token = token->next;
+    if (!token || token->type != TOK_IDENT) return false;
+    token = token->next;
+    if (!token || token->type != TOK_SCOPE) return false;
+    do {
+        token = token->next;
+        if (!token || token->type != TOK_IDENT) return false;
+        token = token->next;
+    } while (token && token->type == TOK_SCOPE);
+    return token && token->type == TOK_LPAREN;
+}
+
+static bool cxx_member_definition_parameters_match(
+    const CxxMethod* method, DeclList* parameters, bool is_variadic) {
+    DeclList* declared;
+    if (!method || !method->decl || !method->decl->type ||
+        method->decl->type->variadic != is_variadic) {
+        return false;
+    }
+    declared = method->decl->func_params;
+    while (declared && parameters) {
+        if (!declared->decl || !parameters->decl ||
+            !type_is_compatible(declared->decl->type,
+                                parameters->decl->type)) {
+            return false;
+        }
+        declared = declared->next;
+        parameters = parameters->next;
+    }
+    return declared == NULL && parameters == NULL;
+}
+
+static Type* cxx_member_definition_return_type(Type* base_type) {
+    Type* result = base_type;
+    while (check(TOK_STAR) || check(TOK_AMP) || check(TOK_AND)) {
+        if (match(TOK_STAR)) {
+            bool is_const = false;
+            bool is_volatile = false;
+            bool is_restrict = false;
+            Type* pointer = type_ptr(result);
+            while (match(TOK_CONST) || match(TOK_VOLATILE) ||
+                   match(TOK_RESTRICT)) {
+                if (previous()->type == TOK_CONST) is_const = true;
+                else if (previous()->type == TOK_VOLATILE) {
+                    is_volatile = true;
+                } else {
+                    is_restrict = true;
+                }
+            }
+            pointer->is_const = is_const;
+            pointer->is_volatile = is_volatile;
+            pointer->is_restrict = is_restrict;
+            result = pointer;
+        } else {
+            bool rvalue = match(TOK_AND);
+            if (!rvalue) expect(TOK_AMP, "&");
+            result = type_reference(result, rvalue);
+        }
+    }
+    return result;
+}
+
+static Stmt* cxx_parse_qualified_member_definition_body(
+    CxxClass* cls, CxxMethod* method, DeclList* parameters, SourceLoc loc) {
+    StmtList* statements = NULL;
+    void* enum_scope;
+    Token* start;
+
+    if (!cls || !method || !method->decl || !match(TOK_LBRACE)) {
+        return NULL;
+    }
+    enum_scope = rcc_parser_enum_scope_mark();
+    rcc_parser_cxx_begin_function_parameters(parameters);
+    rcc_parser_function_scope_push(method->source_name);
+    if (!method->is_static) {
+        Type* this_type = cls->type;
+        if (method->is_const || method->is_volatile) {
+            Type* qualified_owner = ast_arena_alloc(sizeof(*qualified_owner));
+            *qualified_owner = *cls->type;
+            qualified_owner->is_const = method->is_const;
+            qualified_owner->is_volatile = method->is_volatile;
+            this_type = qualified_owner;
+        }
+        rcc_parser_cxx_add_value_binding("this", type_ptr(this_type));
+    }
+    while (!check(TOK_RBRACE) && !at_end()) {
+        int errors_before = g_error_count;
+        start = parser.cur;
+        Stmt* statement = parse_cxx_statement();
+        if (statement) stmtlist_append(&statements, statement);
+        if (g_error_count > errors_before) {
+            while (!at_end() && !check(TOK_SEMICOLON) &&
+                   !check(TOK_RBRACE)) {
+                advance();
+            }
+            if (check(TOK_SEMICOLON)) advance();
+        } else if (parser.cur == start && !at_end()) {
+            advance();
+        }
+    }
+    expect(TOK_RBRACE, "}");
+    rcc_parser_function_scope_pop();
+    rcc_parser_enum_scope_restore(enum_scope);
+    rcc_parser_cxx_end_function_parameters();
+    return stmt_block(statements, loc);
+}
+
+/* Attach a namespace-scope definition to the method declaration already
+ * recorded by the class parser. This deliberately shares that declaration so
+ * name mangling, overload lookup, access, and the implicit-object ABI remain
+ * the same as for an in-class body. */
+Stmt* rcc_parse_cxx_qualified_member_definition(
+    Type* base_type, bool is_inline, bool is_constexpr, bool is_consteval,
+    SourceLoc loc) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    CxxClass* saved_class = active_class;
+    CxxNamespace* saved_namespace = active_namespace;
+    const char* qualified;
+    const char* separator;
+    const char* member_name;
+    char owner_name[512];
+    size_t owner_length;
+    CxxClass* cls;
+    CxxMethod* selected = NULL;
+    DeclList* parameters;
+    Type* return_type;
+    bool is_variadic = false;
+    bool is_const = false;
+    bool is_volatile = false;
+    CxxRefQualifier ref_qualifier = CXX_REF_QUAL_NONE;
+    bool is_noexcept = false;
+    Expr* noexcept_expr = NULL;
+    bool declaration_noexcept = false;
+    bool definition_noexcept = false;
+    int64_t noexcept_value = 0;
+    Stmt* body;
+
+    if (!cxx_qualified_member_definition_starts()) return NULL;
+    return_type = cxx_member_definition_return_type(base_type);
+    qualified = parse_qualified_name();
+    separator = qualified ? strrchr(qualified, ':') : NULL;
+    if (!separator || separator <= qualified || separator[-1] != ':') {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    owner_length = (size_t)(separator - qualified - 1);
+    if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    memcpy(owner_name, qualified, owner_length);
+    owner_name[owner_length] = '\0';
+    member_name = separator + 1;
+    cls = find_class(owner_name);
+    if (!cls || !cls->type || !cls->type->is_complete) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    active_class = cls;
+    active_namespace = cls->ns ? cls->ns : g_global_namespace;
+    if (!match(TOK_LPAREN)) {
+        active_class = saved_class;
+        active_namespace = saved_namespace;
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    parameters = parse_cxx_parameter_declarations(&is_variadic);
+    expect(TOK_RPAREN, ")");
+    for (;;) {
+        if (match(TOK_CONST)) is_const = true;
+        else if (match(TOK_VOLATILE)) is_volatile = true;
+        else if (match(TOK_AMP)) ref_qualifier = CXX_REF_QUAL_LVALUE;
+        else if (match(TOK_AND)) ref_qualifier = CXX_REF_QUAL_RVALUE;
+        else if (match(TOK_NOEXCEPT)) {
+            if (match(TOK_LPAREN)) {
+                noexcept_expr = parse_expression();
+                expect(TOK_RPAREN, ")");
+            } else {
+                is_noexcept = true;
+            }
+        } else {
+            break;
+        }
+    }
+    if (match(TOK_ARROW)) return_type = parse_cxx_type_spec();
+
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* candidate = member->method;
+        if (!candidate || !candidate->decl || candidate->member_template ||
+            candidate->is_constructor || candidate->is_destructor ||
+            !candidate->source_name ||
+            strcmp(candidate->source_name, member_name) != 0 ||
+            !candidate->decl->type ||
+            !type_is_compatible(candidate->decl->type->ret_type,
+                                return_type) ||
+            candidate->is_const != is_const ||
+            candidate->is_volatile != is_volatile ||
+            candidate->ref_qualifier != ref_qualifier ||
+            !cxx_member_definition_parameters_match(
+                candidate, parameters, is_variadic)) {
+            continue;
+        }
+        if (selected) {
+            rcc_error(loc,
+                      "out-of-class member definition for '%s' is ambiguous",
+                      qualified);
+            selected = NULL;
+            break;
+        }
+        selected = candidate;
+    }
+    if (!selected || selected->decl->func_body) {
+        rcc_error(loc, selected
+            ? "redefinition of out-of-class member function '%s'"
+            : "out-of-class definition does not match a member declaration '%s'",
+            qualified);
+        if (check(TOK_LBRACE)) {
+            skip_balanced(TOK_LBRACE, TOK_RBRACE);
+        } else {
+            while (!at_end() && !check(TOK_SEMICOLON) &&
+                   !check(TOK_RBRACE)) {
+                advance();
+            }
+            match(TOK_SEMICOLON);
+        }
+        active_class = saved_class;
+        active_namespace = saved_namespace;
+        return stmt_null(loc);
+    }
+    if (!type_is_compatible(selected->decl->type->ret_type, return_type)) {
+        rcc_error(loc,
+                  "out-of-class member return type does not match '%s'",
+                  qualified);
+    }
+    if (is_consteval != selected->decl->func_is_consteval ||
+        (is_constexpr && !selected->is_constexpr)) {
+        rcc_error(loc,
+                  "out-of-class member constexpr specifiers do not match '%s'",
+                  qualified);
+    }
+    if (!cxx_method_exception_spec_value(selected, &declaration_noexcept)) {
+        rcc_error(loc,
+                  "cannot resolve the declared exception specification for '%s'",
+                  qualified);
+    } else {
+        if (noexcept_expr) {
+            if (!expr_eval_integer_constant(noexcept_expr, &noexcept_value)) {
+                rcc_error(noexcept_expr->loc,
+                          "out-of-class noexcept specification is not constant");
+            } else {
+                definition_noexcept = noexcept_value != 0;
+            }
+        } else {
+            definition_noexcept = is_noexcept;
+        }
+        if (declaration_noexcept != definition_noexcept) {
+            rcc_error(loc,
+                      "out-of-class exception specification does not match '%s'",
+                      qualified);
+        }
+    }
+    for (DeclList* parameter = parameters, *declared = selected->decl->func_params;
+         parameter && declared; parameter = parameter->next,
+             declared = declared->next) {
+        if (parameter->decl && parameter->decl->param_default) {
+            rcc_error(parameter->decl->loc,
+                      "default arguments cannot be added to an out-of-class member definition");
+        }
+        if (parameter->decl && declared->decl) {
+            parameter->decl->param_default = declared->decl->param_default;
+        }
+    }
+    body = cxx_parse_qualified_member_definition_body(
+        cls, selected, parameters, loc);
+    if (!body) {
+        rcc_error(peek()->loc,
+                  "expected body for out-of-class member definition '%s'",
+                  qualified);
+        active_class = saved_class;
+        active_namespace = saved_namespace;
+        return stmt_null(loc);
+    }
+    selected->decl->func_params = parameters;
+    selected->decl->func_body = body;
+    selected->decl->loc = loc;
+    selected->decl->func_is_defined = true;
+    selected->decl->func_is_inline = is_inline;
+    {
+        CxxNamespace* registration_namespace = active_namespace;
+        active_namespace = cls->ns ? cls->ns : g_global_namespace;
+        register_ordinary_class_methods(cls);
+        active_namespace = registration_namespace;
+    }
+    active_class = saved_class;
+    active_namespace = saved_namespace;
     return stmt_null(loc);
 }
 

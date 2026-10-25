@@ -177,6 +177,9 @@ struct CxxClass {
         bool is_final;
         struct CxxMember* next;
     } *members;
+    /* True after inherited method aliases have been published. Qualified
+     * out-of-class definitions may publish additional declared methods later. */
+    bool ordinary_methods_registered;
 
     /* Virtual table info */
     int vtable_size;

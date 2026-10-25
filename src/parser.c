@@ -64,6 +64,9 @@ extern void rcc_parser_validate_cxx_object_type(Type* type, SourceLoc loc)
 extern Stmt* rcc_parse_cxx_qualified_data_definition(
     Type* base_type, int storage, bool is_inline, bool is_constexpr,
     bool is_constinit, bool is_thread_local, SourceLoc loc) RCC_OPTIONAL_CXX;
+extern Stmt* rcc_parse_cxx_qualified_member_definition(
+    Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
+    SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_operator_declaration(
     Type* return_type, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_deduction_guide(void) RCC_OPTIONAL_CXX;
@@ -6228,6 +6231,21 @@ Stmt* parse_declaration(void) {
                     NULL, loc);
             }
             return operator_declaration;
+        }
+    }
+
+    if (!is_typedef && parser_cxx_mode &&
+        rcc_parse_cxx_qualified_member_definition) {
+        Stmt* member_definition =
+            rcc_parse_cxx_qualified_member_definition(
+                base_type, is_inline, is_constexpr, is_consteval, loc);
+        if (member_definition) {
+            if (friend_signature_context &&
+                rcc_parser_cxx_end_function_signature_access) {
+                rcc_parser_cxx_end_function_signature_access(
+                    friend_signature_context, NULL, NULL, NULL, loc);
+            }
+            return member_definition;
         }
     }
 

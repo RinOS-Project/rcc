@@ -525,6 +525,7 @@ endif
 .PHONY: print-host-cc test-c17 test-c23 test-c23-nullptr test-c23-empty-initializer test-c-utf8-string-literals test-c-utf16-utf32-string-literals test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-exception-cleanup-verified test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
+.PHONY: test-cxx-member-methods-invalid
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
 .PHONY: test-verified-switch-nested
@@ -13321,7 +13322,7 @@ endif
 	@echo "C17 embedded-NUL string literal tests completed"
 
 ifeq ($(OS),Windows_NT)
-test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
+test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET) test-cxx-member-methods-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-methods)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-member-methods/x86.s \
@@ -13342,7 +13343,7 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-member-methods/x64-host
 	@echo "RCC++ ordinary C++ member method tests completed"
 else
-test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
+test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET) test-cxx-member-methods-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-methods)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-member-methods/x86.s \
@@ -13370,6 +13371,18 @@ test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-member-methods/x64
 	@echo "RCC++ ordinary C++ member method tests completed"
 endif
+
+test-cxx-member-methods-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-methods)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-methods/invalid-x86.ro tests/cxx_member_methods_out_of_class_invalid.cpp,$(TEST_OUT)/cxx-member-methods/invalid-x86.log)
+	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassDefinitionProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(GREP) -F -q "default arguments cannot be added to an out-of-class member definition" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(GREP) -F -q "redefinition of out-of-class member function 'OutOfClassDefinitionProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-methods/invalid-x64.ro tests/cxx_member_methods_out_of_class_invalid.cpp,$(TEST_OUT)/cxx-member-methods/invalid-x64.log)
+	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassDefinitionProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	$(GREP) -F -q "default arguments cannot be added to an out-of-class member definition" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	$(GREP) -F -q "redefinition of out-of-class member function 'OutOfClassDefinitionProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	@echo "RCC++ out-of-class member definition diagnostic tests completed"
 
 .PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-class-template-static-data test-cxx-class-template-static-data-odr test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-cxx-constructor-initializer-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
 .PHONY: test-cxx-class-template-methods
@@ -18826,7 +18839,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) 
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-x86.ro \
 		tests/verified_backend_cxx_reference_local.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-reference-local-x86.log
-	$(GREP) -F -q 'Verified backend: 25 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 26 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -18834,7 +18847,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) 
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-x64.ro \
 		tests/verified_backend_cxx_reference_local.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log
-	$(GREP) -F -q 'Verified backend: 25 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 26 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O0 \
@@ -18842,7 +18855,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) 
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-x86-o0.ro \
 		tests/verified_backend_cxx_reference_local.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-reference-local-x86-o0.log
-	$(GREP) -F -q 'Verified backend: 25 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 26 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x86-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x86-o0.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
@@ -18850,7 +18863,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) 
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-x64-o0.ro \
 		tests/verified_backend_cxx_reference_local.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-reference-local-x64-o0.log
-	$(GREP) -F -q 'Verified backend: 25 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 26 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x64-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x64-o0.log,0)
 	$(CC) $(CFLAGS) -Wl,--allow-multiple-definition -I$(INCDIR) \

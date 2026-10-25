@@ -6838,16 +6838,20 @@ static RccIrLowerValue lower_spaceship(RccIrLowerContext* context,
 static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
                                         const Expr* expression) {
     RccIrLowerValue value;
+    Type* lhs_type = expression->binary_lhs
+        ? expression->binary_lhs->type : NULL;
+    if (lhs_type && lhs_type->is_reference) {
+        lhs_type = lhs_type->base;
+    }
     if (expression->cxx_move_assignment) {
         context->unsupported = true;
         return lower_invalid_value();
     }
-    if (expression->binary_lhs && expression->binary_lhs->type &&
-        lower_abi_is_aggregate(expression->binary_lhs->type)) {
+    if (lhs_type && lower_abi_is_aggregate(lhs_type)) {
         RccIrLowerValue destination;
         if (!expression->binary_rhs || !expression->binary_rhs->type ||
             !lower_abi_is_aggregate(expression->binary_rhs->type) ||
-            !type_is_compatible(expression->binary_lhs->type,
+            !type_is_compatible(lhs_type,
                                 expression->binary_rhs->type)) {
             context->unsupported = true;
             return lower_invalid_value();
@@ -6861,17 +6865,16 @@ static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
         }
         if (!lower_copy_abi_aggregate_storage(
                 context, destination.value, value.value,
-                expression->binary_lhs->type)) {
+                lhs_type)) {
             return lower_invalid_value();
         }
         return destination;
     }
     value = lower_expression(context, expression->binary_rhs);
-    if (!value.valid || !expression->binary_lhs ||
-        !expression->binary_lhs->type) {
+    if (!value.valid || !expression->binary_lhs || !lhs_type) {
         return lower_invalid_value();
     }
-    value = lower_cast(context, value, expression->binary_lhs->type);
+    value = lower_cast(context, value, lhs_type);
     if (!value.valid || !lower_store_lvalue(context,
                                             expression->binary_lhs, value)) {
         return lower_invalid_value();

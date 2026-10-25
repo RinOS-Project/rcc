@@ -21208,9 +21208,15 @@ static Type* sema_expr(Expr* expr) {
                 ++argument_index;
             }
             if (parameter) {
+                int supplied_argument_count = argument_index - 1;
+                if (call_declaration &&
+                    call_declaration->func_this_param &&
+                    supplied_argument_count > 0) {
+                    --supplied_argument_count;
+                }
                 if (!sema_append_cxx_default_arguments(
                         expr, call_declaration, &parameter,
-                        argument_index - 1)) {
+                        supplied_argument_count)) {
                     rcc_error(expr->loc,
                               "too few arguments to function call");
                 }

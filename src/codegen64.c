@@ -8750,7 +8750,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
         }
 
-        case EXPR_ASSIGN:
+        case EXPR_ASSIGN: {
+            Type* lhs_type = expr->binary_lhs
+                ? expr->binary_lhs->type : NULL;
+            if (lhs_type && lhs_type->is_reference) {
+                lhs_type = lhs_type->base;
+            }
             if (gen64_cxx_move_assignment(mod, expr)) break;
             if (expr->binary_lhs &&
                 (expr->binary_lhs->kind == EXPR_MEMBER ||
@@ -8769,9 +8774,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_bitfield_store(mod, expr->binary_lhs->member_field);
                 break;
             }
-            if (expr->binary_lhs && expr->binary_lhs->type &&
-                expr->binary_lhs->type->is_atomic) {
-                Type* type = expr->binary_lhs->type;
+            if (lhs_type && lhs_type->is_atomic) {
+                Type* type = lhs_type;
                 gen64_expr(mod, expr->binary_rhs);
                 emit64_push_reg(mod, RAX);
                 gen64_lvalue(mod, expr->binary_lhs);
@@ -8783,10 +8787,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 break;
             }
             {
-                Type* aggregate_type = expr->binary_lhs->type;
-                if (aggregate_type && aggregate_type->is_reference) {
-                    aggregate_type = aggregate_type->base;
-                }
+                Type* aggregate_type = lhs_type;
                 if (gen64_is_aggregate(aggregate_type)) {
                     int offset = 0;
                     if (gen64_expr_is_lvalue(expr->binary_rhs) ||
@@ -8819,15 +8820,16 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             emit64_push_reg(mod, RAX);
             gen64_lvalue(mod, expr->binary_lhs);
             emit64_pop_reg(mod, RCX);
-            if (type_is_integer(expr->binary_lhs->type) ||
-                expr->binary_lhs->type->kind == TYPE_ENUM) {
+            if (type_is_integer(lhs_type) ||
+                (lhs_type && lhs_type->kind == TYPE_ENUM)) {
                 emit64_normalize_atomic_value(mod, RCX,
-                                               expr->binary_lhs->type);
+                                               lhs_type);
             }
             emit64_store_typed(mod, RAX, 0, RCX,
-                               expr->binary_lhs->type);
+                               lhs_type);
             emit64_mov_reg_reg(mod, RAX, RCX);
             break;
+        }
 
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN: {

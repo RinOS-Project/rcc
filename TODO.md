@@ -9371,9 +9371,17 @@ remains a separate open item.
         generation, and x64 host execution. Reject reference fields, virtual
         members, base classes, and multiple default member initializers on both
         targets.
-  - [ ] Out-of-class definitions of ordinary and union member functions still
-        need a shared qualified-member-definition parser and ABI/runtime
-        coverage.
+  - [x] Parse namespace-qualified definitions for previously declared,
+        named non-template class and union methods through one shared path.
+        Reuse the in-class declaration for overload selection, access, mangling,
+        and implicit-object ABI; cover static/private methods, inherited
+        defaults, cv/ref qualifiers, `noexcept`, pointer/reference results, and
+        overloads. GCC C++20 syntax and symbol names match, and i686/AMD64
+        execution tests include assignment through returned references.
+  - [ ] Extend out-of-class definitions to constructors, destructors,
+        operators/conversion functions, member templates and explicit
+        specializations, advanced nested/template owner qualification, and
+        associated ABI/lifetime coverage.
   - [x] Recognize the standard by-value copy-assignment form
         (`operator=(T)` and top-level-const `operator=(const T)`) as a copy
         special member. Keep it in ordinary assignment overload resolution,
