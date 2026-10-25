@@ -82,6 +82,17 @@ struct Callable {
     int offset;
     int operator()(int value) const;
 };
+
+struct Negatable {
+    int value;
+    int operator-() const;
+};
+
+struct IncrementCounter {
+    int value;
+    int operator++();
+    int operator++(int);
+};
 }
 
 namespace out_of_class_conversions {
@@ -198,6 +209,18 @@ int out_of_class_operators::Callable::operator()(int value) const {
     return offset + value;
 }
 
+int out_of_class_operators::Negatable::operator-() const {
+    return -value;
+}
+
+int out_of_class_operators::IncrementCounter::operator++() {
+    return ++value;
+}
+
+int out_of_class_operators::IncrementCounter::operator++(int) {
+    return value++;
+}
+
 out_of_class_conversions::Truthy::operator bool() const noexcept {
     return value != 0;
 }
@@ -262,7 +285,15 @@ int cxx_out_of_class_call_operators_probe() {
     int first = indexed[0];
     int second = indexed[1];
     int called = callable(7);
-    return first == 4 && second == 8 && called == 18 ? 0 : 1;
+    out_of_class_operators::Negatable negatable;
+    negatable.value = 9;
+    out_of_class_operators::IncrementCounter counter;
+    counter.value = 3;
+    int postfix = counter++;
+    int prefix = ++counter;
+    return first == 4 && second == 8 && called == 18 &&
+           -negatable == -9 && postfix == 3 && prefix == 5 &&
+           counter.value == 5 ? 0 : 1;
 }
 
 int cxx_out_of_class_conversion_probe() {
