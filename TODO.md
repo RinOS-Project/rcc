@@ -9911,5 +9911,11 @@ remains a separate open item.
       `(unsigned short)frame_local < 0x8000u` promotion/common conversion, on
       i686/AMD64. Focused inline-expression and full `test-debug-info` pass for
       legacy and verified objects.
+- [x] Verify `long frame_local < 0x80000000u` using the target ABI's
+      mixed-rank common type: unsigned 32-bit on i686 and signed 64-bit on
+      AMD64. Exact DWARF checks include the constant's source-width
+      normalization, frame load width, and the i686 unsigned ordering remap.
+      Focused inline-expression and full `test-debug-info` pass for legacy and
+      verified objects.
 - [ ] Broader mixed-rank matrices, enum conversions, and i686-wide comparisons
       remain open.
