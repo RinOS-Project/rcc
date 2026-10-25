@@ -520,12 +520,16 @@
 - [x] C++ enumのfixed underlying typeを保持し、signed/unsigned各幅の明示列挙子と
       暗黙の次値が表現可能か検査。i686/AMD64で境界値を実行し、範囲外を診断する。
 - [x] Preserve the direct fixed-enum underlying conversion for overload ranking,
-      while applying the promoted underlying integer type to built-in unary,
-      shift, arithmetic, and constant-expression operations. Regress an
-      `unsigned char` unscoped enum at its maximum with compile-time result-type
-      and value assertions plus AMD64 runtime checks; `test-cxx-enum-class`
-      passes on i686/AMD64 and validates generated `.rin`, `.rll`, and `.drv`
-      images. The C++ scalar variadic-promotion interoperability gate also passes.
+      while applying the promoted underlying integer type to built-in unary
+      minus/complement, shift, arithmetic, and constant-expression operations.
+      Regress an `unsigned char` unscoped enum at its maximum with compile-time
+      result-type/value assertions and AMD64 runtime checks.
+      `test-cxx-enum-class` passes on i686/AMD64 and validates generated `.rin`,
+      `.rll`, and `.drv` images. The C++ scalar variadic-promotion
+      interoperability gate also passes.
+- [ ] Model unary `+` as a real expression so built-in integral promotions and
+      C++ overloaded unary-plus resolution are preserved instead of erasing the
+      operator during parsing.
 - [x] fixed-underlying enumでunsigned 64-bit列挙子を`ULLONG_MAX`まで保持し、暗黙の
       次値／overflowとtyped constant evaluationをi686/AMD64で検証。DWARFにも
       `DW_ATE_unsigned`と`DW_FORM_udata`でunsigned値を出力し両archで検証する
