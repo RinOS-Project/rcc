@@ -2,6 +2,8 @@ template <typename Owner>
 struct NestedClassTemplateMemberFunctionSpecialization {
     template <typename Inner>
     struct Nested {
+        int nested_specialized_value;
+
         template <typename T>
         int value(T input) {
             return static_cast<int>(input) + 1;
@@ -9,6 +11,8 @@ struct NestedClassTemplateMemberFunctionSpecialization {
 
         template <typename Deep>
         struct Deeper {
+            int deeper_specialized_value;
+
             template <typename T>
             int nested_value(T input) {
                 return static_cast<int>(input) + 2;
@@ -53,7 +57,7 @@ template <>
 #endif
 int NestedClassTemplateMemberFunctionSpecialization<int>::Nested<double>::
     Deeper<long>::nested_value<char>(char input) {
-    return static_cast<int>(input) + 80;
+    return static_cast<int>(input) + deeper_specialized_value;
 }
 
 template <>
@@ -61,7 +65,7 @@ template <>
 template <>
 int NestedClassTemplateMemberFunctionSpecialization<int>::Nested<double>::
     value<char>(char input) {
-    return static_cast<int>(input) + 40;
+    return static_cast<int>(input) + nested_specialized_value;
 }
 
 #if defined(RCC_TEST_MISSING_NON_TEMPLATE_OWNER_TEMPLATE_HEAD)
@@ -94,6 +98,8 @@ int main() {
         other_owner;
     NestedClassTemplateMemberFunctionSpecialization<int>::Nested<double>::
         Deeper<long> exact_deeper_owner;
+    exact_owner.nested_specialized_value = 40;
+    exact_deeper_owner.deeper_specialized_value = 80;
     NonTemplateOuterNestedMemberFunctionSpecialization::Nested<double>
         non_template_outer_owner;
     NonTemplateOuterNestedMemberFunctionSpecialization::Nested<double>::

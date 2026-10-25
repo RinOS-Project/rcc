@@ -9724,6 +9724,11 @@ remains a separate open item.
       Itanium symbols (`de` and `ml`), both target widths assemble, AMD64 runtime
       checks distinguish specialized and primary implementations, and missing/
       excess template-head diagnostics pass in the focused target.
-- [ ] Explicit member specializations through dependent owner chains, other
-      overloaded operator forms beyond those covered above, and remaining
-      ABI/lifetime cases remain open.
+- [x] Preserve the selected nested class-template owner's member scope while
+      analyzing out-of-class explicit member-function-template specializations.
+      Regressions use unqualified fields from both a nested owner and a deeper
+      nested owner; the focused target passes exact GCC symbol checks,
+      i686/AMD64 assembly, AMD64 execution, and missing/excess owner-head
+      diagnostics.
+- [ ] Partially dependent owner patterns, other overloaded operator forms
+      beyond those covered above, and remaining ABI/lifetime cases remain open.
