@@ -79,6 +79,12 @@ struct Assigned {
     Assigned& operator+=(int amount);
 };
 
+struct Logical {
+    int value;
+    bool operator!() const;
+    bool operator==(int other) const;
+};
+
 struct Indexed {
     int elements[2];
     int& operator[](int index);
@@ -243,6 +249,14 @@ out_of_class_operators::Assigned::operator+=(int amount) {
     return *this;
 }
 
+bool out_of_class_operators::Logical::operator!() const {
+    return value == 0;
+}
+
+bool out_of_class_operators::Logical::operator==(int other) const {
+    return value == other;
+}
+
 int& out_of_class_operators::Indexed::operator[](int index) {
     return elements[index];
 }
@@ -336,8 +350,11 @@ int cxx_out_of_class_operator_probe() {
     out_of_class_operators::Assigned& assigned_alias = (assigned = 23);
     assigned_alias += 5;
     assigned += 3;
+    out_of_class_operators::Logical logical{};
+    logical.value = 4;
     return result.value == 12 && assigned.value == 31 &&
-           &assigned_alias == &assigned ? 0 : 1;
+           &assigned_alias == &assigned && !logical == false &&
+           !(logical == 5) ? 0 : 1;
 }
 
 int cxx_out_of_class_call_operators_probe() {
