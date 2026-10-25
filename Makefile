@@ -644,6 +644,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-variadic-aggregate
 .PHONY: test-cxx-member-function-template-explicit-specialization
 .PHONY: test-cxx-class-template-member-function-explicit-specialization
+.PHONY: test-cxx-nested-class-template-member-function-explicit-specialization
 .PHONY: test-tls-runtime-posix
 
 CXX_REGRESSION_TARGETS = \
@@ -683,6 +684,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-parser-recovery \
 	test-cxx-member-function-template-explicit-specialization \
 	test-cxx-class-template-member-function-explicit-specialization \
+	test-cxx-nested-class-template-member-function-explicit-specialization \
 	test-cxx-multi-declarator \
 	test-cxx-numeric-separators \
 	test-cxx-user-defined-literals \
@@ -13380,6 +13382,32 @@ test-cxx-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIiE5valueIiEEiPT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZN41ClassTemplateMemberFunctionSpecializationIdE5valueIdEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	@echo "RCC++ class-template-owner member function-template specialization tests completed"
+
+test-cxx-nested-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/nested-class-template-member-function-explicit-specialization)
+	$(call CXX_PORTABLE_ENTRY_TEST,nested-class-template-member-function-explicit-specialization,cxx_nested_class_template_member_function_explicit_specialization.cpp)
+	$(GREP) -F -q "_ZN47NestedClassTemplateMemberFunctionSpecializationIiE6NestedIdE5valueIcEEiT_" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZN47NestedClassTemplateMemberFunctionSpecializationIiE6NestedIdE5valueIcEEiT_" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN47NestedClassTemplateMemberFunctionSpecializationIiE6NestedIdE6DeeperIlE12nested_valueIcEEiT_" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZN47NestedClassTemplateMemberFunctionSpecializationIiE6NestedIdE6DeeperIlE12nested_valueIcEEiT_" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN47NestedClassTemplateMemberFunctionSpecializationIiE6NestedIdE5valueIiEEiT_" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN47NestedClassTemplateMemberFunctionSpecializationIdE6NestedIdE5valueIcEEiT_" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/x64.s
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/gcc.s tests/cxx_nested_class_template_member_function_explicit_specialization.cpp
+	$(GREP) -F -q "_ZN47NestedClassTemplateMemberFunctionSpecializationIiE6NestedIdE5valueIcEEiT_" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN47NestedClassTemplateMemberFunctionSpecializationIiE6NestedIdE6DeeperIlE12nested_valueIcEEiT_" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN47NestedClassTemplateMemberFunctionSpecializationIiE6NestedIdE5valueIiEEiT_" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN47NestedClassTemplateMemberFunctionSpecializationIdE6NestedIdE5valueIcEEiT_" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/gcc.s
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_MISSING_NESTED_OWNER_TEMPLATE_HEAD -c -o $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/missing-head.ro tests/cxx_nested_class_template_member_function_explicit_specialization.cpp,$(TEST_OUT)/nested-class-template-member-function-explicit-specialization/missing-head-rcc.log)
+	$(GREP) -F -q "explicit member function-template specialization does not match a declared member template" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/missing-head-rcc.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/nested-class-template-member-function-explicit-specialization/missing-head.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_EXTRA_NESTED_OWNER_TEMPLATE_HEAD -c -o $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/extra-head.ro tests/cxx_nested_class_template_member_function_explicit_specialization.cpp,$(TEST_OUT)/nested-class-template-member-function-explicit-specialization/extra-head-rcc.log)
+	$(GREP) -F -q "explicit member function-template specialization does not match a declared member template" $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/extra-head-rcc.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/nested-class-template-member-function-explicit-specialization/extra-head.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DRCC_TEST_MISSING_NESTED_OWNER_TEMPLATE_HEAD -c -o $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/missing-head-gcc.o tests/cxx_nested_class_template_member_function_explicit_specialization.cpp,$(TEST_OUT)/nested-class-template-member-function-explicit-specialization/missing-head-gcc.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/nested-class-template-member-function-explicit-specialization/missing-head-gcc.o)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DRCC_TEST_EXTRA_NESTED_OWNER_TEMPLATE_HEAD -c -o $(TEST_OUT)/nested-class-template-member-function-explicit-specialization/extra-head-gcc.o tests/cxx_nested_class_template_member_function_explicit_specialization.cpp,$(TEST_OUT)/nested-class-template-member-function-explicit-specialization/extra-head-gcc.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/nested-class-template-member-function-explicit-specialization/extra-head-gcc.o)
+	@echo "RCC++ nested class-template-owner member function-template specialization tests completed"
 
 ifeq ($(OS),Windows_NT)
 test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET) test-cxx-member-methods-invalid

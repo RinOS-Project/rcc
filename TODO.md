@@ -9621,9 +9621,9 @@ remains a separate open item.
       subscript, and arrow-member access at runtime, GCC C++20 syntax, both
       target widths, and mismatched-return diagnostics in
       `test-cxx-class-template-methods` and `test-cxx-member-methods-invalid`.
-- [ ] Explicit member specializations beyond a fully specialized direct class-
-      template owner, overloaded member operators, and deeper nested/template
-      owner qualification remain open.
+- [ ] Explicit member specializations on dependent or non-template nested
+      owners, overloaded member operators, and remaining ABI/lifetime cases
+      remain open.
 
 ## RCC continuation (2026-10-25, member-template lookahead and glvalue category)
 
@@ -9668,5 +9668,14 @@ remains a separate open item.
       primary body while preserving their member-template specialization cache;
       GCC C++20 syntax and symbols, i686/AMD64 assembly, and AMD64 link/run pass
       in `test-cxx-class-template-member-function-explicit-specialization`.
-- [ ] Specialized or dependent owner chains and remaining ABI/lifetime cases
-      remain open.
+- [x] Resolve explicit member-function-template specializations through one-
+      and two-level nested class-template owners. Match the declaration on the
+      final concrete owner, verify GCC's exact Itanium symbols, assemble both
+      target widths, and execute the AMD64 regression. Require exactly one
+      explicit template head per specialized owner plus the member template;
+      RCC and GCC reject both missing and surplus heads without producing an
+      object. The focused nested-owner test and complete native-Windows
+      `test-cxx-nested-class-templates` aggregate pass.
+- [ ] Dependent/non-template owner chains, owners introduced by class-template
+      partial specializations, overloaded member operators, and remaining
+      ABI/lifetime cases remain open.

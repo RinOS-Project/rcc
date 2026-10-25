@@ -2156,7 +2156,7 @@ static bool cxx_explicit_class_template_member_function_specialization_starts(
 static bool cxx_explicit_member_function_template_specialization_starts(void);
 static bool cxx_parse_explicit_member_function_template_specialization(
     Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
-    SourceLoc loc, CxxTemplate* specialization);
+    SourceLoc loc, CxxTemplate* specialization, int template_head_count);
 Stmt* rcc_parse_cxx_qualified_member_definition(
     Type* base_type, bool is_inline, bool is_constexpr, bool is_consteval,
     SourceLoc loc);
@@ -14814,7 +14814,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         tmpl->is_member_template_definition = true;
         if (!cxx_parse_explicit_member_function_template_specialization(
                 return_type, is_inline, is_constexpr, is_consteval, loc,
-                tmpl)) {
+                tmpl, 1)) {
             rcc_error(loc,
                       "explicit member function-template specialization does not match a declared member template");
             while (!at_end() && !check(TOK_SEMICOLON) &&
@@ -14828,20 +14828,22 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         return tmpl;
     }
 
-    /* An explicit member-function-template specialization on a fully
-     * specialized class-template owner has two empty template heads. The
-     * first belongs to the class owner and the second to the member template;
-     * consume the second only when the following declarator is a named
-     * qualified member function. Nested class-template specializations keep
-     * flowing through the dedicated class path below. */
+    /* Explicit member-function-template specializations on class-template
+     * owners need one empty template head per specialized owner plus one for
+     * the member template. Defer consuming the remaining heads until the
+     * following qualified declarator is recognized as a member function. */
     if (!active_class && !parameter_outer_template &&
         tmpl->param_count == 0 &&
         cxx_empty_template_head_starts_at(parser.cur)) {
         Token* saved_cur = parser.cur;
         Token* saved_prev = parser.prev;
-        advance();
-        expect(TOK_LT, "< in explicit member-template specialization");
-        expect(TOK_GT, "> in explicit member-template specialization");
+        int extra_template_heads = 0;
+        do {
+            advance();
+            expect(TOK_LT, "< in explicit member-template specialization");
+            expect(TOK_GT, "> in explicit member-template specialization");
+            ++extra_template_heads;
+        } while (cxx_empty_template_head_starts_at(parser.cur));
         if (cxx_explicit_member_function_template_specialization_starts() ||
             cxx_explicit_class_template_member_function_specialization_starts()) {
             bool is_inline = false;
@@ -14864,7 +14866,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
             tmpl->is_member_template_definition = true;
             if (!cxx_parse_explicit_member_function_template_specialization(
                     return_type, is_inline, is_constexpr, is_consteval, loc,
-                    tmpl)) {
+                    tmpl, extra_template_heads + 1)) {
                 rcc_error(loc,
                           "explicit member function-template specialization does not match a declared member template");
                 while (!at_end() && !check(TOK_SEMICOLON) &&
@@ -37181,7 +37183,7 @@ static void cxx_add_function_declaration_once(Decl* declaration) {
 
 static bool cxx_parse_explicit_member_function_template_specialization(
     Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
-    SourceLoc loc, CxxTemplate* specialization) {
+    SourceLoc loc, CxxTemplate* specialization, int template_head_count) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
     CxxClass* saved_class = active_class;
@@ -37199,6 +37201,7 @@ static bool cxx_parse_explicit_member_function_template_specialization(
     CxxClass* cls = NULL;
     CxxTemplate* owner_template = NULL;
     Type* owner_type = NULL;
+    int nested_owner_template_count = 0;
     CxxMethod* source_methods[32] = { NULL };
     CxxTemplate* first_template = NULL;
     int source_count = 0;
@@ -37224,25 +37227,88 @@ static bool cxx_parse_explicit_member_function_template_specialization(
     if (check(TOK_LT) &&
         (owner_template = find_class_template(parsed_name)) != NULL &&
         owner_template->kind == TMPL_CLASS) {
-        int written;
         owner_type = parse_class_template_specialization(owner_template, loc);
-        if (!owner_type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
+        if (!owner_type) {
             parser.cur = saved_cur;
             parser.prev = saved_prev;
             return false;
         }
-        member_name = advance()->value.str_val;
         cls = owner_type->cxx_class;
         if (!cls && owner_type->cxx_template &&
             owner_type->cxx_template->kind == TMPL_CLASS) {
             cls = owner_type->cxx_template->templated_class;
         }
-        written = snprintf(qualified_buffer, sizeof(qualified_buffer),
-                           "%s::%s", parsed_name, member_name);
-        if (written < 0 || (size_t)written >= sizeof(qualified_buffer)) {
+        if (!cls || !cls->type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
             parser.cur = saved_cur;
             parser.prev = saved_prev;
             return false;
+        }
+        if (strlen(parsed_name) >= sizeof(qualified_buffer)) {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return false;
+        }
+        strcpy(qualified_buffer, parsed_name);
+        for (;;) {
+            Token* component_token = advance();
+            const char* component_name = component_token->value.str_val;
+            CxxNestedClassTemplate* nested_template = NULL;
+            CxxClass* owner_class = cls;
+            size_t qualified_length = strlen(qualified_buffer);
+            size_t qualified_remaining =
+                sizeof(qualified_buffer) - qualified_length;
+            int written;
+
+            written = snprintf(qualified_buffer + qualified_length,
+                               qualified_remaining,
+                               "::%s", component_name);
+            if (written < 0 ||
+                (size_t)written >= qualified_remaining) {
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+                return false;
+            }
+
+            if (check(TOK_LT)) {
+                nested_template = cxx_class_find_nested_template(
+                    owner_class, component_name);
+                if (!nested_template && owner_class->templ &&
+                    owner_class->templ->templated_class != owner_class) {
+                    nested_template = cxx_class_find_nested_template(
+                        owner_class->templ->templated_class,
+                        component_name);
+                }
+            }
+            if (nested_template && nested_template->declaration) {
+                Type* nested_owner_type =
+                    parse_class_template_specialization_for_owner(
+                        nested_template->declaration, owner_class, loc);
+                if (!nested_owner_type) {
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return false;
+                }
+                owner_type = nested_owner_type;
+                cls = owner_type->cxx_class;
+                if (!cls && nested_template->declaration->templated_class) {
+                    cls = nested_template->declaration->templated_class;
+                }
+                if (!cls || !cls->type) {
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return false;
+                }
+                ++nested_owner_template_count;
+                if (!match(TOK_SCOPE) || !check(TOK_IDENT)) {
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return false;
+                }
+                continue;
+            }
+
+            member_name = component_name;
+            break;
         }
         qualified = rcc_intern(qualified_buffer);
     } else {
@@ -37265,6 +37331,15 @@ static bool cxx_parse_explicit_member_function_template_specialization(
         owner_name[owner_length] = '\0';
         member_name = separator + 1;
         cls = find_class(owner_name);
+    }
+    {
+        int required_template_head_count = 1 + nested_owner_template_count;
+        if (owner_template) ++required_template_head_count;
+        if (template_head_count != required_template_head_count) {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return false;
+        }
     }
     if (!cls || !cls->type || !cls->type->is_complete ||
         !member_name || !*member_name ||
