@@ -59,6 +59,19 @@ public:
     T multiply(T input) const;
 };
 
+struct OutOfClassArrowTarget {
+    int value;
+};
+
+template<typename T>
+class OutOfClassArrowOwner {
+    T* target;
+
+public:
+    explicit OutOfClassArrowOwner(T* input) : target(input) {}
+    T* operator->() const;
+};
+
 template<typename U>
 typename U::value_type
 OutOfClassMemberTemplate::convert(U value) const {
@@ -93,6 +106,11 @@ T OutOfClassClassTemplateOwner<T>::operator()(T rhs) const {
 template<typename T>
 T OutOfClassClassTemplateOwner<T>::operator[](T index) const {
     return value + index;
+}
+
+template<typename T>
+T* OutOfClassArrowOwner<T>::operator->() const {
+    return target;
 }
 
 template<typename T>
@@ -148,6 +166,8 @@ int main() {
     Box<int> box{};
     OutOfClassMemberTemplate member_template{};
     OutOfClassClassTemplateOwner<int> out_of_class_owner{4};
+    OutOfClassArrowTarget arrow_target{31};
+    OutOfClassArrowOwner<OutOfClassArrowTarget> arrow_owner{&arrow_target};
     IntMemberTemplateValue int_member_value{13};
     LongMemberTemplateValue long_member_value{17};
     ConstructedBox<int> constructed(7);
@@ -164,6 +184,7 @@ int main() {
            out_of_class_owner + 5 == 9 &&
            out_of_class_owner(6) == 10 &&
            out_of_class_owner[7] == 11 &&
+           arrow_owner->value == 31 &&
            out_of_class_owner.add_to(3) == 7 &&
            out_of_class_owner.add_to<long>(9L) == 13L &&
            out_of_class_owner.multiply(4) == 8 &&
