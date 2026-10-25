@@ -266,6 +266,15 @@ int debug_inline_nonconstant_integer_entry(int value)
             debug_inline_nonconstant_integer_source - 3);
 }
 
+int debug_inline_nonconstant_integer_logical_not_entry(int value)
+{
+    int debug_inline_nonconstant_integer_logical_not_source = value;
+    debug_inline_nonconstant_integer_escape =
+        &debug_inline_nonconstant_integer_logical_not_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !debug_inline_nonconstant_integer_logical_not_source);
+}
+
 int debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry(int value)
 {
     unsigned long long

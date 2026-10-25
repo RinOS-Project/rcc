@@ -9913,6 +9913,8 @@ static void verify_inline_integer_expression_parameter(
     bool divisor_is_location_list = false;
     const char* call_site_name = expected_operation == 0xc4u
         ? "debug_inline_nonconstant_signed_long_long_lshift_computed_mod64_count_entry"
+        : expected_operation == 0x29u
+        ? "debug_inline_nonconstant_integer_logical_not_entry"
         : expected_operation == 0xc3u
         ? "debug_inline_nonconstant_signed_long_long_lshift_mod64_count_entry"
         : expected_operation == 0xc2u
@@ -9994,7 +9996,8 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0xe2u || expected_operation == 0xe3u ||
             expected_operation == 0xeau || expected_operation == 0xedu ||
             expected_operation == 0xebu ||
-            expected_operation == 0xecu || expected_operation == 0xc0u ||
+            expected_operation == 0xecu || expected_operation == 0x29u ||
+            expected_operation == 0xc0u ||
             expected_operation == 0xc1u || expected_operation == 0xc2u ||
             expected_operation == 0xc3u || expected_operation == 0xc4u ||
             (expected_operation >= 0xdau && expected_operation <= 0xdfu) ||
@@ -10349,7 +10352,13 @@ static void verify_inline_integer_expression_parameter(
             info->data, expression_end, &expression_offset, architecture,
             is_unsigned, value_size);
     } else {
-        if (expected_operation != 0x1fu && expected_operation != 0x20u) {
+        if (expected_operation == 0x29u) {
+            assert(expression_offset < expression_end &&
+                   info->data[expression_offset++] == 0x10u &&
+                   read_uleb(info->data, expression_end,
+                             &expression_offset) == 0u);
+        } else if (expected_operation != 0x1fu &&
+                   expected_operation != 0x20u) {
             if (is_unsigned) {
                 assert(expression_offset < expression_end &&
                        info->data[expression_offset++] == 0x10u &&
@@ -10417,6 +10426,9 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_integer_bitnot_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 4u, 0x20u, 0,
          NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_logical_not_source", false, 4u,
+         0x29u, 0, NULL, false},
         {"debug_nonconstant_integer_bitand_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 4u, 0x1au, 7,
          NULL, false},

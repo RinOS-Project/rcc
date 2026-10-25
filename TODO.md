@@ -9841,3 +9841,16 @@ remains a separate open item.
       member-method, conversion-operator, and class-template-specialization
       targets pass. Chains beyond this depth and partially dependent owner
       forms remain open. Local commit; no push.
+
+## RCC continuation (2026-10-25, logical-not inline integer DWARF)
+
+- [x] Preserve a runtime logical-not argument passed to a read-only inline
+      integer parameter. Admit `EXPR_NOT` to the bounded expression path and
+      emit `DW_OP_constu 0; DW_OP_eq` with target-width normalization. The
+      regression verifies the call-specific parameter DIE, source frame slot,
+      and exact opcode sequence for legacy and verified i686/AMD64 objects.
+      Focused `test-debug-info-inline-expression` and full `test-debug-info`
+      pass.
+- [ ] Other unsupported runtime expression trees, mutable inline-parameter
+      locations, register-only sources, and general optimized inline-variable
+      tracking remain open.
