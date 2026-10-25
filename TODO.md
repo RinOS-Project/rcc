@@ -9643,8 +9643,8 @@ remains a separate open item.
       optimizer runtime test, avoiding a host-side decimal-constant mismatch.
       `test-optimize` passes on the native Windows target; the POSIX run passed
       its optimizer execution checks before the WSL shared-drive I/O failure.
-- [ ] Explicit member specializations beyond a fully specialized direct class-
-      template owner, deeper nested/template owner qualification, and remaining
+- [ ] Explicit member specializations through dependent owners, class-template
+      partial-specialization owners, overloaded member operators, and remaining
       ABI/lifetime cases remain open.
 
 ## RCC continuation (2026-10-25, class-template-owner member-template specialization)
@@ -9669,13 +9669,14 @@ remains a separate open item.
       GCC C++20 syntax and symbols, i686/AMD64 assembly, and AMD64 link/run pass
       in `test-cxx-class-template-member-function-explicit-specialization`.
 - [x] Resolve explicit member-function-template specializations through one-
-      and two-level nested class-template owners. Match the declaration on the
-      final concrete owner, verify GCC's exact Itanium symbols, assemble both
-      target widths, and execute the AMD64 regression. Require exactly one
-      explicit template head per specialized owner plus the member template;
-      RCC and GCC reject both missing and surplus heads without producing an
-      object. The focused nested-owner test and complete native-Windows
-      `test-cxx-nested-class-templates` aggregate pass.
-- [ ] Dependent/non-template owner chains, owners introduced by class-template
-      partial specializations, overloaded member operators, and remaining
-      ABI/lifetime cases remain open.
+      and two-level nested class-template owners under both class-template and
+      ordinary outer classes. Parse the corresponding nested type-id chains,
+      match the declaration on the final concrete owner, verify GCC's exact
+      Itanium symbols, assemble both target widths, and execute the AMD64
+      regression. Require exactly one explicit template head per specialized
+      owner plus the member template; RCC and GCC reject missing and surplus
+      heads without producing an object. The focused nested-owner test and
+      complete native-Windows `test-cxx-nested-class-templates` aggregate pass.
+- [ ] Dependent owner chains, owners introduced by class-template partial
+      specializations, overloaded member operators, and remaining ABI/lifetime
+      cases remain open.

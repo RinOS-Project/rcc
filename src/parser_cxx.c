@@ -16480,9 +16480,9 @@ static CxxTypeAlias* find_qualified_class_type_alias(
 }
 
 /* A template-id can itself be the owner of a nested type-id, for example
- * `Box<int>::value_type` or an alias-template specialization naming a class.
- * Balance the tokenized argument list only to distinguish that form from a
- * standalone template-id. */
+ * `Box<int>::value_type`, `Outer::Nested<int>::Leaf`, or an alias-template
+ * specialization naming a class. Balance the tokenized argument list only to
+ * distinguish that form from a standalone template-id. */
 static bool cxx_template_id_followed_by_scope(const char** name_out) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
@@ -16499,7 +16499,8 @@ static bool cxx_template_id_followed_by_scope(const char** name_out) {
     template_name = parse_qualified_name();
     if (!check(TOK_LT) ||
         (!find_class_template(template_name) &&
-         !find_alias_template(template_name))) {
+         !find_alias_template(template_name) &&
+         !find_nested_class_template(template_name, NULL))) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return false;
@@ -37181,6 +37182,61 @@ static void cxx_add_function_declaration_once(Decl* declaration) {
     ast_add_decl(active_ast, declaration);
 }
 
+static bool cxx_resolve_explicit_member_template_owner_suffix(
+    Type** owner_type, CxxClass** owner_class, const char** member_name,
+    char* qualified_buffer, size_t qualified_capacity,
+    int* nested_owner_template_count, SourceLoc loc) {
+    if (!owner_type || !owner_class || !*owner_class || !member_name ||
+        !qualified_buffer || !qualified_capacity ||
+        !nested_owner_template_count) {
+        return false;
+    }
+    for (;;) {
+        Token* component_token;
+        const char* component_name;
+        CxxNestedClassTemplate* nested_template = NULL;
+        size_t qualified_length;
+        size_t qualified_remaining;
+        int written;
+
+        if (!match(TOK_SCOPE) || !check(TOK_IDENT)) return false;
+        component_token = advance();
+        component_name = component_token->value.str_val;
+        qualified_length = strlen(qualified_buffer);
+        if (qualified_length >= qualified_capacity) return false;
+        qualified_remaining = qualified_capacity - qualified_length;
+        written = snprintf(qualified_buffer + qualified_length,
+                           qualified_remaining, "::%s", component_name);
+        if (written < 0 || (size_t)written >= qualified_remaining) {
+            return false;
+        }
+
+        if (check(TOK_LT)) {
+            nested_template = cxx_class_find_nested_template(
+                *owner_class, component_name);
+            if (!nested_template && (*owner_class)->templ &&
+                (*owner_class)->templ->templated_class != *owner_class) {
+                nested_template = cxx_class_find_nested_template(
+                    (*owner_class)->templ->templated_class, component_name);
+            }
+        }
+        if (!nested_template || !nested_template->declaration) {
+            *member_name = component_name;
+            return true;
+        }
+
+        *owner_type = parse_class_template_specialization_for_owner(
+            nested_template->declaration, *owner_class, loc);
+        if (!*owner_type) return false;
+        *owner_class = (*owner_type)->cxx_class;
+        if (!*owner_class && nested_template->declaration->templated_class) {
+            *owner_class = nested_template->declaration->templated_class;
+        }
+        if (!*owner_class || !(*owner_class)->type) return false;
+        ++*nested_owner_template_count;
+    }
+}
+
 static bool cxx_parse_explicit_member_function_template_specialization(
     Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
     SourceLoc loc, CxxTemplate* specialization, int template_head_count) {
@@ -37238,7 +37294,7 @@ static bool cxx_parse_explicit_member_function_template_specialization(
             owner_type->cxx_template->kind == TMPL_CLASS) {
             cls = owner_type->cxx_template->templated_class;
         }
-        if (!cls || !cls->type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
+        if (!cls || !cls->type) {
             parser.cur = saved_cur;
             parser.prev = saved_prev;
             return false;
@@ -37249,66 +37305,13 @@ static bool cxx_parse_explicit_member_function_template_specialization(
             return false;
         }
         strcpy(qualified_buffer, parsed_name);
-        for (;;) {
-            Token* component_token = advance();
-            const char* component_name = component_token->value.str_val;
-            CxxNestedClassTemplate* nested_template = NULL;
-            CxxClass* owner_class = cls;
-            size_t qualified_length = strlen(qualified_buffer);
-            size_t qualified_remaining =
-                sizeof(qualified_buffer) - qualified_length;
-            int written;
-
-            written = snprintf(qualified_buffer + qualified_length,
-                               qualified_remaining,
-                               "::%s", component_name);
-            if (written < 0 ||
-                (size_t)written >= qualified_remaining) {
-                parser.cur = saved_cur;
-                parser.prev = saved_prev;
-                return false;
-            }
-
-            if (check(TOK_LT)) {
-                nested_template = cxx_class_find_nested_template(
-                    owner_class, component_name);
-                if (!nested_template && owner_class->templ &&
-                    owner_class->templ->templated_class != owner_class) {
-                    nested_template = cxx_class_find_nested_template(
-                        owner_class->templ->templated_class,
-                        component_name);
-                }
-            }
-            if (nested_template && nested_template->declaration) {
-                Type* nested_owner_type =
-                    parse_class_template_specialization_for_owner(
-                        nested_template->declaration, owner_class, loc);
-                if (!nested_owner_type) {
-                    parser.cur = saved_cur;
-                    parser.prev = saved_prev;
-                    return false;
-                }
-                owner_type = nested_owner_type;
-                cls = owner_type->cxx_class;
-                if (!cls && nested_template->declaration->templated_class) {
-                    cls = nested_template->declaration->templated_class;
-                }
-                if (!cls || !cls->type) {
-                    parser.cur = saved_cur;
-                    parser.prev = saved_prev;
-                    return false;
-                }
-                ++nested_owner_template_count;
-                if (!match(TOK_SCOPE) || !check(TOK_IDENT)) {
-                    parser.cur = saved_cur;
-                    parser.prev = saved_prev;
-                    return false;
-                }
-                continue;
-            }
-
-            member_name = component_name;
-            break;
+        if (!cxx_resolve_explicit_member_template_owner_suffix(
+                &owner_type, &cls, &member_name, qualified_buffer,
+                sizeof(qualified_buffer), &nested_owner_template_count,
+                loc)) {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return false;
         }
         qualified = rcc_intern(qualified_buffer);
     } else {
@@ -37331,6 +37334,44 @@ static bool cxx_parse_explicit_member_function_template_specialization(
         owner_name[owner_length] = '\0';
         member_name = separator + 1;
         cls = find_class(owner_name);
+        if (cls && check(TOK_LT)) {
+            CxxNestedClassTemplate* nested_template =
+                cxx_class_find_nested_template(cls, member_name);
+            if (nested_template && nested_template->declaration) {
+                if (strlen(qualified) >= sizeof(qualified_buffer)) {
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return false;
+                }
+                strcpy(qualified_buffer, qualified);
+                owner_type = parse_class_template_specialization_for_owner(
+                    nested_template->declaration, cls, loc);
+                if (!owner_type) {
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return false;
+                }
+                cls = owner_type->cxx_class;
+                if (!cls && nested_template->declaration->templated_class) {
+                    cls = nested_template->declaration->templated_class;
+                }
+                if (!cls || !cls->type) {
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return false;
+                }
+                nested_owner_template_count = 1;
+                if (!cxx_resolve_explicit_member_template_owner_suffix(
+                        &owner_type, &cls, &member_name, qualified_buffer,
+                        sizeof(qualified_buffer),
+                        &nested_owner_template_count, loc)) {
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return false;
+                }
+                qualified = rcc_intern(qualified_buffer);
+            }
+        }
     }
     {
         int required_template_head_count = 1 + nested_owner_template_count;
@@ -40710,12 +40751,23 @@ static Type* parse_cxx_type_spec(void) {
         CxxTemplate* owner_template = find_class_template(template_name);
         CxxTemplate* owner_alias_template = owner_template
             ? NULL : find_alias_template(template_name);
+        CxxClass* initial_nested_owner = NULL;
+        CxxNestedClassTemplate* initial_nested_template =
+            owner_template || owner_alias_template
+                ? NULL
+                : find_nested_class_template(template_name,
+                                             &initial_nested_owner);
         Type* owner_type = owner_template
             ? parse_class_template_specialization(owner_template, loc)
             : owner_alias_template
                 ? parse_alias_template_specialization(owner_alias_template,
                                                       loc, NULL)
-                : NULL;
+                : initial_nested_template &&
+                          initial_nested_template->declaration
+                    ? parse_class_template_specialization_for_owner(
+                          initial_nested_template->declaration,
+                          initial_nested_owner, loc)
+                    : NULL;
         CxxClass* owner_class = owner_type ? owner_type->cxx_class : NULL;
         CxxTypeAlias* member_alias = NULL;
         CxxNestedClassTemplate* member_class_template = NULL;
@@ -40723,7 +40775,22 @@ static Type* parse_cxx_type_spec(void) {
         bool alias_accessible = false;
         const char* member_name = NULL;
 
-        if (!match(TOK_SCOPE) || !check(TOK_IDENT)) {
+        if (!owner_class && owner_type && owner_type->cxx_template &&
+            owner_type->cxx_template->kind == TMPL_CLASS) {
+            owner_class = owner_type->cxx_template->templated_class;
+        }
+        if (initial_nested_template && initial_nested_owner && owner_type &&
+            !cxx_nested_class_template_accessible(
+                initial_nested_template, initial_nested_owner,
+                active_class)) {
+            rcc_error(loc,
+                      "nested class template '%s' is inaccessible in class '%s'",
+                      initial_nested_template->declaration->name,
+                      initial_nested_owner->name
+                          ? initial_nested_owner->name : "<unnamed>");
+        }
+
+        if (!owner_type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
             rcc_error(loc,
                       "template-id qualified type must name a nested type");
             t = type_int;
