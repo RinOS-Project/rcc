@@ -15,6 +15,13 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(__GNUC__) || defined(__clang__)
+extern bool rcc_parser_cxx_expression_is_dependent(
+    const Expr*) __attribute__((weak));
+extern Type* rcc_parser_cxx_dependent_integer_expression_type(
+    const Expr*) __attribute__((weak));
+#endif
+
 /* The C compiler intentionally omits the C++ AST object.  Keep the namespace
  * lookup extension optional at this boundary so the C frontend remains a
  * standalone executable while rcc++ supplies the real implementation. */
@@ -592,6 +599,18 @@ static bool sema_exception_body_has_unregistered_cleanup(const Stmt* stmt);
 static bool sema_exception_body_has_vla(const Stmt* stmt);
 static bool sema_exception_body_has_call(const Stmt* stmt);
 static Type* sema_expr(Expr* expr);
+
+static bool sema_cxx_expression_is_dependent(const Expr* expression) {
+    return rcc_parser_is_cxx_mode() &&
+           rcc_parser_cxx_expression_is_dependent &&
+           rcc_parser_cxx_expression_is_dependent(expression);
+}
+
+static Type* sema_dependent_expression_type(void) {
+    Type* type = type_struct("__rcc_dependent_expression");
+    if (type) type->cxx_dependent = true;
+    return type;
+}
 static bool sema_noexcept_expr(Expr* expression);
 static Type* sema_expr_reuse_preanalyzed(Expr* expression,
                                          Expr* analyzed_expression,
@@ -4461,6 +4480,7 @@ static void sema_validate_static_integer_expression(Expr* expression) {
             }
             return;
         case EXPR_NEG:
+        case EXPR_POS:
         case EXPR_NOT:
         case EXPR_BITNOT:
         case EXPR_ADDR:
@@ -4682,6 +4702,7 @@ static bool sema_exception_expression_has_call(const Expr* expression) {
     if (!expression) return false;
     if (expression->kind == EXPR_CALL) return true;
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -5172,6 +5193,9 @@ static bool sema_eval_constexpr_expr(
                      expression->kind == EXPR_PREDEC ? right : old_value;
             return true;
         }
+        case EXPR_POS:
+            return sema_eval_constexpr_expr(expression->unary_operand,
+                                             bindings, binding_count, value);
         case EXPR_NEG:
             if (!sema_eval_constexpr_expr(expression->unary_operand,
                                            bindings, binding_count, &left)) {
@@ -8834,6 +8858,12 @@ static bool sema_eval_constexpr_scalar_expr(
                 storage + offset, (size_t)target_type->size,
                 target_type, value);
         }
+        case EXPR_POS:
+            if (!sema_eval_constexpr_scalar_expr(
+                    expression->unary_operand, bindings, binding_count,
+                    &left)) return false;
+            result_type = expression->type ? expression->type : left.type;
+            return sema_constexpr_scalar_convert(&left, result_type, value);
         case EXPR_NEG:
             if (!sema_eval_constexpr_scalar_expr(expression->unary_operand,
                                                   bindings, binding_count,
@@ -12701,6 +12731,7 @@ static void sema_bind_cxx_constructor_expression(
         return;
     }
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -17771,6 +17802,7 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
 
 static const char* sema_cxx_unary_operator_name(ExprKind kind) {
     switch (kind) {
+        case EXPR_POS: return "operator+";
         case EXPR_NEG: return "operator-";
         case EXPR_BITNOT: return "operator~";
         case EXPR_NOT: return "operator!";
@@ -17782,6 +17814,37 @@ static const char* sema_cxx_unary_operator_name(ExprKind kind) {
         case EXPR_POSTDEC: return "operator--";
         default: return NULL;
     }
+}
+
+/* Built-in unary plus is also viable when a class operand has one implicit
+ * conversion to an arithmetic type. Rank the conversion sequences against the
+ * promoted built-in operand types, just as overload resolution does for the
+ * built-in operator candidates. */
+static Type* sema_cxx_unary_plus_conversion_type(
+    Expr* operand, bool* ambiguous) {
+    Type* candidates[] = {
+        type_int, type_uint, type_long, type_ulong,
+        type_llong, type_ullong, type_float, type_double,
+    };
+    Type* best_type = NULL;
+    int best_rank = INT_MAX;
+    if (ambiguous) *ambiguous = false;
+    if (!operand || !operand->type) return NULL;
+    for (size_t index = 0;
+         index < sizeof(candidates) / sizeof(candidates[0]); ++index) {
+        int rank = cxx_conversion_rank_detail(
+            operand, candidates[index], NULL);
+        if (rank < 0) continue;
+        if (rank < best_rank) {
+            best_rank = rank;
+            best_type = candidates[index];
+            if (ambiguous) *ambiguous = false;
+        } else if (rank == best_rank &&
+                   !type_is_compatible(best_type, candidates[index])) {
+            if (ambiguous) *ambiguous = true;
+        }
+    }
+    return best_type;
 }
 
 /* Lower unary member operators through the same call path as an explicit
@@ -17833,6 +17896,19 @@ static bool sema_rewrite_cxx_unary_operator(Expr* expression,
         sema_register_materialized_member_templates(aggregate);
     }
     method = sema_find_function_method(aggregate, name);
+    if (expression->kind == EXPR_POS && method) {
+        method = NULL;
+        for (TypeMethod* candidate = aggregate->methods; candidate;
+             candidate = candidate->next) {
+            if (candidate->kind == TYPE_METHOD_FUNCTION &&
+                candidate->function_decl && candidate->name &&
+                strcmp(candidate->name, name) == 0 &&
+                !candidate->function_decl->func_params) {
+                method = candidate;
+                break;
+            }
+        }
+    }
     if (method && method->function_decl) {
         member = expr_member(expression->unary_operand, name,
                              expression->loc);
@@ -17847,6 +17923,22 @@ static bool sema_rewrite_cxx_unary_operator(Expr* expression,
         exprlist_append(&arguments, expr_int(0, expression->loc));
     }
     function = sema_cxx_operator_function(name, arguments);
+    if (expression->kind == EXPR_POS && function && function->decl) {
+        bool has_viable_candidate = false;
+        for (Decl* candidate = function->decl; candidate;
+             candidate = candidate->func_overload_next) {
+            TypeParam* parameter = candidate->type &&
+                    candidate->type->kind == TYPE_FUNC
+                ? candidate->type->params : NULL;
+            if (parameter && !parameter->next &&
+                cxx_conversion_rank_detail(
+                    expression->unary_operand, parameter->type, NULL) >= 0) {
+                has_viable_candidate = true;
+                break;
+            }
+        }
+        if (!has_viable_candidate) function = NULL;
+    }
     if (!function) return false;
     function_expression = expr_ident(name, expression->loc);
     call = expr_call(function_expression, arguments, expression->loc);
@@ -18719,6 +18811,7 @@ static bool sema_noexcept_expr(Expr* expression) {
             return expression->cxx_noexcept_value_valid;
         case EXPR_CXX_TYPEID:
             return true;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -18826,13 +18919,15 @@ static Type* sema_expr(Expr* expr) {
     }
 
     if (rcc_parser_is_cxx_mode() &&
-        (expr->kind == EXPR_NEG || expr->kind == EXPR_BITNOT ||
+        (expr->kind == EXPR_POS || expr->kind == EXPR_NEG ||
+         expr->kind == EXPR_BITNOT ||
          expr->kind == EXPR_NOT || expr->kind == EXPR_PREINC ||
          expr->kind == EXPR_PREDEC || expr->kind == EXPR_POSTINC ||
          expr->kind == EXPR_POSTDEC || expr->kind == EXPR_DEREF ||
          (expr->kind == EXPR_ADDR &&
           expr->cxx_overloadable_address_of)) &&
-        expr->unary_operand) {
+        expr->unary_operand &&
+        !sema_cxx_expression_is_dependent(expr)) {
         Type* operand_type = sema_expr(expr->unary_operand);
         if (sema_rewrite_cxx_unary_operator(expr, operand_type)) {
             return sema_expr(expr);
@@ -19210,6 +19305,73 @@ static Type* sema_expr(Expr* expr) {
             }
             expr->type = sema_is_integer_type(t)
                 ? sema_builtin_integer_promotion(t) : t;
+            break;
+        }
+
+        case EXPR_POS: {
+            if (rcc_parser_is_cxx_mode() &&
+                sema_cxx_expression_is_dependent(expr)) {
+                /* The operand's type and overload set depend on a template
+                 * argument. Preserve the source expression for substitution;
+                 * its instantiated copy is analyzed through this case again. */
+                expr->type = rcc_parser_cxx_dependent_integer_expression_type
+                    ? rcc_parser_cxx_dependent_integer_expression_type(expr)
+                    : NULL;
+                if (!expr->type) {
+                    expr->type = sema_dependent_expression_type();
+                }
+                return expr->type;
+            }
+            Type* t = sema_expr(expr->unary_operand);
+            Type* promoted = NULL;
+            bool ambiguous_conversion = false;
+            if (t && sema_is_integer_type(t) &&
+                !sema_is_scoped_enum(t)) {
+                promoted = sema_builtin_integer_promotion(t);
+            } else if (t && type_is_arithmetic(t) &&
+                       t->kind != TYPE_BOOL) {
+                promoted = t;
+            }
+            if (!promoted && rcc_parser_is_cxx_mode() && t &&
+                (t->kind == TYPE_STRUCT || t->kind == TYPE_UNION)) {
+                promoted = sema_cxx_unary_plus_conversion_type(
+                    expr->unary_operand, &ambiguous_conversion);
+                if (promoted && !ambiguous_conversion) {
+                    Expr* converted_operand =
+                        ast_arena_alloc(sizeof(*converted_operand));
+                    *converted_operand = *expr->unary_operand;
+                    if (implicit_cast_with_explicit_conversion(
+                            converted_operand, promoted, false)) {
+                        expr->kind = EXPR_CAST;
+                        expr->cast_expr = converted_operand;
+                        expr->cast_type = promoted;
+                        expr->cxx_cast_kind = CXX_CAST_NONE;
+                        expr->type = promoted;
+                        break;
+                    }
+                    promoted = NULL;
+                }
+            }
+            if (ambiguous_conversion) {
+                rcc_error(expr->loc,
+                          "ambiguous built-in unary plus conversion");
+                expr->type = type_int;
+                break;
+            }
+            if (!promoted) {
+                rcc_error(expr->loc,
+                          "unary plus requires an arithmetic or unscoped enum operand");
+                expr->type = type_int;
+                break;
+            }
+            /* Lower the built-in operation as its standard conversion. This
+             * gives later semantic and code-generation stages the promoted
+             * prvalue type without adding a backend-only unary operation. */
+            expr->kind = EXPR_CAST;
+            expr->cast_expr = expr->unary_operand;
+            expr->cast_type = promoted;
+            expr->cxx_cast_kind = CXX_CAST_NONE;
+            expr->type = promoted;
             break;
         }
 

@@ -2277,6 +2277,24 @@ test-fuzz: $(RCC_TARGET) $(RCXX_TARGET)
 
 test-cxx-enum-class: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-enum-class)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-enum-class/enum-x86-verified-o2.ro \
+		tests/cxx_unary_plus_verified.cpp \
+		>$(TEST_OUT)/cxx-enum-class/enum-x86-verified-o2.log 2>&1
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-enum-class/enum-x64-verified-o2.ro \
+		tests/cxx_unary_plus_verified.cpp \
+		>$(TEST_OUT)/cxx-enum-class/enum-x64-verified-o2.log 2>&1
+	$(GREP) -F -q "Verified backend:" $(TEST_OUT)/cxx-enum-class/enum-x86-verified-o2.log
+	$(GREP) -F -q "Verified backend:" $(TEST_OUT)/cxx-enum-class/enum-x64-verified-o2.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x86.ro \
+		tests/cxx_unary_plus_conversion.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64.ro \
+		tests/cxx_unary_plus_conversion.cpp
 ifeq ($(OS),Windows_NT)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-enum-class/enum-x86.ro \
@@ -2301,6 +2319,27 @@ ifeq ($(OS),Windows_NT)
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-enum-class/enum-x64-host \
 		tests/cxx_main_host.c $(TEST_OUT)/cxx-enum-class/enum-x64.o
 	$(TEST_OUT)/cxx-enum-class/enum-x64-host
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-enum-class/enum-x64-o2.s \
+		tests/cxx_enum_class.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-enum-class/enum-x64-o2.o \
+		$(TEST_OUT)/cxx-enum-class/enum-x64-o2.s
+	$(OBJCOPY) --redefine-sym main=rcc_test_main \
+		$(TEST_OUT)/cxx-enum-class/enum-x64-o2.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-enum-class/enum-x64-o2-host \
+		tests/cxx_main_host.c $(TEST_OUT)/cxx-enum-class/enum-x64-o2.o
+	$(TEST_OUT)/cxx-enum-class/enum-x64-o2-host
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2.s \
+		tests/cxx_unary_plus_conversion.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2.o \
+		$(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2.s
+	$(OBJCOPY) --redefine-sym main=rcc_test_main \
+		$(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2-host \
+		tests/cxx_main_host.c \
+		$(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2.o
+	$(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2-host
 else
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-enum-class/enum-x86.ro \
@@ -2332,6 +2371,26 @@ else
 		$(TEST_OUT)/cxx-enum-class/start-x64.o \
 		$(TEST_OUT)/cxx-enum-class/enum-x64.o
 	$(TEST_OUT)/cxx-enum-class/enum-x64
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-enum-class/enum-x64-o2.s \
+		tests/cxx_enum_class.cpp
+	gcc -c -o $(TEST_OUT)/cxx-enum-class/enum-x64-o2.o \
+		$(TEST_OUT)/cxx-enum-class/enum-x64-o2.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-enum-class/enum-x64-o2 \
+		$(TEST_OUT)/cxx-enum-class/start-x64.o \
+		$(TEST_OUT)/cxx-enum-class/enum-x64-o2.o
+	$(TEST_OUT)/cxx-enum-class/enum-x64-o2
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2.s \
+		tests/cxx_unary_plus_conversion.cpp
+	gcc -c -o $(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2.o \
+		$(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2.s
+	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2 \
+		$(TEST_OUT)/cxx-enum-class/start-x64.o \
+		$(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2.o
+	$(TEST_OUT)/cxx-enum-class/unary-plus-conversion-x64-o2
 endif
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		--emit-unsigned-v3 -o $(TEST_OUT)/cxx-enum-class/enum-x86.rin \
@@ -2365,8 +2424,14 @@ endif
 		$(TEST_OUT)/cxx-enum-class/enum-x64.drv
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-x86.ro tests/cxx_enum_class_invalid.cpp,$(TEST_OUT)/cxx-enum-class/invalid-x86.log)
 	$(GREP) -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x86.log
+	$(GREP) -F -q 'unary plus requires an arithmetic or unscoped enum operand' $(TEST_OUT)/cxx-enum-class/invalid-x86.log
+	$(call CHECK_COUNT,unary plus requires an arithmetic or unscoped enum operand,$(TEST_OUT)/cxx-enum-class/invalid-x86.log,2)
+	$(GREP) -F -q 'ambiguous built-in unary plus conversion' $(TEST_OUT)/cxx-enum-class/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-x64.ro tests/cxx_enum_class_invalid.cpp,$(TEST_OUT)/cxx-enum-class/invalid-x64.log)
 	$(GREP) -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x64.log
+	$(GREP) -F -q 'unary plus requires an arithmetic or unscoped enum operand' $(TEST_OUT)/cxx-enum-class/invalid-x64.log
+	$(call CHECK_COUNT,unary plus requires an arithmetic or unscoped enum operand,$(TEST_OUT)/cxx-enum-class/invalid-x64.log,2)
+	$(GREP) -F -q 'ambiguous built-in unary plus conversion' $(TEST_OUT)/cxx-enum-class/invalid-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-overflow-x86.ro tests/invalid_cxx_enum_constant_expression.cpp,$(TEST_OUT)/cxx-enum-class/invalid-overflow-x86.log)
 	$(GREP) -F -q 'implicit enumerator value exceeds the supported 64-bit range' $(TEST_OUT)/cxx-enum-class/invalid-overflow-x86.log
 	$(GREP) -F -q 'enumerator value exceeds the supported 64-bit range' $(TEST_OUT)/cxx-enum-class/invalid-overflow-x86.log
@@ -16611,6 +16676,12 @@ ifeq ($(OS),Windows_NT)
 		-o $(TEST_OUT)/integer-promotions/run-test-x64 \
 		$(TEST_OUT)/integer-promotions/x64.s
 	$(TEST_OUT)/integer-promotions/run-test-x64
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -S \
+		-o $(TEST_OUT)/integer-promotions/x64-o2.s tests/integer_promotion.c
+	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/integer-promotions/run-test-x64-o2 \
+		$(TEST_OUT)/integer-promotions/x64-o2.s
+	$(TEST_OUT)/integer-promotions/run-test-x64-o2
 else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/integer-promotions/run-test-x86 \
@@ -16622,6 +16693,10 @@ else
 		$(TEST_OUT)/integer-promotions/x86.ro
 	$(TEST_OUT)/integer-promotions/run-test-x64 \
 		$(TEST_OUT)/integer-promotions/x64.ro
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -c \
+		-o $(TEST_OUT)/integer-promotions/x64-o2.ro tests/integer_promotion.c
+	$(TEST_OUT)/integer-promotions/run-test-x64 \
+		$(TEST_OUT)/integer-promotions/x64-o2.ro
 endif
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/integer-promotions/invalid.ro \
@@ -16630,6 +16705,7 @@ endif
 	$(call CHECK_TEXT,bitwise complement requires integer operand,$(TEST_OUT)/integer-promotions/invalid.log)
 	$(call CHECK_TEXT,shift operator requires integer operands,$(TEST_OUT)/integer-promotions/invalid.log)
 	$(call CHECK_TEXT,logical not requires scalar operand,$(TEST_OUT)/integer-promotions/invalid.log)
+	$(call CHECK_TEXT,unary plus requires an arithmetic or unscoped enum operand,$(TEST_OUT)/integer-promotions/invalid.log)
 	@echo "Dual-architecture C17 integer promotion tests completed"
 
 test-integer-conversions: $(RCC_TARGET)

@@ -1,3 +1,7 @@
+enum unary_plus_promotion_enum {
+    UNARY_PLUS_PROMOTION_ENUM_VALUE = 1,
+};
+
 int shift_signed_comparison(int value, unsigned long long count)
 {
     return (value >> count) < 0;
@@ -42,6 +46,26 @@ int unary_type_signed_char(signed char value)
     return _Generic((-value), int: 1, default: 2);
 }
 
+int unary_plus_type_signed_char(signed char value)
+{
+    return _Generic((+value), int: 1, default: 2);
+}
+
+int unary_plus_type_unsigned_short(unsigned short value)
+{
+    return _Generic((+value), int: 1, default: 2);
+}
+
+int unary_plus_type_enum(enum unary_plus_promotion_enum value)
+{
+    return _Generic((+value), int: 1, default: 2);
+}
+
+int unary_plus_type_float(float value)
+{
+    return _Generic((+value), float: 1, default: 2);
+}
+
 int unary_type_unsigned_short(unsigned short value)
 {
     return _Generic((~value), int: 1, default: 2);
@@ -62,6 +86,10 @@ int main(void)
            shift_unsigned_right(0x80000000U, 31ULL) == 1U &&
            shift_type_signed() == 1 && shift_type_unsigned() == 1 &&
            shift_type_short(3U) == 1 && unary_type_signed_char(-3) == 1 &&
+           unary_plus_type_signed_char(-3) == 1 &&
+           unary_plus_type_unsigned_short(3U) == 1 &&
+           unary_plus_type_enum(UNARY_PLUS_PROMOTION_ENUM_VALUE) == 1 &&
+           unary_plus_type_float(3.0f) == 1 &&
            unary_type_unsigned_short(3U) == 1 &&
            bitnot_unsigned_short(0xffffU) == -65536
         ? 0 : 1;

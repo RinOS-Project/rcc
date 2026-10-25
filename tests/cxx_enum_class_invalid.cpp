@@ -30,3 +30,24 @@ int subscript_enum() {
     int values[8] = {};
     return values[Color::red];
 }
+
+int unary_plus_enum() {
+    return +Color::red;
+}
+
+struct AmbiguousUnaryPlus {
+    operator int() const { return 1; }
+    operator float() const { return 1.0f; }
+};
+
+int unary_plus_ambiguous_conversion(AmbiguousUnaryPlus value) {
+    return +value;
+}
+
+struct ExplicitUnaryPlus {
+    explicit operator int() const { return 1; }
+};
+
+int unary_plus_explicit_conversion(ExplicitUnaryPlus value) {
+    return +value;
+}

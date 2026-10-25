@@ -23,6 +23,14 @@ static_assert(sizeof(unscoped_unsigned_byte_maximum << 1) == sizeof(int),
               "fixed-underlying enum shift uses integer promotion");
 static_assert((unscoped_unsigned_byte_maximum << 1) == 510,
               "fixed-underlying enum shift preserves promoted value");
+static_assert(sizeof(+unscoped_unsigned_byte_maximum) == sizeof(int),
+              "fixed-underlying enum unary plus uses integer promotion");
+static_assert(+unscoped_unsigned_byte_maximum == 255,
+              "fixed-underlying enum unary plus preserves promoted value");
+static_assert(sizeof(+true) == sizeof(int),
+              "unary plus promotes bool to int");
+static_assert(sizeof(+1.0f) == sizeof(float),
+              "unary plus preserves floating operand type");
 static_assert(sizeof(-unscoped_unsigned_byte_maximum) == sizeof(int),
               "fixed-underlying enum negation uses integer promotion");
 static_assert((-unscoped_unsigned_byte_maximum) == -255,
@@ -31,6 +39,27 @@ static_assert(sizeof(~unscoped_unsigned_byte_maximum) == sizeof(int),
               "fixed-underlying enum complement uses integer promotion");
 static_assert((~unscoped_unsigned_byte_maximum) == -256,
               "fixed-underlying enum complement is evaluated as int");
+
+struct UnaryPlusMember {
+    int value;
+    int operator+() const { return value + 1; }
+};
+
+struct UnaryPlusFree {
+    int value;
+};
+
+int operator+(UnaryPlusFree value) { return value.value + 2; }
+
+template <typename T>
+int unary_plus_template(T value) {
+    return +value;
+}
+
+template <int Value>
+int unary_plus_template_constant() {
+    return +Value;
+}
 
 enum class UnsignedByte : unsigned char {
     maximum = 255,
@@ -122,9 +151,16 @@ int cxx_enum_class_probe() {
     if (second != 14) return 4;
     if (third != 7) return 5;
     UnscopedUnsignedByte byte_value = unscoped_unsigned_byte_maximum;
+    if (+byte_value != 255) return 20;
     if ((byte_value << 1) != 510) return 17;
     if (-byte_value != -255) return 19;
     if ((~byte_value) != -256) return 18;
+    UnaryPlusMember member_plus = {40};
+    if (+member_plus != 41) return 21;
+    UnaryPlusFree free_plus = {40};
+    if (+free_plus != 42) return 22;
+    if (unary_plus_template(member_plus) != 41) return 23;
+    if (unary_plus_template_constant<43>() != 43) return 24;
     if (static_cast<unsigned>(UnsignedByte::maximum) != 255u) return 6;
     if (static_cast<int>(SignedByte::minimum) != -128) return 7;
     if (static_cast<int>(SignedByte::maximum) != 127) return 8;

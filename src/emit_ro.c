@@ -4082,6 +4082,7 @@ static bool debug_inline_parameter_expression_is_read_only(
                 if (item->decl == expression->ident_decl) return true;
             }
             return false;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -4355,6 +4356,14 @@ static bool debug_inline_integer_constant_bits(
         }
         return debug_inline_integer_constant_convert_bits(
             result_bits, expression->cast_type, result_type, value);
+    }
+    if (expression->kind == EXPR_POS) {
+        return expression->unary_operand &&
+            debug_inline_integer_constant_bits(
+                expression->unary_operand, &left_bits, depth + 1u) &&
+            debug_inline_integer_constant_convert_bits(
+                left_bits, expression->unary_operand->type, result_type,
+                value);
     }
     if (expression->kind == EXPR_NEG) {
         if (!expression->unary_operand ||
@@ -5357,6 +5366,10 @@ static bool debug_inline_integer_literal_bits(
         *bits = (uint64_t)expression->int_val;
         return true;
     }
+    if (expression->kind == EXPR_POS && expression->unary_operand) {
+        return debug_inline_integer_literal_bits(
+            expression->unary_operand, bits, depth + 1u);
+    }
     if ((expression->kind == EXPR_NEG ||
          expression->kind == EXPR_BITNOT) && expression->unary_operand &&
         debug_inline_integer_literal_bits(
@@ -5458,6 +5471,17 @@ static bool debug_build_inline_integer_value_expression(
             (architecture == ARCH_X64 ? 8u : 4u) &&
         debug_build_inline_integer_value_expression(
             mod, architecture, expression->cast_expr, output, capacity,
+            output_size, depth + 1u) &&
+        debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture)) {
+        return true;
+    }
+
+    if (expression->kind == EXPR_POS && expression->unary_operand &&
+        debug_inline_integer_expression_type(
+            expression->unary_operand->type) &&
+        debug_build_inline_integer_value_expression(
+            mod, architecture, expression->unary_operand, output, capacity,
             output_size, depth + 1u) &&
         debug_inline_integer_expression_normalize(
             output, capacity, output_size, expression->type, architecture)) {
@@ -6790,6 +6814,7 @@ static bool debug_inline_parameter_i686_expression_equal(
     switch (lhs->kind) {
         case EXPR_IDENT:
             return lhs->ident_decl && lhs->ident_decl == rhs->ident_decl;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_BITNOT:
             return debug_inline_parameter_i686_expression_equal(
@@ -6941,6 +6966,14 @@ static bool debug_inline_parameter_i686_u64_append_low_word_expression(
         }
         return debug_inline_integer_expression_append_frame_u32(
             output, capacity, size, ARCH_X86, frame_offset);
+    }
+    if (expression->kind == EXPR_POS && expression->unary_operand &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->unary_operand->type, expression->type, 0u) &&
+        debug_inline_parameter_i686_u64_append_low_word_expression(
+            mod, expression->unary_operand, output, capacity, size,
+            depth + 1u)) {
+        return true;
     }
     if ((expression->kind == EXPR_NEG ||
          expression->kind == EXPR_BITNOT) && expression->unary_operand &&
@@ -8002,6 +8035,7 @@ static bool debug_inline_parameter_integer_expression(
          argument->expr->kind != EXPR_GT &&
          argument->expr->kind != EXPR_LE &&
          argument->expr->kind != EXPR_GE &&
+         argument->expr->kind != EXPR_POS &&
          argument->expr->kind != EXPR_NEG &&
          argument->expr->kind != EXPR_NOT &&
          argument->expr->kind != EXPR_BITNOT) ||

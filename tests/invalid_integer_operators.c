@@ -21,3 +21,8 @@ int invalid_logical_not(struct invalid_integer_operator_value value)
 {
     return !value;
 }
+
+int invalid_unary_plus(struct invalid_integer_operator_value value)
+{
+    return +value;
+}

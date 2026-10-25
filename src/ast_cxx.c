@@ -1885,6 +1885,7 @@ static bool cxx_mangle_template_value_expr_matches(
             }
             return cxx_mangle_template_value_expr_matches(
                 left->unary_operand, right->unary_operand, depth + 1u);
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -2766,8 +2767,8 @@ static bool cxx_member_template_expression_supported(
                cxx_function_template_template_id_parameter_index(
                    tmpl, expression->sizeof_type) >= 0;
     }
-    if (expression->kind == EXPR_NEG || expression->kind == EXPR_NOT ||
-        expression->kind == EXPR_BITNOT) {
+    if (expression->kind == EXPR_POS || expression->kind == EXPR_NEG ||
+        expression->kind == EXPR_NOT || expression->kind == EXPR_BITNOT) {
         return cxx_member_template_expression_supported(
             expression->unary_operand, tmpl);
     }
@@ -2944,6 +2945,7 @@ static void cxx_member_template_expression_append(
     else if (expression->kind == EXPR_GE) operation = "ge";
     else if (expression->kind == EXPR_AND) operation = "aa";
     else if (expression->kind == EXPR_OR) operation = "oo";
+    else if (expression->kind == EXPR_POS) operation = "ps";
     else if (expression->kind == EXPR_NEG) operation = "ng";
     else if (expression->kind == EXPR_NOT) operation = "nt";
     else if (expression->kind == EXPR_BITNOT) operation = "co";
@@ -2954,8 +2956,8 @@ static void cxx_member_template_expression_append(
     }
     memcpy(buf + *pos, operation, operation_length);
     *pos += operation_length;
-    if (expression->kind == EXPR_NEG || expression->kind == EXPR_NOT ||
-        expression->kind == EXPR_BITNOT) {
+    if (expression->kind == EXPR_POS || expression->kind == EXPR_NEG ||
+        expression->kind == EXPR_NOT || expression->kind == EXPR_BITNOT) {
         cxx_member_template_expression_append(
             buf, pos, expression->unary_operand, tmpl, context);
     } else if (expression->kind == EXPR_COND) {
@@ -7443,6 +7445,7 @@ static bool cxx_template_redeclaration_expr_matches(
                     left->member_base, left_template, left_requires_params,
                     right->member_base, right_template,
                     right_requires_params, depth + 1);
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -8187,6 +8190,7 @@ static int template_parameter_pack_index_expression(CxxTemplate* tmpl,
                                 tmpl, argument->type));
             }
             return result;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -10372,6 +10376,7 @@ static bool template_expr_contains_type_parameter(Expr* expression,
                 }
             }
             return false;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -10486,6 +10491,7 @@ static bool template_expr_contains_identifier(Expr* expression,
         case EXPR_IDENT:
             return expression->ident_name &&
                    strcmp(expression->ident_name, name) == 0;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -10622,6 +10628,7 @@ static void template_replace_pack_identifier(Expr* expression,
                 expression->ident_decl = NULL;
             }
             return;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -12510,6 +12517,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->cxx_noexcept_value = false;
             copy->cxx_noexcept_value_valid = false;
             break;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:

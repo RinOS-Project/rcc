@@ -9,6 +9,11 @@
 #include "ast_cxx.h"
 #include <limits.h>
 
+#if defined(__GNUC__) || defined(__clang__)
+extern void rcc_parser_cxx_set_expression_template_context(
+    Expr*) __attribute__((weak));
+#endif
+
 /* Parser state - exported for parser_cxx.c */
 typedef struct {
     Token* cur;
@@ -1023,15 +1028,21 @@ static bool eval_integer_constant_typed(Expr* expr,
             value->type = expr->type ? expr->type : type_bool;
             return true;
         }
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_BITNOT:
             if (!eval_integer_constant_typed(expr->unary_operand, &left)) {
                 return false;
             }
-            common = left.type->kind < TYPE_INT ? type_int : left.type;
+            common = left.type;
+            if (common->kind == TYPE_ENUM && !common->enum_is_scoped) {
+                common = common->enum_underlying_type
+                    ? common->enum_underlying_type : type_int;
+            }
+            if (common->kind < TYPE_INT) common = type_int;
             left = integer_constant_convert(left, common);
-            value->bits = expr->kind == EXPR_NEG ? 0u - left.bits
-                                                 : ~left.bits;
+            value->bits = expr->kind == EXPR_POS ? left.bits
+                : expr->kind == EXPR_NEG ? 0u - left.bits : ~left.bits;
             value->bits &= integer_type_mask(common);
             value->type = common;
             return true;
@@ -2897,7 +2908,13 @@ static Expr* parse_unary(void) {
         return expr_unary(EXPR_DEREF, e, loc);
     }
     if (match(TOK_PLUS)) {
-        return parse_unary();  /* Unary + is no-op */
+        Expr* e = parse_unary();
+        Expr* expression = expr_unary(EXPR_POS, e, loc);
+        if (parser_cxx_mode &&
+            rcc_parser_cxx_set_expression_template_context) {
+            rcc_parser_cxx_set_expression_template_context(expression);
+        }
+        return expression;
     }
     if (match(TOK_MINUS)) {
         Expr* e = parse_unary();

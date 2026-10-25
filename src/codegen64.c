@@ -5756,6 +5756,7 @@ static Expr* gen64_cxx_bind_constructor_expression(
     copy = gen64_cxx_constructor_binding_alloc(sizeof(*copy));
     *copy = *expression;
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -7974,6 +7975,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             break;
         }
+
+        case EXPR_POS:
+            gen64_expr(mod, expr->unary_operand);
+            break;
 
         case EXPR_NEG:
             if (gen64_is_floating(expr->type)) {

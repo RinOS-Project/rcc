@@ -1488,6 +1488,7 @@ static bool inline_scalar_expression_shape(
             if (binding_index >= binding_count) return false;
             ++bindings[binding_index].uses;
             return true;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -1626,6 +1627,7 @@ static Expr* clone_inline_scalar_expression(
         return (Expr*)expression;
     }
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -1740,6 +1742,7 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
             return (Expr*)expression;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -1873,6 +1876,7 @@ static size_t inline_pure_scalar_expression_cost(const Expr* expression) {
         case EXPR_ALIGNOF:
         case EXPR_NOEXCEPT:
             return 1u;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -3075,6 +3079,7 @@ static bool expression_mentions_decl(const Expr* expression,
             return false;
         case EXPR_IDENT:
             return expression->ident_decl == declaration;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -3274,6 +3279,7 @@ static bool expression_modifies_decl(const Expr* expression,
         case EXPR_ADDR:
             return expression_mentions_decl(expression->unary_operand,
                                             declaration);
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -3514,6 +3520,7 @@ static bool expression_has_side_effect(const Expr* expression) {
         case EXPR_VA_COPY:
         case EXPR_VA_ARG:
             return true;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -4222,6 +4229,7 @@ static Expr* clone_unrolled_expr(const Expr* expression) {
     copy = ast_arena_alloc(sizeof(*copy));
     *copy = *expression;
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -4928,6 +4936,7 @@ static void optimize_expr(Expr** expression) {
                 replace_integer(value, value->cxx_noexcept_value ? 1 : 0);
             }
             return;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -5060,6 +5069,8 @@ static void optimize_expr(Expr** expression) {
     if (simplify_unsigned_small_multiply(expression)) return;
 
     switch (value->kind) {
+        case EXPR_POS:
+            return;
         case EXPR_NEG:
             if (integer_literal(value->unary_operand, &left) &&
                 integer_width(value->type) != 0) {
@@ -5536,6 +5547,7 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
         case EXPR_CXX_TYPEID:
         case EXPR_CXX_TYPE_TRAIT:
             return;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -6061,6 +6073,7 @@ static void mark_address_escapes_expr(const Expr* expression,
             mark_reference_escape(expression->unary_operand, locals);
             mark_address_escapes_expr(expression->unary_operand, locals);
             return;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -6382,6 +6395,7 @@ static void mark_dead_store_reads(const Expr* expression,
             return;
         case EXPR_CXX_FOLD:
             return;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:

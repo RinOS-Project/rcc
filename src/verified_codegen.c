@@ -195,6 +195,7 @@ static void verified_emit_typeinfo_expr(Module* module, const Expr* expression) 
     switch (expression->kind) {
         case EXPR_ADDR:
         case EXPR_DEREF:
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:

@@ -651,6 +651,7 @@ static bool lower_wide_ssa_expression_safe(const Expr* expression) {
                 expression->ident_decl->type->kind != TYPE_ARRAY &&
                 expression->ident_decl->type->kind != TYPE_STRUCT &&
                 expression->ident_decl->type->kind != TYPE_UNION;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -7855,6 +7856,7 @@ static bool lower_noexcept_expression(const Expr* expression) {
                 lower_noexcept_expression(expression->cond_else);
         case EXPR_CAST:
             return lower_noexcept_expression(expression->cast_expr);
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -13425,6 +13427,13 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             return lower_invalid_value();
         case EXPR_SPACESHIP:
             return lower_spaceship(context, expression);
+        case EXPR_POS:
+            operand = lower_expression(context, expression->unary_operand);
+            if (!operand.valid) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            return lower_cast(context, operand, expression->type);
         case EXPR_NEG: {
             operand = lower_expression(context, expression->unary_operand);
             if (!operand.valid) {
@@ -17451,6 +17460,7 @@ static bool lower_cxx_constructor_initializer_expression_supported(
                 !expression->ident_decl->type->is_volatile &&
                 !expression->ident_decl->type->is_atomic &&
                 lower_find_local(context, expression->ident_decl) != NULL;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:

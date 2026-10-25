@@ -227,7 +227,8 @@ static bool driver_validate_expr(Expr* expression)
             rcc_error(expression->loc,
                       "driver mode forbids floating-point literals");
             return false;
-        case EXPR_NEG: case EXPR_NOT: case EXPR_BITNOT: case EXPR_ADDR:
+        case EXPR_POS: case EXPR_NEG: case EXPR_NOT: case EXPR_BITNOT:
+        case EXPR_ADDR:
         case EXPR_DEREF: case EXPR_PREINC: case EXPR_PREDEC:
         case EXPR_POSTINC: case EXPR_POSTDEC:
             return driver_validate_expr(expression->unary_operand);

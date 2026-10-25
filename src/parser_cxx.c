@@ -1749,6 +1749,7 @@ static Type* cxx_parser_expression_type(Expr* expression) {
                            right->cxx_is_member_pointer
                 ? right->base : NULL;
 
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -8728,6 +8729,7 @@ static bool cxx_constructor_scalar_constant(Expr* expression) {
     switch (expression->kind) {
         case EXPR_FLOAT_LIT:
             return true;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -8829,6 +8831,7 @@ static bool cxx_constructor_dmi_expression_is_lowerable(
                 strcmp(expression->member_base->ident_name, "this") == 0 &&
                 cxx_constructor_dmi_field_is_earlier(
                     cls, initialized_field, expression->member_name);
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -9087,6 +9090,7 @@ static bool cxx_constructor_expression_is_lowerable(
         case EXPR_CHAR_LIT:
         case EXPR_FLOAT_LIT:
             return !target_type || cxx_constructor_scalar_type(target_type);
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -23233,6 +23237,7 @@ static bool cxx_dependent_decltype_calls_are_viable(
                    (!argument || cxx_dependent_decltype_calls_are_viable(
                                     argument->expr, depth + 1u));
         }
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -23312,6 +23317,7 @@ static bool cxx_resolve_dependent_function_template_calls(
                 }
             }
             return true;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -23746,6 +23752,7 @@ static bool cxx_partial_owner_expression_equal(
         case EXPR_IDENT:
             return left->ident_name && right->ident_name &&
                 strcmp(left->ident_name, right->ident_name) == 0;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -23831,7 +23838,8 @@ static bool cxx_partial_owner_expression_matches(
         if (specificity) *specificity += 8;
         return cxx_partial_owner_expression_equal(pattern, actual, 0u);
     }
-    if (pattern->kind == EXPR_NEG || pattern->kind == EXPR_NOT ||
+    if (pattern->kind == EXPR_POS || pattern->kind == EXPR_NEG ||
+        pattern->kind == EXPR_NOT ||
         pattern->kind == EXPR_BITNOT || pattern->kind == EXPR_ADDR ||
         pattern->kind == EXPR_DEREF || pattern->kind == EXPR_PREINC ||
         pattern->kind == EXPR_PREDEC || pattern->kind == EXPR_POSTINC ||
@@ -24235,6 +24243,7 @@ static bool cxx_expression_is_dependent(
                 }
             }
             return false;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -24317,6 +24326,16 @@ static bool cxx_expression_is_dependent(
         default:
             return false;
     }
+}
+
+bool rcc_parser_cxx_expression_is_dependent(const Expr* expression) {
+    const CxxTemplate* tmpl = expression && expression->cxx_template_context
+        ? expression->cxx_template_context : active_template;
+    return cxx_expression_is_dependent(expression, tmpl);
+}
+
+void rcc_parser_cxx_set_expression_template_context(Expr* expression) {
+    if (expression) expression->cxx_template_context = active_template;
 }
 
 static bool cxx_type_pattern_contains_dependent_component(
@@ -26604,6 +26623,7 @@ static bool cxx_function_template_resolve_dependent_static_integer_members(
         }
     }
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -26746,6 +26766,7 @@ static bool cxx_function_template_expression_has_undeduced_nontype_parameter(
         return false;
     }
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -28410,6 +28431,7 @@ static bool cxx_expression_uses_sizeof_pack_name(
         return strcmp(expression->sizeof_pack_name, pack_name) == 0;
     }
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -28776,6 +28798,7 @@ static bool cxx_template_expression_is_nothrow(
         case EXPR_CXX_TYPEID:
         case EXPR_NOEXCEPT:
             return true;
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -29322,6 +29345,11 @@ static bool eval_template_integer_expression(Expr* expression,
             function, expression->call_args, result);
     }
     switch (expression->kind) {
+        case EXPR_POS:
+            if (!eval_template_integer_expression(
+                    expression->unary_operand, tmpl, values, value_present,
+                    result)) return false;
+            return true;
         case EXPR_NEG:
             if (!eval_template_integer_expression(
                     expression->unary_operand, tmpl, values, value_present,
@@ -29689,6 +29717,18 @@ static bool eval_template_floating_expression(
                 expression->cast_type, evaluated);
             *result = evaluated;
             return true;
+        case EXPR_POS:
+            if (!eval_template_floating_expression(
+                    expression->unary_operand, tmpl, values, value_present,
+                    &evaluated)) {
+                return false;
+            }
+            *result = cxx_template_round_floating_type(
+                expression->type ? expression->type
+                                 : cxx_template_expression_floating_type(
+                                       expression->unary_operand),
+                evaluated);
+            return true;
         case EXPR_NEG:
             if (!eval_template_floating_expression(
                     expression->unary_operand, tmpl, values, value_present,
@@ -29866,6 +29906,7 @@ static bool cxx_template_expression_is_floating(const Expr* expression) {
             return true;
         case EXPR_CAST:
             return type_is_floating(expression->cast_type);
+        case EXPR_POS:
         case EXPR_NEG:
             return cxx_template_expression_is_floating(
                 expression->unary_operand);
@@ -29899,6 +29940,7 @@ static Type* cxx_template_expression_floating_type(const Expr* expression) {
                 ? expression->cast_type
                 : cxx_template_expression_floating_type(
                       expression->cast_expr);
+        case EXPR_POS:
         case EXPR_NEG:
             return cxx_template_expression_floating_type(
                 expression->unary_operand);
@@ -29995,7 +30037,8 @@ static Type* cxx_template_integer_expression_type(
         }
         return NULL;
     }
-    if (expression->kind == EXPR_NEG || expression->kind == EXPR_BITNOT ||
+    if (expression->kind == EXPR_POS || expression->kind == EXPR_NEG ||
+        expression->kind == EXPR_BITNOT ||
         expression->kind == EXPR_LSHIFT || expression->kind == EXPR_RSHIFT) {
         Type* operand_type = cxx_template_integer_expression_type(
             expression->kind == EXPR_LSHIFT ||
@@ -30039,6 +30082,13 @@ static Type* cxx_template_integer_expression_type(
         }
     }
     return NULL;
+}
+
+Type* rcc_parser_cxx_dependent_integer_expression_type(
+    const Expr* expression) {
+    CxxTemplate* tmpl = expression && expression->cxx_template_context
+        ? expression->cxx_template_context : active_template;
+    return cxx_template_integer_expression_type((Expr*)expression, tmpl);
 }
 
 static bool eval_template_integer_expression_bits(
@@ -30090,6 +30140,14 @@ static bool eval_template_integer_expression_bits(
                 return cxx_template_integer_bits_from_floating(
                     floating_value, expression->cast_type, result);
             }
+        case EXPR_POS:
+            if (!eval_template_integer_expression_bits(
+                    expression->unary_operand, tmpl, values, value_present,
+                    &left)) {
+                return false;
+            }
+            return cxx_template_integer_bits_convert(
+                &left, result_type ? result_type : left.type, result);
         case EXPR_NEG:
             if (!eval_template_integer_expression_bits(
                     expression->unary_operand, tmpl, values, value_present,
@@ -30418,6 +30476,9 @@ static bool cxx_template_integer_expression_overflows(
     if (!expression) return false;
 
     switch (expression->kind) {
+        case EXPR_POS:
+            return cxx_template_integer_expression_overflows(
+                expression->unary_operand, tmpl, values, value_present);
         case EXPR_NEG:
             if (eval_template_integer_expression(
                     expression->unary_operand, tmpl, values, value_present,
@@ -30777,6 +30838,7 @@ static Expr* cxx_substitute_class_owner_value_expression(
         return expression;
     }
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -32627,6 +32689,7 @@ static Expr* cxx_constraint_substitute_nontype_expression(
         }
     }
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -34567,7 +34630,8 @@ static void cxx_function_template_dependent_member_expression_info(
         *supported = true;
         return;
     }
-    if (expression->kind == EXPR_NEG || expression->kind == EXPR_NOT ||
+    if (expression->kind == EXPR_POS || expression->kind == EXPR_NEG ||
+        expression->kind == EXPR_NOT ||
         expression->kind == EXPR_BITNOT) {
         cxx_function_template_dependent_member_expression_info(
             expression->unary_operand, tmpl, supported,
@@ -34735,7 +34799,8 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
         if (supported) *supported = true;
         return type_deduced;
     }
-    if (parameter_expression->kind == EXPR_NEG ||
+    if (parameter_expression->kind == EXPR_POS ||
+        parameter_expression->kind == EXPR_NEG ||
         parameter_expression->kind == EXPR_NOT ||
         parameter_expression->kind == EXPR_BITNOT) {
         bool operand_supported = false;
@@ -35308,6 +35373,7 @@ static int cxx_parser_template_value_pack_index_expression(
         }
     }
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -35514,6 +35580,7 @@ static void cxx_parser_replace_pack_value_identifier(
         return;
     }
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:

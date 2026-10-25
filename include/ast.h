@@ -478,6 +478,7 @@ typedef enum {
     EXPR_CXX_THIS,         /* Synthetic current object for constructor calls. */
 
     /* Unary */
+    EXPR_POS,           /* +x */
     EXPR_NEG,           /* -x */
     EXPR_NOT,           /* !x */
     EXPR_BITNOT,        /* ~x */

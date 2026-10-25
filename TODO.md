@@ -527,9 +527,14 @@
       `test-cxx-enum-class` passes on i686/AMD64 and validates generated `.rin`,
       `.rll`, and `.drv` images. The C++ scalar variadic-promotion
       interoperability gate also passes.
-- [ ] Model unary `+` as a real expression so built-in integral promotions and
-      C++ overloaded unary-plus resolution are preserved instead of erasing the
-      operator during parsing.
+- [x] Model unary `+` as an expression so C integer promotions and C++ built-in
+      conversions, overloads, and template substitution retain their semantics.
+      `test-integer-promotions` covers C `_Generic`, diagnostics, i686/AMD64
+      execution, and AMD64 `-O2`. `test-cxx-enum-class` covers bool/floating and
+      enum promotions, member/free overloads, dependent templates, implicit and
+      ambiguous/explicit class conversions, both architectures, optimized host
+      execution, verified-backend `-O2` on both targets, and validated `.rin`,
+      `.rll`, and `.drv` output.
 - [x] fixed-underlying enumでunsigned 64-bit列挙子を`ULLONG_MAX`まで保持し、暗黙の
       次値／overflowとtyped constant evaluationをi686/AMD64で検証。DWARFにも
       `DW_ATE_unsigned`と`DW_FORM_udata`でunsigned値を出力し両archで検証する

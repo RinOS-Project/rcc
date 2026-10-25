@@ -8656,6 +8656,9 @@ static void gen_expr64_pair_impl(Module* mod, Expr* expr) {
             }
             break;
 
+        case EXPR_POS:
+            gen_expr64_pair(mod, expr->unary_operand);
+            break;
         case EXPR_NEG:
             gen_expr64_pair(mod, expr->unary_operand);
             emit_neg_reg(mod, EAX);
@@ -10182,6 +10185,7 @@ static Expr* gen_cxx_bind_constructor_expression32(
     copy = gen_cxx_constructor_binding_alloc32(sizeof(*copy));
     *copy = *expression;
     switch (expression->kind) {
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
@@ -13638,6 +13642,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
         }
 
+        case EXPR_POS:
+            gen_expr(mod, expr->unary_operand);
+            break;
+
         case EXPR_NEG:
             gen_expr(mod, expr->unary_operand);
             if (gen_is_floating(expr->type)) {
@@ -16842,6 +16850,7 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
             }
             break;
         }
+        case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:

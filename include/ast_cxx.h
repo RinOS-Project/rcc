@@ -501,6 +501,10 @@ bool cxx_method_override_signature_matches(const CxxMethod* derived,
 bool rcc_parser_cxx_eval_template_integer_expression(
     Expr* expression, CxxTemplate* tmpl, const int64_t* values,
     const bool* value_present, int64_t* result);
+bool rcc_parser_cxx_expression_is_dependent(const Expr* expression);
+Type* rcc_parser_cxx_dependent_integer_expression_type(
+    const Expr* expression);
+void rcc_parser_cxx_set_expression_template_context(Expr* expression);
 bool rcc_parser_cxx_resolve_dependent_static_integer_members(
     Expr** expression_pointer, CxxTemplate* tmpl, Type** arguments,
     const int64_t* values, const bool* value_present, unsigned depth);
