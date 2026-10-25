@@ -12375,6 +12375,46 @@ static bool codegen64_asm_no_operands(const char* text, size_t length,
            strncmp(text, mnemonic, mnemonic_length) == 0;
 }
 
+static bool codegen64_asm_emit_string_instruction(Module* mod,
+                                                   const char* text,
+                                                   size_t length,
+                                                   bool repeat)
+{
+    uint8_t opcode;
+    int width = 4;
+    bool recognized = false;
+
+    if (length == 5u && memcmp(text, "movsb", 5u) == 0) {
+        opcode = 0xA4;
+        width = 1;
+        recognized = true;
+    } else if ((length == 5u && memcmp(text, "movsw", 5u) == 0) ||
+               (length == 5u && memcmp(text, "movsl", 5u) == 0) ||
+               (length == 5u && memcmp(text, "movsd", 5u) == 0) ||
+               (length == 5u && memcmp(text, "movsq", 5u) == 0)) {
+        opcode = 0xA5;
+        width = text[4] == 'w' ? 2 : text[4] == 'q' ? 8 : 4;
+        recognized = true;
+    } else if (length == 5u && memcmp(text, "stosb", 5u) == 0) {
+        opcode = 0xAA;
+        width = 1;
+        recognized = true;
+    } else if ((length == 5u && memcmp(text, "stosw", 5u) == 0) ||
+               (length == 5u && memcmp(text, "stosl", 5u) == 0) ||
+               (length == 5u && memcmp(text, "stosd", 5u) == 0) ||
+               (length == 5u && memcmp(text, "stosq", 5u) == 0)) {
+        opcode = 0xAB;
+        width = text[4] == 'w' ? 2 : text[4] == 'q' ? 8 : 4;
+        recognized = true;
+    }
+    if (!recognized) return false;
+    if (repeat) emit_byte(mod, 0xF3);
+    if (width == 2) emit_byte(mod, 0x66);
+    if (width == 8) emit_byte(mod, 0x48);
+    emit_byte(mod, opcode);
+    return true;
+}
+
 static bool codegen64_asm_parse_int(const char* text, size_t length,
                                     uint8_t* immediate_out)
 {
@@ -12828,6 +12868,7 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
                                            size_t length, bool lock_prefix)
 {
     uint8_t immediate;
+    bool repeat_prefix = false;
 
     while (length > 0u && (*text == ' ' || *text == '\t' ||
                            *text == '\r')) {
@@ -12851,6 +12892,20 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
         emit_byte(mod, 0x00);
         return true;
     }
+    if (length >= 4u && memcmp(text, "rep ", 4u) == 0) {
+        text += 4u;
+        length -= 4u;
+        while (length > 0u && (*text == ' ' || *text == '\t')) {
+            ++text;
+            --length;
+        }
+        repeat_prefix = true;
+    }
+    if (codegen64_asm_emit_string_instruction(mod, text, length,
+                                               repeat_prefix)) {
+        return true;
+    }
+    if (repeat_prefix) return false;
     if (codegen64_asm_emit_io(mod, text, length, "inb", 1, true) ||
         codegen64_asm_emit_io(mod, text, length, "inw", 2, true) ||
         codegen64_asm_emit_io(mod, text, length, "inl", 4, true) ||
