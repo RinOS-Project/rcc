@@ -9621,9 +9621,17 @@ remains a separate open item.
       subscript, and arrow-member access at runtime, GCC C++20 syntax, both
       target widths, and mismatched-return diagnostics in
       `test-cxx-class-template-methods` and `test-cxx-member-methods-invalid`.
-- [ ] Explicit member specializations on dependent or non-template nested
-      owners, overloaded member operators, and remaining ABI/lifetime cases
-      remain open.
+- [x] Support explicit specializations of overloaded member-function
+      operators `operator+`, `operator[]`, and `operator()` on a fully
+      specialized class-template owner, plus `operator+` on an ordinary class
+      owner. Materialize member-template candidates during infix, subscript,
+      and call-operator resolution so the specialization and competing
+      overloads are selected correctly. GCC C++20 syntax and exact Itanium
+      symbols, i686/AMD64 assembly, AMD64 runtime, and RCC/GCC rejection of
+      missing/surplus template heads pass in
+      `test-cxx-class-template-member-function-explicit-specialization`.
+- [ ] Explicit member specializations through dependent owner chains, other
+      overloaded operator forms, and remaining ABI/lifetime cases remain open.
 
 ## RCC continuation (2026-10-25, member-template lookahead and glvalue category)
 
@@ -9643,9 +9651,8 @@ remains a separate open item.
       optimizer runtime test, avoiding a host-side decimal-constant mismatch.
       `test-optimize` passes on the native Windows target; the POSIX run passed
       its optimizer execution checks before the WSL shared-drive I/O failure.
-- [ ] Explicit member specializations through dependent owners, class-template
-      partial-specialization owners, overloaded member operators, and remaining
-      ABI/lifetime cases remain open.
+- [ ] Explicit member specializations through dependent owner chains, other
+      overloaded operator forms, and remaining ABI/lifetime cases remain open.
 
 ## RCC continuation (2026-10-25, class-template-owner member-template specialization)
 
@@ -9679,5 +9686,13 @@ remains a separate open item.
       owner plus the member template; RCC and GCC reject missing and surplus
       heads without producing an object. The focused nested-owner test and
       complete native-Windows `test-cxx-nested-class-templates` aggregate pass.
-- [ ] Dependent owner chains, overloaded member operators, and remaining
-      ABI/lifetime cases remain open.
+- [x] Specialize overloaded member-function operators `operator+`,
+      `operator[]`, and `operator()` on a fully specialized class-template
+      owner, and `operator+` on an ordinary class owner. Materialize viable
+      member-template overloads for infix, subscript, and call syntax; select
+      the correct overloaded specialization while preserving pointer/scalar
+      primary instantiations. Exact GCC Itanium symbols match; i686 and AMD64
+      assembly, AMD64 execution, and missing/surplus template-head diagnostics
+      pass in the focused class-template-owner target.
+- [ ] Explicit member specializations through dependent owner chains, other
+      overloaded operator forms, and remaining ABI/lifetime cases remain open.
