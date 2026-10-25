@@ -9928,5 +9928,10 @@ remains a separate open item.
       literal and source normalization, and the boundary result at the maximum
       value on i686 and AMD64. Evaluate boundary values in legacy and verified
       DWARF expressions; focused and full `test-debug-info` pass.
+- [x] Promote a fixed-underlying `unsigned char` enum to `int` before comparing
+      it with `-1`. Verify the one-byte unsigned source normalization, signed
+      four-byte comparison, and values from zero through `UCHAR_MAX` in legacy
+      and verified i686/AMD64 DWARF expressions. Focused and full
+      `test-debug-info` pass; GCC C++20 confirms the expression semantics.
 - [ ] Other mixed-rank matrices, enum underlying-width combinations, and
       i686-wide comparisons remain open.
