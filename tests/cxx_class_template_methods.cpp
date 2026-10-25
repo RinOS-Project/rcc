@@ -40,6 +40,22 @@ public:
     int non_type_default() const;
 };
 
+template<typename T>
+class OutOfClassClassTemplateOwner {
+    T value;
+
+public:
+    explicit OutOfClassClassTemplateOwner(T input) : value(input) {}
+
+    T get() const;
+
+    template<typename U = T>
+    U add_to(U input) const;
+
+    template<int Multiplier = 2>
+    T multiply(T input) const;
+};
+
 template<typename U>
 typename U::value_type
 OutOfClassMemberTemplate::convert(U value) const {
@@ -54,6 +70,23 @@ U OutOfClassMemberTemplate::defaulted_value() const {
 template<int Value>
 int OutOfClassMemberTemplate::non_type_default() const {
     return Value;
+}
+
+template<typename T>
+T OutOfClassClassTemplateOwner<T>::get() const {
+    return value;
+}
+
+template<typename T>
+template<typename U>
+U OutOfClassClassTemplateOwner<T>::add_to(U input) const {
+    return input + static_cast<U>(value);
+}
+
+template<typename T>
+template<int Multiplier>
+T OutOfClassClassTemplateOwner<T>::multiply(T input) const {
+    return input * Multiplier;
 }
 
 template<typename T>
@@ -96,6 +129,7 @@ public:
 int main() {
     Box<int> box{};
     OutOfClassMemberTemplate member_template{};
+    OutOfClassClassTemplateOwner<int> out_of_class_owner{4};
     IntMemberTemplateValue int_member_value{13};
     LongMemberTemplateValue long_member_value{17};
     ConstructedBox<int> constructed(7);
@@ -108,6 +142,11 @@ int main() {
            member_template.defaulted_value() == 7 &&
            member_template.non_type_default() == 7 &&
            member_template.non_type_default<9>() == 9 &&
+           out_of_class_owner.get() == 4 &&
+           out_of_class_owner.add_to(3) == 7 &&
+           out_of_class_owner.add_to<long>(9L) == 13L &&
+           out_of_class_owner.multiply(4) == 8 &&
+           out_of_class_owner.multiply<3>(4) == 12 &&
            box.constrained_size() == sizeof(int) &&
            constructed.get() == 7 && referenced.get() == 11 &&
            referenced_value == 11 ? 0 : 1;

@@ -9576,3 +9576,16 @@ remains a separate open item.
       Check the C17 identifier with GCC and RCC execution, and compile the
       single-argument C23 `static_assert` form in the C23 regression target.
 - [ ] Broader C23 language and library conformance remains open.
+
+## RCC continuation (2026-10-25, out-of-class class-template members)
+
+- [x] Define ordinary member functions and member templates outside the
+      primary class-template owner. Preserve the enclosing and member template
+      parameter scopes across consecutive template heads, bind definitions to
+      the primary class pattern, and reuse the declared methods for overload
+      matching and code generation. Verify defaulted type/non-type member
+      parameters, deduced and explicit calls, GCC C++20 syntax, i686/AMD64
+      generation, PE architecture, optimized/unoptimized output, and AMD64
+      runtime in `test-cxx-class-template-methods`.
+- [ ] Explicit member specializations and deeper nested/template owner
+      qualification remain open.

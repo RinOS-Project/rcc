@@ -14549,6 +14549,13 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     if (active_class && parameter_outer_template &&
         parameter_outer_template->kind == TMPL_CLASS) {
         tmpl->enclosing_template = parameter_outer_template;
+    } else if (!active_class && parameter_outer_template &&
+               parameter_outer_template->kind == TMPL_FUNCTION &&
+               !parameter_outer_template->func_def) {
+        /* Consecutive template heads at namespace scope form one template
+         * declaration. The outer head supplies owner parameters to the inner
+         * function-template definition. */
+        tmpl->enclosing_template = parameter_outer_template;
     }
     active_template = tmpl;
 
@@ -14800,6 +14807,20 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
             tmpl = specialization;
             active_template = tmpl;
         }
+    }
+
+    /* A namespace-scope template declaration may have several consecutive
+     * heads. Retain the outer parameter scope while parsing the innermost
+     * declaration, as in `template<class T> template<class U>
+     * U Box<T>::convert(U)`. */
+    if (!active_class && tmpl->param_count > 0 && match(TOK_TEMPLATE)) {
+        CxxTemplate* parameter_scope = tmpl;
+        CxxTemplate* declaration_template;
+        parameter_scope->kind = TMPL_FUNCTION;
+        active_template = parameter_scope;
+        declaration_template = parse_cxx_template(ACCESS_PUBLIC);
+        active_template = parameter_outer_template;
+        return declaration_template;
     }
 
     /* A friend function template declared in a class is a namespace
@@ -16549,6 +16570,81 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
 
 static bool cxx_qualified_member_definition_starts(void) {
     Token* token = parser.cur;
+    Token* qualified_start = token;
+    while (token && (token->type == TOK_STAR || token->type == TOK_AMP ||
+                     token->type == TOK_AND)) {
+        if (token->type == TOK_STAR) {
+            token = token->next;
+            while (token && (token->type == TOK_CONST ||
+                             token->type == TOK_VOLATILE ||
+                             token->type == TOK_RESTRICT)) {
+                token = token->next;
+            }
+        } else {
+            token = token->next;
+        }
+    }
+    if (token && token->type == TOK_SCOPE) token = token->next;
+    if (!token || token->type != TOK_IDENT) return false;
+
+    /* A member definition on a class-template specialization has a template-id
+     * between the owner name and the final `::`, e.g. `Box<T>::get()`.  The
+     * ordinary qualified-name scan below intentionally remains the fast path
+     * for non-template owners.  For template owners, balance the argument
+     * list and require a function-like member declarator after the scope. */
+    {
+        Token* component = token;
+        bool saw_template_id = false;
+        while (component && component->type == TOK_IDENT) {
+            component = component->next;
+            if (component && component->type == TOK_LT) {
+                int depth = 0;
+                int parentheses = 0;
+                int brackets = 0;
+                int braces = 0;
+                saw_template_id = true;
+                for (; component; component = component->next) {
+                    if (component->type == TOK_LPAREN) ++parentheses;
+                    else if (component->type == TOK_RPAREN && parentheses > 0)
+                        --parentheses;
+                    else if (component->type == TOK_LBRACKET) ++brackets;
+                    else if (component->type == TOK_RBRACKET && brackets > 0)
+                        --brackets;
+                    else if (component->type == TOK_LBRACE) ++braces;
+                    else if (component->type == TOK_RBRACE && braces > 0)
+                        --braces;
+                    if (parentheses || brackets || braces) continue;
+                    if (component->type == TOK_LT) ++depth;
+                    else if (component->type == TOK_GT) {
+                        if (depth > 0) --depth;
+                        if (depth == 0) {
+                            component = component->next;
+                            break;
+                        }
+                    } else if (component->type == TOK_RSHIFT) {
+                        if (depth < 2) return false;
+                        depth -= 2;
+                        if (depth == 0) {
+                            component = component->next;
+                            break;
+                        }
+                    }
+                }
+                if (!component) return false;
+            }
+            if (!component || component->type != TOK_SCOPE) break;
+            component = component->next;
+            if (!component) return false;
+            if (component->type == TOK_IDENT && component->next &&
+                component->next->type == TOK_LPAREN) {
+                if (saw_template_id) return true;
+                break;
+            }
+            if (component->type != TOK_IDENT) return false;
+        }
+        if (saw_template_id) return false;
+    }
+    token = qualified_start;
     while (token && (token->type == TOK_STAR || token->type == TOK_AMP ||
                      token->type == TOK_AND)) {
         if (token->type == TOK_STAR) {
@@ -16713,7 +16809,13 @@ static bool cxx_member_definition_template_parameters_match(
     const CxxTemplate* declared_template;
     if (!method) return false;
     declared_template = method->member_template;
-    if (!declared_template) return definition_template == NULL;
+    /* A template head can describe the enclosing class specialization rather
+     * than the member itself (`template<class T> T Box<T>::get()`). A member
+     * template on that owner has an enclosing template-head scope of its own. */
+    if (!declared_template) {
+        return !definition_template ||
+               !definition_template->enclosing_template;
+    }
     if (!definition_template ||
         definition_template->kind != TMPL_FUNCTION ||
         declared_template->param_count != definition_template->param_count) {
@@ -17510,6 +17612,8 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
     char qualified_buffer[1024];
     size_t owner_length;
     CxxClass* cls;
+    CxxTemplate* owner_template = NULL;
+    Type* owner_type = NULL;
     CxxMethod* selected = NULL;
     DeclList* parameters;
     Type* return_type;
@@ -17526,7 +17630,7 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
 
     if (!cxx_qualified_member_definition_starts()) return NULL;
     return_type = cxx_member_definition_return_type(base_type);
-    if (check(TOK_SCOPE) ||
+    if (check(TOK_SCOPE) || cxx_template_id_followed_by_scope(NULL) ||
         (parser.cur && parser.cur->next &&
          parser.cur->next->type == TOK_SCOPE)) {
         Token* token = parser.cur;
@@ -17556,6 +17660,37 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
         } else {
             const char* separator;
             qualified = parse_qualified_name();
+            if (check(TOK_LT) &&
+                (owner_template = find_class_template(qualified)) != NULL) {
+                int written;
+                owner_type = parse_class_template_specialization(
+                    owner_template, loc);
+                if (!owner_type || !match(TOK_SCOPE) ||
+                    !check(TOK_IDENT)) {
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return NULL;
+                }
+                member_name = advance()->value.str_val;
+                written = snprintf(qualified_buffer,
+                                   sizeof(qualified_buffer), "%s::%s",
+                                   qualified, member_name);
+                if (written < 0 ||
+                    (size_t)written >= sizeof(qualified_buffer)) {
+                    parser.cur = saved_cur;
+                    parser.prev = saved_prev;
+                    return NULL;
+                }
+                qualified = rcc_intern(qualified_buffer);
+                cls = owner_type->cxx_dependent
+                    ? owner_template->templated_class
+                    : owner_type->cxx_class;
+                if (!cls && owner_type->cxx_template &&
+                    owner_type->cxx_template->kind == TMPL_CLASS) {
+                    cls = owner_type->cxx_template->templated_class;
+                }
+                goto owner_resolved;
+            }
             separator = qualified ? strrchr(qualified, ':') : NULL;
             if (!separator || separator <= qualified ||
                 separator[-1] != ':') {
@@ -17579,7 +17714,11 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
         return NULL;
     }
     cls = find_class(owner_name);
-    if (!cls || !cls->type || !cls->type->is_complete) {
+owner_resolved:
+    if (!cls || !cls->type ||
+        (!cls->type->is_complete &&
+         !(owner_type && owner_type->cxx_dependent && owner_template &&
+           cls == owner_template->templated_class))) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
