@@ -9805,3 +9805,12 @@ remains a separate open item.
       class-template-specialization targets plus the full `test-cxx` suite
       pass. Nested member class templates with their own template arguments
       remain open.
+- [x] Resolve an out-of-class conversion definition through a dependent
+      class-template owner to a nested member class template with its own
+      template argument (`Owner<T>::Inner<U>`). The exact ref-qualified
+      conversion symbol `_ZNKR34NestedClassTemplateConversionOwnerIiE5InnerIlEcvPKlEv`
+      matches GCC on i686/AMD64; syntax checks, both target assemblies,
+      `-O0`/`-O2` runtime, adjacent conversion/member/specialization targets,
+      and the full `test-cxx` suite pass. Deeper nested-template owner chains
+      and remaining partially dependent owner forms stay open. Local commit;
+      no push.

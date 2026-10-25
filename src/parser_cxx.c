@@ -17921,14 +17921,12 @@ static bool cxx_parse_qualified_conversion_owner(
                 CxxTemplate* nested_declaration;
                 CxxClass* nested_class;
                 size_t nested_name_length;
+                Type* nested_owner_type = NULL;
                 if (check(TOK_OPERATOR)) {
                     *owner_class = cls;
                     return true;
                 }
-                if (!check(TOK_IDENT) || !parser.cur->next ||
-                    parser.cur->next->type != TOK_SCOPE) {
-                    return false;
-                }
+                if (!check(TOK_IDENT)) return false;
                 nested_token = advance();
                 nested_name_length =
                     strlen(nested_token->value.str_val);
@@ -17942,14 +17940,31 @@ static bool cxx_parse_qualified_conversion_owner(
                 }
                 nested_declaration = nested_entry
                     ? nested_entry->declaration : NULL;
-                nested_class = nested_declaration
-                    ? nested_declaration->templated_class : NULL;
-                /* This route handles ordinary nested classes. A nested
-                 * class-template-id needs a separate argument-resolution
-                 * path and remains outside this conversion-owner route. */
-                if (!nested_declaration ||
-                    nested_declaration->param_count != 0 ||
-                    !nested_class ||
+                if (!nested_declaration) return false;
+                if (check(TOK_LT)) {
+                    if (nested_declaration->param_count == 0) return false;
+                    nested_owner_type = *owner_is_dependent
+                        ? parse_class_template_specialization_for_dependent_owner(
+                              nested_declaration, owner_type, loc)
+                        : parse_class_template_specialization_for_owner(
+                              nested_declaration, cls, loc);
+                    if (!nested_owner_type) return false;
+                    nested_class = nested_owner_type->cxx_dependent
+                        ? nested_declaration->templated_class
+                        : nested_owner_type->cxx_class;
+                    if (!nested_class && nested_owner_type->cxx_template &&
+                        nested_owner_type->cxx_template->kind == TMPL_CLASS) {
+                        nested_class = nested_owner_type->cxx_template
+                            ->templated_class;
+                    }
+                    owner_type = nested_owner_type;
+                    *owner_is_dependent = nested_owner_type->cxx_dependent;
+                } else {
+                    if (nested_declaration->param_count != 0) return false;
+                    nested_class = nested_declaration->templated_class;
+                }
+                if (!nested_class || !check(TOK_SCOPE) ||
+                    !parser.cur->next ||
                     length + nested_name_length + 2u >= owner_capacity) {
                     return false;
                 }

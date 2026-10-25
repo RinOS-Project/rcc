@@ -6731,6 +6731,9 @@ test-cxx-class-template-conversion-abi: $(RCXX_TARGET)
 	$(GREP) -F -q '_ZNKR21NestedConversionOwnerIiE5InnercvPKiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/gcc.s
 	$(GREP) -F -q '_ZNKR21NestedConversionOwnerIiE5InnercvPKiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/x86.s
 	$(GREP) -F -q '_ZNKR21NestedConversionOwnerIiE5InnercvPKiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/x64.s
+	$(GREP) -F -q '_ZNKR34NestedClassTemplateConversionOwnerIiE5InnerIlEcvPKlEv' $(TEST_OUT)/cxx-class-template-conversion-abi/gcc.s
+	$(GREP) -F -q '_ZNKR34NestedClassTemplateConversionOwnerIiE5InnerIlEcvPKlEv' $(TEST_OUT)/cxx-class-template-conversion-abi/x86.s
+	$(GREP) -F -q '_ZNKR34NestedClassTemplateConversionOwnerIiE5InnerIlEcvPKlEv' $(TEST_OUT)/cxx-class-template-conversion-abi/x64.s
 
 ifeq ($(OS),Windows_NT)
 test-cxx-class-template-methods: $(RCXX_TARGET) test-cxx-class-template-conversion-abi
