@@ -9966,5 +9966,11 @@ remains a separate open item.
       and `!(enum_value < -1L)` at zero, both sides of the signed boundary, and
       `USHRT_MAX` in legacy and verified i686/AMD64 DWARF. Focused and full
       `test-debug-info` pass.
-- [ ] Other mixed-rank matrices, enum underlying-width combinations, and
-      i686-wide comparisons remain open.
+- [x] Compose frame-backed i686 64-bit signed and unsigned comparisons from
+      high/low 32-bit words for all six operators (`==`, `!=`, `<`, `<=`, `>`,
+      `>=`). Evaluate signed and unsigned boundary values in legacy and verified
+      i686 DWARF; exercise the unchanged AMD64 path as well. Focused and full
+      `test-debug-info` pass.
+- [ ] Computed/non-frame-backed wide operands, conversions from narrower than
+      64 bits, other mixed-rank matrices, and enum underlying-width combinations
+      remain open.

@@ -5396,6 +5396,11 @@ static int64_t debug_inline_integer_bits_to_signed(uint64_t bits,
     return (int64_t)bits;
 }
 
+static bool debug_inline_parameter_i686_u64_comparison_expression(
+    const Module* mod, ExprKind kind, const Expr* left, const Expr* right,
+    const Type* comparison_type, uint8_t* expression, size_t capacity,
+    size_t* expression_size, unsigned int depth);
+
 static bool debug_build_inline_integer_value_expression(
     const Module* mod, int architecture, const Expr* expression,
     uint8_t* output, size_t capacity, size_t* output_size,
@@ -5574,11 +5579,7 @@ static bool debug_build_inline_integer_value_expression(
         debug_inline_integer_expression_type(
             expression->binary_lhs->type) &&
         debug_inline_integer_expression_type(
-            expression->binary_rhs->type) &&
-        (unsigned int)expression->binary_lhs->type->size <=
-            (architecture == ARCH_X64 ? 8u : 4u) &&
-        (unsigned int)expression->binary_rhs->type->size <=
-            (architecture == ARCH_X64 ? 8u : 4u)) {
+            expression->binary_rhs->type)) {
         Type promoted_types[2];
         const Type* comparison_type =
             debug_inline_integer_comparison_common_type(
@@ -5593,7 +5594,24 @@ static bool debug_build_inline_integer_value_expression(
         unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
         bool full_width_unsigned_ordering;
         uint64_t sign_bit = UINT64_C(1) << (address_size * 8u - 1u);
-        if (!debug_inline_integer_expression_type(comparison_type) ||
+        if (!debug_inline_integer_expression_type(comparison_type)) {
+            return false;
+        }
+        if (architecture == ARCH_X86 && comparison_type->size == 8 &&
+            left_type->size == 8 && right_type->size == 8) {
+            if (!debug_inline_parameter_i686_u64_comparison_expression(
+                    mod, expression->kind, expression->binary_lhs,
+                    expression->binary_rhs, comparison_type, output,
+                    capacity, output_size, depth + 1u) ||
+                !debug_inline_integer_expression_normalize(
+                    output, capacity, output_size, expression->type,
+                    architecture)) {
+                return false;
+            }
+            return true;
+        }
+        if ((unsigned int)left_type->size > address_size ||
+            (unsigned int)right_type->size > address_size ||
             (unsigned int)comparison_type->size > address_size) {
             return false;
         }
@@ -5774,6 +5792,158 @@ static bool debug_inline_integer_expression_append_frame_u32(
                expression, capacity, size, 0x94u) && /* DW_OP_deref_size */
         debug_inline_integer_expression_append_byte(
             expression, capacity, size, 4u);
+}
+
+static bool debug_inline_parameter_i686_u64_append_word_expression(
+    const Module* mod, const Expr* value, bool high_word, uint8_t* expression,
+    size_t capacity, size_t* expression_size, unsigned int depth) {
+    uint64_t literal_bits;
+    if (!mod || !value || !expression || !expression_size || depth >= 32u ||
+        !debug_inline_integer_expression_type(value->type) ||
+        value->type->size != 8) {
+        return false;
+    }
+    if (value->kind == EXPR_CAST && value->cast_expr &&
+        value->cast_expr->type && value->cast_expr->type->size == 8) {
+        return debug_inline_parameter_i686_u64_append_word_expression(
+            mod, value->cast_expr, high_word, expression, capacity,
+            expression_size, depth + 1u);
+    }
+    if (value->kind == EXPR_POS && value->unary_operand &&
+        value->unary_operand->type &&
+        value->unary_operand->type->size == 8) {
+        return debug_inline_parameter_i686_u64_append_word_expression(
+            mod, value->unary_operand, high_word, expression, capacity,
+            expression_size, depth + 1u);
+    }
+    if (debug_inline_integer_literal_bits(value, &literal_bits, 0u)) {
+        uint32_t word = high_word
+            ? (uint32_t)(literal_bits >> 32u) : (uint32_t)literal_bits;
+        return debug_inline_integer_expression_append_constu(
+            expression, capacity, expression_size, word);
+    }
+    if (value->kind == EXPR_IDENT && value->ident_decl) {
+        const Decl* source = value->ident_decl;
+        int64_t frame_offset;
+        if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+            source->var_is_global || source->var_is_static_local ||
+            source->var_is_thread_local || source->var_is_vla ||
+            !source->type || source->type->size != 8 ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                source->type, value->type, 0u) ||
+            !debug_inline_parameter_frame_offset(
+                mod, source, &frame_offset) ||
+            (high_word && frame_offset > INT64_MAX - 4)) {
+            return false;
+        }
+        if (high_word) frame_offset += 4;
+        return debug_inline_integer_expression_append_frame_u32(
+            expression, capacity, expression_size, ARCH_X86, frame_offset);
+    }
+    return false;
+}
+
+static bool debug_inline_parameter_i686_u64_append_word_less(
+    const Module* mod, const Expr* left, const Expr* right, bool high_word,
+    bool unsigned_high_word, bool reverse, uint8_t* expression,
+    size_t capacity, size_t* expression_size) {
+    const Expr* first = reverse ? right : left;
+    const Expr* second = reverse ? left : right;
+    bool unsigned_compare = !high_word || unsigned_high_word;
+    if (!debug_inline_parameter_i686_u64_append_word_expression(
+            mod, first, high_word, expression, capacity, expression_size,
+            0u) ||
+        (unsigned_compare &&
+         (!debug_inline_integer_expression_append_constu(
+              expression, capacity, expression_size,
+              UINT32_C(0x80000000)) ||
+          !debug_inline_integer_expression_append_byte(
+              expression, capacity, expression_size, 0x27u))) ||
+        !debug_inline_parameter_i686_u64_append_word_expression(
+            mod, second, high_word, expression, capacity, expression_size,
+            0u) ||
+        (unsigned_compare &&
+         (!debug_inline_integer_expression_append_constu(
+              expression, capacity, expression_size,
+              UINT32_C(0x80000000)) ||
+          !debug_inline_integer_expression_append_byte(
+              expression, capacity, expression_size, 0x27u))) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x2du)) {
+        return false;
+    }
+    return true;
+}
+
+static bool debug_inline_parameter_i686_u64_append_word_equal(
+    const Module* mod, const Expr* left, const Expr* right, bool high_word,
+    uint8_t* expression, size_t capacity, size_t* expression_size) {
+    return debug_inline_parameter_i686_u64_append_word_expression(
+               mod, left, high_word, expression, capacity, expression_size,
+               0u) &&
+        debug_inline_parameter_i686_u64_append_word_expression(
+            mod, right, high_word, expression, capacity, expression_size,
+            0u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x29u);
+}
+
+static bool debug_inline_parameter_i686_u64_comparison_expression(
+    const Module* mod, ExprKind kind, const Expr* left, const Expr* right,
+    const Type* comparison_type, uint8_t* expression, size_t capacity,
+    size_t* expression_size, unsigned int depth) {
+    bool unsigned_type;
+    bool reverse;
+    bool negate;
+    if (!mod || !left || !right || !comparison_type || !expression ||
+        !expression_size || depth >= 32u || comparison_type->size != 8 ||
+        !debug_inline_integer_expression_type(comparison_type)) {
+        return false;
+    }
+    unsigned_type = comparison_type->is_unsigned ||
+        comparison_type->kind == TYPE_BOOL;
+    if (kind == EXPR_EQ || kind == EXPR_NE) {
+        if (!debug_inline_parameter_i686_u64_append_word_equal(
+                mod, left, right, true, expression, capacity,
+                expression_size) ||
+            !debug_inline_parameter_i686_u64_append_word_equal(
+                mod, left, right, false, expression, capacity,
+                expression_size) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x1au)) {
+            return false;
+        }
+        return kind != EXPR_NE ||
+            (debug_inline_integer_expression_append_constu(
+                 expression, capacity, expression_size, 0u) &&
+             debug_inline_integer_expression_append_byte(
+                 expression, capacity, expression_size, 0x29u));
+    }
+    if (kind != EXPR_LT && kind != EXPR_LE &&
+        kind != EXPR_GT && kind != EXPR_GE) {
+        return false;
+    }
+    reverse = kind == EXPR_GT || kind == EXPR_LE;
+    negate = kind == EXPR_LE || kind == EXPR_GE;
+    if (!debug_inline_parameter_i686_u64_append_word_less(
+            mod, left, right, true, unsigned_type, reverse, expression,
+            capacity, expression_size) ||
+        !debug_inline_parameter_i686_u64_append_word_equal(
+            mod, left, right, true, expression, capacity, expression_size) ||
+        !debug_inline_parameter_i686_u64_append_word_less(
+            mod, left, right, false, true, reverse, expression, capacity,
+            expression_size) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x1au) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x21u)) {
+        return false;
+    }
+    return !negate ||
+        (debug_inline_integer_expression_append_constu(
+             expression, capacity, expression_size, 0u) &&
+         debug_inline_integer_expression_append_byte(
+             expression, capacity, expression_size, 0x29u));
 }
 
 static bool debug_inline_parameter_i686_u64_add_constant_expression(
