@@ -16543,12 +16543,126 @@ static bool cxx_qualified_member_definition_starts(void) {
     if (!token || token->type != TOK_IDENT) return false;
     token = token->next;
     if (!token || token->type != TOK_SCOPE) return false;
-    do {
+    for (;;) {
         token = token->next;
-        if (!token || token->type != TOK_IDENT) return false;
+        if (!token) return false;
+        if (token->type == TOK_OPERATOR) {
+            Token* operator_name = token->next;
+            if (!operator_name) return false;
+            switch (operator_name->type) {
+                case TOK_LPAREN:
+                    if (!operator_name->next ||
+                        operator_name->next->type != TOK_RPAREN ||
+                        !operator_name->next->next ||
+                        operator_name->next->next->type != TOK_LPAREN)
+                        return false;
+                    return true;
+                case TOK_LBRACKET:
+                    return operator_name->next &&
+                           operator_name->next->type == TOK_RBRACKET &&
+                           operator_name->next->next &&
+                           operator_name->next->next->type == TOK_LPAREN;
+                case TOK_NEW:
+                case TOK_DELETE:
+                    if (operator_name->next &&
+                        operator_name->next->type == TOK_LBRACKET) {
+                        operator_name = operator_name->next->next;
+                        if (!operator_name ||
+                            operator_name->type != TOK_RBRACKET)
+                            return false;
+                    }
+                    return operator_name->next &&
+                           operator_name->next->type == TOK_LPAREN;
+                case TOK_STRING_LIT:
+                    return operator_name->next &&
+                           operator_name->next->type == TOK_IDENT &&
+                           operator_name->next->next &&
+                           operator_name->next->next->type == TOK_LPAREN;
+                case TOK_ASSIGN:
+                case TOK_PLUS_ASSIGN:
+                case TOK_MINUS_ASSIGN:
+                case TOK_STAR_ASSIGN:
+                case TOK_SLASH_ASSIGN:
+                case TOK_PERCENT_ASSIGN:
+                case TOK_AMP_ASSIGN:
+                case TOK_PIPE_ASSIGN:
+                case TOK_CARET_ASSIGN:
+                case TOK_LSHIFT_ASSIGN:
+                case TOK_RSHIFT_ASSIGN:
+                case TOK_PLUS:
+                case TOK_MINUS:
+                case TOK_STAR:
+                case TOK_SLASH:
+                case TOK_PERCENT:
+                case TOK_INC:
+                case TOK_DEC:
+                case TOK_EQ:
+                case TOK_NE:
+                case TOK_LT:
+                case TOK_LE:
+                case TOK_GT:
+                case TOK_GE:
+                case TOK_SPACESHIP:
+                case TOK_AMP:
+                case TOK_PIPE:
+                case TOK_CARET:
+                case TOK_TILDE:
+                case TOK_NOT:
+                case TOK_AND:
+                case TOK_OR:
+                case TOK_LSHIFT:
+                case TOK_RSHIFT:
+                case TOK_COMMA:
+                case TOK_ARROW:
+                case TOK_DOT_STAR:
+                case TOK_ARROW_STAR:
+                    return operator_name->next &&
+                           operator_name->next->type == TOK_LPAREN;
+                default:
+                    return false;
+            }
+        }
+        if (token->type != TOK_IDENT) return false;
         token = token->next;
-    } while (token && token->type == TOK_SCOPE);
-    return token && token->type == TOK_LPAREN;
+        if (!token) return false;
+        if (token->type == TOK_LPAREN) return true;
+        if (token->type != TOK_SCOPE) return false;
+    }
+}
+
+static bool cxx_parse_qualified_operator_member_id(
+    char* owner_name, size_t owner_capacity, const char** member_name) {
+    size_t length = 0u;
+    if (!owner_name || owner_capacity == 0u || !member_name) return false;
+    owner_name[0] = '\0';
+    *member_name = NULL;
+    if (match(TOK_SCOPE)) {
+        if (owner_capacity < 3u) return false;
+        memcpy(owner_name, "::", 3u);
+        length = 2u;
+    }
+    while (check(TOK_IDENT)) {
+        Token* component = advance();
+        size_t component_length = strlen(component->value.str_val);
+        if (length + component_length + 1u >= owner_capacity) return false;
+        memcpy(owner_name + length, component->value.str_val,
+               component_length);
+        length += component_length;
+        owner_name[length] = '\0';
+        if (!check(TOK_SCOPE) || !parser.cur->next) return false;
+        if (parser.cur->next->type == TOK_OPERATOR) {
+            advance();
+            if (!match(TOK_OPERATOR)) return false;
+            *member_name = parse_operator_name();
+            return *member_name != NULL;
+        }
+        if (length + 2u >= owner_capacity) return false;
+        owner_name[length++] = ':';
+        owner_name[length++] = ':';
+        owner_name[length] = '\0';
+        advance();
+    }
+    return false;
 }
 
 static bool cxx_member_definition_parameters_match(
@@ -17069,9 +17183,9 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
     CxxClass* saved_class = active_class;
     CxxNamespace* saved_namespace = active_namespace;
     const char* qualified;
-    const char* separator;
-    const char* member_name;
+    const char* member_name = NULL;
     char owner_name[512];
+    char qualified_buffer[1024];
     size_t owner_length;
     CxxClass* cls;
     CxxMethod* selected = NULL;
@@ -17090,22 +17204,58 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
 
     if (!cxx_qualified_member_definition_starts()) return NULL;
     return_type = cxx_member_definition_return_type(base_type);
-    qualified = parse_qualified_name();
-    separator = qualified ? strrchr(qualified, ':') : NULL;
-    if (!separator || separator <= qualified || separator[-1] != ':') {
+    if (check(TOK_SCOPE) ||
+        (parser.cur && parser.cur->next &&
+         parser.cur->next->type == TOK_SCOPE)) {
+        Token* token = parser.cur;
+        if (token && token->type == TOK_SCOPE) token = token->next;
+        while (token && token->type == TOK_IDENT && token->next &&
+               token->next->type == TOK_SCOPE) {
+            token = token->next->next;
+            if (token && token->type == TOK_OPERATOR) break;
+        }
+        if (token && token->type == TOK_OPERATOR) {
+            int written;
+            if (!cxx_parse_qualified_operator_member_id(
+                    owner_name, sizeof(owner_name), &member_name) ||
+                !member_name) {
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+                return NULL;
+            }
+            written = snprintf(qualified_buffer, sizeof(qualified_buffer),
+                               "%s::%s", owner_name, member_name);
+            if (written < 0 || (size_t)written >= sizeof(qualified_buffer)) {
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+                return NULL;
+            }
+            qualified = rcc_intern(qualified_buffer);
+        } else {
+            const char* separator;
+            qualified = parse_qualified_name();
+            separator = qualified ? strrchr(qualified, ':') : NULL;
+            if (!separator || separator <= qualified ||
+                separator[-1] != ':') {
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+                return NULL;
+            }
+            owner_length = (size_t)(separator - qualified - 1);
+            if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+                return NULL;
+            }
+            memcpy(owner_name, qualified, owner_length);
+            owner_name[owner_length] = '\0';
+            member_name = separator + 1;
+        }
+    } else {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
     }
-    owner_length = (size_t)(separator - qualified - 1);
-    if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
-        parser.cur = saved_cur;
-        parser.prev = saved_prev;
-        return NULL;
-    }
-    memcpy(owner_name, qualified, owner_length);
-    owner_name[owner_length] = '\0';
-    member_name = separator + 1;
     cls = find_class(owner_name);
     if (!cls || !cls->type || !cls->type->is_complete) {
         parser.cur = saved_cur;

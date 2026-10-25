@@ -1,3 +1,21 @@
+struct OutOfClassOperatorProbe {
+    int operator+(int value) const;
+};
+
+long OutOfClassOperatorProbe::operator+(int value) const { return value; }
+
+struct OutOfClassOperatorRedefinitionProbe {
+    int operator+(int value) const;
+};
+
+int OutOfClassOperatorRedefinitionProbe::operator+(int value) const {
+    return value;
+}
+
+int OutOfClassOperatorRedefinitionProbe::operator+(int value) const {
+    return value;
+}
+
 struct OutOfClassDefinitionProbe {
     int value();
     int replace(int value);

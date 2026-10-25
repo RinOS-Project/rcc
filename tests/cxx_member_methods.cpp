@@ -67,6 +67,13 @@ union Word {
 };
 }
 
+namespace out_of_class_operators {
+struct Scalar {
+    int value;
+    Scalar operator+(int amount) const;
+};
+}
+
 namespace out_of_class_constructors {
 struct Values {
     int first;
@@ -159,6 +166,13 @@ int out_of_class_methods::Word::value() const {
     return integer;
 }
 
+out_of_class_operators::Scalar
+out_of_class_operators::Scalar::operator+(int amount) const {
+    Scalar result;
+    result.value = value + amount;
+    return result;
+}
+
 int cxx_out_of_class_member_method_probe() {
     out_of_class_methods::Point point;
     point.x = 6;
@@ -203,6 +217,13 @@ int cxx_out_of_class_destructor_probe() {
     return count == 3 ? 0 : 1;
 }
 
+int cxx_out_of_class_operator_probe() {
+    out_of_class_operators::Scalar left;
+    left.value = 5;
+    out_of_class_operators::Scalar result = left + 7;
+    return result.value == 12 ? 0 : 1;
+}
+
 int main() {
     return cxx_member_method_probe() == 53 &&
            cxx_pointer_method_probe() == 27 &&
@@ -210,6 +231,7 @@ int main() {
            cxx_out_of_class_member_method_probe() ==
                13 + 113 + 6 + 6 + 9 + 10 + 6 + 18 + 6 + 2 + 6 &&
            cxx_out_of_class_constructor_probe() == 37 &&
-           cxx_out_of_class_destructor_probe() == 0
+           cxx_out_of_class_destructor_probe() == 0 &&
+           cxx_out_of_class_operator_probe() == 0
                ? 0 : 1;
 }

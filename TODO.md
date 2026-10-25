@@ -9392,9 +9392,15 @@ remains a separate open item.
         method emission and recognized cleanup lowering, and verify automatic
         object lifetime execution plus mismatch/redefinition diagnostics on
         i686 and AMD64.
-  - [ ] Extend out-of-class definitions to operators/conversion functions,
-        member templates and explicit specializations, advanced nested/template
-        owner qualification, and remaining ABI/lifetime coverage.
+  - [x] Define and call a namespace-qualified non-template binary
+        `operator+` outside its class using the existing member declaration for
+        overload lookup, return type, mangling, and implicit-object ABI. Verify
+        result execution plus return-type mismatch and redefinition diagnostics
+        for i686 and AMD64.
+  - [ ] Extend out-of-class definitions to the remaining overloaded operators,
+        conversion functions, member templates and explicit specializations,
+        advanced nested/template owner qualification, and remaining ABI/lifetime
+        coverage.
   - [x] Recognize the standard by-value copy-assignment form
         (`operator=(T)` and top-level-const `operator=(const T)`) as a copy
         special member. Keep it in ordinary assignment overload resolution,
