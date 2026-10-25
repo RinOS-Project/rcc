@@ -9814,3 +9814,12 @@ remains a separate open item.
       and the full `test-cxx` suite pass. Deeper nested-template owner chains
       and remaining partially dependent owner forms stay open. Local commit;
       no push.
+- [x] Resolve an out-of-class conversion definition through three dependent
+      class-template owner levels (`Owner<T>::Inner<U>::Leaf<V>`). The exact
+      ref-qualified Itanium conversion symbol
+      `_ZNKR34NestedClassTemplateConversionOwnerIiE5InnerIlE4LeafIcEcvPKcEv`
+      matches GCC on i686/AMD64; GCC syntax, RCC assembly, and `-O0`/`-O2`
+      runtime pass in `test-cxx-class-template-methods`, and the ABI,
+      member-method, conversion-operator, and class-template-specialization
+      targets pass. Chains beyond this depth and partially dependent owner
+      forms remain open. Local commit; no push.

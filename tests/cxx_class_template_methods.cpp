@@ -94,6 +94,19 @@ public:
         Inner(T owner_input, U input)
             : owner_value(owner_input), value(input) {}
         operator const U*() const &;
+
+        template<typename V>
+        class Leaf {
+            T owner_value;
+            U inner_value;
+            V value;
+
+        public:
+            Leaf(T owner_input, U inner_input, V input)
+                : owner_value(owner_input), inner_value(inner_input),
+                  value(input) {}
+            operator const V*() const &;
+        };
     };
 };
 
@@ -180,6 +193,14 @@ NestedConversionOwner<T>::Inner::operator const T*() const & {
 template<typename T>
 template<typename U>
 NestedClassTemplateConversionOwner<T>::Inner<U>::operator const U*() const & {
+    return &value;
+}
+
+template<typename T>
+template<typename U>
+template<typename V>
+NestedClassTemplateConversionOwner<T>::Inner<U>::Leaf<V>::operator const V*()
+    const & {
     return &value;
 }
 
@@ -271,6 +292,8 @@ int main() {
     NestedConversionOwner<int>::Inner nested_owner{7};
     NestedClassTemplateConversionOwner<int>::Inner<long> nested_template_owner{
         12, 13L};
+    NestedClassTemplateConversionOwner<int>::Inner<long>::Leaf<char>
+        nested_template_leaf{14, 15L, 16};
     qualified_template_owner::ConversionOwner<int> qualified_owner{8};
     qualified_template_owner::nested::DeepConversionOwner<int> deep_owner{9};
     OutOfClassArrowTarget arrow_target{31};
@@ -294,6 +317,7 @@ int main() {
            static_cast<const int&>(reference_conversion_owner) == 6 &&
            *static_cast<const int*>(nested_owner) == 7 &&
            *static_cast<const long*>(nested_template_owner) == 13L &&
+           *static_cast<const char*>(nested_template_leaf) == 16 &&
            *static_cast<const int*>(qualified_owner) == 8 &&
            *static_cast<const int*>(deep_owner) == 9 &&
            out_of_class_owner + 5 == 9 &&
