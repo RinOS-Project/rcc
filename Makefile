@@ -7215,6 +7215,10 @@ test-cxx-operator-overload: $(RCXX_TARGET)
 test-cxx-member-operator-forms: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-operator-forms)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-member-operator-forms,cxx_member_operator_forms.cpp)
+	$(GREP) -F -q "_ZN13OperatorFormsngEv" $(TEST_OUT)/cxx-member-operator-forms/x86.s
+	$(GREP) -F -q "_ZN13OperatorFormsngEv" $(TEST_OUT)/cxx-member-operator-forms/x64.s
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-member-operator-forms/gcc.s tests/cxx_member_operator_forms.cpp
+	$(GREP) -F -q "_ZN13OperatorFormsngEv" $(TEST_OUT)/cxx-member-operator-forms/gcc.s
 
 test-cxx-assignment-operator: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-assignment-operator)
@@ -8715,6 +8719,10 @@ test-cxx-conversion-operator: $(RCXX_TARGET) test-cxx-conversion-reference-ranki
 test-cxx-nonmember-operator: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nonmember-operator)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nonmember-operator,cxx_nonmember_operator.cpp)
+	$(GREP) -F -q "_Zng6Number" $(TEST_OUT)/cxx-nonmember-operator/x86.s
+	$(GREP) -F -q "_Zng6Number" $(TEST_OUT)/cxx-nonmember-operator/x64.s
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-nonmember-operator/gcc.s tests/cxx_nonmember_operator.cpp
+	$(GREP) -F -q "_Zng6Number" $(TEST_OUT)/cxx-nonmember-operator/gcc.s
 
 test-cxx-spaceship: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-spaceship)
@@ -13387,6 +13395,10 @@ test-cxx-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEntIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEcoIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEcoIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN27MemberTemplateOperatorOwnerIiEadIcEEPiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZN27MemberTemplateOperatorOwnerIiEadIcEEPiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEanIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEanIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(GREP) -F -q "_ZNK30NonTemplateMemberOperatorOwnerplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
 	$(GREP) -F -q "_ZNK30NonTemplateMemberOperatorOwnerplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
@@ -13406,6 +13418,8 @@ test-cxx-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEclIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEntIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEcoIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN27MemberTemplateOperatorOwnerIiEadIcEEPiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEanIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZNK30NonTemplateMemberOperatorOwnerplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEixIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s

@@ -9703,6 +9703,16 @@ remains a separate open item.
       RCC and GCC emit the same Itanium symbol, both target widths assemble,
       and the AMD64 runtime distinguishes the specialization from the primary
       template in `test-cxx-class-template-member-function-explicit-specialization`.
+- [x] Route source-written unary `&` on class objects through C++ overloaded
+      operator resolution without changing synthesized address expressions.
+      Make Itanium operator-name encoding arity-aware for unary/binary `+`,
+      `-`, `*`, and `&`; the focused regression checks unary `operator&()` as
+      `ad`, binary `operator&(T)` as `an`, exact GCC symbols, both target
+      widths, and AMD64 runtime behavior. The focused specialization target
+      plus `test-cxx-operator-overload`, `test-cxx-member-operator-forms`,
+      and `test-cxx-nonmember-operator` pass natively on Windows; the latter
+      two also verify GCC's unary `operator-` ABI name.
 - [ ] Explicit member specializations through dependent owner chains, other
-      overloaded operator forms beyond those covered above, and remaining
-      ABI/lifetime cases remain open.
+      overloaded operator forms beyond those covered above, unqualified class
+      member lookup in explicit member-template specialization bodies, and
+      remaining ABI/lifetime cases remain open.

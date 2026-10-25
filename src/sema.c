@@ -17628,6 +17628,7 @@ static const char* sema_cxx_unary_operator_name(ExprKind kind) {
         case EXPR_NEG: return "operator-";
         case EXPR_BITNOT: return "operator~";
         case EXPR_NOT: return "operator!";
+        case EXPR_ADDR: return "operator&";
         case EXPR_DEREF: return "operator*";
         case EXPR_PREINC:
         case EXPR_POSTINC: return "operator++";
@@ -18678,7 +18679,9 @@ static Type* sema_expr(Expr* expr) {
         (expr->kind == EXPR_NEG || expr->kind == EXPR_BITNOT ||
          expr->kind == EXPR_NOT || expr->kind == EXPR_PREINC ||
          expr->kind == EXPR_PREDEC || expr->kind == EXPR_POSTINC ||
-         expr->kind == EXPR_POSTDEC || expr->kind == EXPR_DEREF) &&
+         expr->kind == EXPR_POSTDEC || expr->kind == EXPR_DEREF ||
+         (expr->kind == EXPR_ADDR &&
+          expr->cxx_overloadable_address_of)) &&
         expr->unary_operand) {
         Type* operand_type = sema_expr(expr->unary_operand);
         if (sema_rewrite_cxx_unary_operator(expr, operand_type)) {

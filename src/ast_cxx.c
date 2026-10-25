@@ -377,6 +377,54 @@ static const char* cxx_operator_abi_code(const char* name) {
     return NULL;
 }
 
+/* Itanium uses distinct operator-name encodings for unary and binary `+`,
+ * `-`, `*`, and `&`. A member operator omits the object parameter from its
+ * declaration, while a non-member operator carries every operand explicitly. */
+static const char* cxx_function_operator_abi_code(const Decl* function,
+                                                   bool member_context) {
+    const char* name;
+    const char* code;
+    int parameter_count = 0;
+    bool is_member;
+    bool is_unary;
+    if (!function || !function->name) return NULL;
+    name = function->name;
+    for (DeclList* parameter = function->func_params; parameter;
+         parameter = parameter->next) {
+        ++parameter_count;
+    }
+    is_member = member_context || function->func_is_cxx_method;
+    is_unary = is_member ? parameter_count == 0 : parameter_count == 1;
+    if (is_unary) {
+        if (strcmp(name, "operator+") == 0) return "ps";
+        if (strcmp(name, "operator-") == 0) return "ng";
+        if (strcmp(name, "operator*") == 0) return "de";
+        if (strcmp(name, "operator&") == 0) return "ad";
+    }
+    code = cxx_operator_abi_code(name);
+    return code;
+}
+
+static void mangle_name(char* buf, size_t* pos, const char* name);
+
+static void mangle_function_identifier(char* buf, size_t* pos,
+                                       const Decl* function,
+                                       bool member_context) {
+    const char* code = cxx_function_operator_abi_code(
+        function, member_context);
+    size_t length;
+    if (!code) {
+        mangle_name(buf, pos, function ? function->name : NULL);
+        return;
+    }
+    length = strlen(code);
+    if (*pos + length >= CXX_MANGLE_BUFFER_SIZE) {
+        rcc_fatal("C++ mangled operator name is too long");
+    }
+    memcpy(buf + *pos, code, length);
+    *pos += length;
+}
+
 /* Mangle a length-prefixed name or a standard C++ operator name. */
 static void mangle_name(char* buf, size_t* pos, const char* name) {
     const char* operator_code = cxx_operator_abi_code(name);
@@ -2432,6 +2480,22 @@ char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls) {
     return buf;
 }
 
+static char* cxx_mangle_function_name(Decl* function, CxxNamespace* ns,
+                                     CxxClass* cls) {
+    static char buf[CXX_MANGLE_BUFFER_SIZE];
+    size_t pos = 0;
+    mangle_nested_prefix(buf, &pos, ns, cls);
+    mangle_function_identifier(buf, &pos, function, cls != NULL);
+    if (cxx_mangle_has_nested_scope(ns, cls)) {
+        if (pos + 1u >= sizeof(buf)) {
+            rcc_fatal("C++ mangled nested function name is too long");
+        }
+        buf[pos++] = 'E';
+    }
+    buf[pos] = '\0';
+    return buf;
+}
+
 static char* cxx_mangle_member_template_function_name(
     Decl* func, CxxNamespace* ns, CxxClass* cls) {
     static char buf[CXX_MANGLE_BUFFER_SIZE];
@@ -2447,7 +2511,7 @@ static char* cxx_mangle_member_template_function_name(
     } else {
         mangle_nested_prefix(buf, &pos, ns, cls);
     }
-    mangle_name(buf, &pos, func ? func->name : NULL);
+    mangle_function_identifier(buf, &pos, func, cls != NULL);
     buf[pos] = '\0';
     return buf;
 }
@@ -2511,11 +2575,11 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
             mangle_nested_method_prefix(buf, &pos, ns, cls,
                                         is_const_method, is_volatile_method,
                                         ref_qualifier);
-            mangle_name(buf, &pos, func->name);
+            mangle_function_identifier(buf, &pos, func, cls != NULL);
             buf[pos++] = 'E';
         } else {
             /* Get base mangled name */
-            char* base = cxx_mangle_name(func->name, ns, cls);
+            char* base = cxx_mangle_function_name(func, ns, cls);
             strcpy(buf, base);
             pos = strlen(buf);
         }
@@ -3724,7 +3788,7 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         strcpy(buf, base);
         pos = strlen(buf);
     } else {
-        base = cxx_mangle_name(func->name, mangling_namespace, cls);
+        base = cxx_mangle_function_name(func, mangling_namespace, cls);
         strcpy(buf, base);
         pos = strlen(buf);
         if (mangling_namespace && pos > 0u && buf[pos - 1u] == 'E') {

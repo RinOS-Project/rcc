@@ -1173,6 +1173,7 @@ Expr* expr_unary(ExprKind kind, Expr* operand, SourceLoc loc) {
     e->cxx_member_pointer_form_access = 0u;
     e->cxx_member_pointer_form_declaring_class = NULL;
     e->cxx_member_pointer_form_designating_class = NULL;
+    e->cxx_overloadable_address_of = false;
     e->type = NULL;  /* Set during sema */
     return e;
 }

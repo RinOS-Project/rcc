@@ -2888,7 +2888,9 @@ static Expr* parse_unary(void) {
             if (member_pointer) return member_pointer;
         }
         Expr* e = parse_unary();
-        return expr_unary(EXPR_ADDR, e, loc);
+        Expr* address = expr_unary(EXPR_ADDR, e, loc);
+        address->cxx_overloadable_address_of = parser_cxx_mode;
+        return address;
     }
     if (match(TOK_STAR)) {
         Expr* e = parse_unary();

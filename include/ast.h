@@ -830,6 +830,9 @@ struct Expr {
      * call.  It may materialize a class prvalue receiver in its aggregate
      * result slot; source-written unary & remains restricted to lvalues. */
     bool cxx_implicit_object_address;
+    /* Set only for source-written unary `&`; synthesized address expressions
+     * must not participate in overloaded operator& resolution. */
+    bool cxx_overloadable_address_of;
 
     union {
         /* EXPR_INT_LIT */
