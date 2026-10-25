@@ -17656,7 +17656,11 @@ static bool sema_rewrite_cxx_unary_operator(Expr* expression,
     Expr* member;
     Expr* call;
     if (!expression || !operand_type) return false;
-    aggregate = generic_selection_type(operand_type);
+    /* A C++ reference expression carries a pointer-shaped semantic type in
+     * the front end.  Unary member operators are selected on the referred-to
+     * class, while the original expression remains attached to the call so
+     * lvalue/xvalue ref-qualifier ranking still sees its value category. */
+    aggregate = generic_selection_type(sema_cxx_object_type(operand_type));
     if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
                        aggregate->kind != TYPE_UNION)) {
         return false;

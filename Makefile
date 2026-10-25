@@ -13403,6 +13403,10 @@ test-cxx-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEdeIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEmlIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEmlIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNR26RefQualifiedMemberOperatorIiEdeIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZNR26RefQualifiedMemberOperatorIiEdeIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNO26RefQualifiedMemberOperatorIiEdeIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZNO26RefQualifiedMemberOperatorIiEdeIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(GREP) -F -q "_ZNK30NonTemplateMemberOperatorOwnerplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x86.s
 	$(GREP) -F -q "_ZNK30NonTemplateMemberOperatorOwnerplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/x64.s
@@ -13426,6 +13430,8 @@ test-cxx-class-template-member-function-explicit-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEanIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEdeIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEmlIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNR26RefQualifiedMemberOperatorIiEdeIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNO26RefQualifiedMemberOperatorIiEdeIcEEiv" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZNK30NonTemplateMemberOperatorOwnerplIcEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEplIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s
 	$(GREP) -F -q "_ZNK27MemberTemplateOperatorOwnerIiEixIiEEiT_" $(TEST_OUT)/cxx-class-template-member-function-explicit-specialization/gcc.s

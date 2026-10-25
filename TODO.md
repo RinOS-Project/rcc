@@ -9726,6 +9726,11 @@ remains a separate open item.
       widths assemble, AMD64 runtime checks distinguish specialized and
       primary implementations, and missing/excess template-head diagnostics
       pass in the focused target.
+- [x] Resolve ref-qualified unary member-operator templates on class
+      reference expressions. Normalize references only for owner lookup and
+      retain the original receiver for `&`/`&&` overload ranking. Verify lvalue,
+      xvalue, and prvalue selection, GCC's distinct `R`/`O` Itanium names,
+      i686/AMD64 assembly, and AMD64 runtime in the focused target.
 - [x] Preserve the selected nested class-template owner's member scope while
       analyzing out-of-class explicit member-function-template specializations.
       Regressions use unqualified fields from a nested and deeper owner, from a

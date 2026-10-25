@@ -86,6 +86,19 @@ struct NonTemplateMemberOperatorOwner {
     }
 };
 
+template <typename Owner>
+struct RefQualifiedMemberOperator {
+    template <typename T = char>
+    int operator*() & {
+        return 1;
+    }
+
+    template <typename T = char>
+    int operator*() && {
+        return 2;
+    }
+};
+
 template <>
 template <>
 int ClassTemplateMemberFunctionSpecialization<int>::value<double>(
@@ -173,6 +186,18 @@ int* MemberTemplateOperatorOwner<int>::operator&<char>() {
 }
 
 template <>
+template <>
+int RefQualifiedMemberOperator<int>::operator*<char>() & {
+    return 11;
+}
+
+template <>
+template <>
+int RefQualifiedMemberOperator<int>::operator*<char>() && {
+    return 22;
+}
+
+template <>
 int NonTemplateMemberOperatorOwner::operator+<char>(char input) const {
     return static_cast<int>(input) + 70;
 }
@@ -198,6 +223,7 @@ int main() {
     MemberTemplateOperatorOwner<int> operator_owner;
     MemberTemplateOperatorOwner<double> other_operator_owner;
     NonTemplateMemberOperatorOwner non_template_operator_owner;
+    RefQualifiedMemberOperator<int> ref_qualified_operator;
     operator_owner.primary_address_value = 11;
     operator_owner.specialized_address_value = 100;
     other_operator_owner.primary_address_value = 12;
@@ -228,6 +254,10 @@ int main() {
                    (*other_operator_owner) == 13 &&
                    *(&operator_owner) == 100 &&
                    *(&other_operator_owner) == 12 &&
+                   *ref_qualified_operator == 11 &&
+                   *static_cast<RefQualifiedMemberOperator<int>&&>(
+                       ref_qualified_operator) == 22 &&
+                   *RefQualifiedMemberOperator<int>{} == 22 &&
                    non_template_operator_owner + 'A' == 135 &&
                    non_template_operator_owner + 2 == 7
                ? 0
