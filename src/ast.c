@@ -1672,6 +1672,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_is_naked = false;
     d->func_is_defined = (body != NULL);
     d->func_is_template_instance = false;
+    d->func_is_explicit_template_specialization = false;
     d->func_template_owner = NULL;
     d->func_template_args = NULL;
     d->func_template_arg_count = 0;

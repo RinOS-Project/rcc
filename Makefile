@@ -642,6 +642,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-variadic-nontrivial-ellipsis
 .PHONY: test-cxx-variadic-scalar-promotions
 .PHONY: test-cxx-variadic-aggregate
+.PHONY: test-cxx-member-function-template-explicit-specialization
 .PHONY: test-tls-runtime-posix
 
 CXX_REGRESSION_TARGETS = \
@@ -679,6 +680,7 @@ CXX_REGRESSION_TARGETS = \
 	test-multiple-inputs \
 	test-cxx-language-core \
 	test-cxx-parser-recovery \
+	test-cxx-member-function-template-explicit-specialization \
 	test-cxx-multi-declarator \
 	test-cxx-numeric-separators \
 	test-cxx-user-defined-literals \
@@ -13323,6 +13325,41 @@ else
 	$(TEST_OUT)/string-embedded-nul/x64
 endif
 	@echo "C17 embedded-NUL string literal tests completed"
+
+test-cxx-member-function-template-explicit-specialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-function-template-explicit-specialization)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-member-function-template-explicit-specialization,cxx_member_function_template_explicit_specialization.cpp)
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner5valueIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner5valueIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner5valueIdEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner6amountILi7EEEiv" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner6amountILi7EEEiv" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner6amountILi8EEEiv" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8inferredIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8inferredIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8inferredIdEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZNKR33MemberFunctionSpecializationOwner9qualifiedIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZNKR33MemberFunctionSpecializationOwner9qualifiedIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner10overloadedIiEEiPT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner10overloadedIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8ellipsisIiEEiT_z" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x86.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8ellipsisIiEEiT_z" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8constantIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner9immediateIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/x64.s
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s tests/cxx_member_function_template_explicit_specialization.cpp
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner5valueIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner5valueIdEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner6amountILi7EEEiv" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner6amountILi8EEEiv" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8inferredIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8inferredIdEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZNKR33MemberFunctionSpecializationOwner9qualifiedIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner10overloadedIiEEiPT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner10overloadedIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8ellipsisIiEEiT_z" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner8constantIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN33MemberFunctionSpecializationOwner9immediateIiEEiT_" $(TEST_OUT)/cxx-member-function-template-explicit-specialization/gcc.s
+	@echo "RCC++ explicit member function-template specialization tests completed"
 
 ifeq ($(OS),Windows_NT)
 test-cxx-member-methods: $(RCC_TARGET) $(RCXX_TARGET) test-cxx-member-methods-invalid

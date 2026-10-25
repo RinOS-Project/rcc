@@ -1409,6 +1409,7 @@ struct Decl {
             bool func_is_naked;
             bool func_is_defined;
             bool func_is_template_instance;
+            bool func_is_explicit_template_specialization;
             /* Member-function template candidates defer body substitution
              * until overload selection chooses the specialization. */
             bool func_template_body_deferred;

@@ -3371,17 +3371,34 @@ remains a separate open item.
   the pattern requires `sizeof(int) == 4` on i686/AMD64 and GCC. The focused
   target and full native-Windows `test-cxx` aggregate pass. RCC source commit
   `74da05a22516e00cacb0c36e62cc44081686c03d` is on local `main`, not pushed.
+- [x] Parse explicit specializations of named member-function templates owned
+      by non-template classes. Match explicit type and integral template
+      arguments (including deduction when the template-id is omitted) plus
+      return/parameter types, variadicness, cv/ref qualifiers, and `noexcept`
+      against the declared member template; preserve the specialization
+      instance when its primary's out-of-class definition is parsed later;
+      and support a specialization declaration followed by its definition.
+      A specialization does not inherit the primary's `constexpr`/`consteval`
+      specifier. The focused regression covers an overload set and matches
+      GCC's Itanium symbols, assembles i686 and AMD64 outputs, and executes the
+      generated AMD64 result; existing
+      `test-cxx-function-templates`, `test-cxx-class-template-methods`, and
+      `test-cxx-class-template-specialization` gates pass.
+- [ ] Accept `constexpr` and `consteval` on out-of-class member-template
+      definitions; explicit specializations do not inherit those specifiers,
+      so a valid non-`constexpr`/non-`consteval` specialization must still
+      match its primary.
 - [ ] Complete member-template deduction and overload selection for remaining
-  general dependent non-type expressions and template-template forms,
-  expansions involving
-  multiple distinct packs and other nested patterns, and remaining overload
-  edge cases; support
-  constructor templates, explicit member-template specializations, inherited
-  conversion templates, full C++20 constraint subsumption, and complex
-  dependent Itanium ABI substitutions. Conversion target deduction and
-  user-defined sequence ranking are specified in
-  [`temp.deduct.conv`](https://timsong-cpp.github.io/cppwp/std20/temp.deduct.conv)
-  and [`over.ics.rank`](https://timsong-cpp.github.io/cppwp/std20/over.ics.rank).
+      general dependent non-type expressions and template-template forms,
+      expansions involving multiple distinct packs and other nested patterns,
+      and remaining overload edge cases; support constructor templates,
+      explicit specializations on class-template owners and for overloaded
+      operators, inherited conversion templates, full C++20 constraint
+      subsumption, and complex dependent Itanium ABI substitutions.
+      Conversion target deduction and user-defined sequence ranking are
+      specified in
+      [`temp.deduct.conv`](https://timsong-cpp.github.io/cppwp/std20/temp.deduct.conv)
+      and [`over.ics.rank`](https://timsong-cpp.github.io/cppwp/std20/over.ics.rank).
 
 ## RCC continuation (2026-10-11, SysV flexible-array ABI and native Clang tests)
 
