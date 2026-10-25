@@ -24,6 +24,10 @@ typedef long long (RCC_TEST_TARGET_ABI *unary_i64_function)(long long);
 #endif
 #if defined(__i386__)
 typedef int (RCC_TEST_TARGET_ABI *i686_sequence_function)(int*, int);
+typedef void (RCC_TEST_TARGET_ABI *i686_rep_copy_function)(
+    unsigned*, const unsigned*, unsigned);
+typedef void (RCC_TEST_TARGET_ABI *i686_rep_fill_function)(
+    unsigned*, unsigned, unsigned);
 typedef void (RCC_TEST_TARGET_ABI *void_target_function)(void);
 typedef void (RCC_TEST_TARGET_ABI *i686_indirect_tail_function)(
     void_target_function);
@@ -74,8 +78,12 @@ int main(int argc, char** argv)
 #if defined(__i386__)
     unary_function memory_input;
     i686_sequence_function i686_sequence;
+    i686_rep_copy_function i686_rep_copy;
+    i686_rep_fill_function i686_rep_fill;
     i686_indirect_tail_function i686_indirect_tail;
     int i686_slot = 0;
+    unsigned i686_source[] = {3u, 5u, 7u, 11u};
+    unsigned i686_destination[] = {0u, 0u, 0u, 0u};
 #endif
 #if defined(__x86_64__)
     unary_i64_function immediate64;
@@ -153,6 +161,8 @@ int main(int argc, char** argv)
                   "asm_i686_memory_branch_sequence");
     LOAD_FUNCTION(i686_indirect_tail, object, mapping,
                   "asm_i686_indirect_tail");
+    LOAD_FUNCTION(i686_rep_copy, object, mapping, "asm_i686_rep_movsl");
+    LOAD_FUNCTION(i686_rep_fill, object, mapping, "asm_i686_rep_stosl");
 #endif
     LOAD_FUNCTION(immediate8, object, mapping, "asm_mov_imm8");
     LOAD_FUNCTION(immediate16, object, mapping, "asm_mov_imm16");
@@ -176,6 +186,14 @@ int main(int argc, char** argv)
     assert(i686_sequence(&i686_slot, 41) == 9 && i686_slot == 41);
     i686_indirect_tail(i686_indirect_target);
     assert(i686_indirect_target_calls == 1);
+    i686_rep_copy(i686_destination, i686_source, 4u);
+    for (unsigned index = 0u; index < 4u; ++index) {
+        assert(i686_destination[index] == i686_source[index]);
+    }
+    i686_rep_fill(i686_destination, 0xA5A55A5Au, 4u);
+    for (unsigned index = 0u; index < 4u; ++index) {
+        assert(i686_destination[index] == 0xA5A55A5Au);
+    }
 #endif
     assert(generic_output(97) == 97);
     assert(generic_read_write(109) == 109);

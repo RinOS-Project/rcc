@@ -65,6 +65,42 @@ static void verify_pattern(const char* path, uint16_t architecture,
     objfile_free(object);
 }
 
+static void verify_pattern_pair(const char* path, uint16_t architecture,
+                                const char* function_name,
+                                const uint8_t* first_a, size_t first_a_size,
+                                const uint8_t* later_a, size_t later_a_size,
+                                const uint8_t* first_b, size_t first_b_size,
+                                const uint8_t* later_b, size_t later_b_size)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* code;
+    ObjSymbol* function;
+    uint64_t end;
+    const uint8_t* body;
+    uint64_t body_size;
+    bool pair_a;
+    bool pair_b;
+
+    assert(object != NULL && object->arch == architecture);
+    code = code_section(object);
+    function = objfile_find_symbol(object, function_name);
+    assert(code != NULL && function != NULL && function->section >= 0);
+    end = function_end(object, function);
+    assert(end > function->value && end <= code->size);
+    body = code->data + function->value;
+    body_size = end - function->value;
+    pair_a = contains_bytes(body, body_size, first_a, first_a_size) &&
+             contains_bytes(body, body_size, later_a, later_a_size);
+    pair_b = contains_bytes(body, body_size, first_b, first_b_size) &&
+             contains_bytes(body, body_size, later_b, later_b_size);
+    if (!pair_a && !pair_b) {
+        fprintf(stderr, "no valid early-clobber register pair in %s\n",
+                function_name);
+    }
+    assert(pair_a || pair_b);
+    objfile_free(object);
+}
+
 static void verify(const char* path, uint16_t architecture,
                    const char* function_name)
 {
@@ -102,37 +138,63 @@ static void verify_earlyclobber_generic(const char* path,
                                         uint16_t architecture,
                                         const char* function_name)
 {
-    static const uint8_t x86_first[] = {0x89u, 0xc2u};
-    static const uint8_t x86_later[] = {0x89u, 0xcau};
-    static const uint8_t x64_first[] = {0x48u, 0x89u, 0xc1u};
-    static const uint8_t x64_later[] = {0x4cu, 0x89u, 0xd1u};
-    verify_pattern(path, architecture, function_name,
-                   architecture == ARCH_X64 ? x64_first : x86_first,
-                   architecture == ARCH_X64 ? sizeof(x64_first)
-                                            : sizeof(x86_first));
-    verify_pattern(path, architecture, function_name,
-                   architecture == ARCH_X64 ? x64_later : x86_later,
-                   architecture == ARCH_X64 ? sizeof(x64_later)
-                                            : sizeof(x86_later));
+    static const uint8_t x86_first_a[] = {0x89u, 0xc2u};
+    static const uint8_t x86_later_a[] = {0x89u, 0xcau};
+    static const uint8_t x86_first_b[] = {0x89u, 0xc1u};
+    static const uint8_t x86_later_b[] = {0x89u, 0xd1u};
+    static const uint8_t x64_first_a[] = {0x48u, 0x89u, 0xc1u};
+    static const uint8_t x64_later_a[] = {0x4cu, 0x89u, 0xd1u};
+    static const uint8_t x64_first_b[] = {0x49u, 0x89u, 0xc2u};
+    static const uint8_t x64_later_b[] = {0x49u, 0x89u, 0xcau};
+
+    if (architecture == ARCH_X64) {
+        verify_pattern_pair(path, architecture, function_name,
+                            x64_first_a, sizeof(x64_first_a),
+                            x64_later_a, sizeof(x64_later_a),
+                            x64_first_b, sizeof(x64_first_b),
+                            x64_later_b, sizeof(x64_later_b));
+    } else {
+        verify_pattern_pair(path, architecture, function_name,
+                            x86_first_a, sizeof(x86_first_a),
+                            x86_later_a, sizeof(x86_later_a),
+                            x86_first_b, sizeof(x86_first_b),
+                            x86_later_b, sizeof(x86_later_b));
+    }
 }
 
 static void verify_earlyclobber_generic_read_write(
     const char* path, uint16_t architecture, const char* function_name)
 {
-    static const uint8_t x86_first[] = {0xbau, 0x00u, 0x00u, 0x00u, 0x00u};
-    static const uint8_t x86_later[] = {0x89u, 0xcau};
-    static const uint8_t x64_first[] = {
+    static const uint8_t x86_first_a[] = {
+        0xbau, 0x00u, 0x00u, 0x00u, 0x00u
+    };
+    static const uint8_t x86_later_a[] = {0x89u, 0xcau};
+    static const uint8_t x86_first_b[] = {
+        0xb9u, 0x00u, 0x00u, 0x00u, 0x00u
+    };
+    static const uint8_t x86_later_b[] = {0x89u, 0xd1u};
+    static const uint8_t x64_first_a[] = {
         0x48u, 0xb9u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u
     };
-    static const uint8_t x64_later[] = {0x4cu, 0x89u, 0xd1u};
-    verify_pattern(path, architecture, function_name,
-                   architecture == ARCH_X64 ? x64_first : x86_first,
-                   architecture == ARCH_X64 ? sizeof(x64_first)
-                                            : sizeof(x86_first));
-    verify_pattern(path, architecture, function_name,
-                   architecture == ARCH_X64 ? x64_later : x86_later,
-                   architecture == ARCH_X64 ? sizeof(x64_later)
-                                            : sizeof(x86_later));
+    static const uint8_t x64_later_a[] = {0x4cu, 0x89u, 0xd1u};
+    static const uint8_t x64_first_b[] = {
+        0x49u, 0xbau, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u
+    };
+    static const uint8_t x64_later_b[] = {0x49u, 0x89u, 0xcau};
+
+    if (architecture == ARCH_X64) {
+        verify_pattern_pair(path, architecture, function_name,
+                            x64_first_a, sizeof(x64_first_a),
+                            x64_later_a, sizeof(x64_later_a),
+                            x64_first_b, sizeof(x64_first_b),
+                            x64_later_b, sizeof(x64_later_b));
+    } else {
+        verify_pattern_pair(path, architecture, function_name,
+                            x86_first_a, sizeof(x86_first_a),
+                            x86_later_a, sizeof(x86_later_a),
+                            x86_first_b, sizeof(x86_first_b),
+                            x86_later_b, sizeof(x86_later_b));
+    }
 }
 
 int main(int argc, char** argv)
@@ -155,6 +217,8 @@ int main(int argc, char** argv)
     };
     static const uint8_t i686_indirect_jump[] = {0xffu, 0xe0u};
     static const uint8_t i686_push_pop[] = {0x50u, 0x58u};
+    static const uint8_t i686_rep_movsl[] = {0xf3u, 0xa5u};
+    static const uint8_t i686_rep_stosl[] = {0xf3u, 0xabu};
     static const uint8_t mov_imm64[] = {
         0x48u, 0xb8u, 0x88u, 0x77u, 0x66u, 0x55u,
         0x44u, 0x33u, 0x22u, 0x11u
@@ -180,6 +244,10 @@ int main(int argc, char** argv)
                    i686_indirect_jump, sizeof(i686_indirect_jump));
     verify_pattern(argv[1], ARCH_X86, "asm_x86_push_pop",
                    i686_push_pop, sizeof(i686_push_pop));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_rep_movsl",
+                   i686_rep_movsl, sizeof(i686_rep_movsl));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_rep_stosl",
+                   i686_rep_stosl, sizeof(i686_rep_stosl));
     verify_pattern(argv[4], ARCH_X86, "asm_cpp_memory_input_move",
                    i686_memory_input, sizeof(i686_memory_input));
     verify_generic(argv[1], ARCH_X86, "asm_generic_placeholder_move");

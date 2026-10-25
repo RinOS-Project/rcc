@@ -15337,25 +15337,6 @@ static bool asm_parse_register_width(const char* text, int* reg, int* width) {
     return false;
 }
 
-static bool asm_parse_ebp_memory(const char* text, int32_t* displacement) {
-    char* end;
-    long parsed;
-    if (!text || !displacement) return false;
-    errno = 0;
-    parsed = strtol(text, &end, 0);
-    if (end == text) {
-        parsed = 0;
-        if (strcmp(text, "(%ebp)") != 0) return false;
-    } else if (strcmp(end, "(%ebp)") != 0) {
-        return false;
-    }
-    if (errno == ERANGE || parsed < INT32_MIN || parsed > INT32_MAX) {
-        return false;
-    }
-    *displacement = (int32_t)parsed;
-    return true;
-}
-
 static bool asm_parse_x86_memory(const char* text, int* base_register,
                                 int32_t* displacement) {
     const char* open;
@@ -15639,7 +15620,7 @@ static bool asm_parse_control_register(const char* text, int* control) {
 
 static bool emit_asm_instruction(Module* mod, const char* mnemonic,
                                   const char* op1, const char* op2,
-                                  bool lock_prefix) {
+                                  bool lock_prefix, bool repeat_prefix) {
     uint8_t immediate;
 
     if (lock_prefix) {
@@ -15653,6 +15634,26 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
         emit_byte(mod, 0x00);
         return true;
     }
+
+    if (repeat_prefix) {
+        if (!asm_no_operands(op1, op2)) return false;
+        if (strcmp(mnemonic, "movsl") == 0) {
+            emit_byte(mod, 0xF3); /* REP */
+            emit_byte(mod, 0xA5); /* MOVS m32 */
+            return true;
+        }
+        if (strcmp(mnemonic, "stosl") == 0) {
+            emit_byte(mod, 0xF3); /* REP */
+            emit_byte(mod, 0xAB); /* STOS m32 */
+            return true;
+        }
+        return false;
+    }
+
+    /* AT&T's movl is the 32-bit spelling of mov.  Keep the i686 encoder's
+     * operand checks shared so register, stack, and base+displacement forms
+     * have the same validated semantics. */
+    if (strcmp(mnemonic, "movl") == 0) mnemonic = "mov";
 
     if (strcmp(mnemonic, "inb") == 0 || strcmp(mnemonic, "inw") == 0 ||
         strcmp(mnemonic, "inl") == 0) {
@@ -15689,25 +15690,6 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
         return true;
     }
 
-    if (strcmp(mnemonic, "movl") == 0) {
-        int32_t displacement;
-        int destination;
-        int destination_width;
-        if (!op1 || !op2 ||
-            !asm_parse_ebp_memory(op1, &displacement) ||
-            !asm_parse_register_width(op2, &destination,
-                                      &destination_width) ||
-            destination_width != 4) return false;
-        emit_byte(mod, 0x8B); /* mov r32, r/m32 */
-        if (displacement >= INT8_MIN && displacement <= INT8_MAX) {
-            emit_byte(mod, modrm(1, destination, EBP));
-            emit_byte(mod, (uint8_t)(int8_t)displacement);
-        } else {
-            emit_byte(mod, modrm(2, destination, EBP));
-            emit_dword(mod, (uint32_t)displacement);
-        }
-        return true;
-    }
     if (strcmp(mnemonic, "mov") == 0) {
         int source;
         int destination;
@@ -16287,6 +16269,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     char* p = tmpl_copy;
 
     bool lock_prefix = false;
+    bool repeat_prefix = false;
     while (*p) {
         /* Skip whitespace */
         while (*p && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) p++;
@@ -16381,15 +16364,26 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
                 lock_prefix = false;
             } else if (strcmp(mnemonic, "lock") == 0 && !op1[0] && !op2[0]) {
                 lock_prefix = true;
+            } else if (strcmp(mnemonic, "rep") == 0 && op1[0] && !op2[0] &&
+                       !lock_prefix && !repeat_prefix) {
+                if (!emit_asm_instruction(mod, op1, NULL, NULL, false, true)) {
+                    rcc_error(stmt->loc,
+                              "unsupported i686 inline asm REP instruction '%s'",
+                              op1);
+                }
+            } else if (strcmp(mnemonic, "rep") == 0 && !op1[0] && !op2[0] &&
+                       !lock_prefix && !repeat_prefix) {
+                repeat_prefix = true;
             } else if (!emit_asm_instruction(mod, mnemonic,
                                              op1[0] ? op1 : NULL,
                                              op2[0] ? op2 : NULL,
-                                             lock_prefix)) {
+                                             lock_prefix, repeat_prefix)) {
                 rcc_error(stmt->loc,
                           "unsupported i686 inline asm instruction '%s'",
                           mnemonic);
             } else {
                 lock_prefix = false;
+                repeat_prefix = false;
             }
         }
 
@@ -16397,6 +16391,11 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
             *p = saved;
             p++;
         }
+    }
+
+    if (repeat_prefix) {
+        rcc_error(stmt->loc,
+                  "i686 inline asm REP prefix has no following instruction");
     }
 
     rcc_free(tmpl_copy);

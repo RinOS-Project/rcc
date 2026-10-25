@@ -289,6 +289,24 @@ void asm_i686_indirect_tail(void (*target)(void) __attribute__((unused)))
         "mov 4(%%esp), %%ecx\n\t"
         "jmp *%%ecx" : : : "ecx");
 }
+
+void asm_i686_rep_movsl(unsigned* destination, const unsigned* source,
+                        unsigned count)
+{
+    __asm__ __volatile__("cld; rep movsl"
+                         : "+D"(destination), "+S"(source), "+c"(count)
+                         :
+                         : "memory", "cc");
+}
+
+void asm_i686_rep_stosl(unsigned* destination, unsigned value,
+                        unsigned count)
+{
+    __asm__ __volatile__("cld; rep\n\tstosl"
+                         : "+D"(destination), "+c"(count)
+                         : "a"(value)
+                         : "memory", "cc");
+}
 #endif
 
 #if defined(__x86_64__)
