@@ -5793,6 +5793,33 @@ static bool debug_inline_integer_expression_append_frame_u32(
             expression, capacity, size, 4u);
 }
 
+static bool debug_inline_parameter_i686_u64_append_narrow_word_expression(
+    const Module* mod, const Expr* value, bool high_word,
+    uint8_t* expression, size_t capacity, size_t* expression_size) {
+    if (!mod || !value || !value->type || value->type->size <= 0 ||
+        value->type->size > 4 || !expression || !expression_size) {
+        return false;
+    }
+    if (high_word &&
+        (value->type->is_unsigned || value->type->kind == TYPE_BOOL)) {
+        return debug_inline_integer_expression_append_constu(
+            expression, capacity, expression_size, 0u);
+    }
+    if (!debug_build_inline_integer_value_expression(
+            mod, ARCH_X86, value, expression, capacity, expression_size,
+            0u)) {
+        return false;
+    }
+    /* A signed narrow value's high word is -1 exactly when value < 0. */
+    return !high_word ||
+        (debug_inline_integer_expression_append_constu(
+             expression, capacity, expression_size, 0u) &&
+         debug_inline_integer_expression_append_byte(
+             expression, capacity, expression_size, 0x2du) &&
+         debug_inline_integer_expression_append_byte(
+             expression, capacity, expression_size, 0x1fu));
+}
+
 static bool debug_inline_parameter_i686_u64_append_word_expression(
     const Module* mod, const Expr* value, bool high_word, uint8_t* expression,
     size_t capacity, size_t* expression_size, unsigned int depth) {
@@ -5804,18 +5831,26 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
     }
     if (value->kind == EXPR_CAST && value->cast_expr &&
         value->cast_expr->type && value->cast_expr->type->size > 0 &&
-        value->cast_expr->type->size <= 8) {
-        return debug_inline_parameter_i686_u64_append_word_expression(
-            mod, value->cast_expr, high_word, expression, capacity,
-            expression_size, depth + 1u);
+        value->cast_expr->type->size <= value->type->size) {
+        if (value->type->size == 8) {
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->cast_expr, high_word, expression, capacity,
+                expression_size, depth + 1u);
+        }
+        return debug_inline_parameter_i686_u64_append_narrow_word_expression(
+            mod, value, high_word, expression, capacity, expression_size);
     }
     if (value->kind == EXPR_POS && value->unary_operand &&
         value->unary_operand->type &&
         value->unary_operand->type->size > 0 &&
-        value->unary_operand->type->size <= 8) {
-        return debug_inline_parameter_i686_u64_append_word_expression(
-            mod, value->unary_operand, high_word, expression, capacity,
-            expression_size, depth + 1u);
+        value->unary_operand->type->size <= value->type->size) {
+        if (value->type->size == 8) {
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->unary_operand, high_word, expression, capacity,
+                expression_size, depth + 1u);
+        }
+        return debug_inline_parameter_i686_u64_append_narrow_word_expression(
+            mod, value, high_word, expression, capacity, expression_size);
     }
     if (debug_inline_integer_literal_bits(value, &literal_bits, 0u)) {
         uint32_t word = high_word
@@ -5829,17 +5864,24 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
             source->var_is_global || source->var_is_static_local ||
             source->var_is_thread_local || source->var_is_vla ||
-            !source->type || source->type->size != 8 ||
+            !source->type || source->type->size <= 0 ||
+            source->type->size > 8 || source->type->kind == TYPE_ENUM ||
             !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 source->type, value->type, 0u) ||
             !debug_inline_parameter_frame_offset(
-                mod, source, &frame_offset) ||
-            (high_word && frame_offset > INT64_MAX - 4)) {
+                mod, source, &frame_offset)) {
             return false;
         }
-        if (high_word) frame_offset += 4;
-        return debug_inline_integer_expression_append_frame_u32(
-            expression, capacity, expression_size, ARCH_X86, frame_offset);
+        if (source->type->size == 8) {
+            if (high_word && frame_offset > INT64_MAX - 4) return false;
+            if (high_word) frame_offset += 4;
+            return debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, expression_size, ARCH_X86,
+                frame_offset);
+        }
+        if (source->type->size > 4) return false;
+        return debug_inline_parameter_i686_u64_append_narrow_word_expression(
+            mod, value, high_word, expression, capacity, expression_size);
     }
     return false;
 }

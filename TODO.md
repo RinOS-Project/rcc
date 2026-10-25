@@ -9977,6 +9977,12 @@ remains a separate open item.
       in `unsigned long long < int`, evaluating signed/unsigned 64-bit
       boundaries on legacy and verified i686/AMD64 objects. Focused and full
       `test-debug-info` pass; GCC C++20 accepts the fixture.
-- [ ] Runtime narrow-operand conversions, computed/non-frame-backed wide
+- [x] Extend frame-backed runtime `int` and `unsigned int` operands to the
+      64-bit common comparison type. Verify signed extension for
+      `long long < int` and zero extension for
+      `unsigned long long < unsigned int`, evaluating 32-bit RHS boundaries
+      against signed/unsigned 64-bit LHS boundaries on legacy and verified
+      i686/AMD64 objects. Focused and full `test-debug-info` pass.
+- [ ] Other sub-32-bit runtime conversions, computed/non-frame-backed wide
       operands, other mixed-rank matrices, and enum underlying-width
       combinations remain open.
