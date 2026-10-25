@@ -12,6 +12,30 @@ int OutOfClassOperatorRedefinitionProbe::operator+(int value) const {
     return value;
 }
 
+struct OutOfClassConversionProbe {
+    operator bool() const noexcept;
+};
+
+OutOfClassConversionProbe::operator int() const noexcept { return 0; }
+
+struct OutOfClassConversionNoexceptProbe {
+    operator bool() const noexcept;
+};
+
+OutOfClassConversionNoexceptProbe::operator bool() const { return false; }
+
+struct OutOfClassConversionRedefinitionProbe {
+    operator bool() const noexcept;
+};
+
+OutOfClassConversionRedefinitionProbe::operator bool() const noexcept {
+    return false;
+}
+
+OutOfClassConversionRedefinitionProbe::operator bool() const noexcept {
+    return true;
+}
+
 int OutOfClassOperatorRedefinitionProbe::operator+(int value) const {
     return value;
 }

@@ -9397,10 +9397,15 @@ remains a separate open item.
         overload lookup, return type, mangling, and implicit-object ABI. Verify
         result execution plus return-type mismatch and redefinition diagnostics
         for i686 and AMD64.
-  - [ ] Extend out-of-class definitions to the remaining overloaded operators,
-        conversion functions, member templates and explicit specializations,
-        advanced nested/template owner qualification, and remaining ABI/lifetime
-        coverage.
+  - [x] Define a namespace-qualified non-template `operator bool() const
+        noexcept` outside its class. Reuse the declared conversion target and
+        member ABI, perform the implicit conversion at a call site, and verify
+        exception-specification, target mismatch, and redefinition diagnostics
+        for i686 and AMD64.
+  - [ ] Extend out-of-class definitions to remaining overloaded operators and
+        conversion-type-id declarators, member templates and explicit
+        specializations, advanced nested/template owner qualification, and
+        remaining ABI/lifetime coverage.
   - [x] Recognize the standard by-value copy-assignment form
         (`operator=(T)` and top-level-const `operator=(const T)`) as a copy
         special member. Keep it in ordinary assignment overload resolution,

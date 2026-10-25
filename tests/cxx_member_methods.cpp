@@ -74,6 +74,13 @@ struct Scalar {
 };
 }
 
+namespace out_of_class_conversions {
+struct Truthy {
+    int value;
+    operator bool() const noexcept;
+};
+}
+
 namespace out_of_class_constructors {
 struct Values {
     int first;
@@ -173,6 +180,10 @@ out_of_class_operators::Scalar::operator+(int amount) const {
     return result;
 }
 
+out_of_class_conversions::Truthy::operator bool() const noexcept {
+    return value != 0;
+}
+
 int cxx_out_of_class_member_method_probe() {
     out_of_class_methods::Point point;
     point.x = 6;
@@ -224,6 +235,13 @@ int cxx_out_of_class_operator_probe() {
     return result.value == 12 ? 0 : 1;
 }
 
+int cxx_out_of_class_conversion_probe() {
+    out_of_class_conversions::Truthy value;
+    value.value = 1;
+    bool converted = value;
+    return converted ? 0 : 1;
+}
+
 int main() {
     return cxx_member_method_probe() == 53 &&
            cxx_pointer_method_probe() == 27 &&
@@ -232,6 +250,7 @@ int main() {
                13 + 113 + 6 + 6 + 9 + 10 + 6 + 18 + 6 + 2 + 6 &&
            cxx_out_of_class_constructor_probe() == 37 &&
            cxx_out_of_class_destructor_probe() == 0 &&
-           cxx_out_of_class_operator_probe() == 0
+           cxx_out_of_class_operator_probe() == 0 &&
+           cxx_out_of_class_conversion_probe() == 0
                ? 0 : 1;
 }
