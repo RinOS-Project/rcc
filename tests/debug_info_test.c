@@ -9913,6 +9913,10 @@ static void verify_inline_integer_expression_parameter(
     bool divisor_is_location_list = false;
     const char* call_site_name = expected_operation == 0xc4u
         ? "debug_inline_nonconstant_signed_long_long_lshift_computed_mod64_count_entry"
+        : expected_operation == 0x29u &&
+              strcmp(source_name,
+                     "debug_inline_nonconstant_integer_logical_not_wide_source") == 0
+        ? "debug_inline_nonconstant_integer_logical_not_wide_entry"
         : expected_operation == 0x29u
         ? "debug_inline_nonconstant_integer_logical_not_entry"
         : expected_operation == 0xc3u
@@ -10106,6 +10110,39 @@ static void verify_inline_integer_expression_parameter(
     assert(info->data[expression_offset++] ==
            (architecture == ARCH_X64 ? 0x76u : 0x75u));
     frame_offset = read_sleb(info->data, expression_end, &expression_offset);
+    if (expected_operation == 0x29u && architecture == ARCH_X86 &&
+        value_size == 8u) {
+        static const uint64_t values[] = {
+            0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
+            UINT64_C(0x8000000000000000), UINT64_MAX
+        };
+        uint64_t offset = expression_start;
+        assert(!is_unsigned && frame_offset <= INT64_MAX - 4);
+        verify_inline_expression_frame_u32(
+            info->data, expression_end, &offset, frame_offset);
+        verify_inline_expression_frame_u32(
+            info->data, expression_end, &offset, frame_offset + 4);
+        verify_inline_expression_byte(info->data, expression_end, &offset, 0x21u);
+        verify_inline_expression_constu(info->data, expression_end, &offset, 0u);
+        verify_inline_expression_byte(info->data, expression_end, &offset, 0x29u);
+        verify_inline_integer_expression_normalization(
+            info->data, expression_end, &offset, architecture, false, 4u);
+        verify_inline_expression_byte(info->data, expression_end, &offset, 0x9fu);
+        assert(offset == expression_end);
+        assert(find_variable_location(
+            info, strings, locations, source_name, architecture,
+            &has_variable_location, &variable_is_location_list,
+            &variable_frame_offset));
+        assert(has_variable_location && variable_frame_offset == frame_offset);
+        for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
+             ++index) {
+            uint32_t low = (uint32_t)values[index];
+            uint32_t high = (uint32_t)(values[index] >> 32u);
+            assert(((low | high) == 0u) == (values[index] == 0u));
+        }
+        objfile_free(object);
+        return;
+    }
     if (expected_operation == 0xfeu) {
         assert(is_unsigned && value_size > address_size &&
                expression_offset == expression_end);
@@ -10379,7 +10416,7 @@ static void verify_inline_integer_expression_parameter(
                info->data[expression_offset++] == expected_operation);
         verify_inline_integer_expression_normalization(
             info->data, expression_end, &expression_offset, architecture,
-            is_unsigned, value_size);
+            is_unsigned, expected_operation == 0x29u ? 4u : value_size);
     }
     assert(expression_offset + 1u == expression_end &&
            info->data[expression_offset] == 0x9fu);
@@ -10429,6 +10466,9 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_integer_parameter_inline",
          "debug_inline_nonconstant_integer_logical_not_source", false, 4u,
          0x29u, 0, NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_logical_not_wide_source", false,
+         8u, 0x29u, 0, NULL, false},
         {"debug_nonconstant_integer_bitand_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 4u, 0x1au, 7,
          NULL, false},
@@ -10831,6 +10871,12 @@ static void verify_inline_integer_expression_cases(
             cases[index].evaluate_full_width_unsigned &&
                 (cases[index].value_size == address_size ||
                  cases[index].divisor_source_name != NULL));
+    }
+    if (architecture == ARCH_X86) {
+        verify_inline_integer_expression_parameter(
+            path, architecture, "debug_nonconstant_integer_parameter_inline",
+            "debug_inline_nonconstant_integer_logical_not_wide_source",
+            false, 0x29u, 8u, 0, NULL, false);
     }
 }
 

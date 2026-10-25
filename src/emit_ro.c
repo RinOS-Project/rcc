@@ -5392,6 +5392,69 @@ static bool debug_build_inline_integer_value_expression(
     }
 
     if (expression->kind == EXPR_NOT && expression->unary_operand &&
+        architecture == ARCH_X86 &&
+        expression->unary_operand->type &&
+        debug_inline_integer_expression_type(
+            expression->unary_operand->type) &&
+        expression->unary_operand->type->size == 8 &&
+        expression->unary_operand->kind == EXPR_IDENT &&
+        expression->unary_operand->ident_decl) {
+        const Expr* operand = expression->unary_operand;
+        const Decl* source = operand->ident_decl;
+        int64_t frame_offset;
+        uint8_t address_expression[32];
+        size_t address_expression_size;
+        if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+            source->var_is_global || source->var_is_static_local ||
+            source->var_is_thread_local || source->var_is_vla ||
+            !source->type || source->type->size != 8 ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                source->type, operand->type, 0u) ||
+            !debug_inline_parameter_frame_offset(
+                mod, source, &frame_offset) || frame_offset > INT64_MAX - 4) {
+            return false;
+        }
+        address_expression_size = debug_build_expr_breg(
+            address_expression, architecture, frame_offset, 0u, false);
+        if (address_expression_size == 0u || *output_size > capacity ||
+            address_expression_size > capacity - *output_size) {
+            return false;
+        }
+        memcpy(output + *output_size, address_expression,
+               address_expression_size);
+        *output_size += address_expression_size;
+        if (!debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, 0x94u) || /* deref_size */
+            !debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, 4u)) {
+            return false;
+        }
+        address_expression_size = debug_build_expr_breg(
+            address_expression, architecture, frame_offset + 4, 0u, false);
+        if (address_expression_size == 0u || *output_size > capacity ||
+            address_expression_size > capacity - *output_size) {
+            return false;
+        }
+        memcpy(output + *output_size, address_expression,
+               address_expression_size);
+        *output_size += address_expression_size;
+        return debug_inline_integer_expression_append_byte(
+                   output, capacity, output_size, 0x94u) && /* deref_size */
+            debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, 4u) &&
+            debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, 0x21u) && /* DW_OP_or */
+            debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, 0x10u) && /* constu */
+            debug_expression_uleb(output, capacity, output_size, 0u) &&
+            debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, 0x29u) && /* DW_OP_eq */
+            debug_inline_integer_expression_normalize(
+                output, capacity, output_size, expression->type,
+                architecture);
+    }
+
+    if (expression->kind == EXPR_NOT && expression->unary_operand &&
         debug_inline_integer_expression_type(
             expression->unary_operand->type) &&
         debug_build_inline_integer_value_expression(

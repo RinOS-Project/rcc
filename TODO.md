@@ -9854,3 +9854,14 @@ remains a separate open item.
 - [ ] Other unsupported runtime expression trees, mutable inline-parameter
       locations, register-only sources, and general optimized inline-variable
       tracking remain open.
+
+## RCC continuation (2026-10-25, i686 wide logical-not inline DWARF)
+
+- [x] Preserve a runtime `!long long` argument on i686 without relying on a
+      64-bit generic DWARF stack entry: load both four-byte frame pieces, OR
+      them, and compare the result with zero. AMD64 keeps its native-width
+      load. Regressions check zero, low/high-word nonzero values, the sign bit,
+      and `UINT64_MAX` in legacy and verified objects; focused and full
+      `test-debug-info` pass.
+- [ ] Computed wide logical-not operands, non-frame-backed 64-bit sources, and
+      broader optimized multi-piece variable locations remain open.

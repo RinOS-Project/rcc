@@ -51,6 +51,7 @@ const int debug_inline_readonly_addressed_pointer_source = 31;
 int** debug_inline_escaped_pointer;
 int* debug_inline_escaped_object_address;
 int* debug_inline_nonconstant_integer_escape;
+long long* debug_inline_nonconstant_integer_logical_not_wide_escape;
 unsigned int* debug_inline_nonconstant_unsigned_integer_escape;
 unsigned int* debug_inline_nonconstant_unsigned_high_divisor_escape;
 unsigned int* debug_inline_nonconstant_shift_count_escape;
@@ -273,6 +274,15 @@ int debug_inline_nonconstant_integer_logical_not_entry(int value)
         &debug_inline_nonconstant_integer_logical_not_source;
     return debug_nonconstant_integer_parameter_inline(
         !debug_inline_nonconstant_integer_logical_not_source);
+}
+
+int debug_inline_nonconstant_integer_logical_not_wide_entry(long long value)
+{
+    long long debug_inline_nonconstant_integer_logical_not_wide_source = value;
+    debug_inline_nonconstant_integer_logical_not_wide_escape =
+        &debug_inline_nonconstant_integer_logical_not_wide_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !debug_inline_nonconstant_integer_logical_not_wide_source);
 }
 
 int debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry(int value)
