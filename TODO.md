@@ -9961,5 +9961,10 @@ remains a separate open item.
       evaluate the result for every unsigned-char boundary region in legacy and
       verified i686/AMD64 DWARF. Focused and full `test-debug-info` pass; GCC
       C++20 confirms the enum-to-enum semantics.
+- [x] Promote a fixed-underlying `unsigned short` enum to `int` before applying
+      the mixed-rank conversion to `long`. Verify the emitted inline comparison
+      and `!(enum_value < -1L)` at zero, both sides of the signed boundary, and
+      `USHRT_MAX` in legacy and verified i686/AMD64 DWARF. Focused and full
+      `test-debug-info` pass.
 - [ ] Other mixed-rank matrices, enum underlying-width combinations, and
       i686-wide comparisons remain open.
