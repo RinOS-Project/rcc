@@ -13433,6 +13433,10 @@ test-cxx-member-methods-invalid: $(RCXX_TARGET)
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassMemberTemplateDefinitionProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "out-of-class member constexpr specifiers do not match 'OutOfClassConstexprTemplateSpecifierProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "out-of-class member constexpr specifiers do not match 'OutOfClassConstevalTemplateSpecifierProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(GREP) -F -q "out-of-class constructor constexpr specifiers do not match 'OutOfClassConstexprConstructorSpecifierProbe::OutOfClassConstexprConstructorSpecifierProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(GREP) -F -q "out-of-class destructor constexpr specifiers do not match 'OutOfClassConstexprDestructorSpecifierProbe::~OutOfClassConstexprDestructorSpecifierProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(GREP) -F -q "out-of-class conversion constexpr specifiers do not match 'OutOfClassConstexprConversionSpecifierProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
+	$(GREP) -F -q "out-of-class member constexpr specifiers do not match 'OutOfClassConstexprMethodSpecifierProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassTemplateOperatorProbe::operator+'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassTemplateSubscriptProbe::operator[]'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassTemplateArrowProbe::operator->'" $(TEST_OUT)/cxx-member-methods/invalid-x86.log
@@ -13455,6 +13459,10 @@ test-cxx-member-methods-invalid: $(RCXX_TARGET)
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassMemberTemplateDefinitionProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "out-of-class member constexpr specifiers do not match 'OutOfClassConstexprTemplateSpecifierProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "out-of-class member constexpr specifiers do not match 'OutOfClassConstevalTemplateSpecifierProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	$(GREP) -F -q "out-of-class constructor constexpr specifiers do not match 'OutOfClassConstexprConstructorSpecifierProbe::OutOfClassConstexprConstructorSpecifierProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	$(GREP) -F -q "out-of-class destructor constexpr specifiers do not match 'OutOfClassConstexprDestructorSpecifierProbe::~OutOfClassConstexprDestructorSpecifierProbe'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	$(GREP) -F -q "out-of-class conversion constexpr specifiers do not match 'OutOfClassConstexprConversionSpecifierProbe::operator conversion'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
+	$(GREP) -F -q "out-of-class member constexpr specifiers do not match 'OutOfClassConstexprMethodSpecifierProbe::value'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassTemplateOperatorProbe::operator+'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassTemplateSubscriptProbe::operator[]'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log
 	$(GREP) -F -q "out-of-class definition does not match a member declaration 'OutOfClassTemplateArrowProbe::operator->'" $(TEST_OUT)/cxx-member-methods/invalid-x64.log

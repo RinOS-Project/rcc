@@ -74,6 +74,36 @@ int OutOfClassConstevalTemplateSpecifierProbe::value(T input) {
     return static_cast<int>(input);
 }
 
+struct OutOfClassConstexprConstructorSpecifierProbe {
+    constexpr OutOfClassConstexprConstructorSpecifierProbe();
+};
+
+OutOfClassConstexprConstructorSpecifierProbe::
+    OutOfClassConstexprConstructorSpecifierProbe() {}
+
+struct OutOfClassConstexprDestructorSpecifierProbe {
+    constexpr ~OutOfClassConstexprDestructorSpecifierProbe();
+};
+
+OutOfClassConstexprDestructorSpecifierProbe::
+    ~OutOfClassConstexprDestructorSpecifierProbe() {}
+
+struct OutOfClassConstexprConversionSpecifierProbe {
+    constexpr operator bool() const;
+};
+
+OutOfClassConstexprConversionSpecifierProbe::operator bool() const {
+    return true;
+}
+
+struct OutOfClassConstexprMethodSpecifierProbe {
+    constexpr int value() const;
+};
+
+int OutOfClassConstexprMethodSpecifierProbe::value() const {
+    return 1;
+}
+
 template<typename T>
 struct OutOfClassTemplateOperatorProbe {
     T operator+(T value) const;
