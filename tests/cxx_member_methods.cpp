@@ -73,6 +73,12 @@ struct Scalar {
     Scalar operator+(int amount) const;
 };
 
+struct Assigned {
+    int value;
+    Assigned& operator=(int new_value);
+    Assigned& operator+=(int amount);
+};
+
 struct Indexed {
     int elements[2];
     int& operator[](int index);
@@ -225,6 +231,18 @@ out_of_class_operators::Scalar::operator+(int amount) const {
     return result;
 }
 
+out_of_class_operators::Assigned&
+out_of_class_operators::Assigned::operator=(int new_value) {
+    value = new_value;
+    return *this;
+}
+
+out_of_class_operators::Assigned&
+out_of_class_operators::Assigned::operator+=(int amount) {
+    value += amount;
+    return *this;
+}
+
 int& out_of_class_operators::Indexed::operator[](int index) {
     return elements[index];
 }
@@ -314,7 +332,12 @@ int cxx_out_of_class_operator_probe() {
     out_of_class_operators::Scalar left;
     left.value = 5;
     out_of_class_operators::Scalar result = left + 7;
-    return result.value == 12 ? 0 : 1;
+    out_of_class_operators::Assigned assigned{};
+    out_of_class_operators::Assigned& assigned_alias = (assigned = 23);
+    assigned_alias += 5;
+    assigned += 3;
+    return result.value == 12 && assigned.value == 31 &&
+           &assigned_alias == &assigned ? 0 : 1;
 }
 
 int cxx_out_of_class_call_operators_probe() {
