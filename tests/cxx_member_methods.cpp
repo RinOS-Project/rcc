@@ -72,6 +72,16 @@ struct Scalar {
     int value;
     Scalar operator+(int amount) const;
 };
+
+struct Indexed {
+    int elements[2];
+    int& operator[](int index);
+};
+
+struct Callable {
+    int offset;
+    int operator()(int value) const;
+};
 }
 
 namespace out_of_class_conversions {
@@ -180,6 +190,14 @@ out_of_class_operators::Scalar::operator+(int amount) const {
     return result;
 }
 
+int& out_of_class_operators::Indexed::operator[](int index) {
+    return elements[index];
+}
+
+int out_of_class_operators::Callable::operator()(int value) const {
+    return offset + value;
+}
+
 out_of_class_conversions::Truthy::operator bool() const noexcept {
     return value != 0;
 }
@@ -235,6 +253,18 @@ int cxx_out_of_class_operator_probe() {
     return result.value == 12 ? 0 : 1;
 }
 
+int cxx_out_of_class_call_operators_probe() {
+    out_of_class_operators::Indexed indexed;
+    indexed[0] = 4;
+    indexed[1] = 8;
+    out_of_class_operators::Callable callable;
+    callable.offset = 11;
+    int first = indexed[0];
+    int second = indexed[1];
+    int called = callable(7);
+    return first == 4 && second == 8 && called == 18 ? 0 : 1;
+}
+
 int cxx_out_of_class_conversion_probe() {
     out_of_class_conversions::Truthy value;
     value.value = 1;
@@ -251,6 +281,7 @@ int main() {
            cxx_out_of_class_constructor_probe() == 37 &&
            cxx_out_of_class_destructor_probe() == 0 &&
            cxx_out_of_class_operator_probe() == 0 &&
+           cxx_out_of_class_call_operators_probe() == 0 &&
            cxx_out_of_class_conversion_probe() == 0
                ? 0 : 1;
 }

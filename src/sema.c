@@ -4017,6 +4017,25 @@ reference_binding_validated:
         return target;
     }
 
+    /* A function returning T& or T&& produces a glvalue. In a value context,
+     * apply the lvalue-to-rvalue transformation before considering the usual
+     * arithmetic, pointer, or class conversions. Keep the reference expression
+     * intact when binding another reference (handled above), and represent the
+     * value read explicitly so the backend loads through the returned address. */
+    if (rcc_parser_is_cxx_mode() && e->kind != EXPR_DEREF &&
+        e->type->kind == TYPE_PTR &&
+        e->type->is_reference && e->type->base) {
+        Type* referred_type = e->type->base;
+        Expr* reference = ast_arena_alloc(sizeof(*reference));
+        Expr* value;
+        *reference = *e;
+        value = expr_unary(EXPR_DEREF, reference, e->loc);
+        value->type = referred_type;
+        *e = *value;
+        return implicit_cast_with_explicit_conversion(
+            e, target, allow_explicit_conversion);
+    }
+
     if (sema_cxx_decay_array_reference(e, target)) return target;
 
     /* Same type */
