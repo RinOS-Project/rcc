@@ -9988,5 +9988,9 @@ remains a separate open item.
       conversion. Evaluate each source's signed/unsigned boundary values against
       wide signed or unsigned locals on legacy and verified i686/AMD64 objects.
       Focused and full `test-debug-info` pass.
-- [ ] `bool` and enum operands, computed/non-frame-backed wide operands, other
-      mixed-rank matrices, and enum underlying-width combinations remain open.
+- [x] Promote a frame-backed C++ `bool` comparison operand to `int` before its
+      common conversion with `long long`. Evaluate both representable boolean
+      values against signed 64-bit boundaries on legacy and verified i686/AMD64
+      objects. Focused and full `test-debug-info` pass.
+- [ ] Enum operands, computed/non-frame-backed wide operands, other mixed-rank
+      matrices, and enum underlying-width combinations remain open.

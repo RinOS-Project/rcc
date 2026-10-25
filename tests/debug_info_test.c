@@ -10123,7 +10123,9 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_unsigned_long_long_signed_short_compare_entry_source",
          "debug_inline_unsigned_long_long_signed_short_compare_entry"},
         {"debug_inline_unsigned_long_long_unsigned_short_compare_entry_source",
-         "debug_inline_unsigned_long_long_unsigned_short_compare_entry"}
+         "debug_inline_unsigned_long_long_unsigned_short_compare_entry"},
+        {"debug_inline_signed_long_long_bool_compare_entry_source",
+         "debug_inline_signed_long_long_bool_compare_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -10167,6 +10169,11 @@ static const char* inline_integer_comparison_secondary_source(
             "debug_inline_unsigned_long_long_unsigned_short_compare_entry_source") == 0) {
         return "debug_inline_unsigned_long_long_unsigned_short_compare_rhs";
     }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_bool_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_bool_compare_rhs";
+    }
     return NULL;
 }
 
@@ -10193,6 +10200,11 @@ static uint8_t inline_integer_comparison_secondary_size(
                 "debug_inline_unsigned_long_long_unsigned_int_compare_entry_source") == 0)) {
         return 4u;
     }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_bool_compare_entry_source") == 0) {
+        return 1u;
+    }
     return 0u;
 }
 
@@ -10205,6 +10217,13 @@ static bool inline_integer_comparison_secondary_is_unsigned(
                 "debug_inline_unsigned_long_long_unsigned_short_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_unsigned_long_long_unsigned_int_compare_entry_source") == 0);
+}
+
+static bool inline_integer_comparison_secondary_is_bool(
+    const char* source_name) {
+    return source_name && strcmp(
+        source_name,
+        "debug_inline_signed_long_long_bool_compare_entry_source") == 0;
 }
 
 static void verify_inline_integer_expression_parameter(
@@ -10304,7 +10323,9 @@ static void verify_inline_integer_expression_parameter(
          strcmp(source_name,
                 "debug_inline_unsigned_long_long_signed_short_compare_entry_source") == 0 ||
          strcmp(source_name,
-                "debug_inline_unsigned_long_long_unsigned_short_compare_entry_source") == 0);
+                "debug_inline_unsigned_long_long_unsigned_short_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_bool_compare_entry_source") == 0);
     bool narrow_wide_comparison = source_name &&
         (strcmp(source_name,
                 "debug_inline_signed_long_long_unsigned_int_compare_entry_source") == 0 ||
@@ -10321,7 +10342,9 @@ static void verify_inline_integer_expression_parameter(
          strcmp(source_name,
                 "debug_inline_unsigned_long_long_signed_short_compare_entry_source") == 0 ||
          strcmp(source_name,
-                "debug_inline_unsigned_long_long_unsigned_short_compare_entry_source") == 0);
+                "debug_inline_unsigned_long_long_unsigned_short_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_bool_compare_entry_source") == 0);
     bool comparison_is_unsigned = is_unsigned;
     uint8_t comparison_value_size = value_size;
     const char* call_site_name = comparison_entry ? comparison_entry :
@@ -10591,13 +10614,20 @@ static void verify_inline_integer_expression_parameter(
                     0u, 1u, secondary_sign - 1u, secondary_sign,
                     secondary_max
                 };
+                uint64_t bool_rhs_values[] = {0u, 1u};
                 bool rhs_is_unsigned =
                     inline_integer_comparison_secondary_is_unsigned(
                         source_name);
-                const uint64_t* secondary_values = rhs_is_unsigned
-                    ? unsigned_rhs_values : signed_rhs_values;
-                size_t secondary_count = sizeof(signed_rhs_values) /
-                    sizeof(signed_rhs_values[0]);
+                bool rhs_is_bool =
+                    inline_integer_comparison_secondary_is_bool(source_name);
+                const uint64_t* secondary_values = rhs_is_bool
+                    ? bool_rhs_values
+                    : rhs_is_unsigned ? unsigned_rhs_values
+                                      : signed_rhs_values;
+                size_t secondary_count = rhs_is_bool
+                    ? sizeof(bool_rhs_values) / sizeof(bool_rhs_values[0])
+                    : sizeof(signed_rhs_values) /
+                          sizeof(signed_rhs_values[0]);
                 assert(find_variable_location(
                     info, strings, locations, secondary_source, architecture,
                     &has_variable_location, &variable_is_location_list,
@@ -12001,7 +12031,9 @@ int main(int argc, char** argv)
             {"debug_inline_unsigned_long_long_signed_short_compare_entry_source",
              true, 0x2du, 0},
             {"debug_inline_unsigned_long_long_unsigned_short_compare_entry_source",
-             true, 0x2du, 0}
+             true, 0x2du, 0},
+            {"debug_inline_signed_long_long_bool_compare_entry_source",
+             false, 0x2du, 0}
         };
         const char* wide_paths[] = {argv[6], argv[7], argv[8], argv[9]};
         const uint16_t wide_architectures[] = {
