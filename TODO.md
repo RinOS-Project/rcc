@@ -9781,3 +9781,10 @@ remains a separate open item.
       `test-cxx-class-template-methods`; adjacent member and conversion
       operator suites pass. Other cv/ref target forms and deeper owner chains
       remain open.
+- [x] Define `operator T*() &&` out-of-class for a dependent class-template
+      owner. An rvalue selects the mutable-pointer conversion while an lvalue
+      retains the `const T*` conversion; dereference the returned pointer
+      within the temporary's full-expression. GCC C++20 syntax and RCC
+      i686/AMD64 `-O0`/`-O2` runtime pass in
+      `test-cxx-class-template-methods`. Further cv/ref forms and deeper owner
+      chains remain open.

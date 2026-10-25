@@ -49,6 +49,7 @@ public:
 
     T get() const;
     operator const T*() const;
+    operator T*() &&;
     T operator+(T rhs) const;
     T operator()(T rhs) const;
     T operator[](T index) const;
@@ -105,6 +106,11 @@ T OutOfClassClassTemplateOwner<T>::get() const {
 
 template<typename T>
 OutOfClassClassTemplateOwner<T>::operator const T*() const {
+    return &value;
+}
+
+template<typename T>
+OutOfClassClassTemplateOwner<T>::operator T*() && {
     return &value;
 }
 
@@ -204,6 +210,7 @@ int main() {
            member_template.non_type_default<9>() == 9 &&
            out_of_class_owner.get() == 4 &&
            *static_cast<const int*>(out_of_class_owner) == 4 &&
+           *static_cast<int*>(OutOfClassClassTemplateOwner<int>{5}) == 5 &&
            converted_reference == 6 &&
            static_cast<const int&>(reference_conversion_owner) == 6 &&
            out_of_class_owner + 5 == 9 &&
