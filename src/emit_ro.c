@@ -4926,6 +4926,18 @@ static bool debug_inline_integer_expression_type(const Type* type) {
          type->kind == TYPE_ENUM);
 }
 
+static uint8_t debug_inline_integer_comparison_opcode(ExprKind kind) {
+    switch (kind) {
+        case EXPR_EQ: return 0x29u;
+        case EXPR_GE: return 0x2au;
+        case EXPR_GT: return 0x2bu;
+        case EXPR_LE: return 0x2cu;
+        case EXPR_LT: return 0x2du;
+        case EXPR_NE: return 0x2eu;
+        default: return 0u;
+    }
+}
+
 static bool debug_inline_integer_expression_append_byte(
     uint8_t* expression, size_t capacity, size_t* size, uint8_t value) {
     if (!expression || !size || *size >= capacity) return false;
@@ -5454,7 +5466,8 @@ static bool debug_build_inline_integer_value_expression(
                 architecture);
     }
 
-    if (expression->kind == EXPR_EQ && expression->binary_lhs &&
+    if (debug_inline_integer_comparison_opcode(expression->kind) != 0u &&
+        expression->binary_lhs &&
         expression->binary_rhs &&
         debug_inline_integer_expression_type(
             expression->binary_lhs->type) &&
@@ -5466,18 +5479,40 @@ static bool debug_build_inline_integer_value_expression(
             (architecture == ARCH_X64 ? 8u : 4u) &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             expression->binary_lhs->type, expression->binary_rhs->type,
-            0u) &&
-        debug_build_inline_integer_value_expression(
-            mod, architecture, expression->binary_lhs, output, capacity,
-            output_size, depth + 1u) &&
-        debug_build_inline_integer_value_expression(
-            mod, architecture, expression->binary_rhs, output, capacity,
-            output_size, depth + 1u) &&
-        debug_inline_integer_expression_append_byte(
-            output, capacity, output_size, 0x29u) && /* DW_OP_eq */
-        debug_inline_integer_expression_normalize(
-            output, capacity, output_size, expression->type, architecture)) {
-        return true;
+            0u)) {
+        const Type* operand_type = expression->binary_lhs->type;
+        uint8_t comparison_opcode =
+            debug_inline_integer_comparison_opcode(expression->kind);
+        bool ordered = expression->kind != EXPR_EQ &&
+            expression->kind != EXPR_NE;
+        unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
+        bool full_width_unsigned_ordering = ordered &&
+            operand_type->is_unsigned &&
+            (unsigned int)operand_type->size == address_size;
+        uint64_t sign_bit = UINT64_C(1) << (address_size * 8u - 1u);
+        if (debug_build_inline_integer_value_expression(
+                mod, architecture, expression->binary_lhs, output, capacity,
+                output_size, depth + 1u) &&
+            (!full_width_unsigned_ordering ||
+             (debug_inline_integer_expression_append_constu(
+                  output, capacity, output_size, sign_bit) &&
+              debug_inline_integer_expression_append_byte(
+                  output, capacity, output_size, 0x27u))) &&
+            debug_build_inline_integer_value_expression(
+                mod, architecture, expression->binary_rhs, output, capacity,
+                output_size, depth + 1u) &&
+            (!full_width_unsigned_ordering ||
+             (debug_inline_integer_expression_append_constu(
+                  output, capacity, output_size, sign_bit) &&
+              debug_inline_integer_expression_append_byte(
+                  output, capacity, output_size, 0x27u))) &&
+            debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, comparison_opcode) &&
+            debug_inline_integer_expression_normalize(
+                output, capacity, output_size, expression->type,
+                architecture)) {
+            return true;
+        }
     }
 
     if (expression->kind == EXPR_NOT && expression->unary_operand &&
@@ -7865,6 +7900,11 @@ static bool debug_inline_parameter_integer_expression(
          argument->expr->kind != EXPR_LSHIFT &&
          argument->expr->kind != EXPR_RSHIFT &&
          argument->expr->kind != EXPR_EQ &&
+         argument->expr->kind != EXPR_NE &&
+         argument->expr->kind != EXPR_LT &&
+         argument->expr->kind != EXPR_GT &&
+         argument->expr->kind != EXPR_LE &&
+         argument->expr->kind != EXPR_GE &&
          argument->expr->kind != EXPR_NEG &&
          argument->expr->kind != EXPR_NOT &&
          argument->expr->kind != EXPR_BITNOT) ||

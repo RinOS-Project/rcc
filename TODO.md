@@ -9873,5 +9873,17 @@ remains a separate open item.
       DWARF stack width. Emit the comparison and outer logical-not with each
       target-width normalization represented explicitly. Focused and full
       `test-debug-info` pass for legacy and verified i686/AMD64 objects.
-- [ ] Mixed-type conversions, ordered comparisons, i686 wide comparisons, and
-      other unsupported runtime expression trees remain open.
+- [ ] Mixed-type conversions, i686 wide comparisons, and other unsupported
+      runtime expression trees remain open.
+
+## RCC continuation (2026-10-25, inline integer comparison DWARF)
+
+- [x] Preserve same-type integer `!=`, `<`, `>`, `<=`, and `>=` expressions
+      under logical-not when both operands fit the target DWARF stack width.
+      Lower signed comparisons directly; map full-width unsigned ordering to
+      signed DWARF comparisons by flipping each operand's sign bit. Exact
+      expression checks cover signed operators and the unsigned boundary on
+      i686/AMD64 for legacy and verified objects. The focused inline-expression
+      test passes.
+- [ ] Mixed-type conversions, i686 comparisons wider than its DWARF stack,
+      and other unsupported runtime expression trees remain open.

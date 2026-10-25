@@ -294,6 +294,41 @@ int debug_inline_nonconstant_integer_logical_not_equality_entry(int value)
         !(debug_inline_nonconstant_integer_logical_not_equality_source == 0));
 }
 
+#define DEBUG_INLINE_SIGNED_COMPARE_ENTRY(entry_name, comparison) \
+    int entry_name(int value) \
+    { \
+        int entry_name##_source = value; \
+        debug_inline_nonconstant_integer_escape = &entry_name##_source; \
+        return debug_nonconstant_integer_parameter_inline( \
+            !(entry_name##_source comparison 0)); \
+    }
+
+DEBUG_INLINE_SIGNED_COMPARE_ENTRY(
+    debug_inline_nonconstant_integer_compare_less_entry, <)
+DEBUG_INLINE_SIGNED_COMPARE_ENTRY(
+    debug_inline_nonconstant_integer_compare_greater_entry, >)
+DEBUG_INLINE_SIGNED_COMPARE_ENTRY(
+    debug_inline_nonconstant_integer_compare_less_equal_entry, <=)
+DEBUG_INLINE_SIGNED_COMPARE_ENTRY(
+    debug_inline_nonconstant_integer_compare_greater_equal_entry, >=)
+DEBUG_INLINE_SIGNED_COMPARE_ENTRY(
+    debug_inline_nonconstant_integer_compare_not_equal_entry, !=)
+
+#undef DEBUG_INLINE_SIGNED_COMPARE_ENTRY
+
+int debug_inline_nonconstant_unsigned_integer_compare_less_entry(
+    unsigned int value)
+{
+    unsigned int
+        debug_inline_nonconstant_unsigned_integer_compare_less_entry_source =
+            value;
+    debug_inline_nonconstant_unsigned_integer_escape =
+        &debug_inline_nonconstant_unsigned_integer_compare_less_entry_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_nonconstant_unsigned_integer_compare_less_entry_source <
+          0x80000000u));
+}
+
 int debug_inline_nonconstant_unsigned_long_long_wide_divmod_entry(int value)
 {
     unsigned long long

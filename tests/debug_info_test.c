@@ -8698,6 +8698,17 @@ static void verify_inline_expression_frame_u32(
     verify_inline_expression_byte(data, expression_end, offset, 4u);
 }
 
+static void verify_inline_expression_frame_u32_for_architecture(
+    const uint8_t* data, uint64_t expression_end, uint64_t* offset,
+    int architecture, int64_t expected_frame_offset) {
+    verify_inline_expression_byte(
+        data, expression_end, offset,
+        architecture == ARCH_X64 ? 0x76u : 0x75u);
+    assert(read_sleb(data, expression_end, offset) == expected_frame_offset);
+    verify_inline_expression_byte(data, expression_end, offset, 0x94u);
+    verify_inline_expression_byte(data, expression_end, offset, 4u);
+}
+
 static void verify_inline_expression_constu(
     const uint8_t* data, uint64_t expression_end, uint64_t* offset,
     uint64_t expected) {
@@ -9886,6 +9897,35 @@ static void verify_inline_u64_negate_expression(
     }
 }
 
+static const char* inline_integer_comparison_entry_for_source(
+    const char* source_name) {
+    static const struct {
+        const char* source;
+        const char* entry;
+    } entries[] = {
+        {"debug_inline_nonconstant_integer_compare_less_entry_source",
+         "debug_inline_nonconstant_integer_compare_less_entry"},
+        {"debug_inline_nonconstant_integer_compare_greater_entry_source",
+         "debug_inline_nonconstant_integer_compare_greater_entry"},
+        {"debug_inline_nonconstant_integer_compare_less_equal_entry_source",
+         "debug_inline_nonconstant_integer_compare_less_equal_entry"},
+        {"debug_inline_nonconstant_integer_compare_greater_equal_entry_source",
+         "debug_inline_nonconstant_integer_compare_greater_equal_entry"},
+        {"debug_inline_nonconstant_integer_compare_not_equal_entry_source",
+         "debug_inline_nonconstant_integer_compare_not_equal_entry"},
+        {"debug_inline_nonconstant_unsigned_integer_compare_less_entry_source",
+         "debug_inline_nonconstant_unsigned_integer_compare_less_entry"}
+    };
+    if (!source_name) return NULL;
+    for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
+         ++index) {
+        if (strcmp(source_name, entries[index].source) == 0) {
+            return entries[index].entry;
+        }
+    }
+    return NULL;
+}
+
 static void verify_inline_integer_expression_parameter(
     const char* path, uint16_t architecture, const char* inline_name,
     const char* source_name, bool is_unsigned, uint8_t expected_operation,
@@ -9911,7 +9951,10 @@ static void verify_inline_integer_expression_parameter(
     bool variable_is_location_list;
     bool has_divisor_variable_location = false;
     bool divisor_is_location_list = false;
-    const char* call_site_name = expected_operation == 0xc4u
+    const char* comparison_entry =
+        inline_integer_comparison_entry_for_source(source_name);
+    const char* call_site_name = comparison_entry ? comparison_entry :
+        expected_operation == 0xc4u
         ? "debug_inline_nonconstant_signed_long_long_lshift_computed_mod64_count_entry"
         : expected_operation == 0x29u &&
               strcmp(source_name,
@@ -10005,6 +10048,9 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0xeau || expected_operation == 0xedu ||
             expected_operation == 0xebu ||
             expected_operation == 0xecu || expected_operation == 0x29u ||
+            expected_operation == 0x2au || expected_operation == 0x2bu ||
+            expected_operation == 0x2cu || expected_operation == 0x2du ||
+            expected_operation == 0x2eu ||
             expected_operation == 0xc0u ||
             expected_operation == 0xc1u || expected_operation == 0xc2u ||
             expected_operation == 0xc3u || expected_operation == 0xc4u ||
@@ -10114,6 +10160,66 @@ static void verify_inline_integer_expression_parameter(
     assert(info->data[expression_offset++] ==
            (architecture == ARCH_X64 ? 0x76u : 0x75u));
     frame_offset = read_sleb(info->data, expression_end, &expression_offset);
+    if (comparison_entry) {
+        uint64_t offset = expression_start;
+        bool full_width_unsigned_ordering = is_unsigned &&
+            value_size == address_size &&
+            (expected_operation == 0x2au || expected_operation == 0x2bu ||
+             expected_operation == 0x2cu || expected_operation == 0x2du);
+        uint64_t sign_bit = UINT64_C(1) << (address_size * 8u - 1u);
+        assert(value_size == 4u &&
+               (expected_operation >= 0x2au && expected_operation <= 0x2eu));
+        verify_inline_expression_frame_u32_for_architecture(
+            info->data, expression_end, &offset, architecture, frame_offset);
+        verify_inline_integer_expression_normalization(
+            info->data, expression_end, &offset, architecture,
+            is_unsigned, value_size);
+        if (full_width_unsigned_ordering) {
+            verify_inline_expression_constu(
+                info->data, expression_end, &offset, sign_bit);
+            verify_inline_expression_byte(info->data, expression_end,
+                                          &offset, 0x27u);
+        }
+        if (is_unsigned) {
+            verify_inline_expression_constu(
+                info->data, expression_end, &offset,
+                (uint64_t)expected_constant);
+        } else {
+            verify_inline_expression_byte(info->data, expression_end,
+                                          &offset, 0x11u);
+            assert(read_sleb(info->data, expression_end, &offset) ==
+                   expected_constant);
+        }
+        verify_inline_integer_expression_normalization(
+            info->data, expression_end, &offset, architecture,
+            is_unsigned, value_size);
+        if (full_width_unsigned_ordering) {
+            verify_inline_expression_constu(
+                info->data, expression_end, &offset, sign_bit);
+            verify_inline_expression_byte(info->data, expression_end,
+                                          &offset, 0x27u);
+        }
+        verify_inline_expression_byte(info->data, expression_end, &offset,
+                                      expected_operation);
+        verify_inline_integer_expression_normalization(
+            info->data, expression_end, &offset, architecture, false, 4u);
+        verify_inline_expression_constu(
+            info->data, expression_end, &offset, 0u);
+        verify_inline_expression_byte(info->data, expression_end, &offset,
+                                      0x29u);
+        verify_inline_integer_expression_normalization(
+            info->data, expression_end, &offset, architecture, false, 4u);
+        verify_inline_expression_byte(info->data, expression_end, &offset,
+                                      0x9fu);
+        assert(offset == expression_end);
+        assert(find_variable_location(
+            info, strings, locations, source_name, architecture,
+            &has_variable_location, &variable_is_location_list,
+            &variable_frame_offset));
+        assert(has_variable_location && variable_frame_offset == frame_offset);
+        objfile_free(object);
+        return;
+    }
     if (expected_operation == 0x29u && architecture == ARCH_X86 &&
         value_size == 8u) {
         static const uint64_t values[] = {
@@ -10489,6 +10595,24 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_integer_parameter_inline",
          "debug_inline_nonconstant_integer_logical_not_equality_source",
          false, 4u, 0x29u, 0, NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_compare_less_entry_source",
+         false, 4u, 0x2du, 0, NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_compare_greater_entry_source",
+         false, 4u, 0x2bu, 0, NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_compare_less_equal_entry_source",
+         false, 4u, 0x2cu, 0, NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_compare_greater_equal_entry_source",
+         false, 4u, 0x2au, 0, NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_integer_compare_not_equal_entry_source",
+         false, 4u, 0x2eu, 0, NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_unsigned_integer_compare_less_entry_source",
+         true, 4u, 0x2du, INT64_C(0x80000000), NULL, false},
         {"debug_nonconstant_integer_bitand_parameter_inline",
          "debug_inline_nonconstant_integer_source", false, 4u, 0x1au, 7,
          NULL, false},
