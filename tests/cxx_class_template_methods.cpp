@@ -48,7 +48,7 @@ public:
     explicit OutOfClassClassTemplateOwner(T input) : value(input) {}
 
     T get() const;
-    operator const T*() const;
+    operator const T*() const &;
     operator T*() &&;
     T operator+(T rhs) const;
     T operator()(T rhs) const;
@@ -105,7 +105,7 @@ T OutOfClassClassTemplateOwner<T>::get() const {
 }
 
 template<typename T>
-OutOfClassClassTemplateOwner<T>::operator const T*() const {
+OutOfClassClassTemplateOwner<T>::operator const T*() const & {
     return &value;
 }
 

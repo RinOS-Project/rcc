@@ -6626,7 +6626,7 @@ test-cxx-member-pointer-functions-invalid: $(RCXX_TARGET)
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-functions/qualifier-invalid-x64.log
 	$(GREP) -F -q "member-function pointer receiver does not satisfy the method ref-qualifier" $(TEST_OUT)/cxx-member-pointer-functions/qualifier-invalid-x64.log
 
-test-cxx-class-template-methods-posix: $(RCXX_TARGET)
+test-cxx-class-template-methods-posix: $(RCXX_TARGET) test-cxx-class-template-conversion-abi
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-methods)
 	$(CC) -x c++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
 		tests/cxx_class_template_methods.cpp
@@ -6702,8 +6702,29 @@ test-cxx-class-template-specialization-posix: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-class-template-specialization/x64
 	@echo "RCC++ ordered class-template specialization test completed"
 
+test-cxx-class-template-conversion-abi: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-conversion-abi)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -S \
+		-o $(TEST_OUT)/cxx-class-template-conversion-abi/gcc.s \
+		tests/cxx_class_template_methods.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-conversion-abi/x86.s \
+		tests/cxx_class_template_methods.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-class-template-conversion-abi/x64.s \
+		tests/cxx_class_template_methods.cpp
+	$(GREP) -F -q '_ZNK34OutOfClassReferenceConversionOwnerIiEcvRKiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/gcc.s
+	$(GREP) -F -q '_ZNK34OutOfClassReferenceConversionOwnerIiEcvRKiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/x86.s
+	$(GREP) -F -q '_ZNK34OutOfClassReferenceConversionOwnerIiEcvRKiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/x64.s
+	$(GREP) -F -q '_ZNKR28OutOfClassClassTemplateOwnerIiEcvPKiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/gcc.s
+	$(GREP) -F -q '_ZNKR28OutOfClassClassTemplateOwnerIiEcvPKiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/x86.s
+	$(GREP) -F -q '_ZNKR28OutOfClassClassTemplateOwnerIiEcvPKiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/x64.s
+	$(GREP) -F -q '_ZNO28OutOfClassClassTemplateOwnerIiEcvPiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/gcc.s
+	$(GREP) -F -q '_ZNO28OutOfClassClassTemplateOwnerIiEcvPiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/x86.s
+	$(GREP) -F -q '_ZNO28OutOfClassClassTemplateOwnerIiEcvPiEv' $(TEST_OUT)/cxx-class-template-conversion-abi/x64.s
+
 ifeq ($(OS),Windows_NT)
-test-cxx-class-template-methods: $(RCXX_TARGET)
+test-cxx-class-template-methods: $(RCXX_TARGET) test-cxx-class-template-conversion-abi
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-methods)
 	$(CC) -x c++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_methods.cpp
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-methods,cxx_class_template_methods.cpp)
@@ -13659,6 +13680,7 @@ test-cxx-member-methods-invalid: $(RCXX_TARGET)
 
 .PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-class-template-static-data test-cxx-class-template-static-data-odr test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-cxx-constructor-initializer-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
 .PHONY: test-cxx-class-template-methods
+.PHONY: test-cxx-class-template-conversion-abi
 .PHONY: test-cxx-class-template-specialization
 .PHONY: test-cxx-class-template-dependent-base
 .PHONY: test-cxx-class-template-dependent-base-transitive
