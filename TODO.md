@@ -9992,5 +9992,10 @@ remains a separate open item.
       common conversion with `long long`. Evaluate both representable boolean
       values against signed 64-bit boundaries on legacy and verified i686/AMD64
       objects. Focused and full `test-debug-info` pass.
-- [ ] Enum operands, computed/non-frame-backed wide operands, other mixed-rank
-      matrices, and enum underlying-width combinations remain open.
+- [x] Preserve frame-backed unscoped enum operands with signed-char,
+      unsigned-short, and unsigned-int underlying types through integer
+      promotion and 64-bit comparison conversion. Evaluate signed and unsigned
+      underlying-width boundaries against wide signed/unsigned values on legacy
+      and verified i686/AMD64 objects. Focused and full `test-debug-info` pass.
+- [ ] Scoped enums, other enum underlying-width combinations, computed and
+      non-frame-backed wide operands, and other mixed-rank matrices remain open.

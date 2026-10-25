@@ -317,3 +317,57 @@ extern "C" int debug_inline_signed_long_long_bool_compare_entry(
         !(debug_inline_signed_long_long_bool_compare_entry_source <
           debug_inline_signed_long_long_bool_compare_rhs));
 }
+
+extern "C" int debug_inline_unsigned_long_long_signed_char_enum_compare_entry(
+    unsigned long long value, signed char rhs)
+{
+    unsigned long long
+        debug_inline_unsigned_long_long_signed_char_enum_compare_entry_source =
+            value;
+    DebugInlineSignedCharComparisonEnum
+        debug_inline_unsigned_long_long_signed_char_enum_compare_rhs =
+            static_cast<DebugInlineSignedCharComparisonEnum>(rhs);
+    debug_inline_unsigned_long_long_comparison_escape =
+        &debug_inline_unsigned_long_long_signed_char_enum_compare_entry_source;
+    debug_inline_signed_char_comparison_enum_escape =
+        &debug_inline_unsigned_long_long_signed_char_enum_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_unsigned_long_long_signed_char_enum_compare_entry_source <
+          debug_inline_unsigned_long_long_signed_char_enum_compare_rhs));
+}
+
+extern "C" int debug_inline_signed_long_long_unsigned_short_enum_compare_entry(
+    long long value, unsigned short rhs)
+{
+    long long
+        debug_inline_signed_long_long_unsigned_short_enum_compare_entry_source =
+            value;
+    DebugInlineUnsignedShortComparisonEnum
+        debug_inline_signed_long_long_unsigned_short_enum_compare_rhs =
+            static_cast<DebugInlineUnsignedShortComparisonEnum>(rhs);
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_unsigned_short_enum_compare_entry_source;
+    debug_inline_unsigned_short_comparison_enum_escape =
+        &debug_inline_signed_long_long_unsigned_short_enum_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_unsigned_short_enum_compare_entry_source <
+          debug_inline_signed_long_long_unsigned_short_enum_compare_rhs));
+}
+
+extern "C" int debug_inline_signed_long_long_unsigned_int_enum_compare_entry(
+    long long value, unsigned int rhs)
+{
+    long long
+        debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source =
+            value;
+    DebugInlineUnsignedComparisonEnum
+        debug_inline_signed_long_long_unsigned_int_enum_compare_rhs =
+            static_cast<DebugInlineUnsignedComparisonEnum>(rhs);
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source;
+    debug_inline_unsigned_comparison_enum_escape =
+        &debug_inline_signed_long_long_unsigned_int_enum_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source <
+          debug_inline_signed_long_long_unsigned_int_enum_compare_rhs));
+}

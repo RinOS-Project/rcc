@@ -5865,7 +5865,7 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
             source->var_is_global || source->var_is_static_local ||
             source->var_is_thread_local || source->var_is_vla ||
             !source->type || source->type->size <= 0 ||
-            source->type->size > 8 || source->type->kind == TYPE_ENUM ||
+            source->type->size > 8 ||
             !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 source->type, value->type, 0u) ||
             !debug_inline_parameter_frame_offset(
