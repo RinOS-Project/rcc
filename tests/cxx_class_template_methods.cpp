@@ -35,6 +35,9 @@ public:
 
     template<typename U = int>
     U defaulted_value() const;
+
+    template<int Value = 7>
+    int non_type_default() const;
 };
 
 template<typename U>
@@ -46,6 +49,11 @@ OutOfClassMemberTemplate::convert(U value) const {
 template<typename U>
 U OutOfClassMemberTemplate::defaulted_value() const {
     return static_cast<U>(7);
+}
+
+template<int Value>
+int OutOfClassMemberTemplate::non_type_default() const {
+    return Value;
 }
 
 template<typename T>
@@ -98,6 +106,8 @@ int main() {
            member_template.convert(int_member_value) == 13 &&
            member_template.convert(long_member_value) == 17 &&
            member_template.defaulted_value() == 7 &&
+           member_template.non_type_default() == 7 &&
+           member_template.non_type_default<9>() == 9 &&
            box.constrained_size() == sizeof(int) &&
            constructed.get() == 7 && referenced.get() == 11 &&
            referenced_value == 11 ? 0 : 1;
