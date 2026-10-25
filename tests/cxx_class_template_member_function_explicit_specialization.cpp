@@ -49,6 +49,11 @@ struct MemberTemplateOperatorOwner {
     int operator!() const {
         return 9;
     }
+
+    template <typename T = char>
+    int operator~() const {
+        return 11;
+    }
 };
 
 struct NonTemplateMemberOperatorOwner {
@@ -127,6 +132,12 @@ int MemberTemplateOperatorOwner<int>::operator!<char>() const {
 }
 
 template <>
+template <>
+int MemberTemplateOperatorOwner<int>::operator~<char>() const {
+    return 100;
+}
+
+template <>
 int NonTemplateMemberOperatorOwner::operator+<char>(char input) const {
     return static_cast<int>(input) + 70;
 }
@@ -170,6 +181,8 @@ int main() {
                    operator_owner('A') == 125 && operator_owner(2) == 6 &&
                    (!operator_owner) == 90 &&
                    (!other_operator_owner) == 9 &&
+                   (~operator_owner) == 100 &&
+                   (~other_operator_owner) == 11 &&
                    non_template_operator_owner + 'A' == 135 &&
                    non_template_operator_owner + 2 == 7
                ? 0

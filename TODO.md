@@ -9697,5 +9697,12 @@ remains a separate open item.
       primary instantiations. Exact GCC Itanium symbols match; i686 and AMD64
       assembly, AMD64 execution, and missing/surplus template-head diagnostics
       pass in the focused class-template-owner target.
+- [x] Cover explicit member-template specialization through unary
+      `operator~` syntax on a fully specialized class-template owner. The
+      defaulted member-template parameter is selected through unary syntax;
+      RCC and GCC emit the same Itanium symbol, both target widths assemble,
+      and the AMD64 runtime distinguishes the specialization from the primary
+      template in `test-cxx-class-template-member-function-explicit-specialization`.
 - [ ] Explicit member specializations through dependent owner chains, other
-      overloaded operator forms, and remaining ABI/lifetime cases remain open.
+      overloaded operator forms beyond those covered above, and remaining
+      ABI/lifetime cases remain open.
