@@ -291,6 +291,37 @@ $(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TE
 $(TEST_OUT)/$(1)/x64-host
 endef
 
+define CXX_VERIFIED_BACKEND_CXX_MATRIX
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+	-fverified-backend -v -c \
+	-o $(TEST_OUT)/$(1)/verified-x86.ro tests/$(2) \
+	>$(TEST_OUT)/$(1)/verified-x86.log
+$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
+	$(TEST_OUT)/$(1)/verified-x86.log
+$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x86.log,0)
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+	-fverified-backend -v -c \
+	-o $(TEST_OUT)/$(1)/verified-x64.ro tests/$(2) \
+	>$(TEST_OUT)/$(1)/verified-x64.log
+$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
+	$(TEST_OUT)/$(1)/verified-x64.log
+$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x64.log,0)
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+	-fverified-backend -v -c \
+	-o $(TEST_OUT)/$(1)/verified-x86-o2.ro tests/$(2) \
+	>$(TEST_OUT)/$(1)/verified-x86-o2.log
+$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
+	$(TEST_OUT)/$(1)/verified-x86-o2.log
+$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x86-o2.log,0)
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+	-fverified-backend -v -c \
+	-o $(TEST_OUT)/$(1)/verified-x64-o2.ro tests/$(2) \
+	>$(TEST_OUT)/$(1)/verified-x64-o2.log
+$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
+	$(TEST_OUT)/$(1)/verified-x64-o2.log
+$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x64-o2.log,0)
+endef
+
 define CXX_I686_WIDE_MEMBER_INITIALIZER_CHECK
 $(OBJDUMP) -d -M att $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-disassembly.log
 $(GREP) -F -q "cltd" $(TEST_OUT)/$(1)/x86-disassembly.log
@@ -9276,6 +9307,35 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET) \
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-aggregate-paren-init/aggregate-gcc$(EXE_SUFFIX) tests/cxx_aggregate_paren_init.cpp
 	$(TEST_OUT)/cxx-aggregate-paren-init/aggregate-gcc$(EXE_SUFFIX)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-aggregate-paren-init,cxx_aggregate_paren_init.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-return)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o \
+		$(TEST_OUT)/cxx-aggregate-paren-return/returned-aggregate-gcc$(EXE_SUFFIX) \
+		tests/cxx_aggregate_paren_return.cpp
+	$(TEST_OUT)/cxx-aggregate-paren-return/returned-aggregate-gcc$(EXE_SUFFIX)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-aggregate-paren-return,cxx_aggregate_paren_return.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-aggregate-paren-return/x86-o2.s \
+		tests/cxx_aggregate_paren_return.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-return/x86-o2.o \
+		$(TEST_OUT)/cxx-aggregate-paren-return/x86-o2.s
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-aggregate-paren-return/x86-o2.o \
+		>$(TEST_OUT)/cxx-aggregate-paren-return/x86-o2-arch.log
+	$(GREP) -F -q "pe-i386" \
+		$(TEST_OUT)/cxx-aggregate-paren-return/x86-o2-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-aggregate-paren-return/x64-o2.s \
+		tests/cxx_aggregate_paren_return.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-aggregate-paren-return/x64-o2.o \
+		$(TEST_OUT)/cxx-aggregate-paren-return/x64-o2.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-aggregate-paren-return/x64-o2.o
+	$(CC) $(CFLAGS) \
+		-o $(TEST_OUT)/cxx-aggregate-paren-return/x64-o2-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-aggregate-paren-return/x64-o2.o \
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-aggregate-paren-return/x64-o2-host
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-aggregate-paren-return,cxx_aggregate_paren_return.cpp,3)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/verified-x86.ro \
 		tests/cxx_aggregate_paren_init.cpp \
@@ -10863,38 +10923,25 @@ test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET) \
 		>$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log 2>&1
 	$(GREP) -q "C++20 aggregate parenthesized initialization requires C++20 or newer" \
 		$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
-		-fverified-backend -v -c \
-		-o $(TEST_OUT)/cxx-aggregate-paren-init/verified-x86.ro \
-		tests/cxx_aggregate_paren_init.cpp \
-		>$(TEST_OUT)/cxx-aggregate-paren-init/verified-x86.log
-	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
-		$(TEST_OUT)/cxx-aggregate-paren-init/verified-x86.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-aggregate-paren-init/verified-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
-		-fverified-backend -v -c \
-		-o $(TEST_OUT)/cxx-aggregate-paren-init/verified-x64.ro \
-		tests/cxx_aggregate_paren_init.cpp \
-		>$(TEST_OUT)/cxx-aggregate-paren-init/verified-x64.log
-	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
-		$(TEST_OUT)/cxx-aggregate-paren-init/verified-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-aggregate-paren-init/verified-x64.log,0)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
-		-fverified-backend -v -c \
-		-o $(TEST_OUT)/cxx-aggregate-paren-init/verified-x86-o2.ro \
-		tests/cxx_aggregate_paren_init.cpp \
-		>$(TEST_OUT)/cxx-aggregate-paren-init/verified-x86-o2.log
-	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
-		$(TEST_OUT)/cxx-aggregate-paren-init/verified-x86-o2.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-aggregate-paren-init/verified-x86-o2.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
-		-fverified-backend -v -c \
-		-o $(TEST_OUT)/cxx-aggregate-paren-init/verified-x64-o2.ro \
-		tests/cxx_aggregate_paren_init.cpp \
-		>$(TEST_OUT)/cxx-aggregate-paren-init/verified-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
-		$(TEST_OUT)/cxx-aggregate-paren-init/verified-x64-o2.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-aggregate-paren-init/verified-x64-o2.log,0)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-aggregate-paren-init,cxx_aggregate_paren_init.cpp,2)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-return)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o \
+		$(TEST_OUT)/cxx-aggregate-paren-return/returned-aggregate-gcc \
+		tests/cxx_aggregate_paren_return.cpp
+	$(TEST_OUT)/cxx-aggregate-paren-return/returned-aggregate-gcc
+	$(call CXX_POSIX_ENTRY_TEST,cxx-aggregate-paren-return,cxx_aggregate_paren_return.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-aggregate-paren-return/x86-o2.s \
+		tests/cxx_aggregate_paren_return.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-return/x86-o2.o \
+		$(TEST_OUT)/cxx-aggregate-paren-return/x86-o2.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-aggregate-paren-return/x64-o2.s \
+		tests/cxx_aggregate_paren_return.cpp
+	$(CC) -no-pie -o $(TEST_OUT)/cxx-aggregate-paren-return/x64-o2 \
+		$(TEST_OUT)/cxx-aggregate-paren-return/x64-o2.s
+	$(TEST_OUT)/cxx-aggregate-paren-return/x64-o2
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-aggregate-paren-return,cxx_aggregate_paren_return.cpp,3)
 	@echo "C++20 aggregate parenthesized initialization tests completed"
 
 test-cxx-designated-initializer-posix: $(RCXX_TARGET)
