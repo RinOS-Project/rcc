@@ -5858,6 +5858,126 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         return debug_inline_integer_expression_append_constu(
             expression, capacity, expression_size, word);
     }
+    if ((value->kind == EXPR_ADD || value->kind == EXPR_SUB) &&
+        value->binary_lhs && value->binary_rhs && value->type &&
+        value->type->size == 8) {
+        const Expr* source_expression = NULL;
+        const Expr* constant_expression = NULL;
+        const Decl* source;
+        int64_t frame_offset;
+        uint64_t constant_bits;
+        uint32_t low_constant;
+        uint32_t high_constant;
+        bool is_add = value->kind == EXPR_ADD;
+        if (value->binary_lhs->kind == EXPR_IDENT &&
+            value->binary_lhs->ident_decl &&
+            debug_inline_integer_literal_bits(
+                value->binary_rhs, &constant_bits, 0u)) {
+            source_expression = value->binary_lhs;
+            constant_expression = value->binary_rhs;
+        } else if (is_add && value->binary_rhs->kind == EXPR_IDENT &&
+                   value->binary_rhs->ident_decl &&
+                   debug_inline_integer_literal_bits(
+                       value->binary_lhs, &constant_bits, 0u)) {
+            source_expression = value->binary_rhs;
+            constant_expression = value->binary_lhs;
+        }
+        if (!source_expression || !constant_expression ||
+            !value->type ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                source_expression->type, value->type, 0u) ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                constant_expression->type, value->type, 0u)) {
+            return false;
+        }
+        source = source_expression->ident_decl;
+        if (!source || (source->kind != DECL_VAR &&
+                        source->kind != DECL_PARAM) ||
+            source->var_is_global || source->var_is_static_local ||
+            source->var_is_thread_local || source->var_is_vla ||
+            !source->type || source->type->size != 8 ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                source->type, value->type, 0u) ||
+            !debug_inline_integer_literal_bits(
+                constant_expression, &constant_bits, 0u) ||
+            !debug_inline_parameter_frame_offset(
+                mod, source, &frame_offset) ||
+            frame_offset > INT64_MAX - 4) {
+            return false;
+        }
+        low_constant = (uint32_t)constant_bits;
+        high_constant = (uint32_t)(constant_bits >> 32u);
+        if (!high_word) {
+            return debug_inline_integer_expression_append_frame_u32(
+                       expression, capacity, expression_size, ARCH_X86,
+                       frame_offset) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, low_constant) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size,
+                    is_add ? 0x22u : 0x1cu);
+        }
+        if (!debug_inline_parameter_i686_u64_append_word_expression(
+                mod, source_expression, true, expression, capacity,
+                expression_size, depth + 1u) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, expression_size, high_constant) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size,
+                is_add ? 0x22u : 0x1cu)) {
+            return false;
+        }
+        /* Flip the sign bit so signed DW_OP_lt detects low-word carry/borrow. */
+        if (is_add) {
+            if (!debug_inline_integer_expression_append_frame_u32(
+                    expression, capacity, expression_size, ARCH_X86,
+                    frame_offset) ||
+                !debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, low_constant) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x22u) ||
+                !debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size,
+                    UINT32_C(0x80000000)) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x27u) ||
+                !debug_inline_integer_expression_append_frame_u32(
+                    expression, capacity, expression_size, ARCH_X86,
+                    frame_offset) ||
+                !debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size,
+                    UINT32_C(0x80000000)) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x27u) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x2du) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x22u)) {
+                return false;
+            }
+        } else if (!debug_inline_integer_expression_append_frame_u32(
+                       expression, capacity, expression_size, ARCH_X86,
+                       frame_offset) ||
+                   !debug_inline_integer_expression_append_constu(
+                       expression, capacity, expression_size,
+                       UINT32_C(0x80000000)) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, expression_size, 0x27u) ||
+                   !debug_inline_integer_expression_append_constu(
+                       expression, capacity, expression_size, low_constant) ||
+                   !debug_inline_integer_expression_append_constu(
+                       expression, capacity, expression_size,
+                       UINT32_C(0x80000000)) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, expression_size, 0x27u) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, expression_size, 0x2du) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, expression_size, 0x1cu)) {
+            return false;
+        }
+        return true;
+    }
     if (value->kind == EXPR_IDENT && value->ident_decl) {
         const Decl* source = value->ident_decl;
         int64_t frame_offset;

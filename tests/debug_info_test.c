@@ -8378,15 +8378,20 @@ static uint64_t evaluate_inline_integer_comparison_expression_with_secondary(
             stack[stack_size++] =
                 (uint64_t)read_sleb(data, expression_end, &expression_offset) &
                 address_mask;
-        } else if (opcode == 0x1au || opcode == 0x21u || opcode == 0x27u ||
+        } else if (opcode == 0x1au || opcode == 0x1cu || opcode == 0x21u ||
+                   opcode == 0x22u || opcode == 0x27u ||
                    (opcode >= 0x29u && opcode <= 0x2eu)) {
             assert(stack_size >= 2u);
             rhs = stack[--stack_size];
             lhs = stack[--stack_size];
             if (opcode == 0x1au) {
                 stack[stack_size++] = lhs & rhs;
+            } else if (opcode == 0x1cu) {
+                stack[stack_size++] = (lhs - rhs) & address_mask;
             } else if (opcode == 0x21u) {
                 stack[stack_size++] = lhs | rhs;
+            } else if (opcode == 0x22u) {
+                stack[stack_size++] = (lhs + rhs) & address_mask;
             } else if (opcode == 0x27u) {
                 stack[stack_size++] = lhs ^ rhs;
             } else if (opcode == 0x29u) {
@@ -10131,7 +10136,11 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_signed_long_long_unsigned_short_enum_compare_entry_source",
          "debug_inline_signed_long_long_unsigned_short_enum_compare_entry"},
         {"debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source",
-         "debug_inline_signed_long_long_unsigned_int_enum_compare_entry"}
+         "debug_inline_signed_long_long_unsigned_int_enum_compare_entry"},
+        {"debug_inline_signed_long_long_add_one_compare_entry_source",
+         "debug_inline_signed_long_long_add_one_compare_entry"},
+        {"debug_inline_signed_long_long_sub_one_compare_entry_source",
+         "debug_inline_signed_long_long_sub_one_compare_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -10371,7 +10380,11 @@ static void verify_inline_integer_expression_parameter(
          strcmp(source_name,
                 "debug_inline_signed_long_long_unsigned_short_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
-                "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0);
+                "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_add_one_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_sub_one_compare_entry_source") == 0);
     bool narrow_wide_comparison = source_name &&
         (strcmp(source_name,
                 "debug_inline_signed_long_long_unsigned_int_compare_entry_source") == 0 ||
@@ -10396,7 +10409,17 @@ static void verify_inline_integer_expression_parameter(
          strcmp(source_name,
                 "debug_inline_signed_long_long_unsigned_short_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
-                "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0);
+                "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_add_one_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_sub_one_compare_entry_source") == 0);
+    bool add_one_wide_comparison = source_name &&
+        strcmp(source_name,
+               "debug_inline_signed_long_long_add_one_compare_entry_source") == 0;
+    bool sub_one_wide_comparison = source_name &&
+        strcmp(source_name,
+               "debug_inline_signed_long_long_sub_one_compare_entry_source") == 0;
     bool comparison_is_unsigned = is_unsigned;
     uint8_t comparison_value_size = value_size;
     const char* call_site_name = comparison_entry ? comparison_entry :
@@ -10628,10 +10651,13 @@ static void verify_inline_integer_expression_parameter(
         (architecture == ARCH_X86 || narrow_wide_comparison)) {
         static const uint64_t signed_values[] = {
             UINT64_C(0x8000000000000000), UINT64_MAX, 0u, 1u,
+            UINT64_C(0x00000000ffffffff), UINT64_C(0x00000001ffffffff),
+            UINT64_C(0x0000000100000000),
             UINT64_C(0x7fffffffffffffff)
         };
         static const uint64_t unsigned_values[] = {
             0u, 1u, UINT64_C(0x7fffffff), UINT64_C(0xffffffff),
+            UINT64_C(0x00000001ffffffff),
             UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000000),
             UINT64_C(0x8000000000000001), UINT64_MAX
         };
@@ -10654,7 +10680,21 @@ static void verify_inline_integer_expression_parameter(
             inline_integer_comparison_secondary_size(source_name);
         if (secondary_source) assert(secondary_size > 0u);
         for (size_t index = 0u; index < value_count; ++index) {
-            if (secondary_source) {
+            if (add_one_wide_comparison || sub_one_wide_comparison) {
+                if (values[index] == (uint64_t)INT64_MAX) continue;
+                if (sub_one_wide_comparison &&
+                    values[index] == UINT64_C(0x8000000000000000)) continue;
+                uint64_t evaluated_left = add_one_wide_comparison
+                    ? values[index] + 1u : values[index] - 1u;
+                uint64_t actual =
+                    evaluate_inline_integer_comparison_expression(
+                        info->data, expression_end, expression_start,
+                        architecture, frame_offset, value_size, values[index]);
+                bool compared = verify_inline_integer_comparison_value(
+                    evaluated_left, (uint64_t)expected_constant, is_unsigned,
+                    64u, expected_operation);
+                assert(actual == !compared);
+            } else if (secondary_source) {
                 unsigned int secondary_bits = (unsigned int)secondary_size * 8u;
                 uint64_t secondary_sign = UINT64_C(1) << (secondary_bits - 1u);
                 uint64_t secondary_max = (UINT64_C(1) << secondary_bits) - 1u;
@@ -12091,6 +12131,10 @@ int main(int argc, char** argv)
             {"debug_inline_signed_long_long_unsigned_short_enum_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_add_one_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_sub_one_compare_entry_source",
              false, 0x2du, 0}
         };
         const char* wide_paths[] = {argv[6], argv[7], argv[8], argv[9]};

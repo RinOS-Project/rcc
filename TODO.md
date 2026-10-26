@@ -9997,5 +9997,11 @@ remains a separate open item.
       promotion and 64-bit comparison conversion. Evaluate signed and unsigned
       underlying-width boundaries against wide signed/unsigned values on legacy
       and verified i686/AMD64 objects. Focused and full `test-debug-info` pass.
-- [ ] Scoped enums, other enum underlying-width combinations, computed and
-      non-frame-backed wide operands, and other mixed-rank matrices remain open.
+- [x] Lower frame-backed signed `long long` plus or minus `1LL` when used as
+      an i686 wide-comparison operand. Carry and borrow across the low/high
+      32-bit words are checked at boundary values; signed-overflow cases are
+      excluded. Focused and full `test-debug-info` pass in legacy and verified
+      i686/AMD64 configurations.
+- [ ] Scoped enums, other enum underlying-width combinations, larger computed
+      expression trees, non-frame-backed wide operands, and other mixed-rank
+      matrices remain open.

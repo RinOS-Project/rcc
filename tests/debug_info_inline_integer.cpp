@@ -371,3 +371,27 @@ extern "C" int debug_inline_signed_long_long_unsigned_int_enum_compare_entry(
         !(debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source <
           debug_inline_signed_long_long_unsigned_int_enum_compare_rhs));
 }
+
+extern "C" int debug_inline_signed_long_long_add_one_compare_entry(
+    long long value)
+{
+    long long debug_inline_signed_long_long_add_one_compare_entry_source =
+        value;
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_add_one_compare_entry_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_add_one_compare_entry_source + 1LL <
+          0LL));
+}
+
+extern "C" int debug_inline_signed_long_long_sub_one_compare_entry(
+    long long value)
+{
+    long long debug_inline_signed_long_long_sub_one_compare_entry_source =
+        value;
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_sub_one_compare_entry_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_sub_one_compare_entry_source - 1LL <
+          0LL));
+}
