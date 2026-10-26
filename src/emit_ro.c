@@ -11182,7 +11182,7 @@ static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
     parameter_type = value->declaration->type;
     source_expression = argument->expr;
     if (!parameter_type || parameter_type->size != 8u ||
-        !parameter_type->is_unsigned || !source_expression->type ||
+        !source_expression->type ||
         (source_expression->kind != EXPR_BITAND &&
          source_expression->kind != EXPR_BITOR &&
          source_expression->kind != EXPR_BITXOR) ||
@@ -11211,7 +11211,6 @@ static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
         right_source->var_is_thread_local || left_source->var_is_vla ||
         right_source->var_is_vla || !left_source->type || !right_source->type ||
         left_source->type->size != 8u || right_source->type->size != 8u ||
-        !left_source->type->is_unsigned || !right_source->type->is_unsigned ||
         left_source->type->is_volatile || right_source->type->is_volatile ||
         left_source->type->is_reference || right_source->type->is_reference ||
         left_source->type->is_atomic || right_source->type->is_atomic ||

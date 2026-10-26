@@ -10357,3 +10357,15 @@ remains a separate open item.
 - [ ] Signed i686 64-bit division/remainder, TLS/static-local or
       volatile/reference/atomic operands, and broader optimized multi-piece
       locations remain open.
+
+## RCC continuation (2026-10-26, signed i686 global 64-bit bitwise operations)
+
+- [x] Lower signed i686 global-to-global 64-bit AND, OR, and XOR by applying
+      the exact same independent low/high 32-bit bitwise operations used for
+      unsigned values. Require matching signed source/result types and verify
+      negative initialized globals, exact relocations, and six bit-pattern
+      pairs in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [ ] Signed i686 64-bit division/remainder, TLS/static-local or
+      volatile/reference/atomic operands, and broader optimized multi-piece
+      locations remain open.
