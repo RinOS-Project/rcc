@@ -8507,6 +8507,13 @@ remains a separate open item.
       `-O2`. Require both functions and zero fallback notices in each
       configuration; the same gate executes the legacy-backend lifetime test
       against GCC's C++20 oracle.
+- [x] Return a non-trivially-copyable aggregate produced by C++20
+      parenthesized initialization directly from a function. Verify guaranteed
+      copy elision through exactly-once destructor counts, GCC C++20, i686 and
+      AMD64 output at `-O0`/`-O2`, AMD64 execution at both levels, and all three
+      verified-SSA functions with zero fallback on both targets/optimization
+      levels. The `test-cxx-aggregate-paren-init` gates pass on POSIX and native
+      Windows with isolated output trees.
 - [ ] Additional non-trivially-copyable aggregate contexts, thread-local
       initialization, and other class-prvalue contexts remain open.
 
