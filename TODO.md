@@ -10143,6 +10143,12 @@ remains a separate open item.
       `DW_OP_ne` sequences and evaluate equal/non-equal results from initialized
       global data in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Lower AMD64 global-backed unsigned-64 `<`, `<=`, `>`, and `>=` inline
+      comparisons with same-width constants. Bias both operands by flipping
+      their sign bit before the signed DWARF comparison; verify exact opcode
+      sequences and high-bit/`UINT64_MAX` boundaries in legacy and verified
+      objects. Focused `test-debug-info-inline-expression` and full
+      `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,

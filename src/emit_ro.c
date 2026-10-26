@@ -9723,8 +9723,12 @@ static bool debug_inline_x64_global_expression_collect(
         const Expr* cast_expression = expression->cast_expr;
         return cast_expression &&
             (cast_expression->kind == EXPR_NOT ||
-             cast_expression->kind == EXPR_EQ ||
-             cast_expression->kind == EXPR_NE) &&
+             (cast_expression->kind == EXPR_EQ ||
+              cast_expression->kind == EXPR_NE ||
+              cast_expression->kind == EXPR_LT ||
+              cast_expression->kind == EXPR_LE ||
+              cast_expression->kind == EXPR_GT ||
+              cast_expression->kind == EXPR_GE)) &&
             expression->type->size == 8u && expression->type->is_unsigned &&
             debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 value_type, expression->type, 0u) &&
@@ -9732,7 +9736,9 @@ static bool debug_inline_x64_global_expression_collect(
             debug_inline_x64_global_expression_collect(
                 mod, value_type, cast_expression, globals, depth + 1u);
     }
-    if ((expression->kind == EXPR_EQ || expression->kind == EXPR_NE) &&
+    if ((expression->kind == EXPR_EQ || expression->kind == EXPR_NE ||
+         expression->kind == EXPR_LT || expression->kind == EXPR_LE ||
+         expression->kind == EXPR_GT || expression->kind == EXPR_GE) &&
         expression->binary_lhs &&
         expression->binary_rhs) {
         uint64_t literal_bits;
@@ -9854,10 +9860,43 @@ static bool debug_inline_x64_global_expression_append(
     if (expression->kind == EXPR_CAST && expression->cast_expr &&
         (expression->cast_expr->kind == EXPR_NOT ||
          expression->cast_expr->kind == EXPR_EQ ||
-         expression->cast_expr->kind == EXPR_NE)) {
+         expression->cast_expr->kind == EXPR_NE ||
+         expression->cast_expr->kind == EXPR_LT ||
+         expression->cast_expr->kind == EXPR_LE ||
+         expression->cast_expr->kind == EXPR_GT ||
+         expression->cast_expr->kind == EXPR_GE)) {
         return debug_inline_x64_global_expression_append(
             value_type, expression->cast_expr, globals, output, capacity,
             size, depth + 1u);
+    }
+    if ((expression->kind == EXPR_LT || expression->kind == EXPR_LE ||
+         expression->kind == EXPR_GT || expression->kind == EXPR_GE) &&
+        expression->binary_lhs && expression->binary_rhs) {
+        switch (expression->kind) {
+            case EXPR_LT: operation = 0x2du; break;
+            case EXPR_LE: operation = 0x2cu; break;
+            case EXPR_GT: operation = 0x2bu; break;
+            case EXPR_GE: operation = 0x2au; break;
+            default: return false;
+        }
+        if (!debug_inline_x64_global_expression_append(
+                value_type, expression->binary_lhs, globals, output,
+                capacity, size, depth + 1u) ||
+            !debug_inline_integer_expression_append_constu(
+                output, capacity, size, UINT64_C(0x8000000000000000)) ||
+            !debug_inline_integer_expression_append_byte(
+                output, capacity, size, 0x27u) || /* DW_OP_xor */
+            !debug_inline_x64_global_expression_append(
+                value_type, expression->binary_rhs, globals, output,
+                capacity, size, depth + 1u) ||
+            !debug_inline_integer_expression_append_constu(
+                output, capacity, size, UINT64_C(0x8000000000000000)) ||
+            !debug_inline_integer_expression_append_byte(
+                output, capacity, size, 0x27u)) { /* DW_OP_xor */
+            return false;
+        }
+        return debug_inline_integer_expression_append_byte(
+            output, capacity, size, operation);
     }
     if (expression->kind == EXPR_NOT && expression->unary_operand) {
         return debug_inline_x64_global_expression_append(
