@@ -8498,8 +8498,14 @@ remains a separate open item.
       fixture through verified-SSA on i686 and AMD64 at `-O0` and `-O2`.
       Require all four functions and zero fallback notices for each target and
       optimization level; `test-cxx-aggregate-paren-init-posix` passes.
-- [ ] Non-trivially-copyable aggregate targets, thread-local initialization,
-      and other class-prvalue contexts remain open.
+- [x] Compile the local non-trivially-copyable `NonTrivialAggregate` target,
+      including its user-defined destructor and C++20 parenthesized
+      initialization, through verified-SSA on i686 and AMD64 at `-O0` and
+      `-O2`. Require both functions and zero fallback notices in each
+      configuration; the same gate executes the legacy-backend lifetime test
+      against GCC's C++20 oracle.
+- [ ] Additional non-trivially-copyable aggregate contexts, thread-local
+      initialization, and other class-prvalue contexts remain open.
 
 ## RCC continuation (2026-10-21, conversion-function member-pointer adjustment)
 
