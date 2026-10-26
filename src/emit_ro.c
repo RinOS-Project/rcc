@@ -10513,15 +10513,24 @@ static bool debug_inline_parameter_i686_u64_negate_expression(
 }
 
 static bool debug_inline_parameter_i686_signed_division_operand(
-    const Expr* expression, bool is_signed, const Expr** value_expression,
-    bool* negate) {
+    const Expr* expression, const Type* parameter_type, bool is_signed,
+    const Expr** value_expression, bool* negate) {
     if (!expression || !value_expression || !negate) return false;
     *negate = false;
-    if (expression->kind == EXPR_NEG) {
-        if (!expression->unary_operand ||
-            !is_signed) {
-            return false;
+    for (;;) {
+        if (expression->kind == EXPR_CAST) {
+            if (!is_signed || !expression->cast_expr ||
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    expression->type, parameter_type, 0u) ||
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    expression->cast_expr->type, expression->type, 0u)) {
+                return false;
+            }
+            expression = expression->cast_expr;
+            continue;
         }
+        if (expression->kind != EXPR_NEG) break;
+        if (!is_signed || *negate || !expression->unary_operand) return false;
         *negate = true;
         expression = expression->unary_operand;
     }
@@ -10556,11 +10565,11 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
         !(dividend_expression = source_expression->binary_lhs) ||
         !(divisor_expression = source_expression->binary_rhs) ||
         !debug_inline_parameter_i686_signed_division_operand(
-            dividend_expression, is_signed, &dividend_value_expression,
-            &negate_dividend) ||
+            dividend_expression, parameter_type, is_signed,
+            &dividend_value_expression, &negate_dividend) ||
         !debug_inline_parameter_i686_signed_division_operand(
-            divisor_expression, is_signed, &divisor_value_expression,
-            &negate_divisor) ||
+            divisor_expression, parameter_type, is_signed,
+            &divisor_value_expression, &negate_divisor) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source_expression->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(

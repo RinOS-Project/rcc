@@ -10391,9 +10391,10 @@ remains a separate open item.
       zero and the undefined `INT64_MIN / -1` case. Require three exact
       `ABS32U` relocations per global operand for sign and magnitude loads.
       Focused `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] Computed signed operand trees beyond a single unary minus around an
-      identifier, TLS/static-local or volatile/reference/atomic operands, and
-      broader optimized multi-piece locations remain open.
+- [ ] Computed signed operand trees beyond identifier operands, one unary
+      minus, and same-type signed 64-bit casts; TLS/static-local or
+      volatile/reference/atomic operands; and broader optimized multi-piece
+      locations remain open.
 
 ## RCC continuation (2026-10-26, signed i686 runtime divmod unary operands)
 
@@ -10407,6 +10408,11 @@ remains a separate open item.
       division by zero, and `INT64_MIN / -1`. Both
       `make test-debug-info-inline-expression` and the full `make
       test-debug-info` gate pass under WSL2 Ubuntu-24.04/GCC.
-- [ ] Broader computed signed operand trees, nested/multiple unary operations,
-      TLS/static-local or volatile/reference/atomic operands, and optimized
-      multi-piece locations remain open.
+- [x] Preserve identifier operands wrapped in an explicit same-type signed
+      64-bit C cast or C++ `static_cast` for the same runtime division path.
+      C and C++ tests verify cast-on-dividend division and cast-on-divisor
+      remainder in legacy and verified i686 objects. Both focused and complete
+      DWARF gates pass under WSL2 Ubuntu-24.04/GCC.
+- [ ] Broader computed signed operand trees, width-changing casts, nested or
+      multiple unary operations, TLS/static-local or volatile/reference/atomic
+      operands, and optimized multi-piece locations remain open.
