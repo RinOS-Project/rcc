@@ -8871,9 +8871,17 @@ remains a separate open item.
       at `2^40`, remainder at `2^62`, and ten full-width boundary dividends in
       legacy and verified output. Focused and full native-Windows
       `test-debug-info` pass.
-- [ ] Other constant divisors above `UINT32_MAX`, variable i686 64-bit
-      divisors, signed 64-bit division/remainder, non-frame-backed operands,
-      and broader optimized multi-piece locations remain open.
+- [x] Emit i686 unsigned-64 global division/remainder for non-power-of-two
+      constants above `INT64_MAX` (tested with `0x8000000000000001` and
+      `UINT64_MAX`). The quotient uses exact unsigned high/low comparisons;
+      the remainder subtracts both words and propagates the low-word borrow.
+      Verify 11 boundary dividends, initialized globals, and exactly three
+      division or eight remainder relocations in legacy and verified objects.
+      Focused `test-debug-info-inline-expression` and full `test-debug-info`
+      pass.
+- [ ] Other non-power-of-two constants in `(UINT32_MAX, INT64_MAX]`, variable
+      i686 64-bit divisors, signed 64-bit division/remainder, non-frame-backed
+      operands, and broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-23, Windows MinGW structural NTTP host ABI)
 
@@ -10309,7 +10317,7 @@ remains a separate open item.
       unary,
       bitwise, comparison, add/subtract, multiply, shift, and 32-bit-literal
       divide/remainder forms, i686 global division/remainder by non-power-of-two
-      64-bit literals above `UINT32_MAX`, other AMD64 computed-global
+      64-bit literals in `(UINT32_MAX, INT64_MAX]`, other AMD64 computed-global
       multiplication shapes and divide/remainder, additional shift-count
       widths/conversions and shift forms, and mixed-rank conversion matrices
       remain open.

@@ -8789,7 +8789,9 @@ static void verify_inline_i686_global_u64_constant_division_expression(
         : 1u;
     expected_relocations = divisor <= UINT32_MAX
         ? (64u + chunk_width - 1u) / chunk_width
-        : remainder ? 2u : 1u;
+        : (divisor & (divisor - 1u)) == 0u
+            ? remainder ? 2u : 1u
+            : remainder ? 8u : 3u;
     assert(verify_inline_global_storage(object, source_name, 8u) ==
            global_value);
     info = objfile_get_section(object, ".debug_info");
@@ -14940,6 +14942,46 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_unsigned_long_long_global_mod_high32_entry",
             "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
             UINT64_C(2147483649), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_high64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_C(0x8000000000000001), false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_high64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_C(0x8000000000000001), false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_high64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_C(0x8000000000000001), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_high64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_C(0x8000000000000001), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_max64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_MAX, false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_max64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_MAX, false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_max64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_MAX, true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_max64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_MAX, true);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x22u);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x22u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x1cu);
