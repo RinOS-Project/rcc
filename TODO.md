@@ -10467,3 +10467,19 @@ remains a separate open item.
 - [ ] Broader computed signed operand trees, width-changing casts,
       TLS/static-local or volatile/reference/atomic operands, and optimized
       multi-piece locations remain open.
+
+## RCC continuation (2026-10-27, nested multiple-pointer structural NTTP)
+
+- [x] Preserve Itanium substitution indices for a nested structural class NTTP
+      containing three distinct non-null object-pointer leaves when an
+      instantiated member function also takes repeated pointer parameters.
+      Add `tests/cxx_structural_multiple_pointer_class_nttp.cpp`, verify
+      structural-value type identity for equal pointer arrangements and
+      distinct types for changed leaves, and compare exact GCC/RCC symbol sets.
+- [x] Run `scripts/ci_nested_class_templates.sh`: GCC/RCC C++20 code generation
+      and symbol parity pass for i686/AMD64, both AMD64 executables pass, and
+      the complete POSIX nested-class regression gate passes.
+- [x] Add the fixture to the native `test-cxx` aggregate for MinGW assembly
+      and execution of RCC output plus the GCC C++20 host oracle.
+- [ ] Other standard-valid structural class NTTP member shapes and broader
+      mangling substitution contexts remain open.

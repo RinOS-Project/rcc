@@ -101,6 +101,7 @@ sources=(
 	tests/cxx_structural_function_reference_nttp.cpp
 	tests/cxx_structural_array_reference_nttp.cpp
 	tests/cxx_structural_class_pointer_value_pack.cpp
+	tests/cxx_structural_multiple_pointer_class_nttp.cpp
 	tests/cxx_structural_bitfield_nttp.cpp
 	tests/cxx_structural_nullptr_member_nttp.cpp
 	tests/cxx_structural_floating_member_nttp.cpp

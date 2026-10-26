@@ -2246,6 +2246,11 @@ static void cxx_mangle_record_structural_member_pointer_owner_types(
                     context, parameter->type,
                     (uint64_t)value_arguments[index], recorded_values,
                     recorded_count, &recorded_index, &bit_offset);
+                /* Structural class values add a substitution candidate after
+                 * their nested member and member-pointer owner types. Keep it
+                 * after those entries: member-function-pointer owners can be
+                 * named by following function parameters. */
+                cxx_mangle_record_class_type(context, parameter->type);
             }
         }
     }

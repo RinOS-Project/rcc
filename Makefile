@@ -568,7 +568,7 @@ endif
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-posix test-cxx-nested-class-template-owner-structural-value-pack-invalid
-.PHONY: test-cxx-structural-pointer-offset test-cxx-structural-pointer-offset-posix test-cxx-structural-array-nttp
+.PHONY: test-cxx-structural-pointer-offset test-cxx-structural-pointer-offset-posix test-cxx-structural-array-nttp test-cxx-structural-multiple-pointer-class-nttp
 .PHONY: test-cxx-nested-class-template-owner-explicit-chain-10
 .PHONY: test-cxx-dependent-array-bound-overflow
 .PHONY: test-cxx-dependent-array-unsigned64-bound
@@ -792,6 +792,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-member-pointer-data \
 	test-cxx-structural-pointer-offset \
 	test-cxx-structural-array-nttp \
+	test-cxx-structural-multiple-pointer-class-nttp \
 	test-cxx-member-pointer-functions \
 	test-cxx-member-pointer-reference-lifetime \
 	test-cxx-class-template-methods \
@@ -5924,12 +5925,19 @@ test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-partial-sp
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-invalid
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-explicit-chain-10
 test-cxx-nested-class-templates: test-cxx-structural-computed-pointer-nttp
+test-cxx-nested-class-templates: test-cxx-structural-multiple-pointer-class-nttp
 
 test-cxx-structural-computed-pointer-nttp: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-computed-pointer-nttp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-structural-computed-pointer-nttp,cxx_structural_computed_pointer_nttp.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-structural-computed-pointer-nttp/gcc-host.exe tests/cxx_structural_computed_pointer_nttp.cpp
 	$(TEST_OUT)/cxx-structural-computed-pointer-nttp/gcc-host.exe
+
+test-cxx-structural-multiple-pointer-class-nttp: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-multiple-pointer-class-nttp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-structural-multiple-pointer-class-nttp,cxx_structural_multiple_pointer_class_nttp.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-structural-multiple-pointer-class-nttp/gcc-host.exe tests/cxx_structural_multiple_pointer_class_nttp.cpp
+	$(TEST_OUT)/cxx-structural-multiple-pointer-class-nttp/gcc-host.exe
 
 test-cxx-nested-class-template-specializations: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-specializations)
