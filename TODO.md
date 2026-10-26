@@ -10262,11 +10262,17 @@ remains a separate open item.
       relocations per source, the high-word `+4` loads, and boundary results
       from initialized globals in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Lower i686 unsigned-64 casts of global-pair `==`, `!=`, `<`, `<=`, `>`,
+      and `>=` comparisons. Bias unsigned 32-bit words for signed DWARF
+      comparisons, combine high/low words, and zero-extend the boolean result.
+      Verify 4 equality or 6 ordering relocations, initialized-global boundary
+      pairs, and both legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide
       operands beyond global bitwise operations, global-pair bitwise
-      operations, addition/subtraction, logical-not, negation, and
-      constant/dynamic shifts, other AMD64
+      operations and global-pair comparisons, addition/subtraction,
+      logical-not, negation, and constant/dynamic shifts, other AMD64
       computed-global multiplication shapes, divide/modulo, other shift-count
       widths/conversions and shift forms, and mixed-rank matrices remain open.
