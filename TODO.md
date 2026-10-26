@@ -10095,7 +10095,8 @@ remains a separate open item.
       commuted constant-plus-global form. Emit a relocated `DW_OP_addr`,
       `DW_OP_deref_size 8`, and the matching arithmetic/value operations;
       verify exact expressions and global relocations in legacy and verified
-      `test-debug-info-inline-expression` objects.
+      `test-debug-info-inline-expression` objects, evaluating the expression
+      against the relocated global's object data.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,

@@ -90,6 +90,12 @@ static uint32_t read_u32(const uint8_t* data, uint64_t offset)
            ((uint32_t)data[offset + 3u] << 24);
 }
 
+static uint64_t read_u64(const uint8_t* data, uint64_t offset)
+{
+    return (uint64_t)read_u32(data, offset) |
+           ((uint64_t)read_u32(data, offset + 4u) << 32u);
+}
+
 static void verify_object_pointer_parameter(const char* path,
                                             uint16_t architecture)
 {
@@ -12243,16 +12249,42 @@ static void verify_inline_global_wide_parameter(
     if (computed) {
         uint64_t cursor = expression_offset + 1u + address_size;
         uint64_t expression_end = expression_offset + expression_size;
-        assert(architecture == ARCH_X64 && cursor + 2u <= expression_end &&
-               info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
-               info->data[cursor++] == 8u &&
-               cursor < expression_end && info->data[cursor++] == 0x10u &&
-               read_uleb(info->data, expression_end, &cursor) ==
-                   UINT64_C(0x100000005) &&
+        uint64_t constant;
+        uint64_t global_value;
+        uint64_t evaluated_value;
+        ObjSymbol* global_symbol;
+        ObjSection* global_section = NULL;
+        int section_index = 0;
+        assert(architecture == ARCH_X64 && cursor + 2u <= expression_end);
+        assert(info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
+               info->data[cursor++] == 8u && cursor < expression_end &&
+               info->data[cursor++] == 0x10u);
+        constant = read_uleb(info->data, expression_end, &cursor);
+        assert(constant == UINT64_C(0x100000005) &&
                cursor + 2u == expression_end &&
                info->data[cursor++] ==
                    (computed_operation == 0x1cu ? 0x1cu : 0x22u) &&
                info->data[cursor] == 0x9fu); /* DW_OP_stack_value */
+        global_symbol = objfile_find_symbol(object, source_name);
+        assert(global_symbol != NULL && global_symbol->section >= 0);
+        for (ObjSection* section = object->sections; section;
+             section = section->next, ++section_index) {
+            if (section_index == global_symbol->section) {
+                global_section = section;
+                break;
+            }
+        }
+        assert(global_section != NULL &&
+               global_symbol->value <= global_section->size &&
+               global_section->size - global_symbol->value >= 8u &&
+               read_u64(global_section->data, global_symbol->value) ==
+                   UINT64_C(0x7ffffffffffffff0));
+        global_value = read_u64(global_section->data, global_symbol->value);
+        evaluated_value = computed_operation == 0x1cu
+            ? global_value - constant : global_value + constant;
+        assert(evaluated_value == (computed_operation == 0x1cu
+            ? UINT64_C(0x7ffffffeffffffeb)
+            : UINT64_C(0x80000000fffffff5)));
     } else {
         assert(expression_size == address_size + 1u);
     }
