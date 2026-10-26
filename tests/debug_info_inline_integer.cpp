@@ -178,6 +178,13 @@ debug_inline_nonconstant_unsigned_long_long_global_mul_entry(void)
         0x100000005ULL);
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_rshift_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source >> 3u);
+}
+
 long long* debug_inline_signed_long_long_comparison_escape;
 long long* debug_inline_signed_long_long_comparison_rhs_escape;
 unsigned long long* debug_inline_unsigned_long_long_comparison_escape;

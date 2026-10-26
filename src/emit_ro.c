@@ -9830,13 +9830,21 @@ static bool debug_inline_parameter_x64_u64_global_expression(
         !parameter_type->is_unsigned ||
         !debug_inline_integer_expression_type(parameter_type) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-            parameter_type, argument->expr->type, 0u)) {
+            parameter_type, argument->expr->type, 0u) ||
+        (argument->expr->kind != EXPR_ADD &&
+         argument->expr->kind != EXPR_SUB &&
+         argument->expr->kind != EXPR_MUL &&
+         argument->expr->kind != EXPR_BITAND &&
+         argument->expr->kind != EXPR_BITOR &&
+         argument->expr->kind != EXPR_BITXOR &&
+         argument->expr->kind != EXPR_LSHIFT &&
+         argument->expr->kind != EXPR_RSHIFT)) {
         return false;
     }
     memset(&globals, 0, sizeof(globals));
     if (!debug_inline_x64_global_expression_collect(
             mod, parameter_type, argument->expr, &globals, 0u) ||
-        globals.global_count < 2u ||
+        globals.global_count == 0u ||
         globals.global_count > relocation_capacity ||
         !debug_inline_x64_global_expression_append(
             parameter_type, argument->expr, &globals, expression,
