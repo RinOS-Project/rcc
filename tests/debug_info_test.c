@@ -10204,6 +10204,8 @@ static const char* inline_integer_comparison_entry_for_source(
          "debug_inline_signed_long_long_nested_sub_bitxor_compare_entry"},
         {"debug_inline_signed_long_long_mul_small_compare_entry_source",
          "debug_inline_signed_long_long_mul_small_compare_entry"},
+        {"debug_inline_signed_long_long_mul_wide_constant_compare_entry_source",
+         "debug_inline_signed_long_long_mul_wide_constant_compare_entry"},
         {"debug_inline_signed_long_long_negated_bitwise_compare_entry_source",
          "debug_inline_signed_long_long_negated_bitwise_compare_entry"},
         {"debug_inline_unsigned_long_long_shift_compare_entry_source",
@@ -10761,6 +10763,8 @@ static void verify_inline_integer_expression_parameter(
             strcmp(source_name,
             "debug_inline_signed_long_long_mul_small_compare_entry_source") == 0 ||
             strcmp(source_name,
+            "debug_inline_signed_long_long_mul_wide_constant_compare_entry_source") == 0 ||
+            strcmp(source_name,
             "debug_inline_signed_long_long_negated_bitwise_compare_entry_source") == 0));
     wide_integer_comparison = wide_integer_comparison ||
         (source_name && strcmp(
@@ -10803,6 +10807,8 @@ static void verify_inline_integer_expression_parameter(
             strcmp(source_name,
             "debug_inline_signed_long_long_mul_small_compare_entry_source") == 0 ||
             strcmp(source_name,
+            "debug_inline_signed_long_long_mul_wide_constant_compare_entry_source") == 0 ||
+            strcmp(source_name,
             "debug_inline_signed_long_long_negated_bitwise_compare_entry_source") == 0));
     bool add_secondary_wide_comparison = source_name && strcmp(
         source_name,
@@ -10837,9 +10843,11 @@ static void verify_inline_integer_expression_parameter(
     bool nested_sub_bitxor_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_signed_long_long_nested_sub_bitxor_compare_entry_source") == 0;
-    bool wide_multiply_small_constant_comparison = source_name && strcmp(
-        source_name,
-        "debug_inline_signed_long_long_mul_small_compare_entry_source") == 0;
+    bool wide_multiply_constant_comparison = source_name &&
+        (strcmp(source_name,
+                "debug_inline_signed_long_long_mul_small_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_mul_wide_constant_compare_entry_source") == 0);
     bool shift_left_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_unsigned_long_long_shift_compare_entry_source") == 0;
@@ -11093,6 +11101,7 @@ static void verify_inline_integer_expression_parameter(
         (architecture == ARCH_X86 || narrow_wide_comparison)) {
         static const uint64_t signed_values[] = {
             UINT64_C(0x8000000000000000), UINT64_MAX, 0u, 1u,
+            UINT64_C(0xfffffffffffffff9), 7u,
             UINT64_C(0x00000000ffffffff), UINT64_C(0x00000001ffffffff),
             UINT64_C(0x0000000100000000),
             UINT64_C(0x7fffffffffffffff)
@@ -11201,13 +11210,17 @@ static void verify_inline_integer_expression_parameter(
                     evaluated, (uint64_t)expected_constant, false, 64u,
                     expected_operation);
                 assert(actual == !compared);
-            } else if (wide_multiply_small_constant_comparison) {
+            } else if (wide_multiply_constant_comparison) {
+                int64_t multiplier = strcmp(
+                    source_name,
+                    "debug_inline_signed_long_long_mul_small_compare_entry_source") == 0
+                    ? INT64_C(3) : INT64_C(0x123456789abcdef0);
                 int64_t signed_value = verify_inline_integer_signed_bits(
                     values[index], 64u);
-                if (signed_value > INT64_MAX / 3 ||
-                    signed_value < INT64_MIN / 3) continue;
+                if (signed_value > INT64_MAX / multiplier ||
+                    signed_value < INT64_MIN / multiplier) continue;
                 uint64_t evaluated =
-                    (uint64_t)(signed_value * INT64_C(3));
+                    (uint64_t)(signed_value * multiplier);
                 uint64_t actual =
                     evaluate_inline_integer_comparison_expression(
                         info->data, expression_end, expression_start,
@@ -12774,6 +12787,8 @@ int main(int argc, char** argv)
             {"debug_inline_signed_long_long_nested_sub_bitxor_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_mul_small_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_mul_wide_constant_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_negated_bitwise_compare_entry_source",
              false, 0x2du, 0},
