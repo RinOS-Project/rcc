@@ -10107,10 +10107,11 @@ remains a separate open item.
       global leaf and evaluate the resulting DWARF expression against the
       initialized object data in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [x] Preserve an AMD64 unsigned 64-bit inline value formed by logically
-      right-shifting a global object by a constant. Emit the relocated global
-      load, shift, and stack value; evaluate it against initialized object data
-      and verify the exact relocation in legacy and verified objects. Focused
+- [x] Preserve AMD64 unsigned 64-bit inline values formed by constant logical
+      left and right shifts of a global object. Cover left-shift wrap at count
+      33 and logical right shift at count 3. Emit the relocated global load,
+      shift, and stack value; evaluate both against initialized object data and
+      verify exact relocations in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
