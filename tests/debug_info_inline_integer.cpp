@@ -192,6 +192,14 @@ debug_inline_nonconstant_unsigned_long_long_global_lshift_entry(void)
         debug_inline_nonconstant_unsigned_long_long_global_add_source << 33u);
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_div_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source /
+        8ULL);
+}
+
 long long* debug_inline_signed_long_long_comparison_escape;
 long long* debug_inline_signed_long_long_comparison_rhs_escape;
 unsigned long long* debug_inline_unsigned_long_long_comparison_escape;

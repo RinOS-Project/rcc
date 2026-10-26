@@ -10109,8 +10109,9 @@ remains a separate open item.
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [x] Preserve AMD64 unsigned 64-bit inline values formed by constant logical
       left and right shifts of a global object. Cover left-shift wrap at count
-      33 and logical right shift at count 3. Emit the relocated global load,
-      shift, and stack value; evaluate both against initialized object data and
+      33, logical right shift at count 3, and unsigned division by 8 after its
+      power-of-two optimization. Emit the relocated global load, shift, and
+      stack value; evaluate the results against initialized object data and
       verify exact relocations in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger

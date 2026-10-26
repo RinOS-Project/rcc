@@ -12289,6 +12289,8 @@ static void verify_inline_global_wide_parameter(
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_rshift_entry"
                                 : computed_operation == 0x32u
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_lshift_entry"
+                                : computed_operation == 0x33u
+                                    ? "debug_inline_nonconstant_unsigned_long_long_global_div_entry"
                                 : "debug_inline_nonconstant_unsigned_long_long_global_entry";
     const char* source_name =
         computed
@@ -12306,7 +12308,8 @@ static void verify_inline_global_wide_parameter(
     uint8_t expected_operation = computed_operation == 0x23u
         ? 0x22u : computed_operation == 0x30u ? 0x1eu :
         computed_operation == 0x31u ? 0x25u :
-        computed_operation == 0x32u ? 0x24u : computed_operation;
+        computed_operation == 0x32u ? 0x24u :
+        computed_operation == 0x33u ? 0x25u : computed_operation;
     bool found_address_relocation = false;
 
     assert(object != NULL && object->arch == architecture);
@@ -12365,7 +12368,7 @@ static void verify_inline_global_wide_parameter(
         int section_index = 0;
         assert(architecture == ARCH_X64);
         if (computed_operation != 0x30u && computed_operation != 0x31u &&
-            computed_operation != 0x32u) {
+            computed_operation != 0x32u && computed_operation != 0x33u) {
             assert(cursor + 2u <= expression_end);
             assert(info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
                    info->data[cursor++] == 8u && cursor < expression_end &&
@@ -12392,14 +12395,14 @@ static void verify_inline_global_wide_parameter(
                    UINT64_C(0x7ffffffffffffff0));
         global_value = read_u64(global_section->data, global_symbol->value);
         if (computed_operation == 0x30u || computed_operation == 0x31u ||
-            computed_operation == 0x32u) {
+            computed_operation == 0x32u || computed_operation == 0x33u) {
             evaluated_value = verify_inline_global_expression_tree(
                 object, info, expression_offset, expression_size,
                 source_name, global_value,
                 computed_operation == 0x30u ? 3u : 1u);
             assert(evaluated_value == (computed_operation == 0x30u
                 ? UINT64_C(0x7fffffefffffffb0)
-                : computed_operation == 0x31u
+                : computed_operation == 0x31u || computed_operation == 0x33u
                     ? UINT64_C(0x0ffffffffffffffe)
                     : UINT64_C(0xffffffe000000000)));
             found_address_relocation = true;
@@ -12427,7 +12430,7 @@ static void verify_inline_global_wide_parameter(
         assert(expression_size == address_size + 1u);
     }
     if (computed_operation != 0x30u && computed_operation != 0x31u &&
-        computed_operation != 0x32u) {
+        computed_operation != 0x32u && computed_operation != 0x33u) {
         for (const ObjReloc* relocation = info->relocs; relocation;
              relocation = relocation->next) {
             if (relocation->offset == expression_offset + 1u &&
@@ -13299,6 +13302,8 @@ int main(int argc, char** argv)
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x31u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x32u);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x32u);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x33u);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x33u);
         for (size_t path_index = 0u;
              path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
              ++path_index) {
