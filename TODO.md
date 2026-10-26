@@ -10344,3 +10344,16 @@ remains a separate open item.
       multiplication shapes and divide/remainder, additional shift-count
       widths/conversions and shift forms, and mixed-rank conversion matrices
       remain open.
+
+## RCC continuation (2026-10-26, signed i686 global 64-bit addition/subtraction)
+
+- [x] Lower signed i686 global-to-global 64-bit addition and subtraction in
+      read-only inline-parameter expressions using the same explicit low-word
+      carry/high-word arithmetic and low-word borrow handling as the unsigned
+      path. Require matching signed operand/result types; verify initialized
+      globals, exact relocations, carry and borrow across the 32-bit boundary,
+      and signed-range boundary pairs in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [ ] Signed i686 64-bit division/remainder, TLS/static-local or
+      volatile/reference/atomic operands, and broader optimized multi-piece
+      locations remain open.
