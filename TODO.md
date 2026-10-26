@@ -10170,6 +10170,12 @@ remains a separate open item.
       from both initialized `.data` values in legacy and verified objects.
       Focused `test-debug-info-inline-expression` and full `test-debug-info`
       pass.
+- [x] Lower explicit unsigned-64 casts of AMD64 global-to-global `<` and `==`
+      comparisons. Verify one relocation per exact symbol, sign-bit biasing
+      for the unsigned less-than operation, exact comparison opcodes, and
+      results evaluated from both initialized `.data` values in legacy and
+      verified objects. Focused `test-debug-info-inline-expression` and full
+      `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,

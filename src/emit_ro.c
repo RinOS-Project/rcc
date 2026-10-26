@@ -9770,6 +9770,17 @@ static bool debug_inline_x64_global_expression_collect(
                     mod, value_type, expression->binary_rhs, globals,
                     depth + 1u);
         }
+        if (debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                value_type, expression->binary_lhs->type, 0u) &&
+            debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                value_type, expression->binary_rhs->type, 0u)) {
+            return debug_inline_x64_global_expression_collect(
+                       mod, value_type, expression->binary_lhs, globals,
+                       depth + 1u) &&
+                debug_inline_x64_global_expression_collect(
+                    mod, value_type, expression->binary_rhs, globals,
+                    depth + 1u);
+        }
         return false;
     }
     if (expression->kind == EXPR_NOT) {
