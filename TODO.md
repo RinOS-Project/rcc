@@ -10384,11 +10384,12 @@ remains a separate open item.
 - [x] Lower signed i686 64-bit `/` and `%` for matching signed identifier
       operands backed by globals or frame storage, and signed 64-bit literals.
       Convert operands to unsigned magnitudes, then restore quotient sign from
-      operand-sign XOR and remainder sign from the dividend. Verify global/global,
-      global/frame, and frame/global operands plus negative `-7` constants in
-      legacy and verified objects; cover signed boundaries while excluding
-      division by zero and the undefined `INT64_MIN / -1` case. Require three
-      exact `ABS32U` relocations per global operand for sign and magnitude loads.
+      operand-sign XOR and remainder sign from the dividend. Preserve the
+      reloc-free frame/frame expression as well as global/global, global/frame,
+      and frame/global operands; verify negative `-7` constants in legacy and
+      verified objects. Cover signed boundaries while excluding division by
+      zero and the undefined `INT64_MIN / -1` case. Require three exact
+      `ABS32U` relocations per global operand for sign and magnitude loads.
       Focused `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Computed signed operands beyond identifiers and integer literals,
       TLS/static-local or volatile/reference/atomic operands, and broader

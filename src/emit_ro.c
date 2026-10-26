@@ -14237,8 +14237,7 @@ static void debug_emit_inline_parameter_instances(
                        integer_value_expression,
                        sizeof(integer_value_expression),
                        &integer_value_expression_size,
-                       &integer_value_relocations) &&
-                   integer_value_relocation_count != 0u) {
+                       &integer_value_relocations)) {
             uint64_t expression_offset;
             section_add_byte(info, 67u);
             debug_line_u32(info, origin->die_offset);
