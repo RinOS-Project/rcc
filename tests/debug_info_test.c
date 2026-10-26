@@ -8392,8 +8392,8 @@ static uint64_t evaluate_inline_integer_comparison_expression_with_secondary(
             stack[stack_size++] =
                 (uint64_t)read_sleb(data, expression_end, &expression_offset) &
                 address_mask;
-        } else if (opcode == 0x1au || opcode == 0x1cu || opcode == 0x21u ||
-                   opcode == 0x22u || opcode == 0x27u ||
+        } else if (opcode == 0x1au || opcode == 0x1cu || opcode == 0x1eu ||
+                   opcode == 0x21u || opcode == 0x22u || opcode == 0x27u ||
                    (opcode >= 0x29u && opcode <= 0x2eu)) {
             assert(stack_size >= 2u);
             rhs = stack[--stack_size];
@@ -8402,6 +8402,8 @@ static uint64_t evaluate_inline_integer_comparison_expression_with_secondary(
                 stack[stack_size++] = lhs & rhs;
             } else if (opcode == 0x1cu) {
                 stack[stack_size++] = (lhs - rhs) & address_mask;
+            } else if (opcode == 0x1eu) {
+                stack[stack_size++] = (lhs * rhs) & address_mask;
             } else if (opcode == 0x21u) {
                 stack[stack_size++] = lhs | rhs;
             } else if (opcode == 0x22u) {
@@ -10200,6 +10202,8 @@ static const char* inline_integer_comparison_entry_for_source(
          "debug_inline_signed_long_long_nested_add_bitxor_compare_entry"},
         {"debug_inline_signed_long_long_nested_sub_bitxor_compare_entry_source",
          "debug_inline_signed_long_long_nested_sub_bitxor_compare_entry"},
+        {"debug_inline_signed_long_long_mul_small_compare_entry_source",
+         "debug_inline_signed_long_long_mul_small_compare_entry"},
         {"debug_inline_signed_long_long_negated_bitwise_compare_entry_source",
          "debug_inline_signed_long_long_negated_bitwise_compare_entry"},
         {"debug_inline_unsigned_long_long_shift_compare_entry_source",
@@ -10755,6 +10759,8 @@ static void verify_inline_integer_expression_parameter(
             strcmp(source_name,
             "debug_inline_signed_long_long_nested_sub_bitxor_compare_entry_source") == 0 ||
             strcmp(source_name,
+            "debug_inline_signed_long_long_mul_small_compare_entry_source") == 0 ||
+            strcmp(source_name,
             "debug_inline_signed_long_long_negated_bitwise_compare_entry_source") == 0));
     wide_integer_comparison = wide_integer_comparison ||
         (source_name && strcmp(
@@ -10795,6 +10801,8 @@ static void verify_inline_integer_expression_parameter(
             strcmp(source_name,
             "debug_inline_signed_long_long_nested_sub_bitxor_compare_entry_source") == 0 ||
             strcmp(source_name,
+            "debug_inline_signed_long_long_mul_small_compare_entry_source") == 0 ||
+            strcmp(source_name,
             "debug_inline_signed_long_long_negated_bitwise_compare_entry_source") == 0));
     bool add_secondary_wide_comparison = source_name && strcmp(
         source_name,
@@ -10829,6 +10837,9 @@ static void verify_inline_integer_expression_parameter(
     bool nested_sub_bitxor_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_signed_long_long_nested_sub_bitxor_compare_entry_source") == 0;
+    bool wide_multiply_small_constant_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_signed_long_long_mul_small_compare_entry_source") == 0;
     bool shift_left_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_unsigned_long_long_shift_compare_entry_source") == 0;
@@ -11182,6 +11193,21 @@ static void verify_inline_integer_expression_parameter(
                      bitwise_signed < INT64_MIN + 2)) continue;
                 uint64_t evaluated = nested_add_bitxor_wide_comparison
                     ? bitwise + 2u : bitwise - 2u;
+                uint64_t actual =
+                    evaluate_inline_integer_comparison_expression(
+                        info->data, expression_end, expression_start,
+                        architecture, frame_offset, value_size, values[index]);
+                bool compared = verify_inline_integer_comparison_value(
+                    evaluated, (uint64_t)expected_constant, false, 64u,
+                    expected_operation);
+                assert(actual == !compared);
+            } else if (wide_multiply_small_constant_comparison) {
+                int64_t signed_value = verify_inline_integer_signed_bits(
+                    values[index], 64u);
+                if (signed_value > INT64_MAX / 3 ||
+                    signed_value < INT64_MIN / 3) continue;
+                uint64_t evaluated =
+                    (uint64_t)(signed_value * INT64_C(3));
                 uint64_t actual =
                     evaluate_inline_integer_comparison_expression(
                         info->data, expression_end, expression_start,
@@ -12746,6 +12772,8 @@ int main(int argc, char** argv)
             {"debug_inline_signed_long_long_nested_add_bitxor_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_nested_sub_bitxor_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_mul_small_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_negated_bitwise_compare_entry_source",
              false, 0x2du, 0},

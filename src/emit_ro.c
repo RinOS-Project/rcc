@@ -6030,6 +6030,107 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
             debug_inline_integer_expression_append_byte(
                 expression, capacity, expression_size, operation_opcode);
     }
+    /* Multiply a recursive i686 wide value by a 16-bit constant.  Splitting
+       the low word into 16-bit limbs keeps every intermediate in the DWARF
+       stack width while retaining the carry into the result's high word. */
+    if (value->kind == EXPR_MUL && value->binary_lhs &&
+        value->binary_rhs && value->type && value->type->size == 8 &&
+        value->binary_lhs->type && value->binary_rhs->type &&
+        value->binary_lhs->type->size == 8 &&
+        value->binary_rhs->type->size == 8 &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            value->binary_lhs->type, value->type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            value->binary_rhs->type, value->type, 0u)) {
+        const Expr* source_expression = NULL;
+        uint64_t factor_bits = 0u;
+        if (debug_inline_integer_literal_bits(
+                value->binary_rhs, &factor_bits, 0u) &&
+            factor_bits <= UINT16_MAX) {
+            source_expression = value->binary_lhs;
+        } else if (debug_inline_integer_literal_bits(
+                       value->binary_lhs, &factor_bits, 0u) &&
+                   factor_bits <= UINT16_MAX) {
+            source_expression = value->binary_rhs;
+        }
+        if (source_expression &&
+            debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                source_expression->type, value->type, 0u)) {
+            if (!high_word) {
+                return debug_inline_parameter_i686_u64_append_word_expression(
+                           mod, source_expression, false, expression, capacity,
+                           expression_size, depth + 1u) &&
+                    debug_inline_integer_expression_append_constu(
+                        expression, capacity, expression_size, factor_bits) &&
+                    debug_inline_integer_expression_append_byte(
+                        expression, capacity, expression_size, 0x1eu);
+            }
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, source_expression, true, expression, capacity,
+                       expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, factor_bits) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x1eu) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, source_expression, false, expression, capacity,
+                    expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, 16u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x25u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, factor_bits) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x1eu) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, 16u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x25u) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, source_expression, false, expression, capacity,
+                    expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size,
+                    UINT32_C(0xffff)) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x1au) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, factor_bits) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x1eu) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, 16u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x25u) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, source_expression, false, expression, capacity,
+                    expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, 16u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x25u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, factor_bits) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x1eu) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size,
+                    UINT32_C(0xffff)) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x1au) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x22u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, 16u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x25u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x22u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x22u);
+        }
+    }
     /* Recursively compose nested i686 wide addition/subtraction.  Keep the
        direct identifier and identifier/constant cases below: their compact
        encodings are already covered, while this path supplies the carry or
