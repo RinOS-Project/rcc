@@ -370,6 +370,42 @@ debug_inline_nonconstant_unsigned_long_long_global_pair_eq_entry(void)
             debug_inline_nonconstant_unsigned_long_long_global_mod_source));
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_pair_gt_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            debug_inline_nonconstant_unsigned_long_long_global_mod_source >
+            debug_inline_nonconstant_unsigned_long_long_global_add_source));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_pair_ge_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            debug_inline_nonconstant_unsigned_long_long_global_mod_source >=
+            debug_inline_nonconstant_unsigned_long_long_global_add_source));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_pair_le_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            debug_inline_nonconstant_unsigned_long_long_global_add_source <=
+            debug_inline_nonconstant_unsigned_long_long_global_mod_source));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_pair_ne_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            debug_inline_nonconstant_unsigned_long_long_global_add_source !=
+            debug_inline_nonconstant_unsigned_long_long_global_mod_source));
+}
+
 long long* debug_inline_signed_long_long_comparison_escape;
 long long* debug_inline_signed_long_long_comparison_rhs_escape;
 unsigned long long* debug_inline_unsigned_long_long_comparison_escape;

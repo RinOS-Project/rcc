@@ -12318,7 +12318,9 @@ static void verify_inline_global_wide_parameter(
     const char* path, uint16_t architecture, uint8_t computed_operation) {
     bool computed = computed_operation != 0u;
     bool global_pair_expression =
-        computed_operation >= 0x42u && computed_operation <= 0x47u;
+        computed_operation >= 0x42u && computed_operation <= 0x4bu;
+    bool global_pair_reversed =
+        computed_operation == 0x48u || computed_operation == 0x49u;
     const char* inline_name =
         "debug_nonconstant_unsigned_long_long_parameter_inline";
     const char* call_site_name =
@@ -12382,10 +12384,20 @@ static void verify_inline_global_wide_parameter(
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_pair_lt_entry"
                                 : computed_operation == 0x47u
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_pair_eq_entry"
+                                : computed_operation == 0x48u
+                                    ? "debug_inline_nonconstant_unsigned_long_long_global_pair_gt_entry"
+                                : computed_operation == 0x49u
+                                    ? "debug_inline_nonconstant_unsigned_long_long_global_pair_ge_entry"
+                                : computed_operation == 0x4au
+                                    ? "debug_inline_nonconstant_unsigned_long_long_global_pair_le_entry"
+                                : computed_operation == 0x4bu
+                                    ? "debug_inline_nonconstant_unsigned_long_long_global_pair_ne_entry"
                                 : "debug_inline_nonconstant_unsigned_long_long_global_entry";
     const char* source_name =
         computed_operation == 0x3au
             ? "debug_inline_nonconstant_unsigned_long_long_global_zero_source"
+            : global_pair_reversed
+            ? "debug_inline_nonconstant_unsigned_long_long_global_mod_source"
             : global_pair_expression
             ? "debug_inline_nonconstant_unsigned_long_long_global_add_source"
             : computed_operation >= 0x34u
@@ -12394,8 +12406,10 @@ static void verify_inline_global_wide_parameter(
             ? "debug_inline_nonconstant_unsigned_long_long_global_add_source"
             : "debug_inline_nonconstant_unsigned_long_long_global_source";
     const char* second_source_name = global_pair_expression
-            ? "debug_inline_nonconstant_unsigned_long_long_global_mod_source"
-            : NULL;
+        ? global_pair_reversed
+            ? "debug_inline_nonconstant_unsigned_long_long_global_add_source"
+            : "debug_inline_nonconstant_unsigned_long_long_global_mod_source"
+        : NULL;
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -12538,7 +12552,7 @@ static void verify_inline_global_wide_parameter(
             computed_operation != 0x37u && computed_operation != 0x38u &&
             computed_operation != 0x39u && computed_operation != 0x3au &&
             computed_operation != 0x3bu && computed_operation != 0x3cu &&
-            (computed_operation < 0x3du || computed_operation > 0x47u)) {
+            (computed_operation < 0x3du || computed_operation > 0x4bu)) {
             assert(cursor + 2u <= expression_end);
             assert(info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
                    info->data[cursor++] == 8u && cursor < expression_end &&
@@ -12563,7 +12577,9 @@ static void verify_inline_global_wide_parameter(
                global_symbol->value <= global_section->size &&
                global_section->size - global_symbol->value >= 8u &&
                read_u64(global_section->data, global_symbol->value) ==
-                   (global_pair_expression
+                   (global_pair_reversed
+                       ? UINT64_C(0xfedcba9876543217)
+                       : global_pair_expression
                        ? UINT64_C(0x7ffffffffffffff0)
                        : computed_operation == 0x3au
                        ? 0u : computed_operation >= 0x34u
@@ -12589,7 +12605,9 @@ static void verify_inline_global_wide_parameter(
                        8u &&
                    read_u64(second_global_section->data,
                             second_global_symbol->value) ==
-                       UINT64_C(0xfedcba9876543217));
+                       (global_pair_reversed
+                            ? UINT64_C(0x7ffffffffffffff0)
+                            : UINT64_C(0xfedcba9876543217)));
             second_global_value = read_u64(
                 second_global_section->data, second_global_symbol->value);
         }
@@ -12599,7 +12617,7 @@ static void verify_inline_global_wide_parameter(
             computed_operation == 0x37u || computed_operation == 0x38u ||
             computed_operation == 0x39u || computed_operation == 0x3au ||
             computed_operation == 0x3bu || computed_operation == 0x3cu ||
-            (computed_operation >= 0x3du && computed_operation <= 0x47u)) {
+            (computed_operation >= 0x3du && computed_operation <= 0x4bu)) {
             uint64_t expected_value;
             evaluated_value = verify_inline_global_expression_tree(
                 object, info, expression_offset, expression_size,
@@ -12612,7 +12630,11 @@ static void verify_inline_global_wide_parameter(
                 computed_operation == 0x44u ? 0x1cu :
                 computed_operation == 0x45u ? 0x27u :
                 computed_operation == 0x46u ? 0x2du :
-                computed_operation == 0x47u ? 0x29u : 0u);
+                computed_operation == 0x47u ? 0x29u :
+                computed_operation == 0x48u ? 0x2bu :
+                computed_operation == 0x49u ? 0x2au :
+                computed_operation == 0x4au ? 0x2cu :
+                computed_operation == 0x4bu ? 0x2eu : 0u);
             if (computed_operation == 0x30u) {
                 expected_value = UINT64_C(0x7fffffefffffffb0);
             } else if (computed_operation == 0x31u ||
@@ -12656,6 +12678,11 @@ static void verify_inline_global_wide_parameter(
                 expected_value = 1u;
             } else if (computed_operation == 0x47u) {
                 expected_value = 0u;
+            } else if (computed_operation == 0x48u ||
+                       computed_operation == 0x49u ||
+                       computed_operation == 0x4au ||
+                       computed_operation == 0x4bu) {
+                expected_value = 1u;
             } else {
                 expected_value = UINT64_C(0xfdb97530eca8642e);
             }
@@ -12691,7 +12718,7 @@ static void verify_inline_global_wide_parameter(
         computed_operation != 0x37u && computed_operation != 0x38u &&
         computed_operation != 0x39u && computed_operation != 0x3au &&
         computed_operation != 0x3bu && computed_operation != 0x3cu &&
-        (computed_operation < 0x3du || computed_operation > 0x47u)) {
+        (computed_operation < 0x3du || computed_operation > 0x4bu)) {
         for (const ObjReloc* relocation = info->relocs; relocation;
              relocation = relocation->next) {
             if (relocation->offset == expression_offset + 1u &&
@@ -13605,6 +13632,14 @@ int main(int argc, char** argv)
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x46u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x47u);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x47u);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x48u);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x48u);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x49u);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x49u);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4au);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4au);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4bu);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4bu);
         for (size_t path_index = 0u;
              path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
              ++path_index) {
