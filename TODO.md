@@ -2363,7 +2363,8 @@
   - [ ] Unsigned operands wider than the target address width (notably
         i686 `unsigned long long`) in computed expressions, arbitrary
         nonconstant argument expressions, mutable parameters,
-        optimized-away/register-only sources, nested lexical locals, tracking
+        optimized-away/register-only sources, nested lexical locals beyond
+        the tested inline-multiply case, tracking
         optimized variables across register and piece locations, declaration
         lifetimes across every optimized CFG edge, and CFI/unwind coverage for
         prologues and epilogues beyond current fixed-frame rules. General
@@ -10072,6 +10073,12 @@ remains a separate open item.
       (left + 0x100000001)` over unsigned boundaries in legacy and verified
       DWARF. Focused `test-debug-info-inline-expression` and full
       `test-debug-info` gates pass.
+- [x] Preserve an inline unsigned 64-bit multiply expression whose frame-backed
+      operands are locals declared in a nested lexical block. Resolve both
+      source variables through their location lists and frame offsets, then
+      evaluate `(left + 0x100000001) * (right - 0x100000001)` at unsigned
+      boundaries in legacy and verified i686 DWARF. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` gates pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, non-frame-backed wide operands, and other

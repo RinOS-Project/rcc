@@ -9336,9 +9336,15 @@ static void verify_inline_u64_mul_two_variables_expression(
     int64_t right_frame_offset;
     int64_t right_location_offset;
     bool nested_operands;
+    bool deeply_nested_operands;
     assert(left_source_name && right_source_name &&
            left_frame_offset <= INT64_MAX - 4);
     nested_operands = strcmp(
+        left_source_name,
+        "debug_inline_nonconstant_unsigned_long_long_nested_mul_left_source") == 0 ||
+        strcmp(left_source_name,
+               "debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source") == 0;
+    deeply_nested_operands = strcmp(
         left_source_name,
         "debug_inline_nonconstant_unsigned_long_long_nested_mul_left_source") == 0;
     assert(find_variable_location(
@@ -9347,11 +9353,19 @@ static void verify_inline_u64_mul_two_variables_expression(
         &left_location_offset));
     assert(has_variable_location &&
            left_location_offset == left_frame_offset);
+    if (strcmp(left_source_name,
+               "debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source") == 0) {
+        assert(variable_is_location_list);
+    }
     assert(find_variable_location(
         info, strings, locations, right_source_name, ARCH_X86,
         &has_variable_location, &variable_is_location_list,
         &right_location_offset));
     assert(has_variable_location && right_location_offset <= INT64_MAX - 4);
+    if (strcmp(left_source_name,
+               "debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source") == 0) {
+        assert(variable_is_location_list);
+    }
     right_frame_offset = right_location_offset;
 
     for (size_t index = 0u; index < value_count; ++index) {
@@ -9365,7 +9379,7 @@ static void verify_inline_u64_mul_two_variables_expression(
         uint64_t right = nested_operands
             ? values[index].right - UINT64_C(0x100000001)
             : values[index].right;
-        uint64_t expected = nested_operands
+        uint64_t expected = deeply_nested_operands
             ? (left * right) * left : left * right;
         assert(actual == expected);
     }
@@ -11042,7 +11056,10 @@ static void verify_inline_integer_expression_parameter(
                                                 : expected_operation == 0xf3u
                                                     ? "debug_inline_nonconstant_unsigned_long_long_mul_two_variables_entry"
                                                     : "debug_inline_nonconstant_integer_entry";
-    if (expected_operation == 0xf2u) {
+    if (expected_operation == 0xf1u) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_scope_mul_two_variables_entry";
+    } else if (expected_operation == 0xf2u) {
         call_site_name =
             "debug_inline_nonconstant_unsigned_long_long_nested_mul_two_variables_entry";
     }
@@ -11084,7 +11101,8 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0xe4u || expected_operation == 0xe5u ||
             expected_operation == 0xe6u || expected_operation == 0xe7u ||
             expected_operation == 0xe8u || expected_operation == 0xe9u ||
-            expected_operation == 0xf2u || expected_operation == 0xf3u ||
+            expected_operation == 0xf1u || expected_operation == 0xf2u ||
+            expected_operation == 0xf3u ||
             expected_operation == 0xf4u ||
             expected_operation == 0xf5u ||
             expected_operation == 0xf6u || expected_operation == 0xf7u ||
@@ -11957,9 +11975,11 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (expected_operation == 0xf2u || expected_operation == 0xf3u ||
+    if (expected_operation == 0xf1u || expected_operation == 0xf2u ||
+        expected_operation == 0xf3u ||
         expected_operation == 0xe4u) {
-        bool expected_unsigned = expected_operation == 0xf2u ||
+        bool expected_unsigned = expected_operation == 0xf1u ||
+            expected_operation == 0xf2u ||
             expected_operation == 0xf3u;
         assert(architecture == ARCH_X86 && is_unsigned == expected_unsigned &&
                value_size == 8u && divisor_source_name &&
@@ -12310,6 +12330,12 @@ static void verify_inline_integer_expression_cases(
          0xf2u, 0,
          "debug_inline_nonconstant_unsigned_long_long_nested_mul_rhs_source",
          false},
+        {"debug_nonconstant_unsigned_long_long_mul_two_variables_inline",
+         "debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source",
+         true, 8u,
+         0xf1u, 0,
+         "debug_inline_nonconstant_unsigned_long_long_scope_mul_rhs_source",
+         false},
         {"debug_nonconstant_signed_long_long_add_two_variables_inline",
          "debug_inline_nonconstant_signed_long_long_add_left_source",
          false, 8u,
@@ -12526,6 +12552,7 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xfdu ||
              cases[index].operation == 0xfcu ||
              cases[index].operation == 0xfbu ||
+             cases[index].operation == 0xf1u ||
              cases[index].operation == 0xf2u ||
              cases[index].operation == 0xf3u ||
              cases[index].operation == 0xf4u ||
@@ -12574,6 +12601,7 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xfdu &&
             cases[index].operation != 0xfcu &&
             cases[index].operation != 0xfbu &&
+            cases[index].operation != 0xf1u &&
             cases[index].operation != 0xf2u &&
             cases[index].operation != 0xf3u &&
             cases[index].operation != 0xf4u &&
