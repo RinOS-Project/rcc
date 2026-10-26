@@ -10083,8 +10083,9 @@ remains a separate open item.
       integer arguments by describing the already-evaluated right operand
       without replaying the left operand. Evaluate a product of two
       comma-wrapped frame-backed unsigned 64-bit expressions at boundary values
-      in legacy and verified i686 DWARF. Focused
-      `test-debug-info-inline-expression` and full `test-debug-info` gates pass.
+      in legacy and verified i686/AMD64 DWARF, with the test evaluator modeling
+      both stack widths. Focused `test-debug-info-inline-expression` and full
+      `test-debug-info` gates pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, non-frame-backed wide operands, and other

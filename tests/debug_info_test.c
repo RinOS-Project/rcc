@@ -9214,44 +9214,60 @@ static void verify_inline_u64_bitwise_two_variables_expression(
 
 static uint64_t evaluate_inline_u64_mul_two_variables_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
-    int64_t left_frame_offset, int64_t right_frame_offset,
+    int architecture, int64_t left_frame_offset, int64_t right_frame_offset,
     uint64_t left_value, uint64_t right_value) {
-    uint32_t stack[16];
+    uint64_t stack[16];
     size_t stack_size = 0u;
     uint64_t result = 0u;
     uint64_t offset = expression_start;
     int64_t pending_frame_offset = 0;
     unsigned int piece_count = 0u;
+    uint8_t frame_base_opcode = architecture == ARCH_X64 ? 0x76u : 0x75u;
     bool has_pending_frame_offset = false;
     while (offset < expression_end) {
         uint8_t opcode = data[offset++];
-        if (opcode == 0x75u) { /* DW_OP_breg5 */
+        if (opcode == frame_base_opcode) {
             assert(!has_pending_frame_offset);
             pending_frame_offset = read_sleb(data, expression_end, &offset);
             has_pending_frame_offset = true;
         } else if (opcode == 0x94u) { /* DW_OP_deref_size */
-            uint32_t value;
+            uint8_t access_size;
+            uint64_t value;
             assert(has_pending_frame_offset && offset < expression_end &&
-                   data[offset++] == 4u &&
                    stack_size < sizeof(stack) / sizeof(stack[0]));
-            if (pending_frame_offset == left_frame_offset) {
-                value = (uint32_t)left_value;
-            } else if (pending_frame_offset == left_frame_offset + 4) {
-                value = (uint32_t)(left_value >> 32u);
-            } else if (pending_frame_offset == right_frame_offset) {
-                value = (uint32_t)right_value;
+            access_size = data[offset++];
+            if (access_size == 8u) {
+                assert(architecture == ARCH_X64);
+                if (pending_frame_offset == left_frame_offset) {
+                    value = left_value;
+                } else {
+                    assert(pending_frame_offset == right_frame_offset);
+                    value = right_value;
+                }
             } else {
-                assert(pending_frame_offset == right_frame_offset + 4);
-                value = (uint32_t)(right_value >> 32u);
+                assert(access_size == 4u && architecture == ARCH_X86);
+                if (pending_frame_offset == left_frame_offset) {
+                    value = (uint32_t)left_value;
+                } else if (pending_frame_offset == left_frame_offset + 4) {
+                    value = (uint32_t)(left_value >> 32u);
+                } else if (pending_frame_offset == right_frame_offset) {
+                    value = (uint32_t)right_value;
+                } else {
+                    assert(pending_frame_offset == right_frame_offset + 4);
+                    value = (uint32_t)(right_value >> 32u);
+                }
             }
             stack[stack_size++] = value;
             has_pending_frame_offset = false;
         } else if (opcode == 0x10u) { /* DW_OP_constu */
             assert(stack_size < sizeof(stack) / sizeof(stack[0]));
-            stack[stack_size++] = (uint32_t)read_uleb(
-                data, expression_end, &offset);
+            stack[stack_size] = read_uleb(data, expression_end, &offset);
+            if (architecture == ARCH_X86) {
+                stack[stack_size] &= UINT32_MAX;
+            }
+            ++stack_size;
         } else if (opcode == 0x16u) { /* DW_OP_swap */
-            uint32_t temporary;
+            uint64_t temporary;
             assert(stack_size >= 2u);
             temporary = stack[stack_size - 1u];
             stack[stack_size - 1u] = stack[stack_size - 2u];
@@ -9260,8 +9276,8 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
                    opcode == 0x1eu || opcode == 0x22u ||
                    opcode == 0x25u || opcode == 0x27u ||
                    opcode == 0x2du) {
-            uint32_t left;
-            uint32_t right;
+            uint64_t left;
+            uint64_t right;
             assert(stack_size >= 2u);
             right = stack[--stack_size];
             left = stack[--stack_size];
@@ -9275,15 +9291,20 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
                 stack[stack_size++] = left + right;
             } else if (opcode == 0x25u) {
                 assert(right < 32u);
-                stack[stack_size++] = left >> right;
+                stack[stack_size++] = (uint32_t)left >> right;
             } else if (opcode == 0x27u) {
                 stack[stack_size++] = left ^ right;
             } else {
-                bool left_negative = (left & UINT32_C(0x80000000)) != 0u;
-                bool right_negative = (right & UINT32_C(0x80000000)) != 0u;
+                bool left_negative =
+                    (left & UINT32_C(0x80000000)) != 0u;
+                bool right_negative =
+                    (right & UINT32_C(0x80000000)) != 0u;
                 stack[stack_size++] = left_negative != right_negative
                     ? (uint32_t)left_negative
                     : (uint32_t)(left < right);
+            }
+            if (architecture == ARCH_X86) {
+                stack[stack_size - 1u] &= UINT32_MAX;
             }
         } else if (opcode == 0x9fu) { /* DW_OP_stack_value */
             assert(stack_size == 1u);
@@ -9296,7 +9317,12 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
             assert(!"unexpected opcode in two-variable wide multiply");
         }
     }
-    assert(!has_pending_frame_offset && stack_size == 0u && piece_count == 2u);
+    assert(!has_pending_frame_offset);
+    if (architecture == ARCH_X64) {
+        assert(stack_size == 1u && piece_count == 0u);
+        return stack[0];
+    }
+    assert(stack_size == 0u && piece_count == 2u);
     return result;
 }
 
@@ -9305,7 +9331,7 @@ static void verify_inline_u64_mul_two_variables_expression(
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* left_source_name,
     const char* right_source_name, int64_t left_frame_offset,
-    bool is_unsigned) {
+    bool is_unsigned, int architecture) {
     static const InlineU64Pair unsigned_values[] = {
         {0u, 0u},
         {1u, UINT64_MAX},
@@ -9348,7 +9374,7 @@ static void verify_inline_u64_mul_two_variables_expression(
         left_source_name,
         "debug_inline_nonconstant_unsigned_long_long_nested_mul_left_source") == 0;
     assert(find_variable_location(
-        info, strings, locations, left_source_name, ARCH_X86,
+        info, strings, locations, left_source_name, architecture,
         &has_variable_location, &variable_is_location_list,
         &left_location_offset));
     assert(has_variable_location &&
@@ -9358,7 +9384,7 @@ static void verify_inline_u64_mul_two_variables_expression(
         assert(variable_is_location_list);
     }
     assert(find_variable_location(
-        info, strings, locations, right_source_name, ARCH_X86,
+        info, strings, locations, right_source_name, architecture,
         &has_variable_location, &variable_is_location_list,
         &right_location_offset));
     assert(has_variable_location && right_location_offset <= INT64_MAX - 4);
@@ -9377,10 +9403,29 @@ static void verify_inline_u64_mul_two_variables_expression(
             : values[index].right;
         uint64_t actual =
             evaluate_inline_u64_mul_two_variables_expression(
-                data, expression_end, expression_start, left_frame_offset,
-                right_frame_offset, values[index].left, values[index].right);
+                data, expression_end, expression_start, architecture,
+                left_frame_offset, right_frame_offset, values[index].left,
+                values[index].right);
         uint64_t expected = deeply_nested_operands
             ? (left * right) * left : left * right;
+        if (actual != expected) {
+            fprintf(stderr,
+                    "inline wide multiply mismatch: arch=%d left=0x%016llx "
+                    "right=0x%016llx actual=0x%016llx expected=0x%016llx "
+                    "source=%s nested=%d\n",
+                    architecture,
+                    (unsigned long long)values[index].left,
+                    (unsigned long long)values[index].right,
+                    (unsigned long long)actual,
+                    (unsigned long long)expected, left_source_name,
+                    nested_operands ? 1 : 0);
+            fprintf(stderr, "expression:");
+            for (uint64_t byte = expression_start; byte < expression_end;
+                 ++byte) {
+                fprintf(stderr, " %02x", data[byte]);
+            }
+            fputc('\n', stderr);
+        }
         assert(actual == expected);
     }
 }
@@ -11981,13 +12026,14 @@ static void verify_inline_integer_expression_parameter(
         bool expected_unsigned = expected_operation == 0xf1u ||
             expected_operation == 0xf2u ||
             expected_operation == 0xf3u;
-        assert(architecture == ARCH_X86 && is_unsigned == expected_unsigned &&
+        assert((expected_operation == 0xf1u || architecture == ARCH_X86) &&
+               is_unsigned == expected_unsigned &&
                value_size == 8u && divisor_source_name &&
                expected_constant == 0);
         verify_inline_u64_mul_two_variables_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name, divisor_source_name, frame_offset,
-            is_unsigned);
+            is_unsigned, architecture);
         objfile_free(object);
         return;
     }
@@ -12552,7 +12598,6 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xfdu ||
              cases[index].operation == 0xfcu ||
              cases[index].operation == 0xfbu ||
-             cases[index].operation == 0xf1u ||
              cases[index].operation == 0xf2u ||
              cases[index].operation == 0xf3u ||
              cases[index].operation == 0xf4u ||
