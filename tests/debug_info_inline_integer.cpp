@@ -448,6 +448,22 @@ debug_inline_nonconstant_unsigned_long_long_global_pair_xor_entry(void)
 }
 
 extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_pair_and_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source &
+        debug_inline_nonconstant_unsigned_long_long_global_mod_source);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_pair_or_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source |
+        debug_inline_nonconstant_unsigned_long_long_global_mod_source);
+}
+
+extern "C" unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_pair_lt_entry(void)
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(

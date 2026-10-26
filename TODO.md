@@ -10257,10 +10257,16 @@ remains a separate open item.
       source), six subtract relocations (3/3), and wrap/carry/borrow boundary
       pairs plus initialized globals in legacy and verified objects. Focused
       inline-expression and full `test-debug-info` gates pass.
+- [x] Lower i686 unsigned-64 AND, OR, and XOR between two global objects as
+      independent low/high 32-bit operations. Verify exactly two `ABS32U`
+      relocations per source, the high-word `+4` loads, and boundary results
+      from initialized globals in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide
-      operands beyond global bitwise operations, addition/subtraction,
-      logical-not, negation, and constant/dynamic shifts, other AMD64
+      operands beyond global bitwise operations, global-pair bitwise
+      operations, addition/subtraction, logical-not, negation, and
+      constant/dynamic shifts, other AMD64
       computed-global multiplication shapes, divide/modulo, other shift-count
       widths/conversions and shift forms, and mixed-rank matrices remain open.
