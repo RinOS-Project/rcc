@@ -8494,9 +8494,12 @@ remains a separate open item.
       variable initializer during callee-side lifetime analysis. Reference
       temporary lifetime belongs to the call site; the dual-architecture
       `test-optimize` cleanup compilation and execution checks pass.
+- [x] Lower this reference-member temporary cleanup and exceptional-unwind
+      fixture through verified-SSA on i686 and AMD64 at `-O0` and `-O2`.
+      Require all four functions and zero fallback notices for each target and
+      optimization level; `test-cxx-aggregate-paren-init-posix` passes.
 - [ ] Non-trivially-copyable aggregate targets, thread-local initialization,
-      and verified-SSA lowering for this cleanup case remain open; other
-      class-prvalue contexts remain open.
+      and other class-prvalue contexts remain open.
 
 ## RCC continuation (2026-10-21, conversion-function member-pointer adjustment)
 
