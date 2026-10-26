@@ -8800,14 +8800,54 @@ static bool debug_inline_integer_expression_append_raw(
     return true;
 }
 
+static bool debug_inline_parameter_i686_append_division_chunk(
+    uint8_t* expression, size_t capacity, size_t* size,
+    const uint8_t* chunk_expression, size_t chunk_size,
+    const DebugInlineI686ExpressionRelocations* chunk_relocations,
+    DebugInlineI686ExpressionRelocations* relocations) {
+    size_t expression_offset;
+    if (!expression || !size || !chunk_expression || !chunk_relocations ||
+        !chunk_relocations->count ||
+        (*chunk_relocations->count != 0u &&
+         (!chunk_relocations->offsets || !chunk_relocations->symbols)) ||
+        !debug_inline_integer_expression_append_raw(
+            expression, capacity, size, chunk_expression, chunk_size)) {
+        return false;
+    }
+    expression_offset = *size - chunk_size;
+    if (*chunk_relocations->count == 0u) return true;
+    if (!relocations || !relocations->offsets || !relocations->symbols ||
+        !relocations->count ||
+        *relocations->count > relocations->capacity ||
+        *chunk_relocations->count >
+            relocations->capacity - *relocations->count) {
+        return false;
+    }
+    for (size_t index = 0u; index < *chunk_relocations->count; ++index) {
+        if (chunk_relocations->offsets[index] >= chunk_size ||
+            !chunk_relocations->symbols[index]) {
+            return false;
+        }
+        relocations->offsets[*relocations->count] =
+            expression_offset + chunk_relocations->offsets[index];
+        relocations->symbols[*relocations->count] =
+            chunk_relocations->symbols[index];
+        ++*relocations->count;
+    }
+    return true;
+}
+
 static bool debug_inline_parameter_i686_u64_division_input_chunk(
-    int64_t frame_offset, unsigned int bit_offset, unsigned int bit_width,
-    uint8_t* expression, size_t capacity, size_t* expression_size) {
+    const Module* mod, const Decl* source, int64_t frame_offset,
+    unsigned int bit_offset, unsigned int bit_width, uint8_t* expression,
+    size_t capacity, size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
     unsigned int word_index;
     unsigned int word_bit_offset;
     unsigned int low_width;
     uint64_t low_mask;
-    if (!expression || !expression_size || bit_offset >= 64u ||
+    if (!mod || !source || !expression || !expression_size ||
+        bit_offset >= 64u ||
         bit_width == 0u || bit_width > 16u ||
         bit_width > 64u - bit_offset) {
         return false;
@@ -8819,9 +8859,9 @@ static bool debug_inline_parameter_i686_u64_division_input_chunk(
         low_width = 32u - word_bit_offset;
     }
     low_mask = (UINT64_C(1) << low_width) - 1u;
-    if (!debug_inline_integer_expression_append_frame_u32(
-            expression, capacity, expression_size, ARCH_X86,
-            frame_offset + (int64_t)(word_index * 4u)) ||
+    if (!debug_inline_parameter_i686_append_storage_u32(
+            mod, source, frame_offset, word_index != 0u, expression,
+            capacity, expression_size, relocations) ||
         (word_bit_offset != 0u &&
          (!debug_inline_integer_expression_append_constu(
               expression, capacity, expression_size, word_bit_offset) ||
@@ -8837,9 +8877,9 @@ static bool debug_inline_parameter_i686_u64_division_input_chunk(
         unsigned int high_width = bit_width - low_width;
         uint64_t high_mask = (UINT64_C(1) << high_width) - 1u;
         if (word_index != 0u ||
-            !debug_inline_integer_expression_append_frame_u32(
-                expression, capacity, expression_size, ARCH_X86,
-                frame_offset + 4) ||
+            !debug_inline_parameter_i686_append_storage_u32(
+                mod, source, frame_offset, true, expression, capacity,
+                expression_size, relocations) ||
             !debug_inline_integer_expression_append_constu(
                 expression, capacity, expression_size, high_mask) ||
             !debug_inline_integer_expression_append_byte(
@@ -9084,12 +9124,15 @@ static bool debug_inline_parameter_i686_u64_division_digit_u32_overflow(
 }
 
 static bool debug_inline_parameter_i686_u64_power_of_two_div_expression(
-    int64_t frame_offset, uint64_t divisor, bool is_remainder,
-    uint8_t* expression, size_t capacity, size_t* expression_size) {
+    const Module* mod, const Decl* source, int64_t frame_offset,
+    uint64_t divisor, bool is_remainder, uint8_t* expression,
+    size_t capacity, size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
     unsigned int shift = 0u;
     size_t size = 0u;
     uint32_t high_mask;
-    if (!expression || !expression_size || divisor <= UINT32_MAX ||
+    if (!mod || !source || !expression || !expression_size ||
+        divisor <= UINT32_MAX ||
         (divisor & (divisor - 1u)) != 0u || frame_offset > INT64_MAX - 4) {
         return false;
     }
@@ -9100,8 +9143,9 @@ static bool debug_inline_parameter_i686_u64_power_of_two_div_expression(
     if (shift < 32u) return false;
 
     if (is_remainder) {
-        if (!debug_inline_integer_expression_append_frame_u32(
-                expression, capacity, &size, ARCH_X86, frame_offset)) {
+        if (!debug_inline_parameter_i686_append_storage_u32(
+                mod, source, frame_offset, false, expression, capacity,
+                &size, relocations)) {
             return false;
         }
         high_mask = shift == 32u
@@ -9112,8 +9156,9 @@ static bool debug_inline_parameter_i686_u64_power_of_two_div_expression(
                 expression, capacity, &size, 0x93u) || /* piece */
             !debug_inline_integer_expression_append_byte(
                 expression, capacity, &size, 4u) ||
-            !debug_inline_integer_expression_append_frame_u32(
-                expression, capacity, &size, ARCH_X86, frame_offset + 4)) {
+            !debug_inline_parameter_i686_append_storage_u32(
+                mod, source, frame_offset, true, expression, capacity,
+                &size, relocations)) {
             return false;
         }
         if (!debug_inline_integer_expression_append_constu(
@@ -9123,8 +9168,9 @@ static bool debug_inline_parameter_i686_u64_power_of_two_div_expression(
             return false;
         }
     } else {
-        if (!debug_inline_integer_expression_append_frame_u32(
-                expression, capacity, &size, ARCH_X86, frame_offset + 4)) {
+        if (!debug_inline_parameter_i686_append_storage_u32(
+                mod, source, frame_offset, true, expression, capacity,
+                &size, relocations)) {
             return false;
         }
         if (shift != 32u &&
@@ -9160,10 +9206,11 @@ static bool debug_inline_parameter_i686_u64_power_of_two_div_expression(
 static bool debug_inline_parameter_i686_u64_div_constant_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
-    size_t* expression_size) {
+    size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
     const Expr* dividend_expression;
     const Decl* dividend;
-    int64_t frame_offset;
+    int64_t frame_offset = 0;
     uint64_t divisor;
     size_t size = 0u;
     uint64_t radix;
@@ -9192,20 +9239,28 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     dividend_expression = source_expression->binary_lhs;
     dividend = dividend_expression->ident_decl;
     if ((dividend->kind != DECL_VAR && dividend->kind != DECL_PARAM) ||
-        dividend->var_is_global || dividend->var_is_static_local ||
+        dividend->var_is_static_local ||
         dividend->var_is_thread_local || dividend->var_is_vla ||
         !dividend->type ||
+        dividend->type->is_volatile || dividend->type->is_reference ||
+        dividend->type->is_atomic ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             dividend->type, parameter_type, 0u) ||
-        !debug_inline_parameter_frame_offset(mod, dividend, &frame_offset) ||
+        (dividend->var_is_global
+             ? (dividend->kind != DECL_VAR || !relocations ||
+                !relocations->offsets || !relocations->symbols ||
+                !relocations->count || !debug_find_global_symbol(mod, dividend))
+             : !debug_inline_parameter_frame_offset(
+                   mod, dividend, &frame_offset)) ||
         frame_offset > INT64_MAX - 6) {
         return false;
     }
+    if (relocations) *relocations->count = 0u;
     is_remainder = source_expression->kind == EXPR_MOD;
     if (divisor > (uint64_t)UINT32_MAX) {
         return debug_inline_parameter_i686_u64_power_of_two_div_expression(
-            frame_offset, divisor, is_remainder, expression, capacity,
-            expression_size);
+            mod, dividend, frame_offset, divisor, is_remainder, expression,
+            capacity, expression_size, relocations);
     }
     bool large_divisor = divisor > UINT64_C(1073741824);
     chunk_width = 16u;
@@ -9234,13 +9289,24 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
          chunk_index < chunk_count; ++chunk_index) {
         uint8_t chunk_expression[64];
         size_t chunk_size = 0u;
+        size_t chunk_relocation_offsets[2];
+        const ModuleSymbol* chunk_relocation_symbols[2];
+        size_t chunk_relocation_count = 0u;
+        DebugInlineI686ExpressionRelocations chunk_relocations = {
+            chunk_relocation_offsets,
+            chunk_relocation_symbols,
+            sizeof(chunk_relocation_offsets) /
+                sizeof(chunk_relocation_offsets[0]),
+            &chunk_relocation_count
+        };
         unsigned int bit_offset =
             (chunk_count - 1u - chunk_index) * chunk_width;
         unsigned int bit_width = 64u - bit_offset;
         if (bit_width > chunk_width) bit_width = chunk_width;
         if (!debug_inline_parameter_i686_u64_division_input_chunk(
-                frame_offset, bit_offset, bit_width,
-                chunk_expression, sizeof(chunk_expression), &chunk_size)) {
+                mod, dividend, frame_offset, bit_offset, bit_width,
+                chunk_expression, sizeof(chunk_expression), &chunk_size,
+                &chunk_relocations)) {
             return false;
         }
         if (divisor > (uint64_t)INT32_MAX) {
@@ -9262,9 +9328,9 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
                     expression, capacity, &size, radix) ||
                 !debug_inline_integer_expression_append_byte(
                     expression, capacity, &size, 0x1eu) || /* mul */
-                !debug_inline_integer_expression_append_raw(
-                    expression, capacity, &size,
-                    chunk_expression, chunk_size) ||
+                !debug_inline_parameter_i686_append_division_chunk(
+                    expression, capacity, &size, chunk_expression,
+                    chunk_size, &chunk_relocations, relocations) ||
                 !debug_inline_integer_expression_append_byte(
                     expression, capacity, &size, 0x22u) || /* plus */
                 !debug_inline_integer_expression_append_byte(
@@ -9281,9 +9347,9 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
                        expression, capacity, &size, radix) ||
                    !debug_inline_integer_expression_append_byte(
                        expression, capacity, &size, 0x1eu) || /* mul */
-                   !debug_inline_integer_expression_append_raw(
-                       expression, capacity, &size,
-                       chunk_expression, chunk_size) ||
+                   !debug_inline_parameter_i686_append_division_chunk(
+                       expression, capacity, &size, chunk_expression,
+                       chunk_size, &chunk_relocations, relocations) ||
                    !debug_inline_integer_expression_append_byte(
                        expression, capacity, &size, 0x22u) || /* plus */
                    !debug_inline_integer_expression_append_byte(
@@ -9634,8 +9700,7 @@ static bool debug_inline_parameter_integer_expression(
          source_expression->kind == EXPR_MOD) &&
         debug_inline_parameter_i686_u64_div_constant_expression(
             mod, parameter_type, source_expression, expression,
-            expression_capacity,
-            expression_size)) {
+            expression_capacity, expression_size, NULL)) {
         return true;
     }
 
@@ -10970,7 +11035,7 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
     return true;
 }
 
-enum { DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY = 32 };
+enum { DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY = 128 };
 
 typedef struct DebugInlineGlobalExpression {
     const Decl* sources[
@@ -13399,6 +13464,35 @@ static void debug_emit_inline_parameter_instances(
                        &integer_value_relocations) &&
                    integer_value_relocation_count ==
                        (argument->expr->kind == EXPR_SUB ? 6u : 7u)) {
+            uint64_t expression_offset;
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, integer_value_expression_size);
+            expression_offset = info->size;
+            section_add_bytes(info, integer_value_expression,
+                              integer_value_expression_size);
+            for (size_t relocation_index = 0u;
+                 relocation_index < integer_value_relocation_count;
+                 ++relocation_index) {
+                objfile_add_reloc(
+                    obj, info_section,
+                    expression_offset +
+                        integer_value_relocation_offsets[relocation_index],
+                    integer_value_relocation_symbols[relocation_index]->name,
+                    RELOC_ABS32U, 0);
+            }
+        } else if (architecture == ARCH_X86 && value->declaration &&
+                   argument && argument->expr &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_body_is_read_only(call->callee) &&
+                   debug_inline_parameter_i686_u64_div_constant_expression(
+                       mod, value->declaration->type, argument->expr,
+                       integer_value_expression,
+                       sizeof(integer_value_expression),
+                       &integer_value_expression_size,
+                       &integer_value_relocations) &&
+                   integer_value_relocation_count != 0u) {
             uint64_t expression_offset;
             section_add_byte(info, 67u);
             debug_line_u32(info, origin->die_offset);

@@ -8503,11 +8503,14 @@ static unsigned int inline_i686_u64_constant_division_chunk_width(
 
 static uint64_t evaluate_inline_i686_u64_constant_division(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_offset,
-    int64_t source_frame_offset, uint64_t dividend, uint64_t divisor) {
+    int64_t source_frame_offset, uint64_t dividend, uint64_t divisor,
+    const ObjSection* info, const char* global_source_name) {
     uint32_t stack[128];
     size_t stack_size = 0u;
     int64_t pending_frame_offset = 0;
     bool has_pending_frame_offset = false;
+    uint64_t pending_global_offset = 0u;
+    bool has_pending_global_address = false;
     uint64_t result = 0u;
     unsigned int piece_count = 0u;
     unsigned int chunk_width = divisor <= UINT32_MAX
@@ -8528,20 +8531,56 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
             pending_frame_offset = read_sleb(
                 data, expression_end, &expression_offset);
             has_pending_frame_offset = true;
+        } else if (opcode == 0x03u) { /* DW_OP_addr */
+            bool found_relocation = false;
+            assert(info != NULL && global_source_name != NULL &&
+                   !has_pending_global_address &&
+                   expression_offset + 4u <= expression_end);
+            assert(read_u32(data, expression_offset) == 0u);
+            for (const ObjReloc* relocation = info->relocs; relocation;
+                 relocation = relocation->next) {
+                if (relocation->offset != expression_offset ||
+                    !relocation->symbol_name ||
+                    strcmp(relocation->symbol_name,
+                           global_source_name) != 0) {
+                    continue;
+                }
+                assert(relocation->type == RELOC_ABS32U);
+                found_relocation = true;
+                break;
+            }
+            assert(found_relocation);
+            expression_offset += 4u;
+            pending_global_offset = 0u;
+            has_pending_global_address = true;
+        } else if (opcode == 0x23u) { /* DW_OP_plus_uconst */
+            uint64_t addend;
+            assert(has_pending_global_address);
+            addend = read_uleb(data, expression_end, &expression_offset);
+            assert(addend <= 4u - pending_global_offset);
+            pending_global_offset += addend;
         } else if (opcode == 0x94u) { /* DW_OP_deref_size */
             uint32_t value;
             assert(expression_offset < expression_end &&
                    data[expression_offset++] == 4u &&
-                   has_pending_frame_offset &&
                    stack_size < sizeof(stack) / sizeof(stack[0]));
-            if (pending_frame_offset == source_frame_offset) {
-                value = (uint32_t)dividend;
+            if (has_pending_global_address) {
+                assert(pending_global_offset == 0u ||
+                       pending_global_offset == 4u);
+                value = pending_global_offset == 0u
+                    ? (uint32_t)dividend : (uint32_t)(dividend >> 32u);
+                has_pending_global_address = false;
             } else {
-                assert(pending_frame_offset == source_frame_offset + 4);
-                value = (uint32_t)(dividend >> 32u);
+                assert(has_pending_frame_offset);
+                if (pending_frame_offset == source_frame_offset) {
+                    value = (uint32_t)dividend;
+                } else {
+                    assert(pending_frame_offset == source_frame_offset + 4);
+                    value = (uint32_t)(dividend >> 32u);
+                }
+                has_pending_frame_offset = false;
             }
             stack[stack_size++] = value;
-            has_pending_frame_offset = false;
         } else if (opcode == 0x10u) { /* DW_OP_constu */
             assert(stack_size < sizeof(stack) / sizeof(stack[0]));
             stack[stack_size++] = (uint32_t)read_uleb(
@@ -8663,7 +8702,8 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
             assert(!"unexpected opcode in i686 u64 constant divmod");
         }
     }
-    assert(!has_pending_frame_offset && stack_size == 0u && piece_count == 2u);
+    assert(!has_pending_frame_offset && !has_pending_global_address &&
+           stack_size == 0u && piece_count == 2u);
     return result;
 }
 
@@ -8694,7 +8734,7 @@ static void verify_inline_i686_u64_constant_division_expression(
          ++index) {
         uint64_t actual = evaluate_inline_i686_u64_constant_division(
             data, expression_end, offset, source_frame_offset,
-            values[index], divisor);
+            values[index], divisor, NULL, NULL);
         uint64_t expected = remainder
             ? values[index] % divisor : values[index] / divisor;
         if (actual != expected) {
@@ -8709,6 +8749,132 @@ static void verify_inline_i686_u64_constant_division_expression(
         }
         assert(actual == expected);
     }
+}
+
+static uint64_t verify_inline_global_storage(
+    ObjectFile* object, const char* name, uint8_t width);
+
+static void verify_inline_i686_global_u64_constant_division_expression(
+    const char* path, const char* call_site_name, const char* source_name,
+    uint64_t divisor, bool remainder) {
+    static const uint64_t values[] = {
+        0u, 1u, 2u, 3u, 4u, UINT32_MAX, UINT64_C(0x100000000),
+        UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000000),
+        UINT64_MAX, UINT64_C(0xfedcba9876543217)
+    };
+    const char* inline_name =
+        "debug_nonconstant_unsigned_long_long_parameter_inline";
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t call_die = UINT64_MAX;
+    uint64_t origin_die = UINT64_MAX;
+    uint64_t expression_offset;
+    uint64_t expression_size;
+    uint64_t global_value;
+    size_t expression_relocations = 0u;
+    unsigned int chunk_width;
+    size_t expected_relocations;
+
+    assert(path != NULL && call_site_name != NULL && source_name != NULL &&
+           divisor != 0u && object != NULL && object->arch == ARCH_X86);
+    global_value =
+        strcmp(source_name,
+               "debug_inline_nonconstant_unsigned_long_long_global_add_source")
+            == 0
+            ? UINT64_C(0x7ffffffffffffff0)
+            : UINT64_C(0xfedcba9876543217);
+    chunk_width = divisor <= UINT32_MAX
+        ? inline_i686_u64_constant_division_chunk_width((uint32_t)divisor)
+        : 1u;
+    expected_relocations = divisor <= UINT32_MAX
+        ? (64u + chunk_width - 1u) / chunk_width
+        : remainder ? 2u : 1u;
+    assert(verify_inline_global_storage(object, source_name, 8u) ==
+           global_value);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    for (uint64_t die = 11u; die + 1u + 4u + 4u + 16u <= info->size; ++die) {
+        uint32_t candidate_origin;
+        uint32_t name_offset;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        candidate_origin = read_u32(info->data, die + 1u);
+        if (candidate_origin >= info->size ||
+            info->data[candidate_origin] != 40u) continue;
+        name_offset = read_u32(info->data, candidate_origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset, inline_name) != 0) {
+            continue;
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == die + 1u + 4u &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+        origin_die = candidate_origin;
+    }
+    assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    {
+        uint64_t parameter_die = call_die + 1u + 4u + 4u + 4u + 12u;
+        assert(parameter_die + 5u < info->size &&
+               info->data[parameter_die] == 67u &&
+               read_u32(info->data, parameter_die + 1u) == origin_die + 27u);
+        expression_offset = parameter_die + 5u;
+    }
+    expression_size = read_uleb(
+        info->data, info->size, &expression_offset);
+    assert(expression_offset + expression_size <= info->size);
+    for (const ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset < expression_offset ||
+            relocation->offset >= expression_offset + expression_size) {
+            continue;
+        }
+        assert(relocation->type == RELOC_ABS32U &&
+               relocation->symbol_name &&
+               strcmp(relocation->symbol_name, source_name) == 0);
+        ++expression_relocations;
+    }
+    if (expression_relocations != expected_relocations) {
+        fprintf(stderr,
+                "i686 global divmod relocation count mismatch: call=%s "
+                "source=%s divisor=%llu relocations=%zu expected=%zu (%s)\n",
+                call_site_name, source_name,
+                (unsigned long long)divisor, expression_relocations,
+                expected_relocations, path);
+    }
+    assert(expression_relocations == expected_relocations);
+    for (size_t index = 0u; index < sizeof(values) / sizeof(values[0]);
+         ++index) {
+        uint64_t dividend = index == sizeof(values) / sizeof(values[0]) - 1u
+            ? global_value : values[index];
+        uint64_t actual = evaluate_inline_i686_u64_constant_division(
+            info->data, expression_offset + expression_size,
+            expression_offset, 0, dividend, divisor, info, source_name);
+        uint64_t expected = remainder
+            ? dividend % divisor : dividend / divisor;
+        if (actual != expected) {
+            fprintf(stderr,
+                    "i686 global u64 %s mismatch: value=%#llx divisor=%llu "
+                    "actual=%#llx expected=%#llx (%s)\n",
+                    remainder ? "remainder" : "divide",
+                    (unsigned long long)dividend,
+                    (unsigned long long)divisor,
+                    (unsigned long long)actual,
+                    (unsigned long long)expected, path);
+        }
+        assert(actual == expected);
+    }
+    objfile_free(object);
 }
 
 static uint64_t verify_inline_unsigned_division_expression(
@@ -14684,6 +14850,66 @@ int main(int argc, char** argv)
         verify_inline_i686_global_bitwise_parameter(argv[8], 0x35u);
         verify_inline_i686_global_bitwise_parameter(argv[6], 0x36u);
         verify_inline_i686_global_bitwise_parameter(argv[8], 0x36u);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_div7_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            7u, false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_div7_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            7u, false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod7_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            7u, true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod7_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            7u, true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_large32_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_C(1073741825), false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_large32_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_C(1073741825), false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_large32_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_C(1073741825), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_large32_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_C(1073741825), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_high32_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_C(2147483649), false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_high32_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_C(2147483649), false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_high32_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_C(2147483649), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_high32_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_C(2147483649), true);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x22u);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x22u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x1cu);

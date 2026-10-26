@@ -10288,12 +10288,20 @@ remains a separate open item.
       sign/zero-extension; verify the exact source relocations and boundary
       results in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Emit i686 global unsigned-64 division and remainder by nonzero 32-bit
+      integer literals using relocated storage-word loads and the existing
+      chunked unsigned-division algorithm. Verify divisors 7, 1073741825, and
+      2147483649 across boundary dividend values, exact source relocations, and
+      both legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Remaining scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, additional computed non-frame-backed i686 wide
       operands beyond global bool/8/16/32-bit widening and the completed global
       unary,
-      bitwise, comparison, add/subtract, multiply, and shift forms, i686 global
-      divide/remainder, other AMD64 computed-global multiplication shapes and
-      divide/remainder, additional shift-count widths/conversions and shift
-      forms, and mixed-rank conversion matrices remain open.
+      bitwise, comparison, add/subtract, multiply, shift, and 32-bit-literal
+      divide/remainder forms, i686 global division/remainder by non-power-of-two
+      64-bit literals above `UINT32_MAX`, other AMD64 computed-global
+      multiplication shapes and divide/remainder, additional shift-count
+      widths/conversions and shift forms, and mixed-rank conversion matrices
+      remain open.
