@@ -8355,6 +8355,44 @@ typedef struct DebugInlineI686ExpressionRelocations {
     size_t* count;
 } DebugInlineI686ExpressionRelocations;
 
+static bool debug_inline_parameter_i686_append_global_integer(
+    const Module* mod, const Decl* source, uint8_t width,
+    uint8_t* expression, size_t capacity, size_t* size,
+    DebugInlineI686ExpressionRelocations* relocations) {
+    const ModuleSymbol* symbol;
+    if (!mod || !source || !source->type || !expression || !size ||
+        !source->var_is_global || source->kind != DECL_VAR ||
+        source->var_is_static_local || source->var_is_thread_local ||
+        source->type->size != width ||
+        (width != 1u && width != 2u && width != 4u) ||
+        source->type->is_volatile || source->type->is_reference ||
+        source->type->is_atomic || !relocations || !relocations->offsets ||
+        !relocations->symbols || !relocations->count ||
+        *relocations->count >= relocations->capacity) {
+        return false;
+    }
+    symbol = debug_find_global_symbol(mod, source);
+    if (!symbol || !symbol->is_global || !symbol->name ||
+        symbol->section == MODULE_SYMBOL_TLS ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x03u)) { /* DW_OP_addr */
+        return false;
+    }
+    relocations->offsets[*relocations->count] = *size;
+    relocations->symbols[*relocations->count] = symbol;
+    ++*relocations->count;
+    for (size_t byte = 0u; byte < 4u; ++byte) {
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0u)) {
+            return false;
+        }
+    }
+    return debug_inline_integer_expression_append_byte(
+               expression, capacity, size, 0x94u) && /* DW_OP_deref_size */
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, width);
+}
+
 static bool debug_inline_parameter_i686_append_storage_u32(
     const Module* mod, const Decl* source, int64_t frame_offset,
     bool high_word, uint8_t* expression, size_t capacity, size_t* size,
@@ -9888,7 +9926,7 @@ static bool debug_inline_parameter_i686_append_global_u32_load(
             expression, expression_capacity, expression_size, 4u);
 }
 
-static bool debug_inline_parameter_i686_u64_global_u32_widen_expression(
+static bool debug_inline_parameter_i686_u64_global_integer_widen_expression(
     const Module* mod, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
     uint8_t* expression, size_t expression_capacity,
@@ -9899,6 +9937,7 @@ static bool debug_inline_parameter_i686_u64_global_u32_widen_expression(
     const Expr* global_expression;
     const Decl* source;
     size_t size = 0u;
+    unsigned int narrow_sign_shift;
     bool sign_extend;
 
     if (!mod || !callee || !value || !value->declaration || !argument ||
@@ -9923,7 +9962,8 @@ static bool debug_inline_parameter_i686_u64_global_u32_widen_expression(
     global_expression = source_expression->cast_expr;
     if (global_expression->kind != EXPR_IDENT ||
         !global_expression->ident_decl || !global_expression->type ||
-        global_expression->type->size != 4u ||
+        global_expression->type->size == 0u ||
+        global_expression->type->size > 4 ||
         !debug_inline_integer_expression_type(global_expression->type) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             global_expression->type,
@@ -9934,18 +9974,30 @@ static bool debug_inline_parameter_i686_u64_global_u32_widen_expression(
     source = global_expression->ident_decl;
     if (!source || source->kind != DECL_VAR || !source->var_is_global ||
         source->var_is_static_local || source->var_is_thread_local ||
-        source->var_is_vla || !source->type || source->type->size != 4u ||
+        source->var_is_vla || !source->type ||
+        source->type->size != global_expression->type->size ||
         source->type->is_unsigned == sign_extend || source->type->is_volatile ||
         source->type->is_reference || source->type->is_atomic ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source->type, global_expression->type, 0u)) {
         return false;
     }
+    narrow_sign_shift = source->type->size < 4
+        ? 32u - (unsigned int)source->type->size * 8u : 0u;
 
     *relocations->count = 0u;
-    if (!debug_inline_parameter_i686_append_storage_u32(
-            mod, source, 0, false, expression, expression_capacity, &size,
-            relocations) ||
+    if (!debug_inline_parameter_i686_append_global_integer(
+            mod, source, (uint8_t)source->type->size, expression,
+            expression_capacity, &size, relocations) ||
+        (sign_extend && narrow_sign_shift != 0u &&
+         (!debug_inline_integer_expression_append_constu(
+              expression, expression_capacity, &size, narrow_sign_shift) ||
+          !debug_inline_integer_expression_append_byte(
+              expression, expression_capacity, &size, 0x24u) ||
+          !debug_inline_integer_expression_append_constu(
+              expression, expression_capacity, &size, narrow_sign_shift) ||
+          !debug_inline_integer_expression_append_byte(
+              expression, expression_capacity, &size, 0x26u))) ||
         !debug_inline_integer_expression_append_byte(
             expression, expression_capacity, &size, 0x9fu) ||
         !debug_inline_integer_expression_append_byte(
@@ -9953,9 +10005,20 @@ static bool debug_inline_parameter_i686_u64_global_u32_widen_expression(
         !debug_inline_integer_expression_append_byte(
             expression, expression_capacity, &size, 4u) ||
         (sign_extend
-             ? !debug_inline_parameter_i686_append_storage_u32(
-                   mod, source, 0, false, expression, expression_capacity,
-                   &size, relocations) ||
+             ? !debug_inline_parameter_i686_append_global_integer(
+                   mod, source, (uint8_t)source->type->size, expression,
+                   expression_capacity, &size, relocations) ||
+                 (narrow_sign_shift != 0u &&
+                  (!debug_inline_integer_expression_append_constu(
+                       expression, expression_capacity, &size,
+                       narrow_sign_shift) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, expression_capacity, &size, 0x24u) ||
+                   !debug_inline_integer_expression_append_constu(
+                       expression, expression_capacity, &size,
+                       narrow_sign_shift) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, expression_capacity, &size, 0x26u))) ||
                  !debug_inline_integer_expression_append_constu(
                      expression, expression_capacity, &size, 31u) ||
                  !debug_inline_integer_expression_append_byte(
@@ -13074,7 +13137,7 @@ static void debug_emit_inline_parameter_instances(
                    argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(
                        origins, call->callee, value->declaration)) != NULL &&
-                   debug_inline_parameter_i686_u64_global_u32_widen_expression(
+                   debug_inline_parameter_i686_u64_global_integer_widen_expression(
                        mod, call->callee, value, argument,
                        integer_value_expression,
                        sizeof(integer_value_expression),
