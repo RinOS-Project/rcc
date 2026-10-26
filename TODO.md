@@ -7681,9 +7681,18 @@ remains a separate open item.
       `58231`, and `2231`.
       Implementation/test commits: `a52eac6`, `319cc2d`, `d14b5d0`,
       `2a7fb2e`.
+- [x] Lower a same-type nontrivial class-prvalue conditional returned from a
+      function when its selected arms are a supported aggregate temporary and
+      a plain lvalue identifier with a structurally trivial implicit copy.
+      The return object receives the selected value and retains destructor
+      ownership at the caller. `test-cxx-aggregate-paren-init` verifies the
+      lvalue and temporary arms against GCC, executes the AMD64 output at
+      `-O0`/`-O2`, and emits four functions with zero verified-backend fallback
+      for i686/AMD64 at both optimization levels on POSIX and native Windows.
 - [ ] Other conditional arm forms beyond the verified same-type call-argument
-      prvalue, converted reference bindings, static/TLS lifetime, and other
-      full-expression cleanup remain open.
+      prvalue and the bounded returned-prvalue form above, converted reference
+      bindings, static/TLS lifetime, and other full-expression cleanup remain
+      open.
 
 ## RCC continuation (2026-10-20, automatic temporary subobject references)
 

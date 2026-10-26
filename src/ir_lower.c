@@ -7912,6 +7912,56 @@ static bool lower_nontrivial_temporary_call_arguments_supported(
             expression->type, function->ident_decl->type->ret_type);
 }
 
+static bool lower_nontrivial_conditional_copy_supported(
+    const Type* type, unsigned depth) {
+    const TypeField* field;
+    const CxxClass* cls;
+    if (!type || depth >= 32u || type->is_volatile || type->is_atomic) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->base && type->array_len > 0 &&
+            type->array_len <= 4096 &&
+            lower_nontrivial_conditional_copy_supported(
+                type->base, depth + 1u);
+    }
+    if (type_is_scalar((Type*)type)) {
+        return !type->cxx_is_member_pointer;
+    }
+    if (type->kind != TYPE_STRUCT || !type->is_complete || type->size <= 0) {
+        return false;
+    }
+    cls = type->cxx_class;
+    if (cls && (cls->constructors || cls->base_count < 0 ||
+                cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
+                (cls->base_count != 0 &&
+                 (!cls->bases || !cls->base_offsets)))) {
+        return false;
+    }
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            const CxxClass* base = cls->bases[index].base;
+            int offset = cls->base_offsets[index];
+            if (!base || cls->bases[index].is_virtual || offset < 0 ||
+                !base->type || offset > type->size ||
+                base->type->size > type->size - offset ||
+                !lower_nontrivial_conditional_copy_supported(
+                    base->type, depth + 1u)) {
+                return false;
+            }
+        }
+    }
+    for (field = type->fields; field; field = field->next) {
+        if (!field->type || field->is_bitfield ||
+            (field->type->kind == TYPE_PTR && field->type->is_reference) ||
+            !lower_nontrivial_conditional_copy_supported(
+                field->type, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool lower_nontrivial_temporary_conditional_arm_supported(
     const Expr* expression, const Type* result_type) {
     RccIrType return_type;
@@ -7945,6 +7995,16 @@ static bool lower_nontrivial_temporary_conditional_arm_supported(
     if (expression->kind == EXPR_COMPOUND) {
         return expression->type->kind == TYPE_STRUCT &&
             lower_noexcept_expression(expression);
+    }
+    /* A mixed lvalue/prvalue conditional produces a prvalue result. Its
+     * lvalue arm is copied into the selected result object; only admit a
+     * plain identifier here, and only when semantic analysis proves that a
+     * bytewise copy is valid. */
+    if (expression->kind == EXPR_IDENT &&
+        expression->type->kind == TYPE_STRUCT &&
+        lower_nontrivial_conditional_copy_supported(
+            expression->type, 0u)) {
+        return lower_noexcept_expression(expression);
     }
     if (expression->kind != EXPR_CALL ||
         !lower_nontrivial_temporary_call_arguments_supported(expression)) {
@@ -22412,7 +22472,24 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                     context->unsupported = true;
                     return false;
                 }
-                source = lower_expression(context, statement->return_val);
+                {
+                    bool previous_conditional_permission =
+                        context->allow_nontrivial_temporary_conditional;
+                    if (context->ast_return_type &&
+                        context->ast_return_type->kind == TYPE_STRUCT &&
+                        context->ast_return_type->cxx_nontrivial &&
+                        statement->return_val->kind == EXPR_COND) {
+                        /* A return expression owns the selected result until
+                         * the ABI return object is populated. Its eventual
+                         * destructor belongs to the caller. */
+                        context->allow_nontrivial_temporary_conditional =
+                            true;
+                    }
+                    source = lower_expression(
+                        context, statement->return_val);
+                    context->allow_nontrivial_temporary_conditional =
+                        previous_conditional_permission;
+                }
                 if (!source.valid ||
                     source.type.kind != RCC_IR_TYPE_POINTER) return false;
                 if (context->aggregate_return_kind ==

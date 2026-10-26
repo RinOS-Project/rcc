@@ -9335,7 +9335,7 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET) \
 		$(TEST_OUT)/cxx-aggregate-paren-return/x64-o2.o \
 		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-aggregate-paren-return/x64-o2-host
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-aggregate-paren-return,cxx_aggregate_paren_return.cpp,3)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-aggregate-paren-return,cxx_aggregate_paren_return.cpp,4)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/verified-x86.ro \
 		tests/cxx_aggregate_paren_init.cpp \
@@ -10942,7 +10942,7 @@ test-cxx-aggregate-paren-init-posix: $(RCXX_TARGET) \
 	$(CC) -no-pie -o $(TEST_OUT)/cxx-aggregate-paren-return/x64-o2 \
 		$(TEST_OUT)/cxx-aggregate-paren-return/x64-o2.s
 	$(TEST_OUT)/cxx-aggregate-paren-return/x64-o2
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-aggregate-paren-return,cxx_aggregate_paren_return.cpp,3)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-aggregate-paren-return,cxx_aggregate_paren_return.cpp,4)
 	@echo "C++20 aggregate parenthesized initialization tests completed"
 
 test-cxx-designated-initializer-posix: $(RCXX_TARGET)
