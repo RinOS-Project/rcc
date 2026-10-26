@@ -291,37 +291,6 @@ $(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TE
 $(TEST_OUT)/$(1)/x64-host
 endef
 
-define CXX_VERIFIED_BACKEND_CXX_MATRIX
-$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
-	-fverified-backend -v -c \
-	-o $(TEST_OUT)/$(1)/verified-x86.ro tests/$(2) \
-	>$(TEST_OUT)/$(1)/verified-x86.log
-$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
-	$(TEST_OUT)/$(1)/verified-x86.log
-$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x86.log,0)
-$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
-	-fverified-backend -v -c \
-	-o $(TEST_OUT)/$(1)/verified-x64.ro tests/$(2) \
-	>$(TEST_OUT)/$(1)/verified-x64.log
-$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
-	$(TEST_OUT)/$(1)/verified-x64.log
-$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x64.log,0)
-$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
-	-fverified-backend -v -c \
-	-o $(TEST_OUT)/$(1)/verified-x86-o2.ro tests/$(2) \
-	>$(TEST_OUT)/$(1)/verified-x86-o2.log
-$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
-	$(TEST_OUT)/$(1)/verified-x86-o2.log
-$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x86-o2.log,0)
-$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
-	-fverified-backend -v -c \
-	-o $(TEST_OUT)/$(1)/verified-x64-o2.ro tests/$(2) \
-	>$(TEST_OUT)/$(1)/verified-x64-o2.log
-$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
-	$(TEST_OUT)/$(1)/verified-x64-o2.log
-$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x64-o2.log,0)
-endef
-
 define CXX_I686_WIDE_MEMBER_INITIALIZER_CHECK
 $(OBJDUMP) -d -M att $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-disassembly.log
 $(GREP) -F -q "cltd" $(TEST_OUT)/$(1)/x86-disassembly.log
@@ -404,6 +373,37 @@ $(CC) -no-pie -o $(TEST_OUT)/$(1)/x64 $(TEST_OUT)/$(1)/x64.s
 $(TEST_OUT)/$(1)/x64
 endef
 endif
+
+define CXX_VERIFIED_BACKEND_CXX_MATRIX
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+	-fverified-backend -v -c \
+	-o $(TEST_OUT)/$(1)/verified-x86.ro tests/$(2) \
+	>$(TEST_OUT)/$(1)/verified-x86.log
+$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
+	$(TEST_OUT)/$(1)/verified-x86.log
+$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x86.log,0)
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+	-fverified-backend -v -c \
+	-o $(TEST_OUT)/$(1)/verified-x64.ro tests/$(2) \
+	>$(TEST_OUT)/$(1)/verified-x64.log
+$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
+	$(TEST_OUT)/$(1)/verified-x64.log
+$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x64.log,0)
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+	-fverified-backend -v -c \
+	-o $(TEST_OUT)/$(1)/verified-x86-o2.ro tests/$(2) \
+	>$(TEST_OUT)/$(1)/verified-x86-o2.log
+$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
+	$(TEST_OUT)/$(1)/verified-x86-o2.log
+$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x86-o2.log,0)
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+	-fverified-backend -v -c \
+	-o $(TEST_OUT)/$(1)/verified-x64-o2.ro tests/$(2) \
+	>$(TEST_OUT)/$(1)/verified-x64-o2.log
+$(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
+	$(TEST_OUT)/$(1)/verified-x64-o2.log
+$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x64-o2.log,0)
+endef
 
 ifeq ($(OS),Windows_NT)
 # Native Windows MinGW installations may not include 32-bit CRT libraries.
@@ -9372,6 +9372,7 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET) \
 		$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-gcc$(EXE_SUFFIX) \
 		tests/cxx_aggregate_paren_ref_exception.cpp
 	$(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-gcc$(EXE_SUFFIX)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-aggregate-paren-ref-exception)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-aggregate-paren-ref-exception,cxx_aggregate_paren_ref_exception.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-aggregate-paren-init/ref-exception-verified-x86.ro \
