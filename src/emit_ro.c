@@ -9667,6 +9667,107 @@ static bool debug_inline_parameter_x64_u64_global_constant_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_u64_global_xor_expression(
+    const Module* mod, const Decl* callee,
+    const ModuleDebugInlineParameterValue* value, const ExprList* argument,
+    uint8_t* expression, size_t expression_capacity,
+    size_t* expression_size, size_t relocation_offsets[2],
+    const ModuleSymbol** address_symbol) {
+    const Type* parameter_type;
+    const Expr* source_expression;
+    const Expr* global_expression;
+    const Expr* constant_expression;
+    const Decl* source;
+    const ModuleSymbol* symbol;
+    uint64_t constant_bits;
+    size_t size = 0u;
+
+    if (!mod || !callee || !value || !value->declaration || !argument ||
+        !argument->expr || argument->cxx_temporary_owner || !expression ||
+        !expression_size || !relocation_offsets || !address_symbol ||
+        !debug_inline_parameter_body_is_read_only(callee)) {
+        return false;
+    }
+    parameter_type = value->declaration->type;
+    source_expression = argument->expr;
+    if (!parameter_type || parameter_type->size != 8u ||
+        !parameter_type->is_unsigned ||
+        source_expression->kind != EXPR_BITXOR ||
+        !source_expression->binary_lhs || !source_expression->binary_rhs ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, source_expression->type, 0u)) {
+        return false;
+    }
+    if (source_expression->binary_lhs->kind == EXPR_IDENT &&
+        source_expression->binary_lhs->ident_decl &&
+        debug_inline_integer_literal_bits(
+            source_expression->binary_rhs, &constant_bits, 0u)) {
+        global_expression = source_expression->binary_lhs;
+        constant_expression = source_expression->binary_rhs;
+    } else if (source_expression->binary_rhs->kind == EXPR_IDENT &&
+               source_expression->binary_rhs->ident_decl &&
+               debug_inline_integer_literal_bits(
+                   source_expression->binary_lhs, &constant_bits, 0u)) {
+        global_expression = source_expression->binary_rhs;
+        constant_expression = source_expression->binary_lhs;
+    } else {
+        return false;
+    }
+    source = global_expression->ident_decl;
+    if (!source || source->kind != DECL_VAR || !source->var_is_global ||
+        source->var_is_static_local || source->var_is_thread_local ||
+        !source->type || source->type->size != 8u ||
+        !source->type->is_unsigned || source->type->is_volatile ||
+        source->type->is_reference || source->type->is_atomic ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, global_expression->type, 0u) ||
+        !constant_expression->type ||
+        !debug_inline_integer_expression_type(constant_expression->type) ||
+        !constant_expression->type->is_unsigned ||
+        constant_expression->type->size != 8u) {
+        return false;
+    }
+    symbol = debug_find_global_symbol(mod, source);
+    if (!symbol || !symbol->is_global || !symbol->name ||
+        symbol->section == MODULE_SYMBOL_TLS) {
+        return false;
+    }
+
+    for (size_t word = 0u; word < 2u; ++word) {
+        uint32_t word_bits = (uint32_t)(constant_bits >> (word * 32u));
+        if (!debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x03u)) {
+            return false;
+        }
+        relocation_offsets[word] = size;
+        for (size_t byte = 0u; byte < 4u; ++byte) {
+            if (!debug_inline_integer_expression_append_byte(
+                    expression, expression_capacity, &size, 0u)) {
+                return false;
+            }
+        }
+        if (!debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x94u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 4u) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, expression_capacity, &size, word_bits) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x27u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x9fu) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x93u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 4u)) {
+            return false;
+        }
+    }
+    *expression_size = size;
+    *address_symbol = symbol;
+    return true;
+}
+
 enum { DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY = 32 };
 
 typedef struct DebugInlineGlobalExpression {
@@ -11823,7 +11924,33 @@ static void debug_emit_inline_parameter_instances(
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);
             section_add_bytes(info, expression, expression_size);
-        } else if (value->declaration && argument && argument->expr &&
+        } else if (architecture == ARCH_X86 && value->declaration &&
+                   argument && argument->expr &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_i686_u64_global_xor_expression(
+                       mod, call->callee, value, argument,
+                       integer_value_expression,
+                       sizeof(integer_value_expression),
+                       &integer_value_expression_size,
+                       integer_value_relocation_offsets, &source_symbol)) {
+            uint64_t expression_offset;
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, integer_value_expression_size);
+            expression_offset = info->size;
+            section_add_bytes(info, integer_value_expression,
+                              integer_value_expression_size);
+            for (size_t relocation_index = 0u; relocation_index < 2u;
+                 ++relocation_index) {
+                objfile_add_reloc(
+                    obj, info_section,
+                    expression_offset +
+                        integer_value_relocation_offsets[relocation_index],
+                    source_symbol->name, RELOC_ABS32U, 0);
+            }
+        } else if (architecture == ARCH_X64 && value->declaration &&
+                   argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(
                        origins, call->callee, value->declaration)) != NULL &&
                    debug_inline_parameter_x64_u64_global_constant_expression(
@@ -11843,7 +11970,8 @@ static void debug_emit_inline_parameter_instances(
                 obj, info_section,
                 expression_offset + integer_value_relocation_offset,
                 source_symbol->name, RELOC_ABS64, 0);
-        } else if (value->declaration && argument && argument->expr &&
+        } else if (architecture == ARCH_X64 && value->declaration &&
+                   argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(
                        origins, call->callee, value->declaration)) != NULL &&
                    debug_inline_parameter_x64_u64_global_expression(

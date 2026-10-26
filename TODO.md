@@ -10199,9 +10199,14 @@ remains a separate open item.
       retaining the 64-bit source load; verify both relocation symbols and
       high-bit shift results in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Lower an i686 unsigned-64 XOR of a global object and a 64-bit constant as
+      separate relocated low/high 32-bit pieces. Verify both `ABS32U`
+      relocations, piece opcodes, and the result evaluated from initialized
+      global data in legacy and verified objects. Keep the AMD64 64-bit-stack
+      expression emitters restricted to AMD64.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
-      multiplication cases, computed non-frame-backed i686 wide operands,
-      other AMD64 computed-global multiplication shapes, divide/modulo, other
-      shift-count widths/conversions and shift forms, and mixed-rank matrices
-      remain open.
+      multiplication cases, non-XOR computed non-frame-backed i686 wide
+      operands, other AMD64 computed-global multiplication shapes, divide/modulo,
+      other shift-count widths/conversions and shift forms, and mixed-rank
+      matrices remain open.

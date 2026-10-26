@@ -12322,6 +12322,143 @@ static uint64_t verify_inline_global_expression_tree(
     return stack[0].value;
 }
 
+static void verify_inline_i686_global_xor_parameter(const char* path) {
+    const char* inline_name =
+        "debug_nonconstant_unsigned_long_long_parameter_inline";
+    const char* call_site_name =
+        "debug_inline_nonconstant_unsigned_long_long_global_xor_entry";
+    const char* source_name =
+        "debug_inline_nonconstant_unsigned_long_long_global_add_source";
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t call_die = UINT64_MAX;
+    uint64_t origin_die = UINT64_MAX;
+    uint64_t parameter_die;
+    uint64_t expression_offset;
+    uint64_t expression_size;
+    uint64_t expression_end;
+    uint64_t relocation_offsets[2];
+    uint64_t cursor;
+    bool found_relocations[2] = {false, false};
+    unsigned int expression_relocation_count = 0u;
+    ObjSymbol* global_symbol;
+    ObjSection* global_section = NULL;
+    uint64_t global_value;
+    uint64_t evaluated_value;
+    int section_index = 0;
+
+    assert(object != NULL && object->arch == ARCH_X86);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    for (uint64_t die = 11u; die + 1u + 4u + 4u + 16u <= info->size;
+         ++die) {
+        uint32_t candidate_origin;
+        uint32_t name_offset;
+        uint64_t low_pc_offset;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        candidate_origin = read_u32(info->data, die + 1u);
+        if (candidate_origin >= info->size ||
+            info->data[candidate_origin] != 40u) continue;
+        name_offset = read_u32(info->data, candidate_origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   inline_name) != 0) {
+            continue;
+        }
+        low_pc_offset = die + 1u + 4u;
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == low_pc_offset &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+        origin_die = candidate_origin;
+    }
+    assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    parameter_die = call_die + 1u + 4u + 4u + 4u + 12u;
+    assert(parameter_die + 5u < info->size &&
+           info->data[parameter_die] == 67u &&
+           read_u32(info->data, parameter_die + 1u) == origin_die + 27u);
+    expression_offset = parameter_die + 5u;
+    expression_size = read_uleb(
+        info->data, info->size, &expression_offset);
+    expression_end = expression_offset + expression_size;
+    assert(expression_end <= info->size);
+
+    cursor = expression_offset;
+    for (unsigned int word = 0u; word < 2u; ++word) {
+        uint64_t expected_constant = word == 0u ? 5u : 1u;
+        assert(cursor < expression_end && info->data[cursor++] == 0x03u);
+        relocation_offsets[word] = cursor;
+        assert(cursor + 4u <= expression_end &&
+               read_u32(info->data, cursor) == 0u);
+        cursor += 4u;
+        assert(cursor + 2u <= expression_end &&
+               info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
+               info->data[cursor++] == 4u && cursor < expression_end &&
+               info->data[cursor++] == 0x10u && /* DW_OP_constu */
+               read_uleb(info->data, expression_end, &cursor) ==
+                   expected_constant &&
+               cursor + 4u <= expression_end &&
+               info->data[cursor++] == 0x27u && /* DW_OP_xor */
+               info->data[cursor++] == 0x9fu && /* DW_OP_stack_value */
+               info->data[cursor++] == 0x93u && /* DW_OP_piece */
+               info->data[cursor++] == 4u);
+    }
+    assert(cursor == expression_end);
+    for (const ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset < expression_offset ||
+            relocation->offset >= expression_end) {
+            continue;
+        }
+        assert(relocation->symbol_name &&
+               strcmp(relocation->symbol_name, source_name) == 0 &&
+               relocation->type == RELOC_ABS32U);
+        ++expression_relocation_count;
+        if (relocation->offset == relocation_offsets[0]) {
+            assert(!found_relocations[0]);
+            found_relocations[0] = true;
+        } else if (relocation->offset == relocation_offsets[1]) {
+            assert(!found_relocations[1]);
+            found_relocations[1] = true;
+        } else {
+            assert(0 && "unexpected i686 global XOR relocation");
+        }
+    }
+    assert(expression_relocation_count == 2u &&
+           found_relocations[0] && found_relocations[1]);
+
+    global_symbol = objfile_find_symbol(object, source_name);
+    assert(global_symbol != NULL && global_symbol->section >= 0);
+    for (ObjSection* section = object->sections; section;
+         section = section->next, ++section_index) {
+        if (section_index == global_symbol->section) {
+            global_section = section;
+            break;
+        }
+    }
+    assert(global_section != NULL &&
+           global_symbol->value <= global_section->size &&
+           global_section->size - global_symbol->value >= 8u);
+    global_value = read_u64(global_section->data, global_symbol->value);
+    assert(global_value == UINT64_C(0x7ffffffffffffff0));
+    evaluated_value =
+        (uint64_t)((uint32_t)global_value ^ 5u) |
+        ((uint64_t)((uint32_t)(global_value >> 32u) ^ 1u) << 32u);
+    assert(evaluated_value == UINT64_C(0x7ffffffefffffff5));
+    objfile_free(object);
+}
+
 static void verify_inline_global_wide_parameter(
     const char* path, uint16_t architecture, uint8_t computed_operation) {
     bool computed = computed_operation != 0u;
@@ -13633,6 +13770,8 @@ int main(int argc, char** argv)
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0u);
         verify_inline_global_wide_parameter(argv[8], ARCH_X86, 0u);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0u);
+        verify_inline_i686_global_xor_parameter(argv[6]);
+        verify_inline_i686_global_xor_parameter(argv[8]);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x22u);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x22u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x1cu);
