@@ -10170,7 +10170,11 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_signed_long_long_add_compare_entry_source",
          "debug_inline_signed_long_long_add_compare_entry"},
         {"debug_inline_unsigned_long_long_add_compare_entry_source",
-         "debug_inline_unsigned_long_long_add_compare_entry"}
+         "debug_inline_unsigned_long_long_add_compare_entry"},
+        {"debug_inline_signed_long_long_sub_compare_entry_source",
+         "debug_inline_signed_long_long_sub_compare_entry"},
+        {"debug_inline_unsigned_long_long_sub_compare_entry_source",
+         "debug_inline_unsigned_long_long_sub_compare_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -10274,6 +10278,16 @@ static const char* inline_integer_comparison_secondary_source(
             "debug_inline_unsigned_long_long_add_compare_entry_source") == 0) {
         return "debug_inline_unsigned_long_long_add_compare_entry_rhs";
     }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_sub_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_sub_compare_entry_rhs";
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_unsigned_long_long_sub_compare_entry_source") == 0) {
+        return "debug_inline_unsigned_long_long_sub_compare_entry_rhs";
+    }
     return NULL;
 }
 
@@ -10360,6 +10374,16 @@ static uint8_t inline_integer_comparison_secondary_size(
             "debug_inline_unsigned_long_long_add_compare_entry_source") == 0) {
         return 8u;
     }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_sub_compare_entry_source") == 0) {
+        return 8u;
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_unsigned_long_long_sub_compare_entry_source") == 0) {
+        return 8u;
+    }
     return 0u;
 }
 
@@ -10383,7 +10407,9 @@ static bool inline_integer_comparison_secondary_is_unsigned(
          strcmp(source_name,
                 "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
-                "debug_inline_unsigned_long_long_add_compare_entry_source") == 0);
+                "debug_inline_unsigned_long_long_add_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_unsigned_long_long_sub_compare_entry_source") == 0);
 }
 
 static bool inline_integer_comparison_secondary_is_bool(
@@ -10572,12 +10598,34 @@ static void verify_inline_integer_expression_parameter(
         (source_name && strcmp(
             source_name,
             "debug_inline_unsigned_long_long_add_compare_entry_source") == 0);
+    wide_integer_comparison = wide_integer_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_sub_compare_entry_source") == 0);
+    narrow_wide_comparison = narrow_wide_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_sub_compare_entry_source") == 0);
+    wide_integer_comparison = wide_integer_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_unsigned_long_long_sub_compare_entry_source") == 0);
+    narrow_wide_comparison = narrow_wide_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_unsigned_long_long_sub_compare_entry_source") == 0);
     bool add_secondary_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_signed_long_long_add_compare_entry_source") == 0;
     bool add_secondary_unsigned_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_unsigned_long_long_add_compare_entry_source") == 0;
+    bool sub_secondary_wide_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_signed_long_long_sub_compare_entry_source") == 0;
+    bool sub_secondary_unsigned_wide_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_unsigned_long_long_sub_compare_entry_source") == 0;
     bool add_one_wide_comparison = source_name &&
         strcmp(source_name,
                "debug_inline_signed_long_long_add_one_compare_entry_source") == 0;
@@ -10909,6 +10957,13 @@ static void verify_inline_integer_expression_parameter(
                           signed_left < INT64_MIN - signed_right))) {
                         continue;
                     }
+                    if (sub_secondary_wide_comparison &&
+                        ((signed_right > 0 &&
+                          signed_left < INT64_MIN + signed_right) ||
+                         (signed_right < 0 &&
+                          signed_left > INT64_MAX + signed_right))) {
+                        continue;
+                    }
                     uint64_t actual =
                         evaluate_inline_integer_comparison_expression_with_secondary(
                             info->data, expression_end, expression_start,
@@ -10916,14 +10971,22 @@ static void verify_inline_integer_expression_parameter(
                             values[index], secondary_frame_offset,
                             secondary_size,
                             rhs_value);
+                    bool is_wide_arithmetic =
+                        add_secondary_wide_comparison ||
+                        add_secondary_unsigned_wide_comparison ||
+                        sub_secondary_wide_comparison ||
+                        sub_secondary_unsigned_wide_comparison;
                     uint64_t expected_left =
                         add_secondary_wide_comparison ||
                                 add_secondary_unsigned_wide_comparison
-                        ? values[index] + rhs_value : values[index];
+                            ? values[index] + rhs_value
+                            : sub_secondary_wide_comparison ||
+                                      sub_secondary_unsigned_wide_comparison
+                                ? values[index] - rhs_value
+                                : values[index];
                     bool compared = verify_inline_integer_comparison_value(
                         expected_left,
-                        add_secondary_wide_comparison ||
-                                add_secondary_unsigned_wide_comparison
+                        is_wide_arithmetic
                             ? (uint64_t)expected_constant : comparison_rhs,
                         is_unsigned, 64u, expected_operation);
                     assert(actual == !compared);
@@ -12335,6 +12398,10 @@ int main(int argc, char** argv)
             {"debug_inline_signed_long_long_add_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_unsigned_long_long_add_compare_entry_source",
+             true, 0x2du, INT64_C(0x100000000)},
+            {"debug_inline_signed_long_long_sub_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_unsigned_long_long_sub_compare_entry_source",
              true, 0x2du, INT64_C(0x100000000)}
         };
         const char* wide_paths[] = {argv[6], argv[7], argv[8], argv[9]};

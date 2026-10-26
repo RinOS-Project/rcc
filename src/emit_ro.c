@@ -5858,8 +5858,9 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         return debug_inline_integer_expression_append_constu(
             expression, capacity, expression_size, word);
     }
-    /* Compose frame-backed i686 wide addition, including low-word carry. */
-    if (value->kind == EXPR_ADD && value->binary_lhs &&
+    /* Compose frame-backed i686 wide add/sub with low-word carry/borrow. */
+    if ((value->kind == EXPR_ADD || value->kind == EXPR_SUB) &&
+        value->binary_lhs &&
         value->binary_rhs && value->binary_lhs->kind == EXPR_IDENT &&
         value->binary_rhs->kind == EXPR_IDENT &&
         value->binary_lhs->ident_decl && value->binary_rhs->ident_decl &&
@@ -5870,6 +5871,7 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         const Decl* right = right_expression->ident_decl;
         int64_t left_frame_offset;
         int64_t right_frame_offset;
+        bool is_add = value->kind == EXPR_ADD;
         if (!left || !right ||
             (left->kind != DECL_VAR && left->kind != DECL_PARAM) ||
             (right->kind != DECL_VAR && right->kind != DECL_PARAM) ||
@@ -5903,24 +5905,50 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
                     expression, capacity, expression_size, ARCH_X86,
                     right_frame_offset) &&
                 debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size,
+                    is_add ? 0x22u : 0x1cu);
+        }
+        if (!debug_inline_parameter_i686_u64_append_word_expression(
+                mod, left_expression, true, expression, capacity,
+                expression_size, depth + 1u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, right_expression, true, expression, capacity,
+                expression_size, depth + 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size,
+                is_add ? 0x22u : 0x1cu)) {
+            return false;
+        }
+        if (is_add) {
+            return debug_inline_integer_expression_append_frame_u32(
+                       expression, capacity, expression_size, ARCH_X86,
+                       left_frame_offset) &&
+                debug_inline_integer_expression_append_frame_u32(
+                    expression, capacity, expression_size, ARCH_X86,
+                    right_frame_offset) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x22u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size,
+                    UINT32_C(0x80000000)) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x27u) &&
+                debug_inline_integer_expression_append_frame_u32(
+                    expression, capacity, expression_size, ARCH_X86,
+                    left_frame_offset) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size,
+                    UINT32_C(0x80000000)) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x27u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x2du) &&
+                debug_inline_integer_expression_append_byte(
                     expression, capacity, expression_size, 0x22u);
         }
-        return debug_inline_parameter_i686_u64_append_word_expression(
-                   mod, left_expression, true, expression, capacity,
-                   expression_size, depth + 1u) &&
-            debug_inline_parameter_i686_u64_append_word_expression(
-                mod, right_expression, true, expression, capacity,
-                expression_size, depth + 1u) &&
-            debug_inline_integer_expression_append_byte(
-                expression, capacity, expression_size, 0x22u) &&
-            debug_inline_integer_expression_append_frame_u32(
-                expression, capacity, expression_size, ARCH_X86,
-                left_frame_offset) &&
-            debug_inline_integer_expression_append_frame_u32(
-                expression, capacity, expression_size, ARCH_X86,
-                right_frame_offset) &&
-            debug_inline_integer_expression_append_byte(
-                expression, capacity, expression_size, 0x22u) &&
+        return debug_inline_integer_expression_append_frame_u32(
+                   expression, capacity, expression_size, ARCH_X86,
+                   left_frame_offset) &&
             debug_inline_integer_expression_append_constu(
                 expression, capacity, expression_size,
                 UINT32_C(0x80000000)) &&
@@ -5928,7 +5956,7 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
                 expression, capacity, expression_size, 0x27u) &&
             debug_inline_integer_expression_append_frame_u32(
                 expression, capacity, expression_size, ARCH_X86,
-                left_frame_offset) &&
+                right_frame_offset) &&
             debug_inline_integer_expression_append_constu(
                 expression, capacity, expression_size,
                 UINT32_C(0x80000000)) &&
@@ -5937,7 +5965,7 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
             debug_inline_integer_expression_append_byte(
                 expression, capacity, expression_size, 0x2du) &&
             debug_inline_integer_expression_append_byte(
-                expression, capacity, expression_size, 0x22u);
+                expression, capacity, expression_size, 0x1cu);
     }
     if ((value->kind == EXPR_ADD || value->kind == EXPR_SUB) &&
         value->binary_lhs && value->binary_rhs && value->type &&
