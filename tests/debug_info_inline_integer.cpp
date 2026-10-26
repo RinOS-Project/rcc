@@ -706,3 +706,18 @@ extern "C" int debug_inline_signed_long_long_negated_bitwise_compare_entry(
             debug_inline_signed_long_long_negated_bitwise_compare_entry_rhs) <
           0LL));
 }
+
+extern "C" int debug_inline_unsigned_long_long_shift_compare_entry(
+    unsigned long long value)
+{
+    unsigned long long
+        debug_inline_unsigned_long_long_shift_compare_entry_source = value;
+    debug_inline_unsigned_long_long_comparison_escape =
+        &debug_inline_unsigned_long_long_shift_compare_entry_source;
+    return debug_nonconstant_integer_parameter_inline(
+        !(((debug_inline_unsigned_long_long_shift_compare_entry_source << 0u) ^
+           (debug_inline_unsigned_long_long_shift_compare_entry_source << 31u) ^
+           (debug_inline_unsigned_long_long_shift_compare_entry_source << 32u) ^
+           (debug_inline_unsigned_long_long_shift_compare_entry_source << 33u)) <
+          0x8000000000000000ULL));
+}

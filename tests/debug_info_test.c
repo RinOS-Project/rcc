@@ -8422,7 +8422,7 @@ static uint64_t evaluate_inline_integer_comparison_expression_with_secondary(
         } else if (opcode == 0x20u) {
             assert(stack_size != 0u);
             stack[stack_size - 1u] = ~stack[stack_size - 1u] & address_mask;
-        } else if (opcode == 0x24u || opcode == 0x26u) {
+        } else if (opcode == 0x24u || opcode == 0x25u || opcode == 0x26u) {
             int64_t signed_lhs;
             assert(stack_size >= 2u);
             rhs = stack[--stack_size];
@@ -8430,6 +8430,8 @@ static uint64_t evaluate_inline_integer_comparison_expression_with_secondary(
             assert(rhs < address_bits);
             if (opcode == 0x24u) {
                 stack[stack_size++] = (lhs << rhs) & address_mask;
+            } else if (opcode == 0x25u) {
+                stack[stack_size++] = lhs >> rhs;
             } else {
                 signed_lhs = verify_inline_integer_signed_bits(
                     lhs, address_bits);
@@ -10189,7 +10191,9 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_signed_long_long_nested_bitwise_compare_entry_source",
          "debug_inline_signed_long_long_nested_bitwise_compare_entry"},
         {"debug_inline_signed_long_long_negated_bitwise_compare_entry_source",
-         "debug_inline_signed_long_long_negated_bitwise_compare_entry"}
+         "debug_inline_signed_long_long_negated_bitwise_compare_entry"},
+        {"debug_inline_unsigned_long_long_shift_compare_entry_source",
+         "debug_inline_unsigned_long_long_shift_compare_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -10695,6 +10699,14 @@ static void verify_inline_integer_expression_parameter(
             "debug_inline_signed_long_long_nested_bitwise_compare_entry_source") == 0 ||
             strcmp(source_name,
             "debug_inline_signed_long_long_negated_bitwise_compare_entry_source") == 0));
+    wide_integer_comparison = wide_integer_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_unsigned_long_long_shift_compare_entry_source") == 0);
+    narrow_wide_comparison = narrow_wide_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_unsigned_long_long_shift_compare_entry_source") == 0);
     narrow_wide_comparison = narrow_wide_comparison ||
         (source_name && (strcmp(
             source_name,
@@ -10734,6 +10746,9 @@ static void verify_inline_integer_expression_parameter(
     bool negated_bitwise_comparison = source_name && strcmp(
         source_name,
         "debug_inline_signed_long_long_negated_bitwise_compare_entry_source") == 0;
+    bool shift_left_wide_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_unsigned_long_long_shift_compare_entry_source") == 0;
     bool bitnot_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_signed_long_long_bitnot_compare_entry_source") == 0;
@@ -10938,9 +10953,9 @@ static void verify_inline_integer_expression_parameter(
         info->data[parameter_die] != 67u ||
         read_u32(info->data, parameter_die + 1u) != origin_die + 27u) {
         fprintf(stderr,
-                "inline parameter DIE mismatch: op=0x%02x call=%s "
+                "inline parameter DIE mismatch: path=%s op=0x%02x call=%s "
                 "parameter=%llu origin=%llu tag=%u ref=%u expected-ref=%u\n",
-                expected_operation, call_site_name,
+                path, expected_operation, call_site_name,
                 (unsigned long long)parameter_die,
                 (unsigned long long)origin_die,
                 parameter_die < info->size ? info->data[parameter_die] : 0u,
@@ -11003,7 +11018,20 @@ static void verify_inline_integer_expression_parameter(
             inline_integer_comparison_secondary_size(source_name);
         if (secondary_source) assert(secondary_size > 0u);
         for (size_t index = 0u; index < value_count; ++index) {
-            if (bitnot_wide_comparison) {
+            if (shift_left_wide_comparison) {
+                uint64_t actual =
+                    evaluate_inline_integer_comparison_expression(
+                        info->data, expression_end, expression_start,
+                        architecture, frame_offset, value_size, values[index]);
+                uint64_t shifted = values[index] ^
+                    (values[index] << 31u) ^
+                    (values[index] << 32u) ^
+                    (values[index] << 33u);
+                bool compared = verify_inline_integer_comparison_value(
+                    shifted, (uint64_t)expected_constant,
+                    is_unsigned, 64u, expected_operation);
+                assert(actual == !compared);
+            } else if (bitnot_wide_comparison) {
                 uint64_t actual =
                     evaluate_inline_integer_comparison_expression(
                         info->data, expression_end, expression_start,
@@ -12557,7 +12585,9 @@ int main(int argc, char** argv)
             {"debug_inline_signed_long_long_nested_bitwise_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_negated_bitwise_compare_entry_source",
-             false, 0x2du, 0}
+             false, 0x2du, 0},
+            {"debug_inline_unsigned_long_long_shift_compare_entry_source",
+             true, 0x2du, INT64_MIN}
         };
         const char* wide_paths[] = {argv[6], argv[7], argv[8], argv[9]};
         const uint16_t wide_architectures[] = {

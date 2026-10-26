@@ -5732,6 +5732,31 @@ static bool debug_build_inline_integer_value_expression(
         return true;
     }
 
+    if ((expression->kind == EXPR_LSHIFT ||
+         expression->kind == EXPR_RSHIFT) && expression->binary_lhs &&
+        expression->binary_rhs &&
+        debug_inline_integer_expression_type(expression->binary_lhs->type) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->binary_lhs->type, expression->type, 0u) &&
+        debug_inline_integer_literal_bits(
+            expression->binary_rhs, &unsigned_constant, 0u) &&
+        unsigned_constant < (architecture == ARCH_X64 ? 64u : 32u)) {
+        uint8_t shift_opcode = expression->kind == EXPR_LSHIFT ? 0x24u :
+            expression->type->is_unsigned ? 0x25u : 0x26u;
+        if (!debug_build_inline_integer_value_expression(
+                mod, architecture, expression->binary_lhs, output, capacity,
+                output_size, depth + 1u) ||
+            !debug_build_inline_integer_value_expression(
+                mod, architecture, expression->binary_rhs, output, capacity,
+                output_size, depth + 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, shift_opcode)) {
+            return false;
+        }
+        return debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture);
+    }
+
     if ((expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
          expression->kind == EXPR_MUL || expression->kind == EXPR_DIV ||
          expression->kind == EXPR_BITAND ||
@@ -5891,6 +5916,58 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
                 expression, capacity, expression_size, 0x2eu) &&
             debug_inline_integer_expression_append_byte(
                 expression, capacity, expression_size, 0x1cu);
+    }
+    if (value->kind == EXPR_LSHIFT && value->binary_lhs &&
+        value->binary_rhs && value->type->size == 8 &&
+        value->binary_lhs->type && value->binary_lhs->type->size == 8 &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            value->binary_lhs->type, value->type, 0u) &&
+        debug_inline_integer_literal_bits(
+            value->binary_rhs, &literal_bits, 0u) && literal_bits < 64u) {
+        unsigned int shift = (unsigned int)literal_bits;
+        if (!high_word) {
+            if (shift >= 32u) {
+                return debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, 0u);
+            }
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, value->binary_lhs, false, expression, capacity,
+                       expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, shift) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x24u);
+        }
+        if (shift == 0u) {
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->binary_lhs, true, expression, capacity,
+                expression_size, depth + 1u);
+        }
+        if (shift < 32u) {
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, value->binary_lhs, true, expression, capacity,
+                       expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, shift) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x24u) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, value->binary_lhs, false, expression, capacity,
+                    expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, 32u - shift) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x25u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x21u);
+        }
+        return debug_inline_parameter_i686_u64_append_word_expression(
+                   mod, value->binary_lhs, false, expression, capacity,
+                   expression_size, depth + 1u) &&
+            debug_inline_integer_expression_append_constu(
+                expression, capacity, expression_size, shift - 32u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x24u);
     }
     if (debug_inline_integer_literal_bits(value, &literal_bits, 0u)) {
         uint32_t word = high_word

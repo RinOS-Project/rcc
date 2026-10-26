@@ -10031,6 +10031,11 @@ remains a separate open item.
       high word. Evaluate signed boundary pairs while excluding `LLONG_MIN`
       negation; focused and full `test-debug-info` pass on legacy and verified
       i686/AMD64.
+- [x] Lower constant left shifts of a frame-backed unsigned `long long` in
+      wide comparisons for counts 0, 31, 32, and 33, covering the i686 low/high
+      word boundary and cross-word carry. Verify unsigned comparison boundary
+      values on legacy and verified i686/AMD64 objects; focused and full
+      `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees, non-frame-backed wide operands, and other
       mixed-rank matrices remain open.
