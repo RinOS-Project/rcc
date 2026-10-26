@@ -108,6 +108,8 @@ unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_shift_count_source = 4u;
 unsigned int
 debug_inline_nonconstant_unsigned_long_long_global_shift_count_u32_source = 4u;
+long long debug_inline_nonconstant_signed_long_long_global_shift_source =
+    -0x123456789abcdefLL;
 unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_zero_source = 0u;
 }
@@ -120,6 +122,12 @@ static inline int debug_nonconstant_integer_parameter_inline(int value)
 static inline unsigned long long
 debug_nonconstant_unsigned_long_long_parameter_inline(
     unsigned long long value)
+{
+    return value;
+}
+
+static inline long long
+debug_nonconstant_signed_long_long_parameter_inline(long long value)
 {
     return value;
 }
@@ -388,6 +396,22 @@ debug_inline_nonconstant_unsigned_long_long_global_dynamic_rshift_u32_entry(void
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(
         debug_inline_nonconstant_unsigned_long_long_global_mod_source >>
+        debug_inline_nonconstant_unsigned_long_long_global_shift_count_u32_source);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_global_dynamic_rshift_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_global_shift_source >>
+        debug_inline_nonconstant_unsigned_long_long_global_shift_count_source);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_global_dynamic_rshift_u32_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_global_shift_source >>
         debug_inline_nonconstant_unsigned_long_long_global_shift_count_u32_source);
 }
 

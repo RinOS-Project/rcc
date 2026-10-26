@@ -8739,13 +8739,13 @@ remains a separate open item.
       count variables, evaluating counts 0, 1, 31, 32, 33, and 63 against the
       emitted DWARF expression in legacy and verified-backend objects. The
       focused and full native-Windows `test-debug-info` gates pass.
-- [x] Extend i686 unsigned-64 variable-shift locations to direct global
-      source and global count identifiers. Relocate each low/high source word
-      and 32-/64-bit count load independently with `ABS32U`, and preserve
-      count-zero, 1–31, and 32–63 paths. The expression evaluator exercises
-      counts 0, 1, 4, 31, 32, 33, and 63 for left/right shifts in legacy and
-      verified-backend objects; focused and full native-Windows
-      `test-debug-info` gates pass.
+- [x] Extend i686 signed and unsigned 64-bit variable-shift locations to
+      direct global source and global count identifiers. Relocate each
+      low/high source word and 32-/64-bit count load independently with
+      `ABS32U`, preserving count-zero, 1–31, and 32–63 paths. The evaluator
+      exercises counts 0, 1, 4, 31, 32, 33, and 63 for unsigned left/right
+      and signed arithmetic-right shifts in legacy and verified-backend
+      objects; focused and full native-Windows `test-debug-info` gates pass.
 - [ ] Other non-frame-backed count forms/conversions, nonconstant i686 64-bit
       division/remainder, and broader optimized multi-piece locations remain
       open.
