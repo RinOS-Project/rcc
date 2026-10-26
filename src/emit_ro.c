@@ -9887,6 +9887,82 @@ static bool debug_inline_parameter_i686_append_global_u32_load(
             expression, expression_capacity, expression_size, 4u);
 }
 
+static bool debug_inline_parameter_i686_u64_global_u32_widen_expression(
+    const Module* mod, const Decl* callee,
+    const ModuleDebugInlineParameterValue* value, const ExprList* argument,
+    uint8_t* expression, size_t expression_capacity,
+    size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
+    const Type* parameter_type;
+    const Expr* source_expression;
+    const Expr* global_expression;
+    const Decl* source;
+    size_t size = 0u;
+
+    if (!mod || !callee || !value || !value->declaration || !argument ||
+        !argument->expr || argument->cxx_temporary_owner || !expression ||
+        !expression_size || !relocations || !relocations->offsets ||
+        !relocations->symbols || !relocations->count ||
+        relocations->capacity < 1u ||
+        !debug_inline_parameter_body_is_read_only(callee)) {
+        return false;
+    }
+    parameter_type = value->declaration->type;
+    source_expression = argument->expr;
+    if (!parameter_type || parameter_type->size != 8u ||
+        !parameter_type->is_unsigned || !source_expression->type ||
+        source_expression->kind != EXPR_CAST ||
+        !source_expression->cast_expr ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, source_expression->type, 0u)) {
+        return false;
+    }
+    global_expression = source_expression->cast_expr;
+    if (global_expression->kind != EXPR_IDENT ||
+        !global_expression->ident_decl || !global_expression->type ||
+        global_expression->type->size != 4u ||
+        !global_expression->type->is_unsigned ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            global_expression->type,
+            source_expression->cast_expr->type, 0u)) {
+        return false;
+    }
+    source = global_expression->ident_decl;
+    if (!source || source->kind != DECL_VAR || !source->var_is_global ||
+        source->var_is_static_local || source->var_is_thread_local ||
+        source->var_is_vla || !source->type || source->type->size != 4u ||
+        !source->type->is_unsigned || source->type->is_volatile ||
+        source->type->is_reference || source->type->is_atomic ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source->type, global_expression->type, 0u)) {
+        return false;
+    }
+
+    *relocations->count = 0u;
+    if (!debug_inline_parameter_i686_append_storage_u32(
+            mod, source, 0, false, expression, expression_capacity, &size,
+            relocations) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, expression_capacity, &size, 0x9fu) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, expression_capacity, &size, 0x93u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, expression_capacity, &size, 4u) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, expression_capacity, &size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, expression_capacity, &size, 0x9fu) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, expression_capacity, &size, 0x93u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, expression_capacity, &size, 4u) ||
+        *relocations->count != 1u) {
+        return false;
+    }
+    *expression_size = size;
+    return true;
+}
+
 static bool debug_inline_parameter_i686_u64_global_shift_expression(
     const Module* mod, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
@@ -12982,6 +13058,29 @@ static void debug_emit_inline_parameter_instances(
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);
             section_add_bytes(info, expression, expression_size);
+        } else if (architecture == ARCH_X86 && value->declaration &&
+                   argument && argument->expr &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_i686_u64_global_u32_widen_expression(
+                       mod, call->callee, value, argument,
+                       integer_value_expression,
+                       sizeof(integer_value_expression),
+                       &integer_value_expression_size,
+                       &integer_value_relocations) &&
+                   integer_value_relocation_count == 1u) {
+            uint64_t expression_offset;
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, integer_value_expression_size);
+            expression_offset = info->size;
+            section_add_bytes(info, integer_value_expression,
+                              integer_value_expression_size);
+            objfile_add_reloc(
+                obj, info_section,
+                expression_offset + integer_value_relocation_offsets[0],
+                integer_value_relocation_symbols[0]->name,
+                RELOC_ABS32U, 0);
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(

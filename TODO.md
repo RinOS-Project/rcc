@@ -10275,11 +10275,17 @@ remains a separate open item.
       zero, carry-heavy, high-word, maximum-value, and initialized-global pairs
       in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Zero-extend a global unsigned 32-bit value to an i686 inline unsigned
+      64-bit parameter as a relocated low word and an explicit zero high word.
+      Verify one `ABS32U` relocation and values around the signed boundary and
+      `UINT32_MAX` in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide
-      operands beyond global bitwise operations and global-pair bitwise,
-      comparison, addition/subtraction and multiplication operations,
+      operands beyond global unsigned-32 widening, global bitwise operations,
+      and global-pair bitwise, comparison, addition/subtraction and
+      multiplication operations,
       logical-not, negation, and constant/dynamic shifts, other AMD64
       computed-global multiplication shapes, divide/modulo, other shift-count
       widths/conversions and shift forms, and mixed-rank matrices remain open.

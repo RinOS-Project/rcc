@@ -108,6 +108,7 @@ unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_shift_count_source = 4u;
 unsigned int
 debug_inline_nonconstant_unsigned_long_long_global_shift_count_u32_source = 4u;
+unsigned int debug_inline_unsigned_int_widen_source = 0x89abcdefu;
 long long debug_inline_nonconstant_signed_long_long_global_shift_source =
     -0x123456789abcdefLL;
 unsigned long long
@@ -130,6 +131,13 @@ static inline long long
 debug_nonconstant_signed_long_long_parameter_inline(long long value)
 {
     return value;
+}
+
+extern "C" unsigned long long
+debug_inline_unsigned_long_long_global_u32_widen_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(debug_inline_unsigned_int_widen_source));
 }
 
 extern "C" unsigned long long
