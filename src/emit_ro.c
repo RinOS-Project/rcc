@@ -9723,7 +9723,8 @@ static bool debug_inline_x64_global_expression_collect(
         const Expr* cast_expression = expression->cast_expr;
         return cast_expression &&
             (cast_expression->kind == EXPR_NOT ||
-             cast_expression->kind == EXPR_EQ) &&
+             cast_expression->kind == EXPR_EQ ||
+             cast_expression->kind == EXPR_NE) &&
             expression->type->size == 8u && expression->type->is_unsigned &&
             debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 value_type, expression->type, 0u) &&
@@ -9731,13 +9732,16 @@ static bool debug_inline_x64_global_expression_collect(
             debug_inline_x64_global_expression_collect(
                 mod, value_type, cast_expression, globals, depth + 1u);
     }
-    if (expression->kind == EXPR_EQ && expression->binary_lhs &&
+    if ((expression->kind == EXPR_EQ || expression->kind == EXPR_NE) &&
+        expression->binary_lhs &&
         expression->binary_rhs) {
-        uint64_t zero_bits;
+        uint64_t literal_bits;
         if (debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 value_type, expression->binary_lhs->type, 0u) &&
             debug_inline_integer_literal_bits(
-                expression->binary_rhs, &zero_bits, 0u) && zero_bits == 0u) {
+                expression->binary_rhs, &literal_bits, 0u) &&
+            debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                value_type, expression->binary_rhs->type, 0u)) {
             return debug_inline_x64_global_expression_collect(
                        mod, value_type, expression->binary_lhs, globals,
                        depth + 1u) &&
@@ -9748,7 +9752,9 @@ static bool debug_inline_x64_global_expression_collect(
         if (debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 value_type, expression->binary_rhs->type, 0u) &&
             debug_inline_integer_literal_bits(
-                expression->binary_lhs, &zero_bits, 0u) && zero_bits == 0u) {
+                expression->binary_lhs, &literal_bits, 0u) &&
+            debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                value_type, expression->binary_lhs->type, 0u)) {
             return debug_inline_x64_global_expression_collect(
                        mod, value_type, expression->binary_lhs, globals,
                        depth + 1u) &&
@@ -9847,7 +9853,8 @@ static bool debug_inline_x64_global_expression_append(
     }
     if (expression->kind == EXPR_CAST && expression->cast_expr &&
         (expression->cast_expr->kind == EXPR_NOT ||
-         expression->cast_expr->kind == EXPR_EQ)) {
+         expression->cast_expr->kind == EXPR_EQ ||
+         expression->cast_expr->kind == EXPR_NE)) {
         return debug_inline_x64_global_expression_append(
             value_type, expression->cast_expr, globals, output, capacity,
             size, depth + 1u);
@@ -9881,6 +9888,7 @@ static bool debug_inline_x64_global_expression_append(
     switch (expression->kind) {
         case EXPR_ADD: operation = 0x22u; break;
         case EXPR_EQ: operation = 0x29u; break;
+        case EXPR_NE: operation = 0x2eu; break;
         case EXPR_SUB: operation = 0x1cu; break;
         case EXPR_MUL: operation = 0x1eu; break;
         case EXPR_BITAND: operation = 0x1au; break;

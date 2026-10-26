@@ -10138,6 +10138,11 @@ remains a separate open item.
       relocated load, zero comparison, and 0/1 stack value; verify zero and
       nonzero global inputs in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Lower explicit unsigned-64 casts of AMD64 global equality and inequality
+      comparisons with same-width constants. Verify exact `DW_OP_eq` and
+      `DW_OP_ne` sequences and evaluate equal/non-equal results from initialized
+      global data in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,

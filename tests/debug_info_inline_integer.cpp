@@ -259,6 +259,24 @@ debug_inline_nonconstant_unsigned_long_long_global_lnot_zero_entry(void)
             !debug_inline_nonconstant_unsigned_long_long_global_zero_source));
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_eq_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            debug_inline_nonconstant_unsigned_long_long_global_mod_source ==
+            0xfedcba9876543217ULL));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_ne_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            debug_inline_nonconstant_unsigned_long_long_global_mod_source !=
+            0xfedcba9876543217ULL));
+}
+
 long long* debug_inline_signed_long_long_comparison_escape;
 long long* debug_inline_signed_long_long_comparison_rhs_escape;
 unsigned long long* debug_inline_unsigned_long_long_comparison_escape;
