@@ -9365,7 +9365,9 @@ static void verify_inline_u64_mul_two_variables_expression(
         uint64_t right = nested_operands
             ? values[index].right - UINT64_C(0x100000001)
             : values[index].right;
-        assert(actual == left * right);
+        uint64_t expected = nested_operands
+            ? (left * right) * left : left * right;
+        assert(actual == expected);
     }
 }
 

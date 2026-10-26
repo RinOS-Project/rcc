@@ -10065,7 +10065,14 @@ remains a separate open item.
       boundaries in legacy and verified i686 DWARF; retain the existing
       AMD64/direct-operand coverage. Focused `test-debug-info-inline-expression`
       and full `test-debug-info` gates pass.
+- [x] Recursively lower a computed i686 unsigned 64-bit multiplication as an
+      operand of another multiplication, composing nested low/high words and
+      16-bit partial-product carries. Evaluate
+      `((left + 0x100000001) * (right - 0x100000001)) *
+      (left + 0x100000001)` over unsigned boundaries in legacy and verified
+      DWARF. Focused `test-debug-info-inline-expression` and full
+      `test-debug-info` gates pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
-      computed expression trees beyond bounded logical/conditional and this
-      bounded multiplication case, non-frame-backed wide operands, and other
+      computed expression trees beyond bounded logical/conditional and
+      multiplication cases, non-frame-backed wide operands, and other
       mixed-rank matrices remain open.
