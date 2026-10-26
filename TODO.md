@@ -10022,6 +10022,10 @@ remains a separate open item.
       i686 wide comparisons by applying DWARF `not` independently to both
       32-bit words. Verify boundary results on legacy and verified i686/AMD64;
       focused and full `test-debug-info` pass.
+- [x] Recursively compose nested frame-backed i686 64-bit bitwise `&`, `|`,
+      and `^` nodes word by word. Evaluate signed boundary pairs for a nested
+      expression on legacy and verified i686/AMD64; focused and full
+      `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees, non-frame-backed wide operands, and other
       mixed-rank matrices remain open.
