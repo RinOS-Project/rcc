@@ -10114,6 +10114,11 @@ remains a separate open item.
       stack value; evaluate the results against initialized object data and
       verify exact relocations in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Preserve AMD64 unsigned 64-bit inline values formed by unsigned modulo
+      by 8 after strength reduction to a bit mask. Verify the relocated global
+      load, exact `DW_OP_and` expression, and result `7` against initialized
+      object data in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,

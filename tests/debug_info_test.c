@@ -12291,9 +12291,13 @@ static void verify_inline_global_wide_parameter(
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_lshift_entry"
                                 : computed_operation == 0x33u
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_div_entry"
+                                : computed_operation == 0x34u
+                                    ? "debug_inline_nonconstant_unsigned_long_long_global_mod_entry"
                                 : "debug_inline_nonconstant_unsigned_long_long_global_entry";
     const char* source_name =
-        computed
+        computed_operation == 0x34u
+            ? "debug_inline_nonconstant_unsigned_long_long_global_mod_source"
+            : computed
             ? "debug_inline_nonconstant_unsigned_long_long_global_add_source"
             : "debug_inline_nonconstant_unsigned_long_long_global_source";
     ObjectFile* object = objfile_read(path);
@@ -12309,7 +12313,8 @@ static void verify_inline_global_wide_parameter(
         ? 0x22u : computed_operation == 0x30u ? 0x1eu :
         computed_operation == 0x31u ? 0x25u :
         computed_operation == 0x32u ? 0x24u :
-        computed_operation == 0x33u ? 0x25u : computed_operation;
+        computed_operation == 0x33u ? 0x25u :
+        computed_operation == 0x34u ? 0x1au : computed_operation;
     bool found_address_relocation = false;
 
     assert(object != NULL && object->arch == architecture);
@@ -12360,7 +12365,8 @@ static void verify_inline_global_wide_parameter(
     if (computed) {
         uint64_t cursor = expression_offset + 1u + address_size;
         uint64_t expression_end = expression_offset + expression_size;
-        uint64_t constant = UINT64_C(0x100000005);
+        uint64_t constant = computed_operation == 0x34u
+            ? 7u : UINT64_C(0x100000005);
         uint64_t global_value;
         uint64_t evaluated_value;
         ObjSymbol* global_symbol;
@@ -12374,7 +12380,8 @@ static void verify_inline_global_wide_parameter(
                    info->data[cursor++] == 8u && cursor < expression_end &&
                    info->data[cursor++] == 0x10u);
             constant = read_uleb(info->data, expression_end, &cursor);
-            assert(constant == UINT64_C(0x100000005) &&
+            assert(constant == (computed_operation == 0x34u
+                       ? 7u : UINT64_C(0x100000005)) &&
                    cursor + 2u == expression_end &&
                    info->data[cursor++] == expected_operation &&
                    info->data[cursor] == 0x9fu); /* DW_OP_stack_value */
@@ -12392,7 +12399,9 @@ static void verify_inline_global_wide_parameter(
                global_symbol->value <= global_section->size &&
                global_section->size - global_symbol->value >= 8u &&
                read_u64(global_section->data, global_symbol->value) ==
-                   UINT64_C(0x7ffffffffffffff0));
+                   (computed_operation == 0x34u
+                       ? UINT64_C(0xfedcba9876543217)
+                       : UINT64_C(0x7ffffffffffffff0)));
         global_value = read_u64(global_section->data, global_symbol->value);
         if (computed_operation == 0x30u || computed_operation == 0x31u ||
             computed_operation == 0x32u || computed_operation == 0x33u) {
@@ -12416,7 +12425,8 @@ static void verify_inline_global_wide_parameter(
                         : expected_operation == 0x21u
                             ? global_value | constant
                             : global_value ^ constant;
-            assert(evaluated_value == (expected_operation == 0x22u
+            assert(evaluated_value == (computed_operation == 0x34u
+                ? 7u : expected_operation == 0x22u
                 ? UINT64_C(0x80000000fffffff5)
                 : expected_operation == 0x1cu
                     ? UINT64_C(0x7ffffffeffffffeb)
@@ -13304,6 +13314,8 @@ int main(int argc, char** argv)
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x32u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x33u);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x33u);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x34u);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x34u);
         for (size_t path_index = 0u;
              path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
              ++path_index) {
