@@ -8419,6 +8419,9 @@ static uint64_t evaluate_inline_integer_comparison_expression_with_secondary(
             assert(stack_size != 0u);
             stack[stack_size - 1u] =
                 (UINT64_C(0) - stack[stack_size - 1u]) & address_mask;
+        } else if (opcode == 0x20u) {
+            assert(stack_size != 0u);
+            stack[stack_size - 1u] = ~stack[stack_size - 1u] & address_mask;
         } else if (opcode == 0x24u || opcode == 0x26u) {
             int64_t signed_lhs;
             assert(stack_size >= 2u);
@@ -10180,7 +10183,9 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_signed_long_long_bitor_compare_entry_source",
          "debug_inline_signed_long_long_bitor_compare_entry"},
         {"debug_inline_signed_long_long_bitxor_compare_entry_source",
-         "debug_inline_signed_long_long_bitxor_compare_entry"}
+         "debug_inline_signed_long_long_bitxor_compare_entry"},
+        {"debug_inline_signed_long_long_bitnot_compare_entry_source",
+         "debug_inline_signed_long_long_bitnot_compare_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -10574,6 +10579,8 @@ static void verify_inline_integer_expression_parameter(
          strcmp(source_name,
                 "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
+                "debug_inline_signed_long_long_bitnot_compare_entry_source") == 0 ||
+         strcmp(source_name,
                 "debug_inline_signed_long_long_add_one_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_signed_long_long_sub_one_compare_entry_source") == 0);
@@ -10614,6 +10621,8 @@ static void verify_inline_integer_expression_parameter(
                 "debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_bitnot_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_signed_long_long_add_one_compare_entry_source") == 0 ||
          strcmp(source_name,
@@ -10687,6 +10696,9 @@ static void verify_inline_integer_expression_parameter(
     bool bitxor_secondary_comparison = source_name && strcmp(
         source_name,
         "debug_inline_signed_long_long_bitxor_compare_entry_source") == 0;
+    bool bitnot_wide_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_signed_long_long_bitnot_compare_entry_source") == 0;
     bool add_one_wide_comparison = source_name &&
         strcmp(source_name,
                "debug_inline_signed_long_long_add_one_compare_entry_source") == 0;
@@ -10953,7 +10965,16 @@ static void verify_inline_integer_expression_parameter(
             inline_integer_comparison_secondary_size(source_name);
         if (secondary_source) assert(secondary_size > 0u);
         for (size_t index = 0u; index < value_count; ++index) {
-            if (add_one_wide_comparison || sub_one_wide_comparison) {
+            if (bitnot_wide_comparison) {
+                uint64_t actual =
+                    evaluate_inline_integer_comparison_expression(
+                        info->data, expression_end, expression_start,
+                        architecture, frame_offset, value_size, values[index]);
+                bool compared = verify_inline_integer_comparison_value(
+                    ~values[index], (uint64_t)expected_constant, is_unsigned,
+                    64u, expected_operation);
+                assert(actual == !compared);
+            } else if (add_one_wide_comparison || sub_one_wide_comparison) {
                 if (values[index] == (uint64_t)INT64_MAX) continue;
                 if (sub_one_wide_comparison &&
                     values[index] == UINT64_C(0x8000000000000000)) continue;
@@ -12478,6 +12499,8 @@ int main(int argc, char** argv)
             {"debug_inline_signed_long_long_bitor_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_bitxor_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_bitnot_compare_entry_source",
              false, 0x2du, 0}
         };
         const char* wide_paths[] = {argv[6], argv[7], argv[8], argv[9]};

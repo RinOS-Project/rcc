@@ -5852,6 +5852,17 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         return debug_inline_parameter_i686_u64_append_narrow_word_expression(
             mod, value, high_word, expression, capacity, expression_size);
     }
+    if (value->kind == EXPR_BITNOT && value->unary_operand &&
+        value->type->size == 8 && value->unary_operand->type &&
+        value->unary_operand->type->size == 8 &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            value->unary_operand->type, value->type, 0u)) {
+        return debug_inline_parameter_i686_u64_append_word_expression(
+                   mod, value->unary_operand, high_word, expression, capacity,
+                   expression_size, depth + 1u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x20u);
+    }
     if (debug_inline_integer_literal_bits(value, &literal_bits, 0u)) {
         uint32_t word = high_word
             ? (uint32_t)(literal_bits >> 32u) : (uint32_t)literal_bits;

@@ -10018,6 +10018,10 @@ remains a separate open item.
       word by word and verify their signed comparison results for boundary
       pairs on legacy and verified i686/AMD64. Focused and full
       `test-debug-info` pass.
+- [x] Lower a frame-backed signed `long long` bitwise-complement operand in
+      i686 wide comparisons by applying DWARF `not` independently to both
+      32-bit words. Verify boundary results on legacy and verified i686/AMD64;
+      focused and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees, non-frame-backed wide operands, and other
       mixed-rank matrices remain open.
