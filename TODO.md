@@ -10050,13 +10050,14 @@ remains a separate open item.
       Verify negative, zero, and positive boundaries and i686 sign propagation
       on legacy and verified i686/AMD64 objects; focused and full
       `test-debug-info` pass.
-- [x] Preserve bounded integer conditional (`?:`) expressions as inline DWARF
-      values. Use `DW_OP_bra`/`DW_OP_skip` for address-width values and compose
-      both selected 32-bit words and 64-bit truth tests for i686 `long long`
-      comparison operands. Evaluate both branches, including zero, negative,
-      and positive frame values, on legacy and verified i686/AMD64 objects. The
+- [x] Preserve bounded short-circuit integer `&&`/`||` and conditional (`?:`)
+      expressions as inline DWARF values. Use `DW_OP_bra`/`DW_OP_skip` for
+      address-width values and compose both selected 32-bit words and 64-bit
+      truth tests for i686 `long long` comparison operands. Evaluate both
+      short-circuit and conditional paths, including zero, negative, and
+      positive frame values, on legacy and verified i686/AMD64 objects. The
       focused `test-debug-info-inline-expression` and full `test-debug-info`
       gates pass; GCC C++20 syntax checking passes.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
-      computed expression trees beyond bounded conditionals, non-frame-backed
-      wide operands, and other mixed-rank matrices remain open.
+      computed expression trees beyond bounded logical/conditional nodes,
+      non-frame-backed wide operands, and other mixed-rank matrices remain open.
