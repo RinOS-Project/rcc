@@ -10208,6 +10208,10 @@ remains a separate open item.
       and OR with a 64-bit constant. Verify the exact per-word opcodes, both
       address-width relocations, and results evaluated from object data in
       legacy and verified objects.
+- [x] Lower i686 unsigned-64 bitwise complement of a global object as two
+      relocated 32-bit pieces, each loaded and complemented on the i686 DWARF
+      stack. Verify both `ABS32U` relocations and the result from initialized
+      object data in legacy and verified objects.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide

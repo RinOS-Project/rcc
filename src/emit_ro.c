@@ -9679,9 +9679,10 @@ static bool debug_inline_parameter_i686_u64_global_bitwise_expression(
     const Expr* constant_expression;
     const Decl* source;
     const ModuleSymbol* symbol;
-    uint64_t constant_bits;
+    uint64_t constant_bits = 0u;
     size_t size = 0u;
     uint8_t operation;
+    bool unary_not;
 
     if (!mod || !callee || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !expression ||
@@ -9691,29 +9692,43 @@ static bool debug_inline_parameter_i686_u64_global_bitwise_expression(
     }
     parameter_type = value->declaration->type;
     source_expression = argument->expr;
+    unary_not = source_expression->kind == EXPR_BITNOT;
     if (!parameter_type || parameter_type->size != 8u ||
         !parameter_type->is_unsigned ||
-        (source_expression->kind != EXPR_BITAND &&
-         source_expression->kind != EXPR_BITOR &&
-         source_expression->kind != EXPR_BITXOR) ||
-        !source_expression->binary_lhs || !source_expression->binary_rhs ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, source_expression->type, 0u)) {
         return false;
     }
-    if (source_expression->binary_lhs->kind == EXPR_IDENT &&
-        source_expression->binary_lhs->ident_decl &&
-        debug_inline_integer_literal_bits(
-            source_expression->binary_rhs, &constant_bits, 0u)) {
+    if (unary_not) {
+        global_expression = source_expression->unary_operand;
+        constant_expression = NULL;
+    } else if ((source_expression->kind == EXPR_BITAND ||
+                source_expression->kind == EXPR_BITOR ||
+                source_expression->kind == EXPR_BITXOR) &&
+               source_expression->binary_lhs &&
+               source_expression->binary_rhs &&
+               source_expression->binary_lhs->kind == EXPR_IDENT &&
+               source_expression->binary_lhs->ident_decl &&
+               debug_inline_integer_literal_bits(
+                   source_expression->binary_rhs, &constant_bits, 0u)) {
         global_expression = source_expression->binary_lhs;
         constant_expression = source_expression->binary_rhs;
-    } else if (source_expression->binary_rhs->kind == EXPR_IDENT &&
+    } else if ((source_expression->kind == EXPR_BITAND ||
+                source_expression->kind == EXPR_BITOR ||
+                source_expression->kind == EXPR_BITXOR) &&
+               source_expression->binary_lhs &&
+               source_expression->binary_rhs &&
+               source_expression->binary_rhs->kind == EXPR_IDENT &&
                source_expression->binary_rhs->ident_decl &&
                debug_inline_integer_literal_bits(
                    source_expression->binary_lhs, &constant_bits, 0u)) {
         global_expression = source_expression->binary_rhs;
         constant_expression = source_expression->binary_lhs;
     } else {
+        return false;
+    }
+    if (!global_expression || global_expression->kind != EXPR_IDENT ||
+        !global_expression->ident_decl) {
         return false;
     }
     source = global_expression->ident_decl;
@@ -9724,10 +9739,11 @@ static bool debug_inline_parameter_i686_u64_global_bitwise_expression(
         source->type->is_reference || source->type->is_atomic ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, global_expression->type, 0u) ||
-        !constant_expression->type ||
-        !debug_inline_integer_expression_type(constant_expression->type) ||
-        !constant_expression->type->is_unsigned ||
-        constant_expression->type->size != 8u) {
+        (!unary_not &&
+         (!constant_expression || !constant_expression->type ||
+          !debug_inline_integer_expression_type(constant_expression->type) ||
+          !constant_expression->type->is_unsigned ||
+          constant_expression->type->size != 8u))) {
         return false;
     }
     symbol = debug_find_global_symbol(mod, source);
@@ -9735,7 +9751,8 @@ static bool debug_inline_parameter_i686_u64_global_bitwise_expression(
         symbol->section == MODULE_SYMBOL_TLS) {
         return false;
     }
-    operation = source_expression->kind == EXPR_BITAND ? 0x1au :
+    operation = unary_not ? 0x20u :
+        source_expression->kind == EXPR_BITAND ? 0x1au :
         source_expression->kind == EXPR_BITOR ? 0x21u : 0x27u;
 
     for (size_t word = 0u; word < 2u; ++word) {
@@ -9755,8 +9772,9 @@ static bool debug_inline_parameter_i686_u64_global_bitwise_expression(
                 expression, expression_capacity, &size, 0x94u) ||
             !debug_inline_integer_expression_append_byte(
                 expression, expression_capacity, &size, 4u) ||
-            !debug_inline_integer_expression_append_constu(
-                expression, expression_capacity, &size, word_bits) ||
+            (!unary_not &&
+             !debug_inline_integer_expression_append_constu(
+                 expression, expression_capacity, &size, word_bits)) ||
             !debug_inline_integer_expression_append_byte(
                 expression, expression_capacity, &size, operation) ||
             !debug_inline_integer_expression_append_byte(
