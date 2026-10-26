@@ -10079,12 +10079,12 @@ remains a separate open item.
       evaluate `(left + 0x100000001) * (right - 0x100000001)` at unsigned
       boundaries in legacy and verified i686 DWARF. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` gates pass.
-- [x] Preserve comma expressions nested in computed inline integer arguments
-      by describing the already-evaluated right operand without replaying the
-      left operand. Evaluate a product of two comma-wrapped frame-backed
-      unsigned 64-bit expressions at boundary values in legacy and verified
-      i686 DWARF. Focused `test-debug-info-inline-expression` and full
-      `test-debug-info` gates pass.
+- [x] Preserve root-level and nested comma expressions in computed inline
+      integer arguments by describing the already-evaluated right operand
+      without replaying the left operand. Evaluate a product of two
+      comma-wrapped frame-backed unsigned 64-bit expressions at boundary values
+      in legacy and verified i686 DWARF. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` gates pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, non-frame-backed wide operands, and other

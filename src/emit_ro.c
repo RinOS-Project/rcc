@@ -9332,6 +9332,7 @@ static bool debug_inline_parameter_integer_expression(
         !argument->expr || argument->cxx_temporary_owner || !expression ||
         !expression_size ||
         (argument->expr->kind != EXPR_IDENT &&
+         argument->expr->kind != EXPR_COMMA &&
          argument->expr->kind != EXPR_ADD &&
          argument->expr->kind != EXPR_SUB &&
          argument->expr->kind != EXPR_MUL &&
@@ -9370,6 +9371,33 @@ static bool debug_inline_parameter_integer_expression(
         (architecture == ARCH_X64 || !parameter_type->is_unsigned ||
          (unsigned int)parameter_type->size <= 4u)) {
         return false;
+    }
+
+    if (architecture == ARCH_X86 && parameter_type->size == 8u &&
+        source_expression->kind == EXPR_COMMA) {
+        size_t size = 0u;
+        if (!debug_inline_parameter_i686_u64_append_word_expression(
+                mod, source_expression, false, expression, expression_capacity,
+                &size, 0u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x9fu) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x93u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 4u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, source_expression, true, expression,
+                expression_capacity, &size, 0u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x9fu) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x93u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 4u)) {
+            return false;
+        }
+        *expression_size = size;
+        return true;
     }
 
     if (architecture == ARCH_X86 && parameter_type->size == 8u &&

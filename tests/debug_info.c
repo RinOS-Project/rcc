@@ -619,11 +619,12 @@ int debug_inline_nonconstant_unsigned_long_long_scope_mul_two_variables_entry(
             &debug_inline_nonconstant_unsigned_long_long_scope_mul_rhs_source;
         return (int)debug_nonconstant_unsigned_long_long_mul_two_variables_inline(
             (0u,
-             debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source +
-                 0x100000001ull) *
-            (0u,
-             debug_inline_nonconstant_unsigned_long_long_scope_mul_rhs_source -
-                 0x100000001ull));
+             (0u,
+              debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source +
+                  0x100000001ull) *
+             (0u,
+              debug_inline_nonconstant_unsigned_long_long_scope_mul_rhs_source -
+                  0x100000001ull)));
     }
 }
 
