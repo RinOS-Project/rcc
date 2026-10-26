@@ -15110,9 +15110,15 @@ static void verify_inline_integer_expression_cases(
             (cases[index].operation == 0x1au ||
              cases[index].operation == 0x21u ||
              cases[index].operation == 0x27u ||
+             cases[index].operation == 0xe5u ||
+             cases[index].operation == 0xe6u ||
+             cases[index].operation == 0xe7u ||
              cases[index].operation == 0xe2u ||
              cases[index].operation == 0xe3u ||
-             cases[index].operation == 0xeau);
+             cases[index].operation == 0xeau ||
+             cases[index].operation == 0xf4u ||
+             cases[index].operation == 0xf5u ||
+             cases[index].operation == 0xf6u);
         bool i686_u64_constant_divmod = architecture == ARCH_X86 &&
             cases[index].value_size == 8u && cases[index].is_unsigned &&
             !cases[index].divisor_source_name &&

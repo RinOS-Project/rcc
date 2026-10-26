@@ -2360,8 +2360,16 @@
         frame-relative memory location instead of truncating it to a generic
         32-bit DWARF stack value. Verify the exact location and matching source
         frame slot in legacy and verified `-g -O1` objects.
-  - [ ] Unsigned operands wider than the target address width (notably
-        i686 `unsigned long long`) in computed expressions, arbitrary
+  - [x] Preserve computed signed and unsigned i686 `unsigned long long`
+        inline-parameter values for `&`, `|`, and `^` over two addressable
+        frame identifiers. Emit the low/high 32-bit results as separate
+        `DW_OP_piece` values and verify the exact source frame slots, operation,
+        and evaluated result for legacy/verified i686/AMD64 `-g -O1` objects.
+        The focused `test-debug-info-inline-expression` gate passes on POSIX
+        and native Windows.
+  - [ ] Other unsigned operands wider than the target address width (notably
+        i686 `unsigned long long`) in computed expressions beyond the bounded
+        pairwise operations above, arbitrary
         nonconstant argument expressions, mutable parameters,
         optimized-away/register-only sources, nested lexical locals beyond
         the tested inline-multiply case, tracking
