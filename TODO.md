@@ -10154,6 +10154,11 @@ remains a separate open item.
       the emitted expression against initialized data and verify the modulo-
       2^64 result in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Preserve AMD64 unsigned-64 inline expression trees that reference two
+      distinct global objects. Verify one relocation to each exact symbol and
+      evaluate the addition from both initialized `.data` values in legacy and
+      verified objects. Focused `test-debug-info-inline-expression` and full
+      `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,

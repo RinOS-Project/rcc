@@ -9670,9 +9670,13 @@ static bool debug_inline_parameter_x64_u64_global_constant_expression(
 enum { DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY = 32 };
 
 typedef struct DebugInlineGlobalExpression {
-    const Decl* source;
-    const ModuleSymbol* symbol;
+    const Decl* sources[
+        DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY];
+    const ModuleSymbol* symbols[
+        DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY];
     size_t relocation_offsets[
+        DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY];
+    const ModuleSymbol* relocation_symbols[
         DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY];
     size_t relocation_count;
     size_t global_count;
@@ -9708,13 +9712,11 @@ static bool debug_inline_x64_global_expression_collect(
         }
         symbol = debug_find_global_symbol(mod, source);
         if (!symbol || !symbol->is_global || !symbol->name ||
-            symbol->section == MODULE_SYMBOL_TLS ||
-            (globals->source && globals->source != source) ||
-            (globals->symbol && globals->symbol != symbol)) {
+            symbol->section == MODULE_SYMBOL_TLS) {
             return false;
         }
-        globals->source = source;
-        globals->symbol = symbol;
+        globals->sources[globals->global_count] = source;
+        globals->symbols[globals->global_count] = symbol;
         globals->global_count++;
         return true;
     }
@@ -9838,14 +9840,21 @@ static bool debug_inline_x64_global_expression_append(
         return debug_inline_integer_expression_append_constu(
             output, capacity, size, literal_bits);
     }
-    if (expression->kind == EXPR_IDENT && expression->ident_decl == globals->source) {
-        if (globals->relocation_count >=
-            DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY ||
+    if (expression->kind == EXPR_IDENT && expression->ident_decl) {
+        size_t relocation_index = globals->relocation_count;
+        if (relocation_index >= globals->global_count ||
+            relocation_index >=
+                DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY ||
+            globals->sources[relocation_index] != expression->ident_decl ||
+            !globals->symbols[relocation_index] ||
             !debug_inline_integer_expression_append_byte(
                 output, capacity, size, 0x03u)) { /* DW_OP_addr */
             return false;
         }
-        globals->relocation_offsets[globals->relocation_count++] = *size;
+        globals->relocation_offsets[relocation_index] = *size;
+        globals->relocation_symbols[relocation_index] =
+            globals->symbols[relocation_index];
+        globals->relocation_count++;
         for (unsigned int byte = 0u; byte < 8u; ++byte) {
             if (!debug_inline_integer_expression_append_byte(
                     output, capacity, size, 0u)) {
@@ -9946,15 +9955,16 @@ static bool debug_inline_parameter_x64_u64_global_expression(
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
     uint8_t* expression, size_t expression_capacity,
     size_t* expression_size, size_t* relocation_offsets,
-    size_t relocation_capacity, size_t* relocation_count,
-    const ModuleSymbol** address_symbol) {
+    const ModuleSymbol** relocation_symbols, size_t relocation_capacity,
+    size_t* relocation_count) {
     const Type* parameter_type;
     DebugInlineGlobalExpression globals;
     size_t size = 0u;
     if (!mod || !callee || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !expression ||
         !expression_size || !relocation_offsets || !relocation_count ||
-        !address_symbol || !debug_inline_parameter_body_is_read_only(callee)) {
+        !relocation_symbols ||
+        !debug_inline_parameter_body_is_read_only(callee)) {
         return false;
     }
     parameter_type = value->declaration->type;
@@ -9991,9 +10001,10 @@ static bool debug_inline_parameter_x64_u64_global_expression(
     }
     memcpy(relocation_offsets, globals.relocation_offsets,
            globals.relocation_count * sizeof(relocation_offsets[0]));
+    memcpy(relocation_symbols, globals.relocation_symbols,
+           globals.relocation_count * sizeof(relocation_symbols[0]));
     *relocation_count = globals.relocation_count;
     *expression_size = size;
-    *address_symbol = globals.symbol;
     return true;
 }
 
@@ -11706,6 +11717,8 @@ static void debug_emit_inline_parameter_instances(
             DEBUG_INLINE_I686_U64_DIVMOD_EXPRESSION_CAPACITY];
         size_t integer_value_relocation_offsets[
             DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY];
+        const ModuleSymbol* integer_value_relocation_symbols[
+            DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY];
         size_t integer_value_expression_size = 0u;
         size_t integer_value_relocation_offset = 0u;
         size_t integer_value_relocation_count = 0u;
@@ -11816,9 +11829,10 @@ static void debug_emit_inline_parameter_instances(
                        sizeof(integer_value_expression),
                        &integer_value_expression_size,
                        integer_value_relocation_offsets,
+                       integer_value_relocation_symbols,
                        sizeof(integer_value_relocation_offsets) /
                            sizeof(integer_value_relocation_offsets[0]),
-                       &integer_value_relocation_count, &source_symbol)) {
+                       &integer_value_relocation_count)) {
             uint64_t expression_offset;
             section_add_byte(info, 67u);
             debug_line_u32(info, origin->die_offset);
@@ -11833,7 +11847,8 @@ static void debug_emit_inline_parameter_instances(
                     obj, info_section,
                     expression_offset +
                         integer_value_relocation_offsets[relocation_index],
-                    source_symbol->name, RELOC_ABS64, 0);
+                    integer_value_relocation_symbols[relocation_index]->name,
+                    RELOC_ABS64, 0);
             }
         } else if (value->declaration && argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(
