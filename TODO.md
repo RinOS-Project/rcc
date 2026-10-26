@@ -10166,7 +10166,7 @@ remains a separate open item.
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [x] Preserve AMD64 unsigned-64 subtraction and XOR between distinct global
       objects. Verify one relocation per exact symbol, exactly one
-      `DW_OP_minus`/`DW_OP_xor`, and the wraparound/bithigh results evaluated
+      `DW_OP_minus`/`DW_OP_xor`, and the wraparound/high-bit results evaluated
       from both initialized `.data` values in legacy and verified objects.
       Focused `test-debug-info-inline-expression` and full `test-debug-info`
       pass.
