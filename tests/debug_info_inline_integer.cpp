@@ -321,6 +321,13 @@ debug_inline_nonconstant_unsigned_long_long_global_mul7_entry(void)
 }
 
 extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_mul9_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_mod_source * 9ULL);
+}
+
+extern "C" unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_pair_add_entry(void)
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(

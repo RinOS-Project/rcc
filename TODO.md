@@ -10182,6 +10182,12 @@ remains a separate open item.
       opcodes, unsigned sign-bit biasing, and results evaluated from both
       initialized `.data` values in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Preserve an AMD64 unsigned-64 inline multiplication of a global object
+      by 9 after optimization rewrites it into a computed expression tree.
+      Evaluate the expression from initialized global data in legacy and
+      verified objects, allowing optimizer-dependent relocation-leaf counts
+      while still validating each referenced symbol. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,
