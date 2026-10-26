@@ -12692,6 +12692,302 @@ static void verify_inline_i686_global_bitwise_parameter(
     objfile_free(object);
 }
 
+typedef struct VerifyInlineI686ShiftValue {
+    uint64_t value;
+    uint64_t address_addend;
+    const char* address_symbol;
+    bool is_address;
+    bool is_stack_value;
+} VerifyInlineI686ShiftValue;
+
+static uint64_t verify_inline_global_storage(
+    ObjectFile* object, const char* name, uint8_t width) {
+    ObjSymbol* symbol = objfile_find_symbol(object, name);
+    ObjSection* section = NULL;
+    int section_index = 0;
+    assert(symbol != NULL && symbol->section >= 0 &&
+           (width == 4u || width == 8u));
+    for (ObjSection* candidate = object->sections; candidate;
+         candidate = candidate->next, ++section_index) {
+        if (section_index == symbol->section) {
+            section = candidate;
+            break;
+        }
+    }
+    assert(section != NULL && symbol->value <= section->size &&
+           section->size - symbol->value >= width);
+    return width == 4u
+        ? (uint64_t)read_u32(section->data, symbol->value)
+        : read_u64(section->data, symbol->value);
+}
+
+static uint64_t verify_inline_i686_global_shift_expression(
+    ObjectFile* object, ObjSection* info, uint64_t expression_offset,
+    uint64_t expression_size, const char* source_name, uint64_t source_value,
+    const char* count_name, uint64_t count_value) {
+    VerifyInlineI686ShiftValue stack[32] = {{0}};
+    uint32_t pieces[2] = {0u, 0u};
+    uint64_t cursor = expression_offset;
+    uint64_t expression_end = expression_offset + expression_size;
+    size_t stack_size = 0u;
+    size_t piece_count = 0u;
+    size_t source_relocations = 0u;
+    size_t count_relocations = 0u;
+    size_t expression_relocations = 0u;
+    size_t instruction_count = 0u;
+
+    assert(object != NULL && info != NULL && source_name != NULL &&
+           count_name != NULL && expression_end <= info->size);
+    for (const ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset < expression_offset ||
+            relocation->offset >= expression_end) {
+            continue;
+        }
+        assert(relocation->type == RELOC_ABS32U &&
+               relocation->symbol_name != NULL);
+        if (strcmp(relocation->symbol_name, source_name) == 0) {
+            ++source_relocations;
+        } else if (strcmp(relocation->symbol_name, count_name) == 0) {
+            ++count_relocations;
+        } else {
+            assert(0 && "unexpected relocation in i686 shift expression");
+        }
+        ++expression_relocations;
+    }
+    while (cursor < expression_end) {
+        uint8_t operation = info->data[cursor++];
+        uint64_t lhs;
+        uint64_t rhs;
+        if (++instruction_count > expression_size * 2u) {
+            assert(0 && "i686 shift expression branches did not converge");
+        }
+        if (operation == 0x03u) { /* DW_OP_addr */
+            const ObjReloc* found = NULL;
+            assert(cursor + 4u <= expression_end && stack_size < 32u);
+            for (const ObjReloc* relocation = info->relocs; relocation;
+                 relocation = relocation->next) {
+                if (relocation->offset == cursor) {
+                    found = relocation;
+                    break;
+                }
+            }
+            assert(found != NULL && found->type == RELOC_ABS32U &&
+                   found->symbol_name != NULL &&
+                   (strcmp(found->symbol_name, source_name) == 0 ||
+                    strcmp(found->symbol_name, count_name) == 0));
+            stack[stack_size].address_symbol = found->symbol_name;
+            stack[stack_size].address_addend = 0u;
+            stack[stack_size].is_address = true;
+            stack[stack_size].is_stack_value = false;
+            ++stack_size;
+            cursor += 4u;
+            continue;
+        }
+        if (operation == 0x23u) { /* DW_OP_plus_uconst */
+            assert(stack_size > 0u && stack[stack_size - 1u].is_address);
+            stack[stack_size - 1u].address_addend +=
+                read_uleb(info->data, expression_end, &cursor);
+            continue;
+        }
+        if (operation == 0x94u) { /* DW_OP_deref_size */
+            VerifyInlineI686ShiftValue* address;
+            assert(cursor < expression_end && stack_size > 0u &&
+                   info->data[cursor++] == 4u);
+            address = &stack[stack_size - 1u];
+            assert(address->is_address);
+            if (strcmp(address->address_symbol, source_name) == 0) {
+                assert(address->address_addend == 0u ||
+                       address->address_addend == 4u);
+                address->value = (uint32_t)(source_value >>
+                    (address->address_addend * 8u));
+            } else {
+                assert(strcmp(address->address_symbol, count_name) == 0 &&
+                       address->address_addend == 0u);
+                address->value = (uint32_t)count_value;
+            }
+            address->address_symbol = NULL;
+            address->address_addend = 0u;
+            address->is_address = false;
+            continue;
+        }
+        if (operation == 0x10u) { /* DW_OP_constu */
+            assert(stack_size < 32u);
+            stack[stack_size].value = read_uleb(
+                info->data, expression_end, &cursor);
+            stack[stack_size].is_address = false;
+            stack[stack_size].is_stack_value = false;
+            ++stack_size;
+            continue;
+        }
+        if (operation == 0x9fu) { /* DW_OP_stack_value */
+            assert(stack_size > 0u && !stack[stack_size - 1u].is_address);
+            stack[stack_size - 1u].is_stack_value = true;
+            continue;
+        }
+        if (operation == 0x93u) { /* DW_OP_piece */
+            uint64_t piece_size = read_uleb(
+                info->data, expression_end, &cursor);
+            assert(piece_size == 4u && stack_size == 1u &&
+                   stack[0].is_stack_value && piece_count < 2u);
+            pieces[piece_count++] = (uint32_t)stack[0].value;
+            stack_size = 0u;
+            continue;
+        }
+        if (operation == 0x28u || operation == 0x2fu) { /* bra / skip */
+            uint16_t raw_offset;
+            int32_t branch_offset;
+            bool take_branch = operation == 0x2fu;
+            assert(cursor + 2u <= expression_end);
+            raw_offset = (uint16_t)info->data[cursor] |
+                (uint16_t)((uint16_t)info->data[cursor + 1u] << 8u);
+            cursor += 2u;
+            if (operation == 0x28u) {
+                assert(stack_size > 0u &&
+                       !stack[stack_size - 1u].is_address);
+                take_branch = stack[--stack_size].value != 0u;
+            }
+            branch_offset = raw_offset < 0x8000u
+                ? (int32_t)raw_offset : (int32_t)raw_offset - 0x10000;
+            if (take_branch) {
+                int64_t target = (int64_t)cursor + branch_offset;
+                assert(target >= (int64_t)expression_offset &&
+                       target <= (int64_t)expression_end);
+                cursor = (uint64_t)target;
+            }
+            continue;
+        }
+        assert(stack_size >= 2u &&
+               !stack[stack_size - 1u].is_address &&
+               !stack[stack_size - 2u].is_address);
+        rhs = stack[--stack_size].value;
+        lhs = stack[stack_size - 1u].value;
+        switch (operation) {
+            case 0x21u: stack[stack_size - 1u].value = (uint32_t)(lhs | rhs);
+                break; /* DW_OP_or */
+            case 0x24u:
+                assert(rhs < 32u);
+                stack[stack_size - 1u].value = (uint32_t)(lhs << rhs);
+                break; /* DW_OP_shl */
+            case 0x25u:
+                assert(rhs < 32u);
+                stack[stack_size - 1u].value = (uint32_t)(lhs >> rhs);
+                break; /* DW_OP_shr */
+            case 0x26u:
+                assert(rhs < 32u);
+                stack[stack_size - 1u].value = (uint32_t)(
+                    (int32_t)(uint32_t)lhs >> rhs);
+                break; /* DW_OP_shra */
+            case 0x29u: stack[stack_size - 1u].value = lhs == rhs;
+                break; /* DW_OP_eq */
+            case 0x2au: stack[stack_size - 1u].value = lhs >= rhs;
+                break; /* DW_OP_ge */
+            case 0x1cu: stack[stack_size - 1u].value = (uint32_t)(lhs - rhs);
+                break; /* DW_OP_minus */
+            default: assert(0 && "unexpected i686 shift expression opcode");
+                     break;
+        }
+        stack[stack_size - 1u].is_address = false;
+        stack[stack_size - 1u].is_stack_value = false;
+    }
+    assert(piece_count == 2u && stack_size == 0u &&
+           source_relocations > 0u && count_relocations > 0u &&
+           expression_relocations == source_relocations + count_relocations);
+    return ((uint64_t)pieces[1] << 32u) | pieces[0];
+}
+
+static void verify_inline_i686_global_shift_parameter(
+    const char* path, uint8_t operation) {
+    const char* call_site_name = operation == 0x51u
+        ? "debug_inline_nonconstant_unsigned_long_long_global_dynamic_lshift_entry"
+        : operation == 0x52u
+            ? "debug_inline_nonconstant_unsigned_long_long_global_dynamic_rshift_entry"
+        : operation == 0x53u
+            ? "debug_inline_nonconstant_unsigned_long_long_global_dynamic_lshift_u32_entry"
+        : operation == 0x54u
+            ? "debug_inline_nonconstant_unsigned_long_long_global_dynamic_rshift_u32_entry"
+        : NULL;
+    const char* source_name =
+        "debug_inline_nonconstant_unsigned_long_long_global_mod_source";
+    const char* count_name = operation == 0x53u || operation == 0x54u
+        ? "debug_inline_nonconstant_unsigned_long_long_global_shift_count_u32_source"
+        : "debug_inline_nonconstant_unsigned_long_long_global_shift_count_source";
+    ObjectFile* object;
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t call_die = UINT64_MAX;
+    uint64_t origin_die = UINT64_MAX;
+    uint64_t expression_offset;
+    uint64_t expression_size;
+    uint64_t source_value;
+    uint64_t count_value;
+    static const uint32_t tested_counts[] = {0u, 1u, 4u, 31u, 32u, 33u, 63u};
+
+    assert(path != NULL && call_site_name != NULL && operation >= 0x51u &&
+           operation <= 0x54u);
+    object = objfile_read(path);
+    assert(object != NULL && object->arch == ARCH_X86);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    for (uint64_t die = 11u; die + 1u + 4u + 4u + 16u <= info->size; ++die) {
+        uint32_t candidate_origin;
+        uint32_t name_offset;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        candidate_origin = read_u32(info->data, die + 1u);
+        if (candidate_origin >= info->size ||
+            info->data[candidate_origin] != 40u) continue;
+        name_offset = read_u32(info->data, candidate_origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_nonconstant_unsigned_long_long_parameter_inline") != 0) {
+            continue;
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == die + 1u + 4u &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+        origin_die = candidate_origin;
+    }
+    assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    {
+        uint64_t parameter_die = call_die + 1u + 4u + 4u + 4u + 12u;
+        assert(parameter_die + 5u < info->size &&
+               info->data[parameter_die] == 67u &&
+               read_u32(info->data, parameter_die + 1u) == origin_die + 27u);
+        expression_offset = parameter_die + 5u;
+        expression_size = read_uleb(
+            info->data, info->size, &expression_offset);
+        assert(expression_offset + expression_size <= info->size &&
+               info->data[expression_offset] == 0x03u);
+    }
+    source_value = verify_inline_global_storage(object, source_name, 8u);
+    count_value = verify_inline_global_storage(
+        object, count_name, operation == 0x53u || operation == 0x54u
+            ? 4u : 8u);
+    assert(source_value == UINT64_C(0xfedcba9876543217) && count_value == 4u);
+    for (size_t index = 0u;
+         index < sizeof(tested_counts) / sizeof(tested_counts[0]); ++index) {
+        uint32_t shift_count = tested_counts[index];
+        uint64_t expected_value = operation == 0x51u || operation == 0x53u
+            ? source_value << shift_count : source_value >> shift_count;
+        assert(verify_inline_i686_global_shift_expression(
+                   object, info, expression_offset, expression_size,
+                   source_name, source_value, count_name, shift_count) ==
+               expected_value);
+    }
+    objfile_free(object);
+}
+
 static void verify_inline_global_wide_parameter(
     const char* path, uint16_t architecture, uint8_t computed_operation) {
     bool computed = computed_operation != 0u;
@@ -14097,6 +14393,14 @@ int main(int argc, char** argv)
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4bu);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4cu);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4cu);
+        verify_inline_i686_global_shift_parameter(argv[6], 0x51u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0x51u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0x52u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0x52u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0x53u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0x53u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0x54u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0x54u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4du);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4du);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4eu);

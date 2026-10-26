@@ -8348,19 +8348,80 @@ static bool debug_inline_parameter_i686_u64_append_low_word_expression(
     return false;
 }
 
+typedef struct DebugInlineI686ExpressionRelocations {
+    size_t* offsets;
+    const ModuleSymbol** symbols;
+    size_t capacity;
+    size_t* count;
+} DebugInlineI686ExpressionRelocations;
+
+static bool debug_inline_parameter_i686_append_storage_u32(
+    const Module* mod, const Decl* source, int64_t frame_offset,
+    bool high_word, uint8_t* expression, size_t capacity, size_t* size,
+    DebugInlineI686ExpressionRelocations* relocations) {
+    if (!mod || !source || !expression || !size) return false;
+    if (source->var_is_global) {
+        const ModuleSymbol* symbol;
+        if (source->kind != DECL_VAR || source->var_is_static_local ||
+            source->var_is_thread_local || !source->type ||
+            source->type->is_volatile || source->type->is_reference ||
+            source->type->is_atomic || !relocations ||
+            !relocations->offsets || !relocations->symbols ||
+            !relocations->count ||
+            *relocations->count >= relocations->capacity) {
+            return false;
+        }
+        symbol = debug_find_global_symbol(mod, source);
+        if (!symbol || !symbol->is_global || !symbol->name ||
+            symbol->section == MODULE_SYMBOL_TLS ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x03u)) { /* DW_OP_addr */
+            return false;
+        }
+        relocations->offsets[*relocations->count] = *size;
+        relocations->symbols[*relocations->count] = symbol;
+        ++*relocations->count;
+        for (size_t byte = 0u; byte < 4u; ++byte) {
+            if (!debug_inline_integer_expression_append_byte(
+                    expression, capacity, size, 0u)) {
+                return false;
+            }
+        }
+        if (high_word &&
+            (!debug_inline_integer_expression_append_byte(
+                 expression, capacity, size, 0x23u) || /* plus_uconst */
+             !debug_expression_uleb(expression, capacity, size, 4u))) {
+            return false;
+        }
+        return debug_inline_integer_expression_append_byte(
+                   expression, capacity, size, 0x94u) && /* deref_size */
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 4u);
+    }
+    if (high_word) {
+        if (frame_offset > INT64_MAX - 4) return false;
+        frame_offset += 4;
+    }
+    return debug_inline_integer_expression_append_frame_u32(
+        expression, capacity, size, ARCH_X86, frame_offset);
+}
+
 static bool debug_inline_parameter_i686_u64_append_shift_count(
     const Module* mod, const Expr* count_expression,
     const Decl* count_source, int64_t count_frame_offset,
-    uint8_t* expression, size_t capacity, size_t* size) {
+    uint8_t* expression, size_t capacity, size_t* size,
+    DebugInlineI686ExpressionRelocations* relocations) {
     if (!mod || !count_expression || !expression || !size) return false;
     /* A direct 64-bit count is safe to read from its low word for defined
        64-bit shifts (0..63). Computed 64-bit arithmetic has the same low
        32-bit result as its full-width value; defined shift counts therefore
        retain their exact value on the 32-bit DWARF stack. */
     if (count_source && count_source->type &&
-        count_source->type->size == 8) {
-        return debug_inline_integer_expression_append_frame_u32(
-            expression, capacity, size, ARCH_X86, count_frame_offset);
+        (count_source->type->size == 4u ||
+         count_source->type->size == 8u)) {
+        return debug_inline_parameter_i686_append_storage_u32(
+            mod, count_source, count_frame_offset, false, expression,
+            capacity, size, relocations);
     }
     if (count_expression->type && count_expression->type->size == 8) {
         return debug_inline_parameter_i686_u64_append_low_word_expression(
@@ -8375,13 +8436,19 @@ static bool debug_inline_parameter_i686_u64_append_shift_count(
 static bool debug_inline_parameter_i686_u64_shift_variable_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
-    size_t* expression_size) {
+    size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
     const Expr* source_value_expression;
     const Expr* shift_count_expression;
     const Decl* source;
     const Decl* shift_count_source;
     int64_t source_frame_offset;
     int64_t shift_count_frame_offset = 0;
+    uint64_t constant_shift_count;
+    const ModuleSymbol* source_global_symbol = NULL;
+    const ModuleSymbol* shift_count_global_symbol = NULL;
+    bool source_is_global;
+    bool shift_count_is_global;
     size_t size = 0u;
     bool is_left_shift;
     bool is_unsigned;
@@ -8403,21 +8470,37 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
     source = source_value_expression->ident_decl;
     shift_count_source = shift_count_expression->kind == EXPR_IDENT
         ? shift_count_expression->ident_decl : NULL;
+    if (debug_inline_integer_literal_bits(
+            shift_count_expression, &constant_shift_count, 0u)) {
+        return false;
+    }
+    source_is_global = source && source->var_is_global;
+    shift_count_is_global = shift_count_source &&
+        shift_count_source->var_is_global;
     if (!source ||
         (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
-        source->var_is_global || source->var_is_static_local ||
+        (source_is_global && source->kind != DECL_VAR) ||
+        source->var_is_static_local ||
         source->var_is_thread_local || source->var_is_vla ||
         !source->type ||
+        (source_is_global && (source->type->is_volatile ||
+                              source->type->is_reference ||
+                              source->type->is_atomic)) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source->type, parameter_type, 0u) ||
         !debug_inline_integer_expression_type(shift_count_expression->type) ||
         (shift_count_source &&
          ((shift_count_source->kind != DECL_VAR &&
            shift_count_source->kind != DECL_PARAM) ||
-          shift_count_source->var_is_global ||
+          !shift_count_source->type ||
+          (shift_count_is_global &&
+           (shift_count_source->kind != DECL_VAR ||
+            shift_count_source->type->is_volatile ||
+            shift_count_source->type->is_reference ||
+            shift_count_source->type->is_atomic)) ||
           shift_count_source->var_is_static_local ||
           shift_count_source->var_is_thread_local ||
-          shift_count_source->var_is_vla || !shift_count_source->type ||
+          shift_count_source->var_is_vla ||
           (shift_count_source->type->size != 4u &&
            shift_count_source->type->size != 8u) ||
           !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -8426,13 +8509,35 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         (!shift_count_source &&
          (unsigned int)shift_count_expression->type->size > 4u &&
          shift_count_expression->type->size != 8) ||
-        !debug_inline_parameter_frame_offset(
-            mod, source, &source_frame_offset) ||
-        (shift_count_source && !debug_inline_parameter_frame_offset(
-            mod, shift_count_source, &shift_count_frame_offset)) ||
-        source_frame_offset > INT64_MAX - 4) {
+        (relocations && (!relocations->offsets || !relocations->symbols ||
+                         !relocations->count)) ||
+        (!source_is_global && !debug_inline_parameter_frame_offset(
+            mod, source, &source_frame_offset)) ||
+        (!shift_count_is_global && shift_count_source &&
+         !debug_inline_parameter_frame_offset(
+             mod, shift_count_source, &shift_count_frame_offset)) ||
+        (!source_is_global && source_frame_offset > INT64_MAX - 4)) {
         return false;
     }
+    if (source_is_global) {
+        source_global_symbol = debug_find_global_symbol(mod, source);
+        if (!source_global_symbol || !source_global_symbol->is_global ||
+            !source_global_symbol->name ||
+            source_global_symbol->section == MODULE_SYMBOL_TLS) {
+            return false;
+        }
+    }
+    if (shift_count_is_global) {
+        shift_count_global_symbol = debug_find_global_symbol(
+            mod, shift_count_source);
+        if (!shift_count_global_symbol ||
+            !shift_count_global_symbol->is_global ||
+            !shift_count_global_symbol->name ||
+            shift_count_global_symbol->section == MODULE_SYMBOL_TLS) {
+            return false;
+        }
+    }
+    if (relocations) *relocations->count = 0u;
     is_left_shift = source_expression->kind == EXPR_LSHIFT;
     is_unsigned = parameter_type->is_unsigned;
 
@@ -8447,11 +8552,10 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         size_t high_count_path_end_operand;
         size_t high_count_path_offset;
         size_t zero_count_path_offset;
-        int64_t source_word_offset =
-            source_frame_offset + (int64_t)(word * 4u);
         if (!debug_inline_parameter_i686_u64_append_shift_count(
                 mod, shift_count_expression, shift_count_source,
-                shift_count_frame_offset, expression, capacity, &size) ||
+                shift_count_frame_offset, expression, capacity, &size,
+                relocations) ||
             !debug_inline_integer_expression_append_constu(
                 expression, capacity, &size, 0u) ||
             !debug_inline_integer_expression_append_byte(
@@ -8461,7 +8565,8 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
                 &zero_count_branch_operand) || /* DW_OP_bra */
             !debug_inline_parameter_i686_u64_append_shift_count(
                 mod, shift_count_expression, shift_count_source,
-                shift_count_frame_offset, expression, capacity, &size) ||
+                shift_count_frame_offset, expression, capacity, &size,
+                relocations) ||
             !debug_inline_integer_expression_append_constu(
                 expression, capacity, &size, 32u) ||
             !debug_inline_integer_expression_append_byte(
@@ -8474,35 +8579,35 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
 
         if (is_left_shift) {
             if (word == 0u) {
-                if (!debug_inline_integer_expression_append_frame_u32(
-                        expression, capacity, &size, ARCH_X86,
-                        source_frame_offset) ||
+                if (!debug_inline_parameter_i686_append_storage_u32(
+                        mod, source, source_frame_offset, false, expression,
+                        capacity, &size, relocations) ||
                     !debug_inline_parameter_i686_u64_append_shift_count(
                         mod, shift_count_expression, shift_count_source,
                         shift_count_frame_offset, expression, capacity,
-                        &size) ||
+                        &size, relocations) ||
                     !debug_inline_integer_expression_append_byte(
                         expression, capacity, &size, 0x24u)) { /* DW_OP_shl */
                     return false;
                 }
-            } else if (!debug_inline_integer_expression_append_frame_u32(
-                           expression, capacity, &size, ARCH_X86,
-                           source_frame_offset + 4) ||
+            } else if (!debug_inline_parameter_i686_append_storage_u32(
+                           mod, source, source_frame_offset, true, expression,
+                           capacity, &size, relocations) ||
                        !debug_inline_parameter_i686_u64_append_shift_count(
                            mod, shift_count_expression, shift_count_source,
                            shift_count_frame_offset, expression, capacity,
-                           &size) ||
+                           &size, relocations) ||
                        !debug_inline_integer_expression_append_byte(
                            expression, capacity, &size, 0x24u) || /* DW_OP_shl */
-                       !debug_inline_integer_expression_append_frame_u32(
-                           expression, capacity, &size, ARCH_X86,
-                           source_frame_offset) ||
+                       !debug_inline_parameter_i686_append_storage_u32(
+                           mod, source, source_frame_offset, false, expression,
+                           capacity, &size, relocations) ||
                        !debug_inline_integer_expression_append_constu(
                            expression, capacity, &size, 32u) ||
                        !debug_inline_parameter_i686_u64_append_shift_count(
                            mod, shift_count_expression, shift_count_source,
                            shift_count_frame_offset, expression, capacity,
-                           &size) ||
+                           &size, relocations) ||
                        !debug_inline_integer_expression_append_byte(
                            expression, capacity, &size, 0x1cu) || /* 32-count */
                        !debug_inline_integer_expression_append_byte(
@@ -8512,22 +8617,24 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
                 return false;
             }
         } else if (word == 0u) {
-            if (!debug_inline_integer_expression_append_frame_u32(
-                    expression, capacity, &size, ARCH_X86,
-                    source_frame_offset) ||
+            if (!debug_inline_parameter_i686_append_storage_u32(
+                    mod, source, source_frame_offset, false, expression,
+                    capacity, &size, relocations) ||
                 !debug_inline_parameter_i686_u64_append_shift_count(
                     mod, shift_count_expression, shift_count_source,
-                    shift_count_frame_offset, expression, capacity, &size) ||
+                    shift_count_frame_offset, expression, capacity, &size,
+                    relocations) ||
                 !debug_inline_integer_expression_append_byte(
                     expression, capacity, &size, 0x25u) || /* DW_OP_shr */
-                !debug_inline_integer_expression_append_frame_u32(
-                    expression, capacity, &size, ARCH_X86,
-                    source_frame_offset + 4) ||
+                !debug_inline_parameter_i686_append_storage_u32(
+                    mod, source, source_frame_offset, true, expression,
+                    capacity, &size, relocations) ||
                 !debug_inline_integer_expression_append_constu(
                     expression, capacity, &size, 32u) ||
                 !debug_inline_parameter_i686_u64_append_shift_count(
                     mod, shift_count_expression, shift_count_source,
-                    shift_count_frame_offset, expression, capacity, &size) ||
+                    shift_count_frame_offset, expression, capacity, &size,
+                    relocations) ||
                 !debug_inline_integer_expression_append_byte(
                     expression, capacity, &size, 0x1cu) || /* 32-count */
                 !debug_inline_integer_expression_append_byte(
@@ -8536,13 +8643,13 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
                     expression, capacity, &size, 0x21u)) { /* DW_OP_or */
                 return false;
             }
-        } else if (!debug_inline_integer_expression_append_frame_u32(
-                       expression, capacity, &size, ARCH_X86,
-                       source_frame_offset + 4) ||
+        } else if (!debug_inline_parameter_i686_append_storage_u32(
+                       mod, source, source_frame_offset, true, expression,
+                       capacity, &size, relocations) ||
                    !debug_inline_parameter_i686_u64_append_shift_count(
                        mod, shift_count_expression, shift_count_source,
                        shift_count_frame_offset, expression, capacity,
-                       &size) ||
+                       &size, relocations) ||
                    !debug_inline_integer_expression_append_byte(
                        expression, capacity, &size,
                        is_unsigned ? 0x25u : 0x26u)) { /* shr/shra */
@@ -8566,13 +8673,13 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
                         expression, capacity, &size, 0u)) {
                     return false;
                 }
-            } else if (!debug_inline_integer_expression_append_frame_u32(
-                           expression, capacity, &size, ARCH_X86,
-                           source_frame_offset) ||
+            } else if (!debug_inline_parameter_i686_append_storage_u32(
+                           mod, source, source_frame_offset, false, expression,
+                           capacity, &size, relocations) ||
                        !debug_inline_parameter_i686_u64_append_shift_count(
                            mod, shift_count_expression, shift_count_source,
                            shift_count_frame_offset, expression, capacity,
-                           &size) ||
+                           &size, relocations) ||
                        !debug_inline_integer_expression_append_constu(
                            expression, capacity, &size, 32u) ||
                        !debug_inline_integer_expression_append_byte(
@@ -8582,12 +8689,13 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
                 return false;
             }
         } else if (word == 0u) {
-            if (!debug_inline_integer_expression_append_frame_u32(
-                    expression, capacity, &size, ARCH_X86,
-                    source_frame_offset + 4) ||
+            if (!debug_inline_parameter_i686_append_storage_u32(
+                    mod, source, source_frame_offset, true, expression,
+                    capacity, &size, relocations) ||
                 !debug_inline_parameter_i686_u64_append_shift_count(
                     mod, shift_count_expression, shift_count_source,
-                    shift_count_frame_offset, expression, capacity, &size) ||
+                    shift_count_frame_offset, expression, capacity, &size,
+                    relocations) ||
                 !debug_inline_integer_expression_append_constu(
                     expression, capacity, &size, 32u) ||
                 !debug_inline_integer_expression_append_byte(
@@ -8602,9 +8710,9 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
                     expression, capacity, &size, 0u)) {
                 return false;
             }
-        } else if (!debug_inline_integer_expression_append_frame_u32(
-                       expression, capacity, &size, ARCH_X86,
-                       source_frame_offset + 4) ||
+        } else if (!debug_inline_parameter_i686_append_storage_u32(
+                       mod, source, source_frame_offset, true, expression,
+                       capacity, &size, relocations) ||
                    !debug_inline_integer_expression_append_constu(
                        expression, capacity, &size, 31u) ||
                    !debug_inline_integer_expression_append_byte(
@@ -8620,8 +8728,9 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         if (!debug_inline_integer_expression_patch_branch(
                 expression, size, zero_count_branch_operand,
                 zero_count_path_offset) ||
-            !debug_inline_integer_expression_append_frame_u32(
-                expression, capacity, &size, ARCH_X86, source_word_offset) ||
+            !debug_inline_parameter_i686_append_storage_u32(
+                mod, source, source_frame_offset, word != 0u, expression,
+                capacity, &size, relocations) ||
             !debug_inline_integer_expression_patch_branch(
                 expression, size, low_count_path_end_operand, size) ||
             !debug_inline_integer_expression_patch_branch(
@@ -9521,7 +9630,7 @@ static bool debug_inline_parameter_integer_expression(
         if (debug_inline_parameter_i686_u64_shift_variable_expression(
                 mod, parameter_type, source_expression, expression,
                 DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
-                expression_size)) {
+                expression_size, NULL)) {
             return true;
         }
     }
@@ -12066,6 +12175,13 @@ static void debug_emit_inline_parameter_instances(
         size_t integer_value_expression_size = 0u;
         size_t integer_value_relocation_offset = 0u;
         size_t integer_value_relocation_count = 0u;
+        DebugInlineI686ExpressionRelocations integer_value_relocations = {
+            integer_value_relocation_offsets,
+            integer_value_relocation_symbols,
+            sizeof(integer_value_relocation_offsets) /
+                sizeof(integer_value_relocation_offsets[0]),
+            &integer_value_relocation_count
+        };
         int64_t address_addend = 0;
         if (value->has_signed_integer_constant && value->declaration &&
             (origin = debug_inline_parameter_origin_find(
@@ -12144,6 +12260,34 @@ static void debug_emit_inline_parameter_instances(
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);
             section_add_bytes(info, expression, expression_size);
+        } else if (architecture == ARCH_X86 && value->declaration &&
+                   argument && argument->expr &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_i686_u64_shift_variable_expression(
+                       mod, value->declaration->type, argument->expr,
+                       integer_value_expression,
+                       sizeof(integer_value_expression),
+                       &integer_value_expression_size,
+                       &integer_value_relocations) &&
+                   integer_value_relocation_count != 0u) {
+            uint64_t expression_offset;
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, integer_value_expression_size);
+            expression_offset = info->size;
+            section_add_bytes(info, integer_value_expression,
+                              integer_value_expression_size);
+            for (size_t relocation_index = 0u;
+                 relocation_index < integer_value_relocation_count;
+                 ++relocation_index) {
+                objfile_add_reloc(
+                    obj, info_section,
+                    expression_offset +
+                        integer_value_relocation_offsets[relocation_index],
+                    integer_value_relocation_symbols[relocation_index]->name,
+                    RELOC_ABS32U, 0);
+            }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(
