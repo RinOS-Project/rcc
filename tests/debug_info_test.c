@@ -12178,7 +12178,7 @@ static uint64_t verify_inline_global_expression_tree(
     uint64_t expression_size, const char* source_name,
     uint64_t global_value, const char* second_source_name,
     uint64_t second_global_value, size_t expected_relocations,
-    bool require_single_multiply) {
+    uint8_t required_operator) {
     typedef struct InlineGlobalExpressionValue {
         uint64_t value;
         bool is_address;
@@ -12190,7 +12190,7 @@ static uint64_t verify_inline_global_expression_tree(
     size_t address_relocations = 0u;
     size_t first_symbol_relocations = 0u;
     size_t second_symbol_relocations = 0u;
-    size_t multiply_operations = 0u;
+    size_t required_operator_count = 0u;
     bool found_stack_value = false;
 
     assert(object != NULL && info != NULL && source_name != NULL &&
@@ -12265,13 +12265,12 @@ static uint64_t verify_inline_global_expression_tree(
                !stack[stack_size - 2u].is_address);
         rhs = stack[--stack_size].value;
         lhs = stack[stack_size - 1u].value;
+        if (operation == required_operator && required_operator != 0u)
+            required_operator_count++;
         switch (operation) {
             case 0x1au: result = lhs & rhs; break; /* and */
             case 0x1cu: result = lhs - rhs; break; /* minus */
-            case 0x1eu:
-                multiply_operations++;
-                result = lhs * rhs;
-                break; /* mul */
+            case 0x1eu: result = lhs * rhs; break; /* mul */
             case 0x29u: result = lhs == rhs ? 1u : 0u; break; /* eq */
             case 0x2eu: result = lhs != rhs ? 1u : 0u; break; /* ne */
             case 0x2au:
@@ -12308,7 +12307,7 @@ static uint64_t verify_inline_global_expression_tree(
         stack[stack_size - 1u].value = result;
     }
     assert(found_stack_value && address_relocations == expected_relocations &&
-           (!require_single_multiply || multiply_operations == 1u) &&
+           (required_operator == 0u || required_operator_count == 1u) &&
            (second_source_name == NULL ||
             (first_symbol_relocations == 1u &&
              second_symbol_relocations == 1u)));
@@ -12319,7 +12318,7 @@ static void verify_inline_global_wide_parameter(
     const char* path, uint16_t architecture, uint8_t computed_operation) {
     bool computed = computed_operation != 0u;
     bool global_pair_expression =
-        computed_operation == 0x42u || computed_operation == 0x43u;
+        computed_operation >= 0x42u && computed_operation <= 0x45u;
     const char* inline_name =
         "debug_nonconstant_unsigned_long_long_parameter_inline";
     const char* call_site_name =
@@ -12375,6 +12374,10 @@ static void verify_inline_global_wide_parameter(
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_pair_add_entry"
                                 : computed_operation == 0x43u
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_pair_mul_entry"
+                                : computed_operation == 0x44u
+                                    ? "debug_inline_nonconstant_unsigned_long_long_global_pair_sub_entry"
+                                : computed_operation == 0x45u
+                                    ? "debug_inline_nonconstant_unsigned_long_long_global_pair_xor_entry"
                                 : "debug_inline_nonconstant_unsigned_long_long_global_entry";
     const char* source_name =
         computed_operation == 0x3au
@@ -12531,7 +12534,7 @@ static void verify_inline_global_wide_parameter(
             computed_operation != 0x37u && computed_operation != 0x38u &&
             computed_operation != 0x39u && computed_operation != 0x3au &&
             computed_operation != 0x3bu && computed_operation != 0x3cu &&
-            (computed_operation < 0x3du || computed_operation > 0x43u)) {
+            (computed_operation < 0x3du || computed_operation > 0x45u)) {
             assert(cursor + 2u <= expression_end);
             assert(info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
                    info->data[cursor++] == 8u && cursor < expression_end &&
@@ -12592,7 +12595,7 @@ static void verify_inline_global_wide_parameter(
             computed_operation == 0x37u || computed_operation == 0x38u ||
             computed_operation == 0x39u || computed_operation == 0x3au ||
             computed_operation == 0x3bu || computed_operation == 0x3cu ||
-            (computed_operation >= 0x3du && computed_operation <= 0x43u)) {
+            (computed_operation >= 0x3du && computed_operation <= 0x45u)) {
             uint64_t expected_value;
             evaluated_value = verify_inline_global_expression_tree(
                 object, info, expression_offset, expression_size,
@@ -12601,7 +12604,9 @@ static void verify_inline_global_wide_parameter(
                 computed_operation == 0x30u ? 3u :
                 (computed_operation == 0x41u || global_pair_expression)
                     ? 2u : 1u,
-                computed_operation == 0x43u);
+                computed_operation == 0x43u ? 0x1eu :
+                computed_operation == 0x44u ? 0x1cu :
+                computed_operation == 0x45u ? 0x27u : 0u);
             if (computed_operation == 0x30u) {
                 expected_value = UINT64_C(0x7fffffefffffffb0);
             } else if (computed_operation == 0x31u ||
@@ -12637,6 +12642,10 @@ static void verify_inline_global_wide_parameter(
                 expected_value = UINT64_C(0x7edcba9876543207);
             } else if (computed_operation == 0x43u) {
                 expected_value = UINT64_C(0x923456789abcde90);
+            } else if (computed_operation == 0x44u) {
+                expected_value = UINT64_C(0x8123456789abcdd9);
+            } else if (computed_operation == 0x45u) {
+                expected_value = UINT64_C(0x8123456789abcde7);
             } else {
                 expected_value = UINT64_C(0xfdb97530eca8642e);
             }
@@ -12672,7 +12681,7 @@ static void verify_inline_global_wide_parameter(
         computed_operation != 0x37u && computed_operation != 0x38u &&
         computed_operation != 0x39u && computed_operation != 0x3au &&
         computed_operation != 0x3bu && computed_operation != 0x3cu &&
-        (computed_operation < 0x3du || computed_operation > 0x43u)) {
+        (computed_operation < 0x3du || computed_operation > 0x45u)) {
         for (const ObjReloc* relocation = info->relocs; relocation;
              relocation = relocation->next) {
             if (relocation->offset == expression_offset + 1u &&
@@ -13578,6 +13587,10 @@ int main(int argc, char** argv)
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x42u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x43u);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x43u);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x44u);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x44u);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x45u);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x45u);
         for (size_t path_index = 0u;
              path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
              ++path_index) {
