@@ -5442,6 +5442,44 @@ static bool debug_build_inline_integer_value_expression(
                 architecture);
     }
 
+    if (expression->kind == EXPR_COND && expression->cond_test &&
+        expression->cond_then && expression->cond_else &&
+        expression->type->size > 0 &&
+        expression->type->size <= (architecture == ARCH_X64 ? 8 : 4) &&
+        expression->cond_test->type &&
+        debug_inline_integer_expression_type(expression->cond_test->type) &&
+        expression->cond_test->type->size > 0 &&
+        expression->cond_test->type->size <=
+            (architecture == ARCH_X64 ? 8 : 4) &&
+        debug_inline_integer_expression_type(expression->cond_then->type) &&
+        debug_inline_integer_expression_type(expression->cond_else->type)) {
+        size_t true_branch_operand;
+        size_t end_branch_operand;
+        if (!debug_build_inline_integer_value_expression(
+                mod, architecture, expression->cond_test, output, capacity,
+                output_size, depth + 1u) ||
+            !debug_inline_integer_expression_append_branch(
+                output, capacity, output_size, 0x28u,
+                &true_branch_operand) || /* DW_OP_bra */
+            !debug_build_inline_integer_value_expression(
+                mod, architecture, expression->cond_else, output, capacity,
+                output_size, depth + 1u) ||
+            !debug_inline_integer_expression_append_branch(
+                output, capacity, output_size, 0x2fu,
+                &end_branch_operand) || /* DW_OP_skip */
+            !debug_inline_integer_expression_patch_branch(
+                output, *output_size, true_branch_operand, *output_size) ||
+            !debug_build_inline_integer_value_expression(
+                mod, architecture, expression->cond_then, output, capacity,
+                output_size, depth + 1u) ||
+            !debug_inline_integer_expression_patch_branch(
+                output, *output_size, end_branch_operand, *output_size)) {
+            return false;
+        }
+        return debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture);
+    }
+
     if (expression->kind == EXPR_IDENT && expression->ident_decl) {
         const Decl* source = expression->ident_decl;
         int64_t frame_offset;
@@ -5822,6 +5860,41 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         !debug_inline_integer_expression_type(value->type) ||
         value->type->size <= 0 || value->type->size > 8) {
         return false;
+    }
+    if (value->kind == EXPR_COND && value->cond_test && value->cond_then &&
+        value->cond_else && value->type->size == 8 &&
+        value->cond_test->type &&
+        debug_inline_integer_expression_type(value->cond_test->type) &&
+        value->cond_test->type->size > 0 &&
+        value->cond_test->type->size <= 4 &&
+        debug_inline_integer_expression_type(value->cond_then->type) &&
+        debug_inline_integer_expression_type(value->cond_else->type)) {
+        size_t true_branch_operand;
+        size_t end_branch_operand;
+        if (!debug_build_inline_integer_value_expression(
+                mod, ARCH_X86, value->cond_test, expression, capacity,
+                expression_size, depth + 1u) ||
+            !debug_inline_integer_expression_append_branch(
+                expression, capacity, expression_size, 0x28u,
+                &true_branch_operand) || /* DW_OP_bra */
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->cond_else, high_word, expression, capacity,
+                expression_size, depth + 1u) ||
+            !debug_inline_integer_expression_append_branch(
+                expression, capacity, expression_size, 0x2fu,
+                &end_branch_operand) || /* DW_OP_skip */
+            !debug_inline_integer_expression_patch_branch(
+                expression, *expression_size, true_branch_operand,
+                *expression_size) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->cond_then, high_word, expression, capacity,
+                expression_size, depth + 1u) ||
+            !debug_inline_integer_expression_patch_branch(
+                expression, *expression_size, end_branch_operand,
+                *expression_size)) {
+            return false;
+        }
+        return true;
     }
     if (value->kind == EXPR_CAST && value->cast_expr &&
         value->cast_expr->type && value->cast_expr->type->size > 0 &&

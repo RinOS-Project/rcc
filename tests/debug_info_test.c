@@ -8440,6 +8440,25 @@ static uint64_t evaluate_inline_integer_comparison_expression_with_secondary(
                 stack[stack_size++] = (uint64_t)(signed_lhs >> rhs) &
                     address_mask;
             }
+        } else if (opcode == 0x28u || opcode == 0x2fu) {
+            uint16_t encoded;
+            int32_t displacement;
+            bool take_branch = true;
+            assert(expression_offset + 2u <= expression_end);
+            encoded = (uint16_t)data[expression_offset] |
+                (uint16_t)((uint16_t)data[expression_offset + 1u] << 8u);
+            expression_offset += 2u;
+            displacement = encoded < 0x8000u
+                ? (int32_t)encoded : (int32_t)encoded - 0x10000;
+            if (opcode == 0x28u) {
+                assert(stack_size != 0u);
+                take_branch = stack[--stack_size] != 0u;
+            }
+            if (take_branch) {
+                int64_t target = (int64_t)expression_offset + displacement;
+                assert(target >= 0 && (uint64_t)target <= expression_end);
+                expression_offset = (uint64_t)target;
+            }
         } else if (opcode == 0x9fu) {
             assert(!has_pending_frame_offset && stack_size == 1u &&
                    expression_offset == expression_end);
@@ -10122,6 +10141,8 @@ static const char* inline_integer_comparison_entry_for_source(
          "debug_inline_signed_char_enum_unsigned_int_compare_entry"},
         {"debug_inline_signed_long_long_compare_entry_source",
          "debug_inline_signed_long_long_compare_entry"},
+        {"debug_inline_signed_long_long_conditional_compare_entry_source",
+         "debug_inline_signed_long_long_conditional_compare_entry"},
         {"debug_inline_unsigned_long_long_compare_entry_source",
          "debug_inline_unsigned_long_long_compare_entry"},
         {"debug_inline_signed_long_long_less_equal_entry_source",
@@ -10618,9 +10639,13 @@ static void verify_inline_integer_expression_parameter(
         strcmp(source_name,
                "debug_inline_nonconstant_unsigned_long_compare_signed_int_entry_source")
             == 0;
+    bool conditional_wide_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_signed_long_long_conditional_compare_entry_source") == 0;
     bool wide_integer_comparison = source_name &&
         (strcmp(source_name,
                 "debug_inline_signed_long_long_compare_entry_source") == 0 ||
+         conditional_wide_comparison ||
          strcmp(source_name,
                 "debug_inline_unsigned_long_long_compare_entry_source") == 0 ||
          strcmp(source_name,
@@ -10686,6 +10711,7 @@ static void verify_inline_integer_expression_parameter(
     bool narrow_wide_comparison = source_name &&
         (strcmp(source_name,
                 "debug_inline_signed_long_long_unsigned_int_compare_entry_source") == 0 ||
+         conditional_wide_comparison ||
          strcmp(source_name,
                 "debug_inline_unsigned_long_long_signed_int_compare_entry_source") == 0 ||
          strcmp(source_name,
@@ -11158,7 +11184,18 @@ static void verify_inline_integer_expression_parameter(
             inline_integer_comparison_secondary_size(source_name);
         if (secondary_source) assert(secondary_size > 0u);
         for (size_t index = 0u; index < value_count; ++index) {
-            if (signed_right_shift_wide_comparison) {
+            if (conditional_wide_comparison) {
+                uint64_t selected = values[index] == 0u
+                    ? UINT64_MAX : values[index];
+                uint64_t actual =
+                    evaluate_inline_integer_comparison_expression(
+                        info->data, expression_end, expression_start,
+                        architecture, frame_offset, value_size, values[index]);
+                bool compared = verify_inline_integer_comparison_value(
+                    selected, (uint64_t)expected_constant, false, 64u,
+                    expected_operation);
+                assert(actual == !compared);
+            } else if (signed_right_shift_wide_comparison) {
                 int64_t signed_value = verify_inline_integer_signed_bits(
                     values[index], 64u);
                 uint64_t actual =
@@ -12742,6 +12779,8 @@ int main(int argc, char** argv)
             int64_t constant;
         } AdditionalWideComparison;
         static const AdditionalWideComparison additional_wide_comparisons[] = {
+            {"debug_inline_signed_long_long_conditional_compare_entry_source",
+             false, 0x2du, 0},
             {"debug_inline_signed_long_long_less_equal_entry_source",
              false, 0x2cu, 0},
             {"debug_inline_signed_long_long_greater_entry_source",
