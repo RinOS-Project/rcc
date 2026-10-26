@@ -2,6 +2,10 @@ typedef unsigned int DebugInfoWord;
 
 int debug_global_data = 7;
 extern int debug_global_data;
+unsigned long long debug_inline_nonconstant_unsigned_long_long_runtime_divisor =
+    0x8000000000000001ull;
+unsigned long long debug_inline_nonconstant_unsigned_long_long_runtime_dividend =
+    0xfedcba9876543217ull;
 static int debug_file_static;
 const int debug_const_data = 4;
 volatile int debug_volatile_data;
@@ -63,6 +67,10 @@ float* debug_inline_nonconstant_float_escape;
 double* debug_inline_nonconstant_double_escape;
 unsigned long long* debug_inline_nonconstant_unsigned_long_long_escape;
 unsigned long long*
+    debug_inline_nonconstant_unsigned_long_long_runtime_escape;
+unsigned long long*
+    debug_inline_nonconstant_unsigned_long_long_runtime_local_divisor_escape;
+unsigned long long*
     debug_inline_nonconstant_unsigned_long_long_wide_escape;
 unsigned long long*
     debug_inline_nonconstant_unsigned_long_long_rhs_escape;
@@ -105,6 +113,72 @@ int debug_line_entry(void)
 int debug_inline_entry(int value)
 {
     return debug_declared_inline(value);
+}
+
+int debug_inline_nonconstant_unsigned_long_long_runtime_divide_entry(
+    int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_runtime_source =
+            (unsigned int)value;
+    debug_inline_nonconstant_unsigned_long_long_runtime_escape =
+        &debug_inline_nonconstant_unsigned_long_long_runtime_source;
+    return (int)debug_nonconstant_unsigned_long_long_high_divide_inline(
+        debug_inline_nonconstant_unsigned_long_long_runtime_source /
+        debug_inline_nonconstant_unsigned_long_long_runtime_divisor);
+}
+
+int debug_inline_nonconstant_unsigned_long_long_runtime_remainder_entry(
+    int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_runtime_source =
+            (unsigned int)value;
+    debug_inline_nonconstant_unsigned_long_long_runtime_escape =
+        &debug_inline_nonconstant_unsigned_long_long_runtime_source;
+    return (int)debug_nonconstant_unsigned_long_long_high_remainder_inline(
+        debug_inline_nonconstant_unsigned_long_long_runtime_source %
+        debug_inline_nonconstant_unsigned_long_long_runtime_divisor);
+}
+
+int debug_inline_nonconstant_unsigned_long_long_global_runtime_divide_entry(
+    int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_runtime_divide_local_divisor =
+            (unsigned int)value | 1u;
+    debug_inline_nonconstant_unsigned_long_long_runtime_local_divisor_escape =
+        &debug_inline_nonconstant_unsigned_long_long_runtime_divide_local_divisor;
+    return (int)debug_nonconstant_unsigned_long_long_high_divide_inline(
+        debug_inline_nonconstant_unsigned_long_long_runtime_dividend /
+        debug_inline_nonconstant_unsigned_long_long_runtime_divide_local_divisor);
+}
+
+int debug_inline_nonconstant_unsigned_long_long_global_runtime_remainder_entry(
+    int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_runtime_remainder_local_divisor =
+            (unsigned int)value | 1u;
+    debug_inline_nonconstant_unsigned_long_long_runtime_local_divisor_escape =
+        &debug_inline_nonconstant_unsigned_long_long_runtime_remainder_local_divisor;
+    return (int)debug_nonconstant_unsigned_long_long_high_remainder_inline(
+        debug_inline_nonconstant_unsigned_long_long_runtime_dividend %
+        debug_inline_nonconstant_unsigned_long_long_runtime_remainder_local_divisor);
+}
+
+int debug_inline_nonconstant_unsigned_long_long_global_pair_divide_entry(void)
+{
+    return (int)debug_nonconstant_unsigned_long_long_high_divide_inline(
+        debug_inline_nonconstant_unsigned_long_long_runtime_dividend /
+        debug_inline_nonconstant_unsigned_long_long_runtime_divisor);
+}
+
+int debug_inline_nonconstant_unsigned_long_long_global_pair_remainder_entry(void)
+{
+    return (int)debug_nonconstant_unsigned_long_long_high_remainder_inline(
+        debug_inline_nonconstant_unsigned_long_long_runtime_dividend %
+        debug_inline_nonconstant_unsigned_long_long_runtime_divisor);
 }
 
 int debug_inline_nonconstant_integer_entry(int value)

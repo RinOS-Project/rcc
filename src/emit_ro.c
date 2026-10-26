@@ -10232,13 +10232,14 @@ static bool debug_inline_parameter_i686_u64_negate_expression(
 static bool debug_inline_parameter_i686_u64_div_variable_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
-    size_t* expression_size) {
+    size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
     const Expr* dividend_expression;
     const Expr* divisor_expression;
     const Decl* dividend;
     const Decl* divisor;
-    int64_t dividend_frame_offset;
-    int64_t divisor_frame_offset;
+    int64_t dividend_frame_offset = 0;
+    int64_t divisor_frame_offset = 0;
 
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || parameter_type->size != 8 ||
@@ -10262,7 +10263,8 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
     divisor = divisor_expression->ident_decl;
     if ((dividend->kind != DECL_VAR && dividend->kind != DECL_PARAM) ||
         (divisor->kind != DECL_VAR && divisor->kind != DECL_PARAM) ||
-        dividend->var_is_global || divisor->var_is_global ||
+        (dividend->var_is_global && dividend->kind != DECL_VAR) ||
+        (divisor->var_is_global && divisor->kind != DECL_VAR) ||
         dividend->var_is_static_local || divisor->var_is_static_local ||
         dividend->var_is_thread_local || divisor->var_is_thread_local ||
         dividend->var_is_vla || divisor->var_is_vla ||
@@ -10274,18 +10276,24 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
             dividend->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             divisor->type, parameter_type, 0u) ||
-        !debug_inline_parameter_frame_offset(
-            mod, dividend, &dividend_frame_offset) ||
-        !debug_inline_parameter_frame_offset(
-            mod, divisor, &divisor_frame_offset) ||
+        ((dividend->var_is_global || divisor->var_is_global) &&
+         (!relocations || !relocations->offsets || !relocations->symbols ||
+          !relocations->count)) ||
+        (!dividend->var_is_global &&
+         !debug_inline_parameter_frame_offset(
+             mod, dividend, &dividend_frame_offset)) ||
+        (!divisor->var_is_global &&
+         !debug_inline_parameter_frame_offset(
+             mod, divisor, &divisor_frame_offset)) ||
         dividend_frame_offset > INT64_MAX - 6 ||
         divisor_frame_offset > INT64_MAX - 6) {
         return false;
     }
+    if (relocations) *relocations->count = 0u;
     return debug_inline_parameter_i686_u64_general_division_expression(
         mod, dividend, dividend_frame_offset, 0u, divisor,
         divisor_frame_offset, source_expression->kind == EXPR_MOD,
-        expression, capacity, expression_size, NULL);
+        expression, capacity, expression_size, relocations);
 }
 
 static bool debug_inline_parameter_i686_u64_logical_not_expression(
@@ -10444,7 +10452,7 @@ static bool debug_inline_parameter_integer_expression(
          source_expression->kind == EXPR_MOD) &&
         debug_inline_parameter_i686_u64_div_variable_expression(
             mod, parameter_type, source_expression, expression,
-            expression_capacity, expression_size)) {
+            expression_capacity, expression_size, NULL)) {
         return true;
     }
 
@@ -13952,6 +13960,35 @@ static void debug_emit_inline_parameter_instances(
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);
             section_add_bytes(info, expression, expression_size);
+        } else if (architecture == ARCH_X86 && value->declaration &&
+                   argument && argument->expr &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_body_is_read_only(call->callee) &&
+                   debug_inline_parameter_i686_u64_div_variable_expression(
+                       mod, value->declaration->type, argument->expr,
+                       integer_value_expression,
+                       sizeof(integer_value_expression),
+                       &integer_value_expression_size,
+                       &integer_value_relocations) &&
+                   integer_value_relocation_count != 0u) {
+            uint64_t expression_offset;
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, integer_value_expression_size);
+            expression_offset = info->size;
+            section_add_bytes(info, integer_value_expression,
+                              integer_value_expression_size);
+            for (size_t relocation_index = 0u;
+                 relocation_index < integer_value_relocation_count;
+                 ++relocation_index) {
+                objfile_add_reloc(
+                    obj, info_section,
+                    expression_offset +
+                        integer_value_relocation_offsets[relocation_index],
+                    integer_value_relocation_symbols[relocation_index]->name,
+                    RELOC_ABS32U, 0);
+            }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(

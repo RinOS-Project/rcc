@@ -8893,7 +8893,17 @@ remains a separate open item.
       dividends against nine nonzero divisors (including high-bit and maximum
       values) for both `/` and `%` in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] Global or otherwise non-frame-backed variable divisors, signed 64-bit
+- [x] Load an ordinary global i686 unsigned-64 runtime divisor alongside a
+      frame-backed dividend with exactly two `ABS32U` relocations. Verify the
+      initialized high-bit divisor and the 11-by-9 division/remainder boundary
+      matrix in legacy and verified objects; focused inline-expression and
+      full `test-debug-info` gates pass.
+- [x] Load ordinary global unsigned-64 dividend and divisor operands, both
+      separately with a frame-backed counterpart and together, using exactly
+      two `ABS32U` relocations per global operand. Verify both initialized
+      globals and the 11-by-9 division/remainder boundary matrix in legacy and
+      verified objects.
+- [ ] TLS/static-local or volatile/reference/atomic operands, signed 64-bit
       division/remainder, and broader optimized multi-piece locations remain
       open.
 
