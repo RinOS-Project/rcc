@@ -10413,13 +10413,12 @@ remains a separate open item.
       C and C++ tests verify cast-on-dividend division and cast-on-divisor
       remainder in legacy and verified i686 objects. C frame-local tests also
       cover both cast positions and operations, verifying the emitted frame
-      expressions. Preserve type-identical unary `+` around a signed 64-bit cast
-      as well; C and C++ division fixtures verify it in legacy and verified
-      i686 objects. Repeated unary-minus chains are reduced by parity and
-      covered with even-negative dividend division and odd-negative divisor
-      remainder in both languages. C/C++ fixtures also verify unary `+` around
-      same-type signed 64-bit casts. Both focused and complete DWARF gates pass
-      under WSL2 Ubuntu-24.04/GCC.
+      expressions. Preserve type-identical unary `+` around signed 64-bit casts
+      in C/C++ and unsigned 64-bit operands in C; these cases pass in legacy
+      and verified i686 objects. Repeated unary-minus chains are reduced by
+      parity and covered with even-negative dividend division and odd-negative
+      divisor remainder in both languages. Both focused and complete DWARF
+      gates pass under WSL2 Ubuntu-24.04/GCC.
 - [ ] Broader computed signed operand trees, width-changing casts,
       TLS/static-local or volatile/reference/atomic operands, and optimized
       multi-piece locations remain open.

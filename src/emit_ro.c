@@ -10519,7 +10519,7 @@ static bool debug_inline_parameter_i686_signed_division_operand(
     *negate = false;
     for (;;) {
         if (expression->kind == EXPR_CAST) {
-            if (!is_signed || !expression->cast_expr ||
+            if (!expression->cast_expr ||
                 !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                     expression->type, parameter_type, 0u) ||
                 !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -10530,7 +10530,7 @@ static bool debug_inline_parameter_i686_signed_division_operand(
             continue;
         }
         if (expression->kind == EXPR_POS) {
-            if (!is_signed || !expression->unary_operand ||
+            if (!expression->unary_operand ||
                 !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                     expression->type, parameter_type, 0u) ||
                 !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
