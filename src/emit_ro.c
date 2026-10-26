@@ -9822,9 +9822,11 @@ static bool debug_inline_x64_global_expression_collect(
     if (expression->kind == EXPR_LSHIFT ||
         expression->kind == EXPR_RSHIFT) {
         uint64_t shift_count;
-        if (!debug_inline_integer_literal_bits(
-                expression->binary_rhs, &shift_count, 0u) ||
-            shift_count >= 64u) {
+        if (debug_inline_integer_literal_bits(
+                expression->binary_rhs, &shift_count, 0u)) {
+            if (shift_count >= 64u) return false;
+        } else if (!debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                       value_type, expression->binary_rhs->type, 0u)) {
             return false;
         }
     } else if (!debug_inline_parameter_storage_type_equal_ignoring_top_cv(

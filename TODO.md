@@ -10188,8 +10188,14 @@ remains a separate open item.
       verified objects, allowing optimizer-dependent relocation-leaf counts
       while still validating each referenced symbol. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Preserve AMD64 unsigned-64 global-backed inline left and logical-right
+      shifts with a nonconstant unsigned-64 global shift count. Verify both
+      exact global relocations, `DW_OP_shl`/`DW_OP_shr`, and the evaluated
+      results for a high-bit source shifted by four in legacy and verified
+      objects. Focused `test-debug-info-inline-expression` and full
+      `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,
-      other AMD64 computed-global multiplication shapes, divide/modulo, and
-      additional shift forms, and other mixed-rank matrices remain open.
+      other AMD64 computed-global multiplication shapes, divide/modulo, other
+      shift forms, and mixed-rank matrices remain open.
