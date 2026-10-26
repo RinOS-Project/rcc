@@ -6711,8 +6711,11 @@ remains a separate open item.
       emission for i686 and AMD64 at `-O0`/`-O2`, then execute the actual
       x86-64 verified `.ro` object to check both branch outcomes and
       loop-carried values through its `main` entry point.
-- [ ] Gotos inside structured wide-scalar loop lowering and full SSA
-      predecessor-phi construction at arbitrary labels remain open.
+- [x] Implement the formerly open structured-loop goto path and low/high SSA
+      predecessor phis at arbitrary labels. The later `test-verified-goto`
+      matrix checks 32 functions with zero fallback on i686/AMD64 at `-O0` and
+      `-O2`, executes both generated AMD64 objects, and compares the C17 host
+      oracle; the detailed loop, join, and phi cases are recorded below.
 
 ## RCC continuation (2026-10-18, same-target local callback reassignment)
 
