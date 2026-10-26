@@ -10288,14 +10288,22 @@ remains a separate open item.
       sign/zero-extension; verify the exact source relocations and boundary
       results in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Extend global scoped-enum widening coverage to fixed `signed char`,
+      `unsigned short`, and `signed int` underlying types, completing the
+      signed/unsigned 8-, 16-, and 32-bit source matrix to both i686 inline
+      64-bit destination signednesses. Verify source-width relocations and
+      sign/zero extension on boundary values in legacy and verified objects.
+      Focused `test-debug-info-inline-expression` and full `test-debug-info`
+      pass.
 - [x] Emit i686 global unsigned-64 division and remainder by nonzero 32-bit
       integer literals using relocated storage-word loads and the existing
       chunked unsigned-division algorithm. Verify divisors 7, 1073741825, and
       2147483649 across boundary dividend values, exact source relocations, and
       both legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] Remaining scoped-enum underlying widths and conversion directions, larger
-      computed expression trees beyond bounded logical/conditional and
+- [ ] Target-dependent `long` and 64-bit scoped-enum underlying types,
+      narrowing/mixed-rank enum conversions, larger computed expression trees
+      beyond bounded logical/conditional and
       multiplication cases, additional computed non-frame-backed i686 wide
       operands beyond global bool/8/16/32-bit widening and the completed global
       unary,

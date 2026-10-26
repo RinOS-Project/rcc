@@ -104,6 +104,15 @@ enum class DebugInlineGlobalSignedShort : short {
 enum class DebugInlineGlobalUnsignedInt : unsigned int {
     widen_value = 0x89abcdefu
 };
+enum class DebugInlineGlobalSignedChar : signed char {
+    widen_value = -37
+};
+enum class DebugInlineGlobalUnsignedShort : unsigned short {
+    widen_value = 0xd123u
+};
+enum class DebugInlineGlobalSignedInt : signed int {
+    widen_value = -0x1234567
+};
 
 extern "C" {
 unsigned long long debug_inline_nonconstant_unsigned_long_long_global_source =
@@ -131,6 +140,13 @@ DebugInlineGlobalSignedShort debug_inline_global_signed_short_widen_source =
     DebugInlineGlobalSignedShort::widen_value;
 DebugInlineGlobalUnsignedInt debug_inline_global_unsigned_int_widen_source =
     DebugInlineGlobalUnsignedInt::widen_value;
+DebugInlineGlobalSignedChar debug_inline_global_signed_char_widen_source =
+    DebugInlineGlobalSignedChar::widen_value;
+DebugInlineGlobalUnsignedShort
+debug_inline_global_unsigned_short_widen_source =
+    DebugInlineGlobalUnsignedShort::widen_value;
+DebugInlineGlobalSignedInt debug_inline_global_signed_int_widen_source =
+    DebugInlineGlobalSignedInt::widen_value;
 long long debug_inline_nonconstant_signed_long_long_global_shift_source =
     -0x123456789abcdefLL;
 unsigned long long
@@ -297,6 +313,52 @@ debug_inline_signed_long_long_global_enum_u32_widen_entry(void)
 {
     return debug_nonconstant_signed_long_long_parameter_inline(
         static_cast<long long>(debug_inline_global_unsigned_int_widen_source));
+}
+
+extern "C" unsigned long long
+debug_inline_unsigned_long_long_global_enum_i8_widen_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            debug_inline_global_signed_char_widen_source));
+}
+
+extern "C" long long
+debug_inline_signed_long_long_global_enum_i8_widen_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(debug_inline_global_signed_char_widen_source));
+}
+
+extern "C" unsigned long long
+debug_inline_unsigned_long_long_global_enum_u16_widen_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            debug_inline_global_unsigned_short_widen_source));
+}
+
+extern "C" long long
+debug_inline_signed_long_long_global_enum_u16_widen_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            debug_inline_global_unsigned_short_widen_source));
+}
+
+extern "C" unsigned long long
+debug_inline_unsigned_long_long_global_enum_i32_widen_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            debug_inline_global_signed_int_widen_source));
+}
+
+extern "C" long long
+debug_inline_signed_long_long_global_enum_i32_widen_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(debug_inline_global_signed_int_widen_source));
 }
 
 extern "C" unsigned long long
