@@ -10003,6 +10003,11 @@ remains a separate open item.
       32-bit words are checked at boundary values; signed-overflow cases are
       excluded. Focused and full `test-debug-info` pass in legacy and verified
       i686/AMD64 configurations.
-- [ ] Scoped enums, other enum underlying-width combinations, larger computed
-      expression trees, non-frame-backed wide operands, and other mixed-rank
-      matrices remain open.
+- [x] Verify explicit casts of frame-backed scoped enum RHS values with
+      `unsigned char`, `signed int`, and `unsigned long long` underlying types
+      in wide comparisons. Cover promotion, sign/zero extension, and split
+      i686 64-bit frame loads at boundary values. Focused and full
+      `test-debug-info` pass in legacy and verified i686/AMD64 configurations.
+- [ ] Other scoped-enum underlying widths and conversion directions, larger
+      computed expression trees, non-frame-backed wide operands, and other
+      mixed-rank matrices remain open.

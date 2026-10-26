@@ -8342,6 +8342,10 @@ static uint64_t evaluate_inline_integer_comparison_expression_with_secondary(
         } else if (opcode == 0x94u) {
             uint8_t value_size;
             uint64_t value_mask;
+            bool i686_wide_secondary_word =
+                architecture == ARCH_X86 && secondary_value_size == 8u &&
+                secondary_frame_offset <= INT64_MAX - 4 &&
+                pending_frame_offset == secondary_frame_offset + 4;
             bool i686_wide_source = architecture == ARCH_X86 &&
                 source_value_size == 8u;
             assert(expression_offset < expression_end &&
@@ -8349,11 +8353,21 @@ static uint64_t evaluate_inline_integer_comparison_expression_with_secondary(
                    has_pending_frame_offset);
             value_size = data[expression_offset++];
             if (secondary_value_size != 0u &&
-                pending_frame_offset == secondary_frame_offset) {
-                assert(value_size == secondary_value_size);
-                value_mask = value_size == 8u ? UINT64_MAX
-                    : (UINT64_C(1) << (value_size * 8u)) - 1u;
-                stack[stack_size++] = secondary_value & value_mask;
+                (pending_frame_offset == secondary_frame_offset ||
+                 i686_wide_secondary_word)) {
+                /* i686 expressions read a frame-backed 64-bit RHS by words. */
+                if (architecture == ARCH_X86 &&
+                    secondary_value_size == 8u && value_size == 4u) {
+                    stack[stack_size++] = pending_frame_offset ==
+                            secondary_frame_offset
+                        ? (uint32_t)secondary_value
+                        : (uint32_t)(secondary_value >> 32u);
+                } else {
+                    assert(value_size == secondary_value_size);
+                    value_mask = value_size == 8u ? UINT64_MAX
+                        : (UINT64_C(1) << (value_size * 8u)) - 1u;
+                    stack[stack_size++] = secondary_value & value_mask;
+                }
             } else if (i686_wide_source) {
                 assert(value_size == 4u &&
                        (pending_frame_offset == source_frame_offset ||
@@ -10143,6 +10157,12 @@ static const char* inline_integer_comparison_entry_for_source(
          "debug_inline_signed_long_long_signed_short_enum_compare_entry"},
         {"debug_inline_signed_long_long_signed_int_enum_compare_entry_source",
          "debug_inline_signed_long_long_signed_int_enum_compare_entry"},
+        {"debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry_source",
+         "debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry"},
+        {"debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry_source",
+         "debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry"},
+        {"debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source",
+         "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry"},
         {"debug_inline_signed_long_long_add_one_compare_entry_source",
          "debug_inline_signed_long_long_add_one_compare_entry"},
         {"debug_inline_signed_long_long_sub_one_compare_entry_source",
@@ -10225,6 +10245,21 @@ static const char* inline_integer_comparison_secondary_source(
             "debug_inline_signed_long_long_signed_int_enum_compare_entry_source") == 0) {
         return "debug_inline_signed_long_long_signed_int_enum_compare_rhs";
     }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_rhs";
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_scoped_signed_int_enum_compare_rhs";
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source") == 0) {
+        return "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_rhs";
+    }
     return NULL;
 }
 
@@ -10286,6 +10321,21 @@ static uint8_t inline_integer_comparison_secondary_size(
             "debug_inline_signed_long_long_signed_int_enum_compare_entry_source") == 0) {
         return 4u;
     }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry_source") == 0) {
+        return 1u;
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry_source") == 0) {
+        return 4u;
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source") == 0) {
+        return 8u;
+    }
     return 0u;
 }
 
@@ -10303,7 +10353,11 @@ static bool inline_integer_comparison_secondary_is_unsigned(
          strcmp(source_name,
                 "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
-                "debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source") == 0);
+                "debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source") == 0);
 }
 
 static bool inline_integer_comparison_secondary_is_bool(
@@ -10426,6 +10480,12 @@ static void verify_inline_integer_expression_parameter(
          strcmp(source_name,
                 "debug_inline_signed_long_long_signed_int_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
+                "debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
                 "debug_inline_signed_long_long_add_one_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_signed_long_long_sub_one_compare_entry_source") == 0);
@@ -10460,6 +10520,12 @@ static void verify_inline_integer_expression_parameter(
                 "debug_inline_signed_long_long_signed_short_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_signed_long_long_signed_int_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_signed_long_long_add_one_compare_entry_source") == 0 ||
          strcmp(source_name,
@@ -10747,7 +10813,9 @@ static void verify_inline_integer_expression_parameter(
             } else if (secondary_source) {
                 unsigned int secondary_bits = (unsigned int)secondary_size * 8u;
                 uint64_t secondary_sign = UINT64_C(1) << (secondary_bits - 1u);
-                uint64_t secondary_max = (UINT64_C(1) << secondary_bits) - 1u;
+                uint64_t secondary_max = secondary_bits == 64u
+                    ? UINT64_MAX
+                    : (UINT64_C(1) << secondary_bits) - 1u;
                 uint64_t signed_rhs_values[] = {
                     secondary_sign, secondary_max, 0u, 1u,
                     secondary_sign - 1u
@@ -12188,6 +12256,12 @@ int main(int argc, char** argv)
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_signed_int_enum_compare_entry_source",
              false, 0x2du, 0},
+            {"debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source",
+             true, 0x2du, 0},
             {"debug_inline_signed_long_long_add_one_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_sub_one_compare_entry_source",

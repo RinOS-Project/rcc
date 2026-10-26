@@ -32,6 +32,33 @@ enum DebugInlineSignedComparisonEnum : int {
 
 DebugInlineSignedComparisonEnum* debug_inline_signed_comparison_enum_escape;
 
+enum class DebugInlineScopedUnsignedCharComparisonEnum : unsigned char {
+    zero = 0,
+    maximum = 255,
+};
+
+DebugInlineScopedUnsignedCharComparisonEnum*
+    debug_inline_scoped_unsigned_char_comparison_enum_escape;
+
+enum class DebugInlineScopedSignedComparisonEnum : int {
+    minimum = (-2147483647 - 1),
+    negative = -1,
+    zero = 0,
+    maximum = 2147483647,
+};
+
+DebugInlineScopedSignedComparisonEnum*
+    debug_inline_scoped_signed_comparison_enum_escape;
+
+enum class DebugInlineScopedUnsignedWideComparisonEnum : unsigned long long {
+    zero = 0,
+    high_bit = 0x8000000000000000ULL,
+    maximum = 0xffffffffffffffffULL,
+};
+
+DebugInlineScopedUnsignedWideComparisonEnum*
+    debug_inline_scoped_unsigned_wide_comparison_enum_escape;
+
 enum DebugInlineUnsignedShortComparisonEnum : unsigned short {
     debug_inline_unsigned_short_comparison_enum_zero = 0,
     debug_inline_unsigned_short_comparison_enum_maximum = 65535,
@@ -443,6 +470,64 @@ extern "C" int debug_inline_signed_long_long_signed_int_enum_compare_entry(
     return debug_nonconstant_integer_parameter_inline(
         !(debug_inline_signed_long_long_signed_int_enum_compare_entry_source <
           debug_inline_signed_long_long_signed_int_enum_compare_rhs));
+}
+
+extern "C" int
+debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry(
+    long long value, unsigned char rhs)
+{
+    long long debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry_source =
+        value;
+    DebugInlineScopedUnsignedCharComparisonEnum
+        debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_rhs =
+            static_cast<DebugInlineScopedUnsignedCharComparisonEnum>(rhs);
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry_source;
+    debug_inline_scoped_unsigned_char_comparison_enum_escape =
+        &debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_entry_source <
+          static_cast<long long>(
+              debug_inline_signed_long_long_scoped_unsigned_char_enum_compare_rhs)));
+}
+
+extern "C" int
+debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry(
+    long long value, int rhs)
+{
+    long long debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry_source =
+        value;
+    DebugInlineScopedSignedComparisonEnum
+        debug_inline_signed_long_long_scoped_signed_int_enum_compare_rhs =
+            static_cast<DebugInlineScopedSignedComparisonEnum>(rhs);
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry_source;
+    debug_inline_scoped_signed_comparison_enum_escape =
+        &debug_inline_signed_long_long_scoped_signed_int_enum_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_scoped_signed_int_enum_compare_entry_source <
+          static_cast<long long>(
+              debug_inline_signed_long_long_scoped_signed_int_enum_compare_rhs)));
+}
+
+extern "C" int
+debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry(
+    unsigned long long value, unsigned long long rhs)
+{
+    unsigned long long
+        debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source =
+            value;
+    DebugInlineScopedUnsignedWideComparisonEnum
+        debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_rhs =
+            static_cast<DebugInlineScopedUnsignedWideComparisonEnum>(rhs);
+    debug_inline_unsigned_long_long_comparison_escape =
+        &debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source;
+    debug_inline_scoped_unsigned_wide_comparison_enum_escape =
+        &debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source <
+          static_cast<unsigned long long>(
+              debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_rhs)));
 }
 
 extern "C" int debug_inline_signed_long_long_add_one_compare_entry(
