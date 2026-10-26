@@ -10415,8 +10415,10 @@ remains a separate open item.
       cover both cast positions and operations, verifying the emitted frame
       expressions. Preserve type-identical unary `+` around a signed 64-bit cast
       as well; C and C++ division fixtures verify it in legacy and verified
-      i686 objects. Both focused and complete DWARF gates pass under WSL2
-      Ubuntu-24.04/GCC.
-- [ ] Broader computed signed operand trees, width-changing casts, nested or
-      multiple unary operations, TLS/static-local or volatile/reference/atomic
-      operands, and optimized multi-piece locations remain open.
+      i686 objects. Repeated unary-minus chains are reduced by parity and
+      covered with even-negative dividend division and odd-negative divisor
+      remainder in both languages. Both focused and complete DWARF gates pass
+      under WSL2 Ubuntu-24.04/GCC.
+- [ ] Broader computed signed operand trees, width-changing casts,
+      TLS/static-local or volatile/reference/atomic operands, and optimized
+      multi-piece locations remain open.

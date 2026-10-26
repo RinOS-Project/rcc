@@ -10541,8 +10541,14 @@ static bool debug_inline_parameter_i686_signed_division_operand(
             continue;
         }
         if (expression->kind != EXPR_NEG) break;
-        if (!is_signed || *negate || !expression->unary_operand) return false;
-        *negate = true;
+        if (!is_signed || !expression->unary_operand ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                expression->type, parameter_type, 0u) ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                expression->unary_operand->type, expression->type, 0u)) {
+            return false;
+        }
+        *negate = !*negate;
         expression = expression->unary_operand;
     }
     if (expression->kind != EXPR_IDENT || !expression->ident_decl) {
