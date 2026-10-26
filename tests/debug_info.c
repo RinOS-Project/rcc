@@ -397,7 +397,8 @@ int debug_inline_nonconstant_unsigned_long_long_global_runtime_remainder_entry(
 int debug_inline_nonconstant_unsigned_long_long_global_pair_divide_entry(void)
 {
     return (int)debug_nonconstant_unsigned_long_long_high_divide_inline(
-        (+debug_inline_nonconstant_unsigned_long_long_runtime_dividend) /
+        (+(unsigned long long)
+            debug_inline_nonconstant_unsigned_long_long_runtime_dividend) /
         debug_inline_nonconstant_unsigned_long_long_runtime_divisor);
 }
 
@@ -405,7 +406,8 @@ int debug_inline_nonconstant_unsigned_long_long_global_pair_remainder_entry(void
 {
     return (int)debug_nonconstant_unsigned_long_long_high_remainder_inline(
         debug_inline_nonconstant_unsigned_long_long_runtime_dividend %
-        (+debug_inline_nonconstant_unsigned_long_long_runtime_divisor));
+        (+(unsigned long long)
+            debug_inline_nonconstant_unsigned_long_long_runtime_divisor));
 }
 
 int debug_inline_nonconstant_integer_entry(int value)

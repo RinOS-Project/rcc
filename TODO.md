@@ -10414,8 +10414,8 @@ remains a separate open item.
       remainder in legacy and verified i686 objects. C frame-local tests also
       cover both cast positions and operations, verifying the emitted frame
       expressions. Preserve type-identical unary `+` around signed 64-bit casts
-      in C/C++ and unsigned 64-bit operands in C; these cases pass in legacy
-      and verified i686 objects. Repeated unary-minus chains are reduced by
+      in C/C++ and unsigned 64-bit casts in C; these cases pass in legacy and
+      verified i686 objects. Repeated unary-minus chains are reduced by
       parity and covered with even-negative dividend division and odd-negative
       divisor remainder in both languages. Both focused and complete DWARF
       gates pass under WSL2 Ubuntu-24.04/GCC.
