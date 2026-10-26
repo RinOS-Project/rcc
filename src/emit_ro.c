@@ -6030,6 +6030,99 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
             debug_inline_integer_expression_append_byte(
                 expression, capacity, expression_size, operation_opcode);
     }
+    /* Recursively compose nested i686 wide addition/subtraction.  Keep the
+       direct identifier and identifier/constant cases below: their compact
+       encodings are already covered, while this path supplies the carry or
+       borrow between recursively computed low and high words. */
+    if ((value->kind == EXPR_ADD || value->kind == EXPR_SUB) &&
+        value->binary_lhs && value->binary_rhs && value->type &&
+        value->type->size == 8 && value->binary_lhs->type &&
+        value->binary_rhs->type && value->binary_lhs->type->size == 8 &&
+        value->binary_rhs->type->size == 8 &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            value->binary_lhs->type, value->type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            value->binary_rhs->type, value->type, 0u) &&
+        (value->binary_lhs->kind != EXPR_IDENT ||
+         value->binary_rhs->kind != EXPR_IDENT) &&
+        !(value->binary_lhs->kind == EXPR_IDENT &&
+          debug_inline_integer_literal_bits(
+              value->binary_rhs, &literal_bits, 0u)) &&
+        !(value->kind == EXPR_ADD &&
+          value->binary_rhs->kind == EXPR_IDENT &&
+          debug_inline_integer_literal_bits(
+              value->binary_lhs, &literal_bits, 0u))) {
+        bool is_add = value->kind == EXPR_ADD;
+        uint8_t operation_opcode = is_add ? 0x22u : 0x1cu;
+        if (!high_word) {
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, value->binary_lhs, false, expression, capacity,
+                       expression_size, depth + 1u) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, value->binary_rhs, false, expression, capacity,
+                    expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size,
+                    operation_opcode);
+        }
+        if (!debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->binary_lhs, true, expression, capacity,
+                expression_size, depth + 1u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->binary_rhs, true, expression, capacity,
+                expression_size, depth + 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, operation_opcode)) {
+            return false;
+        }
+        if (is_add) {
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, value->binary_lhs, false, expression, capacity,
+                       expression_size, depth + 1u) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, value->binary_rhs, false, expression, capacity,
+                    expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x22u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size,
+                    UINT32_C(0x80000000)) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x27u) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, value->binary_lhs, false, expression, capacity,
+                    expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size,
+                    UINT32_C(0x80000000)) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x27u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x2du) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x22u);
+        }
+        return debug_inline_parameter_i686_u64_append_word_expression(
+                   mod, value->binary_lhs, false, expression, capacity,
+                   expression_size, depth + 1u) &&
+            debug_inline_integer_expression_append_constu(
+                expression, capacity, expression_size,
+                UINT32_C(0x80000000)) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x27u) &&
+            debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->binary_rhs, false, expression, capacity,
+                expression_size, depth + 1u) &&
+            debug_inline_integer_expression_append_constu(
+                expression, capacity, expression_size,
+                UINT32_C(0x80000000)) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x27u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x2du) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x1cu);
+    }
     /* Compose frame-backed i686 wide addition/subtraction word by word. */
     if ((value->kind == EXPR_ADD || value->kind == EXPR_SUB) &&
         value->binary_lhs &&
