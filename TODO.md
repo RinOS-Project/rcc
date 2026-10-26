@@ -10282,7 +10282,13 @@ remains a separate open item.
       integer width's signed boundaries, maxima, and negative values in legacy
       and verified objects. Focused `test-debug-info-inline-expression` and
       full `test-debug-info` pass.
-- [ ] Other scoped-enum underlying widths and conversion directions, larger
+- [x] Widen global scoped-enum values with fixed `unsigned char`, `signed
+      short`, and `unsigned int` underlying types to both signed and unsigned
+      i686 inline 64-bit parameters. Preserve the underlying storage width and
+      sign/zero-extension; verify the exact source relocations and boundary
+      results in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [ ] Remaining scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, additional computed non-frame-backed i686 wide
       operands beyond global bool/8/16/32-bit widening and the completed global
