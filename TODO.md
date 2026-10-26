@@ -10026,6 +10026,11 @@ remains a separate open item.
       and `^` nodes word by word. Evaluate signed boundary pairs for a nested
       expression on legacy and verified i686/AMD64; focused and full
       `test-debug-info` pass.
+- [x] Lower signed unary negation of a nested frame-backed i686 64-bit
+      bitwise expression word by word, propagating a low-word borrow into the
+      high word. Evaluate signed boundary pairs while excluding `LLONG_MIN`
+      negation; focused and full `test-debug-info` pass on legacy and verified
+      i686/AMD64.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees, non-frame-backed wide operands, and other
       mixed-rank matrices remain open.

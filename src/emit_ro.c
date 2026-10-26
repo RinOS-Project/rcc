@@ -5863,6 +5863,35 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
             debug_inline_integer_expression_append_byte(
                 expression, capacity, expression_size, 0x20u);
     }
+    if (value->kind == EXPR_NEG && value->unary_operand &&
+        value->type->size == 8 && value->unary_operand->type &&
+        value->unary_operand->type->size == 8 &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            value->unary_operand->type, value->type, 0u)) {
+        if (!high_word) {
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, value->unary_operand, false, expression,
+                       capacity, expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x1fu);
+        }
+        return debug_inline_integer_expression_append_constu(
+                   expression, capacity, expression_size, 0u) &&
+            debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->unary_operand, true, expression, capacity,
+                expression_size, depth + 1u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x1cu) &&
+            debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->unary_operand, false, expression, capacity,
+                expression_size, depth + 1u) &&
+            debug_inline_integer_expression_append_constu(
+                expression, capacity, expression_size, 0u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x2eu) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x1cu);
+    }
     if (debug_inline_integer_literal_bits(value, &literal_bits, 0u)) {
         uint32_t word = high_word
             ? (uint32_t)(literal_bits >> 32u) : (uint32_t)literal_bits;
