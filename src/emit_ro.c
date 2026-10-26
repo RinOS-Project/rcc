@@ -9440,6 +9440,75 @@ static bool debug_inline_parameter_i686_u64_negate_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_u64_logical_not_expression(
+    const Module* mod, const Type* parameter_type,
+    const Expr* source_expression, uint8_t* expression, size_t capacity,
+    size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
+    const Expr* not_expression;
+    const Expr* operand;
+    const Decl* source;
+    size_t size = 0u;
+    if (!mod || !parameter_type || !source_expression || !expression ||
+        !expression_size || !relocations || parameter_type->size != 8u ||
+        !parameter_type->is_unsigned ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, source_expression->type, 0u)) {
+        return false;
+    }
+    not_expression = source_expression->kind == EXPR_CAST
+        ? source_expression->cast_expr : source_expression;
+    if (!not_expression || not_expression->kind != EXPR_NOT ||
+        !(operand = not_expression->unary_operand) ||
+        operand->kind != EXPR_IDENT || !operand->ident_decl ||
+        parameter_type->size != 8u || !parameter_type->is_unsigned ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, operand->type, 0u)) {
+        return false;
+    }
+    source = operand->ident_decl;
+    if (!source || source->kind != DECL_VAR || !source->var_is_global ||
+        source->var_is_static_local || source->var_is_thread_local ||
+        source->var_is_vla || !source->type ||
+        !relocations->offsets || !relocations->symbols ||
+        !relocations->count) {
+        return false;
+    }
+    *relocations->count = 0u;
+
+    /* A 64-bit truth test on i686 compares the OR of both relocated words
+       with zero. The bool result occupies the low piece; the high piece is
+       zero after conversion to the unsigned 64-bit inline parameter type. */
+    if (!debug_inline_parameter_i686_append_storage_u32(
+            mod, source, 0, false, expression, capacity, &size, relocations) ||
+        !debug_inline_parameter_i686_append_storage_u32(
+            mod, source, 0, true, expression, capacity, &size, relocations) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x21u) || /* DW_OP_or */
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x29u) || /* DW_OP_eq */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x9fu) || /* stack_value */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 4u) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x9fu) || /* stack_value */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 4u)) {
+        return false;
+    }
+    *expression_size = size;
+    return true;
+}
+
 static bool debug_inline_parameter_integer_expression(
     const Module* mod, int architecture, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
@@ -9472,6 +9541,7 @@ static bool debug_inline_parameter_integer_expression(
          argument->expr->kind != EXPR_POS &&
          argument->expr->kind != EXPR_NEG &&
          argument->expr->kind != EXPR_NOT &&
+         argument->expr->kind != EXPR_CAST &&
          argument->expr->kind != EXPR_BITNOT) ||
         !debug_inline_parameter_body_is_read_only(callee)) {
         return false;
@@ -12276,6 +12346,34 @@ static void debug_emit_inline_parameter_instances(
                    (origin = debug_inline_parameter_origin_find(
                        origins, call->callee, value->declaration)) != NULL &&
                    debug_inline_parameter_i686_u64_negate_expression(
+                       mod, value->declaration->type, argument->expr,
+                       integer_value_expression,
+                       sizeof(integer_value_expression),
+                       &integer_value_expression_size,
+                       &integer_value_relocations) &&
+                   integer_value_relocation_count != 0u) {
+            uint64_t expression_offset;
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, integer_value_expression_size);
+            expression_offset = info->size;
+            section_add_bytes(info, integer_value_expression,
+                              integer_value_expression_size);
+            for (size_t relocation_index = 0u;
+                 relocation_index < integer_value_relocation_count;
+                 ++relocation_index) {
+                objfile_add_reloc(
+                    obj, info_section,
+                    expression_offset +
+                        integer_value_relocation_offsets[relocation_index],
+                    integer_value_relocation_symbols[relocation_index]->name,
+                    RELOC_ABS32U, 0);
+            }
+        } else if (architecture == ARCH_X86 && value->declaration &&
+                   argument && argument->expr &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_i686_u64_logical_not_expression(
                        mod, value->declaration->type, argument->expr,
                        integer_value_expression,
                        sizeof(integer_value_expression),

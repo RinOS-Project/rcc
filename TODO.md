@@ -9891,8 +9891,14 @@ remains a separate open item.
       operand as low/high 32-bit words on i686, OR the words, and compare with
       zero. Verify `!(value >> 33)` on unsigned boundaries for legacy and
       verified i686/AMD64; focused and full `test-debug-info` pass.
-- [ ] Non-frame-backed 64-bit sources and broader optimized multi-piece
-      variable locations remain open.
+- [x] Preserve `!global_u64` passed as an unsigned 64-bit inline argument on
+      i686: load both global words with exactly two `ABS32U` relocations, OR,
+      compare with zero, and emit the zero-extended result as two pieces.
+      Verify zero, nonzero, low/high word boundaries, `UINT64_MAX`, and the
+      initialized nonzero and zero globals in legacy and verified objects;
+      focused and full `test-debug-info` pass.
+- [ ] Other non-frame-backed 64-bit expression sources and broader optimized
+      multi-piece variable locations remain open.
 
 ## RCC continuation (2026-10-25, inline logical-not of integer equality DWARF)
 
