@@ -10227,10 +10227,15 @@ remains a separate open item.
       right shift by 63; check exact one-relocation source-word expressions and
       the zero-valued pieces in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Preserve i686 global-backed unsigned-64 left and logical-right shifts
+      by zero as two direct relocated word loads, without a shift opcode. Verify
+      the exact low/high pieces, high-word `+4`, and initialized-data result in
+      legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide
       operands beyond global bitwise operations and constant shifts by counts
-      1..63, other AMD64 computed-global multiplication shapes, divide/modulo,
+      0..63, other AMD64 computed-global multiplication shapes, divide/modulo,
       other shift-count widths/conversions and shift forms, and mixed-rank
       matrices remain open.

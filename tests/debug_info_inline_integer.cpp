@@ -216,6 +216,20 @@ debug_inline_nonconstant_unsigned_long_long_global_lshift32_entry(void)
 }
 
 extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_rshift0_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source >> 0u);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_lshift0_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source << 0u);
+}
+
+extern "C" unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_div_entry(void)
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(

@@ -9743,7 +9743,7 @@ static bool debug_inline_parameter_i686_u64_global_shift_expression(
         count_expression->type->size > 8 ||
         !debug_inline_integer_literal_bits(
             count_expression, &shift_count, 0u) ||
-        shift_count == 0u || shift_count >= 64u ||
+        shift_count >= 64u ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, global_expression->type, 0u)) {
         return false;
@@ -9763,7 +9763,14 @@ static bool debug_inline_parameter_i686_u64_global_shift_expression(
     }
 
     for (size_t word = 0u; word < 2u; ++word) {
-        if (shift_count >= 32u) {
+        if (shift_count == 0u) {
+            if (!debug_inline_parameter_i686_append_global_u32_load(
+                    expression, expression_capacity, &size, word != 0u,
+                    relocation_offsets, relocation_capacity,
+                    relocation_count)) {
+                return false;
+            }
+        } else if (shift_count >= 32u) {
             bool load_global = (word == 0u && shift_right) ||
                 (word == 1u && !shift_right);
             if (load_global) {
