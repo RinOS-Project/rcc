@@ -10154,12 +10154,16 @@ static bool debug_inline_parameter_i686_u64_power_of_two_div_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_signed_division_operand(
+    const Expr* expression, const Type* parameter_type, bool is_signed,
+    const Expr** value_expression, bool* negate);
+
 static bool debug_inline_parameter_i686_u64_div_constant_expression(
     const Module* mod, const Type* parameter_type, bool is_signed,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size,
     DebugInlineI686ExpressionRelocations* relocations) {
-    const Expr* dividend_expression;
+    const Expr* dividend_value_expression;
     const Decl* dividend;
     int64_t frame_offset = 0;
     uint64_t divisor;
@@ -10167,6 +10171,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     uint64_t radix;
     unsigned int chunk_width;
     unsigned int chunk_count;
+    bool negate_dividend;
     bool is_remainder;
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || parameter_type->size != 8 ||
@@ -10174,8 +10179,9 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         (source_expression->kind != EXPR_DIV &&
          source_expression->kind != EXPR_MOD) ||
         !source_expression->binary_lhs || !source_expression->binary_rhs ||
-        source_expression->binary_lhs->kind != EXPR_IDENT ||
-        !source_expression->binary_lhs->ident_decl ||
+        !debug_inline_parameter_i686_signed_division_operand(
+            source_expression->binary_lhs, parameter_type, is_signed,
+            &dividend_value_expression, &negate_dividend) ||
         !debug_inline_integer_literal_bits(
             source_expression->binary_rhs, &divisor, 0u) ||
         divisor == 0u ||
@@ -10187,8 +10193,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
             source_expression->binary_rhs->type, parameter_type, 0u)) {
         return false;
     }
-    dividend_expression = source_expression->binary_lhs;
-    dividend = dividend_expression->ident_decl;
+    dividend = dividend_value_expression->ident_decl;
     if ((dividend->kind != DECL_VAR && dividend->kind != DECL_PARAM) ||
         dividend->var_is_static_local ||
         dividend->var_is_thread_local || dividend->var_is_vla ||
@@ -10211,7 +10216,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     if (is_signed) {
         return debug_inline_parameter_i686_u64_general_division_expression(
             mod, dividend, frame_offset, divisor, NULL, 0, true,
-            false, false, is_remainder, expression, capacity,
+            negate_dividend, false, is_remainder, expression, capacity,
             expression_size, relocations);
     }
     if (divisor > (uint64_t)UINT32_MAX) {

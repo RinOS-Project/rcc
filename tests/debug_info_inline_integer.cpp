@@ -967,7 +967,9 @@ debug_inline_nonconstant_signed_long_long_global_divide_by_negative_seven_entry(
     void)
 {
     return debug_nonconstant_signed_long_long_parameter_inline(
-        debug_inline_nonconstant_signed_long_long_global_dividend / -7LL);
+        +static_cast<long long>(
+            debug_inline_nonconstant_signed_long_long_global_dividend) /
+        -7LL);
 }
 
 extern "C" long long
@@ -975,7 +977,9 @@ debug_inline_nonconstant_signed_long_long_global_remainder_by_negative_seven_ent
     void)
 {
     return debug_nonconstant_signed_long_long_parameter_inline(
-        debug_inline_nonconstant_signed_long_long_global_dividend % -7LL);
+        +static_cast<long long>(
+            debug_inline_nonconstant_signed_long_long_global_dividend) %
+        -7LL);
 }
 
 extern "C" unsigned long long

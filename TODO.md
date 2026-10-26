@@ -10417,8 +10417,10 @@ remains a separate open item.
       in C/C++ and unsigned 64-bit casts in C; these cases pass in legacy and
       verified i686 objects. Repeated unary-minus chains are reduced by
       parity and covered with even-negative dividend division and odd-negative
-      divisor remainder in both languages. Both focused and complete DWARF
-      gates pass under WSL2 Ubuntu-24.04/GCC.
+      divisor remainder in both languages. Apply the same signed dividend
+      wrappers to literal-divisor division and remainder; C++ `+static_cast`
+      global operands with `-7` pass in legacy and verified objects. Both
+      focused and complete DWARF gates pass under WSL2 Ubuntu-24.04/GCC.
 - [ ] Broader computed signed operand trees, width-changing casts,
       TLS/static-local or volatile/reference/atomic operands, and optimized
       multi-piece locations remain open.
