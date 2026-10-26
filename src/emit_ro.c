@@ -5858,8 +5858,10 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         return debug_inline_integer_expression_append_constu(
             expression, capacity, expression_size, word);
     }
-    /* Compose frame-backed i686 wide add/sub with low-word carry/borrow. */
-    if ((value->kind == EXPR_ADD || value->kind == EXPR_SUB) &&
+    /* Compose frame-backed i686 wide binary operations word by word. */
+    if ((value->kind == EXPR_ADD || value->kind == EXPR_SUB ||
+         value->kind == EXPR_BITAND || value->kind == EXPR_BITOR ||
+         value->kind == EXPR_BITXOR) &&
         value->binary_lhs &&
         value->binary_rhs && value->binary_lhs->kind == EXPR_IDENT &&
         value->binary_rhs->kind == EXPR_IDENT &&
@@ -5872,6 +5874,11 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         int64_t left_frame_offset;
         int64_t right_frame_offset;
         bool is_add = value->kind == EXPR_ADD;
+        bool is_sub = value->kind == EXPR_SUB;
+        uint8_t operation_opcode = is_add ? 0x22u :
+            is_sub ? 0x1cu :
+            value->kind == EXPR_BITAND ? 0x1au :
+            value->kind == EXPR_BITOR ? 0x21u : 0x27u;
         if (!left || !right ||
             (left->kind != DECL_VAR && left->kind != DECL_PARAM) ||
             (right->kind != DECL_VAR && right->kind != DECL_PARAM) ||
@@ -5906,7 +5913,7 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
                     right_frame_offset) &&
                 debug_inline_integer_expression_append_byte(
                     expression, capacity, expression_size,
-                    is_add ? 0x22u : 0x1cu);
+                    operation_opcode);
         }
         if (!debug_inline_parameter_i686_u64_append_word_expression(
                 mod, left_expression, true, expression, capacity,
@@ -5916,9 +5923,10 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
                 expression_size, depth + 1u) ||
             !debug_inline_integer_expression_append_byte(
                 expression, capacity, expression_size,
-                is_add ? 0x22u : 0x1cu)) {
+                operation_opcode)) {
             return false;
         }
+        if (!is_add && !is_sub) return true;
         if (is_add) {
             return debug_inline_integer_expression_append_frame_u32(
                        expression, capacity, expression_size, ARCH_X86,

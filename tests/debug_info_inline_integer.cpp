@@ -617,3 +617,45 @@ extern "C" int debug_inline_unsigned_long_long_sub_compare_entry(
           debug_inline_unsigned_long_long_sub_compare_entry_rhs <
           0x100000000ULL));
 }
+
+extern "C" int debug_inline_signed_long_long_bitand_compare_entry(
+    long long value, long long rhs)
+{
+    long long debug_inline_signed_long_long_bitand_compare_entry_source = value;
+    long long debug_inline_signed_long_long_bitand_compare_entry_rhs = rhs;
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_bitand_compare_entry_source;
+    debug_inline_signed_long_long_comparison_rhs_escape =
+        &debug_inline_signed_long_long_bitand_compare_entry_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !((debug_inline_signed_long_long_bitand_compare_entry_source &
+           debug_inline_signed_long_long_bitand_compare_entry_rhs) < 0LL));
+}
+
+extern "C" int debug_inline_signed_long_long_bitor_compare_entry(
+    long long value, long long rhs)
+{
+    long long debug_inline_signed_long_long_bitor_compare_entry_source = value;
+    long long debug_inline_signed_long_long_bitor_compare_entry_rhs = rhs;
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_bitor_compare_entry_source;
+    debug_inline_signed_long_long_comparison_rhs_escape =
+        &debug_inline_signed_long_long_bitor_compare_entry_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !((debug_inline_signed_long_long_bitor_compare_entry_source |
+           debug_inline_signed_long_long_bitor_compare_entry_rhs) < 0LL));
+}
+
+extern "C" int debug_inline_signed_long_long_bitxor_compare_entry(
+    long long value, long long rhs)
+{
+    long long debug_inline_signed_long_long_bitxor_compare_entry_source = value;
+    long long debug_inline_signed_long_long_bitxor_compare_entry_rhs = rhs;
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_bitxor_compare_entry_source;
+    debug_inline_signed_long_long_comparison_rhs_escape =
+        &debug_inline_signed_long_long_bitxor_compare_entry_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !((debug_inline_signed_long_long_bitxor_compare_entry_source ^
+           debug_inline_signed_long_long_bitxor_compare_entry_rhs) < 0LL));
+}

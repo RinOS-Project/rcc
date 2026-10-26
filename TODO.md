@@ -10014,6 +10014,10 @@ remains a separate open item.
       while excluding overflow and unsigned pairs with defined modulo-2^64
       semantics in legacy and verified i686/AMD64. Focused and full
       `test-debug-info` pass.
+- [x] Compose frame-backed i686 64-bit bitwise `&`, `|`, and `^` operands
+      word by word and verify their signed comparison results for boundary
+      pairs on legacy and verified i686/AMD64. Focused and full
+      `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees, non-frame-backed wide operands, and other
       mixed-rank matrices remain open.

@@ -10174,7 +10174,13 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_signed_long_long_sub_compare_entry_source",
          "debug_inline_signed_long_long_sub_compare_entry"},
         {"debug_inline_unsigned_long_long_sub_compare_entry_source",
-         "debug_inline_unsigned_long_long_sub_compare_entry"}
+         "debug_inline_unsigned_long_long_sub_compare_entry"},
+        {"debug_inline_signed_long_long_bitand_compare_entry_source",
+         "debug_inline_signed_long_long_bitand_compare_entry"},
+        {"debug_inline_signed_long_long_bitor_compare_entry_source",
+         "debug_inline_signed_long_long_bitor_compare_entry"},
+        {"debug_inline_signed_long_long_bitxor_compare_entry_source",
+         "debug_inline_signed_long_long_bitxor_compare_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -10288,6 +10294,21 @@ static const char* inline_integer_comparison_secondary_source(
             "debug_inline_unsigned_long_long_sub_compare_entry_source") == 0) {
         return "debug_inline_unsigned_long_long_sub_compare_entry_rhs";
     }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_bitand_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_bitand_compare_entry_rhs";
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_bitor_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_bitor_compare_entry_rhs";
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_bitxor_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_bitxor_compare_entry_rhs";
+    }
     return NULL;
 }
 
@@ -10382,6 +10403,21 @@ static uint8_t inline_integer_comparison_secondary_size(
     if (source_name && strcmp(
             source_name,
             "debug_inline_unsigned_long_long_sub_compare_entry_source") == 0) {
+        return 8u;
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_bitand_compare_entry_source") == 0) {
+        return 8u;
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_bitor_compare_entry_source") == 0) {
+        return 8u;
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_bitxor_compare_entry_source") == 0) {
         return 8u;
     }
     return 0u;
@@ -10614,6 +10650,22 @@ static void verify_inline_integer_expression_parameter(
         (source_name && strcmp(
             source_name,
             "debug_inline_unsigned_long_long_sub_compare_entry_source") == 0);
+    wide_integer_comparison = wide_integer_comparison ||
+        (source_name && (strcmp(
+            source_name,
+            "debug_inline_signed_long_long_bitand_compare_entry_source") == 0 ||
+            strcmp(source_name,
+            "debug_inline_signed_long_long_bitor_compare_entry_source") == 0 ||
+            strcmp(source_name,
+            "debug_inline_signed_long_long_bitxor_compare_entry_source") == 0));
+    narrow_wide_comparison = narrow_wide_comparison ||
+        (source_name && (strcmp(
+            source_name,
+            "debug_inline_signed_long_long_bitand_compare_entry_source") == 0 ||
+            strcmp(source_name,
+            "debug_inline_signed_long_long_bitor_compare_entry_source") == 0 ||
+            strcmp(source_name,
+            "debug_inline_signed_long_long_bitxor_compare_entry_source") == 0));
     bool add_secondary_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_signed_long_long_add_compare_entry_source") == 0;
@@ -10626,6 +10678,15 @@ static void verify_inline_integer_expression_parameter(
     bool sub_secondary_unsigned_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_unsigned_long_long_sub_compare_entry_source") == 0;
+    bool bitand_secondary_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_signed_long_long_bitand_compare_entry_source") == 0;
+    bool bitor_secondary_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_signed_long_long_bitor_compare_entry_source") == 0;
+    bool bitxor_secondary_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_signed_long_long_bitxor_compare_entry_source") == 0;
     bool add_one_wide_comparison = source_name &&
         strcmp(source_name,
                "debug_inline_signed_long_long_add_one_compare_entry_source") == 0;
@@ -10971,11 +11032,14 @@ static void verify_inline_integer_expression_parameter(
                             values[index], secondary_frame_offset,
                             secondary_size,
                             rhs_value);
-                    bool is_wide_arithmetic =
+                    bool is_wide_derived_expression =
                         add_secondary_wide_comparison ||
                         add_secondary_unsigned_wide_comparison ||
                         sub_secondary_wide_comparison ||
-                        sub_secondary_unsigned_wide_comparison;
+                        sub_secondary_unsigned_wide_comparison ||
+                        bitand_secondary_comparison ||
+                        bitor_secondary_comparison ||
+                        bitxor_secondary_comparison;
                     uint64_t expected_left =
                         add_secondary_wide_comparison ||
                                 add_secondary_unsigned_wide_comparison
@@ -10983,10 +11047,16 @@ static void verify_inline_integer_expression_parameter(
                             : sub_secondary_wide_comparison ||
                                       sub_secondary_unsigned_wide_comparison
                                 ? values[index] - rhs_value
-                                : values[index];
+                                : bitand_secondary_comparison
+                                    ? values[index] & rhs_value
+                                    : bitor_secondary_comparison
+                                        ? values[index] | rhs_value
+                                        : bitxor_secondary_comparison
+                                            ? values[index] ^ rhs_value
+                                            : values[index];
                     bool compared = verify_inline_integer_comparison_value(
                         expected_left,
-                        is_wide_arithmetic
+                        is_wide_derived_expression
                             ? (uint64_t)expected_constant : comparison_rhs,
                         is_unsigned, 64u, expected_operation);
                     assert(actual == !compared);
@@ -12402,7 +12472,13 @@ int main(int argc, char** argv)
             {"debug_inline_signed_long_long_sub_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_unsigned_long_long_sub_compare_entry_source",
-             true, 0x2du, INT64_C(0x100000000)}
+             true, 0x2du, INT64_C(0x100000000)},
+            {"debug_inline_signed_long_long_bitand_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_bitor_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_bitxor_compare_entry_source",
+             false, 0x2du, 0}
         };
         const char* wide_paths[] = {argv[6], argv[7], argv[8], argv[9]};
         const uint16_t wide_architectures[] = {
