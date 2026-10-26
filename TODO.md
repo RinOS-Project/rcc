@@ -10216,9 +10216,15 @@ remains a separate open item.
       `DW_OP_plus_uconst 4`; verify this offset as part of the exact expression
       and recompute the full value from the initialized global object in both
       legacy and verified objects.
+- [x] Lower i686 global-backed unsigned-64 constant shifts for counts 1..31
+      using relocated low/high 32-bit pieces. Cover logical right shift by 3
+      and left shift by 1; verify the exact cross-word expressions, all three
+      `ABS32U` relocations, high-word `+4` offsets, and results evaluated from
+      initialized global data in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide
-      operands beyond global bitwise constants, other AMD64 computed-global
-      multiplication shapes, divide/modulo, other shift-count
+      operands beyond global bitwise operations and constant shifts by counts
+      1..31, other AMD64 computed-global multiplication shapes, divide/modulo, other shift-count
       widths/conversions and shift forms, and mixed-rank matrices remain open.

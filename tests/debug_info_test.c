@@ -12328,12 +12328,16 @@ static void verify_inline_i686_global_bitwise_parameter(
         "debug_nonconstant_unsigned_long_long_parameter_inline";
     const char* call_site_name = operation == 0x20u
         ? "debug_inline_nonconstant_unsigned_long_long_global_not_entry"
-        : operation == 0x1au
+        : operation == 0x25u
+            ? "debug_inline_nonconstant_unsigned_long_long_global_rshift_entry"
+            : operation == 0x24u
+                ? "debug_inline_nonconstant_unsigned_long_long_global_lshift1_entry"
+            : operation == 0x1au
             ? "debug_inline_nonconstant_unsigned_long_long_global_and_entry"
             : operation == 0x21u
                 ? "debug_inline_nonconstant_unsigned_long_long_global_or_entry"
                 : "debug_inline_nonconstant_unsigned_long_long_global_xor_entry";
-    const char* source_name = operation == 0x20u
+    const char* source_name = operation == 0x20u || operation == 0x24u
         ? "debug_inline_nonconstant_unsigned_long_long_global_mod_source"
         : "debug_inline_nonconstant_unsigned_long_long_global_add_source";
     ObjectFile* object = objfile_read(path);
@@ -12345,10 +12349,11 @@ static void verify_inline_i686_global_bitwise_parameter(
     uint64_t expression_offset;
     uint64_t expression_size;
     uint64_t expression_end;
-    uint64_t relocation_offsets[2];
+    uint64_t relocation_offsets[3];
     uint64_t cursor;
-    bool found_relocations[2] = {false, false};
+    bool found_relocations[3] = {false, false, false};
     unsigned int expression_relocation_count = 0u;
+    unsigned int parsed_relocation_count = 0u;
     ObjSymbol* global_symbol;
     ObjSection* global_section = NULL;
     uint64_t global_value;
@@ -12356,7 +12361,7 @@ static void verify_inline_i686_global_bitwise_parameter(
     int section_index = 0;
 
     assert((operation == 0x20u || operation == 0x1au || operation == 0x21u ||
-            operation == 0x27u) &&
+            operation == 0x24u || operation == 0x25u || operation == 0x27u) &&
            object != NULL && object->arch == ARCH_X86);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -12406,7 +12411,9 @@ static void verify_inline_i686_global_bitwise_parameter(
     cursor = expression_offset;
     for (unsigned int word = 0u; word < 2u; ++word) {
         assert(cursor < expression_end && info->data[cursor++] == 0x03u);
-        relocation_offsets[word] = cursor;
+        assert(parsed_relocation_count <
+               sizeof(relocation_offsets) / sizeof(relocation_offsets[0]));
+        relocation_offsets[parsed_relocation_count++] = cursor;
         assert(cursor + 4u <= expression_end &&
                read_u32(info->data, cursor) == 0u);
         cursor += 4u;
@@ -12414,7 +12421,85 @@ static void verify_inline_i686_global_bitwise_parameter(
             assert(cursor < expression_end && info->data[cursor++] == 0x23u &&
                    read_uleb(info->data, expression_end, &cursor) == 4u);
         }
-        if (operation == 0x20u) {
+        if ((operation == 0x25u || operation == 0x24u) && word == 0u) {
+            if (operation == 0x24u) {
+                assert(cursor + 4u <= expression_end &&
+                       info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
+                       info->data[cursor++] == 4u && cursor < expression_end &&
+                       info->data[cursor++] == 0x10u && /* DW_OP_constu */
+                       read_uleb(info->data, expression_end, &cursor) == 1u &&
+                       cursor + 4u <= expression_end &&
+                       info->data[cursor++] == 0x24u && /* DW_OP_shl */
+                       info->data[cursor++] == 0x9fu && /* DW_OP_stack_value */
+                       info->data[cursor++] == 0x93u && /* DW_OP_piece */
+                       info->data[cursor++] == 4u);
+                continue;
+            }
+            assert(cursor + 4u <= expression_end &&
+                   info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
+                   info->data[cursor++] == 4u && cursor < expression_end &&
+                   info->data[cursor++] == 0x10u && /* DW_OP_constu */
+                   read_uleb(info->data, expression_end, &cursor) == 3u &&
+                   cursor < expression_end &&
+                   info->data[cursor++] == 0x25u); /* DW_OP_shr */
+            assert(cursor < expression_end && info->data[cursor++] == 0x03u);
+            assert(parsed_relocation_count <
+                   sizeof(relocation_offsets) / sizeof(relocation_offsets[0]));
+            relocation_offsets[parsed_relocation_count++] = cursor;
+            assert(cursor + 4u <= expression_end &&
+                   read_u32(info->data, cursor) == 0u);
+            cursor += 4u;
+            assert(cursor < expression_end && info->data[cursor++] == 0x23u &&
+                   read_uleb(info->data, expression_end, &cursor) == 4u &&
+                   cursor + 2u <= expression_end &&
+                   info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
+                   info->data[cursor++] == 4u && cursor < expression_end &&
+                   info->data[cursor++] == 0x10u && /* DW_OP_constu */
+                   read_uleb(info->data, expression_end, &cursor) == 29u &&
+                   cursor + 4u <= expression_end &&
+                   info->data[cursor++] == 0x24u && /* DW_OP_shl */
+                   info->data[cursor++] == 0x21u && /* DW_OP_or */
+                   info->data[cursor++] == 0x9fu && /* DW_OP_stack_value */
+                   info->data[cursor++] == 0x93u && /* DW_OP_piece */
+                   info->data[cursor++] == 4u);
+        } else if (operation == 0x24u) {
+            assert(cursor + 4u <= expression_end &&
+                   info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
+                   info->data[cursor++] == 4u && cursor < expression_end &&
+                   info->data[cursor++] == 0x10u && /* DW_OP_constu */
+                   read_uleb(info->data, expression_end, &cursor) == 1u &&
+                   cursor + 4u <= expression_end &&
+                   info->data[cursor++] == 0x24u && /* DW_OP_shl */
+                   cursor < expression_end && info->data[cursor++] == 0x03u);
+            assert(parsed_relocation_count <
+                   sizeof(relocation_offsets) / sizeof(relocation_offsets[0]));
+            relocation_offsets[parsed_relocation_count++] = cursor;
+            assert(cursor + 4u <= expression_end &&
+                   read_u32(info->data, cursor) == 0u);
+            cursor += 4u;
+            assert(cursor + 2u <= expression_end &&
+                   info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
+                   info->data[cursor++] == 4u && cursor < expression_end &&
+                   info->data[cursor++] == 0x10u && /* DW_OP_constu */
+                   read_uleb(info->data, expression_end, &cursor) == 31u &&
+                   cursor + 4u <= expression_end &&
+                   info->data[cursor++] == 0x25u && /* DW_OP_shr */
+                   info->data[cursor++] == 0x21u && /* DW_OP_or */
+                   info->data[cursor++] == 0x9fu && /* DW_OP_stack_value */
+                   info->data[cursor++] == 0x93u && /* DW_OP_piece */
+                   info->data[cursor++] == 4u);
+        } else if (operation == 0x25u) {
+            assert(cursor + 4u <= expression_end &&
+                   info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
+                   info->data[cursor++] == 4u && cursor < expression_end &&
+                   info->data[cursor++] == 0x10u && /* DW_OP_constu */
+                   read_uleb(info->data, expression_end, &cursor) == 3u &&
+                   cursor + 4u <= expression_end &&
+                   info->data[cursor++] == 0x25u && /* DW_OP_shr */
+                   info->data[cursor++] == 0x9fu && /* DW_OP_stack_value */
+                   info->data[cursor++] == 0x93u && /* DW_OP_piece */
+                   info->data[cursor++] == 4u);
+        } else if (operation == 0x20u) {
             assert(cursor + 6u <= expression_end &&
                    info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
                    info->data[cursor++] == 4u &&
@@ -12448,18 +12533,29 @@ static void verify_inline_i686_global_bitwise_parameter(
                strcmp(relocation->symbol_name, source_name) == 0 &&
                relocation->type == RELOC_ABS32U);
         ++expression_relocation_count;
-        if (relocation->offset == relocation_offsets[0]) {
-            assert(!found_relocations[0]);
-            found_relocations[0] = true;
-        } else if (relocation->offset == relocation_offsets[1]) {
-            assert(!found_relocations[1]);
-            found_relocations[1] = true;
-        } else {
+        bool found_offset = false;
+        for (unsigned int relocation_index = 0u;
+             relocation_index < parsed_relocation_count;
+             ++relocation_index) {
+            if (relocation->offset != relocation_offsets[relocation_index]) {
+                continue;
+            }
+            assert(!found_relocations[relocation_index]);
+            found_relocations[relocation_index] = true;
+            found_offset = true;
+            break;
+        }
+        if (!found_offset) {
             assert(0 && "unexpected i686 global bitwise relocation");
         }
     }
-    assert(expression_relocation_count == 2u &&
-           found_relocations[0] && found_relocations[1]);
+    assert(parsed_relocation_count ==
+               (operation == 0x25u || operation == 0x24u ? 3u : 2u) &&
+           expression_relocation_count == parsed_relocation_count);
+    for (unsigned int relocation_index = 0u;
+         relocation_index < parsed_relocation_count; ++relocation_index) {
+        assert(found_relocations[relocation_index]);
+    }
 
     global_symbol = objfile_find_symbol(object, source_name);
     assert(global_symbol != NULL && global_symbol->section >= 0);
@@ -12474,11 +12570,15 @@ static void verify_inline_i686_global_bitwise_parameter(
            global_symbol->value <= global_section->size &&
            global_section->size - global_symbol->value >= 8u);
     global_value = read_u64(global_section->data, global_symbol->value);
-    assert(global_value == (operation == 0x20u
+    assert(global_value == (operation == 0x20u || operation == 0x24u
                ? UINT64_C(0xfedcba9876543217)
                : UINT64_C(0x7ffffffffffffff0)));
     if (operation == 0x20u) {
         evaluated_value = ~global_value;
+    } else if (operation == 0x25u) {
+        evaluated_value = global_value >> 3u;
+    } else if (operation == 0x24u) {
+        evaluated_value = global_value << 1u;
     } else if (operation == 0x1au) {
         evaluated_value = global_value & UINT64_C(0x100000005);
     } else if (operation == 0x21u) {
@@ -12488,6 +12588,8 @@ static void verify_inline_i686_global_bitwise_parameter(
     }
     assert(evaluated_value ==
            (operation == 0x20u ? UINT64_C(0x0123456789abcde8) :
+            operation == 0x24u ? UINT64_C(0xfdb97530eca8642e) :
+            operation == 0x25u ? UINT64_C(0x0ffffffffffffffe) :
             operation == 0x1au ? UINT64_C(0x0000000100000000) :
             operation == 0x21u ? UINT64_C(0x7ffffffffffffff5) :
             UINT64_C(0x7ffffffefffffff5)));
@@ -13813,6 +13915,10 @@ int main(int argc, char** argv)
         verify_inline_i686_global_bitwise_parameter(argv[8], 0x27u);
         verify_inline_i686_global_bitwise_parameter(argv[6], 0x20u);
         verify_inline_i686_global_bitwise_parameter(argv[8], 0x20u);
+        verify_inline_i686_global_bitwise_parameter(argv[6], 0x25u);
+        verify_inline_i686_global_bitwise_parameter(argv[8], 0x25u);
+        verify_inline_i686_global_bitwise_parameter(argv[6], 0x24u);
+        verify_inline_i686_global_bitwise_parameter(argv[8], 0x24u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x22u);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x22u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x1cu);

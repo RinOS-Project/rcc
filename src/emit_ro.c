@@ -9667,6 +9667,170 @@ static bool debug_inline_parameter_x64_u64_global_constant_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_append_global_u32_load(
+    uint8_t* expression, size_t expression_capacity, size_t* expression_size,
+    bool high_word, size_t* relocation_offsets,
+    size_t relocation_capacity, size_t* relocation_count) {
+    if (!expression || !expression_size || !relocation_offsets ||
+        !relocation_count || *relocation_count >= relocation_capacity ||
+        !debug_inline_integer_expression_append_byte(
+            expression, expression_capacity, expression_size, 0x03u)) {
+        return false;
+    }
+    relocation_offsets[(*relocation_count)++] = *expression_size;
+    for (size_t byte = 0u; byte < 4u; ++byte) {
+        if (!debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, expression_size, 0u)) {
+            return false;
+        }
+    }
+    if (high_word &&
+        (!debug_inline_integer_expression_append_byte(
+             expression, expression_capacity, expression_size, 0x23u) ||
+         !debug_expression_uleb(
+             expression, expression_capacity, expression_size, 4u))) {
+        return false;
+    }
+    return debug_inline_integer_expression_append_byte(
+               expression, expression_capacity, expression_size, 0x94u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, expression_capacity, expression_size, 4u);
+}
+
+static bool debug_inline_parameter_i686_u64_global_shift_expression(
+    const Module* mod, const Decl* callee,
+    const ModuleDebugInlineParameterValue* value, const ExprList* argument,
+    uint8_t* expression, size_t expression_capacity,
+    size_t* expression_size, size_t* relocation_offsets,
+    size_t relocation_capacity, size_t* relocation_count,
+    const ModuleSymbol** address_symbol) {
+    const Type* parameter_type;
+    const Expr* source_expression;
+    const Expr* global_expression;
+    const Expr* count_expression;
+    const Decl* source;
+    const ModuleSymbol* symbol;
+    uint64_t shift_count;
+    size_t size = 0u;
+    bool shift_right;
+
+    if (!mod || !callee || !value || !value->declaration || !argument ||
+        !argument->expr || argument->cxx_temporary_owner || !expression ||
+        !expression_size || !relocation_offsets || !relocation_count ||
+        !address_symbol ||
+        !debug_inline_parameter_body_is_read_only(callee)) {
+        return false;
+    }
+    *relocation_count = 0u;
+    parameter_type = value->declaration->type;
+    source_expression = argument->expr;
+    shift_right = source_expression->kind == EXPR_RSHIFT;
+    if (!parameter_type || parameter_type->size != 8u ||
+        !parameter_type->is_unsigned ||
+        (source_expression->kind != EXPR_LSHIFT &&
+         source_expression->kind != EXPR_RSHIFT) ||
+        !source_expression->binary_lhs || !source_expression->binary_rhs ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, source_expression->type, 0u)) {
+        return false;
+    }
+    global_expression = source_expression->binary_lhs;
+    count_expression = source_expression->binary_rhs;
+    if (global_expression->kind != EXPR_IDENT ||
+        !global_expression->ident_decl || !count_expression->type ||
+        !debug_inline_integer_expression_type(count_expression->type) ||
+        count_expression->type->size == 0u ||
+        count_expression->type->size > 8 ||
+        !debug_inline_integer_literal_bits(
+            count_expression, &shift_count, 0u) ||
+        shift_count == 0u || shift_count >= 32u ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, global_expression->type, 0u)) {
+        return false;
+    }
+    source = global_expression->ident_decl;
+    if (!source || source->kind != DECL_VAR || !source->var_is_global ||
+        source->var_is_static_local || source->var_is_thread_local ||
+        !source->type || source->type->size != 8u ||
+        !source->type->is_unsigned || source->type->is_volatile ||
+        source->type->is_reference || source->type->is_atomic) {
+        return false;
+    }
+    symbol = debug_find_global_symbol(mod, source);
+    if (!symbol || !symbol->is_global || !symbol->name ||
+        symbol->section == MODULE_SYMBOL_TLS) {
+        return false;
+    }
+
+    for (size_t word = 0u; word < 2u; ++word) {
+        if (!debug_inline_parameter_i686_append_global_u32_load(
+                expression, expression_capacity, &size, word != 0u,
+                relocation_offsets, relocation_capacity, relocation_count)) {
+            return false;
+        }
+        if (word == 0u && shift_right) {
+            if (!debug_inline_integer_expression_append_constu(
+                    expression, expression_capacity, &size, shift_count) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, expression_capacity, &size, 0x25u) ||
+                !debug_inline_parameter_i686_append_global_u32_load(
+                    expression, expression_capacity, &size, true,
+                    relocation_offsets, relocation_capacity,
+                    relocation_count) ||
+                !debug_inline_integer_expression_append_constu(
+                    expression, expression_capacity, &size,
+                    32u - shift_count) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, expression_capacity, &size, 0x24u) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, expression_capacity, &size, 0x21u)) {
+                return false;
+            }
+        } else if (word == 0u) {
+            if (!debug_inline_integer_expression_append_constu(
+                    expression, expression_capacity, &size, shift_count) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, expression_capacity, &size, 0x24u)) {
+                return false;
+            }
+        } else if (shift_right) {
+            if (!debug_inline_integer_expression_append_constu(
+                    expression, expression_capacity, &size, shift_count) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, expression_capacity, &size, 0x25u)) {
+                return false;
+            }
+        } else if (!debug_inline_integer_expression_append_constu(
+                       expression, expression_capacity, &size, shift_count) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, expression_capacity, &size, 0x24u) ||
+                   !debug_inline_parameter_i686_append_global_u32_load(
+                       expression, expression_capacity, &size, false,
+                       relocation_offsets, relocation_capacity,
+                       relocation_count) ||
+                   !debug_inline_integer_expression_append_constu(
+                       expression, expression_capacity, &size,
+                       32u - shift_count) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, expression_capacity, &size, 0x25u) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, expression_capacity, &size, 0x21u)) {
+            return false;
+        }
+        if (!debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x9fu) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 0x93u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, expression_capacity, &size, 4u)) {
+            return false;
+        }
+    }
+    *expression_size = size;
+    *address_symbol = symbol;
+    return true;
+}
+
 static bool debug_inline_parameter_i686_u64_global_bitwise_expression(
     const Module* mod, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
@@ -11954,6 +12118,35 @@ static void debug_emit_inline_parameter_instances(
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);
             section_add_bytes(info, expression, expression_size);
+        } else if (architecture == ARCH_X86 && value->declaration &&
+                   argument && argument->expr &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_i686_u64_global_shift_expression(
+                       mod, call->callee, value, argument,
+                       integer_value_expression,
+                       sizeof(integer_value_expression),
+                       &integer_value_expression_size,
+                       integer_value_relocation_offsets,
+                       sizeof(integer_value_relocation_offsets) /
+                           sizeof(integer_value_relocation_offsets[0]),
+                       &integer_value_relocation_count, &source_symbol)) {
+            uint64_t expression_offset;
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, integer_value_expression_size);
+            expression_offset = info->size;
+            section_add_bytes(info, integer_value_expression,
+                              integer_value_expression_size);
+            for (size_t relocation_index = 0u;
+                 relocation_index < integer_value_relocation_count;
+                 ++relocation_index) {
+                objfile_add_reloc(
+                    obj, info_section,
+                    expression_offset +
+                        integer_value_relocation_offsets[relocation_index],
+                    source_symbol->name, RELOC_ABS32U, 0);
+            }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(
