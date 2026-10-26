@@ -10149,6 +10149,11 @@ remains a separate open item.
       sequences and high-bit/`UINT64_MAX` boundaries in legacy and verified
       objects. Focused `test-debug-info-inline-expression` and full
       `test-debug-info` pass.
+- [x] Preserve AMD64 global-backed unsigned-64 multiplication by 7 after
+      optimization expands it to a multi-relocation expression tree. Evaluate
+      the emitted expression against initialized data and verify the modulo-
+      2^64 result in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,

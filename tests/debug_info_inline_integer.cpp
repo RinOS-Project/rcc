@@ -313,6 +313,13 @@ debug_inline_nonconstant_unsigned_long_long_global_ge_entry(void)
             0xffffffffffffffffULL));
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_mul7_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_mod_source * 7ULL);
+}
+
 long long* debug_inline_signed_long_long_comparison_escape;
 long long* debug_inline_signed_long_long_comparison_rhs_escape;
 unsigned long long* debug_inline_unsigned_long_long_comparison_escape;
