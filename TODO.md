@@ -10101,6 +10101,12 @@ remains a separate open item.
       object with an unsigned `&`, `|`, or `^` constant. Verify the relocated
       global load, exact DWARF opcode, and evaluated result from object data in
       legacy and verified `test-debug-info-inline-expression` objects.
+- [x] Preserve AMD64 unsigned 64-bit inline arguments formed by multiplying a
+      global object by `0x100000005`, even after optimization rewrites the
+      multiply into a shift/add expression tree. Emit a relocation for each
+      global leaf and evaluate the resulting DWARF expression against the
+      initialized object data in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,
