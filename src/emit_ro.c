@@ -9912,7 +9912,8 @@ static bool debug_inline_parameter_i686_u64_global_u32_widen_expression(
     parameter_type = value->declaration->type;
     source_expression = argument->expr;
     if (!parameter_type || parameter_type->size != 8u ||
-        !parameter_type->is_unsigned || !source_expression->type ||
+        !debug_inline_integer_expression_type(parameter_type) ||
+        !source_expression->type ||
         source_expression->kind != EXPR_CAST ||
         !source_expression->cast_expr ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(

@@ -148,6 +148,20 @@ debug_inline_unsigned_long_long_global_i32_widen_entry(void)
         static_cast<unsigned long long>(debug_inline_signed_int_widen_source));
 }
 
+extern "C" long long
+debug_inline_signed_long_long_global_i32_widen_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(debug_inline_signed_int_widen_source));
+}
+
+extern "C" long long
+debug_inline_signed_long_long_global_u32_widen_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(debug_inline_unsigned_int_widen_source));
+}
+
 extern "C" unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_entry(void)
 {

@@ -10275,18 +10275,18 @@ remains a separate open item.
       zero, carry-heavy, high-word, maximum-value, and initialized-global pairs
       in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [x] Widen a global 32-bit integer to an i686 inline unsigned 64-bit parameter:
-      zero-extend unsigned sources with one `ABS32U` relocation and sign-extend
-      signed sources with two relocations plus `DW_OP_shra`. Verify values
-      around the signed boundary, `UINT32_MAX`, and a negative signed source in
-      legacy and verified objects. Focused `test-debug-info-inline-expression`
-      and full `test-debug-info` pass.
+- [x] Widen a global 32-bit integer to an i686 inline 64-bit parameter for all
+      source/destination signedness combinations. Zero-extend unsigned sources
+      with one `ABS32U` relocation and sign-extend signed sources with two
+      relocations plus `DW_OP_shra`. Verify values around the signed boundary,
+      `UINT32_MAX`, and negative signed values in legacy and verified objects.
+      Focused `test-debug-info-inline-expression` and full `test-debug-info`
+      pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
-      multiplication cases, other computed non-frame-backed i686 wide
-      operands beyond global signed/unsigned-32 widening, global bitwise operations,
-      and global-pair bitwise, comparison, addition/subtraction and
-      multiplication operations,
-      logical-not, negation, and constant/dynamic shifts, other AMD64
-      computed-global multiplication shapes, divide/modulo, other shift-count
-      widths/conversions and shift forms, and mixed-rank matrices remain open.
+      multiplication cases, additional computed non-frame-backed i686 wide
+      operands beyond global 32-bit widening and the completed global unary,
+      bitwise, comparison, add/subtract, multiply, and shift forms, i686 global
+      divide/remainder, other AMD64 computed-global multiplication shapes and
+      divide/remainder, additional shift-count widths/conversions and shift
+      forms, and mixed-rank conversion matrices remain open.
