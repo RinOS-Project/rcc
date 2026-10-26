@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: MIT
+shader compute @workgroup(2, 3, 1) {
+    fn main() {
+        let i32 local_x = i32(builtin(local_size_x));
+        let i32 local_y = i32(builtin(local_size_y));
+        let i32 local_z = i32(builtin(local_size_z));
+        return;
+    }
+}
