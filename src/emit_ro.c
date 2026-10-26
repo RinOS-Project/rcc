@@ -9768,6 +9768,13 @@ static bool debug_inline_parameter_i686_u64_global_bitwise_expression(
                 return false;
             }
         }
+        if (word != 0u &&
+            (!debug_inline_integer_expression_append_byte(
+                 expression, expression_capacity, &size, 0x23u) ||
+             !debug_expression_uleb(
+                 expression, expression_capacity, &size, 4u))) {
+            return false;
+        }
         if (!debug_inline_integer_expression_append_byte(
                 expression, expression_capacity, &size, 0x94u) ||
             !debug_inline_integer_expression_append_byte(

@@ -10212,6 +10212,10 @@ remains a separate open item.
       relocated 32-bit pieces, each loaded and complemented on the i686 DWARF
       stack. Verify both `ABS32U` relocations and the result from initialized
       object data in legacy and verified objects.
+- [x] Address the high word of every i686 global-backed bitwise piece with
+      `DW_OP_plus_uconst 4`; verify this offset as part of the exact expression
+      and recompute the full value from the initialized global object in both
+      legacy and verified objects.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide

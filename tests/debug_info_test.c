@@ -12410,6 +12410,10 @@ static void verify_inline_i686_global_bitwise_parameter(
         assert(cursor + 4u <= expression_end &&
                read_u32(info->data, cursor) == 0u);
         cursor += 4u;
+        if (word != 0u) {
+            assert(cursor < expression_end && info->data[cursor++] == 0x23u &&
+                   read_uleb(info->data, expression_end, &cursor) == 4u);
+        }
         if (operation == 0x20u) {
             assert(cursor + 6u <= expression_end &&
                    info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
