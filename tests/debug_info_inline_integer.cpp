@@ -545,6 +545,54 @@ debug_inline_nonconstant_unsigned_long_long_global_mod_high64_entry(void)
 }
 
 extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_div_mid64_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source /
+        0x100000001ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_mod_mid64_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_mod_source %
+        0x100000001ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_div_large_mid64_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source /
+        0x4000000000000001ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_mod_large_mid64_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_mod_source %
+        0x4000000000000001ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_div_int64_max_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source /
+        0x7fffffffffffffffULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_mod_int64_max_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_mod_source %
+        0x7fffffffffffffffULL);
+}
+
+extern "C" unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_div_max64_entry(void)
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(

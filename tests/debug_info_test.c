@@ -8504,7 +8504,7 @@ static unsigned int inline_i686_u64_constant_division_chunk_width(
 static uint64_t evaluate_inline_i686_u64_constant_division(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_offset,
     int64_t source_frame_offset, uint64_t dividend, uint64_t divisor,
-    const ObjSection* info, const char* global_source_name) {
+    bool remainder, const ObjSection* info, const char* global_source_name) {
     uint32_t stack[128];
     size_t stack_size = 0u;
     int64_t pending_frame_offset = 0;
@@ -8518,6 +8518,9 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
         : 1u;
     unsigned int chunk_count = divisor <= UINT32_MAX
         ? (64u + chunk_width - 1u) / chunk_width : 1u;
+    bool two_word_divisor_algorithm = divisor > UINT32_MAX &&
+        divisor <= (uint64_t)INT64_MAX &&
+        (divisor & (divisor - 1u)) != 0u;
     size_t expected_stack_size =
         expression_offset + 1u < expression_end &&
         data[expression_offset] == 0x10u &&
@@ -8681,18 +8684,24 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
                 expression_offset = (uint64_t)target;
             }
         } else if (opcode == 0x9fu) { /* DW_OP_stack_value */
-            if (stack_size != expected_stack_size) {
+            size_t expected = two_word_divisor_algorithm
+                ? remainder ? 68u - piece_count : 67u
+                : expected_stack_size;
+            if (stack_size != expected) {
                 fprintf(stderr,
                         "i686 u64 divmod stack mismatch: divisor=%llu "
                         "stack=%zu expected=%zu pieces=%u\n",
                         (unsigned long long)divisor, stack_size,
-                        expected_stack_size,
+                        expected,
                         piece_count);
             }
-            assert(stack_size == expected_stack_size);
+            assert(stack_size == expected);
         } else if (opcode == 0x93u) { /* DW_OP_piece */
+            size_t expected = two_word_divisor_algorithm
+                ? remainder ? 68u - piece_count : 67u
+                : expected_stack_size;
             assert(read_uleb(data, expression_end, &expression_offset) == 4u &&
-                   stack_size == expected_stack_size && piece_count < 2u);
+                   stack_size == expected && piece_count < 2u);
             result |= (uint64_t)stack[--stack_size] << (piece_count * 32u);
             ++piece_count;
         } else {
@@ -8734,7 +8743,7 @@ static void verify_inline_i686_u64_constant_division_expression(
          ++index) {
         uint64_t actual = evaluate_inline_i686_u64_constant_division(
             data, expression_end, offset, source_frame_offset,
-            values[index], divisor, NULL, NULL);
+            values[index], divisor, remainder, NULL, NULL);
         uint64_t expected = remainder
             ? values[index] % divisor : values[index] / divisor;
         if (actual != expected) {
@@ -8791,7 +8800,9 @@ static void verify_inline_i686_global_u64_constant_division_expression(
         ? (64u + chunk_width - 1u) / chunk_width
         : (divisor & (divisor - 1u)) == 0u
             ? remainder ? 2u : 1u
-            : remainder ? 8u : 3u;
+            : divisor > (uint64_t)INT64_MAX
+                ? remainder ? 8u : 3u
+                : 2u;
     assert(verify_inline_global_storage(object, source_name, 8u) ==
            global_value);
     info = objfile_get_section(object, ".debug_info");
@@ -8861,7 +8872,8 @@ static void verify_inline_i686_global_u64_constant_division_expression(
             ? global_value : values[index];
         uint64_t actual = evaluate_inline_i686_u64_constant_division(
             info->data, expression_offset + expression_size,
-            expression_offset, 0, dividend, divisor, info, source_name);
+            expression_offset, 0, dividend, divisor, remainder, info,
+            source_name);
         uint64_t expected = remainder
             ? dividend % divisor : dividend / divisor;
         if (actual != expected) {
@@ -14962,6 +14974,66 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_unsigned_long_long_global_mod_high64_entry",
             "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
             UINT64_C(0x8000000000000001), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_mid64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_C(0x100000001), false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_mid64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_C(0x100000001), false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_mid64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_C(0x100000001), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_mid64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_C(0x100000001), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_large_mid64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_C(0x4000000000000001), false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_large_mid64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            UINT64_C(0x4000000000000001), false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_large_mid64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_C(0x4000000000000001), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_large_mid64_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            UINT64_C(0x4000000000000001), true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_int64_max_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            (uint64_t)INT64_MAX, false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_div_int64_max_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            (uint64_t)INT64_MAX, false);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_int64_max_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            (uint64_t)INT64_MAX, true);
+        verify_inline_i686_global_u64_constant_division_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_int64_max_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            (uint64_t)INT64_MAX, true);
         verify_inline_i686_global_u64_constant_division_expression(
             argv[6],
             "debug_inline_nonconstant_unsigned_long_long_global_div_max64_entry",

@@ -4925,7 +4925,7 @@ static bool debug_inline_parameter_frame_offset(
 
 enum {
     DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY = 512,
-    DEBUG_INLINE_I686_U64_DIVMOD_EXPRESSION_CAPACITY = 8192
+    DEBUG_INLINE_I686_U64_DIVMOD_EXPRESSION_CAPACITY = 16384
 };
 
 static bool debug_inline_integer_expression_type(const Type* type) {
@@ -9337,6 +9337,358 @@ static bool debug_inline_parameter_i686_u64_high_constant_division_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_append_stack_u32_ge_constant(
+    uint8_t* expression, size_t capacity, size_t* size, uint8_t stack_index,
+    uint32_t constant, bool stack_value_is_left) {
+    const uint32_t sign_bias = UINT32_C(0x80000000);
+    if (stack_value_is_left) {
+        if (!debug_inline_integer_expression_append_pick(
+                expression, capacity, size, stack_index) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, size, sign_bias) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x27u) || /* xor sign bias */
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, size, constant ^ sign_bias)) {
+            return false;
+        }
+    } else if (!debug_inline_integer_expression_append_constu(
+                   expression, capacity, size, constant ^ sign_bias) ||
+               !debug_inline_integer_expression_append_pick(
+                   expression, capacity, size,
+                   (uint8_t)(stack_index + 1u)) ||
+               !debug_inline_integer_expression_append_constu(
+                   expression, capacity, size, sign_bias) ||
+               !debug_inline_integer_expression_append_byte(
+                   expression, capacity, size, 0x27u)) { /* xor sign bias */
+        return false;
+    }
+    return debug_inline_integer_expression_append_byte(
+        expression, capacity, size, 0x2au); /* signed ge after unsigned bias */
+}
+
+static bool debug_inline_parameter_i686_u64_general_constant_division_expression(
+    const Module* mod, const Decl* source, int64_t frame_offset,
+    uint64_t divisor, bool is_remainder, uint8_t* expression,
+    size_t capacity, size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
+    uint32_t divisor_high = (uint32_t)(divisor >> 32u);
+    uint32_t divisor_low = (uint32_t)divisor;
+    size_t size = 0u;
+    if (!mod || !source || !expression || !expression_size ||
+        divisor <= (uint64_t)UINT32_MAX ||
+        divisor > (uint64_t)INT64_MAX ||
+        (divisor & (divisor - 1u)) == 0u || !relocations ||
+        !relocations->offsets || !relocations->symbols ||
+        !relocations->count) {
+        return false;
+    }
+    *relocations->count = 0u;
+    if (!debug_inline_parameter_i686_append_storage_u32(
+            mod, source, frame_offset, false, expression, capacity, &size,
+            relocations) ||
+        !debug_inline_parameter_i686_append_storage_u32(
+            mod, source, frame_offset, true, expression, capacity, &size,
+            relocations) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, 0u) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, 0u)) {
+        return false;
+    }
+
+    /* Keep [source-low, source-high, quotient-bits..., remainder-high,
+       remainder-low] on the 32-bit DWARF stack. Since divisor <= INT64_MAX,
+       each partial remainder is below 2^63 and its one-bit shift fits 64 bits. */
+    for (unsigned int bit = 0u; bit < 64u; ++bit) {
+        size_t no_subtract_operand;
+        size_t equal_high_operand;
+        size_t greater_high_skip_operand;
+        size_t low_at_least_subtract_operand;
+        size_t no_subtract_offset;
+        size_t no_subtract_join_operand;
+        size_t no_borrow_operand;
+        size_t borrow_join_operand;
+        size_t subtract_offset;
+        size_t no_borrow_offset;
+        size_t join_offset;
+        unsigned int source_index;
+        unsigned int source_shift;
+
+        /* Shift the current 64-bit remainder left and append the next input
+           bit. Remainder words are the two top stack entries. */
+        if (!debug_inline_integer_expression_append_pick(
+                expression, capacity, &size, 0u) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, 31u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x25u) || /* low carry */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, &size, 2u) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x24u) || /* high << 1 */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x21u) || /* high | carry */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x17u) || /* rotate twice */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x17u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x13u) || /* drop old high */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x16u)) { /* restore word order */
+            return false;
+        }
+
+        if (bit < 32u) {
+            source_index = bit + 3u;
+            source_shift = 31u - bit;
+        } else {
+            source_index = bit + 4u;
+            source_shift = 63u - bit;
+        }
+        if (!debug_inline_integer_expression_append_pick(
+                expression, capacity, &size, 0u) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x24u) || /* low << 1 */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, &size, (uint8_t)source_index) ||
+            (source_shift != 0u &&
+             (!debug_inline_integer_expression_append_constu(
+                  expression, capacity, &size, source_shift) ||
+              !debug_inline_integer_expression_append_byte(
+                  expression, capacity, &size, 0x25u))) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1au) || /* input bit */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x21u) || /* append input bit */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x17u) || /* rotate */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x13u) || /* drop old low */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x16u)) { /* restore word order */
+            return false;
+        }
+
+        /* Compare the 64-bit partial remainder and divisor lexicographically.
+           Sign-biased DW_OP_ge implements each unsigned 32-bit comparison. */
+        if (!debug_inline_parameter_i686_append_stack_u32_ge_constant(
+                expression, capacity, &size, 1u, divisor_high, true) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x16u) || /* swap */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1cu) || /* invert */
+            !debug_inline_integer_expression_append_branch(
+                expression, capacity, &size, 0x28u,
+                &no_subtract_operand) || /* high < divisor high */
+            !debug_inline_parameter_i686_append_stack_u32_ge_constant(
+                expression, capacity, &size, 1u, divisor_high, false) ||
+            !debug_inline_integer_expression_append_branch(
+                expression, capacity, &size, 0x28u,
+                &equal_high_operand) ||
+            !debug_inline_integer_expression_append_branch(
+                expression, capacity, &size, 0x2fu,
+                &greater_high_skip_operand)) { /* high > divisor high */
+            return false;
+        }
+
+        if (!debug_inline_integer_expression_patch_branch(
+                expression, size, equal_high_operand, size) ||
+            !debug_inline_parameter_i686_append_stack_u32_ge_constant(
+                expression, capacity, &size, 0u, divisor_low, true) ||
+            !debug_inline_integer_expression_append_branch(
+                expression, capacity, &size, 0x28u,
+                &low_at_least_subtract_operand)) {
+            return false;
+        }
+
+        no_subtract_offset = size;
+        if (!debug_inline_integer_expression_patch_branch(
+                expression, size, no_subtract_operand,
+                no_subtract_offset) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, 0u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x17u) || /* insert quotient bit */
+            !debug_inline_integer_expression_append_branch(
+                expression, capacity, &size, 0x2fu,
+                &no_subtract_join_operand)) {
+            return false;
+        }
+
+        subtract_offset = size;
+        if (!debug_inline_integer_expression_patch_branch(
+                expression, size, greater_high_skip_operand, subtract_offset) ||
+            !debug_inline_integer_expression_patch_branch(
+                expression, size, low_at_least_subtract_operand,
+                subtract_offset) ||
+            !debug_inline_parameter_i686_append_stack_u32_ge_constant(
+                expression, capacity, &size, 0u, divisor_low, true) ||
+            !debug_inline_integer_expression_append_branch(
+                expression, capacity, &size, 0x28u, &no_borrow_operand)) {
+            return false;
+        }
+
+        /* Low-word underflow subtracts one extra unit from the high word. */
+        if (!debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, divisor_low) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1cu) || /* subtract low */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, &size, 1u) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, (uint64_t)divisor_high + 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1cu) || /* high - divisor - 1 */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x17u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x17u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x13u) || /* drop old high */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x16u) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x17u) || /* insert quotient bit */
+            !debug_inline_integer_expression_append_branch(
+                expression, capacity, &size, 0x2fu,
+                &borrow_join_operand)) {
+            return false;
+        }
+
+        no_borrow_offset = size;
+        if (!debug_inline_integer_expression_patch_branch(
+                expression, size, no_borrow_operand, no_borrow_offset) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, divisor_low) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1cu) || /* subtract low */
+            !debug_inline_integer_expression_append_pick(
+                expression, capacity, &size, 1u) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, divisor_high) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1cu) || /* subtract high */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x17u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x17u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x13u) || /* drop old high */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x16u) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, 1u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x17u)) { /* insert quotient bit */
+            return false;
+        }
+
+        join_offset = size;
+        if (!debug_inline_integer_expression_patch_branch(
+                expression, size, no_subtract_join_operand, join_offset) ||
+            !debug_inline_integer_expression_patch_branch(
+                expression, size, borrow_join_operand, join_offset)) {
+            return false;
+        }
+    }
+
+    if (is_remainder) {
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) || /* stack_value */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) || /* piece: low */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) || /* stack_value */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) || /* piece: high */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u)) {
+            return false;
+        }
+        for (unsigned int drop = 0u; drop < 66u; ++drop) {
+            if (!debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x13u)) {
+                return false;
+            }
+        }
+    } else {
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x13u) || /* drop rem low */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x13u) || /* drop rem high */
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, 0u)) {
+            return false;
+        }
+        for (unsigned int bit = 0u; bit < 32u; ++bit) {
+            if (!debug_inline_integer_expression_append_pick(
+                    expression, capacity, &size, (uint8_t)(bit + 1u)) ||
+                (bit != 0u &&
+                 (!debug_inline_integer_expression_append_constu(
+                      expression, capacity, &size, bit) ||
+                  !debug_inline_integer_expression_append_byte(
+                      expression, capacity, &size, 0x24u))) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x21u)) {
+                return false;
+            }
+        }
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) || /* stack_value */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) || /* piece: low */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u) ||
+            !debug_inline_integer_expression_append_constu(
+                expression, capacity, &size, 0u)) {
+            return false;
+        }
+        for (unsigned int bit = 0u; bit < 32u; ++bit) {
+            if (!debug_inline_integer_expression_append_pick(
+                    expression, capacity, &size, (uint8_t)(33u + bit)) ||
+                (bit != 0u &&
+                 (!debug_inline_integer_expression_append_constu(
+                      expression, capacity, &size, bit) ||
+                  !debug_inline_integer_expression_append_byte(
+                      expression, capacity, &size, 0x24u))) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x21u)) {
+                return false;
+            }
+        }
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) || /* stack_value */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) || /* piece: high */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u)) {
+            return false;
+        }
+        for (unsigned int drop = 0u; drop < 66u; ++drop) {
+            if (!debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x13u)) {
+                return false;
+            }
+        }
+    }
+    *expression_size = size;
+    return true;
+}
+
 static bool debug_inline_parameter_i686_u64_power_of_two_div_expression(
     const Module* mod, const Decl* source, int64_t frame_offset,
     uint64_t divisor, bool is_remainder, uint8_t* expression,
@@ -9472,12 +9824,17 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     if (relocations) *relocations->count = 0u;
     is_remainder = source_expression->kind == EXPR_MOD;
     if (divisor > (uint64_t)UINT32_MAX) {
+        if ((divisor & (divisor - 1u)) == 0u) {
+            return debug_inline_parameter_i686_u64_power_of_two_div_expression(
+                mod, dividend, frame_offset, divisor, is_remainder, expression,
+                capacity, expression_size, relocations);
+        }
         if (divisor > (uint64_t)INT64_MAX) {
             return debug_inline_parameter_i686_u64_high_constant_division_expression(
                 mod, dividend, frame_offset, divisor, is_remainder, expression,
                 capacity, expression_size, relocations);
         }
-        return debug_inline_parameter_i686_u64_power_of_two_div_expression(
+        return debug_inline_parameter_i686_u64_general_constant_division_expression(
             mod, dividend, frame_offset, divisor, is_remainder, expression,
             capacity, expression_size, relocations);
     }

@@ -8775,9 +8775,8 @@ remains a separate open item.
       objects, including the widest supported radix-2 digit stream. The
       focused native-Windows gate and GCC ASan/UBSan/LeakSanitizer
       `test-debug-info` gate pass; the focused gate also passes on Linux.
-- [ ] Variable divisors, signed 64-bit division/remainder, constants above
-      2^30, non-frame-backed operands, and broader optimized multi-piece
-      locations remain open.
+- [ ] Variable divisors, signed 64-bit division/remainder, non-frame-backed
+      operands, and broader optimized multi-piece locations remain open.
 - [x] Include the full `test-debug-info` corpus in `test-sanitize` and resolve
       the compiler-lifetime leaks it exposed: release label/function-resolution
       lists after patching on both backends, and allocate semantic temporary
@@ -8852,8 +8851,8 @@ remains a separate open item.
       native-Windows and Linux inline-expression tests, full native-Windows
       `test-debug-info`, and GCC ASan/UBSan full `test-debug-info` pass.
 - [ ] Variable i686 64-bit divisors, signed 64-bit division/remainder,
-      constants above `INT32_MAX`, non-frame-backed operands, and broader
-      optimized multi-piece locations remain open.
+      non-frame-backed operands, and broader optimized multi-piece locations
+      remain open.
 
 ## RCC continuation (2026-10-23, i686 unsigned 64-bit divmod through UINT32_MAX)
 
@@ -8879,9 +8878,17 @@ remains a separate open item.
       division or eight remainder relocations in legacy and verified objects.
       Focused `test-debug-info-inline-expression` and full `test-debug-info`
       pass.
-- [ ] Other non-power-of-two constants in `(UINT32_MAX, INT64_MAX]`, variable
-      i686 64-bit divisors, signed 64-bit division/remainder, non-frame-backed
-      operands, and broader optimized multi-piece locations remain open.
+- [x] Emit i686 unsigned-64 division/remainder for non-power-of-two constants
+      in `(UINT32_MAX, INT64_MAX]` with an unrolled bitwise long-division
+      expression over two 32-bit remainder words. Use sign-biased unsigned
+      comparisons and propagate the low-word borrow. Regressions cover
+      `0x100000001`, `0x4000000000000001`, and `INT64_MAX` against 11 boundary
+      dividends and initialized globals, with exactly two source relocations
+      in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [ ] Variable i686 64-bit divisors, signed 64-bit division/remainder,
+      non-frame-backed operands, and broader optimized multi-piece locations
+      remain open.
 
 ## RCC continuation (2026-10-23, Windows MinGW structural NTTP host ABI)
 
@@ -10316,8 +10323,7 @@ remains a separate open item.
       operands beyond global bool/8/16/32-bit widening and the completed global
       unary,
       bitwise, comparison, add/subtract, multiply, shift, and 32-bit-literal
-      divide/remainder forms, i686 global division/remainder by non-power-of-two
-      64-bit literals in `(UINT32_MAX, INT64_MAX]`, other AMD64 computed-global
+      divide/remainder forms, other AMD64 computed-global
       multiplication shapes and divide/remainder, additional shift-count
       widths/conversions and shift forms, and mixed-rank conversion matrices
       remain open.
