@@ -104,6 +104,8 @@ debug_inline_nonconstant_unsigned_long_long_global_add_source =
 unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_mod_source =
     0xfedcba9876543217ULL;
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_zero_source = 0u;
 }
 
 static inline int debug_nonconstant_integer_parameter_inline(int value)
@@ -239,6 +241,22 @@ debug_inline_nonconstant_unsigned_long_long_global_neg_entry(void)
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(
         -debug_inline_nonconstant_unsigned_long_long_global_mod_source);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_lnot_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            !debug_inline_nonconstant_unsigned_long_long_global_mod_source));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_lnot_zero_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            !debug_inline_nonconstant_unsigned_long_long_global_zero_source));
 }
 
 long long* debug_inline_signed_long_long_comparison_escape;

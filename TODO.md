@@ -10134,6 +10134,10 @@ remains a separate open item.
       load followed by `DW_OP_neg`; verify modulo-2^64 boundary behavior and
       exact opcode in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Lower explicit unsigned-64 casts of global logical-not expressions as a
+      relocated load, zero comparison, and 0/1 stack value; verify zero and
+      nonzero global inputs in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,
