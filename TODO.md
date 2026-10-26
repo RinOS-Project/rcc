@@ -10268,11 +10268,18 @@ remains a separate open item.
       Verify 4 equality or 6 ordering relocations, initialized-global boundary
       pairs, and both legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Lower i686 unsigned-64 multiplication between two global objects as
+      separate low/high 32-bit pieces. Reconstruct the high half of the low-word
+      product from 16-bit partial products and carry, then include both
+      cross-products. Verify nine `ABS32U` relocations per input and evaluate
+      zero, carry-heavy, high-word, maximum-value, and initialized-global pairs
+      in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide
-      operands beyond global bitwise operations, global-pair bitwise
-      operations and global-pair comparisons, addition/subtraction,
+      operands beyond global bitwise operations and global-pair bitwise,
+      comparison, addition/subtraction and multiplication operations,
       logical-not, negation, and constant/dynamic shifts, other AMD64
       computed-global multiplication shapes, divide/modulo, other shift-count
       widths/conversions and shift forms, and mixed-rank matrices remain open.
