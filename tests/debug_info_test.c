@@ -10707,6 +10707,14 @@ static void verify_inline_integer_expression_parameter(
         (source_name && strcmp(
             source_name,
             "debug_inline_unsigned_long_long_shift_compare_entry_source") == 0);
+    wide_integer_comparison = wide_integer_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_nonconstant_unsigned_integer_logical_not_wide_shift_source") == 0);
+    narrow_wide_comparison = narrow_wide_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_nonconstant_unsigned_integer_logical_not_wide_shift_source") == 0);
     narrow_wide_comparison = narrow_wide_comparison ||
         (source_name && (strcmp(
             source_name,
@@ -10749,6 +10757,9 @@ static void verify_inline_integer_expression_parameter(
     bool shift_left_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_unsigned_long_long_shift_compare_entry_source") == 0;
+    bool computed_wide_logical_not = source_name && strcmp(
+        source_name,
+        "debug_inline_nonconstant_unsigned_integer_logical_not_wide_shift_source") == 0;
     bool bitnot_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_signed_long_long_bitnot_compare_entry_source") == 0;
@@ -10771,6 +10782,10 @@ static void verify_inline_integer_expression_parameter(
               strcmp(source_name,
                      "debug_inline_nonconstant_integer_logical_not_wide_source") == 0
         ? "debug_inline_nonconstant_integer_logical_not_wide_entry"
+        : expected_operation == 0x29u &&
+              strcmp(source_name,
+                     "debug_inline_nonconstant_unsigned_integer_logical_not_wide_shift_source") == 0
+        ? "debug_inline_nonconstant_unsigned_integer_logical_not_wide_shift_entry"
         : expected_operation == 0x29u
         ? "debug_inline_nonconstant_integer_logical_not_entry"
         : expected_operation == 0xc3u
@@ -11018,7 +11033,13 @@ static void verify_inline_integer_expression_parameter(
             inline_integer_comparison_secondary_size(source_name);
         if (secondary_source) assert(secondary_size > 0u);
         for (size_t index = 0u; index < value_count; ++index) {
-            if (shift_left_wide_comparison) {
+            if (computed_wide_logical_not) {
+                uint64_t actual =
+                    evaluate_inline_integer_comparison_expression(
+                        info->data, expression_end, expression_start,
+                        architecture, frame_offset, value_size, values[index]);
+                assert(actual == (values[index] >> 33u ? 0u : 1u));
+            } else if (shift_left_wide_comparison) {
                 uint64_t actual =
                     evaluate_inline_integer_comparison_expression(
                         info->data, expression_end, expression_start,
@@ -11851,6 +11872,9 @@ static void verify_inline_integer_expression_cases(
         {"debug_nonconstant_integer_parameter_inline",
          "debug_inline_nonconstant_integer_logical_not_wide_source", false,
          8u, 0x29u, 0, NULL, false},
+        {"debug_nonconstant_integer_parameter_inline",
+         "debug_inline_nonconstant_unsigned_integer_logical_not_wide_shift_source",
+         true, 8u, 0x29u, 0, NULL, false},
         {"debug_nonconstant_integer_parameter_inline",
          "debug_inline_nonconstant_integer_logical_not_equality_source",
          false, 4u, 0x29u, 0, NULL, false},

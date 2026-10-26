@@ -9879,8 +9879,12 @@ remains a separate open item.
       load. Regressions check zero, low/high-word nonzero values, the sign bit,
       and `UINT64_MAX` in legacy and verified objects; focused and full
       `test-debug-info` pass.
-- [ ] Computed wide logical-not operands, non-frame-backed 64-bit sources, and
-      broader optimized multi-piece variable locations remain open.
+- [x] Compose `!` over a computed frame-backed unsigned `long long` right-shift
+      operand as low/high 32-bit words on i686, OR the words, and compare with
+      zero. Verify `!(value >> 33)` on unsigned boundaries for legacy and
+      verified i686/AMD64; focused and full `test-debug-info` pass.
+- [ ] Non-frame-backed 64-bit sources and broader optimized multi-piece
+      variable locations remain open.
 
 ## RCC continuation (2026-10-25, inline logical-not of integer equality DWARF)
 
