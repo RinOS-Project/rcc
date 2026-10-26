@@ -5370,6 +5370,12 @@ static bool debug_inline_integer_literal_bits(
         return debug_inline_integer_literal_bits(
             expression->unary_operand, bits, depth + 1u);
     }
+    if (expression->kind == EXPR_CAST && expression->cast_expr &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->type, expression->cast_expr->type, 0u)) {
+        return debug_inline_integer_literal_bits(
+            expression->cast_expr, bits, depth + 1u);
+    }
     if ((expression->kind == EXPR_NEG ||
          expression->kind == EXPR_BITNOT) && expression->unary_operand &&
         debug_inline_integer_literal_bits(
