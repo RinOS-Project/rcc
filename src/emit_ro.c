@@ -10530,7 +10530,7 @@ static bool debug_inline_parameter_i686_signed_division_operand(
             continue;
         }
         if (expression->kind == EXPR_POS) {
-            if (!expression->unary_operand ||
+            if (!is_signed || !expression->unary_operand ||
                 !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                     expression->type, parameter_type, 0u) ||
                 !debug_inline_parameter_storage_type_equal_ignoring_top_cv(

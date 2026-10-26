@@ -10417,7 +10417,8 @@ remains a separate open item.
       as well; C and C++ division fixtures verify it in legacy and verified
       i686 objects. Repeated unary-minus chains are reduced by parity and
       covered with even-negative dividend division and odd-negative divisor
-      remainder in both languages. Both focused and complete DWARF gates pass
+      remainder in both languages. C/C++ fixtures also verify unary `+` around
+      same-type signed 64-bit casts. Both focused and complete DWARF gates pass
       under WSL2 Ubuntu-24.04/GCC.
 - [ ] Broader computed signed operand trees, width-changing casts,
       TLS/static-local or volatile/reference/atomic operands, and optimized
