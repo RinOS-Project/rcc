@@ -5408,6 +5408,14 @@ static bool debug_inline_parameter_i686_u64_append_u32_product_high(
     const Module* mod, const Expr* value, uint32_t multiplier,
     uint8_t* expression, size_t capacity, size_t* expression_size,
     unsigned int depth);
+static bool debug_inline_parameter_i686_u64_append_u16_expression(
+    const Module* mod, const Expr* value, bool high_half,
+    uint8_t* expression, size_t capacity, size_t* expression_size,
+    unsigned int depth);
+static bool debug_inline_parameter_i686_u64_append_u32_product_high_values(
+    const Module* mod, const Expr* left, const Expr* right,
+    uint8_t* expression, size_t capacity, size_t* expression_size,
+    unsigned int depth);
 static bool debug_build_inline_integer_value_expression(
     const Module* mod, int architecture, const Expr* expression,
     uint8_t* output, size_t capacity, size_t* output_size,
@@ -6192,6 +6200,55 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
             debug_inline_integer_expression_append_byte(
                 expression, capacity, expression_size, operation_opcode);
     }
+    /* Multiply recursive i686 wide values with two runtime operands.  The
+       low word is the low 32 bits of the low-word product; the high word is
+       its exact high half plus both cross-products, modulo 2^32. */
+    if (value->kind == EXPR_MUL && value->binary_lhs &&
+        value->binary_rhs && value->type && value->type->size == 8 &&
+        value->binary_lhs->type && value->binary_lhs->type->size == 8 &&
+        value->binary_rhs->type && value->binary_rhs->type->size == 8 &&
+        !debug_inline_integer_literal_bits(
+            value->binary_lhs, &literal_bits, 0u) &&
+        !debug_inline_integer_literal_bits(
+            value->binary_rhs, &literal_bits, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            value->binary_lhs->type, value->type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            value->binary_rhs->type, value->type, 0u)) {
+        if (!high_word) {
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, value->binary_lhs, false, expression, capacity,
+                       expression_size, depth + 1u) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, value->binary_rhs, false, expression, capacity,
+                    expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x1eu);
+        }
+        return debug_inline_parameter_i686_u64_append_u32_product_high_values(
+                   mod, value->binary_lhs, value->binary_rhs, expression,
+                   capacity, expression_size, depth + 1u) &&
+            debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->binary_lhs, false, expression, capacity,
+                expression_size, depth + 1u) &&
+            debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->binary_rhs, true, expression, capacity,
+                expression_size, depth + 1u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x1eu) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x22u) &&
+            debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->binary_lhs, true, expression, capacity,
+                expression_size, depth + 1u) &&
+            debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value->binary_rhs, false, expression, capacity,
+                expression_size, depth + 1u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x1eu) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x22u);
+    }
     /* Multiply recursive i686 wide values by any 64-bit integer literal.
        32-bit partial products preserve modulo-2^64 low/high words. */
     if (value->kind == EXPR_MUL && value->binary_lhs &&
@@ -6598,6 +6655,130 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
             mod, value, high_word, expression, capacity, expression_size);
     }
     return false;
+}
+
+static bool debug_inline_parameter_i686_u64_append_u16_expression(
+    const Module* mod, const Expr* value, bool high_half,
+    uint8_t* expression, size_t capacity, size_t* expression_size,
+    unsigned int depth) {
+    if (!mod || !value || !value->type || value->type->size != 8 ||
+        !expression || !expression_size || depth >= 32u ||
+        !debug_inline_parameter_i686_u64_append_word_expression(
+            mod, value, false, expression, capacity, expression_size,
+            depth + 1u)) {
+        return false;
+    }
+    if (high_half) {
+        return debug_inline_integer_expression_append_constu(
+                   expression, capacity, expression_size, 16u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x25u);
+    }
+    return debug_inline_integer_expression_append_constu(
+               expression, capacity, expression_size, UINT32_C(0xffff)) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x1au);
+}
+
+static bool debug_inline_parameter_i686_u64_append_u32_product_high_values(
+    const Module* mod, const Expr* left, const Expr* right,
+    uint8_t* expression, size_t capacity, size_t* expression_size,
+    unsigned int depth) {
+    if (!mod || !left || !right || !left->type || !right->type ||
+        left->type->size != 8 || right->type->size != 8 || !expression ||
+        !expression_size || depth >= 32u) {
+        return false;
+    }
+
+    /* Split a*b into 16-bit limbs.  All limb products and the middle-word
+       sum fit the 32-bit DWARF stack; the final high word wraps modulo 2^32. */
+    return debug_inline_parameter_i686_u64_append_u16_expression(
+               mod, left, false, expression, capacity, expression_size,
+               depth + 1u) &&
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, right, false, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x1eu) &&
+        debug_inline_integer_expression_append_constu(
+            expression, capacity, expression_size, 16u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x25u) &&
+
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, left, false, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, right, true, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x1eu) &&
+        debug_inline_integer_expression_append_constu(
+            expression, capacity, expression_size, UINT32_C(0xffff)) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x1au) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x22u) &&
+
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, left, true, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, right, false, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x1eu) &&
+        debug_inline_integer_expression_append_constu(
+            expression, capacity, expression_size, UINT32_C(0xffff)) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x1au) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x22u) &&
+        debug_inline_integer_expression_append_constu(
+            expression, capacity, expression_size, 16u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x25u) &&
+
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, left, false, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, right, true, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x1eu) &&
+        debug_inline_integer_expression_append_constu(
+            expression, capacity, expression_size, 16u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x25u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x22u) &&
+
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, left, true, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, right, false, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x1eu) &&
+        debug_inline_integer_expression_append_constu(
+            expression, capacity, expression_size, 16u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x25u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x22u) &&
+
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, left, true, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_parameter_i686_u64_append_u16_expression(
+            mod, right, true, expression, capacity, expression_size,
+            depth + 1u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x1eu) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, expression_size, 0x22u);
 }
 
 static bool debug_inline_parameter_i686_u64_append_u32_product_high(
@@ -7412,6 +7593,7 @@ static bool debug_inline_parameter_i686_u64_mul_variables_expression(
     int64_t left_frame_offset;
     int64_t right_frame_offset;
     size_t size = 0u;
+    uint64_t literal_bits;
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || source_expression->kind != EXPR_MUL ||
         parameter_type->size != 8u ||
@@ -7420,13 +7602,69 @@ static bool debug_inline_parameter_i686_u64_mul_variables_expression(
     }
     left_expression = source_expression->binary_lhs;
     right_expression = source_expression->binary_rhs;
-    if (left_expression->kind != EXPR_IDENT ||
-        !left_expression->ident_decl || right_expression->kind != EXPR_IDENT ||
-        !right_expression->ident_decl ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+    if (!debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             left_expression->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             right_expression->type, parameter_type, 0u)) {
+        return false;
+    }
+    if (left_expression->kind != EXPR_IDENT ||
+        right_expression->kind != EXPR_IDENT) {
+        if (debug_inline_integer_literal_bits(
+                left_expression, &literal_bits, 0u) ||
+            debug_inline_integer_literal_bits(
+                right_expression, &literal_bits, 0u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, left_expression, false, expression, capacity, &size,
+                0u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, right_expression, false, expression, capacity, &size,
+                0u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1eu) || /* low product */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u) ||
+            !debug_inline_parameter_i686_u64_append_u32_product_high_values(
+                mod, left_expression, right_expression, expression,
+                capacity, &size, 0u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, left_expression, false, expression, capacity, &size,
+                0u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, right_expression, true, expression, capacity, &size,
+                0u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1eu) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x22u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, left_expression, true, expression, capacity, &size,
+                0u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, right_expression, false, expression, capacity, &size,
+                0u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x1eu) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x22u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u)) {
+            return false;
+        }
+        *expression_size = size;
+        return true;
+    }
+    if (left_expression->kind != EXPR_IDENT ||
+        !left_expression->ident_decl || right_expression->kind != EXPR_IDENT ||
+        !right_expression->ident_decl) {
         return false;
     }
     left_source = left_expression->ident_decl;
@@ -9177,7 +9415,7 @@ static bool debug_inline_parameter_integer_expression(
         source_expression->kind == EXPR_MUL &&
         debug_inline_parameter_i686_u64_mul_variables_expression(
             mod, parameter_type, source_expression, expression,
-            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
+            expression_capacity,
             expression_size)) {
         return true;
     }

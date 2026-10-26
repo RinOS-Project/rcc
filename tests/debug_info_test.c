@@ -9250,8 +9250,16 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
             assert(stack_size < sizeof(stack) / sizeof(stack[0]));
             stack[stack_size++] = (uint32_t)read_uleb(
                 data, expression_end, &offset);
-        } else if (opcode == 0x1au || opcode == 0x1eu ||
-                   opcode == 0x22u || opcode == 0x25u) {
+        } else if (opcode == 0x16u) { /* DW_OP_swap */
+            uint32_t temporary;
+            assert(stack_size >= 2u);
+            temporary = stack[stack_size - 1u];
+            stack[stack_size - 1u] = stack[stack_size - 2u];
+            stack[stack_size - 2u] = temporary;
+        } else if (opcode == 0x1au || opcode == 0x1cu ||
+                   opcode == 0x1eu || opcode == 0x22u ||
+                   opcode == 0x25u || opcode == 0x27u ||
+                   opcode == 0x2du) {
             uint32_t left;
             uint32_t right;
             assert(stack_size >= 2u);
@@ -9259,13 +9267,23 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
             left = stack[--stack_size];
             if (opcode == 0x1au) {
                 stack[stack_size++] = left & right;
+            } else if (opcode == 0x1cu) {
+                stack[stack_size++] = left - right;
             } else if (opcode == 0x1eu) {
                 stack[stack_size++] = left * right;
             } else if (opcode == 0x22u) {
                 stack[stack_size++] = left + right;
-            } else {
+            } else if (opcode == 0x25u) {
                 assert(right < 32u);
                 stack[stack_size++] = left >> right;
+            } else if (opcode == 0x27u) {
+                stack[stack_size++] = left ^ right;
+            } else {
+                bool left_negative = (left & UINT32_C(0x80000000)) != 0u;
+                bool right_negative = (right & UINT32_C(0x80000000)) != 0u;
+                stack[stack_size++] = left_negative != right_negative
+                    ? (uint32_t)left_negative
+                    : (uint32_t)(left < right);
             }
         } else if (opcode == 0x9fu) { /* DW_OP_stack_value */
             assert(stack_size == 1u);
@@ -9317,8 +9335,12 @@ static void verify_inline_u64_mul_two_variables_expression(
     int64_t left_location_offset;
     int64_t right_frame_offset;
     int64_t right_location_offset;
+    bool nested_operands;
     assert(left_source_name && right_source_name &&
            left_frame_offset <= INT64_MAX - 4);
+    nested_operands = strcmp(
+        left_source_name,
+        "debug_inline_nonconstant_unsigned_long_long_nested_mul_left_source") == 0;
     assert(find_variable_location(
         info, strings, locations, left_source_name, ARCH_X86,
         &has_variable_location, &variable_is_location_list,
@@ -9337,7 +9359,13 @@ static void verify_inline_u64_mul_two_variables_expression(
             evaluate_inline_u64_mul_two_variables_expression(
                 data, expression_end, expression_start, left_frame_offset,
                 right_frame_offset, values[index].left, values[index].right);
-        assert(actual == values[index].left * values[index].right);
+        uint64_t left = nested_operands
+            ? values[index].left + UINT64_C(0x100000001)
+            : values[index].left;
+        uint64_t right = nested_operands
+            ? values[index].right - UINT64_C(0x100000001)
+            : values[index].right;
+        assert(actual == left * right);
     }
 }
 
@@ -11012,6 +11040,10 @@ static void verify_inline_integer_expression_parameter(
                                                 : expected_operation == 0xf3u
                                                     ? "debug_inline_nonconstant_unsigned_long_long_mul_two_variables_entry"
                                                     : "debug_inline_nonconstant_integer_entry";
+    if (expected_operation == 0xf2u) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_nested_mul_two_variables_entry";
+    }
     if (mixed_rank_comparison) {
         comparison_is_unsigned = architecture == ARCH_X86;
         comparison_value_size = (uint8_t)address_size;
@@ -11050,7 +11082,8 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0xe4u || expected_operation == 0xe5u ||
             expected_operation == 0xe6u || expected_operation == 0xe7u ||
             expected_operation == 0xe8u || expected_operation == 0xe9u ||
-            expected_operation == 0xf3u || expected_operation == 0xf4u ||
+            expected_operation == 0xf2u || expected_operation == 0xf3u ||
+            expected_operation == 0xf4u ||
             expected_operation == 0xf5u ||
             expected_operation == 0xf6u || expected_operation == 0xf7u ||
             expected_operation == 0xf8u ||
@@ -11922,8 +11955,10 @@ static void verify_inline_integer_expression_parameter(
         objfile_free(object);
         return;
     }
-    if (expected_operation == 0xf3u || expected_operation == 0xe4u) {
-        bool expected_unsigned = expected_operation == 0xf3u;
+    if (expected_operation == 0xf2u || expected_operation == 0xf3u ||
+        expected_operation == 0xe4u) {
+        bool expected_unsigned = expected_operation == 0xf2u ||
+            expected_operation == 0xf3u;
         assert(architecture == ARCH_X86 && is_unsigned == expected_unsigned &&
                value_size == 8u && divisor_source_name &&
                expected_constant == 0);
@@ -12267,6 +12302,12 @@ static void verify_inline_integer_expression_cases(
          true, 8u,
          0xf3u, 0,
          "debug_inline_nonconstant_unsigned_long_long_mul_rhs_source", false},
+        {"debug_nonconstant_unsigned_long_long_mul_two_variables_inline",
+         "debug_inline_nonconstant_unsigned_long_long_nested_mul_left_source",
+         true, 8u,
+         0xf2u, 0,
+         "debug_inline_nonconstant_unsigned_long_long_nested_mul_rhs_source",
+         false},
         {"debug_nonconstant_signed_long_long_add_two_variables_inline",
          "debug_inline_nonconstant_signed_long_long_add_left_source",
          false, 8u,
@@ -12483,6 +12524,7 @@ static void verify_inline_integer_expression_cases(
              cases[index].operation == 0xfdu ||
              cases[index].operation == 0xfcu ||
              cases[index].operation == 0xfbu ||
+             cases[index].operation == 0xf2u ||
              cases[index].operation == 0xf3u ||
              cases[index].operation == 0xf4u ||
              cases[index].operation == 0xf5u ||
@@ -12530,6 +12572,7 @@ static void verify_inline_integer_expression_cases(
             cases[index].operation != 0xfdu &&
             cases[index].operation != 0xfcu &&
             cases[index].operation != 0xfbu &&
+            cases[index].operation != 0xf2u &&
             cases[index].operation != 0xf3u &&
             cases[index].operation != 0xf4u &&
             cases[index].operation != 0xf5u &&

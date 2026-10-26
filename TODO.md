@@ -10058,6 +10058,14 @@ remains a separate open item.
       positive frame values, on legacy and verified i686/AMD64 objects. The
       focused `test-debug-info-inline-expression` and full `test-debug-info`
       gates pass; GCC C++20 syntax checking passes.
+- [x] Compose frame-backed i686 unsigned 64-bit multiplication operands from
+      recursive addition/subtraction expressions before lowering their modulo-
+      2^64 product with 16-bit partial products and carry reconstruction.
+      Evaluate `(left + 0x100000001) * (right - 0x100000001)` across unsigned
+      boundaries in legacy and verified i686 DWARF; retain the existing
+      AMD64/direct-operand coverage. Focused `test-debug-info-inline-expression`
+      and full `test-debug-info` gates pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
-      computed expression trees beyond bounded logical/conditional nodes,
-      non-frame-backed wide operands, and other mixed-rank matrices remain open.
+      computed expression trees beyond bounded logical/conditional and this
+      bounded multiplication case, non-frame-backed wide operands, and other
+      mixed-rank matrices remain open.
