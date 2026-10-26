@@ -10204,9 +10204,13 @@ remains a separate open item.
       relocations, piece opcodes, and the result evaluated from initialized
       global data in legacy and verified objects. Keep the AMD64 64-bit-stack
       expression emitters restricted to AMD64.
+- [x] Extend the same i686 global-backed unsigned-64 lowering to bitwise AND
+      and OR with a 64-bit constant. Verify the exact per-word opcodes, both
+      address-width relocations, and results evaluated from object data in
+      legacy and verified objects.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
-      multiplication cases, non-XOR computed non-frame-backed i686 wide
-      operands, other AMD64 computed-global multiplication shapes, divide/modulo,
-      other shift-count widths/conversions and shift forms, and mixed-rank
-      matrices remain open.
+      multiplication cases, other computed non-frame-backed i686 wide
+      operands beyond global bitwise constants, other AMD64 computed-global
+      multiplication shapes, divide/modulo, other shift-count
+      widths/conversions and shift forms, and mixed-rank matrices remain open.
