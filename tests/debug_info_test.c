@@ -10193,7 +10193,9 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_signed_long_long_negated_bitwise_compare_entry_source",
          "debug_inline_signed_long_long_negated_bitwise_compare_entry"},
         {"debug_inline_unsigned_long_long_shift_compare_entry_source",
-         "debug_inline_unsigned_long_long_shift_compare_entry"}
+         "debug_inline_unsigned_long_long_shift_compare_entry"},
+        {"debug_inline_signed_long_long_shift_compare_entry_source",
+         "debug_inline_signed_long_long_shift_compare_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -10710,6 +10712,14 @@ static void verify_inline_integer_expression_parameter(
     wide_integer_comparison = wide_integer_comparison ||
         (source_name && strcmp(
             source_name,
+            "debug_inline_signed_long_long_shift_compare_entry_source") == 0);
+    narrow_wide_comparison = narrow_wide_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_shift_compare_entry_source") == 0);
+    wide_integer_comparison = wide_integer_comparison ||
+        (source_name && strcmp(
+            source_name,
             "debug_inline_nonconstant_unsigned_integer_logical_not_wide_shift_source") == 0);
     narrow_wide_comparison = narrow_wide_comparison ||
         (source_name && strcmp(
@@ -10760,6 +10770,9 @@ static void verify_inline_integer_expression_parameter(
     bool computed_wide_logical_not = source_name && strcmp(
         source_name,
         "debug_inline_nonconstant_unsigned_integer_logical_not_wide_shift_source") == 0;
+    bool signed_right_shift_wide_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_signed_long_long_shift_compare_entry_source") == 0;
     bool bitnot_wide_comparison = source_name && strcmp(
         source_name,
         "debug_inline_signed_long_long_bitnot_compare_entry_source") == 0;
@@ -11033,7 +11046,24 @@ static void verify_inline_integer_expression_parameter(
             inline_integer_comparison_secondary_size(source_name);
         if (secondary_source) assert(secondary_size > 0u);
         for (size_t index = 0u; index < value_count; ++index) {
-            if (computed_wide_logical_not) {
+            if (signed_right_shift_wide_comparison) {
+                int64_t signed_value = verify_inline_integer_signed_bits(
+                    values[index], 64u);
+                uint64_t actual =
+                    evaluate_inline_integer_comparison_expression(
+                        info->data, expression_end, expression_start,
+                        architecture, frame_offset, value_size, values[index]);
+                uint64_t shifted = (uint64_t)signed_value ^
+                    (uint64_t)(signed_value >> 1u) ^
+                    (uint64_t)(signed_value >> 31u) ^
+                    (uint64_t)(signed_value >> 32u) ^
+                    (uint64_t)(signed_value >> 33u) ^
+                    (uint64_t)(signed_value >> 63u);
+                bool compared = verify_inline_integer_comparison_value(
+                    shifted, (uint64_t)expected_constant, false, 64u,
+                    expected_operation);
+                assert(actual == !compared);
+            } else if (computed_wide_logical_not) {
                 uint64_t actual =
                     evaluate_inline_integer_comparison_expression(
                         info->data, expression_end, expression_start,
@@ -12617,7 +12647,9 @@ int main(int argc, char** argv)
             {"debug_inline_signed_long_long_negated_bitwise_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_unsigned_long_long_shift_compare_entry_source",
-             true, 0x2du, INT64_MIN}
+             true, 0x2du, INT64_MIN},
+            {"debug_inline_signed_long_long_shift_compare_entry_source",
+             false, 0x2du, -1}
         };
         const char* wide_paths[] = {argv[6], argv[7], argv[8], argv[9]};
         const uint16_t wide_architectures[] = {

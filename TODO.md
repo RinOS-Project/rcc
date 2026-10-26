@@ -10045,6 +10045,11 @@ remains a separate open item.
       Verify unsigned boundary values and the i686 cross-word bit flow on
       legacy and verified i686/AMD64 objects; focused and full
       `test-debug-info` pass.
+- [x] Lower constant arithmetic right shifts of a frame-backed signed
+      `long long` in wide comparisons for counts 0, 1, 31, 32, 33, and 63.
+      Verify negative, zero, and positive boundaries and i686 sign propagation
+      on legacy and verified i686/AMD64 objects; focused and full
+      `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees, non-frame-backed wide operands, and other
       mixed-rank matrices remain open.
