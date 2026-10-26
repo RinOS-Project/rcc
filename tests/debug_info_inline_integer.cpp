@@ -114,6 +114,7 @@ unsigned char debug_inline_unsigned_char_widen_source = 0xe7u;
 signed char debug_inline_signed_char_widen_source = -37;
 unsigned short debug_inline_unsigned_short_widen_source = 0xd123u;
 short debug_inline_signed_short_widen_source = -0x1234;
+bool debug_inline_bool_widen_source = true;
 long long debug_inline_nonconstant_signed_long_long_global_shift_source =
     -0x123456789abcdefLL;
 unsigned long long
@@ -220,6 +221,20 @@ debug_inline_signed_long_long_global_i16_widen_entry(void)
 {
     return debug_nonconstant_signed_long_long_parameter_inline(
         static_cast<long long>(debug_inline_signed_short_widen_source));
+}
+
+extern "C" unsigned long long
+debug_inline_unsigned_long_long_global_bool_widen_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(debug_inline_bool_widen_source));
+}
+
+extern "C" long long
+debug_inline_signed_long_long_global_bool_widen_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(debug_inline_bool_widen_source));
 }
 
 extern "C" unsigned long long

@@ -10275,17 +10275,18 @@ remains a separate open item.
       zero, carry-heavy, high-word, maximum-value, and initialized-global pairs
       in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [x] Widen global 8-, 16-, and 32-bit integers to i686 inline 64-bit
-      parameters for all source/destination signedness combinations. Use
-      `DW_OP_deref_size` for the source width, zero-extend unsigned sources, and
-      sign-extend signed sources into both 32-bit pieces. Verify each width's
-      signed boundaries, maxima, and negative values in legacy and verified
-      objects. Focused `test-debug-info-inline-expression` and full
-      `test-debug-info` pass.
+- [x] Widen global `bool` and 8-, 16-, and 32-bit integers to i686 inline
+      64-bit parameters for all source/destination signedness combinations.
+      Use `DW_OP_deref_size`, zero-extend unsigned/bool sources, and sign-extend
+      signed sources into both 32-bit pieces. Verify bool values and each
+      integer width's signed boundaries, maxima, and negative values in legacy
+      and verified objects. Focused `test-debug-info-inline-expression` and
+      full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, additional computed non-frame-backed i686 wide
-      operands beyond global 8/16/32-bit widening and the completed global unary,
+      operands beyond global bool/8/16/32-bit widening and the completed global
+      unary,
       bitwise, comparison, add/subtract, multiply, and shift forms, i686 global
       divide/remainder, other AMD64 computed-global multiplication shapes and
       divide/remainder, additional shift-count widths/conversions and shift
