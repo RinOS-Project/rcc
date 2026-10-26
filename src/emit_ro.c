@@ -9719,7 +9719,7 @@ static bool debug_inline_x64_global_expression_collect(
         return true;
     }
 
-    if (expression->kind == EXPR_BITNOT) {
+    if (expression->kind == EXPR_NEG || expression->kind == EXPR_BITNOT) {
         return expression->unary_operand && expression->type->size == 8u &&
             expression->type->is_unsigned &&
             debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -9798,13 +9798,14 @@ static bool debug_inline_x64_global_expression_append(
             debug_inline_integer_expression_append_byte(
                 output, capacity, size, 8u);
     }
-    if (expression->kind == EXPR_BITNOT) {
+    if (expression->kind == EXPR_NEG || expression->kind == EXPR_BITNOT) {
         return expression->unary_operand &&
             debug_inline_x64_global_expression_append(
                 value_type, expression->unary_operand, globals, output,
                 capacity, size, depth + 1u) &&
             debug_inline_integer_expression_append_byte(
-                output, capacity, size, 0x20u); /* DW_OP_not */
+                output, capacity, size,
+                expression->kind == EXPR_NEG ? 0x1fu : 0x20u); /* DW_OP_neg / DW_OP_not */
     }
     if (!debug_inline_x64_global_expression_append(
             value_type, expression->binary_lhs, globals, output, capacity,
@@ -9859,6 +9860,7 @@ static bool debug_inline_parameter_x64_u64_global_expression(
          argument->expr->kind != EXPR_BITXOR &&
          argument->expr->kind != EXPR_LSHIFT &&
          argument->expr->kind != EXPR_RSHIFT &&
+         argument->expr->kind != EXPR_NEG &&
          argument->expr->kind != EXPR_BITNOT)) {
         return false;
     }

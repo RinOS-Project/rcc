@@ -10130,6 +10130,10 @@ remains a separate open item.
       exact opcode and complement result in legacy and verified objects.
       Focused `test-debug-info-inline-expression` and full `test-debug-info`
       pass.
+- [x] Lower unsigned AMD64 global-backed 64-bit unary negation as a relocated
+      load followed by `DW_OP_neg`; verify modulo-2^64 boundary behavior and
+      exact opcode in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,
