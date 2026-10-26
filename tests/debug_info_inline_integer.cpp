@@ -137,6 +137,10 @@ long long debug_inline_nonconstant_signed_long_long_global_bitwise_rhs =
 long long debug_inline_nonconstant_signed_long_long_global_mul_lhs =
     0x200000001LL;
 long long debug_inline_nonconstant_signed_long_long_global_mul_rhs = -3LL;
+long long debug_inline_nonconstant_signed_long_long_global_dividend =
+    -0x7123456789abcdefLL;
+long long debug_inline_nonconstant_signed_long_long_global_divisor =
+    -0x100000001LL;
 unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_shift_count_source = 4u;
 unsigned int
@@ -854,6 +858,38 @@ debug_inline_nonconstant_signed_long_long_global_pair_mul_entry(void)
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_global_mul_lhs *
         debug_inline_nonconstant_signed_long_long_global_mul_rhs);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_global_pair_divide_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_global_dividend /
+        debug_inline_nonconstant_signed_long_long_global_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_global_pair_remainder_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_global_dividend %
+        debug_inline_nonconstant_signed_long_long_global_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_global_divide_by_negative_seven_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_global_dividend / -7LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_global_remainder_by_negative_seven_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_global_dividend % -7LL);
 }
 
 extern "C" unsigned long long

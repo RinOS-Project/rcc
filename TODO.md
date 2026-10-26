@@ -10354,9 +10354,8 @@ remains a separate open item.
       globals, exact relocations, carry and borrow across the 32-bit boundary,
       and signed-range boundary pairs in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] Signed i686 64-bit division/remainder, TLS/static-local or
-      volatile/reference/atomic operands, and broader optimized multi-piece
-      locations remain open.
+- [ ] TLS/static-local or volatile/reference/atomic operands, and broader
+      optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-26, signed i686 global 64-bit bitwise operations)
 
@@ -10366,9 +10365,8 @@ remains a separate open item.
       negative initialized globals, exact relocations, and six bit-pattern
       pairs in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] Signed i686 64-bit division/remainder, TLS/static-local or
-      volatile/reference/atomic operands, and broader optimized multi-piece
-      locations remain open.
+- [ ] TLS/static-local or volatile/reference/atomic operands, and broader
+      optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-26, signed i686 global 64-bit multiplication)
 
@@ -10378,6 +10376,20 @@ remains a separate open item.
       nine `ABS32U` relocations per input and signed boundary products plus
       initialized globals in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] Signed i686 64-bit division/remainder, TLS/static-local or
-      volatile/reference/atomic operands, and broader optimized multi-piece
-      locations remain open.
+- [ ] TLS/static-local or volatile/reference/atomic operands, and broader
+      optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-26, signed i686 64-bit division and remainder)
+
+- [x] Lower signed i686 64-bit `/` and `%` for matching signed identifier
+      operands backed by globals or frame storage, and signed 64-bit literals.
+      Convert operands to unsigned magnitudes, then restore quotient sign from
+      operand-sign XOR and remainder sign from the dividend. Verify global/global,
+      global/frame, and frame/global operands plus negative `-7` constants in
+      legacy and verified objects; cover signed boundaries while excluding
+      division by zero and the undefined `INT64_MIN / -1` case. Require three
+      exact `ABS32U` relocations per global operand for sign and magnitude loads.
+      Focused `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [ ] Computed signed operands beyond identifiers and integer literals,
+      TLS/static-local or volatile/reference/atomic operands, and broader
+      optimized multi-piece locations remain open.

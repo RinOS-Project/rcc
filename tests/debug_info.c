@@ -6,6 +6,11 @@ unsigned long long debug_inline_nonconstant_unsigned_long_long_runtime_divisor =
     0x8000000000000001ull;
 unsigned long long debug_inline_nonconstant_unsigned_long_long_runtime_dividend =
     0xfedcba9876543217ull;
+long long debug_inline_nonconstant_signed_long_long_runtime_global_dividend =
+    -0x7123456789abcdefll;
+long long debug_inline_nonconstant_signed_long_long_runtime_global_divisor =
+    -0x100000001ll;
+long long* debug_inline_nonconstant_signed_long_long_runtime_local_escape;
 static int debug_file_static;
 const int debug_const_data = 4;
 volatile int debug_volatile_data;
@@ -103,6 +108,12 @@ static int debug_line_helper(void)
 
 #include "debug_info_inline.h"
 
+static inline long long debug_nonconstant_signed_long_long_parameter_inline(
+    long long value)
+{
+    return value;
+}
+
 int debug_line_entry(void)
 {
     static int debug_line_static;
@@ -113,6 +124,54 @@ int debug_line_entry(void)
 int debug_inline_entry(int value)
 {
     return debug_declared_inline(value);
+}
+
+long long debug_inline_nonconstant_signed_long_long_global_local_divide_entry(
+    int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_local_divisor =
+        (long long)value | 1ll;
+    debug_inline_nonconstant_signed_long_long_runtime_local_escape =
+        &debug_inline_nonconstant_signed_long_long_local_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_runtime_global_dividend /
+        debug_inline_nonconstant_signed_long_long_local_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_global_local_remainder_entry(
+    int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_local_divisor =
+        (long long)value | 1ll;
+    debug_inline_nonconstant_signed_long_long_runtime_local_escape =
+        &debug_inline_nonconstant_signed_long_long_local_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_runtime_global_dividend %
+        debug_inline_nonconstant_signed_long_long_local_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_local_global_divide_entry(
+    int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_local_dividend =
+        (long long)value - 5ll;
+    debug_inline_nonconstant_signed_long_long_runtime_local_escape =
+        &debug_inline_nonconstant_signed_long_long_local_dividend;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_local_dividend /
+        debug_inline_nonconstant_signed_long_long_runtime_global_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_local_global_remainder_entry(
+    int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_local_dividend =
+        (long long)value - 5ll;
+    debug_inline_nonconstant_signed_long_long_runtime_local_escape =
+        &debug_inline_nonconstant_signed_long_long_local_dividend;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_local_dividend %
+        debug_inline_nonconstant_signed_long_long_runtime_global_divisor);
 }
 
 int debug_inline_nonconstant_unsigned_long_long_runtime_divide_entry(

@@ -8525,6 +8525,7 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
         divisor <= (uint64_t)INT64_MAX &&
         (divisor & (divisor - 1u)) != 0u;
     bool dynamic_divisor_algorithm = has_dynamic_divisor;
+    bool signed_division_algorithm = false;
     size_t expected_stack_size =
         expression_offset + 1u < expression_end &&
         data[expression_offset] == 0x10u &&
@@ -8656,7 +8657,8 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
                    opcode == 0x1eu || opcode == 0x27u ||
                    opcode == 0x21u || opcode == 0x22u ||
                    opcode == 0x24u || opcode == 0x25u ||
-                   opcode == 0x2au || opcode == 0x2eu) {
+                   opcode == 0x2au || opcode == 0x2du ||
+                   opcode == 0x2eu) {
             uint32_t lhs;
             uint32_t rhs;
             assert(stack_size >= 2u);
@@ -8680,6 +8682,13 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
                 int64_t signed_rhs = rhs <= INT32_MAX
                     ? (int64_t)rhs : (int64_t)rhs - INT64_C(0x100000000);
                 stack[stack_size++] = signed_lhs >= signed_rhs;
+            } else if (opcode == 0x2du) {
+                int64_t signed_lhs = lhs <= INT32_MAX
+                    ? (int64_t)lhs : (int64_t)lhs - INT64_C(0x100000000);
+                int64_t signed_rhs = rhs <= INT32_MAX
+                    ? (int64_t)rhs : (int64_t)rhs - INT64_C(0x100000000);
+                stack[stack_size++] = signed_lhs < signed_rhs;
+                signed_division_algorithm = true;
             } else if (opcode == 0x2eu) {
                 stack[stack_size++] = lhs != rhs;
             } else if (opcode == 0x1eu) {
@@ -8713,11 +8722,17 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
                 expression_offset = (uint64_t)target;
             }
         } else if (opcode == 0x9fu) { /* DW_OP_stack_value */
-            size_t expected = dynamic_divisor_algorithm
-                ? remainder ? 70u - piece_count : 69u
-                : two_word_divisor_algorithm
-                    ? remainder ? 68u - piece_count : 67u
-                    : expected_stack_size;
+            size_t expected = signed_division_algorithm
+                ? remainder
+                    ? (dynamic_divisor_algorithm ? 72u : 70u) - piece_count
+                    : (dynamic_divisor_algorithm
+                        ? (piece_count == 0u ? 73u : 72u)
+                        : (piece_count == 0u ? 71u : 70u))
+                : dynamic_divisor_algorithm
+                    ? remainder ? 70u - piece_count : 69u
+                    : two_word_divisor_algorithm
+                        ? remainder ? 68u - piece_count : 67u
+                        : expected_stack_size;
             if (stack_size != expected) {
                 fprintf(stderr,
                         "i686 u64 divmod stack mismatch: divisor=%llu "
@@ -8728,11 +8743,17 @@ static uint64_t evaluate_inline_i686_u64_constant_division(
             }
             assert(stack_size == expected);
         } else if (opcode == 0x93u) { /* DW_OP_piece */
-            size_t expected = dynamic_divisor_algorithm
-                ? remainder ? 70u - piece_count : 69u
-                : two_word_divisor_algorithm
-                    ? remainder ? 68u - piece_count : 67u
-                    : expected_stack_size;
+            size_t expected = signed_division_algorithm
+                ? remainder
+                    ? (dynamic_divisor_algorithm ? 72u : 70u) - piece_count
+                    : (dynamic_divisor_algorithm
+                        ? (piece_count == 0u ? 73u : 72u)
+                        : (piece_count == 0u ? 71u : 70u))
+                : dynamic_divisor_algorithm
+                    ? remainder ? 70u - piece_count : 69u
+                    : two_word_divisor_algorithm
+                        ? remainder ? 68u - piece_count : 67u
+                        : expected_stack_size;
             assert(read_uleb(data, expression_end, &expression_offset) == 4u &&
                    stack_size == expected && piece_count < 2u);
             result |= (uint64_t)stack[--stack_size] << (piece_count * 32u);
@@ -8999,7 +9020,8 @@ static void verify_inline_i686_u64_global_variable_division_expression(
     uint64_t expression_start, const ObjSection* info,
     const ObjSection* strings, const ObjSection* locations,
     const char* source_name, const char* divisor_name,
-    bool global_dividend, bool global_divisor, bool remainder) {
+    bool global_dividend, bool global_divisor, bool remainder,
+    bool is_signed) {
     static const uint64_t dividends[] = {
         0u, 1u, 2u, 3u, 4u, UINT32_MAX, UINT64_C(0x100000000),
         UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000000),
@@ -9009,6 +9031,16 @@ static void verify_inline_i686_u64_global_variable_division_expression(
         1u, 2u, 3u, UINT32_MAX, UINT64_C(0x100000001),
         UINT64_C(0x4000000000000001), UINT64_C(0x7fffffffffffffff),
         UINT64_C(0x8000000000000001), UINT64_MAX
+    };
+    static const uint64_t signed_dividends[] = {
+        UINT64_C(0x8000000000000000), UINT64_C(0x8000000000000001),
+        UINT64_C(0xfedcba9876543211), UINT64_MAX, 0u, 1u, 2u,
+        UINT64_C(0x7fffffffffffffff)
+    };
+    static const uint64_t signed_divisors[] = {
+        UINT64_C(0x8000000000000000), UINT64_C(0xfffffffffffffffd),
+        UINT64_MAX, 1u, 2u, 3u,
+        UINT64_C(0x100000001), UINT64_C(0x7fffffffffffffff)
     };
     bool has_source_location = false;
     bool source_is_location_list = false;
@@ -9021,11 +9053,14 @@ static void verify_inline_i686_u64_global_variable_division_expression(
     uint64_t stored_dividend = 0u;
     uint64_t stored_divisor;
 
-    assert(object && data && info && strings && locations && source_name &&
-           divisor_name && object->arch == ARCH_X86);
+    assert(object && data && info && strings && source_name && divisor_name &&
+           (locations || (global_dividend && global_divisor)) &&
+           object->arch == ARCH_X86);
     if (global_dividend) {
         stored_dividend = verify_inline_global_storage(object, source_name, 8u);
-        assert(stored_dividend == UINT64_C(0xfedcba9876543217));
+        assert(stored_dividend == (is_signed
+            ? UINT64_C(0x8edcba9876543211)
+            : UINT64_C(0xfedcba9876543217)));
     } else {
         assert(find_variable_location(
             info, strings, locations, source_name, ARCH_X86,
@@ -9035,7 +9070,9 @@ static void verify_inline_i686_u64_global_variable_division_expression(
     }
     if (global_divisor) {
         stored_divisor = verify_inline_global_storage(object, divisor_name, 8u);
-        assert(stored_divisor == UINT64_C(0x8000000000000001));
+        assert(stored_divisor == (is_signed
+            ? UINT64_C(0xfffffffeffffffff)
+            : UINT64_C(0x8000000000000001)));
     } else {
         assert(find_variable_location(
             info, strings, locations, divisor_name, ARCH_X86,
@@ -9061,29 +9098,51 @@ static void verify_inline_i686_u64_global_variable_division_expression(
             assert(!"unexpected relocation in variable-divisor expression");
         }
     }
-    assert(source_relocations == (global_dividend ? 2u : 0u) &&
-           divisor_relocations == (global_divisor ? 2u : 0u));
+    assert(source_relocations == (global_dividend ? (is_signed ? 3u : 2u) : 0u) &&
+           divisor_relocations == (global_divisor ? (is_signed ? 3u : 2u) : 0u));
 
+    const uint64_t* dividend_values = is_signed ? signed_dividends : dividends;
+    const uint64_t* divisor_values = is_signed ? signed_divisors : divisors;
+    size_t dividend_count = is_signed
+        ? sizeof(signed_dividends) / sizeof(signed_dividends[0])
+        : sizeof(dividends) / sizeof(dividends[0]);
+    size_t divisor_count = is_signed
+        ? sizeof(signed_divisors) / sizeof(signed_divisors[0])
+        : sizeof(divisors) / sizeof(divisors[0]);
     for (size_t dividend_index = 0u;
-         dividend_index < sizeof(dividends) / sizeof(dividends[0]);
+         dividend_index < dividend_count;
          ++dividend_index) {
         for (size_t divisor_index = 0u;
-             divisor_index < sizeof(divisors) / sizeof(divisors[0]);
+             divisor_index < divisor_count;
              ++divisor_index) {
-            uint64_t dividend = dividends[dividend_index];
-            uint64_t divisor = divisors[divisor_index];
+            uint64_t dividend = dividend_values[dividend_index];
+            uint64_t divisor = divisor_values[divisor_index];
+            int64_t signed_dividend = (int64_t)dividend;
+            int64_t signed_divisor = (int64_t)divisor;
+            uint64_t expected;
+            if (is_signed) {
+                if (signed_divisor == 0 ||
+                    (signed_dividend == INT64_MIN && signed_divisor == -1)) {
+                    continue;
+                }
+                expected = (uint64_t)(remainder
+                    ? signed_dividend % signed_divisor
+                    : signed_dividend / signed_divisor);
+            } else {
+                expected = remainder
+                    ? dividend % divisor : dividend / divisor;
+            }
             uint64_t actual = evaluate_inline_i686_u64_constant_division(
                 data, expression_end, expression_start,
                 source_frame_offset, divisor_frame_offset, dividend, divisor,
                 remainder, true, info,
                 global_dividend ? source_name : NULL,
                 global_divisor ? divisor_name : NULL);
-            uint64_t expected = remainder
-                ? dividend % divisor : dividend / divisor;
             if (actual != expected) {
                 fprintf(stderr,
-                        "i686 u64 global-variable %s mismatch: dividend=%#llx "
+                        "i686 %s global-variable %s mismatch: dividend=%#llx "
                         "divisor=%#llx actual=%#llx expected=%#llx\n",
+                        is_signed ? "s64" : "u64",
                         remainder ? "remainder" : "division",
                         (unsigned long long)dividend,
                         (unsigned long long)divisor,
@@ -9092,6 +9151,63 @@ static void verify_inline_i686_u64_global_variable_division_expression(
             }
             assert(actual == expected);
         }
+    }
+}
+
+static void verify_inline_i686_s64_global_constant_division_expression(
+    ObjectFile* object, const uint8_t* data, uint64_t expression_end,
+    uint64_t expression_start, const ObjSection* info,
+    const char* source_name, uint64_t divisor, bool remainder) {
+    static const uint64_t dividends[] = {
+        0u, 1u, UINT64_MAX, 2u, UINT64_C(0xfffffffffffffffe),
+        UINT64_C(0x8000000000000000), UINT64_C(0x8000000000000001),
+        UINT64_C(0x7fffffffffffffff), UINT64_C(0xfedcba9876543211)
+    };
+    size_t relocations = 0u;
+
+    assert(object && data && info && source_name &&
+           object->arch == ARCH_X86 && divisor != 0u &&
+           verify_inline_global_storage(object, source_name, 8u) ==
+               UINT64_C(0x8edcba9876543211));
+    for (const ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset < expression_start ||
+            relocation->offset >= expression_end) {
+            continue;
+        }
+        assert(relocation->type == RELOC_ABS32U &&
+               relocation->symbol_name &&
+               strcmp(relocation->symbol_name, source_name) == 0);
+        ++relocations;
+    }
+    assert(relocations == 3u);
+
+    for (size_t index = 0u;
+         index < sizeof(dividends) / sizeof(dividends[0]); ++index) {
+        int64_t signed_dividend = (int64_t)dividends[index];
+        int64_t signed_divisor = (int64_t)divisor;
+        uint64_t actual;
+        uint64_t expected;
+        if (signed_dividend == INT64_MIN && signed_divisor == -1) {
+            continue;
+        }
+        expected = (uint64_t)(remainder
+            ? signed_dividend % signed_divisor
+            : signed_dividend / signed_divisor);
+        actual = evaluate_inline_i686_u64_constant_division(
+            data, expression_end, expression_start, 0, 0, dividends[index],
+            divisor, remainder, false, info, source_name, NULL);
+        if (actual != expected) {
+            fprintf(stderr,
+                    "i686 s64 global-constant %s mismatch: dividend=%#llx "
+                    "divisor=%lld actual=%#llx expected=%#llx\n",
+                    remainder ? "remainder" : "division",
+                    (unsigned long long)dividends[index],
+                    (long long)signed_divisor,
+                    (unsigned long long)actual,
+                    (unsigned long long)expected);
+        }
+        assert(actual == expected);
     }
 }
 
@@ -11521,6 +11637,38 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_unsigned_long_long_global_pair_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 3 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_global_pair_divide_entry";
+    } else if (expected_constant == INT64_MIN + 4 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_global_pair_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 5 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_global_divide_by_negative_seven_entry";
+    } else if (expected_constant == INT64_MIN + 6 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_global_remainder_by_negative_seven_entry";
+    } else if (expected_constant == INT64_MIN + 7 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_global_local_divide_entry";
+    } else if (expected_constant == INT64_MIN + 8 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_global_local_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 9 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_local_global_divide_entry";
+    } else if (expected_constant == INT64_MIN + 10 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_local_global_remainder_entry";
     }
     if (mixed_rank_comparison) {
         comparison_is_unsigned = architecture == ARCH_X86;
@@ -11657,6 +11805,45 @@ static void verify_inline_integer_expression_parameter(
             strings, locations, source_name, divisor_source_name,
             expected_constant != INT64_MIN,
             expected_constant != INT64_MIN + 1,
+            expected_operation == 0x1du, false);
+        objfile_free(object);
+        return;
+    }
+    if (architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
+        divisor_source_name && expected_constant >= INT64_MIN + 3 &&
+        expected_constant <= INT64_MIN + 4 &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        verify_inline_i686_u64_global_variable_division_expression(
+            object, info->data, expression_end, expression_start, info,
+            strings, locations, source_name, divisor_source_name,
+            true, true, expected_operation == 0x1du, true);
+        objfile_free(object);
+        return;
+    }
+    if (architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
+        divisor_source_name && expected_constant >= INT64_MIN + 7 &&
+        expected_constant <= INT64_MIN + 10 &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        bool global_dividend = expected_constant == INT64_MIN + 7 ||
+            expected_constant == INT64_MIN + 8;
+        bool global_divisor = expected_constant == INT64_MIN + 9 ||
+            expected_constant == INT64_MIN + 10;
+        verify_inline_i686_u64_global_variable_division_expression(
+            object, info->data, expression_end, expression_start, info,
+            strings, locations, source_name, divisor_source_name,
+            global_dividend, global_divisor,
+            expected_operation == 0x1du, true);
+        objfile_free(object);
+        return;
+    }
+    if (architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
+        !divisor_source_name &&
+        (expected_constant == INT64_MIN + 5 ||
+         expected_constant == INT64_MIN + 6) &&
+        (expected_operation == 0x1bu || expected_operation == 0x1du)) {
+        verify_inline_i686_s64_global_constant_division_expression(
+            object, info->data, expression_end, expression_start, info,
+            source_name, UINT64_C(0xfffffffffffffff9),
             expected_operation == 0x1du);
         objfile_free(object);
         return;
@@ -15624,6 +15811,106 @@ int main(int argc, char** argv)
         verify_inline_i686_global_shift_parameter(argv[8], 0x80u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x81u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x81u);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 3,
+            "debug_inline_nonconstant_signed_long_long_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 3,
+            "debug_inline_nonconstant_signed_long_long_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1du, 8u, INT64_MIN + 4,
+            "debug_inline_nonconstant_signed_long_long_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1du, 8u, INT64_MIN + 4,
+            "debug_inline_nonconstant_signed_long_long_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 5, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 5, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1du, 8u, INT64_MIN + 6, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_global_dividend",
+            false, 0x1du, 8u, INT64_MIN + 6, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_runtime_global_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 7,
+            "debug_inline_nonconstant_signed_long_long_local_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_runtime_global_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 7,
+            "debug_inline_nonconstant_signed_long_long_local_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_runtime_global_dividend",
+            false, 0x1du, 8u, INT64_MIN + 8,
+            "debug_inline_nonconstant_signed_long_long_local_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_runtime_global_dividend",
+            false, 0x1du, 8u, INT64_MIN + 8,
+            "debug_inline_nonconstant_signed_long_long_local_divisor", false);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_local_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 9,
+            "debug_inline_nonconstant_signed_long_long_runtime_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_local_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 9,
+            "debug_inline_nonconstant_signed_long_long_runtime_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_local_dividend",
+            false, 0x1du, 8u, INT64_MIN + 10,
+            "debug_inline_nonconstant_signed_long_long_runtime_global_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_local_dividend",
+            false, 0x1du, 8u, INT64_MIN + 10,
+            "debug_inline_nonconstant_signed_long_long_runtime_global_divisor",
+            false);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4du);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4du);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4eu);
