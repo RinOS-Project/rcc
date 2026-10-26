@@ -10086,7 +10086,11 @@ remains a separate open item.
       in legacy and verified i686/AMD64 DWARF, with the test evaluator modeling
       both stack widths. Focused `test-debug-info-inline-expression` and full
       `test-debug-info` gates pass.
+- [x] Verify a direct non-frame-backed unsigned 64-bit inline argument sourced
+      from a global object. Check the `DW_OP_addr` expression and exact
+      address-width relocation for legacy and verified i686/AMD64 objects in
+      `test-debug-info-inline-expression`.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
-      multiplication cases, non-frame-backed wide operands, and other
+      multiplication cases, computed non-frame-backed wide operands, and other
       mixed-rank matrices remain open.

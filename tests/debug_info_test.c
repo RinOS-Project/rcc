@@ -12167,6 +12167,86 @@ static void verify_inline_integer_expression_parameter(
     objfile_free(object);
 }
 
+static void verify_inline_global_wide_parameter(
+    const char* path, uint16_t architecture) {
+    const char* inline_name =
+        "debug_nonconstant_unsigned_long_long_parameter_inline";
+    const char* call_site_name =
+        "debug_inline_nonconstant_unsigned_long_long_global_entry";
+    const char* source_name =
+        "debug_inline_nonconstant_unsigned_long_long_global_source";
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t call_die = UINT64_MAX;
+    uint64_t origin_die = UINT64_MAX;
+    uint64_t parameter_die;
+    uint64_t expression_offset;
+    uint64_t expression_size;
+    bool found_address_relocation = false;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    for (uint64_t die = 11u; die + 1u + 4u + address_size + 16u <=
+         info->size; ++die) {
+        uint32_t candidate_origin;
+        uint32_t name_offset;
+        uint64_t low_pc_offset;
+        bool matches_call = false;
+
+        if (info->data[die] != 41u) continue;
+        candidate_origin = read_u32(info->data, die + 1u);
+        if (candidate_origin >= info->size ||
+            info->data[candidate_origin] != 40u) continue;
+        name_offset = read_u32(info->data, candidate_origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset, inline_name) != 0) {
+            continue;
+        }
+        low_pc_offset = die + 1u + 4u;
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == low_pc_offset &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+        origin_die = candidate_origin;
+    }
+    assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    parameter_die = call_die + 1u + 4u + address_size + 4u + 12u;
+    assert(parameter_die + 5u < info->size &&
+           info->data[parameter_die] == 67u &&
+           read_u32(info->data, parameter_die + 1u) == origin_die + 27u);
+    expression_offset = parameter_die + 5u;
+    expression_size = read_uleb(
+        info->data, info->size, &expression_offset);
+    assert(expression_size == address_size + 1u &&
+           expression_offset + expression_size <= info->size &&
+           info->data[expression_offset] == 0x03u); /* DW_OP_addr */
+    for (const ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset == expression_offset + 1u &&
+            relocation->symbol_name &&
+            strcmp(relocation->symbol_name, source_name) == 0) {
+            assert(relocation->type ==
+                   (architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U));
+            found_address_relocation = true;
+            break;
+        }
+    }
+    assert(found_address_relocation);
+    objfile_free(object);
+}
+
 typedef struct VerifyInlineIntegerExpressionCase {
     const char* inline_name;
     const char* source_name;
@@ -13000,6 +13080,10 @@ int main(int argc, char** argv)
         verify_inline_integer_expression_cases(argv[3], ARCH_X64);
         verify_inline_integer_expression_cases(argv[4], ARCH_X86);
         verify_inline_integer_expression_cases(argv[5], ARCH_X64);
+        verify_inline_global_wide_parameter(argv[6], ARCH_X86);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64);
+        verify_inline_global_wide_parameter(argv[8], ARCH_X86);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64);
         for (size_t path_index = 0u;
              path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
              ++path_index) {

@@ -95,9 +95,28 @@ enum DebugInlineSignedCharComparisonEnum : signed char {
 DebugInlineSignedCharComparisonEnum*
     debug_inline_signed_char_comparison_enum_escape;
 
+extern "C" {
+unsigned long long debug_inline_nonconstant_unsigned_long_long_global_source =
+    0x8000000100000003ULL;
+}
+
 static inline int debug_nonconstant_integer_parameter_inline(int value)
 {
     return value;
+}
+
+static inline unsigned long long
+debug_nonconstant_unsigned_long_long_parameter_inline(
+    unsigned long long value)
+{
+    return value;
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_source);
 }
 
 long long* debug_inline_signed_long_long_comparison_escape;
