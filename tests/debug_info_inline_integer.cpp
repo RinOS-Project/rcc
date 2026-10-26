@@ -718,6 +718,12 @@ extern "C" int debug_inline_unsigned_long_long_shift_compare_entry(
         !(((debug_inline_unsigned_long_long_shift_compare_entry_source << 0u) ^
            (debug_inline_unsigned_long_long_shift_compare_entry_source << 31u) ^
            (debug_inline_unsigned_long_long_shift_compare_entry_source << 32u) ^
-           (debug_inline_unsigned_long_long_shift_compare_entry_source << 33u)) <
+           (debug_inline_unsigned_long_long_shift_compare_entry_source << 33u) ^
+           (debug_inline_unsigned_long_long_shift_compare_entry_source >> 0u) ^
+           (debug_inline_unsigned_long_long_shift_compare_entry_source >> 1u) ^
+           (debug_inline_unsigned_long_long_shift_compare_entry_source >> 31u) ^
+           (debug_inline_unsigned_long_long_shift_compare_entry_source >> 32u) ^
+           (debug_inline_unsigned_long_long_shift_compare_entry_source >> 33u) ^
+           (debug_inline_unsigned_long_long_shift_compare_entry_source >> 63u)) <
           0x8000000000000000ULL));
 }

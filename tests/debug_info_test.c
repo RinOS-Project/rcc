@@ -11026,7 +11026,13 @@ static void verify_inline_integer_expression_parameter(
                 uint64_t shifted = values[index] ^
                     (values[index] << 31u) ^
                     (values[index] << 32u) ^
-                    (values[index] << 33u);
+                    (values[index] << 33u) ^
+                    (values[index] >> 0u) ^
+                    (values[index] >> 1u) ^
+                    (values[index] >> 31u) ^
+                    (values[index] >> 32u) ^
+                    (values[index] >> 33u) ^
+                    (values[index] >> 63u);
                 bool compared = verify_inline_integer_comparison_value(
                     shifted, (uint64_t)expected_constant,
                     is_unsigned, 64u, expected_operation);
