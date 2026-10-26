@@ -10251,10 +10251,16 @@ remains a separate open item.
       value, `UINT64_MAX`, and the initialized global value in legacy and
       verified objects. Focused inline-expression and full `test-debug-info`
       gates pass.
+- [x] Lower i686 unsigned-64 addition and subtraction between two global
+      objects to low/high 32-bit pieces. Derive carry and borrow from unsigned
+      low-word comparisons; verify the exact seven add relocations (4/3 per
+      source), six subtract relocations (3/3), and wrap/carry/borrow boundary
+      pairs plus initialized globals in legacy and verified objects. Focused
+      inline-expression and full `test-debug-info` gates pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide
-      operands beyond global bitwise operations, negation, and constant/dynamic
-      shifts, other AMD64 computed-global multiplication shapes, divide/modulo,
-      other shift-count widths/conversions and shift forms, and mixed-rank
-      matrices remain open.
+      operands beyond global bitwise operations, addition/subtraction,
+      logical-not, negation, and constant/dynamic shifts, other AMD64
+      computed-global multiplication shapes, divide/modulo, other shift-count
+      widths/conversions and shift forms, and mixed-rank matrices remain open.
