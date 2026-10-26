@@ -10097,8 +10097,12 @@ remains a separate open item.
       verify exact expressions and global relocations in legacy and verified
       `test-debug-info-inline-expression` objects, evaluating the expression
       against the relocated global's object data.
+- [x] Describe AMD64 unsigned 64-bit inline arguments formed from a global
+      object with an unsigned `&`, `|`, or `^` constant. Verify the relocated
+      global load, exact DWARF opcode, and evaluated result from object data in
+      legacy and verified `test-debug-info-inline-expression` objects.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,
-      other AMD64 computed-global forms, and other mixed-rank matrices remain
-      open.
+      other AMD64 computed-global multiply/divide/shift forms, and other
+      mixed-rank matrices remain open.

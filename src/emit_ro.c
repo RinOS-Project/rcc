@@ -9572,7 +9572,8 @@ static bool debug_inline_parameter_x64_u64_global_constant_expression(
     const ModuleSymbol* symbol;
     uint64_t constant_bits;
     size_t size = 0u;
-    bool subtract;
+    uint8_t operation;
+    bool commutative;
 
     if (!mod || !callee || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !expression ||
@@ -9589,19 +9590,22 @@ static bool debug_inline_parameter_x64_u64_global_constant_expression(
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, source_expression->type, 0u) ||
         (source_expression->kind != EXPR_ADD &&
-         source_expression->kind != EXPR_SUB) ||
+         source_expression->kind != EXPR_SUB &&
+         source_expression->kind != EXPR_BITAND &&
+         source_expression->kind != EXPR_BITOR &&
+         source_expression->kind != EXPR_BITXOR) ||
         !source_expression->binary_lhs || !source_expression->binary_rhs) {
         return false;
     }
 
-    subtract = source_expression->kind == EXPR_SUB;
+    commutative = source_expression->kind != EXPR_SUB;
     if (source_expression->binary_lhs->kind == EXPR_IDENT &&
         source_expression->binary_lhs->ident_decl &&
         debug_inline_integer_literal_bits(
             source_expression->binary_rhs, &constant_bits, 0u)) {
         global_expression = source_expression->binary_lhs;
         constant_expression = source_expression->binary_rhs;
-    } else if (!subtract &&
+    } else if (commutative &&
                source_expression->binary_rhs->kind == EXPR_IDENT &&
                source_expression->binary_rhs->ident_decl &&
                debug_inline_integer_literal_bits(
@@ -9630,6 +9634,10 @@ static bool debug_inline_parameter_x64_u64_global_constant_expression(
         symbol->section == MODULE_SYMBOL_TLS) {
         return false;
     }
+    operation = source_expression->kind == EXPR_ADD ? 0x22u :
+        source_expression->kind == EXPR_SUB ? 0x1cu :
+        source_expression->kind == EXPR_BITAND ? 0x1au :
+        source_expression->kind == EXPR_BITOR ? 0x21u : 0x27u;
 
     if (!debug_inline_integer_expression_append_byte(
             expression, expression_capacity, &size, 0x03u)) { /* DW_OP_addr */
@@ -9649,8 +9657,7 @@ static bool debug_inline_parameter_x64_u64_global_constant_expression(
         !debug_inline_integer_expression_append_constu(
             expression, expression_capacity, &size, constant_bits) ||
         !debug_inline_integer_expression_append_byte(
-            expression, expression_capacity, &size,
-            subtract ? 0x1cu : 0x22u) ||
+            expression, expression_capacity, &size, operation) ||
         !debug_inline_integer_expression_append_byte(
             expression, expression_capacity, &size, 0x9fu)) {
         return false;
