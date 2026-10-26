@@ -10391,6 +10391,22 @@ remains a separate open item.
       zero and the undefined `INT64_MIN / -1` case. Require three exact
       `ABS32U` relocations per global operand for sign and magnitude loads.
       Focused `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] Computed signed operands beyond identifiers and integer literals,
-      TLS/static-local or volatile/reference/atomic operands, and broader
-      optimized multi-piece locations remain open.
+- [ ] Computed signed operand trees beyond a single unary minus around an
+      identifier, TLS/static-local or volatile/reference/atomic operands, and
+      broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-26, signed i686 runtime divmod unary operands)
+
+- [x] Extend signed i686 64-bit runtime `/` and `%` debug expressions to
+      accept one unary minus around either identifier-backed operand. Invert
+      only the operand's sign flag and reuse its exact two-word magnitude, so
+      quotient sign and dividend-signed remainder semantics remain unchanged.
+      Regressions cover global/global operands on C and C++ legacy/verified
+      objects, plus frame/frame dividend negation and divisor negation on C
+      legacy/verified objects. Boundary evaluation excludes negating `INT64_MIN`,
+      division by zero, and `INT64_MIN / -1`. Both
+      `make test-debug-info-inline-expression` and the full `make
+      test-debug-info` gate pass under WSL2 Ubuntu-24.04/GCC.
+- [ ] Broader computed signed operand trees, nested/multiple unary operations,
+      TLS/static-local or volatile/reference/atomic operands, and optimized
+      multi-piece locations remain open.

@@ -877,6 +877,42 @@ debug_inline_nonconstant_signed_long_long_global_pair_remainder_entry(void)
 }
 
 extern "C" long long
+debug_inline_nonconstant_signed_long_long_negated_global_dividend_divide_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        -debug_inline_nonconstant_signed_long_long_global_dividend /
+        debug_inline_nonconstant_signed_long_long_global_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_negated_global_dividend_remainder_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        -debug_inline_nonconstant_signed_long_long_global_dividend %
+        debug_inline_nonconstant_signed_long_long_global_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_negated_global_divisor_divide_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_global_dividend /
+        -debug_inline_nonconstant_signed_long_long_global_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_negated_global_divisor_remainder_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_global_dividend %
+        -debug_inline_nonconstant_signed_long_long_global_divisor);
+}
+
+extern "C" long long
 debug_inline_nonconstant_signed_long_long_global_divide_by_negative_seven_entry(
     void)
 {
