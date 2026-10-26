@@ -10411,8 +10411,10 @@ remains a separate open item.
 - [x] Preserve identifier operands wrapped in an explicit same-type signed
       64-bit C cast or C++ `static_cast` for the same runtime division path.
       C and C++ tests verify cast-on-dividend division and cast-on-divisor
-      remainder in legacy and verified i686 objects. Both focused and complete
-      DWARF gates pass under WSL2 Ubuntu-24.04/GCC.
+      remainder in legacy and verified i686 objects. C frame-local tests also
+      cover both cast positions and operations, verifying the emitted frame
+      expressions. Both focused and complete DWARF gates pass under WSL2
+      Ubuntu-24.04/GCC.
 - [ ] Broader computed signed operand trees, width-changing casts, nested or
       multiple unary operations, TLS/static-local or volatile/reference/atomic
       operands, and optimized multi-piece locations remain open.

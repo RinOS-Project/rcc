@@ -254,6 +254,38 @@ long long debug_inline_nonconstant_signed_long_long_cast_global_divisor_remainde
         (long long)debug_inline_nonconstant_signed_long_long_runtime_global_divisor);
 }
 
+long long debug_inline_nonconstant_signed_long_long_cast_local_dividend_divide_entry(
+    int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_cast_local_dividend =
+        (long long)value - 5ll;
+    long long debug_inline_nonconstant_signed_long_long_cast_local_divisor =
+        (long long)(value | 1);
+    debug_inline_nonconstant_signed_long_long_escape =
+        &debug_inline_nonconstant_signed_long_long_cast_local_dividend;
+    debug_inline_nonconstant_signed_long_long_rhs_escape =
+        &debug_inline_nonconstant_signed_long_long_cast_local_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        (long long)debug_inline_nonconstant_signed_long_long_cast_local_dividend /
+        debug_inline_nonconstant_signed_long_long_cast_local_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_cast_local_divisor_remainder_entry(
+    int value)
+{
+    long long debug_inline_nonconstant_signed_long_long_cast_local_dividend =
+        (long long)value - 5ll;
+    long long debug_inline_nonconstant_signed_long_long_cast_local_divisor =
+        (long long)(value | 1);
+    debug_inline_nonconstant_signed_long_long_escape =
+        &debug_inline_nonconstant_signed_long_long_cast_local_dividend;
+    debug_inline_nonconstant_signed_long_long_rhs_escape =
+        &debug_inline_nonconstant_signed_long_long_cast_local_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_cast_local_dividend %
+        (long long)debug_inline_nonconstant_signed_long_long_cast_local_divisor);
+}
+
 long long debug_inline_nonconstant_signed_long_long_negated_local_dividend_divide_entry(
     int value)
 {
