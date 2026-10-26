@@ -10239,10 +10239,16 @@ remains a separate open item.
       the exact low/high pieces, high-word `+4`, and initialized-data result in
       legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Lower i686 unsigned-64 negation of a global object as low/high 32-bit
+      pieces with distinct `ABS32U` relocations for the low, high, and borrow
+      source loads. Evaluate zero, low-word one, `UINT32_MAX`, a high-word-only
+      value, `UINT64_MAX`, and the initialized global value in legacy and
+      verified objects. Focused inline-expression and full `test-debug-info`
+      gates pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide
-      operands beyond global bitwise operations and constant shifts by counts
-      0..63, other AMD64 computed-global multiplication shapes, divide/modulo,
+      operands beyond global bitwise operations, negation, and constant/dynamic
+      shifts, other AMD64 computed-global multiplication shapes, divide/modulo,
       other shift-count widths/conversions and shift forms, and mixed-rank
       matrices remain open.

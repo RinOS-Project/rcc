@@ -9360,9 +9360,11 @@ static bool debug_inline_parameter_i686_u64_bitnot_expression(
 static bool debug_inline_parameter_i686_u64_negate_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
-    size_t* expression_size) {
+    size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
     const Decl* source;
-    int64_t frame_offset;
+    int64_t frame_offset = 0;
+    bool source_is_global;
     size_t size = 0u;
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || source_expression->kind != EXPR_NEG ||
@@ -9373,22 +9375,29 @@ static bool debug_inline_parameter_i686_u64_negate_expression(
         return false;
     }
     source = source_expression->unary_operand->ident_decl;
+    source_is_global = source && source->var_is_global;
     if (!source || (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
-        source->var_is_global || source->var_is_static_local ||
+        (source_is_global && source->kind != DECL_VAR) ||
+        source->var_is_static_local ||
         source->var_is_thread_local || source->var_is_vla || !source->type ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source_expression->unary_operand->type, parameter_type, 0u) ||
-        !debug_inline_parameter_frame_offset(mod, source, &frame_offset) ||
-        frame_offset > INT64_MAX - 4) {
+        (relocations && (!relocations->offsets || !relocations->symbols ||
+                         !relocations->count)) ||
+        (!source_is_global && !debug_inline_parameter_frame_offset(
+            mod, source, &frame_offset)) ||
+        (!source_is_global && frame_offset > INT64_MAX - 4)) {
         return false;
     }
+    if (relocations) *relocations->count = 0u;
 
     /* Negate each storage word modulo 2^32; a nonzero low word borrows one
        from the high word. DW_OP_ne produces the exact 0/1 borrow flag. */
-    if (!debug_inline_integer_expression_append_frame_u32(
-            expression, capacity, &size, ARCH_X86, frame_offset) ||
+    if (!debug_inline_parameter_i686_append_storage_u32(
+            mod, source, frame_offset, false, expression, capacity, &size,
+            relocations) ||
         !debug_inline_integer_expression_append_constu(
             expression, capacity, &size, 0u) ||
         !debug_inline_integer_expression_append_byte(
@@ -9401,16 +9410,18 @@ static bool debug_inline_parameter_i686_u64_negate_expression(
             expression, capacity, &size, 0x93u) || /* DW_OP_piece */
         !debug_inline_integer_expression_append_byte(
             expression, capacity, &size, 4u) ||
-        !debug_inline_integer_expression_append_frame_u32(
-            expression, capacity, &size, ARCH_X86, frame_offset + 4) ||
+        !debug_inline_parameter_i686_append_storage_u32(
+            mod, source, frame_offset, true, expression, capacity, &size,
+            relocations) ||
         !debug_inline_integer_expression_append_constu(
             expression, capacity, &size, 0u) ||
         !debug_inline_integer_expression_append_byte(
             expression, capacity, &size, 0x16u) || /* swap */
         !debug_inline_integer_expression_append_byte(
             expression, capacity, &size, 0x1cu) || /* 0 - high */
-        !debug_inline_integer_expression_append_frame_u32(
-            expression, capacity, &size, ARCH_X86, frame_offset) ||
+        !debug_inline_parameter_i686_append_storage_u32(
+            mod, source, frame_offset, false, expression, capacity, &size,
+            relocations) ||
         !debug_inline_integer_expression_append_constu(
             expression, capacity, &size, 0u) ||
         !debug_inline_integer_expression_append_byte(
@@ -9651,7 +9662,7 @@ static bool debug_inline_parameter_integer_expression(
         debug_inline_parameter_i686_u64_negate_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
-            expression_size)) {
+            expression_size, NULL)) {
         return true;
     }
 
@@ -12260,6 +12271,34 @@ static void debug_emit_inline_parameter_instances(
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);
             section_add_bytes(info, expression, expression_size);
+        } else if (architecture == ARCH_X86 && value->declaration &&
+                   argument && argument->expr &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_i686_u64_negate_expression(
+                       mod, value->declaration->type, argument->expr,
+                       integer_value_expression,
+                       sizeof(integer_value_expression),
+                       &integer_value_expression_size,
+                       &integer_value_relocations) &&
+                   integer_value_relocation_count != 0u) {
+            uint64_t expression_offset;
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, integer_value_expression_size);
+            expression_offset = info->size;
+            section_add_bytes(info, integer_value_expression,
+                              integer_value_expression_size);
+            for (size_t relocation_index = 0u;
+                 relocation_index < integer_value_relocation_count;
+                 ++relocation_index) {
+                objfile_add_reloc(
+                    obj, info_section,
+                    expression_offset +
+                        integer_value_relocation_offsets[relocation_index],
+                    integer_value_relocation_symbols[relocation_index]->name,
+                    RELOC_ABS32U, 0);
+            }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(
