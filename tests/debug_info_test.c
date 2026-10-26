@@ -9369,16 +9369,16 @@ static void verify_inline_u64_mul_two_variables_expression(
     right_frame_offset = right_location_offset;
 
     for (size_t index = 0u; index < value_count; ++index) {
-        uint64_t actual =
-            evaluate_inline_u64_mul_two_variables_expression(
-                data, expression_end, expression_start, left_frame_offset,
-                right_frame_offset, values[index].left, values[index].right);
         uint64_t left = nested_operands
             ? values[index].left + UINT64_C(0x100000001)
             : values[index].left;
         uint64_t right = nested_operands
             ? values[index].right - UINT64_C(0x100000001)
             : values[index].right;
+        uint64_t actual =
+            evaluate_inline_u64_mul_two_variables_expression(
+                data, expression_end, expression_start, left_frame_offset,
+                right_frame_offset, values[index].left, values[index].right);
         uint64_t expected = deeply_nested_operands
             ? (left * right) * left : left * right;
         assert(actual == expected);

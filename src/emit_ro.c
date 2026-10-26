@@ -5463,6 +5463,21 @@ static bool debug_build_inline_integer_value_expression(
         !debug_inline_integer_expression_type(expression->type)) {
         return false;
     }
+    if (expression->kind == EXPR_COMMA && expression->binary_rhs &&
+        debug_inline_integer_expression_type(expression->binary_rhs->type) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            expression->type, expression->binary_rhs->type, 0u)) {
+        /* The caller already executed the comma's left operand. A debug
+           value expression describes the resulting right operand; replaying
+           the left side here would be both unnecessary and potentially
+           side-effecting. */
+        return debug_build_inline_integer_value_expression(
+                   mod, architecture, expression->binary_rhs, output,
+                   capacity, output_size, depth + 1u) &&
+            debug_inline_integer_expression_normalize(
+                output, capacity, output_size, expression->type,
+                architecture);
+    }
     if (debug_inline_integer_literal_bits(
             expression, &unsigned_constant, 0u)) {
         if (expression->type->is_unsigned ||
@@ -5953,6 +5968,14 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         !debug_inline_integer_expression_type(value->type) ||
         value->type->size <= 0 || value->type->size > 8) {
         return false;
+    }
+    if (value->kind == EXPR_COMMA && value->binary_rhs &&
+        debug_inline_integer_expression_type(value->binary_rhs->type) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            value->type, value->binary_rhs->type, 0u)) {
+        return debug_inline_parameter_i686_u64_append_word_expression(
+            mod, value->binary_rhs, high_word, expression, capacity,
+            expression_size, depth + 1u);
     }
     if (value->kind == EXPR_COND && value->cond_test && value->cond_then &&
         value->cond_else && value->type->size == 8 &&
