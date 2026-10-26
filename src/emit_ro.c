@@ -9719,6 +9719,18 @@ static bool debug_inline_x64_global_expression_collect(
         return true;
     }
 
+    if (expression->kind == EXPR_BITNOT) {
+        return expression->unary_operand && expression->type->size == 8u &&
+            expression->type->is_unsigned &&
+            debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                value_type, expression->type, 0u) &&
+            debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                value_type, expression->unary_operand->type, 0u) &&
+            debug_inline_x64_global_expression_collect(
+                mod, value_type, expression->unary_operand, globals,
+                depth + 1u);
+    }
+
     if (!expression->binary_lhs || !expression->binary_rhs ||
         (expression->kind != EXPR_ADD &&
          expression->kind != EXPR_SUB &&
@@ -9786,6 +9798,14 @@ static bool debug_inline_x64_global_expression_append(
             debug_inline_integer_expression_append_byte(
                 output, capacity, size, 8u);
     }
+    if (expression->kind == EXPR_BITNOT) {
+        return expression->unary_operand &&
+            debug_inline_x64_global_expression_append(
+                value_type, expression->unary_operand, globals, output,
+                capacity, size, depth + 1u) &&
+            debug_inline_integer_expression_append_byte(
+                output, capacity, size, 0x20u); /* DW_OP_not */
+    }
     if (!debug_inline_x64_global_expression_append(
             value_type, expression->binary_lhs, globals, output, capacity,
             size, depth + 1u) ||
@@ -9838,7 +9858,8 @@ static bool debug_inline_parameter_x64_u64_global_expression(
          argument->expr->kind != EXPR_BITOR &&
          argument->expr->kind != EXPR_BITXOR &&
          argument->expr->kind != EXPR_LSHIFT &&
-         argument->expr->kind != EXPR_RSHIFT)) {
+         argument->expr->kind != EXPR_RSHIFT &&
+         argument->expr->kind != EXPR_BITNOT)) {
         return false;
     }
     memset(&globals, 0, sizeof(globals));

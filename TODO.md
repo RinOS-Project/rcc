@@ -10125,6 +10125,11 @@ remains a separate open item.
       `(0xfedcba9876543217 << 1) == 0xfdb97530eca8642e` from the emitted
       relocated DWARF expressions in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Lower AMD64 global-backed unsigned 64-bit bitwise complement in inline
+      parameter values as a relocated load followed by `DW_OP_not`; verify the
+      exact opcode and complement result in legacy and verified objects.
+      Focused `test-debug-info-inline-expression` and full `test-debug-info`
+      pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,
