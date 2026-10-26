@@ -5866,14 +5866,32 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         value->cond_test->type &&
         debug_inline_integer_expression_type(value->cond_test->type) &&
         value->cond_test->type->size > 0 &&
-        value->cond_test->type->size <= 4 &&
+        value->cond_test->type->size <= 8 &&
         debug_inline_integer_expression_type(value->cond_then->type) &&
         debug_inline_integer_expression_type(value->cond_else->type)) {
         size_t true_branch_operand;
         size_t end_branch_operand;
-        if (!debug_build_inline_integer_value_expression(
+        bool condition_appended;
+        if (value->cond_test->type->size <= 4) {
+            condition_appended = debug_build_inline_integer_value_expression(
                 mod, ARCH_X86, value->cond_test, expression, capacity,
-                expression_size, depth + 1u) ||
+                expression_size, depth + 1u);
+        } else {
+            condition_appended =
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, value->cond_test, false, expression, capacity,
+                    expression_size, depth + 1u) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, value->cond_test, true, expression, capacity,
+                    expression_size, depth + 1u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x21u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, expression_size, 0u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x2eu);
+        }
+        if (!condition_appended ||
             !debug_inline_integer_expression_append_branch(
                 expression, capacity, expression_size, 0x28u,
                 &true_branch_operand) || /* DW_OP_bra */
