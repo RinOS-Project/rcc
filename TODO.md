@@ -10194,8 +10194,14 @@ remains a separate open item.
       results for a high-bit source shifted by four in legacy and verified
       objects. Focused `test-debug-info-inline-expression` and full
       `test-debug-info` pass.
+- [x] Preserve the same AMD64 global-backed shifts when the dynamic count is a
+      32-bit unsigned global. Emit `DW_OP_deref_size 4` for the count while
+      retaining the 64-bit source load; verify both relocation symbols and
+      high-bit shift results in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, computed non-frame-backed i686 wide operands,
       other AMD64 computed-global multiplication shapes, divide/modulo, other
-      shift forms, and mixed-rank matrices remain open.
+      shift-count widths/conversions and shift forms, and mixed-rank matrices
+      remain open.

@@ -9699,8 +9699,9 @@ static bool debug_inline_x64_global_expression_collect(
         const ModuleSymbol* symbol;
         if (source->kind != DECL_VAR || !source->var_is_global ||
             source->var_is_static_local || source->var_is_thread_local ||
-            !source->type || source->type->size != 8 ||
-            !source->type->is_unsigned || source->type->is_volatile ||
+            !source->type || !debug_inline_integer_expression_type(source->type) ||
+            source->type->size <= 0 || source->type->size > 8 ||
+            source->type->is_volatile ||
             source->type->is_reference || source->type->is_atomic ||
             !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 value_type, source->type, 0u) ||
@@ -9825,8 +9826,10 @@ static bool debug_inline_x64_global_expression_collect(
         if (debug_inline_integer_literal_bits(
                 expression->binary_rhs, &shift_count, 0u)) {
             if (shift_count >= 64u) return false;
-        } else if (!debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-                       value_type, expression->binary_rhs->type, 0u)) {
+        } else if (!debug_inline_integer_expression_type(
+                       expression->binary_rhs->type) ||
+                   expression->binary_rhs->type->size <= 0 ||
+                   expression->binary_rhs->type->size > 8) {
             return false;
         }
     } else if (!debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -9836,7 +9839,11 @@ static bool debug_inline_x64_global_expression_collect(
     return debug_inline_x64_global_expression_collect(
                mod, value_type, expression->binary_lhs, globals, depth + 1u) &&
         debug_inline_x64_global_expression_collect(
-            mod, value_type, expression->binary_rhs, globals, depth + 1u);
+            mod,
+            expression->kind == EXPR_LSHIFT ||
+                    expression->kind == EXPR_RSHIFT
+                ? expression->binary_rhs->type : value_type,
+            expression->binary_rhs, globals, depth + 1u);
 }
 
 static bool debug_inline_x64_global_expression_append(
@@ -9876,8 +9883,11 @@ static bool debug_inline_x64_global_expression_append(
         }
         return debug_inline_integer_expression_append_byte(
                    output, capacity, size, 0x94u) && /* DW_OP_deref_size */
+            expression->type && expression->type->size > 0 &&
+            expression->type->size <= 8 &&
             debug_inline_integer_expression_append_byte(
-                output, capacity, size, 8u);
+                output, capacity, size,
+                (uint8_t)expression->type->size);
     }
     if (expression->kind == EXPR_CAST && expression->cast_expr &&
         (expression->cast_expr->kind == EXPR_NOT ||

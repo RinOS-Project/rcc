@@ -12177,10 +12177,11 @@ static uint64_t verify_inline_global_expression_tree(
     ObjectFile* object, ObjSection* info, uint64_t expression_offset,
     uint64_t expression_size, const char* source_name,
     uint64_t global_value, const char* second_source_name,
-    uint64_t second_global_value, size_t expected_relocations,
-    uint8_t required_operator) {
+    uint64_t second_global_value, uint8_t second_global_size,
+    size_t expected_relocations, uint8_t required_operator) {
     typedef struct InlineGlobalExpressionValue {
         uint64_t value;
+        uint8_t dereference_size;
         bool is_address;
     } InlineGlobalExpressionValue;
     InlineGlobalExpressionValue stack[64];
@@ -12203,6 +12204,7 @@ static uint64_t verify_inline_global_expression_tree(
         if (operation == 0x03u) { /* DW_OP_addr */
             bool found_relocation = false;
             uint64_t relocated_value = 0u;
+            uint8_t dereference_size = 8u;
             assert(cursor + 8u <= expression_end && stack_size < 64u);
             for (const ObjReloc* relocation = info->relocs; relocation;
                  relocation = relocation->next) {
@@ -12215,6 +12217,7 @@ static uint64_t verify_inline_global_expression_tree(
                            strcmp(relocation->symbol_name,
                                   second_source_name) == 0) {
                     relocated_value = second_global_value;
+                    dereference_size = second_global_size;
                     second_symbol_relocations++;
                 } else {
                     continue;
@@ -12226,13 +12229,16 @@ static uint64_t verify_inline_global_expression_tree(
             assert(found_relocation);
             address_relocations++;
             stack[stack_size].value = relocated_value;
+            stack[stack_size].dereference_size = dereference_size;
             stack[stack_size++].is_address = true;
             cursor += 8u;
             continue;
         }
         if (operation == 0x94u) { /* DW_OP_deref_size */
-            assert(cursor < expression_end && info->data[cursor++] == 8u &&
-                   stack_size > 0u && stack[stack_size - 1u].is_address);
+            assert(cursor < expression_end && stack_size > 0u &&
+                   stack[stack_size - 1u].is_address &&
+                   info->data[cursor++] ==
+                       stack[stack_size - 1u].dereference_size);
             stack[stack_size - 1u].is_address = false;
             continue;
         }
@@ -12319,8 +12325,10 @@ static uint64_t verify_inline_global_expression_tree(
 static void verify_inline_global_wide_parameter(
     const char* path, uint16_t architecture, uint8_t computed_operation) {
     bool computed = computed_operation != 0u;
-    bool global_shift_expression = computed_operation == 0x4du ||
-        computed_operation == 0x4eu;
+    bool global_shift_expression = computed_operation >= 0x4du &&
+        computed_operation <= 0x50u;
+    bool global_shift_narrow_expression = computed_operation == 0x4fu ||
+        computed_operation == 0x50u;
     bool global_pair_expression =
         (computed_operation >= 0x42u && computed_operation <= 0x4bu) ||
         global_shift_expression;
@@ -12383,6 +12391,10 @@ static void verify_inline_global_wide_parameter(
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_dynamic_lshift_entry"
                                 : computed_operation == 0x4eu
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_dynamic_rshift_entry"
+                                : computed_operation == 0x4fu
+                                    ? "debug_inline_nonconstant_unsigned_long_long_global_dynamic_lshift_u32_entry"
+                                : computed_operation == 0x50u
+                                    ? "debug_inline_nonconstant_unsigned_long_long_global_dynamic_rshift_u32_entry"
                                 : computed_operation == 0x42u
                                     ? "debug_inline_nonconstant_unsigned_long_long_global_pair_add_entry"
                                 : computed_operation == 0x43u
@@ -12417,7 +12429,9 @@ static void verify_inline_global_wide_parameter(
             : computed
             ? "debug_inline_nonconstant_unsigned_long_long_global_add_source"
             : "debug_inline_nonconstant_unsigned_long_long_global_source";
-    const char* second_source_name = global_shift_expression
+    const char* second_source_name = global_shift_narrow_expression
+        ? "debug_inline_nonconstant_unsigned_long_long_global_shift_count_u32_source"
+        : global_shift_expression
         ? "debug_inline_nonconstant_unsigned_long_long_global_shift_count_source"
         : global_pair_expression
         ? global_pair_reversed
@@ -12454,7 +12468,9 @@ static void verify_inline_global_wide_parameter(
         computed_operation == 0x3fu ? 0x2bu :
         computed_operation == 0x40u ? 0x2au :
         computed_operation == 0x4du ? 0x24u :
-        computed_operation == 0x4eu ? 0x25u : computed_operation;
+        computed_operation == 0x4eu ? 0x25u :
+        computed_operation == 0x4fu ? 0x24u :
+        computed_operation == 0x50u ? 0x25u : computed_operation;
     bool found_address_relocation = false;
 
     assert(object != NULL && object->arch == architecture);
@@ -12568,7 +12584,7 @@ static void verify_inline_global_wide_parameter(
             computed_operation != 0x37u && computed_operation != 0x38u &&
             computed_operation != 0x39u && computed_operation != 0x3au &&
             computed_operation != 0x3bu && computed_operation != 0x3cu &&
-            (computed_operation < 0x3du || computed_operation > 0x4eu)) {
+            (computed_operation < 0x3du || computed_operation > 0x50u)) {
             assert(cursor + 2u <= expression_end);
             assert(info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
                    info->data[cursor++] == 8u && cursor < expression_end &&
@@ -12618,18 +12634,27 @@ static void verify_inline_global_wide_parameter(
                 }
             }
             assert(second_global_section != NULL &&
-                   second_global_symbol->value <= second_global_section->size &&
-                   second_global_section->size - second_global_symbol->value >=
-                       8u &&
-                   read_u64(second_global_section->data,
-                            second_global_symbol->value) ==
-                       (global_shift_expression
-                            ? 4u
-                            : global_pair_reversed
-                            ? UINT64_C(0x7ffffffffffffff0)
-                            : UINT64_C(0xfedcba9876543217)));
-            second_global_value = read_u64(
-                second_global_section->data, second_global_symbol->value);
+                   second_global_symbol->value <= second_global_section->size);
+            if (global_shift_narrow_expression) {
+                assert(second_global_section->size -
+                           second_global_symbol->value >= 4u &&
+                       read_u32(second_global_section->data,
+                                second_global_symbol->value) == 4u);
+                second_global_value = read_u32(
+                    second_global_section->data, second_global_symbol->value);
+            } else {
+                assert(second_global_section->size -
+                           second_global_symbol->value >= 8u &&
+                       read_u64(second_global_section->data,
+                                second_global_symbol->value) ==
+                           (global_shift_expression
+                                ? 4u
+                                : global_pair_reversed
+                                ? UINT64_C(0x7ffffffffffffff0)
+                                : UINT64_C(0xfedcba9876543217)));
+                second_global_value = read_u64(
+                    second_global_section->data, second_global_symbol->value);
+            }
         }
         if (computed_operation == 0x30u || computed_operation == 0x31u ||
             computed_operation == 0x32u || computed_operation == 0x33u ||
@@ -12637,12 +12662,13 @@ static void verify_inline_global_wide_parameter(
             computed_operation == 0x37u || computed_operation == 0x38u ||
             computed_operation == 0x39u || computed_operation == 0x3au ||
             computed_operation == 0x3bu || computed_operation == 0x3cu ||
-            (computed_operation >= 0x3du && computed_operation <= 0x4eu)) {
+            (computed_operation >= 0x3du && computed_operation <= 0x50u)) {
             uint64_t expected_value;
             evaluated_value = verify_inline_global_expression_tree(
                 object, info, expression_offset, expression_size,
                 source_name, global_value, second_source_name,
                 second_global_value,
+                global_shift_narrow_expression ? 4u : 8u,
                 computed_operation == 0x4cu ? 0u :
                 computed_operation == 0x30u ? 3u :
                 (computed_operation == 0x41u || global_pair_expression)
@@ -12657,7 +12683,9 @@ static void verify_inline_global_wide_parameter(
                 computed_operation == 0x4au ? 0x2cu :
                 computed_operation == 0x4bu ? 0x2eu :
                 computed_operation == 0x4du ? 0x24u :
-                computed_operation == 0x4eu ? 0x25u : 0u);
+                computed_operation == 0x4eu ? 0x25u :
+                computed_operation == 0x4fu ? 0x24u :
+                computed_operation == 0x50u ? 0x25u : 0u);
             if (computed_operation == 0x30u) {
                 expected_value = UINT64_C(0x7fffffefffffffb0);
             } else if (computed_operation == 0x31u ||
@@ -12694,6 +12722,10 @@ static void verify_inline_global_wide_parameter(
             } else if (computed_operation == 0x4du) {
                 expected_value = UINT64_C(0xedcba98765432170);
             } else if (computed_operation == 0x4eu) {
+                expected_value = UINT64_C(0x0fedcba987654321);
+            } else if (computed_operation == 0x4fu) {
+                expected_value = UINT64_C(0xedcba98765432170);
+            } else if (computed_operation == 0x50u) {
                 expected_value = UINT64_C(0x0fedcba987654321);
             } else if (computed_operation == 0x42u) {
                 expected_value = UINT64_C(0x7edcba9876543207);
@@ -12747,7 +12779,7 @@ static void verify_inline_global_wide_parameter(
         computed_operation != 0x37u && computed_operation != 0x38u &&
         computed_operation != 0x39u && computed_operation != 0x3au &&
         computed_operation != 0x3bu && computed_operation != 0x3cu &&
-        (computed_operation < 0x3du || computed_operation > 0x4eu)) {
+        (computed_operation < 0x3du || computed_operation > 0x50u)) {
         for (const ObjReloc* relocation = info->relocs; relocation;
              relocation = relocation->next) {
             if (relocation->offset == expression_offset + 1u &&
@@ -13675,6 +13707,10 @@ int main(int argc, char** argv)
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4du);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4eu);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4eu);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4fu);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4fu);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x50u);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x50u);
         for (size_t path_index = 0u;
              path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
              ++path_index) {
