@@ -10090,7 +10090,14 @@ remains a separate open item.
       from a global object. Check the `DW_OP_addr` expression and exact
       address-width relocation for legacy and verified i686/AMD64 objects in
       `test-debug-info-inline-expression`.
+- [x] Describe AMD64 unsigned 64-bit inline arguments formed by adding or
+      subtracting an unsigned constant from a global object, including the
+      commuted constant-plus-global form. Emit a relocated `DW_OP_addr`,
+      `DW_OP_deref_size 8`, and the matching arithmetic/value operations;
+      verify exact expressions and global relocations in legacy and verified
+      `test-debug-info-inline-expression` objects.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
-      multiplication cases, computed non-frame-backed wide operands, and other
-      mixed-rank matrices remain open.
+      multiplication cases, computed non-frame-backed i686 wide operands,
+      other AMD64 computed-global forms, and other mixed-rank matrices remain
+      open.

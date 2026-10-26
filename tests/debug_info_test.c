@@ -12168,13 +12168,22 @@ static void verify_inline_integer_expression_parameter(
 }
 
 static void verify_inline_global_wide_parameter(
-    const char* path, uint16_t architecture) {
+    const char* path, uint16_t architecture, uint8_t computed_operation) {
+    bool computed = computed_operation != 0u;
     const char* inline_name =
         "debug_nonconstant_unsigned_long_long_parameter_inline";
     const char* call_site_name =
-        "debug_inline_nonconstant_unsigned_long_long_global_entry";
+        computed_operation == 0x22u
+            ? "debug_inline_nonconstant_unsigned_long_long_global_add_entry"
+            : computed_operation == 0x1cu
+                ? "debug_inline_nonconstant_unsigned_long_long_global_sub_entry"
+                : computed_operation == 0x23u
+                    ? "debug_inline_nonconstant_unsigned_long_long_global_commuted_add_entry"
+                : "debug_inline_nonconstant_unsigned_long_long_global_entry";
     const char* source_name =
-        "debug_inline_nonconstant_unsigned_long_long_global_source";
+        computed
+            ? "debug_inline_nonconstant_unsigned_long_long_global_add_source"
+            : "debug_inline_nonconstant_unsigned_long_long_global_source";
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -12229,9 +12238,24 @@ static void verify_inline_global_wide_parameter(
     expression_offset = parameter_die + 5u;
     expression_size = read_uleb(
         info->data, info->size, &expression_offset);
-    assert(expression_size == address_size + 1u &&
-           expression_offset + expression_size <= info->size &&
+    assert(expression_offset + expression_size <= info->size &&
            info->data[expression_offset] == 0x03u); /* DW_OP_addr */
+    if (computed) {
+        uint64_t cursor = expression_offset + 1u + address_size;
+        uint64_t expression_end = expression_offset + expression_size;
+        assert(architecture == ARCH_X64 && cursor + 2u <= expression_end &&
+               info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
+               info->data[cursor++] == 8u &&
+               cursor < expression_end && info->data[cursor++] == 0x10u &&
+               read_uleb(info->data, expression_end, &cursor) ==
+                   UINT64_C(0x100000005) &&
+               cursor + 2u == expression_end &&
+               info->data[cursor++] ==
+                   (computed_operation == 0x1cu ? 0x1cu : 0x22u) &&
+               info->data[cursor] == 0x9fu); /* DW_OP_stack_value */
+    } else {
+        assert(expression_size == address_size + 1u);
+    }
     for (const ObjReloc* relocation = info->relocs; relocation;
          relocation = relocation->next) {
         if (relocation->offset == expression_offset + 1u &&
@@ -13080,10 +13104,16 @@ int main(int argc, char** argv)
         verify_inline_integer_expression_cases(argv[3], ARCH_X64);
         verify_inline_integer_expression_cases(argv[4], ARCH_X86);
         verify_inline_integer_expression_cases(argv[5], ARCH_X64);
-        verify_inline_global_wide_parameter(argv[6], ARCH_X86);
-        verify_inline_global_wide_parameter(argv[7], ARCH_X64);
-        verify_inline_global_wide_parameter(argv[8], ARCH_X86);
-        verify_inline_global_wide_parameter(argv[9], ARCH_X64);
+        verify_inline_global_wide_parameter(argv[6], ARCH_X86, 0u);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0u);
+        verify_inline_global_wide_parameter(argv[8], ARCH_X86, 0u);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0u);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x22u);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x22u);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x1cu);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x1cu);
+        verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x23u);
+        verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x23u);
         for (size_t path_index = 0u;
              path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
              ++path_index) {

@@ -98,6 +98,9 @@ DebugInlineSignedCharComparisonEnum*
 extern "C" {
 unsigned long long debug_inline_nonconstant_unsigned_long_long_global_source =
     0x8000000100000003ULL;
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_add_source =
+    0x7ffffffffffffff0ULL;
 }
 
 static inline int debug_nonconstant_integer_parameter_inline(int value)
@@ -117,6 +120,30 @@ debug_inline_nonconstant_unsigned_long_long_global_entry(void)
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(
         debug_inline_nonconstant_unsigned_long_long_global_source);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_add_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source +
+        0x100000005ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_sub_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source -
+        0x100000005ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_commuted_add_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        0x100000005ULL +
+        debug_inline_nonconstant_unsigned_long_long_global_add_source);
 }
 
 long long* debug_inline_signed_long_long_comparison_escape;
