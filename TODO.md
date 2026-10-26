@@ -9993,10 +9993,11 @@ remains a separate open item.
       values against signed 64-bit boundaries on legacy and verified i686/AMD64
       objects. Focused and full `test-debug-info` pass.
 - [x] Preserve frame-backed unscoped enum operands with signed-char,
-      unsigned-short, and unsigned-int underlying types through integer
-      promotion and 64-bit comparison conversion. Evaluate signed and unsigned
-      underlying-width boundaries against wide signed/unsigned values on legacy
-      and verified i686/AMD64 objects. Focused and full `test-debug-info` pass.
+      unsigned-char, signed-short, unsigned-short, signed-int, and unsigned-int
+      underlying types through integer promotion and 64-bit comparison
+      conversion. Evaluate signed and unsigned underlying-width boundaries
+      against wide signed/unsigned values on legacy and verified i686/AMD64
+      objects. Focused and full `test-debug-info` pass.
 - [x] Lower frame-backed signed `long long` plus or minus `1LL` when used as
       an i686 wide-comparison operand. Carry and borrow across the low/high
       32-bit words are checked at boundary values; signed-overflow cases are

@@ -10137,6 +10137,12 @@ static const char* inline_integer_comparison_entry_for_source(
          "debug_inline_signed_long_long_unsigned_short_enum_compare_entry"},
         {"debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source",
          "debug_inline_signed_long_long_unsigned_int_enum_compare_entry"},
+        {"debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source",
+         "debug_inline_signed_long_long_unsigned_char_enum_compare_entry"},
+        {"debug_inline_signed_long_long_signed_short_enum_compare_entry_source",
+         "debug_inline_signed_long_long_signed_short_enum_compare_entry"},
+        {"debug_inline_signed_long_long_signed_int_enum_compare_entry_source",
+         "debug_inline_signed_long_long_signed_int_enum_compare_entry"},
         {"debug_inline_signed_long_long_add_one_compare_entry_source",
          "debug_inline_signed_long_long_add_one_compare_entry"},
         {"debug_inline_signed_long_long_sub_one_compare_entry_source",
@@ -10204,6 +10210,21 @@ static const char* inline_integer_comparison_secondary_source(
             "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0) {
         return "debug_inline_signed_long_long_unsigned_int_enum_compare_rhs";
     }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_unsigned_char_enum_compare_rhs";
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_signed_short_enum_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_signed_short_enum_compare_rhs";
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_signed_int_enum_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_signed_int_enum_compare_rhs";
+    }
     return NULL;
 }
 
@@ -10250,6 +10271,21 @@ static uint8_t inline_integer_comparison_secondary_size(
             "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0) {
         return 4u;
     }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source") == 0) {
+        return 1u;
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_signed_short_enum_compare_entry_source") == 0) {
+        return 2u;
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_signed_int_enum_compare_entry_source") == 0) {
+        return 4u;
+    }
     return 0u;
 }
 
@@ -10265,7 +10301,9 @@ static bool inline_integer_comparison_secondary_is_unsigned(
          strcmp(source_name,
                 "debug_inline_signed_long_long_unsigned_short_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
-                "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0);
+                "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source") == 0);
 }
 
 static bool inline_integer_comparison_secondary_is_bool(
@@ -10382,6 +10420,12 @@ static void verify_inline_integer_expression_parameter(
          strcmp(source_name,
                 "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
+                "debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_signed_short_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_signed_int_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
                 "debug_inline_signed_long_long_add_one_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_signed_long_long_sub_one_compare_entry_source") == 0);
@@ -10410,6 +10454,12 @@ static void verify_inline_integer_expression_parameter(
                 "debug_inline_signed_long_long_unsigned_short_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_signed_short_enum_compare_entry_source") == 0 ||
+         strcmp(source_name,
+                "debug_inline_signed_long_long_signed_int_enum_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_signed_long_long_add_one_compare_entry_source") == 0 ||
          strcmp(source_name,
@@ -12131,6 +12181,12 @@ int main(int argc, char** argv)
             {"debug_inline_signed_long_long_unsigned_short_enum_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_signed_short_enum_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_signed_int_enum_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_add_one_compare_entry_source",
              false, 0x2du, 0},

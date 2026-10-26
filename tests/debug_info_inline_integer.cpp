@@ -13,6 +13,25 @@ enum DebugInlineUnsignedCharComparisonEnum : unsigned char {
 DebugInlineUnsignedCharComparisonEnum*
     debug_inline_unsigned_char_comparison_enum_escape;
 
+enum DebugInlineSignedShortComparisonEnum : short {
+    debug_inline_signed_short_comparison_enum_minimum = -32768,
+    debug_inline_signed_short_comparison_enum_negative = -1,
+    debug_inline_signed_short_comparison_enum_zero = 0,
+    debug_inline_signed_short_comparison_enum_maximum = 32767,
+};
+
+DebugInlineSignedShortComparisonEnum*
+    debug_inline_signed_short_comparison_enum_escape;
+
+enum DebugInlineSignedComparisonEnum : int {
+    debug_inline_signed_comparison_enum_minimum = (-2147483647 - 1),
+    debug_inline_signed_comparison_enum_negative = -1,
+    debug_inline_signed_comparison_enum_zero = 0,
+    debug_inline_signed_comparison_enum_maximum = 2147483647,
+};
+
+DebugInlineSignedComparisonEnum* debug_inline_signed_comparison_enum_escape;
+
 enum DebugInlineUnsignedShortComparisonEnum : unsigned short {
     debug_inline_unsigned_short_comparison_enum_zero = 0,
     debug_inline_unsigned_short_comparison_enum_maximum = 65535,
@@ -370,6 +389,60 @@ extern "C" int debug_inline_signed_long_long_unsigned_int_enum_compare_entry(
     return debug_nonconstant_integer_parameter_inline(
         !(debug_inline_signed_long_long_unsigned_int_enum_compare_entry_source <
           debug_inline_signed_long_long_unsigned_int_enum_compare_rhs));
+}
+
+extern "C" int debug_inline_signed_long_long_unsigned_char_enum_compare_entry(
+    long long value, unsigned char rhs)
+{
+    long long
+        debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source =
+            value;
+    DebugInlineUnsignedCharComparisonEnum
+        debug_inline_signed_long_long_unsigned_char_enum_compare_rhs =
+            static_cast<DebugInlineUnsignedCharComparisonEnum>(rhs);
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source;
+    debug_inline_unsigned_char_comparison_enum_escape =
+        &debug_inline_signed_long_long_unsigned_char_enum_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_unsigned_char_enum_compare_entry_source <
+          debug_inline_signed_long_long_unsigned_char_enum_compare_rhs));
+}
+
+extern "C" int debug_inline_signed_long_long_signed_short_enum_compare_entry(
+    long long value, short rhs)
+{
+    long long
+        debug_inline_signed_long_long_signed_short_enum_compare_entry_source =
+            value;
+    DebugInlineSignedShortComparisonEnum
+        debug_inline_signed_long_long_signed_short_enum_compare_rhs =
+            static_cast<DebugInlineSignedShortComparisonEnum>(rhs);
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_signed_short_enum_compare_entry_source;
+    debug_inline_signed_short_comparison_enum_escape =
+        &debug_inline_signed_long_long_signed_short_enum_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_signed_short_enum_compare_entry_source <
+          debug_inline_signed_long_long_signed_short_enum_compare_rhs));
+}
+
+extern "C" int debug_inline_signed_long_long_signed_int_enum_compare_entry(
+    long long value, int rhs)
+{
+    long long
+        debug_inline_signed_long_long_signed_int_enum_compare_entry_source =
+            value;
+    DebugInlineSignedComparisonEnum
+        debug_inline_signed_long_long_signed_int_enum_compare_rhs =
+            static_cast<DebugInlineSignedComparisonEnum>(rhs);
+    debug_inline_signed_long_long_comparison_escape =
+        &debug_inline_signed_long_long_signed_int_enum_compare_entry_source;
+    debug_inline_signed_comparison_enum_escape =
+        &debug_inline_signed_long_long_signed_int_enum_compare_rhs;
+    return debug_nonconstant_integer_parameter_inline(
+        !(debug_inline_signed_long_long_signed_int_enum_compare_entry_source <
+          debug_inline_signed_long_long_signed_int_enum_compare_rhs));
 }
 
 extern "C" int debug_inline_signed_long_long_add_one_compare_entry(
