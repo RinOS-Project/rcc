@@ -10008,6 +10008,10 @@ remains a separate open item.
       in wide comparisons. Cover promotion, sign/zero extension, and split
       i686 64-bit frame loads at boundary values. Focused and full
       `test-debug-info` pass in legacy and verified i686/AMD64 configurations.
+- [x] Compose a comparison operand from the sum of two frame-backed signed
+      `long long` locals in i686 DWARF, including low-word carry into the high
+      word. Evaluate signed boundary pairs while excluding overflow cases in
+      legacy and verified i686/AMD64. Focused and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees, non-frame-backed wide operands, and other
       mixed-rank matrices remain open.

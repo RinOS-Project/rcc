@@ -10166,7 +10166,9 @@ static const char* inline_integer_comparison_entry_for_source(
         {"debug_inline_signed_long_long_add_one_compare_entry_source",
          "debug_inline_signed_long_long_add_one_compare_entry"},
         {"debug_inline_signed_long_long_sub_one_compare_entry_source",
-         "debug_inline_signed_long_long_sub_one_compare_entry"}
+         "debug_inline_signed_long_long_sub_one_compare_entry"},
+        {"debug_inline_signed_long_long_add_compare_entry_source",
+         "debug_inline_signed_long_long_add_compare_entry"}
     };
     if (!source_name) return NULL;
     for (size_t index = 0u; index < sizeof(entries) / sizeof(entries[0]);
@@ -10260,6 +10262,11 @@ static const char* inline_integer_comparison_secondary_source(
             "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source") == 0) {
         return "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_rhs";
     }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_add_compare_entry_source") == 0) {
+        return "debug_inline_signed_long_long_add_compare_entry_rhs";
+    }
     return NULL;
 }
 
@@ -10334,6 +10341,11 @@ static uint8_t inline_integer_comparison_secondary_size(
     if (source_name && strcmp(
             source_name,
             "debug_inline_unsigned_long_long_scoped_unsigned_wide_enum_compare_entry_source") == 0) {
+        return 8u;
+    }
+    if (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_add_compare_entry_source") == 0) {
         return 8u;
     }
     return 0u;
@@ -10530,6 +10542,17 @@ static void verify_inline_integer_expression_parameter(
                 "debug_inline_signed_long_long_add_one_compare_entry_source") == 0 ||
          strcmp(source_name,
                 "debug_inline_signed_long_long_sub_one_compare_entry_source") == 0);
+    wide_integer_comparison = wide_integer_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_add_compare_entry_source") == 0);
+    narrow_wide_comparison = narrow_wide_comparison ||
+        (source_name && strcmp(
+            source_name,
+            "debug_inline_signed_long_long_add_compare_entry_source") == 0);
+    bool add_secondary_wide_comparison = source_name && strcmp(
+        source_name,
+        "debug_inline_signed_long_long_add_compare_entry_source") == 0;
     bool add_one_wide_comparison = source_name &&
         strcmp(source_name,
                "debug_inline_signed_long_long_add_one_compare_entry_source") == 0;
@@ -10850,6 +10873,17 @@ static void verify_inline_integer_expression_parameter(
                         ? rhs_value
                         : (uint64_t)verify_inline_integer_signed_bits(
                               rhs_value, secondary_bits);
+                    int64_t signed_left = verify_inline_integer_signed_bits(
+                        values[index], 64u);
+                    int64_t signed_right = verify_inline_integer_signed_bits(
+                        rhs_value, secondary_bits);
+                    if (add_secondary_wide_comparison &&
+                        ((signed_right > 0 &&
+                          signed_left > INT64_MAX - signed_right) ||
+                         (signed_right < 0 &&
+                          signed_left < INT64_MIN - signed_right))) {
+                        continue;
+                    }
                     uint64_t actual =
                         evaluate_inline_integer_comparison_expression_with_secondary(
                             info->data, expression_end, expression_start,
@@ -10857,9 +10891,13 @@ static void verify_inline_integer_expression_parameter(
                             values[index], secondary_frame_offset,
                             secondary_size,
                             rhs_value);
+                    uint64_t expected_left = add_secondary_wide_comparison
+                        ? values[index] + rhs_value : values[index];
                     bool compared = verify_inline_integer_comparison_value(
-                        values[index], comparison_rhs, is_unsigned, 64u,
-                        expected_operation);
+                        expected_left,
+                        add_secondary_wide_comparison
+                            ? (uint64_t)expected_constant : comparison_rhs,
+                        is_unsigned, 64u, expected_operation);
                     assert(actual == !compared);
                 }
             } else {
@@ -12265,6 +12303,8 @@ int main(int argc, char** argv)
             {"debug_inline_signed_long_long_add_one_compare_entry_source",
              false, 0x2du, 0},
             {"debug_inline_signed_long_long_sub_one_compare_entry_source",
+             false, 0x2du, 0},
+            {"debug_inline_signed_long_long_add_compare_entry_source",
              false, 0x2du, 0}
         };
         const char* wide_paths[] = {argv[6], argv[7], argv[8], argv[9]};

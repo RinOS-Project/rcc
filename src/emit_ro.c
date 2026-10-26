@@ -5858,6 +5858,87 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
         return debug_inline_integer_expression_append_constu(
             expression, capacity, expression_size, word);
     }
+    /* Compose frame-backed i686 wide addition, including low-word carry. */
+    if (value->kind == EXPR_ADD && value->binary_lhs &&
+        value->binary_rhs && value->binary_lhs->kind == EXPR_IDENT &&
+        value->binary_rhs->kind == EXPR_IDENT &&
+        value->binary_lhs->ident_decl && value->binary_rhs->ident_decl &&
+        value->type && value->type->size == 8) {
+        const Expr* left_expression = value->binary_lhs;
+        const Expr* right_expression = value->binary_rhs;
+        const Decl* left = left_expression->ident_decl;
+        const Decl* right = right_expression->ident_decl;
+        int64_t left_frame_offset;
+        int64_t right_frame_offset;
+        if (!left || !right ||
+            (left->kind != DECL_VAR && left->kind != DECL_PARAM) ||
+            (right->kind != DECL_VAR && right->kind != DECL_PARAM) ||
+            left->var_is_global || left->var_is_static_local ||
+            left->var_is_thread_local || left->var_is_vla ||
+            right->var_is_global || right->var_is_static_local ||
+            right->var_is_thread_local || right->var_is_vla ||
+            !left->type || left->type->size != 8 ||
+            !right->type || right->type->size != 8 ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                left_expression->type, value->type, 0u) ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                right_expression->type, value->type, 0u) ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                left->type, value->type, 0u) ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                right->type, value->type, 0u) ||
+            !debug_inline_parameter_frame_offset(
+                mod, left, &left_frame_offset) ||
+            !debug_inline_parameter_frame_offset(
+                mod, right, &right_frame_offset) ||
+            left_frame_offset > INT64_MAX - 4 ||
+            right_frame_offset > INT64_MAX - 4) {
+            return false;
+        }
+        if (!high_word) {
+            return debug_inline_integer_expression_append_frame_u32(
+                       expression, capacity, expression_size, ARCH_X86,
+                       left_frame_offset) &&
+                debug_inline_integer_expression_append_frame_u32(
+                    expression, capacity, expression_size, ARCH_X86,
+                    right_frame_offset) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, expression_size, 0x22u);
+        }
+        return debug_inline_parameter_i686_u64_append_word_expression(
+                   mod, left_expression, true, expression, capacity,
+                   expression_size, depth + 1u) &&
+            debug_inline_parameter_i686_u64_append_word_expression(
+                mod, right_expression, true, expression, capacity,
+                expression_size, depth + 1u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x22u) &&
+            debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, expression_size, ARCH_X86,
+                left_frame_offset) &&
+            debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, expression_size, ARCH_X86,
+                right_frame_offset) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x22u) &&
+            debug_inline_integer_expression_append_constu(
+                expression, capacity, expression_size,
+                UINT32_C(0x80000000)) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x27u) &&
+            debug_inline_integer_expression_append_frame_u32(
+                expression, capacity, expression_size, ARCH_X86,
+                left_frame_offset) &&
+            debug_inline_integer_expression_append_constu(
+                expression, capacity, expression_size,
+                UINT32_C(0x80000000)) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x27u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x2du) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, expression_size, 0x22u);
+    }
     if ((value->kind == EXPR_ADD || value->kind == EXPR_SUB) &&
         value->binary_lhs && value->binary_rhs && value->type &&
         value->type->size == 8) {
