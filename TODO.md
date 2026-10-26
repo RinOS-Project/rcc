@@ -10369,3 +10369,15 @@ remains a separate open item.
 - [ ] Signed i686 64-bit division/remainder, TLS/static-local or
       volatile/reference/atomic operands, and broader optimized multi-piece
       locations remain open.
+
+## RCC continuation (2026-10-26, signed i686 global 64-bit multiplication)
+
+- [x] Lower signed i686 global-to-global 64-bit multiplication in read-only
+      inline-parameter expressions with the existing low/high 32-bit product
+      reconstruction. Require matching signed source/result types; verify
+      nine `ABS32U` relocations per input and signed boundary products plus
+      initialized globals in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [ ] Signed i686 64-bit division/remainder, TLS/static-local or
+      volatile/reference/atomic operands, and broader optimized multi-piece
+      locations remain open.

@@ -13432,6 +13432,8 @@ static void verify_inline_i686_global_shift_parameter(
             ? "debug_inline_nonconstant_signed_long_long_global_pair_or_entry"
         : operation == 0x86u
             ? "debug_inline_nonconstant_signed_long_long_global_pair_xor_entry"
+        : operation == 0x87u
+            ? "debug_inline_nonconstant_signed_long_long_global_pair_mul_entry"
         : operation == 0x68u
             ? "debug_inline_unsigned_long_long_global_u32_widen_entry"
         : operation == 0x69u
@@ -13486,7 +13488,7 @@ static void verify_inline_i686_global_shift_parameter(
             ? "debug_inline_signed_long_long_global_enum_i32_widen_entry"
         : NULL;
     const char* inline_name = operation == 0x55u || operation == 0x56u ||
-            (operation >= 0x82u && operation <= 0x86u) ||
+            (operation >= 0x82u && operation <= 0x87u) ||
             operation == 0x6au || operation == 0x6bu ||
             operation == 0x6eu || operation == 0x6fu ||
             operation == 0x72u || operation == 0x73u ||
@@ -13532,6 +13534,8 @@ static void verify_inline_i686_global_shift_parameter(
         ? "debug_inline_nonconstant_signed_long_long_global_sub_lhs"
         : operation >= 0x84u && operation <= 0x86u
         ? "debug_inline_nonconstant_signed_long_long_global_bitwise_lhs"
+        : operation == 0x87u
+        ? "debug_inline_nonconstant_signed_long_long_global_mul_lhs"
         : operation >= 0x5bu && operation <= 0x66u
         ? "debug_inline_nonconstant_unsigned_long_long_global_add_source"
         : operation == 0x59u
@@ -13546,6 +13550,8 @@ static void verify_inline_i686_global_shift_parameter(
         ? "debug_inline_nonconstant_signed_long_long_global_sub_rhs"
         : operation >= 0x84u && operation <= 0x86u
         ? "debug_inline_nonconstant_signed_long_long_global_bitwise_rhs"
+        : operation == 0x87u
+        ? "debug_inline_nonconstant_signed_long_long_global_mul_rhs"
         : operation >= 0x5bu && operation <= 0x66u
         ? "debug_inline_nonconstant_unsigned_long_long_global_mod_source"
         : operation >= 0x57u && operation <= 0x59u ? NULL
@@ -13582,7 +13588,7 @@ static void verify_inline_i686_global_shift_parameter(
     };
 
     assert(path != NULL && call_site_name != NULL && operation >= 0x51u &&
-        operation <= 0x86u);
+        operation <= 0x87u);
     object = objfile_read(path);
     assert(object != NULL && object->arch == ARCH_X86);
     info = objfile_get_section(object, ".debug_info");
@@ -13653,7 +13659,7 @@ static void verify_inline_i686_global_shift_parameter(
             }
             assert(source_relocations == 2u);
         } else if ((operation >= 0x5bu && operation <= 0x66u) ||
-                   (operation >= 0x82u && operation <= 0x86u)) {
+                   (operation >= 0x82u && operation <= 0x87u)) {
             size_t left_relocations = 0u;
             size_t right_relocations = 0u;
             for (const ObjReloc* relocation = info->relocs; relocation;
@@ -13674,7 +13680,7 @@ static void verify_inline_i686_global_shift_parameter(
                 operation == 0x5cu ? 3u :
                 operation == 0x83u ? 3u :
                 operation >= 0x84u && operation <= 0x86u ? 2u :
-                operation == 0x66u ? 9u :
+                operation == 0x66u || operation == 0x87u ? 9u :
                 operation <= 0x5fu ? 2u :
                 operation == 0x64u || operation == 0x65u ? 2u : 3u;
             assert(left_relocations == expected_each &&
@@ -13728,6 +13734,8 @@ static void verify_inline_i686_global_shift_parameter(
                     ? UINT64_C(0x100000000)
                 : operation >= 0x84u && operation <= 0x86u
                     ? UINT64_C(0xfedcba9876543211)
+                : operation == 0x87u
+                    ? UINT64_C(0x200000001)
                 : operation >= 0x5bu && operation <= 0x66u
                     ? UINT64_C(0x7ffffffffffffff0)
                 : operation == 0x59u ? 0u
@@ -13739,8 +13747,10 @@ static void verify_inline_i686_global_shift_parameter(
               count_value == UINT64_C(0x100000001)) ||
              (operation >= 0x84u && operation <= 0x86u &&
               count_value == UINT64_C(0x70000000fedcba98)) ||
+             (operation == 0x87u &&
+              count_value == UINT64_C(0xfffffffffffffffd)) ||
              ((operation < 0x5bu || operation > 0x66u) &&
-              (operation < 0x82u || operation > 0x86u) &&
+              (operation < 0x82u || operation > 0x87u) &&
               count_value == 4u))));
     if (operation == 0x57u) {
         for (size_t index = 0u;
@@ -13797,7 +13807,7 @@ static void verify_inline_i686_global_shift_parameter(
                        source_name, value, NULL, 0u) == expected);
         }
     } else if ((operation >= 0x5bu && operation <= 0x66u) ||
-               (operation >= 0x82u && operation <= 0x86u)) {
+               (operation >= 0x82u && operation <= 0x87u)) {
         struct InlineI686U64TestPair { uint64_t left; uint64_t right; };
         static const struct InlineI686U64TestPair test_pairs[] = {
             {0u, 0u},
@@ -13838,17 +13848,28 @@ static void verify_inline_i686_global_shift_parameter(
             {UINT64_C(0xf000000000000001),
              UINT64_C(0x0ffffffffffffffe)}
         };
+        static const struct InlineI686U64TestPair signed_multiply_pairs[] = {
+            {0u, 0u},
+            {2u, 3u},
+            {UINT64_MAX, 1u},
+            {UINT64_MAX, UINT64_MAX},
+            {UINT64_C(0x100000001), UINT64_C(0xfffffffffffffffe)},
+            {(uint64_t)INT64_MIN, 1u}
+        };
         const struct InlineI686U64TestPair* pairs =
             operation == 0x82u ? signed_add_pairs :
             operation == 0x83u ? signed_sub_pairs :
             operation >= 0x84u && operation <= 0x86u
-                ? signed_bitwise_pairs : test_pairs;
+                ? signed_bitwise_pairs :
+            operation == 0x87u ? signed_multiply_pairs : test_pairs;
         size_t pair_count = operation == 0x82u
             ? sizeof(signed_add_pairs) / sizeof(signed_add_pairs[0])
             : operation == 0x83u
             ? sizeof(signed_sub_pairs) / sizeof(signed_sub_pairs[0])
             : operation >= 0x84u && operation <= 0x86u
             ? sizeof(signed_bitwise_pairs) / sizeof(signed_bitwise_pairs[0])
+            : operation == 0x87u
+            ? sizeof(signed_multiply_pairs) / sizeof(signed_multiply_pairs[0])
             : sizeof(test_pairs) / sizeof(test_pairs[0]);
         for (size_t index = 0u;
              index < pair_count; ++index) {
@@ -13860,7 +13881,7 @@ static void verify_inline_i686_global_shift_parameter(
                 operation == 0x63u ? right >= left :
                 operation == 0x64u ? left == right :
                 operation == 0x65u ? left != right :
-                operation == 0x66u ? left * right :
+                operation == 0x66u || operation == 0x87u ? left * right :
                 operation == 0x5bu || operation == 0x82u ? left + right :
                 operation == 0x5cu || operation == 0x83u ? left - right :
                 operation == 0x5du || operation == 0x84u ? left & right :
@@ -15549,6 +15570,8 @@ int main(int argc, char** argv)
         verify_inline_i686_global_shift_parameter(argv[8], 0x85u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x86u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x86u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0x87u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0x87u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x68u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x68u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x69u);
