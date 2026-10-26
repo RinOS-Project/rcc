@@ -10222,9 +10222,15 @@ remains a separate open item.
       `ABS32U` relocations, high-word `+4` offsets, and results evaluated from
       initialized global data in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [x] Extend i686 global-backed unsigned-64 constant shifts through counts
+      32..63. Verify both directions at count 32, left shift by 33, and logical
+      right shift by 63; check exact one-relocation source-word expressions and
+      the zero-valued pieces in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Other scoped-enum underlying widths and conversion directions, larger
       computed expression trees beyond bounded logical/conditional and
       multiplication cases, other computed non-frame-backed i686 wide
       operands beyond global bitwise operations and constant shifts by counts
-      1..31, other AMD64 computed-global multiplication shapes, divide/modulo, other shift-count
-      widths/conversions and shift forms, and mixed-rank matrices remain open.
+      1..63, other AMD64 computed-global multiplication shapes, divide/modulo,
+      other shift-count widths/conversions and shift forms, and mixed-rank
+      matrices remain open.

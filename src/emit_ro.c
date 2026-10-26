@@ -9743,7 +9743,7 @@ static bool debug_inline_parameter_i686_u64_global_shift_expression(
         count_expression->type->size > 8 ||
         !debug_inline_integer_literal_bits(
             count_expression, &shift_count, 0u) ||
-        shift_count == 0u || shift_count >= 32u ||
+        shift_count == 0u || shift_count >= 64u ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, global_expression->type, 0u)) {
         return false;
@@ -9763,59 +9763,78 @@ static bool debug_inline_parameter_i686_u64_global_shift_expression(
     }
 
     for (size_t word = 0u; word < 2u; ++word) {
-        if (!debug_inline_parameter_i686_append_global_u32_load(
-                expression, expression_capacity, &size, word != 0u,
-                relocation_offsets, relocation_capacity, relocation_count)) {
-            return false;
-        }
-        if (word == 0u && shift_right) {
-            if (!debug_inline_integer_expression_append_constu(
-                    expression, expression_capacity, &size, shift_count) ||
-                !debug_inline_integer_expression_append_byte(
-                    expression, expression_capacity, &size, 0x25u) ||
-                !debug_inline_parameter_i686_append_global_u32_load(
-                    expression, expression_capacity, &size, true,
+        if (shift_count >= 32u) {
+            bool load_global = (word == 0u && shift_right) ||
+                (word == 1u && !shift_right);
+            if (load_global) {
+                bool high_word = shift_right;
+                if (!debug_inline_parameter_i686_append_global_u32_load(
+                        expression, expression_capacity, &size, high_word,
+                        relocation_offsets, relocation_capacity,
+                        relocation_count) ||
+                    !debug_inline_integer_expression_append_constu(
+                        expression, expression_capacity, &size,
+                        shift_count - 32u) ||
+                    !debug_inline_integer_expression_append_byte(
+                        expression, expression_capacity, &size,
+                        shift_right ? 0x25u : 0x24u)) {
+                    return false;
+                }
+            } else if (!debug_inline_integer_expression_append_constu(
+                           expression, expression_capacity, &size, 0u)) {
+                return false;
+            }
+        } else {
+            if (!debug_inline_parameter_i686_append_global_u32_load(
+                    expression, expression_capacity, &size, word != 0u,
                     relocation_offsets, relocation_capacity,
-                    relocation_count) ||
-                !debug_inline_integer_expression_append_constu(
-                    expression, expression_capacity, &size,
-                    32u - shift_count) ||
-                !debug_inline_integer_expression_append_byte(
-                    expression, expression_capacity, &size, 0x24u) ||
-                !debug_inline_integer_expression_append_byte(
-                    expression, expression_capacity, &size, 0x21u)) {
+                    relocation_count)) {
                 return false;
             }
-        } else if (word == 0u) {
-            if (!debug_inline_integer_expression_append_constu(
-                    expression, expression_capacity, &size, shift_count) ||
-                !debug_inline_integer_expression_append_byte(
-                    expression, expression_capacity, &size, 0x24u)) {
+            if (word == 0u && shift_right) {
+                if (!debug_inline_integer_expression_append_constu(
+                        expression, expression_capacity, &size, shift_count) ||
+                    !debug_inline_integer_expression_append_byte(
+                        expression, expression_capacity, &size, 0x25u) ||
+                    !debug_inline_parameter_i686_append_global_u32_load(
+                        expression, expression_capacity, &size, true,
+                        relocation_offsets, relocation_capacity,
+                        relocation_count) ||
+                    !debug_inline_integer_expression_append_constu(
+                        expression, expression_capacity, &size,
+                        32u - shift_count) ||
+                    !debug_inline_integer_expression_append_byte(
+                        expression, expression_capacity, &size, 0x24u) ||
+                    !debug_inline_integer_expression_append_byte(
+                        expression, expression_capacity, &size, 0x21u)) {
+                    return false;
+                }
+            } else if (word == 0u || shift_right) {
+                if (!debug_inline_integer_expression_append_constu(
+                        expression, expression_capacity, &size, shift_count) ||
+                    !debug_inline_integer_expression_append_byte(
+                        expression, expression_capacity, &size,
+                        word == 0u ? 0x24u : 0x25u)) {
+                    return false;
+                }
+            } else if (!debug_inline_integer_expression_append_constu(
+                           expression, expression_capacity, &size,
+                           shift_count) ||
+                       !debug_inline_integer_expression_append_byte(
+                           expression, expression_capacity, &size, 0x24u) ||
+                       !debug_inline_parameter_i686_append_global_u32_load(
+                           expression, expression_capacity, &size, false,
+                           relocation_offsets, relocation_capacity,
+                           relocation_count) ||
+                       !debug_inline_integer_expression_append_constu(
+                           expression, expression_capacity, &size,
+                           32u - shift_count) ||
+                       !debug_inline_integer_expression_append_byte(
+                           expression, expression_capacity, &size, 0x25u) ||
+                       !debug_inline_integer_expression_append_byte(
+                           expression, expression_capacity, &size, 0x21u)) {
                 return false;
             }
-        } else if (shift_right) {
-            if (!debug_inline_integer_expression_append_constu(
-                    expression, expression_capacity, &size, shift_count) ||
-                !debug_inline_integer_expression_append_byte(
-                    expression, expression_capacity, &size, 0x25u)) {
-                return false;
-            }
-        } else if (!debug_inline_integer_expression_append_constu(
-                       expression, expression_capacity, &size, shift_count) ||
-                   !debug_inline_integer_expression_append_byte(
-                       expression, expression_capacity, &size, 0x24u) ||
-                   !debug_inline_parameter_i686_append_global_u32_load(
-                       expression, expression_capacity, &size, false,
-                       relocation_offsets, relocation_capacity,
-                       relocation_count) ||
-                   !debug_inline_integer_expression_append_constu(
-                       expression, expression_capacity, &size,
-                       32u - shift_count) ||
-                   !debug_inline_integer_expression_append_byte(
-                       expression, expression_capacity, &size, 0x25u) ||
-                   !debug_inline_integer_expression_append_byte(
-                       expression, expression_capacity, &size, 0x21u)) {
-            return false;
         }
         if (!debug_inline_integer_expression_append_byte(
                 expression, expression_capacity, &size, 0x9fu) ||

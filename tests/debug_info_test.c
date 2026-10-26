@@ -12332,12 +12332,21 @@ static void verify_inline_i686_global_bitwise_parameter(
             ? "debug_inline_nonconstant_unsigned_long_long_global_rshift_entry"
             : operation == 0x24u
                 ? "debug_inline_nonconstant_unsigned_long_long_global_lshift1_entry"
+            : operation == 0x31u
+                ? "debug_inline_nonconstant_unsigned_long_long_global_rshift63_entry"
+            : operation == 0x32u
+                ? "debug_inline_nonconstant_unsigned_long_long_global_lshift_entry"
+            : operation == 0x33u
+                ? "debug_inline_nonconstant_unsigned_long_long_global_rshift32_entry"
+            : operation == 0x34u
+                ? "debug_inline_nonconstant_unsigned_long_long_global_lshift32_entry"
             : operation == 0x1au
             ? "debug_inline_nonconstant_unsigned_long_long_global_and_entry"
             : operation == 0x21u
                 ? "debug_inline_nonconstant_unsigned_long_long_global_or_entry"
                 : "debug_inline_nonconstant_unsigned_long_long_global_xor_entry";
-    const char* source_name = operation == 0x20u || operation == 0x24u
+    const char* source_name = operation == 0x20u || operation == 0x24u ||
+            operation == 0x31u
         ? "debug_inline_nonconstant_unsigned_long_long_global_mod_source"
         : "debug_inline_nonconstant_unsigned_long_long_global_add_source";
     ObjectFile* object = objfile_read(path);
@@ -12361,7 +12370,9 @@ static void verify_inline_i686_global_bitwise_parameter(
     int section_index = 0;
 
     assert((operation == 0x20u || operation == 0x1au || operation == 0x21u ||
-            operation == 0x24u || operation == 0x25u || operation == 0x27u) &&
+            operation == 0x24u || operation == 0x25u || operation == 0x27u ||
+            operation == 0x31u || operation == 0x32u ||
+            operation == 0x33u || operation == 0x34u) &&
            object != NULL && object->arch == ARCH_X86);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -12410,6 +12421,46 @@ static void verify_inline_i686_global_bitwise_parameter(
 
     cursor = expression_offset;
     for (unsigned int word = 0u; word < 2u; ++word) {
+        if (((operation == 0x31u || operation == 0x33u) && word == 0u) ||
+            ((operation == 0x32u || operation == 0x34u) && word == 1u)) {
+            bool high_word = operation == 0x31u || operation == 0x33u;
+            uint64_t shift_amount = operation == 0x31u ? 31u :
+                operation == 0x32u ? 1u : 0u;
+            assert(cursor < expression_end && info->data[cursor++] == 0x03u);
+            assert(parsed_relocation_count <
+                   sizeof(relocation_offsets) / sizeof(relocation_offsets[0]));
+            relocation_offsets[parsed_relocation_count++] = cursor;
+            assert(cursor + 4u <= expression_end &&
+                   read_u32(info->data, cursor) == 0u);
+            cursor += 4u;
+            if (high_word) {
+                assert(cursor < expression_end &&
+                       info->data[cursor++] == 0x23u &&
+                       read_uleb(info->data, expression_end, &cursor) == 4u);
+            }
+            assert(cursor + 2u <= expression_end &&
+                   info->data[cursor++] == 0x94u && /* DW_OP_deref_size */
+                   info->data[cursor++] == 4u && cursor < expression_end &&
+                   info->data[cursor++] == 0x10u && /* DW_OP_constu */
+                   read_uleb(info->data, expression_end, &cursor) ==
+                       shift_amount &&
+                   cursor + 4u <= expression_end &&
+                   info->data[cursor++] == (high_word ? 0x25u : 0x24u) &&
+                   info->data[cursor++] == 0x9fu && /* DW_OP_stack_value */
+                   info->data[cursor++] == 0x93u && /* DW_OP_piece */
+                   info->data[cursor++] == 4u);
+            continue;
+        }
+        if (((operation == 0x31u || operation == 0x33u) && word == 1u) ||
+            ((operation == 0x32u || operation == 0x34u) && word == 0u)) {
+            assert(cursor + 5u <= expression_end &&
+                   info->data[cursor++] == 0x10u && /* DW_OP_constu */
+                   read_uleb(info->data, expression_end, &cursor) == 0u &&
+                   info->data[cursor++] == 0x9fu && /* DW_OP_stack_value */
+                   info->data[cursor++] == 0x93u && /* DW_OP_piece */
+                   info->data[cursor++] == 4u);
+            continue;
+        }
         assert(cursor < expression_end && info->data[cursor++] == 0x03u);
         assert(parsed_relocation_count <
                sizeof(relocation_offsets) / sizeof(relocation_offsets[0]));
@@ -12550,7 +12601,9 @@ static void verify_inline_i686_global_bitwise_parameter(
         }
     }
     assert(parsed_relocation_count ==
-               (operation == 0x25u || operation == 0x24u ? 3u : 2u) &&
+               (operation == 0x25u || operation == 0x24u ? 3u :
+                operation == 0x31u || operation == 0x32u ||
+                operation == 0x33u || operation == 0x34u ? 1u : 2u) &&
            expression_relocation_count == parsed_relocation_count);
     for (unsigned int relocation_index = 0u;
          relocation_index < parsed_relocation_count; ++relocation_index) {
@@ -12570,7 +12623,8 @@ static void verify_inline_i686_global_bitwise_parameter(
            global_symbol->value <= global_section->size &&
            global_section->size - global_symbol->value >= 8u);
     global_value = read_u64(global_section->data, global_symbol->value);
-    assert(global_value == (operation == 0x20u || operation == 0x24u
+    assert(global_value == (operation == 0x20u || operation == 0x24u ||
+                            operation == 0x31u
                ? UINT64_C(0xfedcba9876543217)
                : UINT64_C(0x7ffffffffffffff0)));
     if (operation == 0x20u) {
@@ -12579,6 +12633,14 @@ static void verify_inline_i686_global_bitwise_parameter(
         evaluated_value = global_value >> 3u;
     } else if (operation == 0x24u) {
         evaluated_value = global_value << 1u;
+    } else if (operation == 0x31u) {
+        evaluated_value = global_value >> 63u;
+    } else if (operation == 0x32u) {
+        evaluated_value = global_value << 33u;
+    } else if (operation == 0x33u) {
+        evaluated_value = global_value >> 32u;
+    } else if (operation == 0x34u) {
+        evaluated_value = global_value << 32u;
     } else if (operation == 0x1au) {
         evaluated_value = global_value & UINT64_C(0x100000005);
     } else if (operation == 0x21u) {
@@ -12590,6 +12652,10 @@ static void verify_inline_i686_global_bitwise_parameter(
            (operation == 0x20u ? UINT64_C(0x0123456789abcde8) :
             operation == 0x24u ? UINT64_C(0xfdb97530eca8642e) :
             operation == 0x25u ? UINT64_C(0x0ffffffffffffffe) :
+            operation == 0x31u ? UINT64_C(0x0000000000000001) :
+            operation == 0x32u ? UINT64_C(0xffffffe000000000) :
+            operation == 0x33u ? UINT64_C(0x000000007fffffff) :
+            operation == 0x34u ? UINT64_C(0xfffffff000000000) :
             operation == 0x1au ? UINT64_C(0x0000000100000000) :
             operation == 0x21u ? UINT64_C(0x7ffffffffffffff5) :
             UINT64_C(0x7ffffffefffffff5)));
@@ -13919,6 +13985,14 @@ int main(int argc, char** argv)
         verify_inline_i686_global_bitwise_parameter(argv[8], 0x25u);
         verify_inline_i686_global_bitwise_parameter(argv[6], 0x24u);
         verify_inline_i686_global_bitwise_parameter(argv[8], 0x24u);
+        verify_inline_i686_global_bitwise_parameter(argv[6], 0x31u);
+        verify_inline_i686_global_bitwise_parameter(argv[8], 0x31u);
+        verify_inline_i686_global_bitwise_parameter(argv[6], 0x32u);
+        verify_inline_i686_global_bitwise_parameter(argv[8], 0x32u);
+        verify_inline_i686_global_bitwise_parameter(argv[6], 0x33u);
+        verify_inline_i686_global_bitwise_parameter(argv[8], 0x33u);
+        verify_inline_i686_global_bitwise_parameter(argv[6], 0x34u);
+        verify_inline_i686_global_bitwise_parameter(argv[8], 0x34u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x22u);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x22u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x1cu);
