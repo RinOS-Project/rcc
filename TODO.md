@@ -8886,9 +8886,16 @@ remains a separate open item.
       dividends and initialized globals, with exactly two source relocations
       in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] Variable i686 64-bit divisors, signed 64-bit division/remainder,
-      non-frame-backed operands, and broader optimized multi-piece locations
-      remain open.
+- [x] Preserve frame-backed i686 unsigned-64 division/remainder with a runtime
+      unsigned-64 divisor for read-only inline-parameter expressions. Keep the
+      dividend/divisor words and quotient bits on the DWARF stack, compare words
+      with sign bias, and propagate low-word borrow. Evaluate 11 boundary
+      dividends against nine nonzero divisors (including high-bit and maximum
+      values) for both `/` and `%` in legacy and verified objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [ ] Global or otherwise non-frame-backed variable divisors, signed 64-bit
+      division/remainder, and broader optimized multi-piece locations remain
+      open.
 
 ## RCC continuation (2026-10-23, Windows MinGW structural NTTP host ABI)
 
