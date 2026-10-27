@@ -17,6 +17,8 @@ constexpr int (DependentPointerBase::*
 thread_local int (DependentPointerBase::*
     dependent_pointer_tls_member_function)(int) const =
         &DependentPointerBase::add;
+constexpr DependentPointerBase
+    dependent_member_function_constexpr_object{17};
 struct DependentPointerDerived : DependentPointerBase {
     int tail;
 };
@@ -147,6 +149,12 @@ constexpr int invoke_member_function_pointer(
     return (object.*member)(amount);
 }
 
+constexpr int invoke_member_function_pointer_arrow(
+    int (DependentPointerBase::* member)(int) const,
+    const DependentPointerBase* object, int amount) {
+    return (object->*member)(amount);
+}
+
 static_assert(DependentPointerConstexprOwner::value(
     &::dependent_pointer_constexpr_target) == 17);
 static_assert(DependentPointerConstexprOwner::value_void(
@@ -174,6 +182,9 @@ static_assert(invoke_member_function_pointer(
 static_assert(invoke_member_function_pointer(
     ::dependent_pointer_constexpr_member_function,
     DependentPointerBase{17}, 25) == 42);
+static_assert(invoke_member_function_pointer_arrow(
+    &DependentPointerBase::add,
+    &dependent_member_function_constexpr_object, 25) == 42);
 template<typename Owner>
 using DependentMemberFunctionPointerCall = DependentPointerConstexprBox<
     Owner::has_member_function_pointer(&DependentPointerBase::add), Owner>;

@@ -8535,6 +8535,78 @@ static bool sema_eval_constexpr_scalar_statement(
     }
 }
 
+static bool sema_constexpr_materialize_member_pointer_receiver(
+    Type* receiver_type, Expr* receiver_expression,
+    SemaConstexprBinding* caller_bindings, int caller_binding_count,
+    unsigned char* receiver_storage) {
+    if (!receiver_type || !receiver_expression || !receiver_storage ||
+        receiver_type->size <= 0) {
+        return false;
+    }
+    if (!receiver_expression->type ||
+        receiver_expression->type->kind != TYPE_PTR) {
+        return sema_constexpr_materialize_object(
+            receiver_type, receiver_expression, caller_bindings,
+            caller_binding_count, receiver_storage,
+            (size_t)receiver_type->size);
+    }
+    {
+        SemaConstexprScalar pointer_value;
+        Decl* declaration;
+        unsigned char* complete_storage;
+        size_t complete_size;
+        size_t offset;
+        if (!receiver_expression->type->base ||
+            !type_is_compatible(
+                receiver_expression->type->base, receiver_type) ||
+            !sema_eval_constexpr_scalar_expr(
+                receiver_expression, caller_bindings, caller_binding_count,
+                &pointer_value) || !pointer_value.is_pointer ||
+            !pointer_value.pointer_declaration ||
+            pointer_value.pointer_offset < 0 ||
+            (uint64_t)pointer_value.pointer_offset > SIZE_MAX) {
+            return false;
+        }
+        declaration = pointer_value.pointer_declaration;
+        offset = (size_t)pointer_value.pointer_offset;
+        for (int index = 0; index < caller_binding_count; ++index) {
+            if (caller_bindings[index].declaration == declaration &&
+                caller_bindings[index].is_object &&
+                caller_bindings[index].object_bytes &&
+                offset <= caller_bindings[index].object_size &&
+                (size_t)receiver_type->size <=
+                    caller_bindings[index].object_size - offset) {
+                memcpy(receiver_storage,
+                       caller_bindings[index].object_bytes + offset,
+                       (size_t)receiver_type->size);
+                return true;
+            }
+        }
+        if (declaration->kind != DECL_VAR || !declaration->type ||
+            !declaration->var_init ||
+            (!declaration->var_is_global &&
+             !declaration->var_is_static_local) ||
+            declaration->type->size <= 0) {
+            return false;
+        }
+        complete_size = (size_t)declaration->type->size;
+        if (offset > complete_size ||
+            (size_t)receiver_type->size > complete_size - offset) {
+            return false;
+        }
+        complete_storage = ast_arena_alloc(complete_size);
+        if (!complete_storage ||
+            !sema_constexpr_materialize_object(
+                declaration->type, declaration->var_init, NULL, 0,
+                complete_storage, complete_size)) {
+            return false;
+        }
+        memcpy(receiver_storage, complete_storage + offset,
+               (size_t)receiver_type->size);
+        return true;
+    }
+}
+
 static bool sema_eval_constexpr_scalar_function(
     Decl* declaration, Expr* receiver_expression, ExprList* args,
     SemaConstexprBinding* caller_bindings, int caller_binding_count,
@@ -8575,10 +8647,9 @@ static bool sema_eval_constexpr_scalar_function(
         receiver_storage = ast_arena_alloc(sizeof(*receiver_storage));
         receiver_bytes = ast_arena_alloc((size_t)receiver_type->size);
         if (!receiver_storage || !receiver_bytes ||
-            !sema_constexpr_materialize_object(
+            !sema_constexpr_materialize_member_pointer_receiver(
                 receiver_type, receiver_expression, caller_bindings,
-                caller_binding_count, receiver_bytes,
-                (size_t)receiver_type->size)) {
+                caller_binding_count, receiver_bytes)) {
             return false;
         }
         memset(receiver_storage, 0, sizeof(*receiver_storage));
@@ -9613,14 +9684,20 @@ static bool sema_eval_constexpr_scalar_expr(
                     member_pointer_type->kind == TYPE_PTR &&
                     member_pointer_type->cxx_is_member_pointer
                     ? member_pointer_type->cxx_member_pointer_owner : NULL;
+                Type* receiver_type = application->binary_lhs
+                    ? application->binary_lhs->type : NULL;
                 TypeMethod* method;
-                if (application->kind != EXPR_CXX_MEMBER_PTR_DOT ||
+                if (application->kind == EXPR_CXX_MEMBER_PTR_ARROW &&
+                    receiver_type && receiver_type->kind == TYPE_PTR) {
+                    receiver_type = receiver_type->base;
+                }
+                if ((application->kind != EXPR_CXX_MEMBER_PTR_DOT &&
+                     application->kind != EXPR_CXX_MEMBER_PTR_ARROW) ||
                     !application->binary_lhs || !application->binary_rhs ||
                     !member_pointer_type ||
                     !type_is_cxx_member_function_pointer(member_pointer_type) ||
-                    !owner || !application->binary_lhs->type ||
-                    !type_is_compatible(
-                        owner, application->binary_lhs->type) ||
+                    !owner || !receiver_type ||
+                    !type_is_compatible(owner, receiver_type) ||
                     !sema_eval_constexpr_scalar_expr(
                         application->binary_rhs, bindings, binding_count,
                         &member_pointer) ||
@@ -9628,7 +9705,11 @@ static bool sema_eval_constexpr_scalar_expr(
                     !member_pointer.member_pointer_method ||
                     explicit_arguments == NULL ||
                     !explicit_arguments->expr ||
-                    !explicit_arguments->expr->cxx_implicit_object_address) {
+                    (application->kind == EXPR_CXX_MEMBER_PTR_DOT &&
+                     !explicit_arguments->expr->cxx_implicit_object_address) ||
+                    (application->kind == EXPR_CXX_MEMBER_PTR_ARROW &&
+                     explicit_arguments->expr !=
+                         application->binary_lhs)) {
                     return false;
                 }
                 method = member_pointer.member_pointer_method;

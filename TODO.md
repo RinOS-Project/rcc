@@ -8807,13 +8807,13 @@ remains a separate open item.
       i686/AMD64 generation, AMD64 execution, inspection of i686 code and TLS
       relocations, and the full POSIX `test-cxx` aggregate pass.
 - [x] Invoke an exact-owner nonvirtual member-function pointer through `.*`
-      from a constexpr function using a by-value trivial aggregate receiver.
-      Verify direct and global-constexpr PMF values, member access through the
-      bound `this` object, GCC C++20, focused i686/AMD64 generation and AMD64
+      from a constexpr function using a by-value trivial aggregate receiver,
+      and through `->*` using a pointer to a constexpr global object. Verify
+      direct and global-constexpr PMF values, member access through the bound
+      `this` object, GCC C++20, focused i686/AMD64 generation and AMD64
       execution, and the full POSIX `test-cxx` aggregate.
 - [ ] Virtual/inherited member-function-pointer static initialization,
-      owner/signature conversions, virtual constexpr dispatch, and constexpr
-      invocation through `->*` remain open.
+      owner/signature conversions, and virtual constexpr dispatch remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
