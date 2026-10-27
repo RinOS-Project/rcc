@@ -10943,7 +10943,7 @@ remains a separate open item.
       and verified i686 C++20 objects. Native Windows
       `make SHELL=cmd.exe test-debug-info-inline-expression` and full
       `make SHELL=cmd.exe test-debug-info` pass.
-- [ ] TLS and volatile/reference/atomic operands, wider computed signed
+- [ ] Unsigned TLS, volatile/reference/atomic operands, wider computed signed
       expression trees, width-changing casts, and broader optimized
       multi-piece locations remain open.
 
@@ -10984,3 +10984,14 @@ remains a separate open item.
       via the reference or a chained alias. Reject any read before that write;
       verify GCC C++20, integer/floating constexpr and runtime values,
       i686/AMD64, and full POSIX `test-cxx`.
+
+## RCC continuation (2026-10-28, signed i686 TLS divmod DWARF)
+
+- [x] Emit signed i686 64-bit variable-divisor and negative-literal `/` and `%`
+      inline-parameter expressions for global TLS operands using
+      `DW_OP_const4s`, `DW_OP_form_tls_address`, and `RELOC_TLSOFF32S`. Verify
+      expression values and relocation identities for normal and verified
+      i686 C++20 objects; the full POSIX `test-debug-info` gate passes.
+- [ ] Unsigned TLS, block-scope static TLS, volatile/reference/atomic operands,
+      wider computed signed expression trees, and broader optimized
+      multi-piece locations remain open.

@@ -8359,6 +8359,7 @@ typedef struct DebugInlineI686ExpressionRelocations {
     const ModuleSymbol** symbols;
     size_t capacity;
     size_t* count;
+    bool allow_tls;
 } DebugInlineI686ExpressionRelocations;
 
 static bool debug_inline_parameter_i686_append_global_integer(
@@ -8403,10 +8404,13 @@ static bool debug_inline_parameter_i686_append_storage_u32(
     const Module* mod, const Decl* source, int64_t frame_offset,
     bool high_word, uint8_t* expression, size_t capacity, size_t* size,
     DebugInlineI686ExpressionRelocations* relocations) {
+    bool is_tls;
     if (!mod || !source || !expression || !size) return false;
     if (source->var_is_global || source->var_is_static_local) {
         const ModuleSymbol* symbol;
-        if (source->kind != DECL_VAR || source->var_is_thread_local ||
+        is_tls = source->var_is_thread_local;
+        if (source->kind != DECL_VAR ||
+            (is_tls && (!relocations || !relocations->allow_tls)) ||
             !source->type ||
             source->type->is_volatile || source->type->is_reference ||
             source->type->is_atomic || !relocations ||
@@ -8422,9 +8426,16 @@ static bool debug_inline_parameter_i686_append_storage_u32(
                         !source->var_is_static_local &&
                         !symbol->is_global) ||
             !symbol->name ||
-            symbol->section == MODULE_SYMBOL_TLS ||
-            !debug_inline_integer_expression_append_byte(
-                expression, capacity, size, 0x03u)) { /* DW_OP_addr */
+            ((symbol->section == MODULE_SYMBOL_TLS) != is_tls)) {
+            return false;
+        }
+        if (is_tls) {
+            if (!debug_inline_integer_expression_append_byte(
+                    expression, capacity, size, 0x0du)) { /* const4s */
+                return false;
+            }
+        } else if (!debug_inline_integer_expression_append_byte(
+                       expression, capacity, size, 0x03u)) { /* DW_OP_addr */
             return false;
         }
         relocations->offsets[*relocations->count] = *size;
@@ -8435,6 +8446,11 @@ static bool debug_inline_parameter_i686_append_storage_u32(
                     expression, capacity, size, 0u)) {
                 return false;
             }
+        }
+        if (is_tls &&
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x9bu)) { /* form_tls_address */
+            return false;
         }
         if (high_word &&
             (!debug_inline_integer_expression_append_byte(
@@ -10174,6 +10190,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size,
     DebugInlineI686ExpressionRelocations* relocations) {
+    DebugInlineI686ExpressionRelocations tls_relocations;
     const Expr* dividend_value_expression;
     const Decl* dividend;
     const ModuleSymbol* dividend_symbol = NULL;
@@ -10185,6 +10202,11 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     unsigned int chunk_count;
     bool negate_dividend;
     bool is_remainder;
+    if (is_signed && relocations) {
+        tls_relocations = *relocations;
+        tls_relocations.allow_tls = true;
+        relocations = &tls_relocations;
+    }
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || parameter_type->size != 8 ||
         parameter_type->is_unsigned != !is_signed ||
@@ -10212,7 +10234,10 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
             : debug_find_global_symbol(mod, dividend);
     }
     if ((dividend->kind != DECL_VAR && dividend->kind != DECL_PARAM) ||
-        dividend->var_is_thread_local || dividend->var_is_vla ||
+        (!is_signed && dividend->var_is_thread_local) ||
+        (dividend->var_is_thread_local &&
+         !(dividend->var_is_global || dividend->var_is_static_local)) ||
+        dividend->var_is_vla ||
         !dividend->type ||
         dividend->type->is_volatile || dividend->type->is_reference ||
         dividend->type->is_atomic ||
@@ -10223,7 +10248,8 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
                 (dividend->var_is_global &&
                  !dividend->var_is_static_local &&
                  !dividend_symbol->is_global) ||
-                dividend_symbol->section == MODULE_SYMBOL_TLS ||
+                ((dividend_symbol->section == MODULE_SYMBOL_TLS) !=
+                 dividend->var_is_thread_local) ||
                 !relocations ||
                 !relocations->offsets || !relocations->symbols ||
                 !relocations->count)
@@ -10292,7 +10318,8 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
             chunk_relocation_symbols,
             sizeof(chunk_relocation_offsets) /
                 sizeof(chunk_relocation_offsets[0]),
-            &chunk_relocation_count
+            &chunk_relocation_count,
+            relocations && relocations->allow_tls
         };
         unsigned int bit_offset =
             (chunk_count - 1u - chunk_index) * chunk_width;
@@ -10590,6 +10617,7 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size,
     DebugInlineI686ExpressionRelocations* relocations) {
+    DebugInlineI686ExpressionRelocations tls_relocations;
     const Expr* dividend_expression;
     const Expr* divisor_expression;
     const Expr* dividend_value_expression;
@@ -10605,6 +10633,11 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
     int64_t dividend_frame_offset = 0;
     int64_t divisor_frame_offset = 0;
 
+    if (is_signed && relocations) {
+        tls_relocations = *relocations;
+        tls_relocations.allow_tls = true;
+        relocations = &tls_relocations;
+    }
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || parameter_type->size != 8 ||
         parameter_type->is_unsigned != !is_signed ||
@@ -10650,7 +10683,10 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
         (divisor->kind != DECL_VAR && divisor->kind != DECL_PARAM) ||
         (dividend->var_is_global && dividend->kind != DECL_VAR) ||
         (divisor->var_is_global && divisor->kind != DECL_VAR) ||
-        dividend->var_is_thread_local || divisor->var_is_thread_local ||
+        (!is_signed &&
+         (dividend->var_is_thread_local || divisor->var_is_thread_local)) ||
+        (dividend->var_is_thread_local && !dividend_is_address_backed) ||
+        (divisor->var_is_thread_local && !divisor_is_address_backed) ||
         dividend->var_is_vla || divisor->var_is_vla ||
         !dividend->type || !divisor->type ||
         dividend->type->is_volatile || divisor->type->is_volatile ||
@@ -10665,13 +10701,15 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
           (dividend->var_is_global &&
            !dividend->var_is_static_local &&
            !dividend_symbol->is_global) ||
-          dividend_symbol->section == MODULE_SYMBOL_TLS)) ||
+          ((dividend_symbol->section == MODULE_SYMBOL_TLS) !=
+           dividend->var_is_thread_local))) ||
         (divisor_is_address_backed &&
          (!divisor_symbol ||
           (divisor->var_is_global &&
            !divisor->var_is_static_local &&
            !divisor_symbol->is_global) ||
-          divisor_symbol->section == MODULE_SYMBOL_TLS)) ||
+          ((divisor_symbol->section == MODULE_SYMBOL_TLS) !=
+           divisor->var_is_thread_local))) ||
         ((dividend_is_address_backed || divisor_is_address_backed) &&
          (!relocations || !relocations->offsets || !relocations->symbols ||
           !relocations->count)) ||
@@ -14276,7 +14314,8 @@ static void debug_emit_inline_parameter_instances(
             integer_value_relocation_symbols,
             sizeof(integer_value_relocation_offsets) /
                 sizeof(integer_value_relocation_offsets[0]),
-            &integer_value_relocation_count
+            &integer_value_relocation_count,
+            false
         };
         int64_t address_addend = 0;
         if (value->has_signed_integer_constant && value->declaration &&
@@ -14391,7 +14430,9 @@ static void debug_emit_inline_parameter_instances(
                         integer_value_relocation_offsets[relocation_index],
                     scoped_relocation_symbol
                         ? scoped_relocation_symbol : relocation_symbol->name,
-                    RELOC_ABS32U, 0);
+                    relocation_symbol->section == MODULE_SYMBOL_TLS
+                        ? RELOC_TLSOFF32S : RELOC_ABS32U,
+                    0);
                 rcc_free(scoped_relocation_symbol);
             }
         } else if (architecture == ARCH_X86 && value->declaration &&
@@ -14713,7 +14754,9 @@ static void debug_emit_inline_parameter_instances(
                         integer_value_relocation_offsets[relocation_index],
                     scoped_relocation_symbol
                         ? scoped_relocation_symbol : relocation_symbol->name,
-                    RELOC_ABS32U, 0);
+                    relocation_symbol->section == MODULE_SYMBOL_TLS
+                        ? RELOC_TLSOFF32S : RELOC_ABS32U,
+                    0);
                 rcc_free(scoped_relocation_symbol);
             }
         } else if (architecture == ARCH_X64 && value->declaration &&
