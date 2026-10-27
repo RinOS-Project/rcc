@@ -8955,6 +8955,10 @@ remains a separate open item.
       constexpr function, then dereference the updated pointer to a caller
       aggregate member. Verify constexpr and runtime results, strict GCC C++20,
       and focused i686/AMD64 generation and execution.
+- [x] Rebind `Pair*&` and `const int*&` parameters in constexpr functions,
+      preserving pointer provenance across assignment and allowing aggregate-
+      member/scalar dereference after rebinding. Verify constexpr and runtime
+      results, strict GCC C++20, and focused i686/AMD64 generation and execution.
 - [x] Preserve mutable lvalue-reference aliases to struct objects through
       constexpr constructors, scalar-returning functions, and aggregate-
       returning functions, including nested forwarding, member mutation, and
@@ -8973,8 +8977,8 @@ remains a separate open item.
       on both targets with diagnostics matching strict GCC C++20.
 - [ ] Constructor bodies beyond the covered expressions/branches, mutable
       references to unions with non-scalar alternatives or nested lifetime
-      transitions, reference forms not covered by the scalar- and aggregate-
-      returning evaluators (including other pointer-reference forms),
+      transitions, other pointer-reference forms not covered by the scalar-
+      and aggregate-returning evaluators,
       indeterminate tracking for nested/array/base subobjects, and complete
       virtual-base constructor evaluation remain open.
 

@@ -240,6 +240,19 @@ constexpr int redirect_mutable_pointer_reference(int*& target,
     return *target;
 }
 
+constexpr int redirect_mutable_aggregate_pointer_reference(
+    Pair*& target, Pair* replacement) {
+    target = replacement;
+    target->first += 3;
+    return target->first * 100 + target->second;
+}
+
+constexpr int redirect_mutable_const_pointer_reference(
+    const int*& target, const int* replacement) {
+    target = replacement;
+    return *target;
+}
+
 constexpr FloatPair make_float_pair(float first, double second) {
     return FloatPair{first, second};
 }
@@ -511,6 +524,30 @@ constexpr int redirect_pointer_through_constexpr_function() {
 constexpr int mutable_pointer_reference_function_result =
     redirect_pointer_through_constexpr_function();
 
+constexpr int redirect_aggregate_pointer_through_constexpr_function() {
+    Pair original{1, 2};
+    Pair replacement{4, 8};
+    Pair* target = &original;
+    Pair* next = &replacement;
+    int result = redirect_mutable_aggregate_pointer_reference(target, next);
+    return original.first * 1000 + replacement.first * 100 + result;
+}
+
+constexpr int mutable_aggregate_pointer_reference_function_result =
+    redirect_aggregate_pointer_through_constexpr_function();
+
+constexpr int redirect_const_pointer_through_constexpr_function() {
+    int original = 3;
+    int replacement = 9;
+    const int* target = &original;
+    const int* next = &replacement;
+    int result = redirect_mutable_const_pointer_reference(target, next);
+    return original * 100 + replacement * 10 + result;
+}
+
+constexpr int mutable_const_pointer_reference_function_result =
+    redirect_const_pointer_through_constexpr_function();
+
 static_assert(pair.first == 3);
 static_assert(nested.pair.second + nested.tail == 13);
 static_assert(returned_pair.first == 11 && returned_pair.second == 13);
@@ -557,6 +594,8 @@ static_assert(aggregate_return_object_reference_function_result == 7078);
 static_assert(aggregate_return_array_reference_function_result == 12062);
 static_assert(aggregate_reference_assignment_function_result == 6710);
 static_assert(mutable_pointer_reference_function_result == 277);
+static_assert(mutable_aggregate_pointer_reference_function_result == 2408);
+static_assert(mutable_const_pointer_reference_function_result == 399);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
@@ -631,6 +670,19 @@ int main(void) {
     int* runtime_pointer_replacement = &runtime_pointer_pair.second;
     int runtime_pointer_result = redirect_mutable_pointer_reference(
         runtime_pointer_target, runtime_pointer_replacement);
+    Pair runtime_aggregate_pointer_original{1, 2};
+    Pair runtime_aggregate_pointer_replacement{4, 8};
+    Pair* runtime_aggregate_pointer_target = &runtime_aggregate_pointer_original;
+    Pair* runtime_aggregate_pointer_next = &runtime_aggregate_pointer_replacement;
+    int runtime_aggregate_pointer_result =
+        redirect_mutable_aggregate_pointer_reference(
+            runtime_aggregate_pointer_target, runtime_aggregate_pointer_next);
+    int runtime_const_pointer_original = 3;
+    int runtime_const_pointer_replacement = 9;
+    const int* runtime_const_pointer_target = &runtime_const_pointer_original;
+    const int* runtime_const_pointer_next = &runtime_const_pointer_replacement;
+    int runtime_const_pointer_result = redirect_mutable_const_pointer_reference(
+        runtime_const_pointer_target, runtime_const_pointer_next);
     return first_value == 3 && second_value == 5 &&
                    nested_value == 13 && array_value == 19 &&
                    returned_value == 24 && mutated_returned_value == 44 &&
@@ -706,6 +758,15 @@ int main(void) {
                    runtime_pointer_pair.second == 7 &&
                    runtime_pointer_target == runtime_pointer_replacement &&
                    runtime_pointer_result == 7 &&
+                    runtime_aggregate_pointer_original.first == 1 &&
+                    runtime_aggregate_pointer_replacement.first == 7 &&
+                    runtime_aggregate_pointer_target ==
+                        runtime_aggregate_pointer_next &&
+                    runtime_aggregate_pointer_result == 708 &&
+                    runtime_const_pointer_original == 3 &&
+                    runtime_const_pointer_replacement == 9 &&
+                    runtime_const_pointer_target == runtime_const_pointer_next &&
+                    runtime_const_pointer_result == 9 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
                    consteval_float_value == 6.25 &&
