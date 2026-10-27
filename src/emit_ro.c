@@ -10789,7 +10789,6 @@ static bool debug_inline_parameter_i686_u64_logical_not_expression(
     }
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || !relocations || parameter_type->size != 8u ||
-        !parameter_type->is_unsigned ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, source_expression->type, 0u)) {
         return false;
@@ -10799,7 +10798,7 @@ static bool debug_inline_parameter_i686_u64_logical_not_expression(
     if (!not_expression || not_expression->kind != EXPR_NOT ||
         !(operand = not_expression->unary_operand) ||
         operand->kind != EXPR_IDENT || !operand->ident_decl ||
-        parameter_type->size != 8u || !parameter_type->is_unsigned ||
+        parameter_type->size != 8u ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, operand->type, 0u)) {
         return false;
@@ -10827,7 +10826,7 @@ static bool debug_inline_parameter_i686_u64_logical_not_expression(
 
     /* A 64-bit truth test on i686 compares the OR of both relocated words
        with zero. The bool result occupies the low piece; the high piece is
-       zero after conversion to the unsigned 64-bit inline parameter type. */
+       zero after conversion to the 64-bit inline parameter type. */
     if (!debug_inline_parameter_i686_append_storage_u32(
             mod, source, 0, false, expression, capacity, &size, relocations) ||
         !debug_inline_parameter_i686_append_storage_u32(

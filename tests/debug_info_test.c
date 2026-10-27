@@ -14203,6 +14203,10 @@ static void verify_inline_i686_global_shift_parameter(
             ? "debug_inline_nonconstant_unsigned_long_long_static_lnot_entry"
         : operation == 0xd3u
             ? "debug_inline_nonconstant_unsigned_long_long_tls_static_lnot_zero_entry"
+        : operation == 0xd4u
+            ? "debug_inline_nonconstant_signed_long_long_static_lnot_entry"
+        : operation == 0xd5u
+            ? "debug_inline_nonconstant_signed_long_long_tls_static_lnot_zero_entry"
         : operation == 0x82u
             ? "debug_inline_nonconstant_signed_long_long_global_pair_add_entry"
         : operation == 0x83u
@@ -14276,6 +14280,7 @@ static void verify_inline_i686_global_shift_parameter(
             (operation >= 0xbeu && operation <= 0xc3u) ||
             operation == 0xcbu || operation == 0xcdu ||
             operation == 0xcfu || operation == 0xd1u ||
+            operation == 0xd4u || operation == 0xd5u ||
             operation == 0x6au || operation == 0x6bu ||
             operation == 0x6eu || operation == 0x6fu ||
             operation == 0x72u || operation == 0x73u ||
@@ -14327,7 +14332,7 @@ static void verify_inline_i686_global_shift_parameter(
         ? "debug_inline_nonconstant_unsigned_long_long_tls_compare_lhs"
         : operation >= 0x94u && operation <= 0x99u
         ? "debug_inline_nonconstant_signed_long_long_tls_compare_lhs"
-        : operation >= 0x9au && operation <= 0xd3u
+        : operation >= 0x9au && operation <= 0xd5u
         ? NULL
         : operation == 0x82u
         ? "debug_inline_nonconstant_signed_long_long_global_add_lhs"
@@ -14357,7 +14362,7 @@ static void verify_inline_i686_global_shift_parameter(
         ? "debug_inline_nonconstant_unsigned_long_long_tls_compare_rhs"
         : operation >= 0x94u && operation <= 0x99u
         ? "debug_inline_nonconstant_signed_long_long_tls_compare_rhs"
-        : operation >= 0x9au && operation <= 0xd3u
+        : operation >= 0x9au && operation <= 0xd5u
         ? NULL
         : operation == 0x82u
         ? "debug_inline_nonconstant_signed_long_long_global_add_rhs"
@@ -14403,7 +14408,7 @@ static void verify_inline_i686_global_shift_parameter(
     };
 
     assert(path != NULL && call_site_name != NULL && operation >= 0x51u &&
-        operation <= 0xd3u);
+        operation <= 0xd5u);
     object = objfile_read(path);
     assert(object != NULL && object->arch == ARCH_X86);
     info = objfile_get_section(object, ".debug_info");
@@ -14451,7 +14456,7 @@ static void verify_inline_i686_global_shift_parameter(
                    ((operation >= 0x88u && operation <= 0xb1u) ||
                     operation == 0xccu || operation == 0xcdu ||
                     operation == 0xd0u || operation == 0xd1u ||
-                    operation == 0xd3u
+                    operation == 0xd3u || operation == 0xd5u
                         ? 0x0du : 0x03u));
         if (operation >= 0x9au && operation <= 0xc9u) {
             static const char static_local_prefix[] =
@@ -14521,16 +14526,17 @@ static void verify_inline_i686_global_shift_parameter(
             assert(source_name && count_name &&
                    strcmp(source_name, count_name) != 0);
         }
-        if (operation >= 0xcau && operation <= 0xd3u) {
+        if (operation >= 0xcau && operation <= 0xd5u) {
             static const char static_local_prefix[] =
                 "tests/debug_info_inline_integer.cpp::";
             const char* static_symbol = NULL;
             size_t static_relocations = 0u;
             bool tls_source = operation == 0xccu || operation == 0xcdu ||
                 operation == 0xd0u || operation == 0xd1u ||
-                operation == 0xd3u;
+                operation == 0xd3u || operation == 0xd5u;
             size_t expected_relocations = operation >= 0xceu ? 2u : 3u;
-            uint64_t expected_storage = operation == 0xd3u ? 0u :
+            uint64_t expected_storage =
+                operation == 0xd3u || operation == 0xd5u ? 0u :
                 UINT64_C(0xfedcba9876543217);
             for (const ObjReloc* relocation = info->relocs; relocation;
                  relocation = relocation->next) {
@@ -14730,7 +14736,7 @@ static void verify_inline_i686_global_shift_parameter(
                 : operation >= 0x5bu && operation <= 0x66u
                     ? UINT64_C(0x7ffffffffffffff0)
                 : operation == 0x59u ? 0u
-                : operation == 0xd3u ? 0u
+                : operation == 0xd3u || operation == 0xd5u ? 0u
                 : UINT64_C(0xfedcba9876543217)) &&
            (!count_name ||
             ((operation >= 0x5bu && operation <= 0x66u) ||
@@ -14787,8 +14793,8 @@ static void verify_inline_i686_global_shift_parameter(
                        object, info, expression_offset, expression_size,
                        source_name, value, NULL, 0u) == 0u - value);
         }
-    } else if (operation >= 0xd2u && operation <= 0xd3u) {
-        bool tls_source = operation == 0xd3u;
+    } else if (operation >= 0xd2u && operation <= 0xd5u) {
+        bool tls_source = operation == 0xd3u || operation == 0xd5u;
         for (size_t index = 0u;
              index < sizeof(tested_negate_sources) /
                          sizeof(tested_negate_sources[0]); ++index) {
@@ -16934,6 +16940,10 @@ int main(int argc, char** argv)
         verify_inline_i686_global_shift_parameter(argv[8], 0xd2u);
         verify_inline_i686_global_shift_parameter(argv[6], 0xd3u);
         verify_inline_i686_global_shift_parameter(argv[8], 0xd3u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0xd4u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0xd4u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0xd5u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0xd5u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x84u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x84u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x85u);
