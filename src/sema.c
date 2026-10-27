@@ -6511,6 +6511,45 @@ static int sema_cxx_constructor_base_index(CxxClass* cls,
 static int sema_cxx_constructor_virtual_base_index(CxxClass* cls,
                                                   const char* name);
 
+static bool sema_constexpr_bind_mutable_scalar_reference(
+    Expr* expression, Type* referred_type,
+    SemaConstexprBinding* caller_bindings, int caller_binding_count,
+    SemaConstexprBinding* reference_binding) {
+    int target_index = -1;
+    size_t target_offset = 0u;
+    Type* target_type = NULL;
+    bool valid_target = caller_bindings &&
+        sema_constexpr_binding_lvalue(
+            expression, caller_bindings, caller_binding_count,
+            &target_index, &target_offset, &target_type);
+    if (!valid_target && caller_bindings && expression &&
+        expression->kind == EXPR_IDENT) {
+        target_index = sema_constexpr_binding_index(
+            expression, caller_bindings, caller_binding_count);
+        if (target_index >= 0 && target_index < caller_binding_count &&
+            !caller_bindings[target_index].is_object &&
+            !caller_bindings[target_index].is_reference_alias &&
+            sema_constexpr_scalar_type(caller_bindings[target_index].type)) {
+            target_offset = 0u;
+            target_type = caller_bindings[target_index].type;
+            valid_target = true;
+        }
+    }
+    if (!valid_target || target_index < 0 ||
+        target_index >= caller_binding_count || target_index >= 64 ||
+        !referred_type || !sema_constexpr_scalar_type(referred_type) ||
+        referred_type->is_const || referred_type->is_volatile ||
+        !target_type || target_type->is_const || target_type->is_volatile ||
+        !type_is_compatible(referred_type, target_type) ||
+        !reference_binding) {
+        return false;
+    }
+    reference_binding->reference_binding = &caller_bindings[target_index];
+    reference_binding->reference_offset = target_offset;
+    reference_binding->is_reference_alias = true;
+    return true;
+}
+
 static bool sema_constexpr_materialize_cxx_constructor(
     Type* type, CxxConstructorInfo* constructor, ExprList* arguments,
     bool initialize_virtual_bases, SemaConstexprBinding* caller_bindings,
@@ -6584,42 +6623,11 @@ static bool sema_constexpr_materialize_cxx_constructor(
         binding->declaration = parameter->decl;
         binding->type = parameter_value_type;
         if (mutable_scalar_reference) {
-            int referenced_binding_index;
-            size_t referenced_offset;
-            Type* referenced_type;
-            bool valid_reference_target = caller_bindings &&
-                sema_constexpr_binding_lvalue(
-                    argument->expr, caller_bindings, caller_binding_count,
-                    &referenced_binding_index, &referenced_offset,
-                    &referenced_type);
-            if (!valid_reference_target && caller_bindings &&
-                argument->expr && argument->expr->kind == EXPR_IDENT) {
-                referenced_binding_index = sema_constexpr_binding_index(
-                    argument->expr, caller_bindings, caller_binding_count);
-                if (referenced_binding_index >= 0 &&
-                    !caller_bindings[referenced_binding_index].is_object &&
-                    !caller_bindings[referenced_binding_index]
-                         .is_reference_alias &&
-                    sema_constexpr_scalar_type(
-                        caller_bindings[referenced_binding_index].type)) {
-                    referenced_offset = 0u;
-                    referenced_type =
-                        caller_bindings[referenced_binding_index].type;
-                    valid_reference_target = true;
-                }
-            }
-            if (!valid_reference_target || referenced_binding_index < 0 ||
-                referenced_binding_index >= caller_binding_count ||
-                referenced_binding_index >= 64 ||
-                !referenced_type || referenced_type->is_const ||
-                referenced_type->is_volatile ||
-                !type_is_compatible(parameter_value_type, referenced_type)) {
+            if (!sema_constexpr_bind_mutable_scalar_reference(
+                    argument->expr, parameter_value_type, caller_bindings,
+                    caller_binding_count, binding)) {
                 return false;
             }
-            binding->reference_binding =
-                &caller_bindings[referenced_binding_index];
-            binding->reference_offset = referenced_offset;
-            binding->is_reference_alias = true;
         } else if (sema_constexpr_scalar_type(parameter_value_type)) {
             SemaConstexprScalar value;
             if (!sema_eval_constexpr_scalar_expr(
@@ -9523,6 +9531,7 @@ static bool sema_eval_constexpr_scalar_function(
         SemaConstexprBinding* argument_bindings;
         int argument_binding_count;
         Type* parameter_value_type;
+        bool mutable_scalar_reference = false;
         if (!parameter->decl || !parameter->decl->name) return false;
         if (argument) {
             argument_expression = argument->expr;
@@ -9546,15 +9555,13 @@ static bool sema_eval_constexpr_scalar_function(
             if (!referred_type ||
                 !sema_constexpr_scalar_type(referred_type) ||
                 referred_type->is_volatile ||
-                (!parameter_value_type->is_rvalue_reference &&
-                 !referred_type->is_const) ||
                 (parameter_value_type->is_rvalue_reference &&
                  is_lvalue(argument_expression))) {
                 return false;
             }
-            /* The evaluator stores the referred scalar value in the binding;
-             * no reference address is needed for the supported integral
-             * constexpr body subset. */
+            mutable_scalar_reference =
+                !parameter_value_type->is_rvalue_reference &&
+                !referred_type->is_const;
             parameter_value_type = referred_type;
         }
         bindings[count].declaration = parameter->decl;
@@ -9562,7 +9569,12 @@ static bool sema_eval_constexpr_scalar_function(
         bindings[count].object_bytes = NULL;
         bindings[count].object_size = 0u;
         bindings[count].is_object = false;
-        if (sema_constexpr_scalar_type(parameter_value_type)) {
+        if (mutable_scalar_reference) {
+            if (!sema_constexpr_bind_mutable_scalar_reference(
+                    argument_expression, parameter_value_type,
+                    argument_bindings, argument_binding_count,
+                    &bindings[count])) return false;
+        } else if (sema_constexpr_scalar_type(parameter_value_type)) {
             if (!sema_eval_constexpr_scalar_expr(
                     argument_expression, argument_bindings,
                     argument_binding_count, &argument_value) ||

@@ -123,6 +123,15 @@ constexpr Pair make_pair(int first, int second) {
     return Pair{first, second};
 }
 
+constexpr int add_through_mutable_scalar_reference(int& value) {
+    value += 5;
+    return value;
+}
+
+constexpr int forward_mutable_scalar_reference(int& value) {
+    return add_through_mutable_scalar_reference(value);
+}
+
 constexpr FloatPair make_float_pair(float first, double second) {
     return FloatPair{first, second};
 }
@@ -246,6 +255,24 @@ constexpr int mutate_scalar_through_forwarded_constructor_reference() {
 constexpr int forwarded_scalar_reference_constructor_result =
     mutate_scalar_through_forwarded_constructor_reference();
 
+constexpr int mutate_local_scalar_through_constexpr_function() {
+    int source = 4;
+    int result = forward_mutable_scalar_reference(source);
+    return source * 100 + result;
+}
+
+constexpr int local_scalar_reference_function_result =
+    mutate_local_scalar_through_constexpr_function();
+
+constexpr int mutate_aggregate_member_through_constexpr_function() {
+    Pair source{6, 12};
+    int result = add_through_mutable_scalar_reference(source.first);
+    return source.first * 100 + result;
+}
+
+constexpr int aggregate_member_reference_function_result =
+    mutate_aggregate_member_through_constexpr_function();
+
 static_assert(pair.first == 3);
 static_assert(nested.pair.second + nested.tail == 13);
 static_assert(returned_pair.first == 11 && returned_pair.second == 13);
@@ -276,6 +303,8 @@ static_assert(aggregate_pointer_constructor_result == 1333);
 static_assert(scalar_reference_constructor_result == 1609);
 static_assert(local_scalar_reference_constructor_result == 1710);
 static_assert(forwarded_scalar_reference_constructor_result == 1811);
+static_assert(local_scalar_reference_function_result == 909);
+static_assert(aggregate_member_reference_function_result == 1111);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
@@ -294,6 +323,12 @@ int main(void) {
     Pair runtime_forwarded_source{11, 12};
     ConstructorForwardedMutableScalarReference runtime_forwarded_alias{
         runtime_forwarded_source.first};
+    int runtime_function_source = 4;
+    int runtime_function_result =
+        forward_mutable_scalar_reference(runtime_function_source);
+    Pair runtime_function_aggregate{6, 12};
+    int runtime_function_aggregate_result =
+        add_through_mutable_scalar_reference(runtime_function_aggregate.first);
     return first_value == 3 && second_value == 5 &&
                    nested_value == 13 && array_value == 19 &&
                    returned_value == 24 && mutated_returned_value == 44 &&
@@ -330,6 +365,10 @@ int main(void) {
                    runtime_scalar_alias.observed == 10 &&
                    runtime_forwarded_source.first == 18 &&
                    runtime_forwarded_alias.nested.observed == 11 &&
+                   runtime_function_source == 9 &&
+                   runtime_function_result == 9 &&
+                   runtime_function_aggregate.first == 11 &&
+                   runtime_function_aggregate_result == 11 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
                    consteval_float_value == 6.25 &&

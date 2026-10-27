@@ -8941,11 +8941,16 @@ remains a separate open item.
       update the caller on constexpr and runtime paths, with strict GCC C++20,
       focused i686/AMD64 generation and execution, and the full POSIX
       `test-cxx` aggregate.
+- [x] Bind mutable scalar lvalue-reference parameters in scalar-returning
+      constexpr functions to caller locals and aggregate fields, and forward
+      the alias across nested constexpr function calls. Verify compile-time
+      results and runtime writes with strict GCC C++20, focused i686/AMD64
+      generation and execution, and the full POSIX `test-cxx` aggregate.
 - [ ] Broader constructor-body expressions/side effects, mutable references to
-      nonscalar objects, reference parameters in general constexpr functions,
-      aggregate and other pointer-reference parameters, indeterminate tracking
-      for nested/array/base subobjects, and complete virtual-base constructor
-      evaluation remain open.
+      nonscalar objects, reference parameters in aggregate-returning and other
+      constexpr evaluator paths, aggregate and pointer-reference parameters,
+      indeterminate tracking for nested/array/base subobjects, and complete
+      virtual-base constructor evaluation remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
