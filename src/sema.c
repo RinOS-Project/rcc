@@ -8836,9 +8836,7 @@ static Decl* sema_constexpr_virtual_member_function_overrider(
         }
         selected = dynamic_class->vtable[method->vtable_index].method;
     }
-    return selected && selected->is_virtual &&
-                   selected->vtable_index == method->vtable_index
-        ? selected->decl : NULL;
+    return selected && selected->is_virtual ? selected->decl : NULL;
 }
 
 static bool sema_eval_constexpr_scalar_function(
@@ -9078,7 +9076,114 @@ bool rcc_sema_eval_constexpr_integer_call(Decl* declaration,
     return true;
 }
 
+static Type* sema_constexpr_pointer_complete_object_type(
+    Decl* declaration, SemaConstexprBinding* bindings, int binding_count) {
+    if (!declaration) return NULL;
+    for (int index = 0; index < binding_count; ++index) {
+        SemaConstexprBinding* binding = &bindings[index];
+        if (binding->declaration == declaration && binding->is_object &&
+            binding->type) {
+            return binding->type;
+        }
+        if (binding->is_pointer &&
+            binding->pointer_declaration == declaration) {
+            if (binding->pointer_complete_object_type) {
+                return binding->pointer_complete_object_type;
+            }
+            if (binding->pointer_target_object_type) {
+                return binding->pointer_target_object_type;
+            }
+        }
+    }
+    if (!declaration->type) return NULL;
+    if (declaration->type->kind == TYPE_ARRAY) {
+        return declaration->type->base;
+    }
+    if (declaration->type->kind == TYPE_PTR) return NULL;
+    return declaration->type;
+}
+
+static bool sema_constexpr_apply_pointer_adjustment(
+    Expr* expression, SemaConstexprBinding* bindings, int binding_count,
+    SemaConstexprScalar* value) {
+    int64_t adjustment = 0;
+    int64_t adjusted_offset;
+    if (!expression || !value) return false;
+    if (!value->is_pointer ||
+        (!expression->cxx_pointer_adjustment_valid &&
+         !expression->cxx_virtual_base_adjustment)) {
+        return true;
+    }
+    if (!value->pointer_declaration && value->pointer_offset == 0) {
+        value->type = expression->type;
+        return true;
+    }
+    if (expression->cxx_virtual_base_adjustment) {
+        CxxClass* source_class =
+            expression->cxx_virtual_base_source_class;
+        Type* dynamic_type = sema_constexpr_pointer_complete_object_type(
+            value->pointer_declaration, bindings, binding_count);
+        Type* dynamic_object_type;
+        Type* source_object_type;
+        Type* target_object_type;
+        CxxVirtualBaseInfo* virtual_base;
+        int source_adjustment = 0;
+        int target_adjustment = 0;
+        if (!source_class || !source_class->virtual_bases ||
+            expression->cxx_virtual_base_index < 0 ||
+            expression->cxx_virtual_base_index >=
+                source_class->virtual_base_count || !dynamic_type ||
+            !expression->type || expression->type->kind != TYPE_PTR ||
+            !expression->type->base) {
+            return false;
+        }
+        virtual_base = &source_class->virtual_bases[
+            expression->cxx_virtual_base_index];
+        if (!virtual_base->base || !virtual_base->base->type) return false;
+        dynamic_object_type = sema_cxx_object_type(dynamic_type);
+        source_object_type = sema_cxx_object_type(source_class->type);
+        target_object_type = sema_cxx_object_type(expression->type->base);
+        if (!dynamic_object_type || !source_object_type ||
+            !target_object_type ||
+            (!type_is_compatible(dynamic_object_type, source_object_type) &&
+             !sema_cxx_unique_public_base(
+                 dynamic_object_type, source_object_type,
+                 &source_adjustment)) ||
+            !sema_cxx_public_base(
+                virtual_base->base->type, target_object_type, NULL, 0) ||
+            !sema_cxx_unique_public_base(
+                dynamic_object_type, target_object_type,
+                &target_adjustment)) {
+            return false;
+        }
+        adjustment = (int64_t)target_adjustment - source_adjustment;
+    } else {
+        adjustment = expression->cxx_pointer_adjustment;
+    }
+    if (!sema_constexpr_pointer_offset(
+            value->pointer_offset, adjustment, 1, &adjusted_offset) ||
+        adjusted_offset < 0) {
+        return false;
+    }
+    value->type = expression->type;
+    value->pointer_offset = adjusted_offset;
+    return true;
+}
+
+static bool sema_eval_constexpr_scalar_expr_unadjusted(
+    Expr* expression, SemaConstexprBinding* bindings,
+    int binding_count, SemaConstexprScalar* value);
+
 static bool sema_eval_constexpr_scalar_expr(
+    Expr* expression, SemaConstexprBinding* bindings,
+    int binding_count, SemaConstexprScalar* value) {
+    return sema_eval_constexpr_scalar_expr_unadjusted(
+               expression, bindings, binding_count, value) &&
+           sema_constexpr_apply_pointer_adjustment(
+               expression, bindings, binding_count, value);
+}
+
+static bool sema_eval_constexpr_scalar_expr_unadjusted(
     Expr* expression, SemaConstexprBinding* bindings,
     int binding_count, SemaConstexprScalar* value) {
     SemaConstexprScalar left;

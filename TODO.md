@@ -8824,8 +8824,9 @@ remains a separate open item.
       pointer in global and thread-local initializers. Validate i686/AMD64
       emitted adjustment words, execute both AMD64 calls, compare with a strict
       GCC C++20 host run, and pass the full POSIX `test-cxx` aggregate.
-- [ ] Further owner/signature conversions and virtual constexpr dispatch
-      beyond the tested global-object/unique-nonvirtual-base case remain open.
+- [ ] Runtime/dynamic virtual constexpr dispatch, virtual-base owner paths,
+      secondary-base constexpr object-state access, and further
+      member-function-pointer owner/signature conversions remain open.
 
 ## RCC continuation (2026-10-27, virtual member-function-pointer static initialization)
 
@@ -8845,15 +8846,19 @@ remains a separate open item.
 - [x] Evaluate virtual member-function-pointer calls through a `const Base*`
       when the constexpr receiver is a global or local constexpr `Derived`
       object, or a by-value constexpr-function parameter of that type, and the
-      owner is reached through a unique accessible nonvirtual base path. Select
-      and evaluate the derived final overrider across dependent constexpr-call
-      frames, with static assertions distinguishing it from the base
+      owner is reached through a unique accessible nonvirtual base path.
+      Cover both the primary table and a secondary polymorphic base at a
+      nonzero offset; apply the pointer conversion adjustment and select the
+      derived final overrider from the secondary table slot. Dependent
+      constexpr-call frames and static assertions distinguish it from the base
       implementation. The strict GCC C++20 oracle, focused
       `test-cxx-function-template-overloads` gate, and full POSIX `test-cxx`
       aggregate pass on the final compiler source.
 - [ ] Extend constexpr virtual dispatch to runtime/dynamic object flows,
       virtual-base owner paths, and additional ambiguous or repeated-base
-      cases; member-function-pointer owner/signature conversions remain open.
+      cases. Reading inherited data from a secondary polymorphic base within
+      the constexpr final overrider remains open, as do member-function-pointer
+      owner/signature conversions.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

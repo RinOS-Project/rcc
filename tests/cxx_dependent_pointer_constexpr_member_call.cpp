@@ -20,12 +20,25 @@ struct DependentConstexprVirtualBase {
     }
 };
 
-struct DependentConstexprVirtualDerived : DependentConstexprVirtualBase {
+struct DependentConstexprVirtualPrefix {
+    int marker;
+
+    constexpr explicit DependentConstexprVirtualPrefix(int initial)
+        : marker(initial) {}
+
+    constexpr virtual int prefix(int amount) const {
+        return marker + amount;
+    }
+};
+
+struct DependentConstexprVirtualDerived
+    : DependentConstexprVirtualPrefix, DependentConstexprVirtualBase {
     constexpr explicit DependentConstexprVirtualDerived(int initial)
-        : DependentConstexprVirtualBase(initial) {}
+        : DependentConstexprVirtualPrefix(initial - 1),
+          DependentConstexprVirtualBase(initial) {}
 
     constexpr int add(int amount) const override {
-        return value + amount + 100;
+        return amount + 117;
     }
 };
 
