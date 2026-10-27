@@ -5470,25 +5470,50 @@ static bool debug_build_inline_integer_truth_expression(
 static bool debug_inline_parameter_indirect_local_value_expression(
     const Module* mod, int architecture, const Expr* expression,
     uint8_t* output, size_t capacity, size_t* output_size) {
+    const Expr* pointer_expression;
     const Decl* pointer_declaration;
     const Type* pointer_type;
-    const Type* pointee_type;
+    size_t dereference_count = 0u;
     int64_t pointer_frame_offset;
     uint8_t pointer_address[32];
     size_t pointer_address_size;
     unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
     if (!mod || !expression || !expression->unary_operand ||
-        expression->unary_operand->kind != EXPR_IDENT ||
-        !expression->unary_operand->ident_decl || !expression->type ||
+        !expression->type ||
         (unsigned int)expression->type->size > address_size ||
         !output || !output_size ||
         expression->kind != EXPR_DEREF) {
         return false;
     }
-    pointer_declaration = expression->unary_operand->ident_decl;
+    pointer_expression = expression;
+    while (pointer_expression && pointer_expression->kind == EXPR_DEREF) {
+        const Type* dereferenced_pointer_type;
+        if (!pointer_expression->unary_operand ||
+            dereference_count >= 32u) {
+            return false;
+        }
+        dereferenced_pointer_type = pointer_expression->unary_operand->type;
+        if (!dereferenced_pointer_type ||
+            dereferenced_pointer_type->kind != TYPE_PTR ||
+            dereferenced_pointer_type->size != (int)address_size ||
+            dereferenced_pointer_type->cxx_is_member_pointer ||
+            dereferenced_pointer_type->is_volatile ||
+            dereferenced_pointer_type->is_reference ||
+            dereferenced_pointer_type->is_atomic ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                dereferenced_pointer_type->base, pointer_expression->type,
+                0u)) {
+            return false;
+        }
+        ++dereference_count;
+        pointer_expression = pointer_expression->unary_operand;
+    }
+    if (!pointer_expression || pointer_expression->kind != EXPR_IDENT ||
+        !pointer_expression->ident_decl) {
+        return false;
+    }
+    pointer_declaration = pointer_expression->ident_decl;
     pointer_type = pointer_declaration->type;
-    pointee_type = pointer_type && pointer_type->kind == TYPE_PTR
-        ? pointer_type->base : NULL;
     if ((pointer_declaration->kind != DECL_VAR &&
          pointer_declaration->kind != DECL_PARAM) ||
         pointer_declaration->var_is_global ||
@@ -5499,14 +5524,10 @@ static bool debug_inline_parameter_indirect_local_value_expression(
         pointer_type->cxx_is_member_pointer ||
         pointer_type->size != (int)address_size ||
         pointer_type->is_volatile || pointer_type->is_reference ||
-        pointer_type->is_atomic || !pointee_type ||
-        !debug_inline_integer_expression_type(pointee_type) ||
-        (unsigned int)pointee_type->size > address_size ||
-        pointee_type->is_volatile || pointee_type->is_atomic ||
+        pointer_type->is_atomic ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-            pointer_type, expression->unary_operand->type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-            pointee_type, expression->type, 0u) ||
+            pointer_type, pointer_expression->type, 0u) ||
+        !debug_inline_integer_expression_type(expression->type) ||
         !debug_inline_parameter_frame_offset(
             mod, pointer_declaration, &pointer_frame_offset)) {
         return false;
@@ -5519,14 +5540,18 @@ static bool debug_inline_parameter_indirect_local_value_expression(
     }
     memcpy(output + *output_size, pointer_address, pointer_address_size);
     *output_size += pointer_address_size;
+    for (size_t index = 0u; index < dereference_count; ++index) {
+        if (!debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, 0x94u) ||
+            !debug_inline_integer_expression_append_byte(
+                output, capacity, output_size, (uint8_t)address_size)) {
+            return false;
+        }
+    }
     return debug_inline_integer_expression_append_byte(
-               output, capacity, output_size, 0x94u) && /* pointer slot */
+               output, capacity, output_size, 0x94u) &&
         debug_inline_integer_expression_append_byte(
-            output, capacity, output_size, (uint8_t)address_size) &&
-        debug_inline_integer_expression_append_byte(
-            output, capacity, output_size, 0x94u) && /* pointee value */
-        debug_inline_integer_expression_append_byte(
-            output, capacity, output_size, (uint8_t)pointee_type->size) &&
+            output, capacity, output_size, (uint8_t)expression->type->size) &&
         debug_inline_integer_expression_normalize(
             output, capacity, output_size, expression->type, architecture);
 }

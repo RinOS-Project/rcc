@@ -60,6 +60,7 @@ const int debug_inline_readonly_addressed_pointer_source = 31;
 int** debug_inline_escaped_pointer;
 int* debug_inline_escaped_object_address;
 int** debug_inline_indirect_pointer_slot_escape;
+int*** debug_inline_indirect_pointer_chain_slot_escape;
 int* debug_inline_nonconstant_integer_escape;
 long* debug_inline_nonconstant_long_escape;
 unsigned long* debug_inline_nonconstant_unsigned_long_escape;
@@ -584,6 +585,19 @@ int debug_inline_indirect_pointer_entry(int value)
         &debug_inline_indirect_pointer_slot;
     return debug_nonconstant_integer_parameter_inline(
         *debug_inline_indirect_pointer_slot);
+}
+
+int debug_inline_indirect_pointer_chain_entry(int value)
+{
+    int debug_inline_indirect_pointer_chain_value = value;
+    int* debug_inline_indirect_pointer_chain_target =
+        &debug_inline_indirect_pointer_chain_value;
+    int** debug_inline_indirect_pointer_chain_slot =
+        &debug_inline_indirect_pointer_chain_target;
+    debug_inline_indirect_pointer_chain_slot_escape =
+        &debug_inline_indirect_pointer_chain_slot;
+    return debug_nonconstant_integer_parameter_inline(
+        **debug_inline_indirect_pointer_chain_slot);
 }
 
 int debug_inline_nonconstant_integer_logical_not_entry(int value)

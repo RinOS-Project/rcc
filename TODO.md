@@ -11356,6 +11356,13 @@ remains a separate open item.
       full debug-info verifier also passed after the remaining Make recipe
       steps were run directly because `cmd.exe` misparsed its multiline output
       redirection.
+- [x] Extend the same frame-local expression to `**identifier` pointer chains
+      by loading one address-sized pointer layer per dereference before the
+      scalar load. Verify both C i686/x64 legacy and verified objects by
+      interpreting the generated expression against a chained frame-memory
+      model; focused `test-debug-info-inline-expression` and the full
+      debug-info verifier passed on refreshed outputs. The full Make target's
+      `cmd.exe` redirection issue is documented above.
 - [ ] Add negative coverage for global/TLS/static, volatile/atomic,
-      member-pointer, wider-than-address-size pointee, and indirect
-      pointer-chain cases before extending support to them.
+      member-pointer, and wider-than-address-size pointee cases before
+      extending support to them.
