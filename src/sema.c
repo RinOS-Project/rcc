@@ -8926,6 +8926,50 @@ static bool sema_constexpr_constructor_update_local(
         expression, bindings, binding_count, &ignored_value);
 }
 
+static bool sema_constexpr_const_scalar_reference_target(
+    Decl* declaration, SemaConstexprBinding* bindings, int binding_count,
+    int* target_index) {
+    Type* reference_type;
+    Expr* target;
+    SemaConstexprScalar target_value;
+    SemaConstexprScalar converted_value;
+    int index;
+    if (!declaration || !declaration->type || !declaration->var_init ||
+        declaration->type->kind != TYPE_PTR ||
+        !declaration->type->is_reference ||
+        declaration->type->is_rvalue_reference ||
+        declaration->type->cxx_is_member_pointer ||
+        !(reference_type = declaration->type->base) ||
+        !reference_type->is_const || reference_type->is_volatile ||
+        reference_type->kind == TYPE_PTR ||
+        !sema_constexpr_scalar_type(reference_type) || !bindings ||
+        !target_index) {
+        return false;
+    }
+    target = declaration->var_init;
+    while (target && target->kind == EXPR_CAST && target->cast_expr &&
+           target->cast_type && target->cast_type->is_reference) {
+        target = target->cast_expr;
+    }
+    if (!target || target->kind != EXPR_IDENT ||
+        (index = sema_constexpr_binding_index(
+             target, bindings, binding_count)) < 0 ||
+        index >= binding_count || bindings[index].is_object ||
+        !bindings[index].type ||
+        bindings[index].type->kind == TYPE_PTR ||
+        !sema_constexpr_scalar_type(bindings[index].type) ||
+        bindings[index].is_constexpr_uninitialized_local ||
+        !type_is_compatible(reference_type, bindings[index].type) ||
+        !sema_eval_constexpr_scalar_expr(
+            target, bindings, binding_count, &target_value) ||
+        !sema_constexpr_scalar_convert(
+            &target_value, reference_type, &converted_value)) {
+        return false;
+    }
+    *target_index = index;
+    return true;
+}
+
 static bool sema_constexpr_constructor_analyze_body_statement(
     Stmt* statement, CxxClass* cls, uint64_t* initialized_members,
     SemaConstexprBinding* bindings, int* binding_count,
@@ -8961,10 +9005,12 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             Decl* declaration = statement->decl;
             SemaConstexprScalar local_value;
             bool scalar_pointer_local;
+            bool scalar_reference_local;
             if (!declaration || declaration->kind != DECL_VAR ||
                 !declaration->name ||
                 !sema_constexpr_scalar_type(declaration->type) ||
                 (declaration->type->kind == TYPE_PTR &&
+                 !declaration->type->is_reference &&
                  (declaration->type->cxx_is_member_pointer ||
                   !declaration->type->base ||
                   declaration->type->base->kind == TYPE_PTR ||
@@ -8972,10 +9018,27 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                 *binding_count < 0 || *binding_count >= 64) {
                 return false;
             }
-            scalar_pointer_local = declaration->type->kind == TYPE_PTR;
+            scalar_pointer_local = declaration->type->kind == TYPE_PTR &&
+                !declaration->type->is_reference;
+            scalar_reference_local = declaration->type->kind == TYPE_PTR &&
+                declaration->type->is_reference;
             memset(&bindings[*binding_count], 0,
                    sizeof(bindings[*binding_count]));
             bindings[*binding_count].declaration = declaration;
+            if (scalar_reference_local) {
+                int target_index;
+                if (!sema_constexpr_const_scalar_reference_target(
+                        declaration, bindings, *binding_count,
+                        &target_index)) {
+                    return false;
+                }
+                bindings[*binding_count].type = declaration->type->base;
+                bindings[*binding_count].reference_binding =
+                    &bindings[target_index];
+                bindings[*binding_count].is_reference_alias = true;
+                ++*binding_count;
+                return true;
+            }
             bindings[*binding_count].type = declaration->type;
             if (!declaration->var_init) {
                 if (scalar_pointer_local) return false;
@@ -10497,6 +10560,29 @@ static bool sema_eval_constexpr_scalar_statement(
         case STMT_DECL: {
             SemaConstexprScalar initializer;
             Decl* declaration = statement->decl;
+            if (declaration && declaration->kind == DECL_VAR &&
+                declaration->name && declaration->type &&
+                declaration->type->kind == TYPE_PTR &&
+                declaration->type->is_reference) {
+                int target_index;
+                if (*binding_count >= 64 ||
+                    !sema_constexpr_const_scalar_reference_target(
+                        declaration, bindings, *binding_count,
+                        &target_index)) {
+                    return false;
+                }
+                memset(&bindings[*binding_count], 0,
+                       sizeof(bindings[*binding_count]));
+                bindings[*binding_count].declaration = declaration;
+                bindings[*binding_count].type = declaration->type->base;
+                bindings[*binding_count].reference_binding =
+                    &bindings[target_index];
+                bindings[*binding_count].is_reference_alias = true;
+                ++*binding_count;
+                memset(value, 0, sizeof(*value));
+                value->type = declaration->type->base;
+                return true;
+            }
             if (declaration && declaration->kind == DECL_VAR &&
                 declaration->name && declaration->var_init &&
                 sema_constexpr_aggregate_type(declaration->type)) {

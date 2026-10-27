@@ -612,6 +612,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-constexpr-pointer-mutation
 .PHONY: test-cxx-constexpr-pointer-aggregate
+.PHONY: test-cxx-constexpr-constructor-reference-invalid
 .PHONY: test-cxx-noexcept-expression test-cxx-noexcept-redeclarations \
 	test-cxx-typeid test-cxx-typeid-dynamic
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
@@ -3295,7 +3296,7 @@ test-cxx-constexpr-posix: $(RCXX_TARGET)
 	@echo "RCC++ scalar constexpr folding tests completed"
 
 ifeq ($(OS),Windows_NT)
-test-cxx-constexpr-aggregate: $(RCXX_TARGET)
+test-cxx-constexpr-aggregate: $(RCXX_TARGET) test-cxx-constexpr-constructor-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-aggregate)
 	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_constexpr_aggregate.cpp
 	$(call CXX_WINDOWS_CONSTEXPR_TEST,cxx-constexpr-aggregate,cxx_constexpr_aggregate.cpp)
@@ -3304,7 +3305,7 @@ else
 test-cxx-constexpr-aggregate: test-cxx-constexpr-aggregate-posix
 endif
 
-test-cxx-constexpr-aggregate-posix: $(RCXX_TARGET)
+test-cxx-constexpr-aggregate-posix: $(RCXX_TARGET) test-cxx-constexpr-constructor-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-aggregate)
 	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_constexpr_aggregate.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -3351,6 +3352,27 @@ test-cxx-constexpr-aggregate-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr-aggregate/x64.o
 	$(TEST_OUT)/cxx-constexpr-aggregate/x64
 	@echo "RCC++ aggregate constexpr tests completed"
+
+test-cxx-constexpr-constructor-reference-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid)
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/x86.ro \
+		tests/cxx_constexpr_constructor_reference_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/rcc-x86.log 2>&1
+	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" \
+		$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/rcc-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/x64.ro \
+		tests/cxx_constexpr_constructor_reference_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/rcc-x64.log 2>&1
+	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" \
+		$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/rcc-x64.log
+	! $(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_constexpr_constructor_reference_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/gcc.log 2>&1
+	$(GREP) -F -q "not usable in a constant expression" \
+		$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/gcc.log
+	@echo "C++ constexpr constructor local reference rejection tests completed"
 
 test-pic-direct-internal: $(RCC_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/pic-direct-internal)

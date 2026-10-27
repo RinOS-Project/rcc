@@ -10959,3 +10959,12 @@ remains a separate open item.
 - [ ] TLS or volatile/reference/atomic operands, wider computed i686 64-bit
       division/remainder expressions, and broader optimized multi-piece
       locations remain open.
+
+## RCC continuation (2026-10-28, constexpr constructor local references)
+
+- [x] Bind initialized scalar constructor-body locals through read-only
+      lvalue-reference locals, preserving aliasing when the original local is
+      subsequently updated and through reference aliases. Reject uninitialized
+      targets and keep mutable/rvalue, aggregate, and subobject references out
+      of this subset. Verify GCC C++20, constexpr/runtime values, i686/AMD64,
+      and the full POSIX `test-cxx` suite.
