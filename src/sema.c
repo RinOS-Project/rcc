@@ -9028,6 +9028,60 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             *initialized_members = then_state & else_state;
             return true;
         }
+        case STMT_FOR: {
+            int saved_binding_count = *binding_count;
+            unsigned iteration;
+            if (!statement->for_cond ||
+                (statement->for_init &&
+                 !sema_constexpr_constructor_analyze_body_statement(
+                     statement->for_init, cls, initialized_members, bindings,
+                     binding_count, initial_binding_count, allow_local_writes,
+                     allow_unknown_branch_join, depth + 1u))) {
+                *binding_count = saved_binding_count;
+                return false;
+            }
+            for (iteration = 0u; iteration < 1000000u; ++iteration) {
+                SemaConstexprScalar condition_value;
+                if (!sema_constexpr_constructor_condition_is_pure(
+                        statement->for_cond, depth + 1u) ||
+                    !sema_constexpr_constructor_rhs_is_safe(
+                        statement->for_cond, cls, *initialized_members,
+                        bindings, *binding_count, depth + 1u) ||
+                    !sema_eval_constexpr_scalar_expr(
+                        statement->for_cond, bindings, *binding_count,
+                        &condition_value)) {
+                    *binding_count = saved_binding_count;
+                    return false;
+                }
+                if (!sema_constexpr_scalar_truth(&condition_value)) break;
+                if (statement->for_body &&
+                    !sema_constexpr_constructor_analyze_body_statement(
+                        statement->for_body, cls, initialized_members,
+                        bindings, binding_count, initial_binding_count,
+                        allow_local_writes, allow_unknown_branch_join,
+                        depth + 1u)) {
+                    *binding_count = saved_binding_count;
+                    return false;
+                }
+                if (statement->for_inc) {
+                    Stmt increment_statement;
+                    memset(&increment_statement, 0,
+                           sizeof(increment_statement));
+                    increment_statement.kind = STMT_EXPR;
+                    increment_statement.expr = statement->for_inc;
+                    if (!sema_constexpr_constructor_analyze_body_statement(
+                            &increment_statement, cls, initialized_members,
+                            bindings, binding_count, initial_binding_count,
+                            allow_local_writes, allow_unknown_branch_join,
+                            depth + 1u)) {
+                        *binding_count = saved_binding_count;
+                        return false;
+                    }
+                }
+            }
+            *binding_count = saved_binding_count;
+            return iteration < 1000000u;
+        }
         default:
             return false;
     }

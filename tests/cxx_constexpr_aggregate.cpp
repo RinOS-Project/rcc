@@ -205,6 +205,29 @@ struct ConstructorBodySelectedLocalMutation {
     }
 };
 
+struct ConstructorBodyForLoop {
+    int value;
+
+    constexpr explicit ConstructorBodyForLoop(int count, int base) {
+        int total = 0;
+        for (int index = 0; index < count; ++index) {
+            total += base + index;
+        }
+        this->value = total;
+    }
+};
+
+struct ConstructorBodyForLoopMemberWrite {
+    int value;
+
+    constexpr explicit ConstructorBodyForLoopMemberWrite(
+        int count, int first) {
+        for (int index = 0; index < count; ++index) {
+            this->value = first + index;
+        }
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -506,6 +529,10 @@ constexpr ConstructorBodySelectedLocalMutation
     constructor_body_selected_local_mutation_true{true, 31};
 constexpr ConstructorBodySelectedLocalMutation
     constructor_body_selected_local_mutation_false{false, 41};
+constexpr ConstructorBodyForLoop constructor_body_for_loop_empty{0, 3};
+constexpr ConstructorBodyForLoop constructor_body_for_loop_iterations{4, 3};
+constexpr ConstructorBodyForLoopMemberWrite
+    constructor_body_for_loop_member_write{3, 10};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -897,6 +924,10 @@ int main(void) {
         true, 33};
     ConstructorBodySelectedLocalMutation runtime_body_selected_local_false{
         false, 45};
+    ConstructorBodyForLoop runtime_body_for_loop_empty{0, 9};
+    ConstructorBodyForLoop runtime_body_for_loop_iterations{5, 2};
+    ConstructorBodyForLoopMemberWrite runtime_body_for_loop_member_write{
+        4, 12};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -1041,6 +1072,9 @@ int main(void) {
                      constructor_body_selected_local_mutation_true.doubled == 72 &&
                      constructor_body_selected_local_mutation_false.value == 42 &&
                      constructor_body_selected_local_mutation_false.doubled == 84 &&
+                     constructor_body_for_loop_empty.value == 0 &&
+                     constructor_body_for_loop_iterations.value == 18 &&
+                     constructor_body_for_loop_member_write.value == 12 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -1067,6 +1101,9 @@ int main(void) {
                      runtime_body_selected_local_true.doubled == 76 &&
                      runtime_body_selected_local_false.value == 46 &&
                      runtime_body_selected_local_false.doubled == 92 &&
+                     runtime_body_for_loop_empty.value == 0 &&
+                     runtime_body_for_loop_iterations.value == 20 &&
+                     runtime_body_for_loop_member_write.value == 15 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&
