@@ -8756,8 +8756,8 @@ remains a separate open item.
       dependent non-type template argument selection against GCC C++20 and the
       i686/AMD64 generation plus execution gate.
 - [ ] Virtual/inherited global member-function-pointer initialization,
-      member-function-pointer owner/signature conversions, constexpr
-      invocation through `.*` or `->*`, further multilevel
+      member-function-pointer owner/signature conversions, virtual constexpr
+      invocation, constexpr invocation through `->*`, further multilevel
       data-member-pointer owner-conversion paths, other member-pointee
       cv-qualification combinations, and additional pointer conversions
       remain open.
@@ -8806,9 +8806,14 @@ remains a separate open item.
       `this` adjustment. Execute calls through both objects. GCC C++20, focused
       i686/AMD64 generation, AMD64 execution, inspection of i686 code and TLS
       relocations, and the full POSIX `test-cxx` aggregate pass.
+- [x] Invoke an exact-owner nonvirtual member-function pointer through `.*`
+      from a constexpr function using a by-value trivial aggregate receiver.
+      Verify direct and global-constexpr PMF values, member access through the
+      bound `this` object, GCC C++20, focused i686/AMD64 generation and AMD64
+      execution, and the full POSIX `test-cxx` aggregate.
 - [ ] Virtual/inherited member-function-pointer static initialization,
-      owner/signature conversions, and constexpr invocation through `.*` or
-      `->*` remain open.
+      owner/signature conversions, virtual constexpr dispatch, and constexpr
+      invocation through `->*` remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

@@ -8536,8 +8536,9 @@ static bool sema_eval_constexpr_scalar_statement(
 }
 
 static bool sema_eval_constexpr_scalar_function(
-    Decl* declaration, ExprList* args, SemaConstexprBinding* caller_bindings,
-    int caller_binding_count, SemaConstexprScalar* value) {
+    Decl* declaration, Expr* receiver_expression, ExprList* args,
+    SemaConstexprBinding* caller_bindings, int caller_binding_count,
+    SemaConstexprScalar* value) {
     SemaConstexprBinding bindings[64];
     DeclList* parameter;
     ExprList* argument;
@@ -8550,11 +8551,52 @@ static bool sema_eval_constexpr_scalar_function(
     memset(bindings, 0, sizeof(bindings));
 
     if (!declaration || !value || !declaration->func_is_constexpr ||
-        declaration->func_this_param || !declaration->type ||
+        ((declaration->func_this_param != NULL) !=
+         (receiver_expression != NULL)) || !declaration->type ||
         declaration->type->kind != TYPE_FUNC ||
         !sema_constexpr_scalar_type(declaration->type->ret_type) ||
         !declaration->func_body || declaration->func_body->kind != STMT_BLOCK) {
         return false;
+    }
+    if (receiver_expression) {
+        Type* this_type = declaration->func_this_param->type;
+        Type* receiver_type = this_type && this_type->kind == TYPE_PTR
+            ? this_type->base : NULL;
+        Decl* receiver_storage;
+        unsigned char* receiver_bytes;
+        if (!sema_constexpr_aggregate_type(receiver_type) ||
+            receiver_type->kind == TYPE_ARRAY || receiver_type->is_volatile ||
+            receiver_type->cxx_nontrivial ||
+            receiver_type->cxx_vtable_size != 0 ||
+            receiver_type->size <= 0 ||
+            count > (int)(sizeof(bindings) / sizeof(bindings[0])) - 2) {
+            return false;
+        }
+        receiver_storage = ast_arena_alloc(sizeof(*receiver_storage));
+        receiver_bytes = ast_arena_alloc((size_t)receiver_type->size);
+        if (!receiver_storage || !receiver_bytes ||
+            !sema_constexpr_materialize_object(
+                receiver_type, receiver_expression, caller_bindings,
+                caller_binding_count, receiver_bytes,
+                (size_t)receiver_type->size)) {
+            return false;
+        }
+        memset(receiver_storage, 0, sizeof(*receiver_storage));
+        receiver_storage->kind = DECL_VAR;
+        receiver_storage->name = "__rcc_constexpr_receiver";
+        receiver_storage->type = receiver_type;
+        bindings[count].declaration = receiver_storage;
+        bindings[count].type = receiver_type;
+        bindings[count].object_bytes = receiver_bytes;
+        bindings[count].object_size = (size_t)receiver_type->size;
+        bindings[count].is_object = true;
+        ++count;
+        bindings[count].declaration = declaration->func_this_param;
+        bindings[count].type = this_type;
+        bindings[count].is_pointer = true;
+        bindings[count].pointer_declaration = receiver_storage;
+        bindings[count].pointer_offset = 0;
+        ++count;
     }
     parameter = declaration->func_params;
     argument = args;
@@ -8715,7 +8757,7 @@ bool rcc_sema_eval_constexpr_integer_call(Decl* declaration,
         declaration->type->kind != TYPE_FUNC ||
         !sema_constexpr_integer_type(declaration->type->ret_type) ||
         !sema_eval_constexpr_scalar_function(
-            declaration, arguments, NULL, 0, &result) ||
+            declaration, NULL, arguments, NULL, 0, &result) ||
         result.is_floating || result.is_pointer) {
         return false;
     }
@@ -9560,6 +9602,45 @@ static bool sema_eval_constexpr_scalar_expr(
                 return sema_eval_constexpr_dynamic_call(
                     expression, bindings, &binding_count, value);
             }
+            if (expression->call_member_pointer_application) {
+                Expr* application =
+                    expression->call_member_pointer_application;
+                SemaConstexprScalar member_pointer;
+                ExprList* explicit_arguments = expression->call_args;
+                Type* member_pointer_type = application->binary_rhs
+                    ? application->binary_rhs->type : NULL;
+                Type* owner = member_pointer_type &&
+                    member_pointer_type->kind == TYPE_PTR &&
+                    member_pointer_type->cxx_is_member_pointer
+                    ? member_pointer_type->cxx_member_pointer_owner : NULL;
+                TypeMethod* method;
+                if (application->kind != EXPR_CXX_MEMBER_PTR_DOT ||
+                    !application->binary_lhs || !application->binary_rhs ||
+                    !member_pointer_type ||
+                    !type_is_cxx_member_function_pointer(member_pointer_type) ||
+                    !owner || !application->binary_lhs->type ||
+                    !type_is_compatible(
+                        owner, application->binary_lhs->type) ||
+                    !sema_eval_constexpr_scalar_expr(
+                        application->binary_rhs, bindings, binding_count,
+                        &member_pointer) ||
+                    !member_pointer.is_member_pointer ||
+                    !member_pointer.member_pointer_method ||
+                    explicit_arguments == NULL ||
+                    !explicit_arguments->expr ||
+                    !explicit_arguments->expr->cxx_implicit_object_address) {
+                    return false;
+                }
+                method = member_pointer.member_pointer_method;
+                if (method->is_virtual || !method->function_decl ||
+                    !method->function_decl->func_is_constexpr) {
+                    return false;
+                }
+                explicit_arguments = explicit_arguments->next;
+                return sema_eval_constexpr_scalar_function(
+                    method->function_decl, application->binary_lhs,
+                    explicit_arguments, bindings, binding_count, value);
+            }
             if (!expression->call_func ||
                 expression->call_func->kind != EXPR_IDENT ||
                 !expression->call_func->ident_decl ||
@@ -9567,8 +9648,8 @@ static bool sema_eval_constexpr_scalar_expr(
                 return false;
             }
             return sema_eval_constexpr_scalar_function(
-                expression->call_func->ident_decl, expression->call_args,
-                bindings, binding_count, value);
+                expression->call_func->ident_decl, NULL,
+                expression->call_args, bindings, binding_count, value);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -22225,7 +22306,7 @@ static Type* sema_expr(Expr* expr) {
                 if (sema_constexpr_integer_type(expr->type)) {
                     SemaConstexprScalar scalar_value;
                     if (sema_eval_constexpr_scalar_function(
-                            call_declaration, expr->call_args,
+                            call_declaration, NULL, expr->call_args,
                             NULL, 0, &scalar_value) &&
                         !scalar_value.is_floating &&
                         !scalar_value.is_pointer) {
@@ -22253,7 +22334,7 @@ static Type* sema_expr(Expr* expr) {
                             expr->type->kind == TYPE_DOUBLE)) {
                     SemaConstexprScalar constexpr_value;
                     if (sema_eval_constexpr_scalar_function(
-                            call_declaration, expr->call_args,
+                            call_declaration, NULL, expr->call_args,
                             NULL, 0, &constexpr_value)) {
                         expr->kind = EXPR_FLOAT_LIT;
                         expr->float_val = constexpr_value.floating_value;

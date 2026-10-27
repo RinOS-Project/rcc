@@ -141,6 +141,12 @@ struct DependentPointerConstexprOwner {
     }
 };
 
+constexpr int invoke_member_function_pointer(
+    int (DependentPointerBase::* member)(int) const,
+    DependentPointerBase object, int amount) {
+    return (object.*member)(amount);
+}
+
 static_assert(DependentPointerConstexprOwner::value(
     &::dependent_pointer_constexpr_target) == 17);
 static_assert(DependentPointerConstexprOwner::value_void(
@@ -163,6 +169,11 @@ static_assert(DependentPointerConstexprOwner::has_member_function_pointer(
     nullptr) == 420);
 static_assert(DependentPointerConstexprOwner::has_member_function_pointer(
     ::dependent_pointer_constexpr_member_function) == 419);
+static_assert(invoke_member_function_pointer(
+    &DependentPointerBase::add, DependentPointerBase{17}, 25) == 42);
+static_assert(invoke_member_function_pointer(
+    ::dependent_pointer_constexpr_member_function,
+    DependentPointerBase{17}, 25) == 42);
 template<typename Owner>
 using DependentMemberFunctionPointerCall = DependentPointerConstexprBox<
     Owner::has_member_function_pointer(&DependentPointerBase::add), Owner>;
