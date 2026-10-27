@@ -273,6 +273,12 @@ constexpr int redirect_mutable_const_pointer_reference(
     return *target;
 }
 
+constexpr int redirect_mutable_double_pointer_reference(
+    int**& target, int** replacement) {
+    target = replacement;
+    return target == replacement;
+}
+
 constexpr FloatPair make_float_pair(float first, double second) {
     return FloatPair{first, second};
 }
@@ -586,6 +592,32 @@ constexpr int redirect_const_pointer_through_constexpr_function() {
 constexpr int mutable_const_pointer_reference_function_result =
     redirect_const_pointer_through_constexpr_function();
 
+constexpr int dereference_local_double_pointer() {
+    int value = 9;
+    int* pointer = &value;
+    int** double_pointer = &pointer;
+    return **double_pointer;
+}
+
+constexpr int local_double_pointer_dereference_result =
+    dereference_local_double_pointer();
+
+constexpr int redirect_double_pointer_through_constexpr_function() {
+    int original = 3;
+    int replacement = 6;
+    int* original_pointer = &original;
+    int* replacement_pointer = &replacement;
+    int** target = &original_pointer;
+    int** next = &replacement_pointer;
+    int result = redirect_mutable_double_pointer_reference(target, next);
+    **target += 4;
+    return original * 1000 + replacement * 100 + result * 10 +
+           (target == next ? 1 : 0);
+}
+
+constexpr int mutable_double_pointer_reference_function_result =
+    redirect_double_pointer_through_constexpr_function();
+
 static_assert(pair.first == 3);
 static_assert(nested.pair.second + nested.tail == 13);
 static_assert(returned_pair.first == 11 && returned_pair.second == 13);
@@ -636,6 +668,8 @@ static_assert(aggregate_reference_assignment_function_result == 6710);
 static_assert(mutable_pointer_reference_function_result == 277);
 static_assert(mutable_aggregate_pointer_reference_function_result == 2408);
 static_assert(mutable_const_pointer_reference_function_result == 399);
+static_assert(local_double_pointer_dereference_result == 9);
+static_assert(mutable_double_pointer_reference_function_result == 4011);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
@@ -732,6 +766,20 @@ int main(void) {
     const int* runtime_const_pointer_next = &runtime_const_pointer_replacement;
     int runtime_const_pointer_result = redirect_mutable_const_pointer_reference(
         runtime_const_pointer_target, runtime_const_pointer_next);
+    int runtime_double_pointer_original = 3;
+    int runtime_double_pointer_replacement = 6;
+    int* runtime_double_pointer_original_pointer =
+        &runtime_double_pointer_original;
+    int* runtime_double_pointer_replacement_pointer =
+        &runtime_double_pointer_replacement;
+    int** runtime_double_pointer_target =
+        &runtime_double_pointer_original_pointer;
+    int** runtime_double_pointer_next =
+        &runtime_double_pointer_replacement_pointer;
+    int runtime_double_pointer_result =
+        redirect_mutable_double_pointer_reference(
+            runtime_double_pointer_target, runtime_double_pointer_next);
+    **runtime_double_pointer_target += 4;
     return first_value == 3 && second_value == 5 &&
                    nested_value == 13 && array_value == 19 &&
                    returned_value == 24 && mutated_returned_value == 44 &&
@@ -822,6 +870,10 @@ int main(void) {
                     runtime_const_pointer_replacement == 9 &&
                     runtime_const_pointer_target == runtime_const_pointer_next &&
                     runtime_const_pointer_result == 9 &&
+                    runtime_double_pointer_original == 3 &&
+                    runtime_double_pointer_replacement == 10 &&
+                    runtime_double_pointer_target == runtime_double_pointer_next &&
+                    runtime_double_pointer_result == 1 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
                    consteval_float_value == 6.25 &&

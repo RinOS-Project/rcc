@@ -8959,6 +8959,10 @@ remains a separate open item.
       preserving pointer provenance across assignment and allowing aggregate-
       member/scalar dereference after rebinding. Verify constexpr and runtime
       results, strict GCC C++20, and focused i686/AMD64 generation and execution.
+- [x] Rebind an `int**&` parameter to a caller-local pointer object, then mutate
+      the selected scalar through `**target` after returning to the caller.
+      Also evaluate direct local `**` dereference; verify constexpr and runtime
+      results, strict GCC C++20, and focused i686/AMD64 generation/execution.
 - [x] Preserve mutable lvalue-reference aliases to struct objects through
       constexpr constructors, scalar-returning functions, and aggregate-
       returning functions, including nested forwarding, member mutation, and
@@ -8982,8 +8986,9 @@ remains a separate open item.
       execution.
 - [ ] Constructor bodies beyond the covered expressions/branches, mutable
       references to non-trivial union alternatives or untested lifetime
-      transitions, other pointer-reference forms not covered by the scalar-
-      and aggregate-returning evaluators,
+      transitions, nested pointer-chain dereference/mutation performed inside a
+      constexpr function after `int**&` rebinding, other pointer-reference
+      forms not covered by the scalar- and aggregate-returning evaluators,
       indeterminate tracking for nested/array/base subobjects, and complete
       virtual-base constructor evaluation remain open.
 
