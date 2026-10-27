@@ -988,6 +988,9 @@ C17_REGRESSION_TARGETS += test-c-wide-literals
 C17_REGRESSION_TARGETS += test-c-numeric-escape-ranges
 
 C17_REGRESSION_TARGETS += test-c-old-style test-c-multi-declarator
+C17_REGRESSION_TARGETS += test-c11-threads-sdk
+C17_REGRESSION_TARGETS += test-ucontext-sdk
+C17_REGRESSION_TARGETS += test-c-null-void-pointer-constant
 
 # `-g` currently emits a relocatable DWARF line table.  Keep this gate in the
 # C17 aggregate so the option cannot silently regress to a no-op.
@@ -1113,6 +1116,59 @@ test-ci: $(TEST_CI_TARGETS)
 
 test-c17: $(RCC_TARGET) $(C17_REGRESSION_TARGETS)
 	@echo "RCC C17 conformance compile-and-run suite completed"
+
+test-c11-threads-sdk: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c11-threads-sdk)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -ffreestanding \
+		-DRIN_FREESTANDING=1 -DRIN_USERSPACE=1 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
+		-o $(TEST_OUT)/c11-threads-sdk/consumer-x86.ro \
+		tests/c11_threads_sdk_consumer.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -ffreestanding \
+		-DRIN_FREESTANDING=1 -DRIN_USERSPACE=1 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
+		-o $(TEST_OUT)/c11-threads-sdk/consumer-x64.ro \
+		tests/c11_threads_sdk_consumer.c
+	@echo "RCC C17 i686/x86_64 SDK C11 threads consumer compile completed"
+
+test-ucontext-sdk: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/ucontext-sdk)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -ffreestanding \
+		-DRIN_FREESTANDING=1 -DRIN_USERSPACE=1 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
+		-o $(TEST_OUT)/ucontext-sdk/consumer-x86.ro \
+		tests/ucontext_sdk_consumer.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -ffreestanding \
+		-DRIN_FREESTANDING=1 -DRIN_USERSPACE=1 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
+		-o $(TEST_OUT)/ucontext-sdk/consumer-x64.ro \
+		tests/ucontext_sdk_consumer.c
+	@echo "RCC C17 i686/x86_64 SDK ucontext consumer compile completed"
+
+.PHONY: test-c-null-void-pointer-constant
+test-c-null-void-pointer-constant: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c-null-void-pointer-constant)
+	$(CC) -std=c17 -pedantic-errors -fsyntax-only \
+		tests/c_null_void_pointer_constant.c
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/c-null-void-pointer-constant/x86.ro \
+		tests/c_null_void_pointer_constant.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/c-null-void-pointer-constant/x64.ro \
+		tests/c_null_void_pointer_constant.c
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_null_void_pointer_constant_rejected.cpp,$(TEST_OUT)/c-null-void-pointer-constant/cxx-gcc.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/c-null-void-pointer-constant/cxx-x86.ro tests/cxx_null_void_pointer_constant_rejected.cpp,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.ro tests/cxx_null_void_pointer_constant_rejected.cpp,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.log)
+	$(GREP) -F -q "invalid conversion from 'void*' to 'int*'" $(TEST_OUT)/c-null-void-pointer-constant/cxx-gcc.log
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/c-null-void-pointer-constant/cxx-x86.log
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x86.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.ro)
+	@echo "C17 void-pointer null constant and C++ rejection tests completed"
 
 test-c23: $(RCC_TARGET) test-c23-nullptr test-c23-empty-initializer
 	@echo "RCC C23 nullptr and empty-initialization regressions completed"
@@ -6993,12 +7049,12 @@ test-cxx-class-template-dependent-nested-type: $(RCXX_TARGET) test-cxx-class-tem
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s tests/cxx_class_template_dependent_nested_type.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-dependent-nested-type,cxx_class_template_dependent_nested_type.cpp)
-test-cxx-dependent-nested-alias-inheritance: $(RCXX_TARGET)
+test-cxx-dependent-nested-alias-inheritance: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-nested-alias-inheritance)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-dependent-nested-alias-inheritance/x86-freestanding.s tests/cxx_dependent_nested_alias_inheritance.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-nested-alias-inheritance/x86-freestanding,$(TEST_OUT)/cxx-dependent-nested-alias-inheritance/x86-freestanding.s)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-nested-alias-inheritance,cxx_dependent_nested_alias_inheritance.cpp)
-test-cxx-dependent-nested-alias-transitive: $(RCXX_TARGET)
+test-cxx-dependent-nested-alias-transitive: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-nested-alias-transitive)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-dependent-nested-alias-transitive/x86-freestanding.s tests/cxx_dependent_nested_alias_transitive.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-nested-alias-transitive/x86-freestanding,$(TEST_OUT)/cxx-dependent-nested-alias-transitive/x86-freestanding.s)

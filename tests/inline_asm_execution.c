@@ -362,6 +362,20 @@ void asm_x64_ucontext_encoder(void)
         "ud2\n\t");
 }
 
+unsigned long long asm_x64_fs_tls_load(void)
+{
+    unsigned long long value;
+    __asm__ __volatile__("movq %%fs:0x10, %0" : "=r"(value));
+    return value;
+}
+
+unsigned long long asm_x64_gs_segment_load(void)
+{
+    unsigned long long value;
+    __asm__ __volatile__("movq %%gs:-8, %0" : "=a"(value));
+    return value;
+}
+
 static void asm_x64_call_target(void) {}
 
 void asm_x64_call_local(void)

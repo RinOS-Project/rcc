@@ -3806,10 +3806,19 @@ static bool sema_pointee_qualification_preserved(const Type* source,
 static bool sema_is_null_pointer_constant(const Expr* expression) {
     int64_t value;
     if (!expression || expression->cxx_member_pointer_form ||
-        !expression->type ||
-        !type_is_integer(expression->type)) {
+        !expression->type) {
         return false;
     }
+    /* C defines an integer constant expression of value zero cast to void*
+     * as a null pointer constant too.  Keep this C-only: C++ does not permit
+     * the resulting void* to convert implicitly to an unrelated pointer,
+     * including a function pointer. */
+    if (!rcc_parser_is_cxx_mode() && expression->kind == EXPR_CAST &&
+        expression->type->kind == TYPE_PTR && expression->type->base &&
+        expression->type->base->kind == TYPE_VOID) {
+        return sema_is_null_pointer_constant(expression->cast_expr);
+    }
+    if (!type_is_integer(expression->type)) return false;
     if (rcc_parser_is_cxx_mode()) {
         return expression->kind == EXPR_INT_LIT && expression->int_val == 0;
     }
@@ -4368,6 +4377,7 @@ reference_binding_validated:
 
     /* void* conversions */
     if (type_is_pointer(e->type) && type_is_pointer(target)) {
+        if (sema_is_null_pointer_constant(e)) return target;
         bool source_points_to_function = type_is_function(e->type->base);
         bool target_points_to_function = type_is_function(target->base);
         if (source_points_to_function != target_points_to_function) {

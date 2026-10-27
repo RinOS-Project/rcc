@@ -267,6 +267,12 @@ int main(int argc, char** argv)
     static const uint8_t x64_pushfq[] = {0x9cu};
     static const uint8_t x64_popfq[] = {0x9du};
     static const uint8_t x64_call[] = {0xe8u};
+    static const uint8_t x64_fs_tls_load[] = {
+        0x64u, 0x4cu, 0x8bu, 0x14u, 0x25u, 0x10u, 0x00u, 0x00u, 0x00u
+    };
+    static const uint8_t x64_gs_segment_load[] = {
+        0x65u, 0x48u, 0x8bu, 0x04u, 0x25u, 0xf8u, 0xffu, 0xffu, 0xffu
+    };
     verify(argv[1], ARCH_X86, "asm_placeholder_move");
     verify(argv[2], ARCH_X64, "asm_placeholder_move");
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
@@ -385,6 +391,10 @@ int main(int argc, char** argv)
                    x64_popfq, sizeof(x64_popfq));
     verify_pattern(argv[2], ARCH_X64, "asm_x64_call_local",
                    x64_call, sizeof(x64_call));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_fs_tls_load",
+                   x64_fs_tls_load, sizeof(x64_fs_tls_load));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_gs_segment_load",
+                   x64_gs_segment_load, sizeof(x64_gs_segment_load));
     verify_generic_output(argv[1], ARCH_X86, "asm_general_output_move");
     verify_generic_output(argv[2], ARCH_X64, "asm_general_output_move");
     verify_generic(argv[3], ARCH_X64, "asm_cpp_general_input_move");

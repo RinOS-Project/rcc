@@ -11369,3 +11369,21 @@ remains a separate open item.
       expression. The verifier permits omission of the inline-call DIE for
       volatile and atomic cases that must preserve the original read
       semantics. Focused `test-debug-info-inline-expression` passed.
+
+## RCC continuation (2026-10-28, SDK inline assembly and C null constants)
+
+- [x] Encode AMD64 `movq %fs:disp32, %r64` and `%gs` absolute segmented loads,
+      including SIB/no-base addressing and signed 32-bit offsets. Verify exact
+      FS/R10 and GS/RAX instruction bytes; compile the actual C11 threads and
+      `ucontext.h` SDK consumers for i686 and AMD64. These checks are included
+      in `test-inline-asm-encoding` and the C17 regression aggregate.
+- [x] Stop defining `__STDC_NO_THREADS__` while the RinOS SDK provides
+      `<threads.h>`; compile a consumer exercising mutex, condition, TSS,
+      once, sleep, and thread APIs for both target architectures.
+- [x] Recognize an integer constant expression of zero cast to `void*` as a
+      C null pointer constant for object- and function-pointer initialization
+      and assignment. Compare C17 acceptance with GCC and keep C++ implicit
+      `void*` conversion rejected on both target architectures.
+- [x] Declare the Windows exception-runtime prerequisite for both dependent
+      nested-alias execution tests; `test-cxx-class-template-dependent-nested-type`
+      now completes on native Windows.

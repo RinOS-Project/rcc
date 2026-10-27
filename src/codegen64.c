@@ -12165,6 +12165,51 @@ static bool codegen64_asm_parse_memory(const char* text, size_t length,
     return true;
 }
 
+static bool codegen64_asm_parse_segment_absolute_memory(
+    const char* text, size_t length, uint8_t* segment_prefix,
+    int32_t* displacement)
+{
+    char offset_text[64];
+    char* end;
+    long long offset;
+    size_t offset_length;
+
+    if (!text || !segment_prefix || !displacement || length <= 4u ||
+        text[0] != '%') return false;
+    if (length >= 4u && memcmp(text, "%fs:", 4u) == 0) {
+        *segment_prefix = 0x64u;
+    } else if (length >= 4u && memcmp(text, "%gs:", 4u) == 0) {
+        *segment_prefix = 0x65u;
+    } else {
+        return false;
+    }
+
+    offset_length = length - 4u;
+    if (offset_length == 0u || offset_length >= sizeof(offset_text)) {
+        return false;
+    }
+    memcpy(offset_text, text + 4u, offset_length);
+    offset_text[offset_length] = '\0';
+    errno = 0;
+    offset = strtoll(offset_text, &end, 0);
+    if (errno == ERANGE || end == offset_text || *end != '\0' ||
+        offset < INT32_MIN || offset > INT32_MAX) return false;
+    *displacement = (int32_t)offset;
+    return true;
+}
+
+static void codegen64_asm_emit_segment_absolute_memory(
+    Module* mod, uint8_t segment_prefix, int destination,
+    int32_t displacement)
+{
+    emit_byte(mod, segment_prefix);
+    emit_rex(mod, true, destination, 0, 0);
+    emit_byte(mod, 0x8B);
+    emit_byte(mod, modrm64(0, destination, 4));
+    emit_byte(mod, 0x25); /* no base or index, followed by disp32 */
+    emit_dword(mod, (uint32_t)displacement);
+}
+
 static void codegen64_asm_emit_modrm_memory(Module* mod, int reg, int base,
                                             int32_t displacement)
 {
@@ -12469,6 +12514,7 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
     int32_t displacement;
     uint64_t immediate_value;
     int mnemonic_width = 0;
+    uint8_t segment_prefix;
 
     if (length < 4u || strncmp(text, "mov", 3u) != 0) return false;
     if (length >= 5u && (text[4] == ' ' || text[4] == '\t')) {
@@ -12532,6 +12578,20 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x22);
         emit_byte(mod, modrm64(3, destination_control, source));
+        return true;
+    }
+    if (codegen64_asm_parse_segment_absolute_memory(
+            text + source_begin, source_length, &segment_prefix,
+            &displacement) &&
+        codegen64_asm_parse_register_width(text + destination_begin,
+                                            destination_length, &destination,
+                                            &destination_width)) {
+        if (destination_width != 8 ||
+            (mnemonic_width && mnemonic_width != destination_width)) {
+            return false;
+        }
+        codegen64_asm_emit_segment_absolute_memory(
+            mod, segment_prefix, destination, displacement);
         return true;
     }
     if (codegen64_asm_parse_register_width(text + source_begin,
