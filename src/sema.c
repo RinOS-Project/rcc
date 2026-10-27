@@ -3805,7 +3805,8 @@ static bool sema_pointee_qualification_preserved(const Type* source,
 
 static bool sema_is_null_pointer_constant(const Expr* expression) {
     int64_t value;
-    if (!expression || !expression->type ||
+    if (!expression || expression->cxx_member_pointer_form ||
+        !expression->type ||
         !type_is_integer(expression->type)) {
         return false;
     }
@@ -4860,6 +4861,8 @@ typedef struct SemaConstexprBinding {
     bool is_pointer;
     Decl* pointer_declaration;
     int64_t pointer_offset;
+    bool is_member_pointer;
+    TypeField* member_pointer_field;
     /* Fixed-size aggregate locals are evaluated in an isolated byte buffer.
      * The buffer follows the target layout already computed by the parser, so
      * member/index lvalues can be read and written without inventing a second
@@ -5763,6 +5766,8 @@ typedef struct SemaConstexprScalar {
     bool is_pointer;
     Decl* pointer_declaration;
     int64_t pointer_offset;
+    bool is_member_pointer;
+    TypeField* member_pointer_field;
 } SemaConstexprScalar;
 
 /* Aggregate constant evaluation uses target-layout bytes so the evaluator
@@ -5775,6 +5780,8 @@ typedef struct SemaConstexprPointerSlot {
     Type* type;
     Decl* declaration;
     int64_t offset;
+    bool is_member_pointer;
+    TypeField* member_pointer_field;
     struct SemaConstexprPointerSlot* next;
 } SemaConstexprPointerSlot;
 
@@ -5827,6 +5834,8 @@ static void sema_constexpr_pointer_slot_record(
     slot->type = type;
     slot->declaration = value->pointer_declaration;
     slot->offset = value->pointer_offset;
+    slot->is_member_pointer = value->is_member_pointer;
+    slot->member_pointer_field = value->member_pointer_field;
     slot->next = constexpr_pointer_slots;
     constexpr_pointer_slots = slot;
 }
@@ -5906,6 +5915,27 @@ static bool sema_constexpr_scalar_type(Type* type) {
                     type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
 }
 
+static TypeField* sema_constexpr_member_pointer_field(
+    Type* type, Expr* expression) {
+    Type* owner;
+    if (!type || type->kind != TYPE_PTR || !type->cxx_is_member_pointer ||
+        !type->base || type->base->kind == TYPE_FUNC || !expression ||
+        !(owner = type->cxx_member_pointer_owner)) {
+        return NULL;
+    }
+    for (TypeField* field = owner->fields; field; field = field->next) {
+        if (field->name && field->offset == expression->int_val &&
+            (!expression->cxx_member_pointer_form_name ||
+             strcmp(field->name,
+                    expression->cxx_member_pointer_form_name) == 0) &&
+            field->type && type_is_compatible(field->type, type->base) &&
+            !field->is_bitfield && !field->type->is_reference) {
+            return field;
+        }
+    }
+    return NULL;
+}
+
 static bool sema_constexpr_scalar_convert(
     const SemaConstexprScalar* input, Type* type,
     SemaConstexprScalar* output) {
@@ -5920,7 +5950,43 @@ static bool sema_constexpr_scalar_convert(
 
     if (!input || !output || !sema_constexpr_scalar_type(type) ||
         type->size <= 0) return false;
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
+        type->base && type->base->kind != TYPE_FUNC) {
+        if (input->is_member_pointer) {
+            if (input->member_pointer_field &&
+                !type_is_compatible(input->type, type)) return false;
+            output->type = type;
+            output->integer_value = 0;
+            output->floating_value = 0.0;
+            output->is_floating = false;
+            output->is_pointer = false;
+            output->pointer_declaration = NULL;
+            output->pointer_offset = 0;
+            output->is_member_pointer = true;
+            output->member_pointer_field = input->member_pointer_field;
+            return true;
+        }
+        if ((input->is_pointer && input->type &&
+             input->type->kind == TYPE_NULLPTR &&
+             !input->pointer_declaration && input->pointer_offset == 0) ||
+            (!input->is_pointer && !input->is_floating && input->type &&
+             sema_constexpr_integer_type(input->type) &&
+             sema_constexpr_integer_bits(input) == 0u)) {
+            output->type = type;
+            output->integer_value = 0;
+            output->floating_value = 0.0;
+            output->is_floating = false;
+            output->is_pointer = false;
+            output->pointer_declaration = NULL;
+            output->pointer_offset = 0;
+            output->is_member_pointer = true;
+            output->member_pointer_field = NULL;
+            return true;
+        }
+        return false;
+    }
     if (type->kind == TYPE_PTR) {
+        if (input->is_member_pointer) return false;
         if (input->is_pointer) {
             output->type = type;
             output->integer_value = 0;
@@ -5929,6 +5995,8 @@ static bool sema_constexpr_scalar_convert(
             output->is_pointer = true;
             output->pointer_declaration = input->pointer_declaration;
             output->pointer_offset = input->pointer_offset;
+            output->is_member_pointer = false;
+            output->member_pointer_field = NULL;
             return true;
         }
         if (!input->is_floating && input->type &&
@@ -5941,6 +6009,8 @@ static bool sema_constexpr_scalar_convert(
             output->is_pointer = true;
             output->pointer_declaration = NULL;
             output->pointer_offset = 0;
+            output->is_member_pointer = false;
+            output->member_pointer_field = NULL;
             return true;
         }
         return false;
@@ -5961,6 +6031,8 @@ static bool sema_constexpr_scalar_convert(
         output->is_pointer = false;
         output->pointer_declaration = NULL;
         output->pointer_offset = 0;
+        output->is_member_pointer = false;
+        output->member_pointer_field = NULL;
         if (!isfinite(output->floating_value) ||
             (type->kind == TYPE_FLOAT &&
              (output->floating_value > FLT_MAX ||
@@ -6004,6 +6076,8 @@ static bool sema_constexpr_scalar_convert(
     output->is_pointer = false;
     output->pointer_declaration = NULL;
     output->pointer_offset = 0;
+    output->is_member_pointer = false;
+    output->member_pointer_field = NULL;
     return true;
 }
 
@@ -6166,6 +6240,13 @@ static bool sema_constexpr_load_scalar_bytes(
         SemaConstexprPointerSlot* slot =
             sema_constexpr_pointer_slot_find(storage);
         if (slot) {
+            if (slot->is_member_pointer) {
+                if (!type->cxx_is_member_pointer || !type->base ||
+                    type->base->kind == TYPE_FUNC) return false;
+                value->is_member_pointer = true;
+                value->member_pointer_field = slot->member_pointer_field;
+                return true;
+            }
             value->is_pointer = true;
             value->pointer_declaration = slot->declaration;
             value->pointer_offset = slot->offset;
@@ -6174,9 +6255,15 @@ static bool sema_constexpr_load_scalar_bytes(
         for (index = 0; index < (size_t)type->size; ++index) {
             if (storage[index] != 0u) return false;
         }
-        value->is_pointer = true;
-        value->pointer_declaration = NULL;
-        value->pointer_offset = 0;
+        if (type->cxx_is_member_pointer && type->base &&
+            type->base->kind != TYPE_FUNC) {
+            value->is_member_pointer = true;
+            value->member_pointer_field = NULL;
+        } else {
+            value->is_pointer = true;
+            value->pointer_declaration = NULL;
+            value->pointer_offset = 0;
+        }
         return true;
     }
     for (index = 0; index < (size_t)type->size; ++index) {
@@ -7141,9 +7228,39 @@ static bool sema_constexpr_scalar_binary(
     if (!left || !right || !output || !result_type) {
         return false;
     }
+    memset(output, 0, sizeof(*output));
     comparison = expression_kind == EXPR_EQ || expression_kind == EXPR_NE ||
                 expression_kind == EXPR_LT || expression_kind == EXPR_GT ||
                 expression_kind == EXPR_LE || expression_kind == EXPR_GE;
+
+    if (left->is_member_pointer || right->is_member_pointer) {
+        Type* member_pointer_type = left->is_member_pointer
+            ? left->type : right->type;
+        SemaConstexprScalar converted_left_member;
+        SemaConstexprScalar converted_right_member;
+        bool equal;
+        if (!comparison || !member_pointer_type ||
+            !sema_constexpr_scalar_convert(
+                left, member_pointer_type, &converted_left_member) ||
+            !sema_constexpr_scalar_convert(
+                right, member_pointer_type, &converted_right_member) ||
+            !converted_left_member.is_member_pointer ||
+            !converted_right_member.is_member_pointer) {
+            return false;
+        }
+        equal = converted_left_member.member_pointer_field ==
+                converted_right_member.member_pointer_field;
+        output->type = type_int;
+        output->integer_value = expression_kind == EXPR_EQ ? equal : !equal;
+        output->floating_value = 0.0;
+        output->is_floating = false;
+        output->is_pointer = false;
+        output->pointer_declaration = NULL;
+        output->pointer_offset = 0;
+        output->is_member_pointer = false;
+        output->member_pointer_field = NULL;
+        return true;
+    }
 
     if (left->is_pointer || right->is_pointer) {
         bool left_pointer = left->is_pointer;
@@ -7539,6 +7656,9 @@ static bool sema_eval_constexpr_scalar_statement(
 
 static bool sema_constexpr_scalar_truth(const SemaConstexprScalar* value) {
     if (!value) return false;
+    if (value->is_member_pointer) {
+        return value->member_pointer_field != NULL;
+    }
     if (value->is_pointer) {
         return value->pointer_declaration != NULL || value->pointer_offset != 0;
     }
@@ -7632,6 +7752,10 @@ static bool sema_eval_constexpr_aggregate_statement(
                     initializer.pointer_declaration;
                 bindings[*binding_count].pointer_offset =
                     initializer.pointer_offset;
+                bindings[*binding_count].is_member_pointer =
+                    initializer.is_member_pointer;
+                bindings[*binding_count].member_pointer_field =
+                    initializer.member_pointer_field;
                 ++*binding_count;
                 *value = initializer;
                 return true;
@@ -7811,6 +7935,10 @@ static bool sema_eval_constexpr_aggregate_function(
             bindings[count].pointer_declaration =
                 argument_value.pointer_declaration;
             bindings[count].pointer_offset = argument_value.pointer_offset;
+            bindings[count].is_member_pointer =
+                argument_value.is_member_pointer;
+            bindings[count].member_pointer_field =
+                argument_value.member_pointer_field;
         } else if (sema_constexpr_aggregate_type(parameter->decl->type)) {
             if (parameter->decl->type->size <= 0) return false;
             bindings[count].object_bytes = ast_arena_alloc(
@@ -8093,6 +8221,10 @@ static bool sema_eval_constexpr_scalar_statement(
             bindings[*binding_count].pointer_declaration =
                 initializer.pointer_declaration;
             bindings[*binding_count].pointer_offset = initializer.pointer_offset;
+            bindings[*binding_count].is_member_pointer =
+                initializer.is_member_pointer;
+            bindings[*binding_count].member_pointer_field =
+                initializer.member_pointer_field;
             bindings[*binding_count].object_bytes = NULL;
             bindings[*binding_count].object_size = 0u;
             bindings[*binding_count].is_object = false;
@@ -8300,8 +8432,7 @@ static bool sema_eval_constexpr_scalar_function(
         if (sema_constexpr_scalar_type(parameter_value_type)) {
             if (!sema_eval_constexpr_scalar_expr(
                     argument_expression, argument_bindings,
-                    argument_binding_count,
-                    &argument_value) ||
+                    argument_binding_count, &argument_value) ||
                 !sema_constexpr_scalar_convert(
                     &argument_value, parameter_value_type,
                     &argument_value)) return false;
@@ -8312,6 +8443,10 @@ static bool sema_eval_constexpr_scalar_function(
             bindings[count].pointer_declaration =
                 argument_value.pointer_declaration;
             bindings[count].pointer_offset = argument_value.pointer_offset;
+            bindings[count].is_member_pointer =
+                argument_value.is_member_pointer;
+            bindings[count].member_pointer_field =
+                argument_value.member_pointer_field;
         } else if (sema_constexpr_aggregate_type(parameter_value_type)) {
             if (parameter_value_type->size <= 0) return false;
             bindings[count].object_bytes = ast_arena_alloc(
@@ -8428,6 +8563,27 @@ static bool sema_eval_constexpr_scalar_expr(
     memset(value, 0, sizeof(*value));
     switch (expression->kind) {
         case EXPR_INT_LIT:
+            if (expression->type && expression->type->kind == TYPE_PTR &&
+                expression->type->cxx_is_member_pointer &&
+                expression->type->base &&
+                expression->type->base->kind != TYPE_FUNC &&
+                expression->is_cxx_nullptr) {
+                value->type = expression->type;
+                value->is_member_pointer = true;
+                return true;
+            }
+            if (expression->type && expression->type->kind == TYPE_PTR &&
+                expression->type->cxx_is_member_pointer &&
+                expression->type->base &&
+                expression->type->base->kind != TYPE_FUNC) {
+                TypeField* field = sema_constexpr_member_pointer_field(
+                    expression->type, expression);
+                if (!field) return false;
+                value->type = expression->type;
+                value->is_member_pointer = true;
+                value->member_pointer_field = field;
+                return true;
+            }
             if (expression->is_cxx_nullptr ||
                 (expression->type && expression->type->kind == TYPE_NULLPTR)) {
                 value->type = expression->type ? expression->type : type_nullptr;
@@ -8477,6 +8633,10 @@ static bool sema_eval_constexpr_scalar_expr(
                 value->pointer_declaration =
                     bindings[binding_index].pointer_declaration;
                 value->pointer_offset = bindings[binding_index].pointer_offset;
+                value->is_member_pointer =
+                    bindings[binding_index].is_member_pointer;
+                value->member_pointer_field =
+                    bindings[binding_index].member_pointer_field;
                 return true;
             }
             if (expression->ident_decl &&
@@ -8551,6 +8711,64 @@ static bool sema_eval_constexpr_scalar_expr(
             return sema_eval_constexpr_scalar_object(
                 expression->member_field->type, initializer,
                 bindings, binding_count, value);
+        }
+        case EXPR_CXX_MEMBER_PTR_DOT: {
+            SemaConstexprScalar member_pointer;
+            int object_binding_index;
+            size_t object_offset;
+            size_t member_offset;
+            Type* object_type;
+            Type* access_type;
+            Type* member_pointer_type;
+            TypeField* field;
+            bool have_operands = expression->binary_lhs &&
+                expression->binary_rhs;
+            member_pointer_type = have_operands
+                ? expression->binary_rhs->type : NULL;
+            bool evaluated_member = have_operands &&
+                sema_eval_constexpr_scalar_expr(
+                    expression->binary_rhs, bindings, binding_count,
+                    &member_pointer);
+            if (!member_pointer_type && evaluated_member) {
+                member_pointer_type = member_pointer.type;
+            }
+            bool have_member_type = member_pointer_type &&
+                member_pointer_type->cxx_is_member_pointer &&
+                member_pointer_type->base &&
+                member_pointer_type->base->kind != TYPE_FUNC;
+            field = evaluated_member ? member_pointer.member_pointer_field
+                                     : NULL;
+            bool found_object = field &&
+                member_pointer.is_member_pointer &&
+                sema_constexpr_binding_lvalue(
+                    expression->binary_lhs, bindings, binding_count,
+                    &object_binding_index, &object_offset, &object_type);
+            bool compatible_object = found_object && object_type &&
+                type_is_compatible(
+                    object_type, member_pointer_type->cxx_member_pointer_owner);
+            access_type = expression->type
+                ? expression->type : (field ? field->type : NULL);
+            if (!have_operands || !have_member_type || !evaluated_member ||
+                !field || !found_object || !compatible_object ||
+                field->offset < 0 || !access_type ||
+                !sema_constexpr_scalar_type(access_type)) {
+                return false;
+            }
+            member_offset = (size_t)field->offset;
+            if (object_offset > bindings[object_binding_index].object_size ||
+                member_offset > bindings[object_binding_index].object_size -
+                                    object_offset ||
+                (size_t)access_type->size >
+                    bindings[object_binding_index].object_size -
+                    object_offset - member_offset) {
+                return false;
+            }
+            return sema_constexpr_load_scalar_bytes(
+                bindings[object_binding_index].object_bytes + object_offset +
+                    member_offset,
+                bindings[object_binding_index].object_size - object_offset -
+                    member_offset,
+                access_type, value);
         }
         case EXPR_PTR_MEMBER: {
             Decl* declaration;
@@ -8765,6 +8983,10 @@ static bool sema_eval_constexpr_scalar_expr(
             current.pointer_declaration =
                 bindings[binding_index].pointer_declaration;
             current.pointer_offset = bindings[binding_index].pointer_offset;
+            current.is_member_pointer =
+                bindings[binding_index].is_member_pointer;
+            current.member_pointer_field =
+                bindings[binding_index].member_pointer_field;
             if (!sema_constexpr_scalar_assign(
                     expression->kind, &current, &right,
                     bindings[binding_index].type, &assigned)) return false;
@@ -8776,6 +8998,10 @@ static bool sema_eval_constexpr_scalar_expr(
             bindings[binding_index].pointer_declaration =
                 assigned.pointer_declaration;
             bindings[binding_index].pointer_offset = assigned.pointer_offset;
+            bindings[binding_index].is_member_pointer =
+                assigned.is_member_pointer;
+            bindings[binding_index].member_pointer_field =
+                assigned.member_pointer_field;
             *value = assigned;
             return true;
         }
@@ -8822,6 +9048,10 @@ static bool sema_eval_constexpr_scalar_expr(
             current.pointer_declaration =
                 bindings[binding_index].pointer_declaration;
             current.pointer_offset = bindings[binding_index].pointer_offset;
+            current.is_member_pointer =
+                bindings[binding_index].is_member_pointer;
+            current.member_pointer_field =
+                bindings[binding_index].member_pointer_field;
             memset(&one, 0, sizeof(one));
             one.type = type_int;
             one.integer_value = 1;
@@ -8839,6 +9069,10 @@ static bool sema_eval_constexpr_scalar_expr(
             bindings[binding_index].pointer_declaration =
                 updated.pointer_declaration;
             bindings[binding_index].pointer_offset = updated.pointer_offset;
+            bindings[binding_index].is_member_pointer =
+                updated.is_member_pointer;
+            bindings[binding_index].member_pointer_field =
+                updated.member_pointer_field;
             if (expression->kind == EXPR_POSTINC ||
                 expression->kind == EXPR_POSTDEC) {
                 *value = current;
@@ -9215,6 +9449,15 @@ bool rcc_sema_eval_constexpr_pointer_constant(Expr* expression) {
         (value.type->kind == TYPE_NULLPTR ||
          (value.type->kind == TYPE_PTR &&
           !value.type->cxx_is_member_pointer));
+}
+
+bool rcc_sema_eval_constexpr_member_pointer_constant(Expr* expression) {
+    SemaConstexprScalar value;
+    return expression &&
+        sema_eval_constexpr_scalar_expr(expression, NULL, 0, &value) &&
+        value.is_member_pointer && value.type &&
+        value.type->kind == TYPE_PTR && value.type->cxx_is_member_pointer &&
+        value.type->base && value.type->base->kind != TYPE_FUNC;
 }
 
 bool rcc_sema_eval_constexpr_integer_value(Expr* expression,

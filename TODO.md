@@ -8749,7 +8749,13 @@ remains a separate open item.
 - [x] Convert `nullptr` to a data-member-pointer parameter and evaluate its
       comparison with `nullptr` inside a dependent constexpr call. GCC C++20
       and the focused i686/AMD64 generation and AMD64 execution gate pass.
-- [ ] Non-null member-pointer values/applications and additional pointer
+- [x] Preserve non-null data-member-pointer constants through dependent
+      constexpr calls, scalar parameters/local copies, equality with `nullptr`,
+      and application with `.*` to a by-value constexpr aggregate. Verify
+      dependent non-type template argument selection against GCC C++20 and the
+      i686/AMD64 generation plus execution gate.
+- [ ] Non-null member-function-pointer values, broader data-member-pointer
+      owner/qualification conversions and applications, and additional pointer
       conversions remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)

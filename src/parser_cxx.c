@@ -3869,6 +3869,11 @@ static bool cxx_dependent_integer_call_constant_argument_supported(
         if (!argument->type) argument->type = type;
         return rcc_sema_eval_constexpr_pointer_constant(argument);
     }
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
+        type->base && type->base->kind != TYPE_FUNC) {
+        if (!argument->type) argument->type = type;
+        return rcc_sema_eval_constexpr_member_pointer_constant(argument);
+    }
     if (type->kind == TYPE_NULLPTR) {
         if (!argument->type) argument->type = type;
         return rcc_sema_eval_constexpr_pointer_constant(argument);
@@ -3881,7 +3886,12 @@ static bool cxx_dependent_integer_call_argument_type_supported(Type* type) {
     return type &&
         (type_is_integer(type) || type_is_floating(type) ||
          (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) ||
-         type->kind == TYPE_NULLPTR);
+         (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
+          type->base && type->base->kind != TYPE_FUNC) ||
+         type->kind == TYPE_NULLPTR ||
+         ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+          ast_cxx_is_aggregate(type) && type->size > 0 &&
+          !type->cxx_nontrivial && type->cxx_vtable_size == 0));
 }
 
 static bool cxx_dependent_integer_call_parameter_supported(Type* type) {
@@ -3893,6 +3903,13 @@ static bool cxx_dependent_integer_call_parameter_supported(Type* type) {
     }
     if (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
         return true;
+    }
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer) {
+        return type->base && type->base->kind != TYPE_FUNC;
+    }
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        return ast_cxx_is_aggregate(type) && type->size > 0 &&
+               !type->cxx_nontrivial && type->cxx_vtable_size == 0;
     }
     return type_is_integer(type) || type_is_floating(type);
 }
