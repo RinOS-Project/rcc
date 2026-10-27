@@ -9036,6 +9036,80 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             *flow = then_flow;
             return true;
         }
+        case STMT_SWITCH: {
+            StmtList* item;
+            StmtList* selected = NULL;
+            StmtList* fallback = NULL;
+            SemaConstexprScalar selector_value;
+            int saved_binding_count = *binding_count;
+            if (!statement->switch_expr || !statement->switch_body ||
+                statement->switch_body->kind != STMT_BLOCK ||
+                !sema_constexpr_constructor_condition_is_pure(
+                    statement->switch_expr, depth + 1u) ||
+                !sema_constexpr_constructor_rhs_is_safe(
+                    statement->switch_expr, cls, *initialized_members,
+                    bindings, *binding_count, depth + 1u) ||
+                !sema_eval_constexpr_scalar_expr(
+                    statement->switch_expr, bindings, *binding_count,
+                    &selector_value)) {
+                return false;
+            }
+            for (item = statement->switch_body->block_stmts; item;
+                 item = item->next) {
+                Stmt* label = item->stmt;
+                SemaConstexprScalar case_value;
+                if (!label) return false;
+                if (label->kind == STMT_DEFAULT) {
+                    if (!fallback) fallback = item;
+                    continue;
+                }
+                if (label->kind != STMT_CASE) continue;
+                if (!label->case_val ||
+                    !sema_constexpr_constructor_condition_is_pure(
+                        label->case_val, depth + 1u) ||
+                    !sema_eval_constexpr_scalar_expr(
+                        label->case_val, bindings, *binding_count,
+                        &case_value)) {
+                    return false;
+                }
+                if (!selected &&
+                    case_value.integer_value == selector_value.integer_value) {
+                    selected = item;
+                }
+            }
+            if (!selected) selected = fallback;
+            if (!selected) return true;
+            for (item = selected; item; item = item->next) {
+                Stmt* current = item->stmt;
+                Stmt* body = current && current->kind == STMT_CASE
+                    ? current->case_stmt
+                    : current && current->kind == STMT_DEFAULT
+                        ? current->default_stmt : current;
+                SemaConstexprStatementResult case_flow =
+                    SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+                if (!body ||
+                    !sema_constexpr_constructor_analyze_body_statement(
+                        body, cls, initialized_members, bindings,
+                        binding_count, initial_binding_count,
+                        allow_local_writes, allow_unknown_branch_join,
+                        &case_flow, depth + 1u)) {
+                    *binding_count = saved_binding_count;
+                    return false;
+                }
+                if (case_flow == SEMA_CONSTEXPR_STMT_BREAK) break;
+                if (case_flow == SEMA_CONSTEXPR_STMT_RETURNED ||
+                    case_flow == SEMA_CONSTEXPR_STMT_CONTINUE) {
+                    *flow = case_flow;
+                    break;
+                }
+                if (case_flow != SEMA_CONSTEXPR_STMT_FALLTHROUGH) {
+                    *binding_count = saved_binding_count;
+                    return false;
+                }
+            }
+            *binding_count = saved_binding_count;
+            return true;
+        }
         case STMT_FOR: {
             int saved_binding_count = *binding_count;
             unsigned iteration;
@@ -10429,6 +10503,73 @@ static bool sema_eval_constexpr_scalar_statement(
             return sema_eval_constexpr_scalar_statement(
                 selected, bindings, binding_count, value, result,
                 allow_empty_return);
+        }
+        case STMT_SWITCH: {
+            StmtList* item;
+            StmtList* selected = NULL;
+            StmtList* fallback = NULL;
+            int64_t selector;
+            saved_binding_count = *binding_count;
+            if (!statement->switch_expr || !statement->switch_body ||
+                statement->switch_body->kind != STMT_BLOCK ||
+                !sema_eval_constexpr_expr(
+                    statement->switch_expr, bindings, *binding_count,
+                    &selector)) {
+                return false;
+            }
+            for (item = statement->switch_body->block_stmts; item;
+                 item = item->next) {
+                Stmt* label = item->stmt;
+                int64_t case_value;
+                if (!label) return false;
+                if (label->kind == STMT_DEFAULT) {
+                    if (!fallback) fallback = item;
+                    continue;
+                }
+                if (label->kind != STMT_CASE) continue;
+                if (!label->case_val || !sema_eval_constexpr_expr(
+                        label->case_val, bindings, *binding_count,
+                        &case_value)) {
+                    return false;
+                }
+                if (!selected && case_value == selector) selected = item;
+            }
+            if (!selected) selected = fallback;
+            if (!selected) {
+                *binding_count = saved_binding_count;
+                return true;
+            }
+            for (item = selected; item; item = item->next) {
+                Stmt* current = item->stmt;
+                Stmt* body = current && current->kind == STMT_CASE
+                    ? current->case_stmt
+                    : current && current->kind == STMT_DEFAULT
+                        ? current->default_stmt : current;
+                SemaConstexprStatementResult nested_result;
+                if (!body ||
+                    !sema_eval_constexpr_scalar_statement(
+                        body, bindings, binding_count, value, &nested_result,
+                        allow_empty_return)) {
+                    *binding_count = saved_binding_count;
+                    return false;
+                }
+                if (nested_result == SEMA_CONSTEXPR_STMT_RETURNED) {
+                    *result = nested_result;
+                    *binding_count = saved_binding_count;
+                    return true;
+                }
+                if (nested_result == SEMA_CONSTEXPR_STMT_BREAK) {
+                    *binding_count = saved_binding_count;
+                    return true;
+                }
+                if (nested_result == SEMA_CONSTEXPR_STMT_CONTINUE) {
+                    *result = nested_result;
+                    *binding_count = saved_binding_count;
+                    return true;
+                }
+            }
+            *binding_count = saved_binding_count;
+            return true;
         }
         case STMT_BREAK:
             *result = SEMA_CONSTEXPR_STMT_BREAK;

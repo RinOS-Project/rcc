@@ -202,6 +202,18 @@ struct UninitializedConstructorReturn {
     }
 };
 
+struct UninitializedSwitchConstructor {
+    int value;
+
+    constexpr explicit UninitializedSwitchConstructor(int selector) {
+        switch (selector) {
+            case 0:
+                this->value = 1;
+                break;
+        }
+    }
+};
+
 constexpr UninitializedNestedAggregateMember
     invalid_uninitialized_nested_aggregate_member{3};
 constexpr UninitializedArrayMember invalid_uninitialized_array_member{5};
@@ -231,3 +243,5 @@ constexpr UninitializedWhileLoopBodyMember
     invalid_uninitialized_while_loop_body_member{0};
 constexpr UninitializedConstructorReturn
     invalid_uninitialized_constructor_return{true};
+constexpr UninitializedSwitchConstructor
+    invalid_uninitialized_switch_constructor{1};

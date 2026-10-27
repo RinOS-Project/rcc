@@ -9079,6 +9079,11 @@ remains a separate open item.
       unreachable later writes do not initialize earlier return paths. Verify
       initialized and indeterminate return paths against GCC C++20 and full
       POSIX `test-cxx`.
+- [x] Analyze constexpr-selected `switch` cases in constructor bodies,
+      including fallthrough, switch-local `break`, default selection, and
+      definite initialization of omitted scalar members. Verify matched,
+      unmatched, and fallthrough paths against GCC C++20 and full POSIX
+      `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

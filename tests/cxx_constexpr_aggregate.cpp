@@ -329,6 +329,28 @@ struct ConstructorBodySelectedReturn {
     }
 };
 
+struct ConstructorBodySwitch {
+    int value;
+
+    constexpr explicit ConstructorBodySwitch(int selector, int initial) {
+        switch (selector) {
+            case 0:
+                this->value = initial;
+                /* fall through */
+            case 1:
+                if (selector == 0) {
+                    this->value += 2;
+                } else {
+                    this->value = initial + 10;
+                }
+                break;
+            default:
+                this->value = initial + 20;
+                break;
+        }
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -650,6 +672,9 @@ constexpr ConstructorBodySelectedReturn constructor_body_return_early{
     true, 23};
 constexpr ConstructorBodySelectedReturn constructor_body_return_fallthrough{
     false, 23};
+constexpr ConstructorBodySwitch constructor_body_switch_fallthrough{0, 40};
+constexpr ConstructorBodySwitch constructor_body_switch_case{1, 40};
+constexpr ConstructorBodySwitch constructor_body_switch_default{7, 40};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -1057,6 +1082,9 @@ int main(void) {
     ConstructorBodyLoopControl runtime_body_loop_control{3};
     ConstructorBodySelectedReturn runtime_body_return_early{true, 29};
     ConstructorBodySelectedReturn runtime_body_return_fallthrough{false, 29};
+    ConstructorBodySwitch runtime_body_switch_fallthrough{0, 11};
+    ConstructorBodySwitch runtime_body_switch_case{1, 11};
+    ConstructorBodySwitch runtime_body_switch_default{9, 11};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -1215,6 +1243,9 @@ int main(void) {
                      constructor_body_loop_control.do_while_value == 8 &&
                      constructor_body_return_early.value == 23 &&
                      constructor_body_return_fallthrough.value == 24 &&
+                     constructor_body_switch_fallthrough.value == 42 &&
+                     constructor_body_switch_case.value == 50 &&
+                     constructor_body_switch_default.value == 60 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -1255,6 +1286,9 @@ int main(void) {
                      runtime_body_loop_control.do_while_value == 4 &&
                      runtime_body_return_early.value == 29 &&
                      runtime_body_return_fallthrough.value == 30 &&
+                     runtime_body_switch_fallthrough.value == 13 &&
+                     runtime_body_switch_case.value == 21 &&
+                     runtime_body_switch_default.value == 31 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&
