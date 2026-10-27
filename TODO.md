@@ -11153,3 +11153,16 @@ remains a separate open item.
       under WSL2 Ubuntu-24.04.
 - [ ] Volatile/reference/atomic operands and broader optimized multi-piece
       locations remain open.
+
+## RCC continuation (2026-10-28, function-local static logical-not DWARF)
+
+- [x] Extend unsigned i686 64-bit logical-not inline-parameter expressions to
+      block-scope `static` and `static thread_local` sources. Emit two
+      module-scoped `ABS32U` relocations for non-TLS statics and two
+      module-scoped `TLSOFF32S` relocations for TLS statics; verify the
+      nonzero data source, zero-initialized TLS source, truth-value results,
+      and normal/verified C++20 objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` gates pass
+      under WSL2 Ubuntu-24.04.
+- [ ] Volatile/reference/atomic operands and broader optimized multi-piece
+      locations remain open.

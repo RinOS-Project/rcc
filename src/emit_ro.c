@@ -10778,7 +10778,15 @@ static bool debug_inline_parameter_i686_u64_logical_not_expression(
     const Expr* not_expression;
     const Expr* operand;
     const Decl* source;
+    const ModuleSymbol* source_symbol;
+    bool source_is_address_backed;
     size_t size = 0u;
+    DebugInlineI686ExpressionRelocations tls_relocations;
+    if (relocations) {
+        tls_relocations = *relocations;
+        tls_relocations.allow_tls = true;
+        relocations = &tls_relocations;
+    }
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || !relocations || parameter_type->size != 8u ||
         !parameter_type->is_unsigned ||
@@ -10797,9 +10805,20 @@ static bool debug_inline_parameter_i686_u64_logical_not_expression(
         return false;
     }
     source = operand->ident_decl;
-    if (!source || source->kind != DECL_VAR || !source->var_is_global ||
-        source->var_is_static_local || source->var_is_thread_local ||
+    source_is_address_backed = source &&
+        (source->var_is_global || source->var_is_static_local);
+    source_symbol = source_is_address_backed
+        ? (source->var_is_static_local
+               ? debug_find_static_local_symbol(mod, source)
+               : debug_find_global_symbol(mod, source))
+        : NULL;
+    if (!source || source->kind != DECL_VAR || !source_is_address_backed ||
+        !source_symbol ||
+        (source->var_is_global && !source->var_is_static_local &&
+         !source_symbol->is_global) ||
         source->var_is_vla || !source->type ||
+        ((source_symbol->section == MODULE_SYMBOL_TLS) !=
+         source->var_is_thread_local) ||
         !relocations->offsets || !relocations->symbols ||
         !relocations->count) {
         return false;
@@ -10835,6 +10854,7 @@ static bool debug_inline_parameter_i686_u64_logical_not_expression(
             expression, capacity, &size, 4u)) {
         return false;
     }
+    if (*relocations->count != 2u) return false;
     *expression_size = size;
     return true;
 }
@@ -14629,12 +14649,21 @@ static void debug_emit_inline_parameter_instances(
             for (size_t relocation_index = 0u;
                  relocation_index < integer_value_relocation_count;
                  ++relocation_index) {
+                const ModuleSymbol* relocation_symbol =
+                    integer_value_relocation_symbols[relocation_index];
+                char* scoped_relocation_symbol = relocation_symbol->is_global
+                    ? NULL : module_scoped_symbol(
+                          filename, relocation_symbol->name);
                 objfile_add_reloc(
                     obj, info_section,
                     expression_offset +
                         integer_value_relocation_offsets[relocation_index],
-                    integer_value_relocation_symbols[relocation_index]->name,
-                    RELOC_ABS32U, 0);
+                    scoped_relocation_symbol
+                        ? scoped_relocation_symbol : relocation_symbol->name,
+                    relocation_symbol->section == MODULE_SYMBOL_TLS
+                        ? RELOC_TLSOFF32S : RELOC_ABS32U,
+                    0);
+                rcc_free(scoped_relocation_symbol);
             }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&

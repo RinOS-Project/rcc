@@ -1737,6 +1737,22 @@ debug_inline_nonconstant_signed_long_long_tls_static_bitnot_entry(void)
     return debug_nonconstant_signed_long_long_parameter_inline(~source);
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_static_lnot_entry(void)
+{
+    static unsigned long long source = 0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(!source));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_lnot_zero_entry(void)
+{
+    static thread_local unsigned long long source = 0u;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(!source));
+}
+
 extern "C" long long
 debug_inline_nonconstant_signed_long_long_global_pair_and_entry(void)
 {
