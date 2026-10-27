@@ -830,6 +830,13 @@
         pointer-to-member selector applies a base-class member to a derived
         temporary. Verify selected values, one-time selection, stable local
         identity, and derived-before-base destruction on both host adapters.
+  - [x] Extend TLS reference-temporary coverage to a derived owner whose base
+        data member is selected by a side-effecting pointer-to-member function.
+        `test-cxx-static-reference-temporaries-posix` verifies one selection per
+        thread, stable reference identity and value, and exactly-once base and
+        derived construction/destruction after pthread exit. GCC C++20 pedantic
+        syntax checking, i686/AMD64 object generation, and POSIX host execution
+        pass on WSL; RinOS target-runtime integration remains open.
   - [x] Add the missing POSIX test recipe and alias for
         `test-cxx-member-pointer-reference-lifetime`; ensure the existing C++20
         regression aggregate executes it instead of treating the phony name as

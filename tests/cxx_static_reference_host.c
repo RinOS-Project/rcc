@@ -50,6 +50,11 @@ extern int cxx_static_reference_tls_conversions;
 extern int cxx_static_reference_tls_comma_evaluations;
 extern int cxx_static_reference_tls_member_constructions;
 extern int cxx_static_reference_tls_member_destructions;
+extern int cxx_static_reference_tls_member_pointer_selections;
+extern int cxx_static_reference_tls_member_pointer_owner_constructions;
+extern int cxx_static_reference_tls_member_pointer_owner_destructions;
+extern int cxx_static_reference_tls_member_pointer_derived_constructions;
+extern int cxx_static_reference_tls_member_pointer_derived_destructions;
 extern int RIN_SYSV cxx_static_reference_tls_worker(int value);
 #endif
 extern int RIN_SYSV rcc_generated_main(void);
@@ -203,7 +208,14 @@ int main(void)
         cxx_static_reference_tls_conversions != 0 ||
         cxx_static_reference_tls_comma_evaluations != 0 ||
         cxx_static_reference_tls_member_constructions != 0 ||
-        cxx_static_reference_tls_member_destructions != 0) return 92;
+        cxx_static_reference_tls_member_destructions != 0 ||
+        cxx_static_reference_tls_member_pointer_selections != 0 ||
+        cxx_static_reference_tls_member_pointer_owner_constructions != 0 ||
+        cxx_static_reference_tls_member_pointer_owner_destructions != 0 ||
+        cxx_static_reference_tls_member_pointer_derived_constructions != 0 ||
+        cxx_static_reference_tls_member_pointer_derived_destructions != 0) {
+        return 92;
+    }
     tls_result = cxx_static_reference_run_tls_thread(3);
     if (tls_result != 0 || cxx_static_reference_tls_constructions != 2 ||
         cxx_static_reference_tls_destructions != 2 ||
@@ -215,6 +227,11 @@ int main(void)
         cxx_static_reference_tls_comma_evaluations != 1 ||
         cxx_static_reference_tls_member_constructions != 1 ||
         cxx_static_reference_tls_member_destructions != 1 ||
+        cxx_static_reference_tls_member_pointer_selections != 1 ||
+        cxx_static_reference_tls_member_pointer_owner_constructions != 1 ||
+        cxx_static_reference_tls_member_pointer_owner_destructions != 1 ||
+        cxx_static_reference_tls_member_pointer_derived_constructions != 1 ||
+        cxx_static_reference_tls_member_pointer_derived_destructions != 1 ||
         cxx_static_reference_tls_destruction_order != 21212115212143ULL) {
         fprintf(stderr,
                 "TLS reference first-thread state: worker %d, direct %d/%d, "
@@ -241,6 +258,11 @@ int main(void)
         cxx_static_reference_tls_comma_evaluations != 2 ||
         cxx_static_reference_tls_member_constructions != 2 ||
         cxx_static_reference_tls_member_destructions != 2 ||
+        cxx_static_reference_tls_member_pointer_selections != 2 ||
+        cxx_static_reference_tls_member_pointer_owner_constructions != 2 ||
+        cxx_static_reference_tls_member_pointer_owner_destructions != 2 ||
+        cxx_static_reference_tls_member_pointer_derived_constructions != 2 ||
+        cxx_static_reference_tls_member_pointer_derived_destructions != 2 ||
         cxx_static_reference_tls_destruction_order != 21212115212154ULL) {
         fprintf(stderr,
                 "TLS reference second-thread state: worker %d, direct %d/%d, "

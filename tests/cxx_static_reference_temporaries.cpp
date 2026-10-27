@@ -12,6 +12,11 @@ int cxx_static_reference_tls_derived_destructions = 0;
 int cxx_static_reference_tls_conversions = 0;
 int cxx_static_reference_tls_member_constructions = 0;
 int cxx_static_reference_tls_member_destructions = 0;
+int cxx_static_reference_tls_member_pointer_selections = 0;
+int cxx_static_reference_tls_member_pointer_owner_constructions = 0;
+int cxx_static_reference_tls_member_pointer_owner_destructions = 0;
+int cxx_static_reference_tls_member_pointer_derived_constructions = 0;
+int cxx_static_reference_tls_member_pointer_derived_destructions = 0;
 int cxx_static_reference_tls_comma_evaluations = 0;
 #endif
 }
@@ -112,8 +117,42 @@ struct ThreadLocalReferenceMemberOwner {
     }
 };
 
+struct ThreadLocalSelectedMemberOwner {
+    int value;
+
+    explicit ThreadLocalSelectedMemberOwner(int initial_value)
+        : value(initial_value) {
+        ++cxx_static_reference_tls_member_pointer_owner_constructions;
+    }
+
+    ~ThreadLocalSelectedMemberOwner() {
+        ++cxx_static_reference_tls_member_pointer_owner_destructions;
+    }
+};
+
+int ThreadLocalSelectedMemberOwner::*thread_local_selected_member_pointer =
+    &ThreadLocalSelectedMemberOwner::value;
+
 int ThreadLocalReferenceMemberOwner::*thread_local_reference_member_pointer =
     &ThreadLocalReferenceMemberOwner::value;
+
+struct ThreadLocalSelectedMemberDerivedOwner
+    : ThreadLocalSelectedMemberOwner {
+    explicit ThreadLocalSelectedMemberDerivedOwner(int initial_value)
+        : ThreadLocalSelectedMemberOwner(initial_value) {
+        ++cxx_static_reference_tls_member_pointer_derived_constructions;
+    }
+
+    ~ThreadLocalSelectedMemberDerivedOwner() {
+        ++cxx_static_reference_tls_member_pointer_derived_destructions;
+    }
+};
+
+static int ThreadLocalSelectedMemberOwner::*
+select_thread_local_reference_member_pointer() {
+    ++cxx_static_reference_tls_member_pointer_selections;
+    return thread_local_selected_member_pointer;
+}
 
 thread_local int cxx_static_reference_thread_value;
 
@@ -148,6 +187,11 @@ thread_local const int& thread_local_member_reference =
         cxx_static_reference_thread_value + 60}.*
         thread_local_reference_member_pointer;
 
+thread_local const int& thread_local_selected_member_reference =
+    ThreadLocalSelectedMemberDerivedOwner{
+        cxx_static_reference_thread_value + 65}.*
+        select_thread_local_reference_member_pointer();
+
 extern "C" int cxx_static_reference_tls_worker(int value) {
     cxx_static_reference_thread_value = value;
     const ThreadLocalReferenceLifetime* first = &thread_local_reference;
@@ -172,6 +216,14 @@ extern "C" int cxx_static_reference_tls_worker(int value) {
     const int* member_first = &thread_local_member_reference;
     const int* member_second = &thread_local_member_reference;
     if (member_first != member_second || *member_first != value + 60) return 5;
+    const int* selected_member_first =
+        &thread_local_selected_member_reference;
+    const int* selected_member_second =
+        &thread_local_selected_member_reference;
+    if (selected_member_first != selected_member_second ||
+        *selected_member_first != value + 65) {
+        return 10;
+    }
     const ThreadLocalReferenceBase& local_converted_reference =
         ThreadLocalReferenceConversionSource{value + 30};
     if (local_converted_reference.value != value + 50) return 4;
