@@ -8841,9 +8841,10 @@ static bool sema_constexpr_constructor_analyze_body_statement(
     Stmt* statement, CxxClass* cls, uint64_t* initialized_members,
     SemaConstexprBinding* bindings, int* binding_count,
     int initial_binding_count, bool allow_local_writes,
-    bool allow_unknown_branch_join, unsigned depth) {
+    bool allow_unknown_branch_join, SemaConstexprStatementResult* flow,
+    unsigned depth) {
     if (!statement || !cls || !initialized_members || !binding_count ||
-        depth >= 64u) {
+        !flow || *flow != SEMA_CONSTEXPR_STMT_FALLTHROUGH || depth >= 64u) {
         return false;
     }
     switch (statement->kind) {
@@ -8858,10 +8859,11 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                         item->stmt, cls, initialized_members, bindings,
                         binding_count, initial_binding_count,
                         allow_local_writes, allow_unknown_branch_join,
-                        depth + 1u)) {
+                        flow, depth + 1u)) {
                     *binding_count = saved_binding_count;
                     return false;
                 }
+                if (*flow != SEMA_CONSTEXPR_STMT_FALLTHROUGH) break;
             }
             *binding_count = saved_binding_count;
             return true;
@@ -8985,7 +8987,7 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                     sema_constexpr_constructor_analyze_body_statement(
                         selected, cls, initialized_members, bindings,
                         binding_count, initial_binding_count, true,
-                        allow_unknown_branch_join, depth + 1u);
+                        allow_unknown_branch_join, flow, depth + 1u);
             }
             if (!sema_constexpr_constructor_rhs_is_safe(
                     statement->if_cond, cls, *initialized_members,
@@ -9005,13 +9007,17 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                     sema_constexpr_constructor_analyze_body_statement(
                         selected, cls, initialized_members, bindings,
                         binding_count, initial_binding_count, true,
-                        allow_unknown_branch_join, depth + 1u);
+                        allow_unknown_branch_join, flow, depth + 1u);
             }
             if (!allow_unknown_branch_join) return false;
+            SemaConstexprStatementResult then_flow =
+                SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+            SemaConstexprStatementResult else_flow =
+                SEMA_CONSTEXPR_STMT_FALLTHROUGH;
             if (!sema_constexpr_constructor_analyze_body_statement(
                     statement->if_then, cls, &then_state, bindings,
                     binding_count, initial_binding_count, false,
-                    allow_unknown_branch_join, depth + 1u)) {
+                    allow_unknown_branch_join, &then_flow, depth + 1u)) {
                 *binding_count = saved_binding_count;
                 return false;
             }
@@ -9020,23 +9026,29 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                 !sema_constexpr_constructor_analyze_body_statement(
                     statement->if_else, cls, &else_state, bindings,
                     binding_count, initial_binding_count, false,
-                    allow_unknown_branch_join, depth + 1u)) {
+                    allow_unknown_branch_join, &else_flow, depth + 1u)) {
                 *binding_count = saved_binding_count;
                 return false;
             }
             *binding_count = saved_binding_count;
+            if (then_flow != else_flow) return false;
             *initialized_members = then_state & else_state;
+            *flow = then_flow;
             return true;
         }
         case STMT_FOR: {
             int saved_binding_count = *binding_count;
             unsigned iteration;
+            SemaConstexprStatementResult init_flow =
+                SEMA_CONSTEXPR_STMT_FALLTHROUGH;
             if (!statement->for_cond ||
                 (statement->for_init &&
-                 !sema_constexpr_constructor_analyze_body_statement(
-                     statement->for_init, cls, initialized_members, bindings,
-                     binding_count, initial_binding_count, allow_local_writes,
-                     allow_unknown_branch_join, depth + 1u))) {
+                 (!sema_constexpr_constructor_analyze_body_statement(
+                      statement->for_init, cls, initialized_members, bindings,
+                      binding_count, initial_binding_count,
+                      allow_local_writes, allow_unknown_branch_join,
+                      &init_flow, depth + 1u) ||
+                  init_flow != SEMA_CONSTEXPR_STMT_FALLTHROUGH))) {
                 *binding_count = saved_binding_count;
                 return false;
             }
@@ -9054,17 +9066,37 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                     return false;
                 }
                 if (!sema_constexpr_scalar_truth(&condition_value)) break;
-                if (statement->for_body &&
-                    !sema_constexpr_constructor_analyze_body_statement(
-                        statement->for_body, cls, initialized_members,
-                        bindings, binding_count, initial_binding_count,
-                        allow_local_writes, allow_unknown_branch_join,
-                        depth + 1u)) {
+                SemaConstexprStatementResult body_flow =
+                    SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+                if (statement->for_body) {
+                    int body_binding_count = *binding_count;
+                    bool body_supported =
+                        sema_constexpr_constructor_analyze_body_statement(
+                            statement->for_body, cls, initialized_members,
+                            bindings, binding_count, initial_binding_count,
+                            allow_local_writes, allow_unknown_branch_join,
+                            &body_flow, depth + 1u);
+                    *binding_count = body_binding_count;
+                    if (!body_supported) {
+                        *binding_count = saved_binding_count;
+                        return false;
+                    }
+                }
+                if (body_flow == SEMA_CONSTEXPR_STMT_RETURNED) {
+                    *flow = body_flow;
+                    *binding_count = saved_binding_count;
+                    return true;
+                }
+                if (body_flow == SEMA_CONSTEXPR_STMT_BREAK) break;
+                if (body_flow != SEMA_CONSTEXPR_STMT_FALLTHROUGH &&
+                    body_flow != SEMA_CONSTEXPR_STMT_CONTINUE) {
                     *binding_count = saved_binding_count;
                     return false;
                 }
                 if (statement->for_inc) {
                     Stmt increment_statement;
+                    SemaConstexprStatementResult increment_flow =
+                        SEMA_CONSTEXPR_STMT_FALLTHROUGH;
                     memset(&increment_statement, 0,
                            sizeof(increment_statement));
                     increment_statement.kind = STMT_EXPR;
@@ -9073,7 +9105,8 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                             &increment_statement, cls, initialized_members,
                             bindings, binding_count, initial_binding_count,
                             allow_local_writes, allow_unknown_branch_join,
-                            depth + 1u)) {
+                            &increment_flow, depth + 1u) ||
+                        increment_flow != SEMA_CONSTEXPR_STMT_FALLTHROUGH) {
                         *binding_count = saved_binding_count;
                         return false;
                     }
@@ -9107,6 +9140,8 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                     if (!sema_constexpr_scalar_truth(&condition_value)) break;
                 }
                 condition_prechecked = false;
+                SemaConstexprStatementResult body_flow =
+                    SEMA_CONSTEXPR_STMT_FALLTHROUGH;
                 if (statement->while_body) {
                     int body_binding_count = *binding_count;
                     bool body_supported =
@@ -9114,12 +9149,23 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                             statement->while_body, cls, initialized_members,
                             bindings, binding_count, initial_binding_count,
                             allow_local_writes, allow_unknown_branch_join,
-                            depth + 1u);
+                            &body_flow, depth + 1u);
                     *binding_count = body_binding_count;
                     if (!body_supported) {
                         *binding_count = saved_binding_count;
                         return false;
                     }
+                }
+                if (body_flow == SEMA_CONSTEXPR_STMT_RETURNED) {
+                    *flow = body_flow;
+                    *binding_count = saved_binding_count;
+                    return true;
+                }
+                if (body_flow == SEMA_CONSTEXPR_STMT_BREAK) break;
+                if (body_flow != SEMA_CONSTEXPR_STMT_FALLTHROUGH &&
+                    body_flow != SEMA_CONSTEXPR_STMT_CONTINUE) {
+                    *binding_count = saved_binding_count;
+                    return false;
                 }
                 if (is_do) {
                     if (!sema_constexpr_constructor_condition_is_pure(
@@ -9141,6 +9187,16 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             *binding_count = saved_binding_count;
             return iteration < 1000000u;
         }
+        case STMT_BREAK:
+            *flow = SEMA_CONSTEXPR_STMT_BREAK;
+            return true;
+        case STMT_CONTINUE:
+            *flow = SEMA_CONSTEXPR_STMT_CONTINUE;
+            return true;
+        case STMT_RETURN:
+            if (statement->return_val) return false;
+            *flow = SEMA_CONSTEXPR_STMT_RETURNED;
+            return true;
         default:
             return false;
     }
@@ -9157,6 +9213,8 @@ static bool sema_constexpr_constructor_body_writes_direct_member(
     Stmt* body = declaration ? declaration->func_body : NULL;
     uint64_t initialized_members = 0u;
     int analysis_binding_count = binding_count;
+    SemaConstexprStatementResult flow =
+        SEMA_CONSTEXPR_STMT_FALLTHROUGH;
     int member_index;
     if (supported) *supported = false;
     if (!bindings) {
@@ -9173,7 +9231,9 @@ static bool sema_constexpr_constructor_body_writes_direct_member(
         !sema_constexpr_constructor_analyze_body_statement(
             body, cls, &initialized_members, bindings,
             &analysis_binding_count,
-            binding_count, true, allow_unknown_branch_join, 0u)) {
+            binding_count, true, allow_unknown_branch_join, &flow, 0u) ||
+        (flow != SEMA_CONSTEXPR_STMT_FALLTHROUGH &&
+         flow != SEMA_CONSTEXPR_STMT_RETURNED)) {
         return false;
     }
     *supported = true;

@@ -280,6 +280,42 @@ struct ConstructorBodyDoWhileLoopMemberWrite {
     }
 };
 
+struct ConstructorBodyLoopControl {
+    int for_value;
+    int while_value;
+    int do_while_value;
+
+    constexpr explicit ConstructorBodyLoopControl(int limit) {
+        int for_total = 0;
+        for (int index = 0; index < limit; ++index) {
+            if (index == 1) continue;
+            if (index == 4) break;
+            for_total += index;
+        }
+        this->for_value = for_total;
+
+        int while_index = 0;
+        int while_total = 0;
+        while (while_index < limit) {
+            ++while_index;
+            if (while_index == 2) continue;
+            if (while_index == 5) break;
+            while_total += while_index;
+        }
+        this->while_value = while_total;
+
+        int do_while_index = 0;
+        int do_while_total = 0;
+        do {
+            ++do_while_index;
+            if (do_while_index == 2) continue;
+            if (do_while_index == 5) break;
+            do_while_total += do_while_index;
+        } while (do_while_index < limit);
+        this->do_while_value = do_while_total;
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -596,6 +632,7 @@ constexpr ConstructorBodyWhileLoopMemberWrite
     constructor_body_while_loop_member_write{3};
 constexpr ConstructorBodyDoWhileLoopMemberWrite
     constructor_body_do_while_loop_member_write{0};
+constexpr ConstructorBodyLoopControl constructor_body_loop_control{6};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -1000,6 +1037,7 @@ int main(void) {
         runtime_body_while_loop_member_write{4};
     ConstructorBodyDoWhileLoopMemberWrite
         runtime_body_do_while_loop_member_write{0};
+    ConstructorBodyLoopControl runtime_body_loop_control{3};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -1153,6 +1191,9 @@ int main(void) {
                      constructor_body_do_while_loop_iterations.value == 24 &&
                      constructor_body_while_loop_member_write.value == 102 &&
                      constructor_body_do_while_loop_member_write.value == 200 &&
+                     constructor_body_loop_control.for_value == 5 &&
+                     constructor_body_loop_control.while_value == 8 &&
+                     constructor_body_loop_control.do_while_value == 8 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -1188,6 +1229,9 @@ int main(void) {
                      runtime_body_do_while_loop_iterations.value == 22 &&
                      runtime_body_while_loop_member_write.value == 103 &&
                      runtime_body_do_while_loop_member_write.value == 200 &&
+                     runtime_body_loop_control.for_value == 2 &&
+                     runtime_body_loop_control.while_value == 4 &&
+                     runtime_body_loop_control.do_while_value == 4 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&

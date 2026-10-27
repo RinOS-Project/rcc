@@ -9071,6 +9071,10 @@ remains a separate open item.
       once behavior and carrying loop-local values into post-loop member
       initialization. Verify GCC C++20, constexpr/runtime, i686/AMD64, and full
       POSIX `test-cxx`.
+- [x] Honor constexpr-selected `break` and `continue` exits in bounded
+      constructor loops, including the `for` increment after `continue`, while
+      stopping at `break` and preserving definitely initialized member state.
+      Verify each loop form against GCC C++20 and full POSIX `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,
