@@ -17525,6 +17525,26 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_signed_long_long_volatile_tls_rshift_source",
             "debug_inline_nonconstant_signed_long_long_volatile_tls_shift_count",
             0x26u, 2u, UINT64_C(0xffedcba987654321));
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_volatile_global_dynamic_lshift_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_lshift_source",
+            "debug_inline_nonconstant_signed_long_long_volatile_shift_count",
+            0x24u, 2u, UINT64_C(0x10));
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_volatile_global_dynamic_lshift_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_lshift_source",
+            "debug_inline_nonconstant_signed_long_long_volatile_shift_count",
+            0x24u, 2u, UINT64_C(0x10));
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_volatile_tls_global_dynamic_lshift_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_lshift_source",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_shift_count",
+            0x24u, 2u, UINT64_C(0x10));
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_volatile_tls_global_dynamic_lshift_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_lshift_source",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_shift_count",
+            0x24u, 2u, UINT64_C(0x10));
         verify_inline_i686_global_shift_parameter(argv[6], 0x51u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x51u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x52u);

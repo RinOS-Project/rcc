@@ -11331,3 +11331,11 @@ remains a separate open item.
       negative arithmetic-right-shift result in legacy and verified C++20
       objects. Focused `test-debug-info-inline-expression` and full
       `test-debug-info` gates pass with `make SHELL=cmd.exe`.
+
+## RCC continuation (2026-10-28, volatile signed x64 left-shift DWARF)
+
+- [x] Verify volatile signed x64 dynamic left shifts over namespace-scope
+      globals and TLS objects, with one `ABS64`/`TLSOFF32S` relocation for
+      each source/count operand and the `DW_OP_shl` value. Cover legacy and
+      verified C++20 objects; focused `test-debug-info-inline-expression`
+      and full `test-debug-info` pass with `make SHELL=cmd.exe`.
