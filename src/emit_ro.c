@@ -12392,7 +12392,8 @@ static bool debug_inline_x64_global_expression_collect(
     uint64_t literal_bits;
     if (!mod || !value_type || !expression || !expression->type ||
         !globals || depth >= 32u ||
-        !debug_inline_integer_expression_type(expression->type)) {
+        !debug_inline_integer_expression_type_allow_volatile(
+            expression->type)) {
         return false;
     }
     if (debug_inline_integer_literal_bits(expression, &literal_bits, 0u)) {
@@ -12403,9 +12404,9 @@ static bool debug_inline_x64_global_expression_collect(
         const ModuleSymbol* symbol;
         if (source->kind != DECL_VAR || !source->var_is_global ||
             source->var_is_static_local ||
-            !source->type || !debug_inline_integer_expression_type(source->type) ||
+            !source->type ||
+            !debug_inline_integer_expression_type_allow_volatile(source->type) ||
             source->type->size <= 0 || source->type->size > 8 ||
-            source->type->is_volatile ||
             source->type->is_reference || source->type->is_atomic ||
             !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 value_type, source->type, 0u) ||
@@ -12532,8 +12533,11 @@ static bool debug_inline_x64_global_expression_collect(
         if (debug_inline_integer_literal_bits(
                 expression->binary_rhs, &shift_count, 0u)) {
             if (shift_count >= 64u) return false;
-        } else if (!debug_inline_integer_expression_type(
-                       expression->binary_rhs->type) ||
+        } else if ((!debug_inline_integer_expression_type(
+                        expression->binary_rhs->type) &&
+                    !(expression->binary_rhs->kind == EXPR_IDENT &&
+                      debug_inline_integer_expression_type_allow_volatile(
+                          expression->binary_rhs->type))) ||
                    expression->binary_rhs->type->size <= 0 ||
                    expression->binary_rhs->type->size > 8) {
             return false;

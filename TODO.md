@@ -11313,3 +11313,12 @@ remains a separate open item.
       in C++20 legacy and verified objects; focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass
       under WSL2 Ubuntu-24.04.
+
+## RCC continuation (2026-10-28, signed volatile x64 global shift DWARF)
+
+- [x] Emit signed x64 computed inline-parameter expressions that read
+      volatile namespace-scope source/count globals. Verify exactly one
+      `ABS64` relocation per operand and the negative arithmetic-right-shift
+      result in legacy and verified C++20 objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` gates pass
+      with `make SHELL=cmd.exe`.
