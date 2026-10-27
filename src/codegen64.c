@@ -12670,6 +12670,8 @@ static bool codegen64_asm_emit_test_xor(Module* mod, const char* text,
     int destination;
     int source_width;
     int destination_width;
+    int expected_width = 0;
+    char width_suffix = 0;
     if (length <= mnemonic_length ||
         strncmp(text, mnemonic, mnemonic_length) != 0 ||
         (text[mnemonic_length] != ' ' && text[mnemonic_length] != '\t')) {
@@ -12701,6 +12703,24 @@ static bool codegen64_asm_emit_test_xor(Module* mod, const char* text,
                                              second_length, &destination,
                                              &destination_width) ||
         source_width != destination_width) return false;
+    if (strncmp(mnemonic, "test", 4u) == 0 && mnemonic_length == 5u) {
+        width_suffix = mnemonic[4];
+    } else if (strncmp(mnemonic, "xor", 3u) == 0 &&
+               mnemonic_length == 4u) {
+        width_suffix = mnemonic[3];
+    }
+    if (width_suffix) {
+        expected_width = width_suffix == 'b' ? 1 :
+                         width_suffix == 'w' ? 2 :
+                         width_suffix == 'l' ? 4 :
+                         width_suffix == 'q' ? 8 : 0;
+        if (expected_width == 0 || source_width != expected_width) return false;
+    }
+    if (source_width == 1) {
+        --opcode;
+    } else if (source_width == 2) {
+        emit_byte(mod, 0x66);
+    }
     emit_rex(mod, source_width == 8, source, 0, destination);
     emit_byte(mod, opcode);
     emit_byte(mod, modrm64(3, source, destination));
@@ -12922,13 +12942,26 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
     if (codegen64_asm_emit_mov(mod, text, length)) return true;
     if (codegen64_asm_emit_lea(mod, text, length)) return true;
     if (codegen64_asm_emit_test_xor(mod, text, length, "test", 0x85) ||
-        codegen64_asm_emit_test_xor(mod, text, length, "xor", 0x31)) {
+        codegen64_asm_emit_test_xor(mod, text, length, "testb", 0x85) ||
+        codegen64_asm_emit_test_xor(mod, text, length, "testw", 0x85) ||
+        codegen64_asm_emit_test_xor(mod, text, length, "testl", 0x85) ||
+        codegen64_asm_emit_test_xor(mod, text, length, "testq", 0x85) ||
+        codegen64_asm_emit_test_xor(mod, text, length, "xor", 0x31) ||
+        codegen64_asm_emit_test_xor(mod, text, length, "xorb", 0x31) ||
+        codegen64_asm_emit_test_xor(mod, text, length, "xorw", 0x31) ||
+        codegen64_asm_emit_test_xor(mod, text, length, "xorl", 0x31) ||
+        codegen64_asm_emit_test_xor(mod, text, length, "xorq", 0x31)) {
         return true;
     }
     if (codegen64_asm_emit_indirect_jump(mod, text, length)) return true;
     if (codegen64_asm_no_operands(text, length, "syscall")) {
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x05);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "ud2")) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x0B);
         return true;
     }
     if (codegen64_asm_parse_int(text, length, &immediate)) {
@@ -13138,10 +13171,12 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
             strcmp(clobber->reg, "bx") == 0;
     }
 
-    expanded_template = codegen64_asm_expand_template(
-        stmt->asm_template ? stmt->asm_template : "",
-        template_registers, immediate_values, immediate_flags,
-        template_count, stmt->loc);
+    expanded_template = stmt->asm_basic
+        ? rcc_strdup(stmt->asm_template ? stmt->asm_template : "")
+        : codegen64_asm_expand_template(
+              stmt->asm_template ? stmt->asm_template : "",
+              template_registers, immediate_values, immediate_flags,
+              template_count, stmt->loc);
     if (!expanded_template) {
         rcc_free(immediate_flags);
         rcc_free(immediate_values);

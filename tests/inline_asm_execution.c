@@ -9,6 +9,14 @@ int asm_fixed_register_roundtrip(int value, int distraction)
     return result;
 }
 
+int asm_basic_percent_register(int value)
+{
+    /* A basic GNU asm has no operand sections: percent-prefixed register
+     * names are literal assembler syntax, not extended-asm placeholders. */
+    __asm__ __volatile__("movl %esp, %esp");
+    return value;
+}
+
 int asm_read_write_accumulator(int value)
 {
     __asm__ __volatile__("nop" : "+a"(value));
@@ -225,12 +233,12 @@ int* asm_base_memory_lea(int* base)
 
 void asm_esp_memory_move(void)
 {
-    __asm__ __volatile__("mov (%%esp), %%eax");
+    __asm__ __volatile__("mov (%esp), %eax");
 }
 
 void asm_ebp_memory_move(void)
 {
-    __asm__ __volatile__("mov (%%ebp), %%eax");
+    __asm__ __volatile__("mov (%ebp), %eax");
 }
 
 int asm_x86_xor_test(int value, int other)
@@ -247,7 +255,30 @@ void asm_x86_indirect_jump(void (*target)(void))
 
 void asm_x86_push_pop(void)
 {
-    __asm__ __volatile__("pushl %%eax\n\tpopl %%eax");
+    __asm__ __volatile__("pushl %eax\n\tpopl %eax");
+}
+
+void asm_i686_call_target(void)
+{
+}
+
+/* Compile-only coverage for the real instruction forms used by i386
+ * ucontext save/restore and its return trampoline.  The encoding test checks
+ * these bytes; this function must never be invoked because it ends in UD2. */
+void asm_i686_ucontext_encoder(void)
+{
+    __asm__ __volatile__(
+        "movl $0, 20(%eax)\n\t"
+        "addl $8, %esp\n\t"
+        "subl $4, %edx\n\t"
+        "andl $0xcd5, %ecx\n\t"
+        "orl $0x202, %ecx\n\t"
+        "xorl %eax, %eax\n\t"
+        "leal 12(%esp), %edx\n\t"
+        "fxsave (%edx)\n\t"
+        "fxrstor (%edx)\n\t"
+        "call asm_i686_call_target\n\t"
+        "ud2\n\t");
 }
 
 int asm_i686_memory_branch_sequence(int* slot, int value)
@@ -310,6 +341,18 @@ void asm_i686_rep_stosl(unsigned* destination, unsigned value,
 #endif
 
 #if defined(__x86_64__)
+/* Compile-only coverage for the suffixed XOR forms and UD2 used by the
+ * x86_64 libc context and signal trampolines. This function is never called. */
+void asm_x64_ucontext_encoder(void)
+{
+    __asm__ __volatile__(
+        "xorb %al, %al\n\t"
+        "xorw %ax, %ax\n\t"
+        "xorl %eax, %eax\n\t"
+        "xorq %rax, %rax\n\t"
+        "ud2\n\t");
+}
+
 long long asm_x64_q_modifier(long long value)
 {
     long long result;

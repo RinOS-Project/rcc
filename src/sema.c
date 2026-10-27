@@ -2859,7 +2859,7 @@ static void sema_asm_stmt(Stmt* stmt) {
     }
     total_count = output_count + input_count;
     cursor = stmt->asm_template ? stmt->asm_template : "";
-    while (*cursor) {
+    while (!stmt->asm_basic && *cursor) {
         if (*cursor != '%') {
             ++cursor;
             continue;

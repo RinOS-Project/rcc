@@ -64,6 +64,7 @@ int main(int argc, char** argv)
     size_t page_size;
     size_t mapping_size;
     binary_function roundtrip;
+    unary_function basic_percent_register;
     binary_function earlyclobber;
     binary_function earlyclobber_avoids_fixed;
     binary_function earlyclobber_read_write;
@@ -140,6 +141,8 @@ int main(int argc, char** argv)
 #endif
 
     LOAD_FUNCTION(roundtrip, object, mapping, "asm_fixed_register_roundtrip");
+    LOAD_FUNCTION(basic_percent_register, object, mapping,
+                  "asm_basic_percent_register");
     LOAD_FUNCTION(earlyclobber, object, mapping,
                   "asm_earlyclobber_generic");
     LOAD_FUNCTION(earlyclobber_avoids_fixed, object, mapping,
@@ -175,6 +178,7 @@ int main(int argc, char** argv)
                   "asm_gnu_register_variable_r10");
 #endif
     assert(roundtrip(37, 91) == 37);
+    assert(basic_percent_register(43) == 43);
     assert(earlyclobber(37, 91) == 91);
     assert(earlyclobber_avoids_fixed(37, 91) == 91);
     assert(earlyclobber_read_write(37, 91) == 91);

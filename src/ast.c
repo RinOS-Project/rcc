@@ -1555,7 +1555,8 @@ Stmt* stmt_null(SourceLoc loc) {
 }
 
 Stmt* stmt_asm(const char* templ, AsmOperand* outputs, AsmOperand* inputs,
-               AsmClobber* clobbers, bool is_volatile, SourceLoc loc) {
+               AsmClobber* clobbers, bool is_volatile, bool is_basic,
+               SourceLoc loc) {
     Stmt* s = rcc_alloc(sizeof(Stmt));
     s->kind = STMT_ASM;
     s->loc = loc;
@@ -1563,7 +1564,8 @@ Stmt* stmt_asm(const char* templ, AsmOperand* outputs, AsmOperand* inputs,
     s->asm_outputs = outputs;
     s->asm_inputs = inputs;
     s->asm_clobbers = clobbers;
-    s->asm_volatile = is_volatile;
+    s->asm_volatile = is_volatile || is_basic;
+    s->asm_basic = is_basic;
     return s;
 }
 

@@ -5733,6 +5733,7 @@ static Stmt* parse_statement(void) {
     /* Inline assembly: asm [volatile] ( "template" [: outputs [: inputs [: clobbers]]] ) ; */
     if (match(TOK_ASM)) {
         bool is_volatile = false;
+        bool is_basic = true;
         if (match(TOK___VOLATILE__) || match(TOK_VOLATILE)) {
             is_volatile = true;
         }
@@ -5752,6 +5753,7 @@ static Stmt* parse_statement(void) {
          * the input separator were written without whitespace. */
         bool compact_empty_outputs = match(TOK_SCOPE);
         if (compact_empty_outputs || match(TOK_COLON)) {
+            is_basic = false;
             AsmOperand** out_tail = &outputs;
             while (!compact_empty_outputs && check(TOK_STRING_LIT)) {
                 Token* constraint = advance();
@@ -5799,7 +5801,8 @@ static Stmt* parse_statement(void) {
 
         expect(TOK_RPAREN, ")");
         expect(TOK_SEMICOLON, ";");
-        return stmt_asm(templ, outputs, inputs, clobbers, is_volatile, loc);
+        return stmt_asm(templ, outputs, inputs, clobbers, is_volatile,
+                        is_basic, loc);
     }
 
     /* __extension__ - just skip it */

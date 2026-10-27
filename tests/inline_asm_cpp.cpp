@@ -7,6 +7,12 @@ extern "C" int asm_cpp_memory_input_move(int value)
 }
 #endif
 
+extern "C" int asm_cpp_basic_percent_register(int value)
+{
+    asm volatile("movl %esp, %esp");
+    return value;
+}
+
 extern "C" int asm_cpp_placeholder_move(int value)
 {
     int result;

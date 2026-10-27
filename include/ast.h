@@ -1252,6 +1252,7 @@ struct Stmt {
             AsmOperand* asm_inputs;     /* Input operands */
             AsmClobber* asm_clobbers;   /* Clobbered registers */
             bool asm_volatile;          /* __volatile__ flag */
+            bool asm_basic;             /* No GNU operand/clobber sections */
         };
 
         /* STMT_TRY */
@@ -1285,7 +1286,8 @@ Stmt* stmt_label(const char* name, Stmt* stmt, SourceLoc loc);
 Stmt* stmt_decl(Decl* decl, SourceLoc loc);
 Stmt* stmt_null(SourceLoc loc);
 Stmt* stmt_asm(const char* templ, AsmOperand* outputs, AsmOperand* inputs,
-               AsmClobber* clobbers, bool is_volatile, SourceLoc loc);
+               AsmClobber* clobbers, bool is_volatile, bool is_basic,
+               SourceLoc loc);
 Stmt* stmt_try(Stmt* body, CxxCatch* catches, SourceLoc loc);
 Stmt* stmt_throw(Expr* expression, SourceLoc loc);
 

@@ -15732,10 +15732,16 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
         return false;
     }
 
-    /* AT&T's movl is the 32-bit spelling of mov.  Keep the i686 encoder's
-     * operand checks shared so register, stack, and base+displacement forms
-     * have the same validated semantics. */
+    /* Normalize AT&T's i386 32-bit suffixes to the validated operand
+     * encoders below. */
     if (strcmp(mnemonic, "movl") == 0) mnemonic = "mov";
+    else if (strcmp(mnemonic, "leal") == 0) mnemonic = "lea";
+    else if (strcmp(mnemonic, "addl") == 0) mnemonic = "add";
+    else if (strcmp(mnemonic, "subl") == 0) mnemonic = "sub";
+    else if (strcmp(mnemonic, "andl") == 0) mnemonic = "and";
+    else if (strcmp(mnemonic, "orl") == 0) mnemonic = "or";
+    else if (strcmp(mnemonic, "xorl") == 0) mnemonic = "xor";
+    else if (strcmp(mnemonic, "testl") == 0) mnemonic = "test";
 
     if (strcmp(mnemonic, "inb") == 0 || strcmp(mnemonic, "inw") == 0 ||
         strcmp(mnemonic, "inl") == 0) {
@@ -15817,6 +15823,14 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
                 asm_emit_x86_memory_modrm(mod, source, base, displacement);
                 return true;
             }
+            if (g_opts.target_arch == ARCH_X86 &&
+                asm_parse_immediate_width(op1, 4, &immediate_value) &&
+                asm_parse_x86_memory(op2, &base, &displacement)) {
+                emit_byte(mod, 0xC7); /* mov r/m32, imm32 */
+                asm_emit_x86_memory_modrm(mod, 0, base, displacement);
+                emit_dword(mod, (uint32_t)immediate_value);
+                return true;
+            }
         }
         if (asm_parse_register_width(op2, &destination,
                                      &destination_width) &&
@@ -15864,6 +15878,56 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
         asm_emit_x86_memory_modrm(mod, destination, base, displacement);
         return true;
     }
+    if (g_opts.target_arch == ARCH_X86 &&
+        (strcmp(mnemonic, "add") == 0 || strcmp(mnemonic, "sub") == 0 ||
+         strcmp(mnemonic, "and") == 0 || strcmp(mnemonic, "or") == 0)) {
+        int extension = strcmp(mnemonic, "add") == 0 ? 0
+            : (strcmp(mnemonic, "or") == 0 ? 1
+               : (strcmp(mnemonic, "and") == 0 ? 4 : 5));
+        uint8_t register_opcode = strcmp(mnemonic, "add") == 0 ? 0x01
+            : (strcmp(mnemonic, "or") == 0 ? 0x09
+               : (strcmp(mnemonic, "and") == 0 ? 0x21 : 0x29));
+        int destination;
+        int destination_width;
+        int source;
+        int source_width;
+        int base;
+        int32_t displacement;
+        uint64_t immediate_value;
+        if (asm_parse_immediate_width(op1, 4, &immediate_value)) {
+            if (asm_parse_register_width(op2, &destination,
+                                         &destination_width) &&
+                destination_width == 4) {
+                emit_byte(mod, 0x81); /* ALU r/m32, imm32 */
+                emit_byte(mod, modrm(3, extension, destination));
+                emit_dword(mod, (uint32_t)immediate_value);
+                return true;
+            }
+            if (asm_parse_x86_memory(op2, &base, &displacement)) {
+                emit_byte(mod, 0x81); /* ALU r/m32, imm32 */
+                asm_emit_x86_memory_modrm(mod, extension, base,
+                                          displacement);
+                emit_dword(mod, (uint32_t)immediate_value);
+                return true;
+            }
+            return false;
+        }
+        if (!asm_parse_register_width(op1, &source, &source_width) ||
+            source_width != 4) return false;
+        if (asm_parse_register_width(op2, &destination,
+                                     &destination_width) &&
+            destination_width == 4) {
+            emit_byte(mod, register_opcode);
+            emit_byte(mod, modrm(3, source, destination));
+            return true;
+        }
+        if (asm_parse_x86_memory(op2, &base, &displacement)) {
+            emit_byte(mod, register_opcode);
+            asm_emit_x86_memory_modrm(mod, source, base, displacement);
+            return true;
+        }
+        return false;
+    }
     if (strcmp(mnemonic, "xor") == 0 || strcmp(mnemonic, "test") == 0) {
         int source;
         int destination;
@@ -15875,6 +15939,50 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
             source_width != 4 || destination_width != 4) return false;
         emit_byte(mod, strcmp(mnemonic, "xor") == 0 ? 0x31 : 0x85);
         emit_byte(mod, modrm(3, source, destination));
+        return true;
+    }
+    if (g_opts.target_arch == ARCH_X86 &&
+        (strcmp(mnemonic, "fxsave") == 0 ||
+         strcmp(mnemonic, "fxrstor") == 0)) {
+        int base;
+        int32_t displacement;
+        if (op2 || !asm_parse_x86_memory(op1, &base, &displacement)) {
+            return false;
+        }
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xAE);
+        asm_emit_x86_memory_modrm(mod,
+                                  strcmp(mnemonic, "fxsave") == 0 ? 0 : 1,
+                                  base, displacement);
+        return true;
+    }
+    if (g_opts.target_arch == ARCH_X86 && strcmp(mnemonic, "call") == 0) {
+        int destination;
+        int width;
+        if (op2 || !op1) return false;
+        if (op1[0] == '*' &&
+            asm_parse_register_width(op1 + 1, &destination, &width) &&
+            width == 4) {
+            emit_byte(mod, 0xFF);
+            emit_byte(mod, modrm(3, 2, destination)); /* call r/m32 */
+            return true;
+        }
+        if (asm_parse_register_width(op1, &destination, &width)) return false;
+        for (const char* cursor = op1; *cursor; ++cursor) {
+            if (!((*cursor >= 'a' && *cursor <= 'z') ||
+                  (*cursor >= 'A' && *cursor <= 'Z') ||
+                  (*cursor >= '0' && *cursor <= '9') ||
+                  *cursor == '_' || *cursor == '.' || *cursor == '$')) {
+                return false;
+            }
+        }
+        if (!((*op1 >= 'a' && *op1 <= 'z') ||
+              (*op1 >= 'A' && *op1 <= 'Z') || *op1 == '_' ||
+              *op1 == '.' || *op1 == '$')) return false;
+        emit_byte(mod, 0xE8);
+        uint32_t displacement_offset = (uint32_t)code_offset(mod);
+        emit_dword(mod, 0);
+        add_func_call_ref(rcc_intern(op1), displacement_offset);
         return true;
     }
     if (g_opts.target_arch == ARCH_X86 &&
@@ -15911,6 +16019,12 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
     else if (strcmp(mnemonic, "int3") == 0) {
         if (!asm_no_operands(op1, op2)) return false;
         emit_byte(mod, 0xCC);
+        return true;
+    }
+    else if (strcmp(mnemonic, "ud2") == 0) {
+        if (!asm_no_operands(op1, op2)) return false;
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x0B);
         return true;
     }
     else if (strcmp(mnemonic, "syscall") == 0) {
@@ -16329,10 +16443,11 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     /* Parse and emit assembly template.  Numeric placeholders expand to the
      * assigned fixed register or to the validated immediate spelling; the
      * instruction encoder still validates the resulting instruction. */
-    char* tmpl_copy = asm_expand_template(tmpl, operand_registers,
-                                           memory_offsets,
-                                           immediate_values, immediate_flags,
-                                           total_operands, stmt->loc);
+    char* tmpl_copy = stmt->asm_basic
+        ? rcc_strdup(tmpl ? tmpl : "")
+        : asm_expand_template(tmpl, operand_registers, memory_offsets,
+                              immediate_values, immediate_flags,
+                              total_operands, stmt->loc);
     if (!tmpl_copy) {
         if (preserve_edi) emit_pop_reg(mod, EDI);
         if (preserve_esi) emit_pop_reg(mod, ESI);
