@@ -8755,7 +8755,9 @@ remains a separate open item.
       qualification conversion from `T Owner::*` to `const T Owner::*`. Verify
       dependent non-type template argument selection against GCC C++20 and the
       i686/AMD64 generation plus execution gate.
-- [ ] Non-null member-function-pointer values, further multilevel
+- [ ] Global constexpr member-function-pointer object evaluation and static
+      initialization, member-function-pointer owner/signature conversions,
+      invoking a member function through `.*` or `->*`, further multilevel
       data-member-pointer owner-conversion paths, other member-pointee
       cv-qualification combinations, and additional pointer conversions
       remain open.
@@ -8787,8 +8789,20 @@ remains a separate open item.
       constexpr call. GCC C++20, i686/AMD64 generation, AMD64 execution, the
       focused overload gate, and the full POSIX `test-cxx` aggregate pass.
 - [ ] Further multilevel constexpr owner-conversion paths, additional
-      member-pointee cv combinations, non-null member-function-pointer
-      constants, and broader pointer conversions remain open.
+      member-pointee cv combinations, and broader pointer conversions remain
+      open.
+
+## RCC continuation (2026-10-27, bounded constexpr member-function-pointer values)
+
+- [x] Preserve a non-null pointer-to-member-function designator with an exact
+      owner and signature through a dependent constexpr call, scalar parameter,
+      local copy, and comparison with `nullptr`. Use the result to select a
+      dependent non-type template argument; also verify the null case. The GCC
+      C++20 oracle, focused overload gate (including i686/AMD64 generation),
+      and full POSIX `test-cxx` aggregate pass.
+- [ ] Global constexpr member-function-pointer object evaluation/static
+      initialization, owner/signature conversions, and member-function
+      invocation through `.*` or `->*` remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

@@ -3,11 +3,14 @@ constexpr int dependent_pointer_constexpr_values[] = {5, 11};
 
 struct DependentPointerBase {
     int value;
+
+    constexpr int add(int amount) const {
+        return value + amount;
+    }
 };
 
 constexpr int DependentPointerBase::* dependent_pointer_constexpr_member =
     &DependentPointerBase::value;
-
 struct DependentPointerDerived : DependentPointerBase {
     int tail;
 };
@@ -105,6 +108,12 @@ struct DependentPointerConstexprOwner {
         return object.*selected;
     }
 
+    static constexpr int has_member_function_pointer(
+        int (DependentPointerBase::* member)(int) const) {
+        int (DependentPointerBase::* selected)(int) const = member;
+        return selected != nullptr ? 419 : 420;
+    }
+
     static constexpr int logical_and(const int* pointer) {
         return pointer && 1;
     }
@@ -142,6 +151,17 @@ static_assert(DependentPointerConstexprOwner::read_member_pointer(
 static_assert(DependentPointerConstexprOwner::read_const_member_pointer(
     ::dependent_pointer_constexpr_member,
     ::dependent_member_pointer_constexpr_object) == 43);
+static_assert(DependentPointerConstexprOwner::has_member_function_pointer(
+    &DependentPointerBase::add) == 419);
+static_assert(DependentPointerConstexprOwner::has_member_function_pointer(
+    nullptr) == 420);
+template<typename Owner>
+using DependentMemberFunctionPointerCall = DependentPointerConstexprBox<
+    Owner::has_member_function_pointer(&DependentPointerBase::add), Owner>;
+static_assert(sizeof(DependentMemberFunctionPointerCall<
+                  DependentPointerConstexprOwner>) ==
+              sizeof(DependentPointerConstexprBox<
+                  419, DependentPointerConstexprOwner>));
 static_assert(DependentPointerConstexprOwner::value(nullptr) == 0);
 static_assert(DependentPointerConstexprOwner::logical_and(
     &::dependent_pointer_constexpr_target) == 1);

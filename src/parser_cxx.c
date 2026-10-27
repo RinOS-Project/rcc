@@ -1146,6 +1146,32 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
             value->cxx_member_pointer_form_designating_class =
                 owner_class;
             value->cxx_member_function_pointer_method = method;
+            {
+                Type* signature = ast_arena_alloc(sizeof(*signature));
+                TypeParam* implicit_object = function_decl->type->params;
+                Type* member_function_pointer_type;
+                if (!signature || !implicit_object ||
+                    implicit_object->type !=
+                        function_decl->func_this_param->type ||
+                    !function_decl->func_this_param->type->base) {
+                    rcc_error(loc,
+                              "pointer-to-member function has incomplete signature metadata");
+                    return value;
+                }
+                *signature = *function_decl->type;
+                signature->params = implicit_object->next;
+                signature->is_const =
+                    function_decl->func_this_param->type->base->is_const;
+                signature->is_volatile =
+                    function_decl->func_this_param->type->base->is_volatile;
+                member_function_pointer_type = type_ptr(signature);
+                type_cxx_member_pointer(
+                    member_function_pointer_type,
+                    function_decl->func_method_owner
+                        ? function_decl->func_method_owner
+                        : owner_class->type);
+                value->type = member_function_pointer_type;
+            }
             return value;
         }
         return NULL;
@@ -3870,7 +3896,7 @@ static bool cxx_dependent_integer_call_constant_argument_supported(
         return rcc_sema_eval_constexpr_pointer_constant(argument);
     }
     if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
-        type->base && type->base->kind != TYPE_FUNC) {
+        type->base) {
         if (!argument->type) argument->type = type;
         return rcc_sema_eval_constexpr_member_pointer_constant(argument);
     }
@@ -3887,7 +3913,7 @@ static bool cxx_dependent_integer_call_argument_type_supported(Type* type) {
         (type_is_integer(type) || type_is_floating(type) ||
          (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) ||
          (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
-          type->base && type->base->kind != TYPE_FUNC) ||
+          type->base) ||
          type->kind == TYPE_NULLPTR ||
          ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
           ast_cxx_is_aggregate(type) && type->size > 0 &&
@@ -3905,7 +3931,7 @@ static bool cxx_dependent_integer_call_parameter_supported(Type* type) {
         return true;
     }
     if (type->kind == TYPE_PTR && type->cxx_is_member_pointer) {
-        return type->base && type->base->kind != TYPE_FUNC;
+        return type->base != NULL;
     }
     if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
         return ast_cxx_is_aggregate(type) && type->size > 0 &&
