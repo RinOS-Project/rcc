@@ -11102,6 +11102,11 @@ remains a separate open item.
       partial products, bit patterns, and expression results in normal and
       verified C++20 objects. The focused
       `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
-- [ ] Unsigned static TLS arithmetic, non-TLS static storage,
-      volatile/reference/atomic operands, and broader optimized multi-piece
-      locations remain open.
+- [x] Extend the same six i686 arithmetic expressions to unsigned block-scope
+      `static thread_local` operands. Verify module-scoped TLS relocations,
+      exact relocation counts, initialized storage, wraparound, bitwise
+      patterns, multiplication, and expression results in normal and verified
+      C++20 objects. The focused `test-debug-info-inline-expression` gate
+      passes under WSL2 Ubuntu-24.04.
+- [ ] Non-TLS static storage, volatile/reference/atomic operands, and broader
+      optimized multi-piece locations remain open.
