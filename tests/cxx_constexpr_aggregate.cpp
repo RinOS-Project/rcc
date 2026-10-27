@@ -58,6 +58,16 @@ struct ConstructorNoBaseConstexpr {
         : value(initial) {}
 };
 
+struct ConstructorBodyInitializesOmitted {
+    int written_by_body;
+    int initialized;
+
+    constexpr explicit ConstructorBodyInitializesOmitted(int initial)
+        : initialized(initial) {
+        this->written_by_body = initial + 1;
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -336,6 +346,8 @@ constexpr ConstructorBodyDerived constructor_body_negative_value{
     23, 20, -3};
 constexpr ConstructorDefaultedSubobjects constructor_defaulted_subobjects{31};
 constexpr ConstructorNoBaseConstexpr constructor_no_base{41};
+constexpr ConstructorBodyInitializesOmitted
+    constructor_body_initializes_omitted{43};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -712,6 +724,7 @@ int main(void) {
     ConstructorDefaultInitializedScalars default_initialized{17};
     default_initialized.before = 3;
     default_initialized.after = 5;
+    ConstructorBodyInitializesOmitted runtime_body_initializes_omitted{47};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -826,6 +839,11 @@ int main(void) {
                    constructor_defaulted_subobjects.value == 31 &&
                    constructor_defaulted_subobjects.default_member == 37 &&
                    constructor_no_base.value == 41 &&
+                     constructor_body_initializes_omitted.written_by_body ==
+                         44 &&
+                     constructor_body_initializes_omitted.initialized == 43 &&
+                     runtime_body_initializes_omitted.written_by_body == 48 &&
+                     runtime_body_initializes_omitted.initialized == 47 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&

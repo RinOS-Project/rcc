@@ -8991,12 +8991,21 @@ remains a separate open item.
       state indeterminate through each subobject shape with a targeted
       diagnostic; verify exact diagnostic counts and GCC agreement on i686 and
       AMD64, plus runtime construction on both targets.
-- [ ] Constructor bodies beyond the covered expressions/branches, mutable
-      references to non-trivial union alternatives or untested lifetime
-      transitions, other pointer-reference forms not covered by the scalar- and
-      aggregate-returning evaluators, indeterminate-state analysis beyond the
-      empty constexpr-constructor path and trivial non-union subobjects, and
-      complete virtual-base constructor evaluation remain open.
+- [x] Extend indeterminate-scalar analysis to the bounded straight-line
+      constexpr-constructor body profile consisting only of direct
+      `this->field = RHS` assignments whose RHS does not read the current
+      object. Diagnose an omitted scalar not written by that body, and
+      materialize/evaluate an omitted scalar that the body initializes.
+      Preserve the unsupported-expression path for omitted nested aggregates.
+      Verify GCC C++20, exact diagnostic counts, i686/AMD64 generation and
+      runtime behavior, and the full POSIX `test-cxx` suite.
+- [ ] Constructor bodies outside the recognized straight-line assignments,
+      omitted nested subobject state when a body is present, mutable references
+      to non-trivial union alternatives or untested lifetime transitions,
+      other pointer-reference forms not covered by the scalar- and
+      aggregate-returning evaluators, indeterminate-state analysis for other
+      subobject forms, and complete virtual-base constructor evaluation remain
+      open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
