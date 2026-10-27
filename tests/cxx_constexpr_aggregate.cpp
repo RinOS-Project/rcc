@@ -115,6 +115,15 @@ struct ConstructorForwardedMutableAggregateReference {
         : nested(source) {}
 };
 
+struct ConstructorMutableArrayReference {
+    int observed;
+
+    constexpr explicit ConstructorMutableArrayReference(int (&source)[2])
+        : observed(source[0]) {
+        source[0] += 2;
+    }
+};
+
 struct ConstructorPointerDereference : ConstructorDefaultBase {
     int value;
 
@@ -158,6 +167,11 @@ constexpr int forward_mutable_aggregate_reference(Pair& value) {
     return add_through_mutable_aggregate_reference(value);
 }
 
+constexpr int add_through_mutable_array_reference(int (&values)[2]) {
+    values[0] += 3;
+    return values[0] * 100 + values[1];
+}
+
 constexpr Pair make_pair_after_mutating_scalar_reference(int& value) {
     value += 2;
     return Pair{value, value + 1};
@@ -166,6 +180,11 @@ constexpr Pair make_pair_after_mutating_scalar_reference(int& value) {
 constexpr Pair make_pair_after_mutating_aggregate_reference(Pair& value) {
     value.first += 2;
     return Pair{value.first, value.second};
+}
+
+constexpr Pair make_pair_after_mutating_array_reference(int (&values)[2]) {
+    values[1] += 4;
+    return Pair{values[0], values[1]};
 }
 
 constexpr int assign_through_mutable_aggregate_references(Pair& target,
@@ -313,6 +332,15 @@ constexpr int mutate_aggregate_through_forwarded_constructor_reference() {
 constexpr int forwarded_aggregate_reference_constructor_result =
     mutate_aggregate_through_forwarded_constructor_reference();
 
+constexpr int mutate_array_through_constructor_reference() {
+    int source[2] = {3, 8};
+    ConstructorMutableArrayReference alias{source};
+    return source[0] * 100 + alias.observed;
+}
+
+constexpr int array_reference_constructor_result =
+    mutate_array_through_constructor_reference();
+
 constexpr int mutate_local_scalar_through_constexpr_function() {
     int source = 4;
     int result = forward_mutable_scalar_reference(source);
@@ -340,6 +368,15 @@ constexpr int mutate_aggregate_through_constexpr_function() {
 constexpr int aggregate_object_reference_function_result =
     mutate_aggregate_through_constexpr_function();
 
+constexpr int mutate_array_through_constexpr_function() {
+    int source[2] = {4, 8};
+    int result = add_through_mutable_array_reference(source);
+    return source[0] * 1000 + result;
+}
+
+constexpr int array_reference_function_result =
+    mutate_array_through_constexpr_function();
+
 constexpr int mutate_scalar_through_aggregate_return_function() {
     int source = 5;
     Pair result = make_pair_after_mutating_scalar_reference(source);
@@ -357,6 +394,15 @@ constexpr int mutate_aggregate_through_aggregate_return_function() {
 
 constexpr int aggregate_return_object_reference_function_result =
     mutate_aggregate_through_aggregate_return_function();
+
+constexpr int mutate_array_through_aggregate_return_function() {
+    int source[2] = {5, 8};
+    Pair result = make_pair_after_mutating_array_reference(source);
+    return source[1] * 1000 + result.first * 10 + result.second;
+}
+
+constexpr int aggregate_return_array_reference_function_result =
+    mutate_array_through_aggregate_return_function();
 
 constexpr int assign_through_aggregate_reference_function() {
     Pair target{1, 2};
@@ -410,11 +456,14 @@ static_assert(scalar_reference_constructor_result == 1609);
 static_assert(local_scalar_reference_constructor_result == 1710);
 static_assert(forwarded_scalar_reference_constructor_result == 1811);
 static_assert(forwarded_aggregate_reference_constructor_result == 503);
+static_assert(array_reference_constructor_result == 503);
 static_assert(local_scalar_reference_function_result == 909);
 static_assert(aggregate_member_reference_function_result == 1111);
 static_assert(aggregate_object_reference_function_result == 7708);
+static_assert(array_reference_function_result == 7708);
 static_assert(aggregate_return_reference_function_result == 778);
 static_assert(aggregate_return_object_reference_function_result == 7078);
+static_assert(aggregate_return_array_reference_function_result == 12062);
 static_assert(aggregate_reference_assignment_function_result == 6710);
 static_assert(mutable_pointer_reference_function_result == 277);
 static_assert(consteval_float_value == 6.25);
@@ -438,6 +487,9 @@ int main(void) {
     Pair runtime_forwarded_aggregate_source{3, 8};
     ConstructorForwardedMutableAggregateReference
         runtime_forwarded_aggregate_alias{runtime_forwarded_aggregate_source};
+    int runtime_constructor_array_source[2] = {3, 8};
+    ConstructorMutableArrayReference runtime_constructor_array_alias{
+        runtime_constructor_array_source};
     int runtime_function_source = 4;
     int runtime_function_result =
         forward_mutable_scalar_reference(runtime_function_source);
@@ -447,6 +499,9 @@ int main(void) {
     Pair runtime_aggregate_object{4, 8};
     int runtime_aggregate_object_result =
         forward_mutable_aggregate_reference(runtime_aggregate_object);
+    int runtime_array_source[2] = {4, 8};
+    int runtime_array_result = add_through_mutable_array_reference(
+        runtime_array_source);
     int runtime_aggregate_return_source = 5;
     Pair runtime_aggregate_return_result =
         make_pair_after_mutating_scalar_reference(
@@ -455,6 +510,10 @@ int main(void) {
     Pair runtime_aggregate_return_object_result =
         make_pair_after_mutating_aggregate_reference(
             runtime_aggregate_return_object_source);
+    int runtime_aggregate_return_array_source[2] = {5, 8};
+    Pair runtime_aggregate_return_array_result =
+        make_pair_after_mutating_array_reference(
+            runtime_aggregate_return_array_source);
     Pair runtime_assignment_target{1, 2};
     Pair runtime_assignment_source{6, 9};
     int runtime_assignment_result = assign_through_mutable_aggregate_references(
@@ -502,18 +561,25 @@ int main(void) {
                    runtime_forwarded_alias.nested.observed == 11 &&
                     runtime_forwarded_aggregate_source.first == 5 &&
                     runtime_forwarded_aggregate_alias.nested.observed == 3 &&
+                    runtime_constructor_array_source[0] == 5 &&
+                    runtime_constructor_array_alias.observed == 3 &&
                    runtime_function_source == 9 &&
                    runtime_function_result == 9 &&
                    runtime_function_aggregate.first == 11 &&
                    runtime_function_aggregate_result == 11 &&
                     runtime_aggregate_object.first == 7 &&
                     runtime_aggregate_object_result == 708 &&
+                    runtime_array_source[0] == 7 &&
+                    runtime_array_result == 708 &&
                    runtime_aggregate_return_source == 7 &&
                    runtime_aggregate_return_result.first == 7 &&
                    runtime_aggregate_return_result.second == 8 &&
                     runtime_aggregate_return_object_source.first == 7 &&
                     runtime_aggregate_return_object_result.first == 7 &&
                     runtime_aggregate_return_object_result.second == 8 &&
+                    runtime_aggregate_return_array_source[1] == 12 &&
+                    runtime_aggregate_return_array_result.first == 5 &&
+                    runtime_aggregate_return_array_result.second == 12 &&
                     runtime_assignment_target.first == 6 &&
                     runtime_assignment_target.second == 10 &&
                     runtime_assignment_result == 610 &&

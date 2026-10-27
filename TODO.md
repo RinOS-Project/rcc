@@ -8961,8 +8961,13 @@ remains a separate open item.
       whole-object assignment through reference parameters. Verify compile-time
       values and caller-visible mutations against strict GCC C++20 and execute
       the focused i686/AMD64 regressions.
+- [x] Preserve mutable lvalue-reference aliases to fixed-size arrays through
+      constexpr constructors, scalar-returning functions, and aggregate-
+      returning functions. Mutate indexed elements and verify compile-time and
+      runtime caller-visible results against strict GCC C++20 and focused
+      i686/AMD64 generation and execution.
 - [ ] Constructor bodies beyond the covered expressions/branches, mutable
-      references to arrays and unions, reference forms not covered by the
+      references to unions, reference forms not covered by the
       scalar- and aggregate-returning evaluators (including other pointer-
       reference forms), indeterminate tracking for nested/array/base subobjects,
       and complete virtual-base constructor evaluation remain open.
