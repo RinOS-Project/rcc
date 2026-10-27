@@ -8746,7 +8746,11 @@ remains a separate open item.
 - [x] Evaluate a derived-object address converted to a base-class pointer
       parameter in a dependent constexpr call. GCC C++20 and the focused
       i686/AMD64 generation and AMD64 execution gate pass.
-- [ ] Member pointers and additional pointer conversions remain open.
+- [x] Convert `nullptr` to a data-member-pointer parameter and evaluate its
+      comparison with `nullptr` inside a dependent constexpr call. GCC C++20
+      and the focused i686/AMD64 generation and AMD64 execution gate pass.
+- [ ] Non-null member-pointer values/applications and additional pointer
+      conversions remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
