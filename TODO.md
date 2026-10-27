@@ -11343,3 +11343,15 @@ remains a separate open item.
       each source/count operand and the `DW_OP_shl` value. Cover legacy and
       verified C++20 objects; focused `test-debug-info-inline-expression`
       and full `test-debug-info` pass with `make SHELL=cmd.exe`.
+
+## RCC continuation (2026-10-28, frame-indirect scalar parameter DWARF)
+
+- [x] Emit inline scalar parameter values for the bounded `*identifier` case
+      where the identifier is a stable frame-resident pointer to a nonvolatile,
+      non-atomic integer. Load the pointer from its frame slot and then load the
+      pointee with target-sized `DW_OP_deref_size` operations; cover i686/x64
+      legacy and verified backends and signed boundary values. Focused
+      `test-debug-info-inline-expression` passed with `make SHELL=cmd.exe`.
+- [ ] Add negative coverage for global/TLS/static, volatile/atomic,
+      member-pointer, wider-than-address-size pointee, and indirect
+      pointer-chain cases before extending support to them.

@@ -16231,6 +16231,124 @@ typedef struct VerifyInlineIntegerExpressionCase {
     bool evaluate_full_width_unsigned;
 } VerifyInlineIntegerExpressionCase;
 
+static void verify_inline_indirect_pointer_parameter(
+    const char* path, uint16_t architecture) {
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* locations;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t call_die = UINT64_MAX;
+    uint64_t origin_die = UINT64_MAX;
+    int64_t pointer_frame_offset;
+    int64_t value_frame_offset;
+    bool has_pointer_location;
+    bool pointer_is_location_list;
+    bool has_value_location;
+    bool value_is_location_list;
+    assert(object && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    locations = objfile_get_section(object, ".debug_loc");
+    assert(info && strings && locations);
+    assert(find_variable_location(
+        info, strings, locations, "debug_inline_indirect_pointer_slot",
+        architecture, &has_pointer_location, &pointer_is_location_list,
+        &pointer_frame_offset));
+    assert(find_variable_location(
+        info, strings, locations, "debug_inline_indirect_pointer_value",
+        architecture, &has_value_location, &value_is_location_list,
+        &value_frame_offset));
+    assert(has_pointer_location && has_value_location &&
+           pointer_frame_offset != value_frame_offset);
+
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 4u + 12u <= info->size; ++die) {
+        uint32_t candidate_origin;
+        uint32_t name_offset;
+        uint64_t candidate_parameter;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        candidate_origin = read_u32(info->data, die + 1u);
+        if (candidate_origin >= info->size ||
+            info->data[candidate_origin] != 40u) continue;
+        name_offset = read_u32(info->data, candidate_origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_nonconstant_integer_parameter_inline") != 0) {
+            continue;
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == die + 1u + 4u &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name,
+                       "debug_inline_indirect_pointer_entry") == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        candidate_parameter =
+            die + 1u + 4u + address_size + 4u + 12u;
+        if (candidate_parameter + 5u > info->size ||
+            info->data[candidate_parameter] != 67u ||
+            read_u32(info->data, candidate_parameter + 1u) !=
+                candidate_origin + 27u) {
+            continue;
+        }
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+        origin_die = candidate_origin;
+    }
+    assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    {
+        uint64_t parameter_die = call_die + 1u + 4u + address_size + 4u + 12u;
+        uint64_t cursor = parameter_die + 5u;
+        uint64_t expression_size;
+        uint64_t expression_end;
+        assert(parameter_die + 5u < info->size &&
+               info->data[parameter_die] == 67u &&
+               read_u32(info->data, parameter_die + 1u) == origin_die + 27u);
+        expression_size = read_uleb(info->data, info->size, &cursor);
+        expression_end = cursor + expression_size;
+        assert(expression_end <= info->size && cursor < expression_end &&
+               info->data[cursor++] ==
+                   (architecture == ARCH_X64 ? 0x76u : 0x75u) &&
+               read_sleb(info->data, expression_end, &cursor) ==
+                   pointer_frame_offset &&
+               cursor + 4u <= expression_end &&
+               info->data[cursor++] == 0x94u &&
+               info->data[cursor++] == address_size &&
+               info->data[cursor++] == 0x94u &&
+               info->data[cursor++] == 4u);
+        verify_inline_integer_expression_normalization(
+            info->data, expression_end, &cursor, architecture, false, 4u);
+        assert(cursor + 1u == expression_end && info->data[cursor] == 0x9fu);
+
+        /* Model both loads: the pointer slot contains the pointee's frame
+           address, and the second load yields each signed 32-bit pattern. */
+        {
+            static const int32_t samples[] = {
+                0, 1, -1, INT32_MIN, INT32_MAX, -0x1234567
+            };
+            for (size_t index = 0u;
+                 index < sizeof(samples) / sizeof(samples[0]); ++index) {
+                int32_t pointee = samples[index];
+                uint32_t loaded = (uint32_t)pointee;
+                uint64_t result = architecture == ARCH_X64
+                    ? (uint64_t)(int64_t)(int32_t)loaded : loaded;
+                if (architecture == ARCH_X64) {
+                    assert((int64_t)result == (int64_t)pointee);
+                } else {
+                    assert((uint32_t)result == (uint32_t)pointee);
+                }
+            }
+        }
+    }
+    objfile_free(object);
+}
+
 static void verify_inline_integer_expression_cases(
     const char* path, uint16_t architecture) {
     static const VerifyInlineIntegerExpressionCase cases[] = {
@@ -16765,6 +16883,7 @@ static void verify_inline_integer_expression_cases(
                 (cases[index].value_size == address_size ||
                  cases[index].divisor_source_name != NULL));
     }
+    verify_inline_indirect_pointer_parameter(path, architecture);
     if (architecture == ARCH_X86) {
         verify_inline_integer_expression_parameter(
             path, architecture, "debug_nonconstant_integer_parameter_inline",

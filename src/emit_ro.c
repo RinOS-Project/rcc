@@ -5467,6 +5467,70 @@ static bool debug_build_inline_integer_truth_expression(
             output, capacity, output_size, 0x2eu); /* DW_OP_ne */
 }
 
+static bool debug_inline_parameter_indirect_local_value_expression(
+    const Module* mod, int architecture, const Expr* expression,
+    uint8_t* output, size_t capacity, size_t* output_size) {
+    const Decl* pointer_declaration;
+    const Type* pointer_type;
+    const Type* pointee_type;
+    int64_t pointer_frame_offset;
+    uint8_t pointer_address[32];
+    size_t pointer_address_size;
+    unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
+    if (!mod || !expression || !expression->unary_operand ||
+        expression->unary_operand->kind != EXPR_IDENT ||
+        !expression->unary_operand->ident_decl || !expression->type ||
+        (unsigned int)expression->type->size > address_size ||
+        !output || !output_size ||
+        expression->kind != EXPR_DEREF) {
+        return false;
+    }
+    pointer_declaration = expression->unary_operand->ident_decl;
+    pointer_type = pointer_declaration->type;
+    pointee_type = pointer_type && pointer_type->kind == TYPE_PTR
+        ? pointer_type->base : NULL;
+    if ((pointer_declaration->kind != DECL_VAR &&
+         pointer_declaration->kind != DECL_PARAM) ||
+        pointer_declaration->var_is_global ||
+        pointer_declaration->var_is_static_local ||
+        pointer_declaration->var_is_thread_local ||
+        pointer_declaration->var_is_vla || !pointer_type ||
+        pointer_type->kind != TYPE_PTR ||
+        pointer_type->cxx_is_member_pointer ||
+        pointer_type->size != (int)address_size ||
+        pointer_type->is_volatile || pointer_type->is_reference ||
+        pointer_type->is_atomic || !pointee_type ||
+        !debug_inline_integer_expression_type(pointee_type) ||
+        (unsigned int)pointee_type->size > address_size ||
+        pointee_type->is_volatile || pointee_type->is_atomic ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            pointer_type, expression->unary_operand->type, 0u) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            pointee_type, expression->type, 0u) ||
+        !debug_inline_parameter_frame_offset(
+            mod, pointer_declaration, &pointer_frame_offset)) {
+        return false;
+    }
+    pointer_address_size = debug_build_expr_breg(
+        pointer_address, architecture, pointer_frame_offset, 0u, false);
+    if (pointer_address_size == 0u || *output_size > capacity ||
+        pointer_address_size > capacity - *output_size) {
+        return false;
+    }
+    memcpy(output + *output_size, pointer_address, pointer_address_size);
+    *output_size += pointer_address_size;
+    return debug_inline_integer_expression_append_byte(
+               output, capacity, output_size, 0x94u) && /* pointer slot */
+        debug_inline_integer_expression_append_byte(
+            output, capacity, output_size, (uint8_t)address_size) &&
+        debug_inline_integer_expression_append_byte(
+            output, capacity, output_size, 0x94u) && /* pointee value */
+        debug_inline_integer_expression_append_byte(
+            output, capacity, output_size, (uint8_t)pointee_type->size) &&
+        debug_inline_integer_expression_normalize(
+            output, capacity, output_size, expression->type, architecture);
+}
+
 static bool debug_build_inline_integer_value_expression(
     const Module* mod, int architecture, const Expr* expression,
     uint8_t* output, size_t capacity, size_t* output_size,
@@ -5476,6 +5540,10 @@ static bool debug_build_inline_integer_value_expression(
     if (!mod || !expression || !output || !output_size || depth >= 32u ||
         !debug_inline_integer_expression_type(expression->type)) {
         return false;
+    }
+    if (expression->kind == EXPR_DEREF) {
+        return debug_inline_parameter_indirect_local_value_expression(
+            mod, architecture, expression, output, capacity, output_size);
     }
     if (expression->kind == EXPR_COMMA && expression->binary_rhs &&
         debug_inline_integer_expression_type(expression->binary_rhs->type) &&
@@ -10921,6 +10989,7 @@ static bool debug_inline_parameter_integer_expression(
         !expression_size ||
         (argument->expr->kind != EXPR_IDENT &&
          argument->expr->kind != EXPR_COMMA &&
+         argument->expr->kind != EXPR_DEREF &&
          argument->expr->kind != EXPR_ADD &&
          argument->expr->kind != EXPR_SUB &&
          argument->expr->kind != EXPR_MUL &&
