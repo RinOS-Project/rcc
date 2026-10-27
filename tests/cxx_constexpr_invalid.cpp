@@ -141,6 +141,26 @@ struct UninitializedConstructorLocalRead {
     }
 };
 
+struct UninitializedConstructorLocalModify {
+    int value;
+
+    constexpr explicit UninitializedConstructorLocalModify(int initial) {
+        int uninitialized;
+        uninitialized += initial;
+        this->value = uninitialized;
+    }
+};
+
+struct UninitializedConstructorLocalIncrement {
+    int value;
+
+    constexpr explicit UninitializedConstructorLocalIncrement() {
+        int uninitialized;
+        ++uninitialized;
+        this->value = uninitialized;
+    }
+};
+
 struct UninitializedBodyReadBeforeWrite {
     int source;
     int target;
@@ -168,5 +188,9 @@ constexpr UninitializedConditionalBodyRead
     invalid_uninitialized_conditional_body_read{false};
 constexpr UninitializedConstructorLocalRead
     invalid_uninitialized_constructor_local_read{};
+constexpr UninitializedConstructorLocalModify
+    invalid_uninitialized_constructor_local_modify{9};
+constexpr UninitializedConstructorLocalIncrement
+    invalid_uninitialized_constructor_local_increment{};
 constexpr UninitializedBodyReadBeforeWrite
     invalid_uninitialized_body_read_before_write{19};

@@ -9051,6 +9051,12 @@ remains a separate open item.
       initializers without allowing analysis to mutate constructor parameters
       or merging unknown branch-local writes. Verify GCC C++20,
       constexpr/runtime, i686/AMD64, and full POSIX `test-cxx`.
+- [x] Permit a default-initialized integer local in the supported constructor
+      body only when a straight-line simple assignment initializes it before
+      any read. Track this state in constexpr evaluation and initialization
+      analysis; reject read-before-write, compound assignment, and increment
+      while indeterminate. Verify GCC C++20, constexpr/runtime, i686/AMD64, and
+      full POSIX `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

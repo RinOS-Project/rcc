@@ -171,7 +171,8 @@ struct ConstructorBodyInitializedLocals {
     int doubled;
 
     constexpr explicit ConstructorBodyInitializedLocals(int initial) {
-        int adjusted = initial;
+        int adjusted;
+        adjusted = initial;
         adjusted = adjusted + 1;
         adjusted += 2;
         adjusted++;
