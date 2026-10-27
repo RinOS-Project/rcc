@@ -3,6 +3,18 @@
 この一覧は「CLIが存在する」ことと「言語・ABIが完成している」ことを区別する。
 未完項目が残る間はC17/C++20準拠やセルフホスト完了を宣言しない。
 
+## RCC continuation (2026-10-27, inherited-constructor target build)
+
+- [x] Publish the inherited-constructor member-initializer completion API in
+  `include/ast.h` and remove its GNU/Clang-only weak declaration from
+  `src/sema.c`. RinOS-target builds now compile the caller with the same real
+  parser implementation linked into both compiler images.
+- [x] Pass `make SHELL=cmd.exe test-bootstrap-stage2` (exit 0): reproducible
+  i686/x86_64 stage0 core objects and stage1 RINs, stage1 execution through
+  the host runner, and reproducible stage2 images for both targets.
+- [ ] Run the resulting compiler natively on RinOS for i686 and x86_64;
+  host-runner bootstrap does not establish target-OS execution.
+
 ## 実装状況の再監査 (2026-10-08)
 
 以下はsource、regression target、check-in済みCI workflowに基づく分類であり、

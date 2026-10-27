@@ -393,6 +393,8 @@ int rcc_parser_cxx_materialize_constructor_templates(
     int candidate_capacity, bool* constraint_unsupported);
 bool rcc_parser_cxx_normalize_constructor_body(
     struct CxxClass* cls, struct CxxConstructorInfo* constructor);
+bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
+    Type* owner_type, struct CxxConstructorInfo* constructor);
 Expr* rcc_parse_cxx_concept_expression(void);
 Expr* rcc_parse_cxx_dependent_member(void);
 Expr* rcc_parse_cxx_qualified_template_member(void);

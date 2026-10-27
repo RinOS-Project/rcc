@@ -51,8 +51,6 @@ extern int rcc_parser_cxx_materialize_constructor_templates(
     Type*, ExprList*, bool, TypeMethod**, int, bool*) __attribute__((weak));
 extern bool rcc_parser_cxx_has_constructor_template(
     Type*) __attribute__((weak));
-extern bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
-    Type*, CxxConstructorInfo*) __attribute__((weak));
 extern bool rcc_parser_cxx_normalize_constructor_body(
     CxxClass*, CxxConstructorInfo*) __attribute__((weak));
 extern Type* rcc_parser_cxx_expression_type(Expr*) __attribute__((weak));
@@ -13860,13 +13858,8 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
             }
         }
         if (best->is_inherited &&
-            (!rcc_parser_cxx_complete_inherited_constructor_member_initializers ||
-             !rcc_parser_cxx_complete_inherited_constructor_member_initializers(
-                 type, best))) {
-            if (!rcc_parser_cxx_complete_inherited_constructor_member_initializers) {
-                rcc_error(declaration->loc,
-                          "inherited constructor template member initialization is unavailable");
-            }
+            !rcc_parser_cxx_complete_inherited_constructor_member_initializers(
+                type, best)) {
             return NULL;
         }
     }
