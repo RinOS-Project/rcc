@@ -199,6 +199,12 @@ constexpr int invoke_virtual_member_function_pointer_arrow_from_local(
         ::dependent_constexpr_virtual_member_function, &object, amount);
 }
 
+constexpr int invoke_virtual_member_function_pointer_arrow_from_value(
+    DependentConstexprVirtualDerived object, int amount) {
+    return invoke_virtual_member_function_pointer_arrow(
+        ::dependent_constexpr_virtual_member_function, &object, amount);
+}
+
 static_assert(DependentPointerConstexprOwner::value(
     &::dependent_pointer_constexpr_target) == 17);
 static_assert(DependentPointerConstexprOwner::value_void(
@@ -235,6 +241,8 @@ static_assert(invoke_virtual_member_function_pointer_arrow(
     &::dependent_constexpr_virtual_object, 25) == 142);
 static_assert(invoke_virtual_member_function_pointer_arrow_from_local(25) ==
               142);
+static_assert(invoke_virtual_member_function_pointer_arrow_from_value(
+                  DependentConstexprVirtualDerived{17}, 25) == 142);
 template<typename Owner>
 using DependentMemberFunctionPointerCall = DependentPointerConstexprBox<
     Owner::has_member_function_pointer(&DependentPointerBase::add), Owner>;
