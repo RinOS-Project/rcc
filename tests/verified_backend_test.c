@@ -4745,6 +4745,7 @@ static void verify_cxx_throwing_temporary_object(
     ObjSymbol* throwing_base_constructor_symbol;
     ObjSymbol* temporary_cleanup_symbol;
     ObjSymbol* sibling_argument_cleanup_symbol;
+    ObjSymbol* multiple_sibling_argument_cleanup_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     direct_throw_symbol = objfile_find_symbol(
@@ -4771,6 +4772,9 @@ static void verify_cxx_throwing_temporary_object(
         object, "verified_cxx_throwing_temporary_cleanup");
     sibling_argument_cleanup_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_sibling_argument_cleanup");
+    multiple_sibling_argument_cleanup_symbol = objfile_find_symbol(
+        object,
+        "verified_cxx_throwing_multiple_sibling_arguments_cleanup");
     assert(text != NULL && direct_throw_symbol != NULL &&
            direct_throw_symbol->binding == BIND_CODE &&
            direct_throw_symbol->section == 0 &&
@@ -4806,7 +4810,10 @@ static void verify_cxx_throwing_temporary_object(
            temporary_cleanup_symbol->section == 0 &&
            sibling_argument_cleanup_symbol != NULL &&
            sibling_argument_cleanup_symbol->binding == BIND_CODE &&
-           sibling_argument_cleanup_symbol->section == 0);
+           sibling_argument_cleanup_symbol->section == 0 &&
+           multiple_sibling_argument_cleanup_symbol != NULL &&
+           multiple_sibling_argument_cleanup_symbol->binding == BIND_CODE &&
+           multiple_sibling_argument_cleanup_symbol->section == 0);
     if (execute) {
         size_t mapping_size;
         void* memory;
@@ -4858,6 +4865,18 @@ static void verify_cxx_throwing_temporary_object(
                     result, cleanup_order);
         }
         assert(result == 536 && cleanup_order == 6);
+        address = symbol_address(
+            memory, multiple_sibling_argument_cleanup_symbol);
+        memcpy(&cleanup_order_argument, &address,
+               sizeof(cleanup_order_argument));
+        cleanup_order = 0;
+        result = cleanup_order_argument(&cleanup_order);
+        if (result != 5376 || cleanup_order != 76) {
+            fprintf(stderr,
+                    "verified multiple sibling-argument cleanup returned %d/order %d, expected 5376/order 76\n",
+                    result, cleanup_order);
+        }
+        assert(result == 5376 && cleanup_order == 76);
         address = symbol_address(memory, conditional_throw_symbol);
         memcpy(&conditional_arguments, &address,
                sizeof(conditional_arguments));

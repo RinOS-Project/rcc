@@ -336,6 +336,12 @@ int consume_verified_throwing_temporary_noexcept(
     return value.cleanup_id + result;
 }
 
+int consume_two_verified_throwing_temporaries_noexcept(
+    const VerifiedThrowingTemporary& first,
+    const VerifiedThrowingTemporary& second, int result) noexcept {
+    return first.cleanup_id + second.cleanup_id + result;
+}
+
 int throw_verified_temporary_argument() {
     throw 53;
 }
@@ -381,6 +387,21 @@ extern "C" int verified_cxx_throwing_sibling_argument_cleanup(
         result = value;
     }
     return result * 10 + *cleanup_order;
+}
+
+extern "C" int verified_cxx_throwing_multiple_sibling_arguments_cleanup(
+    int* cleanup_order) {
+    int result = 0;
+    *cleanup_order = 0;
+    try {
+        result = consume_two_verified_throwing_temporaries_noexcept(
+            make_verified_throwing_temporary(cleanup_order, 6),
+            make_verified_throwing_temporary(cleanup_order, 7),
+            throw_verified_temporary_argument());
+    } catch (int value) {
+        result = value;
+    }
+    return result * 100 + *cleanup_order;
 }
 
 extern "C" int verified_cxx_throwing_conditional_cleanup(

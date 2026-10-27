@@ -1621,9 +1621,9 @@
         `test-verified-backend` and the production CI gate.
   - [x] Register completed reference-bound argument temporaries before
         evaluating a later potentially throwing sibling argument, then verify
-        their exactly-once cleanup when that argument throws. The
-        `noexcept`-callee regression runs through typed SSA with no fallback
-        on i686/AMD64 at `-O0` and `-O2` in
+        exactly-once cleanup and reverse construction order with one and two
+        live temporaries. The `noexcept`-callee regression runs through typed
+        SSA with no fallback on i686/AMD64 at `-O0` and `-O2` in
         `test-verified-cxx-throwing-temporary`.
   - [ ] Throwing initializer evaluation before a cleanup owner is fully
         constructed, constructor-driven partial construction/unwind
