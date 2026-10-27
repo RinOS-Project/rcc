@@ -8894,9 +8894,14 @@ remains a separate open item.
       a virtual final overrider reads the initialized `value` from its
       secondary base and returns the expected result. The focused overload and
       full POSIX `test-cxx` gates pass on the final compiler source.
-- [ ] Non-empty constexpr constructor bodies, omitted/default-initialized
-      subobjects, reference/pointer constructor parameters, and complete
-      virtual-base constructor evaluation remain open.
+- [x] Evaluate a non-empty constexpr constructor body after its explicit base
+      and member initializers, including `this->field += parameter` against the
+      constructed object's target-layout bytes. Verify inherited base state,
+      the updated member, strict GCC C++20, dual-architecture focused generation
+      and execution, and the full POSIX `test-cxx` aggregate.
+- [ ] Broader constructor-body expressions/side effects, omitted or
+      default-initialized subobjects, reference/pointer constructor parameters,
+      and complete virtual-base constructor evaluation remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

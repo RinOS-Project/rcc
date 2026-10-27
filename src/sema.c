@@ -5781,6 +5781,10 @@ typedef struct SemaConstexprScalar {
     TypeMethod* member_pointer_method;
 } SemaConstexprScalar;
 
+static bool sema_eval_constexpr_scalar_statement(
+    Stmt* statement, SemaConstexprBinding* bindings, int* binding_count,
+    SemaConstexprScalar* value, SemaConstexprStatementResult* result);
+
 static void sema_constexpr_capture_pointer_target_object(
     SemaConstexprBinding* pointer_binding,
     const SemaConstexprScalar* pointer_value,
@@ -6515,7 +6519,6 @@ static bool sema_constexpr_materialize_cxx_constructor(
         !(declaration = constructor->method->decl) ||
         !declaration->func_is_cxx_constructor ||
         constructor->is_deleted || constructor->is_inherited ||
-        !constructor->body_is_empty ||
         !constructor->initializers_are_supported ||
         caller_binding_count < 0 || caller_binding_count > 64 ||
         depth >= 32u || type->size <= 0 ||
@@ -6753,6 +6756,40 @@ static bool sema_constexpr_materialize_cxx_constructor(
                 field->type, member_value, bindings, binding_count,
                 storage + (size_t)field->offset,
                 object_size - (size_t)field->offset)) {
+            return false;
+        }
+    }
+    if (!constructor->body_is_empty) {
+        SemaConstexprBinding* object_binding;
+        SemaConstexprBinding* this_binding;
+        SemaConstexprScalar body_value;
+        SemaConstexprStatementResult body_result =
+            SEMA_CONSTEXPR_STMT_FALLTHROUGH;
+        int body_binding_count;
+        if (!declaration->func_body || !declaration->func_this_param ||
+            !declaration->func_this_param->type || binding_count > 62) {
+            return false;
+        }
+        object_binding = &bindings[binding_count++];
+        memset(object_binding, 0, sizeof(*object_binding));
+        object_binding->declaration = declaration;
+        object_binding->type = type;
+        object_binding->object_bytes = storage;
+        object_binding->object_size = object_size;
+        object_binding->is_object = true;
+
+        this_binding = &bindings[binding_count++];
+        memset(this_binding, 0, sizeof(*this_binding));
+        this_binding->declaration = declaration->func_this_param;
+        this_binding->type = declaration->func_this_param->type;
+        this_binding->is_pointer = true;
+        this_binding->pointer_declaration = declaration;
+        this_binding->pointer_offset = 0;
+        body_binding_count = binding_count;
+        if (!sema_eval_constexpr_scalar_statement(
+                declaration->func_body, bindings, &body_binding_count,
+                &body_value, &body_result) ||
+            body_result != SEMA_CONSTEXPR_STMT_FALLTHROUGH) {
             return false;
         }
     }
@@ -7701,6 +7738,13 @@ static bool sema_validate_constexpr_object(
             NULL, 0, storage, (size_t)type->size)) return false;
         return sema_constexpr_rebuild_object(
             type, storage, (size_t)type->size, initializer->loc) != NULL;
+    }
+    if (initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_constructor && type->kind == TYPE_STRUCT &&
+        type->cxx_class && type->cxx_class->base_count > 0) {
+        unsigned char* storage = ast_arena_alloc((size_t)type->size);
+        return storage && sema_constexpr_materialize_object(
+            type, initializer, NULL, 0, storage, (size_t)type->size);
     }
     if (initializer->kind != EXPR_COMPOUND) return false;
     if (type->kind == TYPE_ARRAY) {
