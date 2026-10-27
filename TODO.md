@@ -11186,7 +11186,7 @@ remains a separate open item.
       counts through the emitted expression in legacy and verified i686 C++20
       objects. The focused `test-debug-info-inline-expression` gate passed for
       both paths.
-- [ ] TLS/volatile/reference/atomic operands, wider computed signed trees, and
+- [ ] Volatile TLS/reference/atomic operands, wider computed signed trees, and
       broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-28, i686 TLS dynamic-shift DWARF)
@@ -11197,7 +11197,7 @@ remains a separate open item.
       and template values, and evaluate boundary counts through the emitted
       expression in legacy and verified i686 C++20 objects. The focused
       `test-debug-info-inline-expression` gate passed for both paths.
-- [ ] Volatile/reference/atomic operands, wider computed signed trees, and
+- [ ] Signed volatile/reference/atomic operands, wider computed signed trees, and
       broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-28, signed i686 static dynamic-shift DWARF)
@@ -11209,7 +11209,7 @@ remains a separate open item.
       results in legacy and verified i686 C++20 objects. The focused
       `test-debug-info-inline-expression` and full `test-debug-info` gates
       passed for both paths.
-- [ ] Volatile/reference/atomic operands, wider computed signed trees, and
+- [ ] Signed volatile/reference/atomic operands, wider computed signed trees, and
       broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-28, namespace-scope TLS dynamic-shift DWARF)
@@ -11221,7 +11221,7 @@ remains a separate open item.
       negative arithmetic-right-shift results in legacy and verified C++20
       objects. Focused `test-debug-info-inline-expression` and full
       `test-debug-info` gates passed.
-- [ ] Volatile/reference/atomic operands, wider computed signed trees, and
+- [ ] Signed volatile/reference/atomic operands, wider computed signed trees, and
       broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-28, volatile i686 dynamic-shift DWARF)
@@ -11235,6 +11235,7 @@ remains a separate open item.
       legacy and verified C++20 objects;
       focused `test-debug-info-inline-expression` and full `test-debug-info`
       pass under WSL2 Ubuntu-24.04.
+
 ## RCC continuation (2026-10-28, volatile namespace-scope TLS shift DWARF)
 
 - [x] Extend volatile unsigned i686 64-bit dynamic left/right-shift inline
@@ -11243,6 +11244,16 @@ remains a separate open item.
       counts, initial storage, and defined shift-count boundaries in legacy and
       verified C++20 objects. Focused `test-debug-info-inline-expression` and
       full `test-debug-info` gates passed under WSL2 Ubuntu-24.04.
-- [ ] Volatile block-scope static forms, signed volatile operations,
-      reference/atomic operands, wider computed signed trees, and broader
-      optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, volatile block-scope static shift DWARF)
+
+- [x] Extend volatile unsigned i686 64-bit dynamic left/right-shift inline
+      expressions to block-scope non-TLS `static` source and count objects.
+      Verify module-scoped `ABS32U` relocation identities and per-operand
+      reference counts, initial storage, and defined shift-count boundaries in
+      legacy and verified C++20 objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` gates
+      passed under WSL2 Ubuntu-24.04.
+- [ ] Volatile block-scope `static thread_local` forms, signed volatile
+      operations, reference/atomic operands, wider computed signed trees, and
+      broader optimized multi-piece locations remain open.
