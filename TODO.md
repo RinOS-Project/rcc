@@ -10850,7 +10850,7 @@ remains a separate open item.
       nine `ABS32U` relocations per input and signed boundary products plus
       initialized globals in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] TLS/static-local or volatile/reference/atomic operands, and broader
+- [ ] Function-local static, volatile/reference/atomic operands, and broader
       optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-26, signed i686 64-bit division and remainder)
@@ -11040,5 +11040,16 @@ remains a separate open item.
       values, signed bit-pattern pairs, and results in normal and verified C++20
       objects. The focused `test-debug-info-inline-expression` gate passes under
       WSL2 Ubuntu-24.04.
+- [ ] Function-local static operands, volatile/reference/atomic operands, and
+      broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, signed i686 TLS multiplication DWARF)
+
+- [x] Extend signed i686 64-bit global-pair multiplication inline expressions
+      to TLS operands. Emit TLS address formation for each low/high word load;
+      verify all 18 `RELOC_TLSOFF32S` references, initialized TLS values,
+      partial-product/carry cases, and signed boundary pairs in normal and
+      verified C++20 objects. The focused
+      `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
 - [ ] Function-local static operands, volatile/reference/atomic operands, and
       broader optimized multi-piece locations remain open.
