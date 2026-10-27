@@ -11176,3 +11176,15 @@ remains a separate open item.
       under WSL2 Ubuntu-24.04.
 - [ ] Volatile/reference/atomic operands and broader optimized multi-piece
       locations remain open.
+
+## RCC continuation (2026-10-28, i686 static-local dynamic-shift DWARF)
+
+- [x] Extend i686 64-bit inline-parameter left/right shift expressions to read
+      non-TLS block-scope `static` source and shift-count objects. Preserve
+      module-scoped `ABS32U` relocations, verify both static symbol identities
+      and initialized values, and evaluate boundary shift counts through the
+      emitted expression in legacy and verified C++20 objects. The focused
+      `test-debug-info-inline-expression` gate passed for legacy and verified
+      output on i686/x64.
+- [ ] TLS/volatile/reference/atomic operands, wider computed signed trees, and
+      broader optimized multi-piece locations remain open.

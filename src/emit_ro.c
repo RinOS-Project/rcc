@@ -8507,13 +8507,15 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
     const Expr* shift_count_expression;
     const Decl* source;
     const Decl* shift_count_source;
-    int64_t source_frame_offset;
+    int64_t source_frame_offset = 0;
     int64_t shift_count_frame_offset = 0;
     uint64_t constant_shift_count;
     const ModuleSymbol* source_global_symbol = NULL;
     const ModuleSymbol* shift_count_global_symbol = NULL;
     bool source_is_global;
+    bool source_is_address_backed;
     bool shift_count_is_global;
+    bool shift_count_is_address_backed;
     size_t size = 0u;
     bool is_left_shift;
     bool is_unsigned;
@@ -8540,17 +8542,22 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         return false;
     }
     source_is_global = source && source->var_is_global;
+    source_is_address_backed = source &&
+        (source->var_is_global || source->var_is_static_local);
     shift_count_is_global = shift_count_source &&
         shift_count_source->var_is_global;
+    shift_count_is_address_backed = shift_count_source &&
+        (shift_count_source->var_is_global ||
+         shift_count_source->var_is_static_local);
     if (!source ||
         (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
         (source_is_global && source->kind != DECL_VAR) ||
-        source->var_is_static_local ||
-        source->var_is_thread_local || source->var_is_vla ||
+        source->var_is_thread_local ||
+        source->var_is_vla ||
         !source->type ||
-        (source_is_global && (source->type->is_volatile ||
-                              source->type->is_reference ||
-                              source->type->is_atomic)) ||
+        (source_is_address_backed && (source->type->is_volatile ||
+                                      source->type->is_reference ||
+                                      source->type->is_atomic)) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source->type, parameter_type, 0u) ||
         !debug_inline_integer_expression_type(shift_count_expression->type) ||
@@ -8563,8 +8570,11 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
             shift_count_source->type->is_volatile ||
             shift_count_source->type->is_reference ||
             shift_count_source->type->is_atomic)) ||
-          shift_count_source->var_is_static_local ||
           shift_count_source->var_is_thread_local ||
+          (shift_count_is_address_backed &&
+           (shift_count_source->type->is_volatile ||
+            shift_count_source->type->is_reference ||
+            shift_count_source->type->is_atomic)) ||
           shift_count_source->var_is_vla ||
           (shift_count_source->type->size != 4u &&
            shift_count_source->type->size != 8u) ||
@@ -8576,27 +8586,35 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
          shift_count_expression->type->size != 8) ||
         (relocations && (!relocations->offsets || !relocations->symbols ||
                          !relocations->count)) ||
-        (!source_is_global && !debug_inline_parameter_frame_offset(
+        (!source_is_address_backed && !debug_inline_parameter_frame_offset(
             mod, source, &source_frame_offset)) ||
-        (!shift_count_is_global && shift_count_source &&
+        (!shift_count_is_address_backed && shift_count_source &&
          !debug_inline_parameter_frame_offset(
              mod, shift_count_source, &shift_count_frame_offset)) ||
-        (!source_is_global && source_frame_offset > INT64_MAX - 4)) {
+        (!source_is_address_backed &&
+         source_frame_offset > INT64_MAX - 4)) {
         return false;
     }
-    if (source_is_global) {
-        source_global_symbol = debug_find_global_symbol(mod, source);
-        if (!source_global_symbol || !source_global_symbol->is_global ||
+    if (source_is_address_backed) {
+        source_global_symbol = source->var_is_static_local
+            ? debug_find_static_local_symbol(mod, source)
+            : debug_find_global_symbol(mod, source);
+        if (!source_global_symbol ||
+            (source_is_global && !source->var_is_static_local &&
+             !source_global_symbol->is_global) ||
             !source_global_symbol->name ||
             source_global_symbol->section == MODULE_SYMBOL_TLS) {
             return false;
         }
     }
-    if (shift_count_is_global) {
-        shift_count_global_symbol = debug_find_global_symbol(
-            mod, shift_count_source);
+    if (shift_count_is_address_backed) {
+        shift_count_global_symbol = shift_count_source->var_is_static_local
+            ? debug_find_static_local_symbol(mod, shift_count_source)
+            : debug_find_global_symbol(mod, shift_count_source);
         if (!shift_count_global_symbol ||
-            !shift_count_global_symbol->is_global ||
+            (shift_count_is_global &&
+             !shift_count_source->var_is_static_local &&
+             !shift_count_global_symbol->is_global) ||
             !shift_count_global_symbol->name ||
             shift_count_global_symbol->section == MODULE_SYMBOL_TLS) {
             return false;
@@ -14685,12 +14703,19 @@ static void debug_emit_inline_parameter_instances(
             for (size_t relocation_index = 0u;
                  relocation_index < integer_value_relocation_count;
                  ++relocation_index) {
+                const ModuleSymbol* relocation_symbol =
+                    integer_value_relocation_symbols[relocation_index];
+                char* scoped_relocation_symbol = relocation_symbol->is_global
+                    ? NULL : module_scoped_symbol(
+                          filename, relocation_symbol->name);
                 objfile_add_reloc(
                     obj, info_section,
                     expression_offset +
                         integer_value_relocation_offsets[relocation_index],
-                    integer_value_relocation_symbols[relocation_index]->name,
+                    scoped_relocation_symbol
+                        ? scoped_relocation_symbol : relocation_symbol->name,
                     RELOC_ABS32U, 0);
+                rcc_free(scoped_relocation_symbol);
             }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&

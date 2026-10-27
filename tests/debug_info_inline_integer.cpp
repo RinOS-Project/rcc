@@ -2856,3 +2856,27 @@ extern "C" int debug_inline_signed_long_long_shift_compare_entry(
            (debug_inline_signed_long_long_shift_compare_entry_source >> 63u)) <
           -1LL));
 }
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_static_dynamic_lshift_entry(
+    unsigned long long source_value, unsigned long long shift_count)
+{
+    static unsigned long long source = 0x1ffffffffULL;
+    static unsigned long long count = 4ULL;
+    source = source_value;
+    count = shift_count;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        source << count);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_static_dynamic_rshift_entry(
+    unsigned long long source_value, unsigned long long shift_count)
+{
+    static unsigned long long source = 0x1ffffffffULL;
+    static unsigned long long count = 4ULL;
+    source = source_value;
+    count = shift_count;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        source >> count);
+}
