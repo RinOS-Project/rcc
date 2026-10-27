@@ -9046,6 +9046,11 @@ remains a separate open item.
       can use them without accepting reads from uninitialized locals or
       members. Verify GCC C++20, constexpr/runtime, i686/AMD64, and the full
       POSIX `test-cxx` suite.
+- [x] Track straight-line writes and increments to initialized integer locals
+      in constexpr constructor bodies, updating local values for later member
+      initializers without allowing analysis to mutate constructor parameters
+      or merging unknown branch-local writes. Verify GCC C++20,
+      constexpr/runtime, i686/AMD64, and full POSIX `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

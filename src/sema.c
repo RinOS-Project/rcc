@@ -8682,13 +8682,22 @@ static bool sema_constexpr_constructor_rhs_is_safe(
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
-        case EXPR_PREINC:
-        case EXPR_PREDEC:
-        case EXPR_POSTINC:
-        case EXPR_POSTDEC:
             return sema_constexpr_constructor_rhs_is_safe(
                 expression->unary_operand, cls, initialized_members,
                 bindings, binding_count, depth + 1u);
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC: {
+            const char* member_name =
+                sema_constexpr_constructor_direct_member_name(
+                    expression->unary_operand);
+            int index = sema_constexpr_constructor_member_index(
+                cls, member_name);
+            return index >= 0 &&
+                   (initialized_members &
+                    (UINT64_C(1) << (unsigned)index)) != 0u;
+        }
         case EXPR_CAST:
             return sema_constexpr_constructor_rhs_is_safe(
                 expression->cast_expr, cls, initialized_members, bindings,
@@ -8768,9 +8777,55 @@ static bool sema_constexpr_constructor_rhs_is_safe(
     }
 }
 
+static bool sema_constexpr_constructor_update_local(
+    Expr* expression, SemaConstexprBinding* bindings, int binding_count,
+    int initial_binding_count, bool allow_local_writes) {
+    Expr* target;
+    SemaConstexprScalar ignored_value;
+    int binding_index;
+    if (!expression || !bindings || !allow_local_writes ||
+        binding_count < 0 || initial_binding_count < 0 ||
+        initial_binding_count > binding_count) {
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            target = expression->unary_operand;
+            break;
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            target = expression->binary_lhs;
+            break;
+        default:
+            return false;
+    }
+    if (!target || target->kind != EXPR_IDENT ||
+        (binding_index = sema_constexpr_binding_index(
+             target, bindings, binding_count)) < initial_binding_count ||
+        binding_index < 0 || binding_index >= binding_count ||
+        !sema_constexpr_integer_type(bindings[binding_index].type)) {
+        return false;
+    }
+    return sema_eval_constexpr_scalar_expr(
+        expression, bindings, binding_count, &ignored_value);
+}
+
 static bool sema_constexpr_constructor_analyze_body_statement(
     Stmt* statement, CxxClass* cls, uint64_t* initialized_members,
     SemaConstexprBinding* bindings, int* binding_count,
+    int initial_binding_count, bool allow_local_writes,
     bool allow_unknown_branch_join, unsigned depth) {
     if (!statement || !cls || !initialized_members || !binding_count ||
         depth >= 64u) {
@@ -8786,7 +8841,8 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                  item; item = item->next) {
                 if (!sema_constexpr_constructor_analyze_body_statement(
                         item->stmt, cls, initialized_members, bindings,
-                        binding_count, allow_unknown_branch_join,
+                        binding_count, initial_binding_count,
+                        allow_local_writes, allow_unknown_branch_join,
                         depth + 1u)) {
                     *binding_count = saved_binding_count;
                     return false;
@@ -8838,9 +8894,13 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                             expression->unary_operand);
                     index = sema_constexpr_constructor_member_index(
                         cls, member_name);
-                    return index >= 0 &&
-                        (*initialized_members &
-                         (UINT64_C(1) << (unsigned)index)) != 0u;
+                    if (index >= 0) {
+                        return (*initialized_members &
+                                (UINT64_C(1) << (unsigned)index)) != 0u;
+                    }
+                    return sema_constexpr_constructor_update_local(
+                        expression, bindings, *binding_count,
+                        initial_binding_count, allow_local_writes);
                 default:
                     break;
             }
@@ -8864,14 +8924,16 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             }
             if (!sema_constexpr_constructor_rhs_is_safe(
                     expression->binary_rhs, cls, *initialized_members,
-                    bindings, *binding_count, depth + 1u) ||
-                !(member_name =
-                      sema_constexpr_constructor_direct_member_name(
-                          expression->binary_lhs)) ||
-                (index = sema_constexpr_constructor_member_index(
-                     cls, member_name)) < 0) {
-                return false;
+                    bindings, *binding_count, depth + 1u)) return false;
+            member_name = sema_constexpr_constructor_direct_member_name(
+                expression->binary_lhs);
+            if (!member_name) {
+                return sema_constexpr_constructor_update_local(
+                    expression, bindings, *binding_count,
+                    initial_binding_count, allow_local_writes);
             }
+            index = sema_constexpr_constructor_member_index(cls, member_name);
+            if (index < 0) return false;
             if (is_compound_assignment &&
                 (*initialized_members &
                  (UINT64_C(1) << (unsigned)index)) == 0u) {
@@ -8897,8 +8959,8 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                 return !selected ||
                     sema_constexpr_constructor_analyze_body_statement(
                         selected, cls, initialized_members, bindings,
-                        binding_count, allow_unknown_branch_join,
-                        depth + 1u);
+                        binding_count, initial_binding_count, false,
+                        allow_unknown_branch_join, depth + 1u);
             }
             if (!sema_constexpr_constructor_rhs_is_safe(
                     statement->if_cond, cls, *initialized_members,
@@ -8915,13 +8977,14 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                 return !selected ||
                     sema_constexpr_constructor_analyze_body_statement(
                         selected, cls, initialized_members, bindings,
-                        binding_count, allow_unknown_branch_join,
-                        depth + 1u);
+                        binding_count, initial_binding_count, false,
+                        allow_unknown_branch_join, depth + 1u);
             }
             if (!allow_unknown_branch_join) return false;
             if (!sema_constexpr_constructor_analyze_body_statement(
                     statement->if_then, cls, &then_state, bindings,
-                    binding_count, allow_unknown_branch_join, depth + 1u)) {
+                    binding_count, initial_binding_count, false,
+                    allow_unknown_branch_join, depth + 1u)) {
                 *binding_count = saved_binding_count;
                 return false;
             }
@@ -8929,7 +8992,8 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             if (statement->if_else &&
                 !sema_constexpr_constructor_analyze_body_statement(
                     statement->if_else, cls, &else_state, bindings,
-                    binding_count, allow_unknown_branch_join, depth + 1u)) {
+                    binding_count, initial_binding_count, false,
+                    allow_unknown_branch_join, depth + 1u)) {
                 *binding_count = saved_binding_count;
                 return false;
             }
@@ -8969,7 +9033,7 @@ static bool sema_constexpr_constructor_body_writes_direct_member(
         !sema_constexpr_constructor_analyze_body_statement(
             body, cls, &initialized_members, bindings,
             &analysis_binding_count,
-            allow_unknown_branch_join, 0u)) {
+            binding_count, true, allow_unknown_branch_join, 0u)) {
         return false;
     }
     *supported = true;
