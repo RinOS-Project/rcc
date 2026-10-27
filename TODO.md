@@ -655,7 +655,9 @@
   - [x] Preserve a function lvalue reference through a non-template identity
         function and call the returned function. GCC C++20 syntax checking,
         i686/AMD64 code generation, and x64 host execution pass in
-        `test-cxx-function-template-references`.
+        `test-cxx-function-template-references`. The full native-Windows
+        `mingw32-make SHELL=cmd.exe test-cxx` aggregate also passes (exit 0,
+        2026-10-27).
   - [x] Apply fixed derived-to-base adjustment to direct non-template
         lvalue-reference returns, including `const` references, after lvalue
         address generation in both backends. A multiple-inheritance fixture
