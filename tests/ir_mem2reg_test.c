@@ -948,7 +948,7 @@ static void verify_signed_power_of_two_reduction_case(
             int64_t expected = operation == RCC_IR_SDIV
                 ? signed_input / divisor : signed_input % divisor;
             assert(ir_test_signed_value(
-                       evaluate_reduced_signed_integer_function(
+                       evaluate_reduced_integer_function(
                            function, input), width) == expected);
         }
     } else {
@@ -965,7 +965,7 @@ static void verify_signed_power_of_two_reduction_case(
             int64_t expected = operation == RCC_IR_SDIV
                 ? signed_input / divisor : signed_input % divisor;
             assert(ir_test_signed_value(
-                       evaluate_reduced_signed_integer_function(
+                       evaluate_reduced_integer_function(
                            function, input), width) == expected);
         }
         for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
@@ -979,7 +979,7 @@ static void verify_signed_power_of_two_reduction_case(
             expected = operation == RCC_IR_SDIV
                 ? signed_input / divisor : signed_input % divisor;
             assert(ir_test_signed_value(
-                       evaluate_reduced_signed_integer_function(
+                       evaluate_reduced_integer_function(
                            function, input), width) == expected);
         }
     }

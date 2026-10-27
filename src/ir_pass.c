@@ -2389,6 +2389,10 @@ static bool ir_pass_reduce_unsigned_power_of_two_division(
                 instruction = next;
                 continue;
             }
+            if (function->value_count >= (size_t)UINT32_MAX) {
+                instruction = next;
+                continue;
+            }
             replacement_opcode = instruction->opcode == RCC_IR_UDIV
                 ? RCC_IR_LSHR : RCC_IR_AND;
             replacement_constant = ir_pass_insert_integer_constant_before(
