@@ -3297,6 +3297,23 @@ test-cxx-constexpr-aggregate-posix: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constexpr-aggregate/x64.s \
 		tests/cxx_constexpr_aggregate.cpp
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constexpr-aggregate/inactive-union-x86.ro \
+		tests/cxx_constexpr_union_inactive_reference_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr-aggregate/inactive-union-x86.log 2>&1
+	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" \
+		$(TEST_OUT)/cxx-constexpr-aggregate/inactive-union-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constexpr-aggregate/inactive-union-x64.ro \
+		tests/cxx_constexpr_union_inactive_reference_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr-aggregate/inactive-union-x64.log 2>&1
+	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" \
+		$(TEST_OUT)/cxx-constexpr-aggregate/inactive-union-x64.log
+	! $(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_constexpr_union_inactive_reference_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr-aggregate/inactive-union-gcc.log 2>&1
+	$(GREP) -F -q "instead of initialized" \
+		$(TEST_OUT)/cxx-constexpr-aggregate/inactive-union-gcc.log
 	gcc -m32 -c -o $(TEST_OUT)/cxx-constexpr-aggregate/x86.o \
 		$(TEST_OUT)/cxx-constexpr-aggregate/x86.s
 	gcc -m32 -c -o $(TEST_OUT)/cxx-constexpr-aggregate/host-x86.o \

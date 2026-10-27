@@ -10,6 +10,11 @@ struct Nested {
     int tail;
 };
 
+union MutableReferenceUnion {
+    int value;
+    int other;
+};
+
 struct ConstructorBodyBase {
     int seed;
 
@@ -124,6 +129,16 @@ struct ConstructorMutableArrayReference {
     }
 };
 
+struct ConstructorMutableUnionReference {
+    int observed;
+
+    constexpr explicit ConstructorMutableUnionReference(
+        MutableReferenceUnion& source)
+        : observed(source.value) {
+        source.value += 2;
+    }
+};
+
 struct ConstructorPointerDereference : ConstructorDefaultBase {
     int value;
 
@@ -170,6 +185,31 @@ constexpr int forward_mutable_aggregate_reference(Pair& value) {
 constexpr int add_through_mutable_array_reference(int (&values)[2]) {
     values[0] += 3;
     return values[0] * 100 + values[1];
+}
+
+constexpr int add_through_mutable_union_reference(
+    MutableReferenceUnion& value) {
+    value.value += 2;
+    return value.value;
+}
+
+constexpr int switch_mutable_union_reference_member(
+    MutableReferenceUnion& value) {
+    value.other = value.value + 3;
+    return value.other;
+}
+
+constexpr Pair make_pair_after_mutating_union_reference(
+    MutableReferenceUnion& value) {
+    value.value += 2;
+    return Pair{value.value, value.value + 1};
+}
+
+constexpr int assign_through_mutable_union_references(
+    MutableReferenceUnion& target, MutableReferenceUnion& source) {
+    target = source;
+    target.value += 1;
+    return target.value;
 }
 
 constexpr Pair make_pair_after_mutating_scalar_reference(int& value) {
@@ -341,6 +381,15 @@ constexpr int mutate_array_through_constructor_reference() {
 constexpr int array_reference_constructor_result =
     mutate_array_through_constructor_reference();
 
+constexpr int mutate_union_through_constructor_reference() {
+    MutableReferenceUnion source{3};
+    ConstructorMutableUnionReference alias{source};
+    return source.value * 100 + alias.observed;
+}
+
+constexpr int union_reference_constructor_result =
+    mutate_union_through_constructor_reference();
+
 constexpr int mutate_local_scalar_through_constexpr_function() {
     int source = 4;
     int result = forward_mutable_scalar_reference(source);
@@ -376,6 +425,43 @@ constexpr int mutate_array_through_constexpr_function() {
 
 constexpr int array_reference_function_result =
     mutate_array_through_constexpr_function();
+
+constexpr int mutate_union_through_constexpr_function() {
+    MutableReferenceUnion source{4};
+    int result = add_through_mutable_union_reference(source);
+    return source.value * 100 + result;
+}
+
+constexpr int union_reference_function_result =
+    mutate_union_through_constexpr_function();
+
+constexpr int switch_union_member_through_constexpr_function() {
+    MutableReferenceUnion source{4};
+    int result = switch_mutable_union_reference_member(source);
+    return source.other * 100 + result;
+}
+
+constexpr int union_reference_member_switch_result =
+    switch_union_member_through_constexpr_function();
+
+constexpr int mutate_union_through_aggregate_return_function() {
+    MutableReferenceUnion source{5};
+    Pair result = make_pair_after_mutating_union_reference(source);
+    return source.value * 1000 + result.first * 10 + result.second;
+}
+
+constexpr int aggregate_return_union_reference_result =
+    mutate_union_through_aggregate_return_function();
+
+constexpr int assign_union_through_reference_function() {
+    MutableReferenceUnion target{1};
+    MutableReferenceUnion source{6};
+    int result = assign_through_mutable_union_references(target, source);
+    return target.value * 100 + result;
+}
+
+constexpr int union_reference_assignment_result =
+    assign_union_through_reference_function();
 
 constexpr int mutate_scalar_through_aggregate_return_function() {
     int source = 5;
@@ -457,10 +543,15 @@ static_assert(local_scalar_reference_constructor_result == 1710);
 static_assert(forwarded_scalar_reference_constructor_result == 1811);
 static_assert(forwarded_aggregate_reference_constructor_result == 503);
 static_assert(array_reference_constructor_result == 503);
+static_assert(union_reference_constructor_result == 503);
 static_assert(local_scalar_reference_function_result == 909);
 static_assert(aggregate_member_reference_function_result == 1111);
 static_assert(aggregate_object_reference_function_result == 7708);
 static_assert(array_reference_function_result == 7708);
+static_assert(union_reference_function_result == 606);
+static_assert(union_reference_member_switch_result == 707);
+static_assert(aggregate_return_union_reference_result == 7078);
+static_assert(union_reference_assignment_result == 707);
 static_assert(aggregate_return_reference_function_result == 778);
 static_assert(aggregate_return_object_reference_function_result == 7078);
 static_assert(aggregate_return_array_reference_function_result == 12062);
@@ -490,6 +581,9 @@ int main(void) {
     int runtime_constructor_array_source[2] = {3, 8};
     ConstructorMutableArrayReference runtime_constructor_array_alias{
         runtime_constructor_array_source};
+    MutableReferenceUnion runtime_constructor_union_source{3};
+    ConstructorMutableUnionReference runtime_constructor_union_alias{
+        runtime_constructor_union_source};
     int runtime_function_source = 4;
     int runtime_function_result =
         forward_mutable_scalar_reference(runtime_function_source);
@@ -502,6 +596,20 @@ int main(void) {
     int runtime_array_source[2] = {4, 8};
     int runtime_array_result = add_through_mutable_array_reference(
         runtime_array_source);
+    MutableReferenceUnion runtime_union_source{4};
+    int runtime_union_result =
+        add_through_mutable_union_reference(runtime_union_source);
+    MutableReferenceUnion runtime_union_switch_source{4};
+    int runtime_union_switch_result =
+        switch_mutable_union_reference_member(runtime_union_switch_source);
+    MutableReferenceUnion runtime_union_return_source{5};
+    Pair runtime_union_return_result =
+        make_pair_after_mutating_union_reference(runtime_union_return_source);
+    MutableReferenceUnion runtime_union_assignment_target{1};
+    MutableReferenceUnion runtime_union_assignment_source{6};
+    int runtime_union_assignment_result =
+        assign_through_mutable_union_references(
+            runtime_union_assignment_target, runtime_union_assignment_source);
     int runtime_aggregate_return_source = 5;
     Pair runtime_aggregate_return_result =
         make_pair_after_mutating_scalar_reference(
@@ -563,6 +671,8 @@ int main(void) {
                     runtime_forwarded_aggregate_alias.nested.observed == 3 &&
                     runtime_constructor_array_source[0] == 5 &&
                     runtime_constructor_array_alias.observed == 3 &&
+                    runtime_constructor_union_source.value == 5 &&
+                    runtime_constructor_union_alias.observed == 3 &&
                    runtime_function_source == 9 &&
                    runtime_function_result == 9 &&
                    runtime_function_aggregate.first == 11 &&
@@ -571,6 +681,15 @@ int main(void) {
                     runtime_aggregate_object_result == 708 &&
                     runtime_array_source[0] == 7 &&
                     runtime_array_result == 708 &&
+                    runtime_union_source.value == 6 &&
+                    runtime_union_result == 6 &&
+                    runtime_union_switch_source.other == 7 &&
+                    runtime_union_switch_result == 7 &&
+                    runtime_union_return_source.value == 7 &&
+                    runtime_union_return_result.first == 7 &&
+                    runtime_union_return_result.second == 8 &&
+                    runtime_union_assignment_target.value == 7 &&
+                    runtime_union_assignment_result == 7 &&
                    runtime_aggregate_return_source == 7 &&
                    runtime_aggregate_return_result.first == 7 &&
                    runtime_aggregate_return_result.second == 8 &&

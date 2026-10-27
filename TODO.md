@@ -8966,11 +8966,17 @@ remains a separate open item.
       returning functions. Mutate indexed elements and verify compile-time and
       runtime caller-visible results against strict GCC C++20 and focused
       i686/AMD64 generation and execution.
+- [x] Track active members for scalar alternatives in constexpr union objects
+      passed by mutable reference. Preserve the active alternative through
+      constructor/function aliases, aggregate return and whole-union copy,
+      allow a valid scalar-member switch, and reject reading an inactive member
+      on both targets with diagnostics matching strict GCC C++20.
 - [ ] Constructor bodies beyond the covered expressions/branches, mutable
-      references to unions, reference forms not covered by the
-      scalar- and aggregate-returning evaluators (including other pointer-
-      reference forms), indeterminate tracking for nested/array/base subobjects,
-      and complete virtual-base constructor evaluation remain open.
+      references to unions with non-scalar alternatives or nested lifetime
+      transitions, reference forms not covered by the scalar- and aggregate-
+      returning evaluators (including other pointer-reference forms),
+      indeterminate tracking for nested/array/base subobjects, and complete
+      virtual-base constructor evaluation remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

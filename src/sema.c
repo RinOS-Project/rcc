@@ -5881,6 +5881,56 @@ static bool sema_constexpr_address_in_range(
            address_value - base_value <= size - address_size;
 }
 
+/* The byte buffer used by constant evaluation also needs to remember which
+ * union member is alive.  The active member is semantic state, not something
+ * that can be recovered from the bytes (overlapping members may have the same
+ * representation). */
+typedef struct SemaConstexprUnionMember {
+    unsigned char* storage;
+    Type* type;
+    TypeField* member;
+    struct SemaConstexprUnionMember* next;
+} SemaConstexprUnionMember;
+
+static SemaConstexprUnionMember* constexpr_union_members;
+
+static SemaConstexprUnionMember* sema_constexpr_union_member_find(
+    const unsigned char* storage, Type* type) {
+    for (SemaConstexprUnionMember* item = constexpr_union_members;
+         item; item = item->next) {
+        if (item->storage == storage && item->type == type) return item;
+    }
+    return NULL;
+}
+
+static void sema_constexpr_union_member_record(
+    unsigned char* storage, Type* type, TypeField* member) {
+    SemaConstexprUnionMember* item;
+    if (!storage || !type || type->kind != TYPE_UNION || !member) return;
+    item = sema_constexpr_union_member_find(storage, type);
+    if (!item) {
+        item = ast_arena_alloc(sizeof(*item));
+        item->storage = storage;
+        item->type = type;
+        item->next = constexpr_union_members;
+        constexpr_union_members = item;
+    }
+    item->member = member;
+}
+
+static void sema_constexpr_union_member_clear(
+    unsigned char* storage, Type* type) {
+    SemaConstexprUnionMember** link = &constexpr_union_members;
+    while (*link) {
+        SemaConstexprUnionMember* item = *link;
+        if (item->storage == storage && item->type == type) {
+            *link = item->next;
+        } else {
+            link = &item->next;
+        }
+    }
+}
+
 static SemaConstexprPointerSlot* sema_constexpr_pointer_slot_find(
     const unsigned char* storage) {
     for (SemaConstexprPointerSlot* slot = constexpr_pointer_slots;
@@ -5927,6 +5977,8 @@ static void sema_constexpr_copy_object_bytes(
     unsigned char* destination, const unsigned char* source, size_t size) {
     SemaConstexprPointerSlot* snapshot = NULL;
     SemaConstexprPointerSlot* tail = NULL;
+    SemaConstexprUnionMember* union_snapshot = NULL;
+    SemaConstexprUnionMember* union_tail = NULL;
     uintptr_t source_value = (uintptr_t)source;
 
     if (!destination || !source || size == 0u) return;
@@ -5944,7 +5996,38 @@ static void sema_constexpr_copy_object_bytes(
             tail = copy;
         }
     }
+    for (SemaConstexprUnionMember* item = constexpr_union_members;
+         item; item = item->next) {
+        if (sema_constexpr_address_in_range(
+                source, size, item->storage,
+                item->type && item->type->size > 0
+                    ? (size_t)item->type->size : 0u)) {
+            SemaConstexprUnionMember* copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *item;
+            copy->next = NULL;
+            if (union_tail) union_tail->next = copy;
+            else union_snapshot = copy;
+            union_tail = copy;
+        }
+    }
     sema_constexpr_pointer_slots_clear(destination, size);
+    while (constexpr_union_members) {
+        SemaConstexprUnionMember** link = &constexpr_union_members;
+        bool removed = false;
+        while (*link) {
+            SemaConstexprUnionMember* item = *link;
+            if (sema_constexpr_address_in_range(
+                    destination, size, item->storage,
+                    item->type && item->type->size > 0
+                        ? (size_t)item->type->size : 0u)) {
+                *link = item->next;
+                removed = true;
+                break;
+            }
+            link = &item->next;
+        }
+        if (!removed) break;
+    }
     memcpy(destination, source, size);
     for (SemaConstexprPointerSlot* item = snapshot;
          item; item = item->next) {
@@ -5954,6 +6037,15 @@ static void sema_constexpr_copy_object_bytes(
         copy->storage = destination + (item_value - source_value);
         copy->next = constexpr_pointer_slots;
         constexpr_pointer_slots = copy;
+    }
+    for (SemaConstexprUnionMember* item = union_snapshot;
+         item; item = item->next) {
+        SemaConstexprUnionMember* copy = ast_arena_alloc(sizeof(*copy));
+        uintptr_t item_value = (uintptr_t)item->storage;
+        *copy = *item;
+        copy->storage = destination + (item_value - source_value);
+        copy->next = constexpr_union_members;
+        constexpr_union_members = copy;
     }
 }
 
@@ -7126,6 +7218,91 @@ static bool sema_constexpr_resolve_binding_target(
     return true;
 }
 
+static bool sema_constexpr_union_member_path_active(
+    Expr* expression, SemaConstexprBinding* bindings, int binding_count) {
+    if (!expression) return true;
+    if (expression->kind == EXPR_MEMBER) {
+        Type* base_type = expression->member_base
+            ? expression->member_base->type : NULL;
+        if (!sema_constexpr_union_member_path_active(
+                expression->member_base, bindings, binding_count)) {
+            return false;
+        }
+        if (base_type && base_type->kind == TYPE_UNION) {
+            int binding_index;
+            size_t offset;
+            size_t target_offset;
+            Type* lvalue_type;
+            SemaConstexprBinding* target;
+            SemaConstexprUnionMember* active;
+            if (!expression->member_field ||
+                !sema_constexpr_binding_lvalue(
+                    expression->member_base, bindings, binding_count,
+                    &binding_index, &offset, &lvalue_type)) return false;
+            target = &bindings[binding_index];
+            target_offset = offset;
+            if (target->is_reference_alias &&
+                !sema_constexpr_resolve_binding_target(
+                    bindings, binding_count, binding_index, offset,
+                    &target, &target_offset)) return false;
+            if (!target->is_object || !target->object_bytes ||
+                target_offset > target->object_size ||
+                (size_t)base_type->size >
+                    target->object_size - target_offset) return false;
+            active = sema_constexpr_union_member_find(
+                target->object_bytes + target_offset, base_type);
+            if (!active || active->member != expression->member_field) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (expression->kind == EXPR_INDEX) {
+        return sema_constexpr_union_member_path_active(
+            expression->index_base, bindings, binding_count);
+    }
+    return true;
+}
+
+static void sema_constexpr_activate_union_member_path(
+    Expr* expression, SemaConstexprBinding* bindings, int binding_count) {
+    if (!expression) return;
+    if (expression->kind == EXPR_INDEX) {
+        sema_constexpr_activate_union_member_path(
+            expression->index_base, bindings, binding_count);
+        return;
+    }
+    if (expression->kind != EXPR_MEMBER) return;
+    sema_constexpr_activate_union_member_path(
+        expression->member_base, bindings, binding_count);
+    Type* base_type = expression->member_base
+        ? expression->member_base->type : NULL;
+    if (base_type && base_type->kind == TYPE_UNION &&
+        expression->member_field) {
+        int binding_index;
+        size_t offset;
+        size_t target_offset;
+        Type* lvalue_type;
+        SemaConstexprBinding* target;
+        if (!sema_constexpr_binding_lvalue(
+                expression->member_base, bindings, binding_count,
+                &binding_index, &offset, &lvalue_type)) return;
+        target = &bindings[binding_index];
+        target_offset = offset;
+        if (target->is_reference_alias &&
+            !sema_constexpr_resolve_binding_target(
+                bindings, binding_count, binding_index, offset,
+                &target, &target_offset)) return;
+        if (!target->is_object || !target->object_bytes ||
+            target_offset > target->object_size ||
+            (size_t)base_type->size >
+                target->object_size - target_offset) return;
+        sema_constexpr_union_member_record(
+            target->object_bytes + target_offset, base_type,
+            expression->member_field);
+    }
+}
+
 static bool sema_constexpr_load_binding_scalar(
     Expr* expression, SemaConstexprBinding* bindings, int binding_count,
     SemaConstexprScalar* value) {
@@ -7134,7 +7311,9 @@ static bool sema_constexpr_load_binding_scalar(
     Type* type;
     SemaConstexprBinding* target;
     size_t target_offset;
-    if (!sema_constexpr_binding_lvalue(
+    if (!sema_constexpr_union_member_path_active(
+            expression, bindings, binding_count) ||
+        !sema_constexpr_binding_lvalue(
             expression, bindings, binding_count, &binding_index, &offset,
             &type) || !sema_constexpr_scalar_type(type) || type->size <= 0 ||
         binding_index < 0 || binding_index >= 64) {
@@ -7214,6 +7393,8 @@ static bool sema_constexpr_store_binding_scalar(
         if (bindings[binding_index].is_constexpr_dynamic) {
             bindings[binding_index].is_constexpr_initialized = true;
         }
+        sema_constexpr_activate_union_member_path(
+            expression, bindings, binding_count);
         if (stored) *stored = converted;
         return true;
     }
@@ -7230,6 +7411,8 @@ static bool sema_constexpr_store_binding_scalar(
                 target->object_size - target_offset, type, &converted)) {
             return false;
         }
+        sema_constexpr_activate_union_member_path(
+            expression, bindings, binding_count);
     } else {
         if (target_offset != 0u ||
             !sema_constexpr_scalar_type(target->type) ||
@@ -7249,6 +7432,8 @@ static bool sema_constexpr_store_binding_scalar(
     if (target->is_constexpr_dynamic) {
         target->is_constexpr_initialized = true;
     }
+    sema_constexpr_activate_union_member_path(
+        expression, bindings, binding_count);
     if (stored) *stored = converted;
     return true;
 }
@@ -7495,9 +7680,13 @@ static bool sema_constexpr_materialize_object(
     Type* type, Expr* initializer, SemaConstexprBinding* bindings,
     int binding_count, unsigned char* storage, size_t storage_size) {
     ExprList* item;
+    TypeField* active_union_member = NULL;
 
     if (!type || !storage || type->size <= 0 ||
         (size_t)type->size > storage_size) return false;
+    if (type->kind == TYPE_UNION) {
+        sema_constexpr_union_member_clear(storage, type);
+    }
     sema_constexpr_pointer_slots_clear(storage, (size_t)type->size);
     memset(storage, 0, (size_t)type->size);
     if (!initializer) return true;
@@ -7613,7 +7802,30 @@ static bool sema_constexpr_materialize_object(
     if (initializer->kind != EXPR_COMPOUND ||
         (initializer->compound_type &&
          !type_is_compatible(type, initializer->compound_type))) return false;
-    if (sema_constexpr_zero_initializer(initializer)) return true;
+    if (sema_constexpr_zero_initializer(initializer)) {
+        if (type->kind == TYPE_UNION) {
+            TypeField* active = type->fields;
+            if (initializer->compound_value_init) {
+                for (TypeField* field = type->fields; field;
+                     field = field->next) {
+                    if (field->initializer) {
+                        active = field;
+                        break;
+                    }
+                }
+                if (active && active->initializer && active->offset >= 0 &&
+                    (size_t)active->offset <= storage_size &&
+                    !sema_constexpr_materialize_object(
+                        active->type, active->initializer, bindings,
+                        binding_count, storage + (size_t)active->offset,
+                        storage_size - (size_t)active->offset)) return false;
+            }
+            if (active) {
+                sema_constexpr_union_member_record(storage, type, active);
+            }
+        }
+        return true;
+    }
     if (type->kind == TYPE_ARRAY) {
         int64_t cursor = 0;
         if (!type->base || type->base->size <= 0) return false;
@@ -7706,9 +7918,14 @@ static bool sema_constexpr_materialize_object(
                     field->type, item->expr, bindings, binding_count,
                     storage + (size_t)field->offset,
                     storage_size - (size_t)field->offset)) return false;
+            if (type->kind == TYPE_UNION) active_union_member = field;
             cursor = field->next;
             ++initialized;
         }
+    }
+    if (type->kind == TYPE_UNION && active_union_member) {
+        sema_constexpr_union_member_record(
+            storage, type, active_union_member);
     }
     return true;
 }
@@ -7740,6 +7957,26 @@ static bool sema_constexpr_select_aggregate_item(
     *selected = NULL;
     *zero = false;
     if (!initializer || sema_constexpr_zero_initializer(initializer)) {
+        if (type->kind == TYPE_UNION) {
+            TypeField* active = type->fields;
+            if (initializer && initializer->compound_value_init) {
+                for (TypeField* field = type->fields; field;
+                     field = field->next) {
+                    if (field->initializer) {
+                        active = field;
+                        break;
+                    }
+                }
+                if (active && active == wanted_field &&
+                    active->initializer) {
+                    *selected = active->initializer;
+                    return true;
+                }
+            }
+            if (!active || active != wanted_field) return false;
+            *zero = true;
+            return true;
+        }
         *zero = true;
         return true;
     }
@@ -7795,6 +8032,7 @@ static bool sema_constexpr_select_aggregate_item(
             cursor = field->next;
             ++initialized;
         }
+        if (type->kind == TYPE_UNION) return false;
         if (wanted_field && wanted_field->initializer) {
             *selected = wanted_field->initializer;
             return true;
