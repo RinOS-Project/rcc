@@ -3102,3 +3102,27 @@ debug_inline_nonconstant_unsigned_long_long_volatile_static_dynamic_rshift_entry
     return debug_nonconstant_unsigned_long_long_parameter_inline(
         source >> count);
 }
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_static_tls_dynamic_lshift_entry(
+    unsigned long long source_value, unsigned long long shift_count)
+{
+    static thread_local volatile unsigned long long source = 0x1ffffffffULL;
+    static thread_local volatile unsigned long long count = 4u;
+    source = source_value;
+    count = shift_count;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        source << count);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_static_tls_dynamic_rshift_entry(
+    unsigned long long source_value, unsigned long long shift_count)
+{
+    static thread_local volatile unsigned long long source = 0x1ffffffffULL;
+    static thread_local volatile unsigned long long count = 4u;
+    source = source_value;
+    count = shift_count;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        source >> count);
+}

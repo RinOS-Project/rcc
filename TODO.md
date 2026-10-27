@@ -11254,6 +11254,16 @@ remains a separate open item.
       legacy and verified C++20 objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` gates
       passed under WSL2 Ubuntu-24.04.
-- [ ] Volatile block-scope `static thread_local` forms, signed volatile
-      operations, reference/atomic operands, wider computed signed trees, and
-      broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, volatile block-scope static TLS shift DWARF)
+
+- [x] Extend volatile unsigned i686 64-bit dynamic left/right-shift inline
+      expressions to block-scope `static thread_local` source and count
+      objects. Verify module-scoped `TLSOFF32S` relocation identities and
+      per-operand reference counts, initial storage, and defined shift-count
+      boundaries in legacy and verified C++20 objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` gates
+      passed under WSL2 Ubuntu-24.04.
+- [ ] Signed volatile operations, volatile reference/atomic operands, wider
+      computed signed trees, and broader optimized multi-piece locations remain
+      open.
