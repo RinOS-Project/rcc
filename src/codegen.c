@@ -1525,18 +1525,20 @@ static bool codegen_emit_static_pointer(Module* mod, Type* type,
         if (type_is_cxx_member_function_pointer(type)) {
             TypeMethod* method =
                 initializer->cxx_member_function_pointer_method;
-            Decl* function = initializer->kind == EXPR_ADDR &&
-                    initializer->unary_operand
-                ? initializer->unary_operand->ident_decl : NULL;
-            if (initializer->is_cxx_nullptr ||
+            Decl* function = method ? method->function_decl : NULL;
+            if (!function && initializer->kind == EXPR_ADDR &&
+                initializer->unary_operand) {
+                function = initializer->unary_operand->ident_decl;
+            }
+            if (!method && (initializer->is_cxx_nullptr ||
                 (initializer->type &&
                  initializer->type->kind == TYPE_NULLPTR) ||
                 (initializer->kind == EXPR_INT_LIT &&
-                 initializer->int_val == 0)) {
+                 initializer->int_val == 0))) {
                 memset(mod->data.data + offset, 0, (size_t)type->size);
                 return true;
             }
-            if (!method ||
+            if (!method || type->size < (int)(width * 2u) ||
                 (!method->is_virtual &&
                  (!function || !function->link_name)) ||
                 (method->is_virtual && method->vtable_index < 0)) {
@@ -2000,38 +2002,43 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
             if (type_is_cxx_member_function_pointer(type)) {
                 TypeMethod* method =
                     initializer->cxx_member_function_pointer_method;
-                Decl* function = initializer->kind == EXPR_ADDR &&
-                        initializer->unary_operand
-                    ? initializer->unary_operand->ident_decl : NULL;
-                if (initializer->is_cxx_nullptr ||
+                Decl* function = method ? method->function_decl : NULL;
+                uint32_t width =
+                    g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+                if (!function && initializer->kind == EXPR_ADDR &&
+                    initializer->unary_operand) {
+                    function = initializer->unary_operand->ident_decl;
+                }
+                if (!method && (initializer->is_cxx_nullptr ||
                     (initializer->type &&
                      initializer->type->kind == TYPE_NULLPTR) ||
                     (initializer->kind == EXPR_INT_LIT &&
-                     initializer->int_val == 0)) {
+                     initializer->int_val == 0))) {
                     memset(mod->tls.data + offset, 0,
                            (size_t)type->size);
                     return true;
                 }
-                if (!method ||
+                if (!method || type->size < (int)(width * 2u) ||
                     (!method->is_virtual &&
                      (!function || !function->link_name)) ||
                     (method->is_virtual && method->vtable_index < 0)) {
                     return false;
                 }
                 if (method->is_virtual) {
-                    constant = (int64_t)method->vtable_index * 4 + 1;
-                    for (uint32_t byte = 0u; byte < 4u; ++byte) {
+                    constant = (int64_t)method->vtable_index * width + 1;
+                    for (uint32_t byte = 0u; byte < width; ++byte) {
                         mod->tls.data[offset + byte] =
                             (uint8_t)((uint64_t)constant >> (byte * 8u));
                     }
                 } else {
                     module_add_relocation(mod, MODULE_SYMBOL_TLS, offset,
-                                          0u, false, false,
+                                          0u, false, width == 8u,
                                           decl_link_name(function));
                     add_reloc(mod, MODULE_SYMBOL_TLS, offset,
-                              RIN_RELOC_ABS32);
+                              width == 8u ? RIN_RELOC_ABS64
+                                          : RIN_RELOC_ABS32);
                 }
-                memset(mod->tls.data + offset + 4u, 0, 4u);
+                memset(mod->tls.data + offset + width, 0, width);
                 return true;
             }
             if (initializer->is_cxx_nullptr ||

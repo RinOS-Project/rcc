@@ -11,6 +11,12 @@ struct DependentPointerBase {
 
 constexpr int DependentPointerBase::* dependent_pointer_constexpr_member =
     &DependentPointerBase::value;
+constexpr int (DependentPointerBase::*
+    dependent_pointer_constexpr_member_function)(int) const =
+        &DependentPointerBase::add;
+thread_local int (DependentPointerBase::*
+    dependent_pointer_tls_member_function)(int) const =
+        &DependentPointerBase::add;
 struct DependentPointerDerived : DependentPointerBase {
     int tail;
 };
@@ -155,6 +161,8 @@ static_assert(DependentPointerConstexprOwner::has_member_function_pointer(
     &DependentPointerBase::add) == 419);
 static_assert(DependentPointerConstexprOwner::has_member_function_pointer(
     nullptr) == 420);
+static_assert(DependentPointerConstexprOwner::has_member_function_pointer(
+    ::dependent_pointer_constexpr_member_function) == 419);
 template<typename Owner>
 using DependentMemberFunctionPointerCall = DependentPointerConstexprBox<
     Owner::has_member_function_pointer(&DependentPointerBase::add), Owner>;
@@ -379,6 +387,15 @@ int select_dependent_nullptr_constexpr_call(
 }
 
 int main() {
+    DependentPointerBase member_function_pointer_object{17};
+    if ((member_function_pointer_object.*
+         dependent_pointer_constexpr_member_function)(25) != 42) {
+        return 15;
+    }
+    if ((member_function_pointer_object.*
+         dependent_pointer_tls_member_function)(25) != 42) {
+        return 16;
+    }
     if (select_dependent_pointer_constexpr_call(
             DependentPointerConstexprBox<
                 17, DependentPointerConstexprOwner, int>{}) != 301) {

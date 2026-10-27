@@ -8742,6 +8742,13 @@ static bool sema_eval_constexpr_scalar_expr(
                 expression->type->cxx_is_member_pointer &&
                 expression->type->base &&
                 expression->type->base->kind == TYPE_FUNC) {
+                if (expression->cxx_member_function_pointer_method) {
+                    value->type = expression->type;
+                    value->is_member_pointer = true;
+                    value->member_pointer_method =
+                        expression->cxx_member_function_pointer_method;
+                    return true;
+                }
                 if (!expression->is_cxx_nullptr && expression->int_val != 0) {
                     return false;
                 }
