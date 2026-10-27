@@ -10943,9 +10943,9 @@ remains a separate open item.
       and verified i686 C++20 objects. Native Windows
       `make SHELL=cmd.exe test-debug-info-inline-expression` and full
       `make SHELL=cmd.exe test-debug-info` pass.
-- [ ] Unsigned TLS, volatile/reference/atomic operands, wider computed signed
-      expression trees, width-changing casts, and broader optimized
-      multi-piece locations remain open.
+- [ ] Block-scope static TLS, volatile/reference/atomic operands, wider
+      computed signed expression trees, width-changing casts, and broader
+      optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-27, i686 unsigned static-local divmod DWARF)
 
@@ -10956,9 +10956,9 @@ remains a separate open item.
       11-by-9 runtime-divisor matrix, constant-divisor boundary values, and
       exact relocation counts in normal and verified C++20 objects. Focused
       and full native-Windows `test-debug-info` gates pass.
-- [ ] TLS or volatile/reference/atomic operands, wider computed i686 64-bit
-      division/remainder expressions, and broader optimized multi-piece
-      locations remain open.
+- [ ] TLS function-local statics or volatile/reference/atomic operands, wider
+      computed i686 64-bit division/remainder expressions, and broader
+      optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-28, constexpr constructor local references)
 
@@ -10992,6 +10992,17 @@ remains a separate open item.
       `DW_OP_const4s`, `DW_OP_form_tls_address`, and `RELOC_TLSOFF32S`. Verify
       expression values and relocation identities for normal and verified
       i686 C++20 objects; the full POSIX `test-debug-info` gate passes.
-- [ ] Unsigned TLS, block-scope static TLS, volatile/reference/atomic operands,
+- [ ] Block-scope static TLS, volatile/reference/atomic operands,
       wider computed signed expression trees, and broader optimized
       multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, unsigned i686 TLS divmod DWARF)
+
+- [x] Extend unsigned i686 64-bit variable-divisor and constant-divisor `/`
+      and `%` inline-parameter expressions to global TLS operands. Emit
+      `DW_OP_const4s`, `DW_OP_form_tls_address`, and `RELOC_TLSOFF32S`; verify
+      expression values and relocation identities in normal and verified
+      i686 C++20 objects. The full POSIX `test-debug-info` gate passes.
+- [ ] Block-scope static TLS, volatile/reference/atomic operands, wider
+      computed i686 64-bit division/remainder expressions, and broader
+      optimized multi-piece locations remain open.

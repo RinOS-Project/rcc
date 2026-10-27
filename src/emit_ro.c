@@ -10202,7 +10202,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     unsigned int chunk_count;
     bool negate_dividend;
     bool is_remainder;
-    if (is_signed && relocations) {
+    if (relocations) {
         tls_relocations = *relocations;
         tls_relocations.allow_tls = true;
         relocations = &tls_relocations;
@@ -10234,7 +10234,6 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
             : debug_find_global_symbol(mod, dividend);
     }
     if ((dividend->kind != DECL_VAR && dividend->kind != DECL_PARAM) ||
-        (!is_signed && dividend->var_is_thread_local) ||
         (dividend->var_is_thread_local &&
          !(dividend->var_is_global || dividend->var_is_static_local)) ||
         dividend->var_is_vla ||
@@ -10633,7 +10632,7 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
     int64_t dividend_frame_offset = 0;
     int64_t divisor_frame_offset = 0;
 
-    if (is_signed && relocations) {
+    if (relocations) {
         tls_relocations = *relocations;
         tls_relocations.allow_tls = true;
         relocations = &tls_relocations;
@@ -10683,8 +10682,6 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
         (divisor->kind != DECL_VAR && divisor->kind != DECL_PARAM) ||
         (dividend->var_is_global && dividend->kind != DECL_VAR) ||
         (divisor->var_is_global && divisor->kind != DECL_VAR) ||
-        (!is_signed &&
-         (dividend->var_is_thread_local || divisor->var_is_thread_local)) ||
         (dividend->var_is_thread_local && !dividend_is_address_backed) ||
         (divisor->var_is_thread_local && !divisor_is_address_backed) ||
         dividend->var_is_vla || divisor->var_is_vla ||
