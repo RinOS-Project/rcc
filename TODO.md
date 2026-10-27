@@ -8756,8 +8756,8 @@ remains a separate open item.
       dependent non-type template argument selection against GCC C++20 and the
       i686/AMD64 generation plus execution gate.
 - [ ] Member-function-pointer owner/signature conversions, virtual constexpr
-      dispatch outside a unique nonvirtual owner path, further multilevel
-      data-member-pointer owner-conversion paths, other member-pointee
+      dispatch outside a unique nonvirtual owner path, data-member-pointer
+      owner-conversion paths beyond three inheritance steps, other member-pointee
       cv-qualification combinations, and additional pointer conversions
       remain open.
 
@@ -8787,7 +8787,12 @@ remains a separate open item.
       converted pointer to the nested by-value aggregate in a dependent
       constexpr call. GCC C++20, i686/AMD64 generation, AMD64 execution, the
       focused overload gate, and the full POSIX `test-cxx` aggregate pass.
-- [ ] Further multilevel constexpr owner-conversion paths, additional
+- [x] Cover `int Base::*` to `const int Derived::*` through three accessible
+      nonvirtual inheritance steps, with a nonzero accumulated offset. Apply
+      the converted pointer to the nested by-value aggregate as a dependent
+      constexpr argument. GCC C++20 host execution, i686/AMD64 generation,
+      AMD64 execution, and the focused function-template overload gate pass.
+- [ ] Owner-conversion paths beyond three inheritance steps, additional
       member-pointee cv combinations, and broader pointer conversions remain
       open.
 
