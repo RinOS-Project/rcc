@@ -316,6 +316,19 @@ struct ConstructorBodyLoopControl {
     }
 };
 
+struct ConstructorBodySelectedReturn {
+    int value;
+
+    constexpr explicit ConstructorBodySelectedReturn(bool finish_early,
+                                                      int initial) {
+        if (finish_early) {
+            this->value = initial;
+            return;
+        }
+        this->value = initial + 1;
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -633,6 +646,10 @@ constexpr ConstructorBodyWhileLoopMemberWrite
 constexpr ConstructorBodyDoWhileLoopMemberWrite
     constructor_body_do_while_loop_member_write{0};
 constexpr ConstructorBodyLoopControl constructor_body_loop_control{6};
+constexpr ConstructorBodySelectedReturn constructor_body_return_early{
+    true, 23};
+constexpr ConstructorBodySelectedReturn constructor_body_return_fallthrough{
+    false, 23};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -1038,6 +1055,8 @@ int main(void) {
     ConstructorBodyDoWhileLoopMemberWrite
         runtime_body_do_while_loop_member_write{0};
     ConstructorBodyLoopControl runtime_body_loop_control{3};
+    ConstructorBodySelectedReturn runtime_body_return_early{true, 29};
+    ConstructorBodySelectedReturn runtime_body_return_fallthrough{false, 29};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -1194,6 +1213,8 @@ int main(void) {
                      constructor_body_loop_control.for_value == 5 &&
                      constructor_body_loop_control.while_value == 8 &&
                      constructor_body_loop_control.do_while_value == 8 &&
+                     constructor_body_return_early.value == 23 &&
+                     constructor_body_return_fallthrough.value == 24 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -1232,6 +1253,8 @@ int main(void) {
                      runtime_body_loop_control.for_value == 2 &&
                      runtime_body_loop_control.while_value == 4 &&
                      runtime_body_loop_control.do_while_value == 4 &&
+                     runtime_body_return_early.value == 29 &&
+                     runtime_body_return_fallthrough.value == 30 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&

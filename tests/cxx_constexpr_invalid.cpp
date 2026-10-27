@@ -193,6 +193,15 @@ struct UninitializedWhileLoopBodyMember {
     }
 };
 
+struct UninitializedConstructorReturn {
+    int value;
+
+    constexpr explicit UninitializedConstructorReturn(bool finish_early) {
+        if (finish_early) return;
+        this->value = 1;
+    }
+};
+
 constexpr UninitializedNestedAggregateMember
     invalid_uninitialized_nested_aggregate_member{3};
 constexpr UninitializedArrayMember invalid_uninitialized_array_member{5};
@@ -220,3 +229,5 @@ constexpr UninitializedForLoopBodyMember
     invalid_uninitialized_for_loop_body_member{0};
 constexpr UninitializedWhileLoopBodyMember
     invalid_uninitialized_while_loop_body_member{0};
+constexpr UninitializedConstructorReturn
+    invalid_uninitialized_constructor_return{true};

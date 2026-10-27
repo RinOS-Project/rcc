@@ -9075,6 +9075,10 @@ remains a separate open item.
       constructor loops, including the `for` increment after `continue`, while
       stopping at `break` and preserving definitely initialized member state.
       Verify each loop form against GCC C++20 and full POSIX `test-cxx`.
+- [x] Track selected bare `return;` exits in constexpr constructor bodies so
+      unreachable later writes do not initialize earlier return paths. Verify
+      initialized and indeterminate return paths against GCC C++20 and full
+      POSIX `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,
