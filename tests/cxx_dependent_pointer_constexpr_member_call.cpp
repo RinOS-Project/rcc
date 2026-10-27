@@ -57,6 +57,9 @@ struct DependentConstexprVirtualDerived
 
 constexpr int DependentPointerBase::* dependent_pointer_constexpr_member =
     &DependentPointerBase::value;
+constexpr volatile int DependentPointerBase::*
+    dependent_pointer_constexpr_volatile_member =
+        &DependentPointerBase::value;
 constexpr int (DependentPointerBase::*
     dependent_pointer_constexpr_member_function)(int) const =
         &DependentPointerBase::add;
@@ -193,6 +196,20 @@ struct DependentPointerConstexprOwner {
         return object.*selected;
     }
 
+    static constexpr int has_volatile_hyper_deep_nested_member_pointer(
+        volatile int DependentPointerHyperDeepNestedDerived::* member) {
+        volatile int DependentPointerHyperDeepNestedDerived::* selected =
+            member;
+        return selected != nullptr ? 431 : 432;
+    }
+
+    static constexpr int has_const_volatile_hyper_deep_nested_member_pointer(
+        const volatile int DependentPointerHyperDeepNestedDerived::* member) {
+        const volatile int DependentPointerHyperDeepNestedDerived::* selected =
+            member;
+        return selected != nullptr ? 441 : 442;
+    }
+
     static constexpr int read_const_member_pointer(
         const int DependentPointerBase::* member,
         DependentPointerBase object) {
@@ -280,6 +297,9 @@ static_assert(DependentPointerConstexprOwner::read_member_pointer(
 static_assert(DependentPointerConstexprOwner::read_const_member_pointer(
     ::dependent_pointer_constexpr_member,
     ::dependent_member_pointer_constexpr_object) == 43);
+static_assert(
+    DependentPointerConstexprOwner::has_const_volatile_hyper_deep_nested_member_pointer(
+        ::dependent_pointer_constexpr_volatile_member) == 441);
 static_assert(DependentPointerConstexprOwner::has_member_function_pointer(
     &DependentPointerBase::add) == 419);
 static_assert(DependentPointerConstexprOwner::has_member_function_pointer(
@@ -496,6 +516,36 @@ int select_dependent_member_pointer_const_hyper_deep_nested_owner_conversion_cal
 }
 
 template<typename Owner, typename... Tail>
+int select_dependent_member_pointer_volatile_hyper_deep_nested_owner_conversion_call(
+    DependentPointerConstexprBox<
+        Owner::has_volatile_hyper_deep_nested_member_pointer(
+            ::dependent_pointer_constexpr_member),
+        Owner, Tail...>) {
+    return 431;
+}
+
+template<typename Owner, typename... Tail>
+int select_dependent_member_pointer_volatile_hyper_deep_nested_owner_conversion_call(
+    DependentPointerConstexprBox<0, Owner, Tail...>) {
+    return 432;
+}
+
+template<typename Owner, typename... Tail>
+int select_dependent_member_pointer_const_volatile_hyper_deep_nested_owner_conversion_call(
+    DependentPointerConstexprBox<
+        Owner::has_const_volatile_hyper_deep_nested_member_pointer(
+            ::dependent_pointer_constexpr_member),
+        Owner, Tail...>) {
+    return 441;
+}
+
+template<typename Owner, typename... Tail>
+int select_dependent_member_pointer_const_volatile_hyper_deep_nested_owner_conversion_call(
+    DependentPointerConstexprBox<0, Owner, Tail...>) {
+    return 442;
+}
+
+template<typename Owner, typename... Tail>
 int select_dependent_array_element_pointer_call(
     DependentPointerConstexprBox<
         Owner::value(&::dependent_pointer_constexpr_values[1]),
@@ -627,6 +677,16 @@ int main() {
             DependentPointerConstexprBox<
                 41, DependentPointerConstexprOwner, int>{}) != 421) {
         return 18;
+    }
+    if (select_dependent_member_pointer_volatile_hyper_deep_nested_owner_conversion_call(
+            DependentPointerConstexprBox<
+                431, DependentPointerConstexprOwner, int>{}) != 431) {
+        return 19;
+    }
+    if (select_dependent_member_pointer_const_volatile_hyper_deep_nested_owner_conversion_call(
+            DependentPointerConstexprBox<
+                441, DependentPointerConstexprOwner, int>{}) != 441) {
+        return 20;
     }
     if (select_dependent_array_element_pointer_call(
             DependentPointerConstexprBox<

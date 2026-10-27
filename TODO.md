@@ -8757,9 +8757,9 @@ remains a separate open item.
       i686/AMD64 generation plus execution gate.
 - [ ] Member-function-pointer owner/signature conversions, virtual constexpr
       dispatch outside a unique nonvirtual owner path, data-member-pointer
-      owner-conversion paths beyond four inheritance steps, other member-pointee
-      cv-qualification combinations, and additional pointer conversions
-      remain open.
+      owner-conversion paths beyond four inheritance steps, cv conversions
+      from const-qualified source member pointers, and broader pointer
+      conversions remain open.
 
 ## RCC continuation (2026-10-27, constexpr data-member-pointer owner conversion)
 
@@ -8797,9 +8797,15 @@ remains a separate open item.
       the four-level nested by-value aggregate in dependent constexpr
       selection. The exact fixture passes GCC C++20 host execution, i686/AMD64
       generation, and AMD64 execution.
-- [ ] Owner-conversion paths beyond four inheritance steps, additional
-      member-pointee cv combinations, and broader pointer conversions remain
-      open.
+- [x] At the same four-step owner depth, preserve conversions from
+      `int Base::*` to `volatile int Derived::*` and
+      `const volatile int Derived::*` in dependent constexpr selection; also
+      add `const` from a `volatile int Base::*` source. The exact fixture
+      passes GCC C++20 host execution, i686/AMD64 generation, and AMD64
+      execution.
+- [ ] Owner-conversion paths beyond four inheritance steps, further cv
+      combinations from qualified source member pointers, and broader pointer
+      conversions remain open.
 
 ## RCC continuation (2026-10-27, bounded constexpr member-function-pointer values)
 
