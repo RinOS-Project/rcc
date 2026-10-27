@@ -114,16 +114,6 @@ struct UninitializedBodyReadBeforeWrite {
     }
 };
 
-struct UninitializedBodyBranchMember {
-    int value;
-
-    constexpr explicit UninitializedBodyBranchMember(int initial) {
-        if (initial > 0) {
-            this->value = initial;
-        }
-    }
-};
-
 constexpr UninitializedNestedAggregateMember
     invalid_uninitialized_nested_aggregate_member{3};
 constexpr UninitializedArrayMember invalid_uninitialized_array_member{5};
@@ -135,5 +125,3 @@ constexpr UninitializedBodyMemberRead
     invalid_uninitialized_body_member_read{17};
 constexpr UninitializedBodyReadBeforeWrite
     invalid_uninitialized_body_read_before_write{19};
-constexpr UninitializedBodyBranchMember
-    invalid_uninitialized_body_branch_member{23};

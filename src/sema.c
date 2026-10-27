@@ -6633,7 +6633,9 @@ static bool sema_constexpr_materialize_object(
     int binding_count, unsigned char* storage, size_t storage_size);
 static bool sema_constexpr_constructor_body_writes_direct_member(
     CxxConstructorInfo* constructor, CxxClass* cls, Type* type,
-    const char* member_name, bool* supported);
+    const char* member_name, bool* supported,
+    SemaConstexprBinding* bindings, int binding_count,
+    bool allow_unknown_branch_join);
 static bool sema_constexpr_binding_lvalue(
     Expr* expression, SemaConstexprBinding* bindings, int binding_count,
     int* binding_index, size_t* offset, Type** type);
@@ -6971,7 +6973,8 @@ static bool sema_constexpr_materialize_cxx_constructor(
                 !constructor->body_is_empty &&
                 sema_constexpr_scalar_type(field->type) &&
                 sema_constexpr_constructor_body_writes_direct_member(
-                    constructor, cls, type, member->name, &body_supported);
+                    constructor, cls, type, member->name, &body_supported,
+                    bindings, binding_count, true);
             if (!body_supported || !body_writes_member) return false;
             /* The straight-line constructor body performs the first write to
              * this scalar.  Leave its storage untouched until that assignment
@@ -8672,7 +8675,8 @@ static bool sema_constexpr_constructor_rhs_is_safe(
 
 static bool sema_constexpr_constructor_analyze_body_statement(
     Stmt* statement, CxxClass* cls, uint64_t* initialized_members,
-    unsigned depth) {
+    SemaConstexprBinding* bindings, int binding_count,
+    bool allow_unknown_branch_join, unsigned depth) {
     if (!statement || !cls || !initialized_members || depth >= 64u) {
         return false;
     }
@@ -8683,7 +8687,9 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             for (StmtList* item = statement->block_stmts;
                  item; item = item->next) {
                 if (!sema_constexpr_constructor_analyze_body_statement(
-                        item->stmt, cls, initialized_members, depth + 1u)) {
+                        item->stmt, cls, initialized_members, bindings,
+                        binding_count, allow_unknown_branch_join,
+                        depth + 1u)) {
                     return false;
                 }
             }
@@ -8709,17 +8715,36 @@ static bool sema_constexpr_constructor_analyze_body_statement(
         case STMT_IF: {
             uint64_t then_state = *initialized_members;
             uint64_t else_state = *initialized_members;
+            SemaConstexprScalar condition_value;
             if (statement->if_is_constexpr || !statement->if_cond ||
                 !sema_constexpr_constructor_rhs_is_safe(
                     statement->if_cond, cls, *initialized_members,
-                    depth + 1u) ||
-                !sema_constexpr_constructor_analyze_body_statement(
-                    statement->if_then, cls, &then_state, depth + 1u)) {
+                    depth + 1u)) {
+                return false;
+            }
+            if (sema_eval_constexpr_scalar_expr(
+                    statement->if_cond, bindings, binding_count,
+                    &condition_value)) {
+                bool condition_is_true =
+                    sema_constexpr_scalar_truth(&condition_value);
+                Stmt* selected = condition_is_true
+                    ? statement->if_then : statement->if_else;
+                return !selected ||
+                    sema_constexpr_constructor_analyze_body_statement(
+                        selected, cls, initialized_members, bindings,
+                        binding_count, allow_unknown_branch_join,
+                        depth + 1u);
+            }
+            if (!allow_unknown_branch_join) return false;
+            if (!sema_constexpr_constructor_analyze_body_statement(
+                    statement->if_then, cls, &then_state, bindings,
+                    binding_count, allow_unknown_branch_join, depth + 1u)) {
                 return false;
             }
             if (statement->if_else &&
                 !sema_constexpr_constructor_analyze_body_statement(
-                    statement->if_else, cls, &else_state, depth + 1u)) {
+                    statement->if_else, cls, &else_state, bindings,
+                    binding_count, allow_unknown_branch_join, depth + 1u)) {
                 return false;
             }
             *initialized_members = then_state & else_state;
@@ -8732,7 +8757,9 @@ static bool sema_constexpr_constructor_analyze_body_statement(
 
 static bool sema_constexpr_constructor_body_writes_direct_member(
     CxxConstructorInfo* constructor, CxxClass* cls, Type* type,
-    const char* member_name, bool* supported) {
+    const char* member_name, bool* supported,
+    SemaConstexprBinding* bindings, int binding_count,
+    bool allow_unknown_branch_join) {
     Decl* declaration = constructor && constructor->method
         ? constructor->method->decl : NULL;
     Stmt* body = declaration ? declaration->func_body : NULL;
@@ -8746,7 +8773,8 @@ static bool sema_constexpr_constructor_body_writes_direct_member(
         !sema_constexpr_constructor_initial_member_state(
             constructor, cls, type, &initialized_members) ||
         !sema_constexpr_constructor_analyze_body_statement(
-            body, cls, &initialized_members, 0u)) {
+            body, cls, &initialized_members, bindings, binding_count,
+            allow_unknown_branch_join, 0u)) {
         return false;
     }
     *supported = true;
@@ -8818,7 +8846,7 @@ static bool sema_constexpr_constructor_leaves_indeterminate_scalar(
                 bool body_writes_member =
                     sema_constexpr_constructor_body_writes_direct_member(
                         constructor, cls, type, member->name,
-                        &body_supported);
+                        &body_supported, NULL, 0, false);
                 if (body_supported && !body_writes_member) return true;
             }
         }

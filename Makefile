@@ -3240,7 +3240,7 @@ test-cxx-constexpr-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
 	$(GREP) -q "constexpr variable initializer is not a supported constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
-	$(call CHECK_COUNT,constexpr initializer leaves a scalar member indeterminate,$(TEST_OUT)/cxx-constexpr/invalid-x86.log,6)
+	$(call CHECK_COUNT,constexpr initializer leaves a scalar member indeterminate,$(TEST_OUT)/cxx-constexpr/invalid-x86.log,5)
 	$(GREP) -q "consteval call is not a constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
 	! $(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
@@ -3248,6 +3248,24 @@ test-cxx-constexpr-posix: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-constexpr/invalid-gcc.log 2>&1
 	$(GREP) -F -q "because it refers to an incompletely initialized variable" \
 		$(TEST_OUT)/cxx-constexpr/invalid-gcc.log
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr/branch-uninitialized)
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constexpr/branch-uninitialized/x86.ro \
+		tests/cxx_constexpr_branch_uninitialized_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr/branch-uninitialized/x86.log 2>&1
+	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" \
+		$(TEST_OUT)/cxx-constexpr/branch-uninitialized/x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constexpr/branch-uninitialized/x64.ro \
+		tests/cxx_constexpr_branch_uninitialized_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr/branch-uninitialized/x64.log 2>&1
+	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" \
+		$(TEST_OUT)/cxx-constexpr/branch-uninitialized/x64.log
+	! $(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_constexpr_branch_uninitialized_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr/branch-uninitialized/gcc.log 2>&1
+	$(GREP) -F -q "not a constant expression" \
+		$(TEST_OUT)/cxx-constexpr/branch-uninitialized/gcc.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-constexpr/invalid-x64.ro \
 		tests/cxx_constexpr_invalid.cpp \
@@ -3256,7 +3274,7 @@ test-cxx-constexpr-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	$(GREP) -q "constexpr variable initializer is not a supported constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
-	$(call CHECK_COUNT,constexpr initializer leaves a scalar member indeterminate,$(TEST_OUT)/cxx-constexpr/invalid-x64.log,6)
+	$(call CHECK_COUNT,constexpr initializer leaves a scalar member indeterminate,$(TEST_OUT)/cxx-constexpr/invalid-x64.log,5)
 	$(GREP) -q "consteval call is not a constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
