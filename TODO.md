@@ -1619,8 +1619,14 @@
         fallback on i686/AMD64 at `-O0` and `-O2` in
         `test-verified-cxx-automatic-array-cleanup`, included by
         `test-verified-backend` and the production CI gate.
-  - [ ] Throwing argument/initializer evaluation before a cleanup owner is
-        fully constructed, constructor-driven partial construction/unwind
+  - [x] Register completed reference-bound argument temporaries before
+        evaluating a later potentially throwing sibling argument, then verify
+        their exactly-once cleanup when that argument throws. The
+        `noexcept`-callee regression runs through typed SSA with no fallback
+        on i686/AMD64 at `-O0` and `-O2` in
+        `test-verified-cxx-throwing-temporary`.
+  - [ ] Throwing initializer evaluation before a cleanup owner is fully
+        constructed, constructor-driven partial construction/unwind
         outside the verified direct class-member path for automatic
         reference-bound prvalues,
         potentially throwing cleanup callbacks, VLA forms outside the currently

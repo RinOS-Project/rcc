@@ -331,6 +331,11 @@ int consume_verified_throwing_temporary(
     return value.cleanup_id;
 }
 
+int consume_verified_throwing_temporary_noexcept(
+    const VerifiedThrowingTemporary& value, int result) noexcept {
+    return value.cleanup_id + result;
+}
+
 int throw_verified_temporary_argument() {
     throw 53;
 }
@@ -362,6 +367,20 @@ extern "C" int verified_cxx_throwing_argument_cleanup(int* cleanup_order) {
         result = value;
     }
     return result * 100 + cleanup_before_throw * 10 + *cleanup_order;
+}
+
+extern "C" int verified_cxx_throwing_sibling_argument_cleanup(
+    int* cleanup_order) {
+    int result = 0;
+    *cleanup_order = 0;
+    try {
+        result = consume_verified_throwing_temporary_noexcept(
+            make_verified_throwing_temporary(cleanup_order, 6),
+            throw_verified_temporary_argument());
+    } catch (int value) {
+        result = value;
+    }
+    return result * 10 + *cleanup_order;
 }
 
 extern "C" int verified_cxx_throwing_conditional_cleanup(

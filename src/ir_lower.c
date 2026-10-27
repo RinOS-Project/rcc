@@ -8675,11 +8675,23 @@ static bool lower_call_temporary_cleanups_supported(
     bool has_temporary = false;
     bool current_frame_cleanup = expression &&
         !expression->cxx_call_is_noexcept;
+    bool has_throwing_argument = false;
     if (!expression ||
-        (!expression->cxx_call_is_noexcept && !current_frame_cleanup) ||
         !lower_noexcept_expression(expression->call_func) ||
         !lower_call_receiver_temporary_cleanup_supported(
             expression, current_frame_cleanup)) {
+        return false;
+    }
+    for (argument = expression->call_args; argument;
+         argument = argument->next) {
+        if (!lower_noexcept_expression(argument->expr)) {
+            has_throwing_argument = true;
+        }
+    }
+    /* The receiver is materialized before the explicit arguments.  Its
+     * cleanup registration currently happens after argument lowering, so do
+     * not claim support if an argument could throw while it is live. */
+    if (expression->cxx_temporary_owner && has_throwing_argument) {
         return false;
     }
     if (expression->cxx_temporary_owner) {
@@ -8689,15 +8701,39 @@ static bool lower_call_temporary_cleanups_supported(
     }
     for (argument = expression->call_args; argument;
          argument = argument->next) {
-        if (!lower_noexcept_expression(argument->expr)) return false;
         if (!argument->cxx_temporary_owner) continue;
         has_temporary = true;
-        if (!lower_temporary_cleanup_plan_supported(
-                argument, current_frame_cleanup)) {
-            return false;
+        {
+            const ExprList* later;
+            bool cleanup_may_throw = current_frame_cleanup;
+            for (later = argument->next; later; later = later->next) {
+                if (!lower_noexcept_expression(later->expr)) {
+                    cleanup_may_throw = true;
+                    break;
+                }
+            }
+            if (!lower_temporary_cleanup_plan_supported(
+                    argument, cleanup_may_throw)) {
+                return false;
+            }
         }
     }
     return has_temporary;
+}
+
+static bool lower_call_has_throwing_argument_after_temporary(
+    const Expr* expression) {
+    const ExprList* argument;
+    bool has_temporary = false;
+    if (!expression) return false;
+    for (argument = expression->call_args; argument;
+         argument = argument->next) {
+        if (!lower_noexcept_expression(argument->expr) && has_temporary) {
+            return true;
+        }
+        if (argument->cxx_temporary_owner) has_temporary = true;
+    }
+    return false;
 }
 
 static bool lower_bind_temporary_owner(RccIrLowerContext* context,
@@ -10989,6 +11025,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     size_t index = 0u;
     size_t fixed_count = 0u;
     size_t cleanup_count = 0u;
+    size_t registered_cleanup_count = 0u;
     size_t chunk_size = lower_abi_chunk_size();
     size_t sysv_gp_arguments_used = 0u;
     size_t sysv_sse_arguments_used = 0u;
@@ -11013,7 +11050,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     bool use_aggregate_result_destination = false;
     bool receiver_temporary_address_valid = false;
     bool register_temporary_cleanups = expression &&
-        !expression->cxx_call_is_noexcept;
+        (!expression->cxx_call_is_noexcept ||
+         lower_call_has_throwing_argument_after_temporary(expression));
     RccIrInstruction* call;
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
@@ -11469,6 +11507,25 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 ++sysv_flatten_gp_arguments_used;
             }
         }
+        /* An earlier reference-bound temporary is already a live object
+         * while this argument is evaluated.  Register its cleanup before
+         * lowering an argument whose AST may throw, not only immediately
+         * before the eventual call. */
+        if (register_temporary_cleanups &&
+            cleanup_count > registered_cleanup_count &&
+            !lower_noexcept_expression(argument->expr)) {
+            size_t pending_cleanup_count =
+                cleanup_count - registered_cleanup_count;
+            if (!lower_register_call_temporary_cleanups(
+                    context,
+                    temporary_cleanups + registered_cleanup_count,
+                    pending_cleanup_count)) {
+                rcc_free(operands);
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            registered_cleanup_count = cleanup_count;
+        }
         if (argument->cxx_temporary_owner && argument->expr &&
             argument->expr->kind == EXPR_CAST &&
             argument->expr->cxx_virtual_base_adjustment &&
@@ -11842,8 +11899,10 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         return lower_invalid_value();
     }
     if (register_temporary_cleanups &&
+        cleanup_count > registered_cleanup_count &&
         !lower_register_call_temporary_cleanups(
-            context, temporary_cleanups, cleanup_count)) {
+            context, temporary_cleanups + registered_cleanup_count,
+            cleanup_count - registered_cleanup_count)) {
         rcc_free(operands);
         rcc_free(sysv_memory_arguments);
         context->unsupported = true;
