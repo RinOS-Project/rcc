@@ -8951,10 +8951,14 @@ remains a separate open item.
       the caller's post-call scalar value with strict GCC C++20, focused
       i686/AMD64 generation and execution, and the full POSIX `test-cxx`
       aggregate.
+- [x] Rebind a caller-local pointer through `int*&` in a scalar-returning
+      constexpr function, then dereference the updated pointer to a caller
+      aggregate member. Verify constexpr and runtime results, strict GCC C++20,
+      and focused i686/AMD64 generation and execution.
 - [ ] Constructor bodies beyond the covered expressions/branches, mutable
       references to nonscalar objects, reference forms not covered by the
-      scalar- and aggregate-returning evaluators (including aggregate and
-      pointer-reference parameters), indeterminate tracking for
+      scalar- and aggregate-returning evaluators (including other pointer-
+      reference forms), indeterminate tracking for
       nested/array/base subobjects, and complete virtual-base constructor
       evaluation remain open.
 

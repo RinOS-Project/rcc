@@ -137,6 +137,12 @@ constexpr Pair make_pair_after_mutating_scalar_reference(int& value) {
     return Pair{value, value + 1};
 }
 
+constexpr int redirect_mutable_pointer_reference(int*& target,
+                                                  int* replacement) {
+    target = replacement;
+    return *target;
+}
+
 constexpr FloatPair make_float_pair(float first, double second) {
     return FloatPair{first, second};
 }
@@ -287,6 +293,17 @@ constexpr int mutate_scalar_through_aggregate_return_function() {
 constexpr int aggregate_return_reference_function_result =
     mutate_scalar_through_aggregate_return_function();
 
+constexpr int redirect_pointer_through_constexpr_function() {
+    Pair source{2, 7};
+    int* target = &source.first;
+    int* replacement = &source.second;
+    int result = redirect_mutable_pointer_reference(target, replacement);
+    return source.first * 100 + source.second * 10 + result;
+}
+
+constexpr int mutable_pointer_reference_function_result =
+    redirect_pointer_through_constexpr_function();
+
 static_assert(pair.first == 3);
 static_assert(nested.pair.second + nested.tail == 13);
 static_assert(returned_pair.first == 11 && returned_pair.second == 13);
@@ -320,6 +337,7 @@ static_assert(forwarded_scalar_reference_constructor_result == 1811);
 static_assert(local_scalar_reference_function_result == 909);
 static_assert(aggregate_member_reference_function_result == 1111);
 static_assert(aggregate_return_reference_function_result == 778);
+static_assert(mutable_pointer_reference_function_result == 277);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
@@ -348,6 +366,11 @@ int main(void) {
     Pair runtime_aggregate_return_result =
         make_pair_after_mutating_scalar_reference(
             runtime_aggregate_return_source);
+    Pair runtime_pointer_pair{2, 7};
+    int* runtime_pointer_target = &runtime_pointer_pair.first;
+    int* runtime_pointer_replacement = &runtime_pointer_pair.second;
+    int runtime_pointer_result = redirect_mutable_pointer_reference(
+        runtime_pointer_target, runtime_pointer_replacement);
     return first_value == 3 && second_value == 5 &&
                    nested_value == 13 && array_value == 19 &&
                    returned_value == 24 && mutated_returned_value == 44 &&
@@ -391,6 +414,10 @@ int main(void) {
                    runtime_aggregate_return_source == 7 &&
                    runtime_aggregate_return_result.first == 7 &&
                    runtime_aggregate_return_result.second == 8 &&
+                   runtime_pointer_pair.first == 2 &&
+                   runtime_pointer_pair.second == 7 &&
+                   runtime_pointer_target == runtime_pointer_replacement &&
+                   runtime_pointer_result == 7 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
                    consteval_float_value == 6.25 &&
