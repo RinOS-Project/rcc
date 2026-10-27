@@ -6463,6 +6463,255 @@ static bool sema_constexpr_load_scalar_bytes(
 static bool sema_constexpr_materialize_object(
     Type* type, Expr* initializer, SemaConstexprBinding* bindings,
     int binding_count, unsigned char* storage, size_t storage_size);
+static int sema_cxx_constructor_base_index(CxxClass* cls,
+                                           const char* name);
+static int sema_cxx_constructor_virtual_base_index(CxxClass* cls,
+                                                  const char* name);
+
+static bool sema_constexpr_materialize_cxx_constructor(
+    Type* type, CxxConstructorInfo* constructor, ExprList* arguments,
+    bool initialize_virtual_bases, SemaConstexprBinding* caller_bindings,
+    int caller_binding_count, unsigned char* storage, size_t storage_size,
+    unsigned depth) {
+    SemaConstexprBinding bindings[64];
+    DeclList* parameter;
+    ExprList* argument;
+    CxxClass* cls;
+    Decl* declaration;
+    size_t object_size;
+    int binding_count;
+
+    if (!type || type->kind != TYPE_STRUCT || !(cls = type->cxx_class) ||
+        !constructor || !constructor->method ||
+        !(declaration = constructor->method->decl) ||
+        !declaration->func_is_cxx_constructor ||
+        constructor->is_deleted || constructor->is_inherited ||
+        !constructor->body_is_empty ||
+        !constructor->initializers_are_supported ||
+        caller_binding_count < 0 || caller_binding_count > 64 ||
+        depth >= 32u || type->size <= 0 ||
+        (size_t)type->size > storage_size) {
+        return false;
+    }
+
+    object_size = (size_t)type->size;
+    sema_constexpr_pointer_slots_clear(storage, object_size);
+    memset(storage, 0, object_size);
+    memset(bindings, 0, sizeof(bindings));
+    if (caller_binding_count > 0) {
+        if (!caller_bindings) return false;
+        memcpy(bindings, caller_bindings,
+               sizeof(*bindings) * (size_t)caller_binding_count);
+    }
+    binding_count = caller_binding_count;
+    parameter = declaration->func_params;
+    argument = arguments;
+    while (parameter && argument) {
+        SemaConstexprBinding* binding;
+        SemaConstexprScalar value;
+        Type* parameter_type;
+        if (binding_count >= (int)(sizeof(bindings) / sizeof(bindings[0])) ||
+            !parameter->decl || !(parameter_type = parameter->decl->type) ||
+            !sema_constexpr_scalar_type(parameter_type) ||
+            !sema_eval_constexpr_scalar_expr(
+                argument->expr, caller_bindings, caller_binding_count,
+                &value) ||
+            !sema_constexpr_scalar_convert(
+                &value, parameter_type, &value)) {
+            return false;
+        }
+        binding = &bindings[binding_count++];
+        binding->declaration = parameter->decl;
+        binding->type = parameter_type;
+        binding->value = value.integer_value;
+        binding->floating_value = value.floating_value;
+        binding->is_floating = value.is_floating;
+        binding->is_pointer = value.is_pointer;
+        binding->pointer_declaration = value.pointer_declaration;
+        binding->pointer_offset = value.pointer_offset;
+        binding->is_member_pointer = value.is_member_pointer;
+        binding->member_pointer_field = value.member_pointer_field;
+        binding->member_pointer_method = value.member_pointer_method;
+        sema_constexpr_capture_pointer_target_object(
+            binding, &value, caller_bindings, caller_binding_count);
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    if (parameter || argument ||
+        binding_count - caller_binding_count != constructor->parameter_count) {
+        return false;
+    }
+
+    /* A constructor's omitted base initializers are default-initialized, not
+     * zero-initialized.  Materialize only when every base subobject that this
+     * constructor owns has an explicit initializer, so the byte evaluator
+     * never invents a value for an indeterminate base. */
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxConstructorInitializer* base_initializer = NULL;
+        Type* base_type = cls->bases[index].base
+            ? cls->bases[index].base->type : NULL;
+        int base_offset;
+        if (cls->bases[index].is_virtual) continue;
+        for (CxxConstructorInitializer* item = constructor->initializers;
+             item; item = item->next) {
+            if (item->is_base_initializer &&
+                !item->is_virtual_base_initializer &&
+                sema_cxx_constructor_base_index(cls, item->field) == index) {
+                base_initializer = item;
+                break;
+            }
+        }
+        if (!base_initializer || !base_type || base_type->size <= 0 ||
+            !cls->base_offsets || (base_offset = cls->base_offsets[index]) < 0 ||
+            (size_t)base_offset > object_size ||
+            (size_t)base_type->size > object_size - (size_t)base_offset) {
+            return false;
+        }
+        Expr base_expression;
+        memset(&base_expression, 0, sizeof(base_expression));
+        base_expression.kind = EXPR_COMPOUND;
+        base_expression.type = base_type;
+        base_expression.compound_type = base_type;
+        base_expression.compound_init = base_initializer->arguments;
+        base_expression.compound_value_init =
+            base_initializer->arguments == NULL;
+        if (base_initializer->constructor) {
+            if (!sema_constexpr_materialize_cxx_constructor(
+                    base_type, base_initializer->constructor,
+                    base_initializer->arguments, false, bindings,
+                    binding_count, storage + (size_t)base_offset,
+                    object_size - (size_t)base_offset, depth + 1u)) {
+                return false;
+            }
+        } else if (!sema_constexpr_materialize_object(
+                       base_type, &base_expression, bindings, binding_count,
+                       storage + (size_t)base_offset,
+                       object_size - (size_t)base_offset)) {
+            return false;
+        }
+    }
+
+    /* Virtual bases are initialized only by the complete object's
+     * constructor.  A base subobject evaluation leaves them to its caller. */
+    if (initialize_virtual_bases) {
+        for (int index = 0; index < cls->virtual_base_count; ++index) {
+            CxxConstructorInitializer* base_initializer = NULL;
+            Type* base_type = cls->virtual_bases[index].base
+                ? cls->virtual_bases[index].base->type : NULL;
+            int base_offset = cls->virtual_bases[index].offset;
+            for (CxxConstructorInitializer* item = constructor->initializers;
+                 item; item = item->next) {
+                if (item->is_base_initializer &&
+                    item->is_virtual_base_initializer &&
+                    sema_cxx_constructor_virtual_base_index(cls, item->field) ==
+                        index) {
+                    base_initializer = item;
+                    break;
+                }
+            }
+            if (!base_initializer || !base_type || base_type->size <= 0 ||
+                base_offset < 0 || (size_t)base_offset > object_size ||
+                (size_t)base_type->size >
+                    object_size - (size_t)base_offset) {
+                return false;
+            }
+            Expr base_expression;
+            memset(&base_expression, 0, sizeof(base_expression));
+            base_expression.kind = EXPR_COMPOUND;
+            base_expression.type = base_type;
+            base_expression.compound_type = base_type;
+            base_expression.compound_init = base_initializer->arguments;
+            base_expression.compound_value_init =
+                base_initializer->arguments == NULL;
+            if (base_initializer->constructor) {
+                if (!sema_constexpr_materialize_cxx_constructor(
+                        base_type, base_initializer->constructor,
+                        base_initializer->arguments, false, bindings,
+                        binding_count, storage + (size_t)base_offset,
+                        object_size - (size_t)base_offset, depth + 1u)) {
+                    return false;
+                }
+            } else if (!sema_constexpr_materialize_object(
+                           base_type, &base_expression, bindings,
+                           binding_count, storage + (size_t)base_offset,
+                           object_size - (size_t)base_offset)) {
+                return false;
+            }
+        }
+    }
+
+    for (TypeParam* member = cls->fields; member; member = member->next) {
+        CxxConstructorInitializer* member_initializer = NULL;
+        TypeField* field = NULL;
+        Expr* member_value = NULL;
+        if (member->is_static) continue;
+        for (TypeField* item = type->fields; item; item = item->next) {
+            if (item->name && member->name &&
+                strcmp(item->name, member->name) == 0 &&
+                item->cxx_declaring_class == cls) {
+                field = item;
+                break;
+            }
+        }
+        if (!field || !field->type || field->offset < 0 ||
+            field->is_bitfield || field->type->size <= 0 ||
+            (size_t)field->offset > object_size ||
+            (size_t)field->type->size >
+                object_size - (size_t)field->offset) {
+            return false;
+        }
+        for (CxxConstructorInitializer* item = constructor->initializers;
+             item; item = item->next) {
+            if (!item->is_base_initializer &&
+                !item->is_delegating_constructor && item->field &&
+                member->name && strcmp(item->field, member->name) == 0) {
+                member_initializer = item;
+                break;
+            }
+        }
+        if (member_initializer) {
+            member_value = member_initializer->value;
+            if (field->type->kind == TYPE_STRUCT &&
+                member_initializer->constructor) {
+                if (!sema_constexpr_materialize_cxx_constructor(
+                        field->type, member_initializer->constructor,
+                        member_initializer->arguments, true, bindings,
+                        binding_count, storage + (size_t)field->offset,
+                        object_size - (size_t)field->offset, depth + 1u)) {
+                    return false;
+                }
+                continue;
+            }
+            if (!member_value && member_initializer->arguments &&
+                !member_initializer->arguments->next) {
+                member_value = member_initializer->arguments->expr;
+            }
+        } else {
+            member_value = field->initializer;
+        }
+        if (member_value && member_value->kind == EXPR_COMPOUND &&
+            member_value->compound_constructor &&
+            field->type->kind == TYPE_STRUCT) {
+            if (!sema_constexpr_materialize_cxx_constructor(
+                    field->type, member_value->compound_constructor,
+                    member_value->compound_init, true, bindings,
+                    binding_count, storage + (size_t)field->offset,
+                    object_size - (size_t)field->offset, depth + 1u)) {
+                return false;
+            }
+            continue;
+        }
+        if (!member_value ||
+            !sema_constexpr_materialize_object(
+                field->type, member_value, bindings, binding_count,
+                storage + (size_t)field->offset,
+                object_size - (size_t)field->offset)) {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 static bool sema_constexpr_inferred_array_length(
     const Expr* initializer, int* length) {
@@ -7048,6 +7297,14 @@ static bool sema_constexpr_materialize_object(
             return result;
         }
         return false;
+    }
+    if (initializer->kind == EXPR_COMPOUND &&
+        initializer->compound_constructor && type->kind == TYPE_STRUCT &&
+        type->cxx_class && type->cxx_class->base_count > 0) {
+        return sema_constexpr_materialize_cxx_constructor(
+            type, initializer->compound_constructor,
+            initializer->compound_init, true, bindings, binding_count,
+            storage, storage_size, 0u);
     }
     if (initializer->kind != EXPR_COMPOUND ||
         (initializer->compound_type &&

@@ -38,7 +38,7 @@ struct DependentConstexprVirtualDerived
           DependentConstexprVirtualBase(initial) {}
 
     constexpr int add(int amount) const override {
-        return amount + 117;
+        return value + amount + 100;
     }
 };
 

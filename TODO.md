@@ -8849,16 +8849,31 @@ remains a separate open item.
       owner is reached through a unique accessible nonvirtual base path.
       Cover both the primary table and a secondary polymorphic base at a
       nonzero offset; apply the pointer conversion adjustment and select the
-      derived final overrider from the secondary table slot. Dependent
-      constexpr-call frames and static assertions distinguish it from the base
-      implementation. The strict GCC C++20 oracle, focused
+      derived final overrider from the secondary table slot. Initialize
+      explicitly listed scalar base/member subobjects from constexpr
+      constructors and read inherited `Base::value` in the final overrider.
+      Dependent constexpr-call frames and static assertions distinguish it
+      from the base implementation. The strict GCC C++20 oracle, focused
       `test-cxx-function-template-overloads` gate, and full POSIX `test-cxx`
       aggregate pass on the final compiler source.
 - [ ] Extend constexpr virtual dispatch to runtime/dynamic object flows,
       virtual-base owner paths, and additional ambiguous or repeated-base
-      cases. Reading inherited data from a secondary polymorphic base within
-      the constexpr final overrider remains open, as do member-function-pointer
-      owner/signature conversions.
+      cases. Broader constructor evaluation (non-empty constexpr constructor
+      bodies, omitted/default-initialized subobjects, and other parameter
+      forms) and member-function-pointer owner/signature conversions remain
+      open.
+
+## RCC continuation (2026-10-27, secondary-base constexpr constructor state)
+
+- [x] Materialize explicitly initialized scalar parameters and direct
+      nonvirtual base/member subobjects for empty constexpr constructors used
+      by a polymorphic derived object. Verify that a virtual final overrider
+      reads the initialized `value` from its secondary base and returns the
+      expected result. The focused overload and full POSIX `test-cxx` gates
+      pass on the final compiler source.
+- [ ] Non-empty constexpr constructor bodies, omitted/default-initialized
+      subobjects, aggregate constructor parameters, and complete virtual-base
+      constructor evaluation remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
