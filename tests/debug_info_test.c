@@ -13427,6 +13427,14 @@ static uint64_t verify_inline_global_expression_tree(
                 assert(rhs < 64u);
                 result = lhs >> rhs;
                 break;
+            case 0x26u:
+                assert(rhs < 64u);
+                result = lhs >> rhs;
+                if (rhs != 0u &&
+                    (lhs & UINT64_C(0x8000000000000000)) != 0u) {
+                    result |= UINT64_MAX << (64u - rhs);
+                }
+                break; /* DW_OP_shra */
             case 0x27u: result = lhs ^ rhs; break; /* xor */
             default: assert(0 && "unexpected global DWARF expression opcode");
                      result = 0u;
@@ -13442,6 +13450,83 @@ static uint64_t verify_inline_global_expression_tree(
             (first_symbol_relocations == 1u &&
              second_symbol_relocations == 1u)));
     return stack[0].value;
+}
+
+static void verify_inline_x64_global_integer_expression(
+    const char* path, const char* call_site_name, const char* source_name,
+    const char* second_source_name, uint8_t required_operator,
+    size_t expected_relocations, uint64_t expected_value) {
+    const char* inline_name =
+        "debug_nonconstant_signed_long_long_parameter_inline";
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t call_die = UINT64_MAX;
+    uint64_t origin_die = UINT64_MAX;
+    uint64_t parameter_die;
+    uint64_t expression_offset;
+    uint64_t expression_size;
+    uint64_t address_size = 8u;
+    uint64_t source_value;
+    uint64_t second_source_value;
+    uint64_t actual_value;
+
+    assert(object != NULL && object->arch == ARCH_X64 && path != NULL &&
+           call_site_name != NULL && source_name != NULL &&
+           second_source_name != NULL);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    for (uint64_t die = 11u; die + 1u + 4u + address_size + 16u <=
+         info->size; ++die) {
+        uint32_t candidate_origin;
+        uint32_t name_offset;
+        uint64_t low_pc_offset;
+        bool matches_call = false;
+
+        if (info->data[die] != 41u) continue;
+        candidate_origin = read_u32(info->data, die + 1u);
+        if (candidate_origin >= info->size ||
+            info->data[candidate_origin] != 40u) continue;
+        name_offset = read_u32(info->data, candidate_origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   inline_name) != 0) {
+            continue;
+        }
+        low_pc_offset = die + 1u + 4u;
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == low_pc_offset &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+        origin_die = candidate_origin;
+    }
+    assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    parameter_die = call_die + 1u + 4u + address_size + 4u + 12u;
+    assert(parameter_die + 5u < info->size &&
+           info->data[parameter_die] == 67u &&
+           read_u32(info->data, parameter_die + 1u) == origin_die + 27u);
+    expression_offset = parameter_die + 5u;
+    expression_size = read_uleb(
+        info->data, info->size, &expression_offset);
+    assert(expression_offset + expression_size <= info->size);
+    source_value = verify_inline_global_storage(object, source_name, 8u);
+    second_source_value = verify_inline_global_storage(
+        object, second_source_name, 8u);
+    actual_value = verify_inline_global_expression_tree(
+        object, info, expression_offset, expression_size, source_name,
+        source_value, second_source_name, second_source_value, 8u,
+        expected_relocations, required_operator);
+    assert(actual_value == expected_value);
+    objfile_free(object);
 }
 
 static void verify_inline_i686_global_bitwise_parameter(
@@ -17322,6 +17407,86 @@ int main(int argc, char** argv)
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4bu);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4cu);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4cu);
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_global_pair_add_entry",
+            "debug_inline_nonconstant_signed_long_long_global_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_add_rhs",
+            0x22u, 2u, UINT64_C(0x200000000));
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_global_pair_add_entry",
+            "debug_inline_nonconstant_signed_long_long_global_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_add_rhs",
+            0x22u, 2u, UINT64_C(0x200000000));
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_global_pair_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_global_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_sub_rhs",
+            0x1cu, 2u, UINT64_MAX);
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_global_pair_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_global_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_sub_rhs",
+            0x1cu, 2u, UINT64_MAX);
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_global_pair_and_entry",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_rhs",
+            0x1au, 2u, UINT64_C(0x7000000076543210));
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_global_pair_and_entry",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_rhs",
+            0x1au, 2u, UINT64_C(0x7000000076543210));
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_global_pair_or_entry",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_rhs",
+            0x21u, 2u, UINT64_C(0xfedcba98fedcba99));
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_global_pair_or_entry",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_rhs",
+            0x21u, 2u, UINT64_C(0xfedcba98fedcba99));
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_global_pair_xor_entry",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_rhs",
+            0x27u, 2u, UINT64_C(0x8edcba9888888889));
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_global_pair_xor_entry",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_bitwise_rhs",
+            0x27u, 2u, UINT64_C(0x8edcba9888888889));
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_global_pair_mul_entry",
+            "debug_inline_nonconstant_signed_long_long_global_mul_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_mul_rhs",
+            0x1eu, 2u, UINT64_C(0xfffffff9fffffffd));
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_global_pair_mul_entry",
+            "debug_inline_nonconstant_signed_long_long_global_mul_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_mul_rhs",
+            0x1eu, 2u, UINT64_C(0xfffffff9fffffffd));
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_global_nested_expression_entry",
+            "debug_inline_nonconstant_signed_long_long_global_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_add_rhs",
+            0x1eu, 2u, UINT64_C(0x200000001));
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_global_nested_expression_entry",
+            "debug_inline_nonconstant_signed_long_long_global_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_add_rhs",
+            0x1eu, 2u, UINT64_C(0x200000001));
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_global_dynamic_rshift_entry",
+            "debug_inline_nonconstant_signed_long_long_global_shift_source",
+            "debug_inline_nonconstant_unsigned_long_long_global_shift_count_source",
+            0x26u, 2u, UINT64_C(0xffedcba987654321));
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_global_dynamic_rshift_entry",
+            "debug_inline_nonconstant_signed_long_long_global_shift_source",
+            "debug_inline_nonconstant_unsigned_long_long_global_shift_count_source",
+            0x26u, 2u, UINT64_C(0xffedcba987654321));
         verify_inline_i686_global_shift_parameter(argv[6], 0x51u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x51u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x52u);

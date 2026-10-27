@@ -11290,5 +11290,16 @@ remains a separate open item.
       (`ABS32U`/`ABS64`, `TLSOFF32S`, or frame-base expression). Verify the
       symbol and expression in i686/x64 legacy and verified C++20 objects with
       `test-debug-info-inline-expression`.
-- [ ] Atomic operands, reference chains/indirect sources, wider computed
+- [ ] Atomic operands, reference chains/indirect sources, i686 computed
       signed trees, and broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, signed x64 computed-global DWARF)
+
+- [x] Emit signed x64 inline-parameter locations for computed global integer
+      expressions, including nested add/multiply trees and arithmetic
+      right-shift. Keep signed comparisons and unsigned-only conversions on
+      their existing semantics. Verify global relocation identities and
+      evaluated values for signed add/subtract/multiply/bitwise operations,
+      nested expressions, and negative arithmetic shifts in C++20 legacy and
+      verified objects; `test-debug-info-inline-expression` and the full
+      `test-debug-info` gate pass under WSL2 Ubuntu-24.04.

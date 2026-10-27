@@ -12446,7 +12446,7 @@ static bool debug_inline_x64_global_expression_collect(
     if ((expression->kind == EXPR_EQ || expression->kind == EXPR_NE ||
          expression->kind == EXPR_LT || expression->kind == EXPR_LE ||
          expression->kind == EXPR_GT || expression->kind == EXPR_GE) &&
-        expression->binary_lhs &&
+        value_type->is_unsigned && expression->binary_lhs &&
         expression->binary_rhs) {
         uint64_t literal_bits;
         if (debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -12498,7 +12498,7 @@ static bool debug_inline_x64_global_expression_collect(
     }
     if (expression->kind == EXPR_NEG || expression->kind == EXPR_BITNOT) {
         return expression->unary_operand && expression->type->size == 8u &&
-            expression->type->is_unsigned &&
+            expression->type->is_unsigned == value_type->is_unsigned &&
             debug_inline_parameter_storage_type_equal_ignoring_top_cv(
                 value_type, expression->type, 0u) &&
             debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -12517,7 +12517,8 @@ static bool debug_inline_x64_global_expression_collect(
          expression->kind != EXPR_BITXOR &&
          expression->kind != EXPR_LSHIFT &&
          expression->kind != EXPR_RSHIFT) ||
-        expression->type->size != 8 || !expression->type->is_unsigned ||
+        expression->type->size != 8 ||
+        expression->type->is_unsigned != value_type->is_unsigned ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             value_type, expression->type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
@@ -12670,14 +12671,19 @@ static bool debug_inline_x64_global_expression_append(
         case EXPR_BITOR: operation = 0x21u; break;
         case EXPR_BITXOR: operation = 0x27u; break;
         case EXPR_LSHIFT: operation = 0x24u; break;
-        case EXPR_RSHIFT: operation = 0x25u; break;
+        case EXPR_RSHIFT:
+            operation = expression->binary_lhs &&
+                    expression->binary_lhs->type &&
+                    !expression->binary_lhs->type->is_unsigned
+                ? 0x26u : 0x25u;
+            break;
         default: return false;
     }
     return debug_inline_integer_expression_append_byte(
         output, capacity, size, operation);
 }
 
-static bool debug_inline_parameter_x64_u64_global_expression(
+static bool debug_inline_parameter_x64_global_integer_expression(
     const Module* mod, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
     uint8_t* expression, size_t expression_capacity,
@@ -12696,7 +12702,6 @@ static bool debug_inline_parameter_x64_u64_global_expression(
     }
     parameter_type = value->declaration->type;
     if (!parameter_type || parameter_type->size != 8 ||
-        !parameter_type->is_unsigned ||
         !debug_inline_integer_expression_type(parameter_type) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, argument->expr->type, 0u) ||
@@ -15042,7 +15047,7 @@ static void debug_emit_inline_parameter_instances(
                    argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(
                        origins, call->callee, value->declaration)) != NULL &&
-                   debug_inline_parameter_x64_u64_global_expression(
+                   debug_inline_parameter_x64_global_integer_expression(
                        mod, call->callee, value, argument,
                        integer_value_expression,
                        sizeof(integer_value_expression),
