@@ -10484,3 +10484,13 @@ remains a separate open item.
       and execution of RCC output plus the GCC C++20 host oracle.
 - [ ] Other standard-valid structural class NTTP member shapes and broader
       mangling substitution contexts remain open.
+
+## RCC continuation (2026-10-27, batched structural NTTP symbol checks)
+
+- [x] Batch the structural-array target's exact GCC/RCC mangled-symbol checks
+      by assembly file using `scripts/rcc_check_texts.py`, preserving every
+      expected symbol including the target-specific x86 and host-x64 variants.
+      Reduce separate search-process invocations from 82 to 13. The helper's
+      present/missing cases and native-Windows
+      `test-cxx-structural-array-nttp` pass; observed elapsed time fell from
+      about 65 seconds to 22.5 seconds across the two runs.
