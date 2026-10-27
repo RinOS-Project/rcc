@@ -170,6 +170,16 @@ struct UninitializedFloatingConstructorLocal {
     }
 };
 
+struct UninitializedConstructorPointerPointee {
+    int value;
+
+    constexpr explicit UninitializedConstructorPointerPointee() {
+        int local;
+        int* pointer = &local;
+        this->value = *pointer;
+    }
+};
+
 struct UninitializedBodyReadBeforeWrite {
     int source;
     int target;
@@ -246,6 +256,8 @@ constexpr UninitializedConstructorLocalIncrement
     invalid_uninitialized_constructor_local_increment{};
 constexpr UninitializedFloatingConstructorLocal
     invalid_uninitialized_floating_constructor_local{};
+constexpr UninitializedConstructorPointerPointee
+    invalid_uninitialized_constructor_pointer_pointee{};
 constexpr UninitializedBodyReadBeforeWrite
     invalid_uninitialized_body_read_before_write{19};
 constexpr UninitializedForLoopBodyMember

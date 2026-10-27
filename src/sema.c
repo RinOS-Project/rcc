@@ -8681,6 +8681,57 @@ static bool sema_constexpr_constructor_rhs_is_safe(
                 }
             }
             return true;
+        case EXPR_ADDR: {
+            Expr* operand = expression->unary_operand;
+            int binding_index;
+            if (!operand || operand->kind != EXPR_IDENT ||
+                !(expression->type && expression->type->kind == TYPE_PTR) ||
+                expression->type->cxx_is_member_pointer ||
+                !expression->type->base ||
+                expression->type->base->kind == TYPE_PTR ||
+                !sema_constexpr_scalar_type(expression->type->base)) {
+                return false;
+            }
+            binding_index = sema_constexpr_binding_index(
+                operand, bindings, binding_count);
+            return binding_index >= 0 && binding_index < binding_count &&
+                   !bindings[binding_index].is_object &&
+                   bindings[binding_index].type &&
+                   bindings[binding_index].type->kind != TYPE_PTR &&
+                   sema_constexpr_scalar_type(
+                       bindings[binding_index].type) &&
+                   !bindings[binding_index]
+                        .is_constexpr_uninitialized_local;
+        }
+        case EXPR_DEREF: {
+            SemaConstexprScalar pointer_value;
+            if (!expression->unary_operand || !expression->type ||
+                expression->type->kind == TYPE_PTR ||
+                !sema_constexpr_scalar_type(expression->type) ||
+                !sema_constexpr_constructor_rhs_is_safe(
+                    expression->unary_operand, cls, initialized_members,
+                    bindings, binding_count, depth + 1u) ||
+                !sema_eval_constexpr_scalar_expr(
+                    expression->unary_operand, bindings, binding_count,
+                    &pointer_value) || !pointer_value.is_pointer ||
+                !pointer_value.pointer_declaration ||
+                pointer_value.pointer_offset != 0) {
+                return false;
+            }
+            for (int index = 0; index < binding_count; ++index) {
+                if (bindings[index].declaration ==
+                        pointer_value.pointer_declaration &&
+                    !bindings[index].is_object && bindings[index].type &&
+                    bindings[index].type->kind != TYPE_PTR &&
+                    sema_constexpr_scalar_type(bindings[index].type) &&
+                    !bindings[index].is_constexpr_uninitialized_local &&
+                    type_is_compatible(
+                        expression->type, bindings[index].type)) {
+                    return true;
+                }
+            }
+            return false;
+        }
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER: {
             const char* member_name =
@@ -8909,18 +8960,25 @@ static bool sema_constexpr_constructor_analyze_body_statement(
         case STMT_DECL: {
             Decl* declaration = statement->decl;
             SemaConstexprScalar local_value;
+            bool scalar_pointer_local;
             if (!declaration || declaration->kind != DECL_VAR ||
                 !declaration->name ||
                 !sema_constexpr_scalar_type(declaration->type) ||
-                declaration->type->kind == TYPE_PTR ||
+                (declaration->type->kind == TYPE_PTR &&
+                 (declaration->type->cxx_is_member_pointer ||
+                  !declaration->type->base ||
+                  declaration->type->base->kind == TYPE_PTR ||
+                  !sema_constexpr_scalar_type(declaration->type->base))) ||
                 *binding_count < 0 || *binding_count >= 64) {
                 return false;
             }
+            scalar_pointer_local = declaration->type->kind == TYPE_PTR;
             memset(&bindings[*binding_count], 0,
                    sizeof(bindings[*binding_count]));
             bindings[*binding_count].declaration = declaration;
             bindings[*binding_count].type = declaration->type;
             if (!declaration->var_init) {
+                if (scalar_pointer_local) return false;
                 bindings[*binding_count].is_constexpr_uninitialized_local =
                     true;
                 ++*binding_count;
@@ -8951,6 +9009,9 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                 local_value.member_pointer_field;
             bindings[*binding_count].member_pointer_method =
                 local_value.member_pointer_method;
+            sema_constexpr_capture_pointer_target_object(
+                &bindings[*binding_count], &local_value, bindings,
+                *binding_count);
             ++*binding_count;
             return true;
         }

@@ -9098,6 +9098,11 @@ remains a separate open item.
       and subsequent member writes; also clear indeterminate state on a simple
       assignment before a later read and reject read-before-write. Verify GCC
       C++20, constexpr/runtime, i686/AMD64, and full POSIX `test-cxx`.
+- [x] Track initialized scalar constructor-body locals addressed by a direct
+      pointer local, allowing safe dereference in later member initializers.
+      Reject indeterminate pointees and unsupported aggregate/member targets;
+      verify integer and floating pointees against GCC C++20, constexpr/runtime,
+      i686/AMD64, and full POSIX `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,
