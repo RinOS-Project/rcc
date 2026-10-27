@@ -1806,6 +1806,32 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
         return codegen_emit_static_initializer(
             mod, type, initializer->compound_init->expr, offset);
     }
+    /* C++ aggregate brace elision can pass a scalar initializer directly to
+     * a single-element aggregate subobject.  Follow its only aggregate
+     * element so inherited bases such as `struct D : B { int tail; }` retain
+     * the initializer for B's sole member when the parser flattens braces. */
+    if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        ast_cxx_is_aggregate(type) &&
+        ast_cxx_aggregate_element_count(type) == 1) {
+        Type* element_type = NULL;
+        TypeField* field = NULL;
+        int element_offset = 0;
+        uint64_t element_location;
+        if (!ast_cxx_aggregate_element(
+                type, 0, &element_type, &element_offset, &field) ||
+            !element_type || element_offset < 0 ||
+            (uint64_t)element_offset > UINT32_MAX - offset) {
+            return false;
+        }
+        element_location = (uint64_t)offset + (uint64_t)element_offset;
+        if (field && field->is_bitfield) {
+            return codegen_pack_static_bitfield(
+                mod->data.data, mod->data.size, field, initializer,
+                (uint32_t)element_location);
+        }
+        return codegen_emit_static_initializer(
+            mod, element_type, initializer, (uint32_t)element_location);
+    }
     if (type->kind == TYPE_PTR) {
         return codegen_emit_static_pointer(mod, type, initializer, offset);
     }

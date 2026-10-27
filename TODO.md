@@ -8759,6 +8759,23 @@ remains a separate open item.
       conversions and other cv-qualification combinations, and additional
       pointer conversions remain open.
 
+## RCC continuation (2026-10-27, constexpr data-member-pointer owner conversion)
+
+- [x] Convert a non-null `T Base::*` value to `T Derived::*` in the bounded
+      constexpr evaluator when the inherited member is uniquely reachable via
+      an accessible nonvirtual base path and pointee qualification is
+      preserved. Apply the converted pointer to a by-value derived aggregate
+      argument containing the base subobject during dependent non-type
+      template argument selection.
+- [x] Preserve static code generation for the fixture's brace-elided
+      single-element aggregate base subobject. Verify the fixture against GCC
+      C++20, generate and execute both i686 and AMD64 output, pass the focused
+      function-template overload gate, and pass the full POSIX `test-cxx`
+      aggregate.
+- [ ] Multiple-inheritance/nonzero-adjustment constexpr owner conversions,
+      other member-pointee cv combinations, member-function-pointer constants,
+      and broader pointer conversions remain open.
+
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
 - [x] Preserve frame-backed i686 signed `long long` addition, subtraction,

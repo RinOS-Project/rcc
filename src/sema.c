@@ -5936,6 +5936,56 @@ static TypeField* sema_constexpr_member_pointer_field(
     return NULL;
 }
 
+static TypeField* sema_constexpr_convert_data_member_pointer_field(
+    const SemaConstexprScalar* input, Type* target_type) {
+    Type* source_type;
+    Type* source_owner;
+    Type* target_owner;
+    TypeField* source_field;
+    TypeField* selected = NULL;
+    int owner_adjustment;
+    int64_t target_offset;
+
+    if (!input || !input->is_member_pointer ||
+        !(source_field = input->member_pointer_field) ||
+        !(source_type = input->type) || source_type->kind != TYPE_PTR ||
+        !source_type->cxx_is_member_pointer || !source_type->base ||
+        source_type->base->kind == TYPE_FUNC ||
+        !target_type || target_type->kind != TYPE_PTR ||
+        !target_type->cxx_is_member_pointer || !target_type->base ||
+        target_type->base->kind == TYPE_FUNC ||
+        !type_is_compatible(source_type->base, target_type->base) ||
+        !sema_pointee_qualification_preserved(
+            source_type->base, target_type->base) ||
+        !(source_owner = source_type->cxx_member_pointer_owner) ||
+        !(target_owner = target_type->cxx_member_pointer_owner) ||
+        source_field->offset < 0 ||
+        !sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
+            target_owner, source_owner, &owner_adjustment) ||
+        owner_adjustment < 0 ||
+        (int64_t)source_field->offset > INT64_MAX - owner_adjustment) {
+        return NULL;
+    }
+    target_offset = (int64_t)source_field->offset + owner_adjustment;
+    for (TypeField* candidate = target_owner->fields; candidate;
+         candidate = candidate->next) {
+        if (!candidate->name || !source_field->name ||
+            strcmp(candidate->name, source_field->name) != 0 ||
+            candidate->cxx_declaring_class !=
+                source_field->cxx_declaring_class ||
+            candidate->offset != target_offset ||
+            !candidate->type ||
+            !type_is_compatible(candidate->type, target_type->base) ||
+            candidate->is_bitfield || candidate->type->is_reference ||
+            candidate->from_virtual_base) {
+            continue;
+        }
+        if (selected) return NULL;
+        selected = candidate;
+    }
+    return selected;
+}
+
 static bool sema_constexpr_scalar_convert(
     const SemaConstexprScalar* input, Type* type,
     SemaConstexprScalar* output) {
@@ -5953,8 +6003,15 @@ static bool sema_constexpr_scalar_convert(
     if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
         type->base && type->base->kind != TYPE_FUNC) {
         if (input->is_member_pointer) {
-            if (input->member_pointer_field &&
-                !type_is_compatible(input->type, type)) return false;
+            TypeField* member_pointer_field =
+                input->member_pointer_field;
+            if (member_pointer_field &&
+                !type_is_compatible(input->type, type)) {
+                member_pointer_field =
+                    sema_constexpr_convert_data_member_pointer_field(
+                        input, type);
+                if (!member_pointer_field) return false;
+            }
             output->type = type;
             output->integer_value = 0;
             output->floating_value = 0.0;
@@ -5963,7 +6020,7 @@ static bool sema_constexpr_scalar_convert(
             output->pointer_declaration = NULL;
             output->pointer_offset = 0;
             output->is_member_pointer = true;
-            output->member_pointer_field = input->member_pointer_field;
+            output->member_pointer_field = member_pointer_field;
             return true;
         }
         if ((input->is_pointer && input->type &&
@@ -6897,6 +6954,51 @@ static bool sema_constexpr_materialize_object(
                     storage + (size_t)field->offset,
                     storage_size - (size_t)field->offset)) return false;
         }
+    }
+    if (type->kind == TYPE_STRUCT && ast_cxx_is_aggregate(type)) {
+        int cursor = 0;
+        int element_count = ast_cxx_aggregate_element_count(type);
+        for (item = initializer->compound_init; item; item = item->next) {
+            int element_index = cursor;
+            Type* element_type = NULL;
+            int element_offset = 0;
+            if (item->designator_kind == INIT_DESIGNATOR_INDEX) return false;
+            if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                element_index = -1;
+                for (int index = 0; index < element_count; ++index) {
+                    TypeField* member_field = NULL;
+                    if (!ast_cxx_aggregate_element(
+                            type, index, NULL, NULL, &member_field)) {
+                        return false;
+                    }
+                    if (member_field && member_field->name &&
+                        item->designator_field &&
+                        strcmp(member_field->name,
+                               item->designator_field) == 0) {
+                        element_index = index;
+                        break;
+                    }
+                }
+                if (element_index < 0) return false;
+            }
+            if (element_index < 0 || element_index >= element_count ||
+                !ast_cxx_aggregate_element(
+                    type, element_index, &element_type, &element_offset,
+                    NULL) ||
+                element_offset < 0 || !element_type ||
+                element_type->size <= 0 ||
+                (size_t)element_offset > storage_size ||
+                (size_t)element_type->size >
+                    storage_size - (size_t)element_offset ||
+                !sema_constexpr_materialize_object(
+                    element_type, item->expr, bindings, binding_count,
+                    storage + (size_t)element_offset,
+                    storage_size - (size_t)element_offset)) {
+                return false;
+            }
+            cursor = element_index + 1;
+        }
+        return true;
     }
     {
         TypeField* cursor = type->fields;

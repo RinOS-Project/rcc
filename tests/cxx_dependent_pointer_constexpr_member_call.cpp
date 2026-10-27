@@ -45,6 +45,13 @@ struct DependentPointerConstexprOwner {
         return object.*selected;
     }
 
+    static constexpr int read_derived_member_pointer(
+        int DependentPointerDerived::* member,
+        DependentPointerDerived object) {
+        int DependentPointerDerived::* selected = member;
+        return object.*selected;
+    }
+
     static constexpr int read_const_member_pointer(
         const int DependentPointerBase::* member,
         DependentPointerBase object) {
@@ -174,6 +181,22 @@ int select_dependent_member_pointer_application_call(
 }
 
 template<typename Owner, typename... Tail>
+int select_dependent_member_pointer_owner_conversion_call(
+    DependentPointerConstexprBox<
+        Owner::read_derived_member_pointer(
+            ::dependent_pointer_constexpr_member,
+            DependentPointerDerived{{29}, 31}),
+        Owner, Tail...>) {
+    return 371;
+}
+
+template<typename Owner, typename... Tail>
+int select_dependent_member_pointer_owner_conversion_call(
+    DependentPointerConstexprBox<0, Owner, Tail...>) {
+    return 372;
+}
+
+template<typename Owner, typename... Tail>
 int select_dependent_array_element_pointer_call(
     DependentPointerConstexprBox<
         Owner::value(&::dependent_pointer_constexpr_values[1]),
@@ -266,6 +289,11 @@ int main() {
             DependentPointerConstexprBox<
                 43, DependentPointerConstexprOwner, int>{}) != 361) {
         return 10;
+    }
+    if (select_dependent_member_pointer_owner_conversion_call(
+            DependentPointerConstexprBox<
+                29, DependentPointerConstexprOwner, int>{}) != 371) {
+        return 11;
     }
     if (select_dependent_array_element_pointer_call(
             DependentPointerConstexprBox<
