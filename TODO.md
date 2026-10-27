@@ -11211,3 +11211,15 @@ remains a separate open item.
       passed for both paths.
 - [ ] Volatile/reference/atomic operands, wider computed signed trees, and
       broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, namespace-scope TLS dynamic-shift DWARF)
+
+- [x] Verify i686 signed and unsigned dynamic left/right shifts over
+      namespace-scope `thread_local` source/count objects. Check global TLS
+      symbol identities (without local-symbol scoping), `TLSOFF32S` relocation
+      types, initial template values, defined left-shift boundaries, and
+      negative arithmetic-right-shift results in legacy and verified C++20
+      objects. Focused `test-debug-info-inline-expression` and full
+      `test-debug-info` gates passed.
+- [ ] Volatile/reference/atomic operands, wider computed signed trees, and
+      broader optimized multi-piece locations remain open.
