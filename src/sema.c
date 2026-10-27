@@ -8770,25 +8770,58 @@ static bool sema_constexpr_constructor_rhs_is_safe(
 
 static bool sema_constexpr_constructor_analyze_body_statement(
     Stmt* statement, CxxClass* cls, uint64_t* initialized_members,
-    SemaConstexprBinding* bindings, int binding_count,
+    SemaConstexprBinding* bindings, int* binding_count,
     bool allow_unknown_branch_join, unsigned depth) {
-    if (!statement || !cls || !initialized_members || depth >= 64u) {
+    if (!statement || !cls || !initialized_members || !binding_count ||
+        depth >= 64u) {
         return false;
     }
     switch (statement->kind) {
         case STMT_NULL:
             return true;
         case STMT_BLOCK:
+        {
+            int saved_binding_count = *binding_count;
             for (StmtList* item = statement->block_stmts;
                  item; item = item->next) {
                 if (!sema_constexpr_constructor_analyze_body_statement(
                         item->stmt, cls, initialized_members, bindings,
                         binding_count, allow_unknown_branch_join,
                         depth + 1u)) {
+                    *binding_count = saved_binding_count;
                     return false;
                 }
             }
+            *binding_count = saved_binding_count;
             return true;
+        }
+        case STMT_DECL: {
+            Decl* declaration = statement->decl;
+            SemaConstexprScalar local_value;
+            if (!declaration || declaration->kind != DECL_VAR ||
+                !declaration->name || !declaration->var_init ||
+                !sema_constexpr_integer_type(declaration->type) ||
+                *binding_count < 0 || *binding_count >= 64 ||
+                !sema_constexpr_constructor_condition_is_pure(
+                    declaration->var_init, depth + 1u) ||
+                !sema_constexpr_constructor_rhs_is_safe(
+                    declaration->var_init, cls, *initialized_members,
+                    bindings, *binding_count, depth + 1u) ||
+                !sema_eval_constexpr_scalar_expr(
+                    declaration->var_init, bindings, *binding_count,
+                    &local_value) ||
+                !sema_constexpr_scalar_convert(
+                    &local_value, declaration->type, &local_value)) {
+                return false;
+            }
+            memset(&bindings[*binding_count], 0,
+                   sizeof(bindings[*binding_count]));
+            bindings[*binding_count].declaration = declaration;
+            bindings[*binding_count].type = declaration->type;
+            bindings[*binding_count].value = local_value.integer_value;
+            ++*binding_count;
+            return true;
+        }
         case STMT_EXPR: {
             const char* member_name;
             Expr* expression = statement->expr;
@@ -8831,7 +8864,7 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             }
             if (!sema_constexpr_constructor_rhs_is_safe(
                     expression->binary_rhs, cls, *initialized_members,
-                    bindings, binding_count, depth + 1u) ||
+                    bindings, *binding_count, depth + 1u) ||
                 !(member_name =
                       sema_constexpr_constructor_direct_member_name(
                           expression->binary_lhs)) ||
@@ -8851,10 +8884,11 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             uint64_t then_state = *initialized_members;
             uint64_t else_state = *initialized_members;
             SemaConstexprScalar condition_value;
+            int saved_binding_count = *binding_count;
             if (!statement->if_cond) return false;
             if (statement->if_is_constexpr) {
                 if (!sema_eval_constexpr_scalar_expr(
-                        statement->if_cond, bindings, binding_count,
+                        statement->if_cond, bindings, *binding_count,
                         &condition_value)) {
                     return false;
                 }
@@ -8868,11 +8902,11 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             }
             if (!sema_constexpr_constructor_rhs_is_safe(
                     statement->if_cond, cls, *initialized_members,
-                    bindings, binding_count, depth + 1u)) {
+                    bindings, *binding_count, depth + 1u)) {
                 return false;
             }
             if (sema_eval_constexpr_scalar_expr(
-                    statement->if_cond, bindings, binding_count,
+                    statement->if_cond, bindings, *binding_count,
                     &condition_value)) {
                 bool condition_is_true =
                     sema_constexpr_scalar_truth(&condition_value);
@@ -8888,14 +8922,18 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             if (!sema_constexpr_constructor_analyze_body_statement(
                     statement->if_then, cls, &then_state, bindings,
                     binding_count, allow_unknown_branch_join, depth + 1u)) {
+                *binding_count = saved_binding_count;
                 return false;
             }
+            *binding_count = saved_binding_count;
             if (statement->if_else &&
                 !sema_constexpr_constructor_analyze_body_statement(
                     statement->if_else, cls, &else_state, bindings,
                     binding_count, allow_unknown_branch_join, depth + 1u)) {
+                *binding_count = saved_binding_count;
                 return false;
             }
+            *binding_count = saved_binding_count;
             *initialized_members = then_state & else_state;
             return true;
         }
@@ -8909,12 +8947,19 @@ static bool sema_constexpr_constructor_body_writes_direct_member(
     const char* member_name, bool* supported,
     SemaConstexprBinding* bindings, int binding_count,
     bool allow_unknown_branch_join) {
+    SemaConstexprBinding scratch_bindings[64];
     Decl* declaration = constructor && constructor->method
         ? constructor->method->decl : NULL;
     Stmt* body = declaration ? declaration->func_body : NULL;
     uint64_t initialized_members = 0u;
+    int analysis_binding_count = binding_count;
     int member_index;
     if (supported) *supported = false;
+    if (!bindings) {
+        if (binding_count != 0) return false;
+        memset(scratch_bindings, 0, sizeof(scratch_bindings));
+        bindings = scratch_bindings;
+    }
     if (!constructor || !cls || !type || !member_name || !supported || !body ||
         body->kind != STMT_BLOCK ||
         (member_index = sema_constexpr_constructor_member_index(
@@ -8922,7 +8967,8 @@ static bool sema_constexpr_constructor_body_writes_direct_member(
         !sema_constexpr_constructor_initial_member_state(
             constructor, cls, type, &initialized_members) ||
         !sema_constexpr_constructor_analyze_body_statement(
-            body, cls, &initialized_members, bindings, binding_count,
+            body, cls, &initialized_members, bindings,
+            &analysis_binding_count,
             allow_unknown_branch_join, 0u)) {
         return false;
     }

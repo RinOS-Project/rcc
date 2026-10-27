@@ -166,6 +166,20 @@ struct ConstructorBodySelectedRhsBranches {
     }
 };
 
+struct ConstructorBodyInitializedLocals {
+    int value;
+    int doubled;
+
+    constexpr explicit ConstructorBodyInitializedLocals(int initial) {
+        const int adjusted = initial + 3;
+        this->value = adjusted;
+        {
+            const int twice = adjusted * 2;
+            this->doubled = twice;
+        }
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -461,6 +475,8 @@ constexpr ConstructorBodyCompoundAssignments
     constructor_body_compound_assignments{4};
 constexpr ConstructorBodySelectedRhsBranches
     constructor_body_selected_rhs_branches{true};
+constexpr ConstructorBodyInitializedLocals
+    constructor_body_initialized_locals{59};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -847,6 +863,7 @@ int main(void) {
     ConstructorBodyPostIncrement runtime_body_post_increment{109};
     ConstructorBodyCompoundAssignments runtime_body_compound_assignments{4};
     ConstructorBodySelectedRhsBranches runtime_body_selected_rhs_branches{true};
+    ConstructorBodyInitializedLocals runtime_body_initialized_locals{61};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -985,6 +1002,8 @@ int main(void) {
                      constructor_body_selected_rhs_branches.conditional == 47 &&
                      constructor_body_selected_rhs_branches.short_and == 0 &&
                      constructor_body_selected_rhs_branches.short_or == 1 &&
+                     constructor_body_initialized_locals.value == 62 &&
+                     constructor_body_initialized_locals.doubled == 124 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -1005,6 +1024,8 @@ int main(void) {
                      runtime_body_selected_rhs_branches.conditional == 47 &&
                      runtime_body_selected_rhs_branches.short_and == 0 &&
                      runtime_body_selected_rhs_branches.short_or == 1 &&
+                     runtime_body_initialized_locals.value == 64 &&
+                     runtime_body_initialized_locals.doubled == 128 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&

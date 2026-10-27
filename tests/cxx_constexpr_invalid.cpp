@@ -132,6 +132,15 @@ struct UninitializedConditionalBodyRead {
     }
 };
 
+struct UninitializedConstructorLocalRead {
+    int value;
+
+    constexpr explicit UninitializedConstructorLocalRead() {
+        int uninitialized;
+        this->value = uninitialized;
+    }
+};
+
 struct UninitializedBodyReadBeforeWrite {
     int source;
     int target;
@@ -157,5 +166,7 @@ constexpr UninitializedBodyStandaloneIncrement
     invalid_uninitialized_body_standalone_increment{};
 constexpr UninitializedConditionalBodyRead
     invalid_uninitialized_conditional_body_read{false};
+constexpr UninitializedConstructorLocalRead
+    invalid_uninitialized_constructor_local_read{};
 constexpr UninitializedBodyReadBeforeWrite
     invalid_uninitialized_body_read_before_write{19};

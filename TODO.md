@@ -9041,6 +9041,11 @@ remains a separate open item.
       omitted member does not reject a valid constexpr constructor while an
       evaluated read remains invalid. Verify GCC C++20, constexpr/runtime,
       i686/AMD64, and the full POSIX `test-cxx` suite.
+- [x] Track initialized integer local declarations in constexpr constructor
+      bodies, including lexical block scope, so later scalar member assignments
+      can use them without accepting reads from uninitialized locals or
+      members. Verify GCC C++20, constexpr/runtime, i686/AMD64, and the full
+      POSIX `test-cxx` suite.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,
