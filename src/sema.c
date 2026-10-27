@@ -8924,9 +8924,7 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                 ++*binding_count;
                 return true;
             }
-            if (!sema_constexpr_constructor_condition_is_pure(
-                    declaration->var_init, depth + 1u) ||
-                !sema_constexpr_constructor_rhs_is_safe(
+            if (!sema_constexpr_constructor_rhs_is_safe(
                     declaration->var_init, cls, *initialized_members,
                     bindings, *binding_count, depth + 1u) ||
                 !sema_eval_constexpr_scalar_expr(

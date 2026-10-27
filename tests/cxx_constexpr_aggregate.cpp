@@ -357,9 +357,12 @@ constexpr int constructor_body_add_five(int value) {
 
 struct ConstructorBodyConstexprCall {
     int value;
+    int local_value;
 
     constexpr explicit ConstructorBodyConstexprCall(int initial) {
         this->value = constructor_body_add_five(initial);
+        int computed = constructor_body_add_five(initial + 1);
+        this->local_value = computed;
     }
 };
 
@@ -1261,6 +1264,7 @@ int main(void) {
                      constructor_body_switch_case.value == 50 &&
                      constructor_body_switch_default.value == 60 &&
                      constructor_body_constexpr_call.value == 27 &&
+                     constructor_body_constexpr_call.local_value == 28 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -1305,6 +1309,7 @@ int main(void) {
                      runtime_body_switch_case.value == 21 &&
                      runtime_body_switch_default.value == 31 &&
                      runtime_body_constexpr_call.value == 33 &&
+                     runtime_body_constexpr_call.local_value == 34 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&

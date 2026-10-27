@@ -9089,6 +9089,10 @@ remains a separate open item.
       Check arguments for indeterminate member reads; retain conservative
       handling of reference/pointer and member-function calls. Verify GCC C++20,
       constexpr/runtime, i686/AMD64, and full POSIX `test-cxx`.
+- [x] Permit those by-value scalar constexpr calls in initialized integer-local
+      declarations inside constructor bodies, then use the local for a member
+      assignment. Verify GCC C++20, constexpr/runtime, i686/AMD64, and full
+      POSIX `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,
