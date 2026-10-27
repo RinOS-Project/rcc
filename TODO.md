@@ -8910,6 +8910,10 @@ remains a separate open item.
       member without claiming reference identity or mutable aliasing. Verify
       strict GCC C++20, dual-architecture focused generation and execution,
       and the full POSIX `test-cxx` aggregate.
+- [x] Read a scalar pointee through a by-value object-pointer constructor
+      parameter in a member initializer. Cover both a global constexpr pointer
+      lvalue and a temporary address, with GCC C++20, dual-architecture focused
+      generation/execution, and the full POSIX `test-cxx` aggregate.
 - [ ] Broader constructor-body expressions/side effects, mutable-reference
       aliasing, aggregate and other pointer-reference parameters, indeterminate
       scalar default-initialization diagnostics, and complete virtual-base

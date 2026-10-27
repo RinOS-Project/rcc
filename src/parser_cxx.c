@@ -9237,6 +9237,44 @@ static bool cxx_constructor_expression_is_lowerable(
                    cxx_constructor_expression_is_lowerable(
                        constructor, expression->cast_expr, NULL,
                        parameter_used, parameter_count);
+        case EXPR_DEREF: {
+            int index;
+            TypeParam* parameter = constructor
+                ? constructor->parameters : NULL;
+            Type* pointer_type;
+            Type* pointee_type;
+            if (!expression->unary_operand ||
+                expression->unary_operand->kind != EXPR_IDENT ||
+                !expression->unary_operand->ident_name ||
+                (index = cxx_constructor_parameter_index(
+                     constructor,
+                     expression->unary_operand->ident_name)) < 0) {
+                return false;
+            }
+            for (int step = 0; parameter && step < index; ++step) {
+                parameter = parameter->next;
+            }
+            pointer_type = parameter ? parameter->type : NULL;
+            pointee_type = pointer_type && pointer_type->kind == TYPE_PTR
+                ? pointer_type->base : NULL;
+            if (!pointer_type || pointer_type->is_reference ||
+                pointer_type->cxx_is_member_pointer || !pointee_type ||
+                !cxx_constructor_scalar_type(pointee_type) ||
+                pointee_type->kind == TYPE_PTR ||
+                (expression->type &&
+                 !cxx_constructor_scalar_conversion_supported(
+                     pointee_type, expression->type)) ||
+                (target_type &&
+                 !cxx_constructor_scalar_conversion_supported(
+                     expression->type ? expression->type : pointee_type,
+                     target_type))) {
+                return false;
+            }
+            if (parameter_used && index < (int)parameter_count) {
+                parameter_used[index] = true;
+            }
+            return true;
+        }
         case EXPR_ADDR:
             return target_type && target_type->kind == TYPE_PTR &&
                    cxx_constructor_static_address(constructor, expression);

@@ -61,6 +61,13 @@ struct ConstructorConstPointerReference : ConstructorDefaultBase {
         : value(initial) {}
 };
 
+struct ConstructorPointerDereference : ConstructorDefaultBase {
+    int value;
+
+    constexpr explicit ConstructorPointerDereference(const int* initial)
+        : value(*initial) {}
+};
+
 struct FloatPair {
     float first;
     double second;
@@ -103,6 +110,11 @@ constexpr ConstructorConstPointerReference
         constructor_pointer_reference_global};
 constexpr ConstructorConstPointerReference
     constructor_pointer_reference_temporary{
+        &constructor_pointer_reference_source};
+constexpr ConstructorPointerDereference constructor_pointer_dereference_lvalue{
+    constructor_pointer_reference_global};
+constexpr ConstructorPointerDereference
+    constructor_pointer_dereference_temporary{
         &constructor_pointer_reference_source};
 constexpr FloatPair float_pair{1.25f, 2.5};
 constexpr FloatPair returned_float_pair = make_float_pair(1.5f, 2.25);
@@ -160,6 +172,9 @@ static_assert(constructor_pointer_reference_lvalue.seed == 19 &&
                   &constructor_pointer_reference_source &&
               constructor_pointer_reference_temporary.value ==
                   &constructor_pointer_reference_source);
+static_assert(constructor_pointer_dereference_lvalue.seed == 19 &&
+              constructor_pointer_dereference_lvalue.value == 43 &&
+              constructor_pointer_dereference_temporary.value == 43);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
@@ -184,6 +199,9 @@ int main(void) {
                        &constructor_pointer_reference_source &&
                    constructor_pointer_reference_temporary.value ==
                        &constructor_pointer_reference_source &&
+                   constructor_pointer_dereference_lvalue.seed == 19 &&
+                   constructor_pointer_dereference_lvalue.value == 43 &&
+                   constructor_pointer_dereference_temporary.value == 43 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
                    consteval_float_value == 6.25 &&
