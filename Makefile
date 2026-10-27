@@ -3711,6 +3711,10 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-dependent-pointer-constexpr-member-call,cxx_dependent_pointer_constexpr_member_call.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host tests/cxx_dependent_pointer_constexpr_member_call.cpp
+	$(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-function-template-overloads/x86.s \
 		tests/cxx_function_template_overloads.cpp
@@ -5143,6 +5147,10 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-pointer-constexpr-member-call,cxx_dependent_pointer_constexpr_member_call.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host.exe tests/cxx_dependent_pointer_constexpr_member_call.cpp
+	$(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host.exe
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-function-template-overloads/gcc-symbols.s tests/cxx_function_template_overloads.cpp
 	$(GREP) -F -q "_Z7adl_tieIiElP13AdlTiePayloadT_" $(TEST_OUT)/cxx-function-template-overloads/gcc-symbols.s

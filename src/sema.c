@@ -9118,6 +9118,16 @@ bool rcc_sema_eval_constexpr_arithmetic_constant(Expr* expression) {
         (value.is_floating || sema_constexpr_integer_type(value.type));
 }
 
+bool rcc_sema_eval_constexpr_pointer_constant(Expr* expression) {
+    SemaConstexprScalar value;
+    return expression &&
+        sema_eval_constexpr_scalar_expr(expression, NULL, 0, &value) &&
+        value.is_pointer && value.type &&
+        (value.type->kind == TYPE_NULLPTR ||
+         (value.type->kind == TYPE_PTR &&
+          !value.type->cxx_is_member_pointer));
+}
+
 bool rcc_sema_eval_constexpr_integer_value(Expr* expression,
                                            uint64_t* bits,
                                            bool* is_unsigned) {

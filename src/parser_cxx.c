@@ -3826,8 +3826,21 @@ static bool cxx_dependent_integer_call_constant_argument_supported(
     if (type_is_integer(type) || type_is_floating(type)) {
         return rcc_sema_eval_constexpr_arithmetic_constant(argument);
     }
+    if (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
+        return rcc_sema_eval_constexpr_pointer_constant(argument);
+    }
+    if (type->kind == TYPE_NULLPTR) {
+        return rcc_sema_eval_constexpr_pointer_constant(argument);
+    }
     return (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
         rcc_sema_eval_constexpr_aggregate_constant(argument, type);
+}
+
+static bool cxx_dependent_integer_call_argument_type_supported(Type* type) {
+    return type &&
+        (type_is_integer(type) || type_is_floating(type) ||
+         (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) ||
+         type->kind == TYPE_NULLPTR);
 }
 
 static bool cxx_dependent_integer_call_parameter_supported(Type* type) {
@@ -3836,6 +3849,9 @@ static bool cxx_dependent_integer_call_parameter_supported(Type* type) {
         return type->base && type_is_integer(type->base) &&
             !type->base->is_volatile &&
             (type->is_rvalue_reference || type->base->is_const);
+    }
+    if (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
+        return true;
     }
     return type_is_integer(type) || type_is_floating(type);
 }
@@ -4068,9 +4084,8 @@ static bool cxx_eval_dependent_integer_member_template_call(
                  ++argument_index) {
             Type* argument_type = cxx_parser_expression_type(argument->expr);
             Type* parameter_type = parameter->decl->type;
-            if (!argument_type ||
-                (!type_is_integer(argument_type) &&
-                 !type_is_floating(argument_type)) || !parameter_type) {
+            if (!cxx_dependent_integer_call_argument_type_supported(
+                    argument_type) || !parameter_type) {
                 return false;
             }
             if (!cxx_dependent_integer_call_reference_viable(
@@ -4616,6 +4631,7 @@ static Decl* cxx_template_integer_call_select_candidate(
              argument_type->kind != TYPE_STRUCT &&
              argument_type->kind != TYPE_UNION &&
              argument_type->kind != TYPE_PTR &&
+             argument_type->kind != TYPE_NULLPTR &&
              argument_type->kind != TYPE_ARRAY)) {
             return NULL;
         }
@@ -29235,9 +29251,8 @@ static bool eval_template_integer_expression(Expr* expression,
                         cxx_parser_expression_type(call_argument->expr);
                     Type* parameter_type = parameter->decl
                         ? parameter->decl->type : NULL;
-                    if (!argument_type || !parameter_type ||
-                        (!type_is_integer(argument_type) &&
-                         !type_is_floating(argument_type)) ||
+                    if (!cxx_dependent_integer_call_argument_type_supported(
+                            argument_type) || !parameter_type ||
                         !cxx_dependent_integer_call_parameter_supported(
                             parameter_type) ||
                         !cxx_dependent_integer_call_reference_viable(
@@ -29330,9 +29345,8 @@ static bool eval_template_integer_expression(Expr* expression,
              argument = argument->next, parameter = parameter->next) {
             Type* argument_type = cxx_parser_expression_type(argument->expr);
             Type* parameter_type = parameter->decl->type;
-            if (!argument_type || !parameter_type ||
-                (!type_is_integer(argument_type) &&
-                 !type_is_floating(argument_type)) ||
+            if (!cxx_dependent_integer_call_argument_type_supported(
+                    argument_type) || !parameter_type ||
                 !cxx_dependent_integer_call_parameter_supported(
                     parameter_type) ||
                 !cxx_dependent_integer_call_reference_viable(

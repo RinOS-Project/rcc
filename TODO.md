@@ -8716,6 +8716,18 @@ remains a separate open item.
       division/remainder expressions, and broader optimized multi-piece
       locations remain open.
 
+## RCC continuation (2026-10-27, pointer arguments in dependent constexpr calls)
+
+- [x] Allow the bounded dependent constexpr member-call evaluator to rank and
+      evaluate by-value non-member pointer and `nullptr` arguments. Regressions
+      cover `static_cast<const int*>(nullptr)` and a direct `nullptr` call,
+      compared with GCC C++20 and generated/executed for i686 and AMD64 by
+      `test-cxx-function-template-overloads`.
+- [ ] Non-null pointer arguments in dependent expressions, pointer references,
+      member pointers, and broader pointer conversions remain open. In
+      particular, template cloning still loses declaration resolution for a
+      non-null global address used inside the dependent call expression.
+
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
 - [x] Preserve frame-backed i686 signed `long long` addition, subtraction,
