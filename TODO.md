@@ -2581,8 +2581,12 @@
         両archの`.ro/.rin/.rll/.drv`を反復生成してhash一致を確認、v3画像は
         `rinvalidate`にも通す
   - [x] RCC単体checkoutから実行できる決定的parser/compiler fuzz gateで、
-        C17/C++20の有効変異を両archで再現コンパイルし、無効変異のsignal／
-        timeout／空診断／誤った成果物を拒否する
+        C17/C++20の有効変異と決定的に生成した式・aggregate・template・
+        分岐・loop構文を両archで再現コンパイルし、無効変異のsignal／timeout／
+        空診断／誤った成果物を拒否する。24 generated syntax trees、80 valid
+        source/target pairs、16 invalid casesをnative Windowsで検証
+  - [x] sanitizer CIに同じfuzz corpusをASan/UBSan instrumented rcc/rcc++で
+        実行するstepを追加し、GCC/Clang matrix双方へ適用
 - [x] host stage0 -> RCC stage1 -> RCC stage2再現build。i686/x86_64の全compiler
       sourceをstage1で二重生成して一致比較し、両arch stage1 imageのlink／実行、
       stage2 objectとimageの完全一致まで確認

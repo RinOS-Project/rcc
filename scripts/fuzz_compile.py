@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import random
 from pathlib import Path, PurePosixPath
 import subprocess
 import tempfile
@@ -18,6 +19,7 @@ LANGUAGES = {
     "C17": (".c", "rcc"),
     "C++20": (".cpp", "rcc++"),
 }
+GENERATED_MUTATION_COUNT = 6
 
 
 class FuzzError(ValueError):
@@ -95,6 +97,75 @@ def invalid_mutations(source: str) -> list[tuple[str, str]]:
     ]
 
 
+def generated_expression(generator: random.Random, depth: int) -> str:
+    leaves = (
+        "a", "b", "value", "pair.left", "pair.right",
+        "0x13579bdf2468ace0ULL", "0xfedcba9876543210ULL",
+    )
+    if depth == 0 or generator.randrange(5) == 0:
+        return generator.choice(leaves)
+    form = generator.randrange(4)
+    if form == 0:
+        return f"(~({generated_expression(generator, depth - 1)}))"
+    if form == 1:
+        condition = generated_expression(generator, depth - 1)
+        yes = generated_expression(generator, depth - 1)
+        no = generated_expression(generator, depth - 1)
+        return f"((({condition}) & 1ULL) ? ({yes}) : ({no}))"
+    left = generated_expression(generator, depth - 1)
+    right = generated_expression(generator, depth - 1)
+    operator = generator.choice(("+", "-", "*", "&", "|", "^", "<<", ">>"))
+    if operator in ("<<", ">>"):
+        right = f"(({right}) & 63ULL)"
+    return f"(({left}) {operator} ({right}))"
+
+
+def grammar_generated_mutations(case_id: str, language: str,
+                                source: str) -> list[tuple[str, str]]:
+    seed_material = f"{case_id}\0{language}\0{source}".encode("utf-8")
+    seed = hashlib.sha256(seed_material).digest()
+    generator = random.Random(int.from_bytes(seed[:8], "big"))
+    suffix = seed.hex()[:12]
+    mutations: list[tuple[str, str]] = []
+    for index in range(GENERATED_MUTATION_COUNT):
+        tag = f"{suffix}_{index}"
+        pair_type = f"rcc_fuzz_pair_{tag}"
+        function = f"rcc_fuzz_function_{tag}"
+        identity = f"rcc_fuzz_identity_{tag}"
+        template = ""
+        result = "value"
+        pair_initialization = f"struct {pair_type} pair = {{a, b}};"
+        if language == "C++20":
+            template = (
+                f"template <int Bias> unsigned long long {identity}("
+                "unsigned long long item) { return item + Bias; }\n"
+            )
+            result = f"{identity}<1>(value)"
+            pair_initialization = f"{pair_type} pair{{a, b}};"
+        branch_a = generated_expression(generator, 3)
+        branch_b = generated_expression(generator, 3)
+        body = (
+            f"{template}"
+            f"struct {pair_type} {{ unsigned long long left; "
+            "unsigned long long right; };\n"
+            f"unsigned long long {function}(unsigned long long a, "
+            "unsigned long long b) {\n"
+            f"    {pair_initialization}\n"
+            "    unsigned long long value = pair.left ^ pair.right;\n"
+            "    for (unsigned int iteration = 0; iteration < 3U; ++iteration) {\n"
+            "        if ((value & 1ULL) != 0ULL) {\n"
+            f"            value = {branch_a};\n"
+            "        } else {\n"
+            f"            value = {branch_b};\n"
+            "        }\n"
+            "    }\n"
+            f"    return {result};\n"
+            "}\n"
+        )
+        mutations.append((f"grammar-{index:03d}", source.rstrip() + "\n" + body))
+    return mutations
+
+
 def digest(path: Path) -> str:
     hasher = hashlib.sha256()
     with path.open("rb") as stream:
@@ -106,22 +177,25 @@ def digest(path: Path) -> str:
 def compile_source(tool: Path, language: str, target: str,
                    source: Path, output: Path, timeout: int) -> subprocess.CompletedProcess[str]:
     command = [str(tool), "--target", target]
-    if language == "C++20":
-        command.append("-std=c++20")
+    command.append("-std=c17" if language == "C17" else "-std=c++20")
     command.extend(("-O1", "-c", "-o", str(output), str(source)))
     return subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
                           timeout=timeout, check=False)
 
 
 def run_case(case: dict[str, object], tools: dict[str, Path], timeout: int,
-             temporary: Path) -> tuple[int, int]:
+             temporary: Path) -> tuple[int, int, int]:
     case_id = str(case["id"])
     language = str(case["language"])
     source = case["source"]
     assert isinstance(source, Path)
+    original = source.read_text(encoding="utf-8")
+    valid_inputs = valid_mutations(original)
+    generated_inputs = grammar_generated_mutations(case_id, language, original)
+    valid_inputs.extend(generated_inputs)
     valid_count = 0
     invalid_count = 0
-    for mutation_id, contents in valid_mutations(source.read_text(encoding="utf-8")):
+    for mutation_id, contents in valid_inputs:
         mutation_dir = temporary / case_id / mutation_id
         mutation_dir.mkdir(parents=True, exist_ok=True)
         mutation = mutation_dir / source.name
@@ -143,7 +217,7 @@ def run_case(case: dict[str, object], tools: dict[str, Path], timeout: int,
                 raise FuzzError(
                     f"{case_id}/{mutation_id}/{target}: output is nondeterministic")
             valid_count += 1
-    for mutation_id, contents in invalid_mutations(source.read_text(encoding="utf-8")):
+    for mutation_id, contents in invalid_mutations(original):
         mutation_dir = temporary / case_id / mutation_id
         mutation_dir.mkdir(parents=True, exist_ok=True)
         mutation = mutation_dir / source.name
@@ -167,8 +241,11 @@ def run_case(case: dict[str, object], tools: dict[str, Path], timeout: int,
                 raise FuzzError(
                     f"{case_id}/{mutation_id}/{target}: invalid mutation produced output")
             invalid_count += 1
-    print(f"PASS {case_id}: {valid_count} valid and {invalid_count} invalid mutations")
-    return valid_count, invalid_count
+    print(
+        f"PASS {case_id}: {len(generated_inputs)} grammar-generated trees, "
+        f"{valid_count} valid source/target pairs, {invalid_count} invalid cases"
+    )
+    return valid_count, invalid_count, len(generated_inputs)
 
 
 def main() -> int:
@@ -187,16 +264,23 @@ def main() -> int:
         }
         cases = load_cases()
         (ROOT / "build").mkdir(parents=True, exist_ok=True)
-        valid_count = invalid_count = 0
+        valid_count = invalid_count = generated_count = 0
         with tempfile.TemporaryDirectory(prefix="rcc-fuzz-", dir=ROOT / "build") as directory:
             for case in cases:
-                valid, invalid = run_case(case, tools, args.timeout, Path(directory))
+                valid, invalid, generated = run_case(
+                    case, tools, args.timeout, Path(directory)
+                )
                 valid_count += valid
                 invalid_count += invalid
+                generated_count += generated
     except (FuzzError, OSError, subprocess.SubprocessError) as error:
         print(f"ERROR: {error}")
         return 1
-    print(f"RCC parser/compiler fuzz gate: {valid_count} valid and {invalid_count} invalid mutations passed")
+    print(
+        "RCC deterministic parser/compiler fuzz gate: "
+        f"{generated_count} grammar-generated trees, {valid_count} valid "
+        f"source/target pairs, and {invalid_count} invalid cases passed"
+    )
     return 0
 
 

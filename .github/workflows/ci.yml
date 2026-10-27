@@ -188,6 +188,12 @@ jobs:
       - name: Run ASan and UBSan regression suite
         run: make -j2 test-sanitize
 
+      - name: Run deterministic fuzz corpus with sanitized compilers
+        run: >-
+          python3 scripts/fuzz_compile.py
+          --rcc build/sanitizers/bin/rcc
+          --rccxx build/sanitizers/bin/rcc++
+
   native-windows:
     name: native-windows-cmd
     runs-on: windows-latest
