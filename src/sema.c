@@ -6553,7 +6553,9 @@ static bool sema_constexpr_materialize_cxx_constructor(
                 parameter_value_type->is_volatile ||
                 (!sema_constexpr_integer_type(parameter_value_type) &&
                  parameter_value_type->kind != TYPE_FLOAT &&
-                 parameter_value_type->kind != TYPE_DOUBLE)) {
+                 parameter_value_type->kind != TYPE_DOUBLE &&
+                 (parameter_value_type->kind != TYPE_PTR ||
+                  parameter_value_type->cxx_is_member_pointer))) {
                 return false;
             }
         }

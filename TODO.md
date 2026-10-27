@@ -8903,14 +8903,17 @@ remains a separate open item.
       constructors, together with an omitted scalar member's default-member
       initializer, during constexpr construction. Verify all subobject values,
       strict GCC C++20, and focused i686/AMD64 generation and execution.
-- [x] Bind a read-only scalar `const int&` constructor parameter during
-      constexpr materialization, for both a global constexpr lvalue and a
-      temporary, while initializing a derived object's member. Verify strict
-      GCC C++20 and the full POSIX `test-cxx` aggregate.
+- [x] Bind read-only scalar constructor references during constexpr
+      materialization: `const int&` from a global constexpr lvalue and a
+      temporary, plus `const int* const&` from a constexpr pointer lvalue and
+      a temporary pointer value. Copy the pointer into a derived object's
+      member without claiming reference identity or mutable aliasing. Verify
+      strict GCC C++20, dual-architecture focused generation and execution,
+      and the full POSIX `test-cxx` aggregate.
 - [ ] Broader constructor-body expressions/side effects, mutable-reference
-      aliasing, aggregate/pointer reference parameters, indeterminate scalar
-      default-initialization diagnostics, and complete virtual-base constructor
-      evaluation remain open.
+      aliasing, aggregate and other pointer-reference parameters, indeterminate
+      scalar default-initialization diagnostics, and complete virtual-base
+      constructor evaluation remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
