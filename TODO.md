@@ -8735,8 +8735,12 @@ remains a separate open item.
       `const` pointer lvalue-reference parameter during dependent-call
       evaluation. GCC C++20, i686/AMD64 generation, AMD64 execution, and the
       focused overload gate pass.
-- [ ] Member pointers, broader pointer conversions, and dependent calls that
-      use pointer arithmetic remain open.
+- [x] Evaluate pointer addition inside a dependent constexpr call, then
+      dereference the resulting pointer into a global incomplete array. Recover
+      the pointee type from the bound pointer expression where early template
+      evaluation has not assigned the expression type. GCC C++20, i686/AMD64
+      generation, AMD64 execution, and the focused overload gate pass.
+- [ ] Member pointers and broader pointer conversions remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

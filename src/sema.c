@@ -5001,6 +5001,47 @@ static int sema_constexpr_binding_index(
     return -1;
 }
 
+static Type* sema_constexpr_pointer_expression_type(
+    Expr* expression, SemaConstexprBinding* bindings, int binding_count,
+    unsigned depth) {
+    Type* type;
+    int binding_index;
+
+    if (!expression || depth >= 64u) return NULL;
+    type = expression->type;
+    if (type && type->kind == TYPE_PTR) return type;
+    if (expression->kind == EXPR_IDENT) {
+        binding_index = sema_constexpr_binding_index(
+            expression, bindings, binding_count);
+        if (binding_index >= 0 && bindings[binding_index].type &&
+            bindings[binding_index].type->kind == TYPE_PTR) {
+            return bindings[binding_index].type;
+        }
+        return NULL;
+    }
+    switch (expression->kind) {
+        case EXPR_ADD:
+        case EXPR_SUB:
+            type = sema_constexpr_pointer_expression_type(
+                expression->binary_lhs, bindings, binding_count, depth + 1u);
+            return type ? type : sema_constexpr_pointer_expression_type(
+                expression->binary_rhs, bindings, binding_count, depth + 1u);
+        case EXPR_COND:
+            type = sema_constexpr_pointer_expression_type(
+                expression->cond_then, bindings, binding_count, depth + 1u);
+            return type ? type : sema_constexpr_pointer_expression_type(
+                expression->cond_else, bindings, binding_count, depth + 1u);
+        case EXPR_COMMA:
+            return sema_constexpr_pointer_expression_type(
+                expression->binary_rhs, bindings, binding_count, depth + 1u);
+        case EXPR_CAST:
+            return sema_constexpr_pointer_expression_type(
+                expression->cast_expr, bindings, binding_count, depth + 1u);
+        default:
+            return NULL;
+    }
+}
+
 static bool sema_eval_constexpr_expr(
     Expr* expression, SemaConstexprBinding* bindings,
     int binding_count, int64_t* value) {
@@ -8849,15 +8890,10 @@ static bool sema_eval_constexpr_scalar_expr(
             size_t object_size;
             Type* target_type = expression->type;
             if (!target_type) {
-                Type* pointer_type = expression->unary_operand
-                    ? expression->unary_operand->type : NULL;
-                int pointer_binding = sema_constexpr_binding_index(
-                    expression->unary_operand, bindings, binding_count);
-                if (!pointer_type && pointer_binding >= 0) {
-                    pointer_type = bindings[pointer_binding].type;
-                }
+                Type* pointer_type = sema_constexpr_pointer_expression_type(
+                    expression->unary_operand, bindings, binding_count, 0u);
                 if (pointer_type && pointer_type->kind == TYPE_PTR &&
-                    !pointer_type->is_reference) {
+                    pointer_type->base) {
                     target_type = pointer_type->base;
                 }
             }

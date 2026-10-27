@@ -24,6 +24,10 @@ struct DependentPointerConstexprOwner {
     static constexpr int read_reference(const int* const& pointer) {
         return pointer ? *pointer : 0;
     }
+
+    static constexpr int read_next(const int* pointer) {
+        return pointer ? *(pointer + 1) : 0;
+    }
 };
 
 static_assert(DependentPointerConstexprOwner::value(
@@ -39,6 +43,8 @@ static_assert(DependentPointerConstexprOwner::read(
     &::dependent_pointer_constexpr_values[1]) == 11);
 static_assert(DependentPointerConstexprOwner::read_reference(
     &::dependent_pointer_constexpr_values[1]) == 11);
+static_assert(DependentPointerConstexprOwner::read_next(
+    &::dependent_pointer_constexpr_values[0]) == 11);
 
 template<typename Owner, typename... Tail>
 int select_dependent_pointer_constexpr_call(
@@ -96,6 +102,20 @@ int select_dependent_pointer_reference_call(
 }
 
 template<typename Owner, typename... Tail>
+int select_dependent_pointer_arithmetic_call(
+    DependentPointerConstexprBox<
+        Owner::read_next(&::dependent_pointer_constexpr_values[0]),
+        Owner, Tail...>) {
+    return 341;
+}
+
+template<typename Owner, typename... Tail>
+int select_dependent_pointer_arithmetic_call(
+    DependentPointerConstexprBox<1, Owner, Tail...>) {
+    return 342;
+}
+
+template<typename Owner, typename... Tail>
 int select_dependent_nullptr_constexpr_call(
     DependentPointerConstexprBox<Owner::value(nullptr), Owner, Tail...>) {
     return 303;
@@ -128,10 +148,15 @@ int main() {
                 11, DependentPointerConstexprOwner, int>{}) != 331) {
         return 4;
     }
+    if (select_dependent_pointer_arithmetic_call(
+            DependentPointerConstexprBox<
+                11, DependentPointerConstexprOwner, int>{}) != 341) {
+        return 5;
+    }
     if (select_dependent_nullptr_constexpr_call(
             DependentPointerConstexprBox<
                 0, DependentPointerConstexprOwner, int>{}) != 303) {
-        return 5;
+        return 6;
     }
     return 0;
 }
