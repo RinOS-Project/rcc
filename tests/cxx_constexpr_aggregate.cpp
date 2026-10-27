@@ -132,6 +132,11 @@ constexpr int forward_mutable_scalar_reference(int& value) {
     return add_through_mutable_scalar_reference(value);
 }
 
+constexpr Pair make_pair_after_mutating_scalar_reference(int& value) {
+    value += 2;
+    return Pair{value, value + 1};
+}
+
 constexpr FloatPair make_float_pair(float first, double second) {
     return FloatPair{first, second};
 }
@@ -273,6 +278,15 @@ constexpr int mutate_aggregate_member_through_constexpr_function() {
 constexpr int aggregate_member_reference_function_result =
     mutate_aggregate_member_through_constexpr_function();
 
+constexpr int mutate_scalar_through_aggregate_return_function() {
+    int source = 5;
+    Pair result = make_pair_after_mutating_scalar_reference(source);
+    return source * 100 + result.first * 10 + result.second;
+}
+
+constexpr int aggregate_return_reference_function_result =
+    mutate_scalar_through_aggregate_return_function();
+
 static_assert(pair.first == 3);
 static_assert(nested.pair.second + nested.tail == 13);
 static_assert(returned_pair.first == 11 && returned_pair.second == 13);
@@ -305,6 +319,7 @@ static_assert(local_scalar_reference_constructor_result == 1710);
 static_assert(forwarded_scalar_reference_constructor_result == 1811);
 static_assert(local_scalar_reference_function_result == 909);
 static_assert(aggregate_member_reference_function_result == 1111);
+static_assert(aggregate_return_reference_function_result == 778);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
@@ -329,6 +344,10 @@ int main(void) {
     Pair runtime_function_aggregate{6, 12};
     int runtime_function_aggregate_result =
         add_through_mutable_scalar_reference(runtime_function_aggregate.first);
+    int runtime_aggregate_return_source = 5;
+    Pair runtime_aggregate_return_result =
+        make_pair_after_mutating_scalar_reference(
+            runtime_aggregate_return_source);
     return first_value == 3 && second_value == 5 &&
                    nested_value == 13 && array_value == 19 &&
                    returned_value == 24 && mutated_returned_value == 44 &&
@@ -369,6 +388,9 @@ int main(void) {
                    runtime_function_result == 9 &&
                    runtime_function_aggregate.first == 11 &&
                    runtime_function_aggregate_result == 11 &&
+                   runtime_aggregate_return_source == 7 &&
+                   runtime_aggregate_return_result.first == 7 &&
+                   runtime_aggregate_return_result.second == 8 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
                    consteval_float_value == 6.25 &&

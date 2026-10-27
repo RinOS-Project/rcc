@@ -8946,11 +8946,17 @@ remains a separate open item.
       the alias across nested constexpr function calls. Verify compile-time
       results and runtime writes with strict GCC C++20, focused i686/AMD64
       generation and execution, and the full POSIX `test-cxx` aggregate.
-- [ ] Broader constructor-body expressions/side effects, mutable references to
-      nonscalar objects, reference parameters in aggregate-returning and other
-      constexpr evaluator paths, aggregate and pointer-reference parameters,
-      indeterminate tracking for nested/array/base subobjects, and complete
-      virtual-base constructor evaluation remain open.
+- [x] Preserve mutable scalar lvalue-reference aliases in aggregate-returning
+      constexpr functions. Verify both the returned aggregate contents and
+      the caller's post-call scalar value with strict GCC C++20, focused
+      i686/AMD64 generation and execution, and the full POSIX `test-cxx`
+      aggregate.
+- [ ] Constructor bodies beyond the covered expressions/branches, mutable
+      references to nonscalar objects, reference forms not covered by the
+      scalar- and aggregate-returning evaluators (including aggregate and
+      pointer-reference parameters), indeterminate tracking for
+      nested/array/base subobjects, and complete virtual-base constructor
+      evaluation remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
