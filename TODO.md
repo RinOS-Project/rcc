@@ -11066,7 +11066,7 @@ remains a separate open item.
       high-bit unsigned ordering, equality boundaries, and expression results
       in normal and verified C++20 objects. The focused
       `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
-- [ ] Function-local static arithmetic operands, volatile/reference/atomic
+- [ ] Non-TLS function-local static storage, volatile/reference/atomic
       operands, and broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-28, signed i686 TLS comparison DWARF)
@@ -11089,9 +11089,8 @@ remains a separate open item.
       boundaries, and expression results in normal and verified C++20 objects.
       The focused `test-debug-info-inline-expression` gate passes under WSL2
       Ubuntu-24.04.
-- [ ] Function-local static operands for other arithmetic operations,
-      non-TLS static storage, volatile/reference/atomic operands, and broader
-      optimized multi-piece locations remain open.
+- [ ] Non-TLS function-local static storage, volatile/reference/atomic
+      operands, and broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-28, function-local static TLS arithmetic)
 
@@ -11108,5 +11107,15 @@ remains a separate open item.
       patterns, multiplication, and expression results in normal and verified
       C++20 objects. The focused `test-debug-info-inline-expression` gate
       passes under WSL2 Ubuntu-24.04.
-- [ ] Non-TLS static storage, volatile/reference/atomic operands, and broader
-      optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, function-local non-TLS static arithmetic)
+
+- [x] Verify signed and unsigned i686 64-bit block-scope `static` addition,
+      subtraction, AND, OR, XOR, and multiplication expressions. Check
+      `ABS32U` relocations (distinct from TLS relocations), module-scoped
+      symbols, initialized values, wraparound/carry/borrow, bit patterns,
+      multiplication, and expression results in normal and verified C++20
+      objects. The focused `test-debug-info-inline-expression` gate passes
+      under WSL2 Ubuntu-24.04.
+- [ ] Volatile/reference/atomic operands and broader optimized multi-piece
+      locations remain open.
