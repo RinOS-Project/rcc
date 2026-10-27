@@ -8731,8 +8731,12 @@ remains a separate open item.
       evaluating a dependent constexpr call that dereferences a pointer to an
       array element. The i686/AMD64 generation and AMD64 runtime checks pass,
       along with the GCC C++20 host oracle and focused overload gate.
-- [ ] Pointer references, member pointers, broader pointer conversions, and
-      dependent calls that use pointer arithmetic remain open.
+- [x] Preserve a non-null object-pointer value passed to a constexpr function's
+      `const` pointer lvalue-reference parameter during dependent-call
+      evaluation. GCC C++20, i686/AMD64 generation, AMD64 execution, and the
+      focused overload gate pass.
+- [ ] Member pointers, broader pointer conversions, and dependent calls that
+      use pointer arithmetic remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

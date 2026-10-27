@@ -8238,7 +8238,7 @@ static bool sema_eval_constexpr_scalar_function(
             parameter_value_type->is_reference) {
             Type* referred_type = parameter_value_type->base;
             if (!referred_type ||
-                !sema_constexpr_integer_type(referred_type) ||
+                !sema_constexpr_scalar_type(referred_type) ||
                 referred_type->is_volatile ||
                 (!parameter_value_type->is_rvalue_reference &&
                  !referred_type->is_const) ||
