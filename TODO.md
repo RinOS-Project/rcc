@@ -9093,6 +9093,10 @@ remains a separate open item.
       declarations inside constructor bodies, then use the local for a member
       assignment. Verify GCC C++20, constexpr/runtime, i686/AMD64, and full
       POSIX `test-cxx`.
+- [x] Track floating-point constructor-body local initializers and updates,
+      preserving the floating representation through local compound assignment
+      and subsequent member writes. Verify GCC C++20, constexpr/runtime,
+      i686/AMD64, and full POSIX `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

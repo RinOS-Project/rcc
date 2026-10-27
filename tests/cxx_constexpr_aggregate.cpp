@@ -366,6 +366,16 @@ struct ConstructorBodyConstexprCall {
     }
 };
 
+struct ConstructorBodyFloatingLocal {
+    double value;
+
+    constexpr explicit ConstructorBodyFloatingLocal(int initial) {
+        double computed = initial * 1.5;
+        computed += 0.5;
+        this->value = computed;
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -691,6 +701,7 @@ constexpr ConstructorBodySwitch constructor_body_switch_fallthrough{0, 40};
 constexpr ConstructorBodySwitch constructor_body_switch_case{1, 40};
 constexpr ConstructorBodySwitch constructor_body_switch_default{7, 40};
 constexpr ConstructorBodyConstexprCall constructor_body_constexpr_call{22};
+constexpr ConstructorBodyFloatingLocal constructor_body_floating_local{4};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -1102,6 +1113,7 @@ int main(void) {
     ConstructorBodySwitch runtime_body_switch_case{1, 11};
     ConstructorBodySwitch runtime_body_switch_default{9, 11};
     ConstructorBodyConstexprCall runtime_body_constexpr_call{28};
+    ConstructorBodyFloatingLocal runtime_body_floating_local{5};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -1265,6 +1277,7 @@ int main(void) {
                      constructor_body_switch_default.value == 60 &&
                      constructor_body_constexpr_call.value == 27 &&
                      constructor_body_constexpr_call.local_value == 28 &&
+                     constructor_body_floating_local.value == 6.5 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -1310,6 +1323,7 @@ int main(void) {
                      runtime_body_switch_default.value == 31 &&
                      runtime_body_constexpr_call.value == 33 &&
                      runtime_body_constexpr_call.local_value == 34 &&
+                     runtime_body_floating_local.value == 8.0 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&

@@ -8865,7 +8865,8 @@ static bool sema_constexpr_constructor_update_local(
         (binding_index = sema_constexpr_binding_index(
              target, bindings, binding_count)) < initial_binding_count ||
         binding_index < 0 || binding_index >= binding_count ||
-                !sema_constexpr_integer_type(bindings[binding_index].type) ||
+        !sema_constexpr_scalar_type(bindings[binding_index].type) ||
+        (bindings[binding_index].type->kind == TYPE_PTR) ||
                 (bindings[binding_index].is_constexpr_uninitialized_local &&
                  expression->kind != EXPR_ASSIGN)) {
         return false;
@@ -8910,7 +8911,8 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             SemaConstexprScalar local_value;
             if (!declaration || declaration->kind != DECL_VAR ||
                 !declaration->name ||
-                !sema_constexpr_integer_type(declaration->type) ||
+                !sema_constexpr_scalar_type(declaration->type) ||
+                declaration->type->kind == TYPE_PTR ||
                 *binding_count < 0 || *binding_count >= 64) {
                 return false;
             }
@@ -8935,6 +8937,20 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                 return false;
             }
             bindings[*binding_count].value = local_value.integer_value;
+            bindings[*binding_count].floating_value =
+                local_value.floating_value;
+            bindings[*binding_count].is_floating = local_value.is_floating;
+            bindings[*binding_count].is_pointer = local_value.is_pointer;
+            bindings[*binding_count].pointer_declaration =
+                local_value.pointer_declaration;
+            bindings[*binding_count].pointer_offset =
+                local_value.pointer_offset;
+            bindings[*binding_count].is_member_pointer =
+                local_value.is_member_pointer;
+            bindings[*binding_count].member_pointer_field =
+                local_value.member_pointer_field;
+            bindings[*binding_count].member_pointer_method =
+                local_value.member_pointer_method;
             ++*binding_count;
             return true;
         }
