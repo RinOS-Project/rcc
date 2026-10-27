@@ -4526,6 +4526,18 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 	$(GREP) -A 2 -F "tls_adjusted_member_function:" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x86.s | \
 		$(GREP) -F -q ".byte 0x04, 0x00, 0x00, 0x00"
+	$(GREP) -A 1 -F "global_virtual_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x86.s | \
+		$(GREP) -F -q ".byte 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00"
+	$(GREP) -A 1 -F "tls_virtual_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x86.s | \
+		$(GREP) -F -q ".byte 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00"
+	$(GREP) -A 2 -F "global_virtual_path_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x86.s | \
+		$(GREP) -F -q ".long _ZN29VirtualMemberFunctionPathBase3addEi"
+	$(GREP) -A 2 -F "tls_virtual_path_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x86.s | \
+		$(GREP) -F -q ".long _ZN29VirtualMemberFunctionPathBase3addEi"
 	$(GREP) -F -q "_Z10invoke_dotR19MemberFunctionOwnerMS_FiiEi" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x86.s
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
@@ -4554,6 +4566,18 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 	$(GREP) -A 2 -F "tls_adjusted_member_function:" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.s | \
 		$(GREP) -F -q ".byte 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00"
+	$(GREP) -A 2 -F "global_virtual_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s | \
+		$(GREP) -F -q ".byte 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00"
+	$(GREP) -A 2 -F "tls_virtual_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s | \
+		$(GREP) -F -q ".byte 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00"
+	$(GREP) -A 2 -F "global_virtual_path_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s | \
+		$(GREP) -F -q ".quad _ZN29VirtualMemberFunctionPathBase3addEi"
+	$(GREP) -A 2 -F "tls_virtual_path_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s | \
+		$(GREP) -F -q ".quad _ZN29VirtualMemberFunctionPathBase3addEi"
 	$(CC) -c -o $(TEST_OUT)/cxx-member-pointer-functions/x64.o \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \

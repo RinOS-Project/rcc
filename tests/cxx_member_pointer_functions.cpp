@@ -165,6 +165,16 @@ int (MemberFunctionAdjustmentDerived::*global_adjusted_member_function)(int) =
 thread_local int
     (MemberFunctionAdjustmentDerived::*tls_adjusted_member_function)(int) =
         &MemberFunctionAdjustmentBase::add;
+int (VirtualMemberFunctionBase::*global_virtual_member_function)(int) =
+    &VirtualMemberFunctionBase::add;
+thread_local int
+    (VirtualMemberFunctionBase::*tls_virtual_member_function)(int) =
+        &VirtualMemberFunctionBase::add;
+int (VirtualMemberFunctionPathBase::*global_virtual_path_member_function)(int) =
+    &VirtualMemberFunctionPathBase::add;
+thread_local int
+    (VirtualMemberFunctionPathBase::*tls_virtual_path_member_function)(int) =
+        &VirtualMemberFunctionPathBase::add;
 
 MemberFunctionMethod identity_member_function(MemberFunctionMethod method) {
     return method;
@@ -331,8 +341,20 @@ int main() {
     if (invoke_virtual_member(virtual_object, virtual_method, 7) != 137) {
         return 20;
     }
+    if ((virtual_object.*global_virtual_member_function)(7) != 137) {
+        return 36;
+    }
+    if ((virtual_object.*tls_virtual_member_function)(7) != 137) {
+        return 37;
+    }
     virtual_path_object.value = 63;
     if ((virtual_path_object.*virtual_path_method)(4) != 67) return 32;
+    if ((virtual_path_object.*global_virtual_path_member_function)(5) != 68) {
+        return 38;
+    }
+    if ((virtual_path_object.*tls_virtual_path_member_function)(6) != 69) {
+        return 39;
+    }
     adjusted_object.prefix = 3;
     adjusted_object.value = 41;
     if ((adjusted_object.*derived_method)(1) != 42) return 21;

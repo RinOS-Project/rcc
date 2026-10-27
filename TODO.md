@@ -8755,10 +8755,9 @@ remains a separate open item.
       qualification conversion from `T Owner::*` to `const T Owner::*`. Verify
       dependent non-type template argument selection against GCC C++20 and the
       i686/AMD64 generation plus execution gate.
-- [ ] Virtual and virtual-base-inherited global/TLS member-function-pointer
-      initialization, member-function-pointer owner/signature conversions,
-      virtual constexpr dispatch, further multilevel
-      data-member-pointer owner-conversion paths, other member-pointee
+- [ ] Member-function-pointer owner/signature conversions, virtual constexpr
+      dispatch, further multilevel data-member-pointer owner-conversion paths,
+      other member-pointee
       cv-qualification combinations, and additional pointer conversions
       remain open.
 
@@ -8814,9 +8813,8 @@ remains a separate open item.
       global-constexpr PMF values, member access through the bound `this`
       object, GCC C++20, focused i686/AMD64 generation and AMD64 execution,
       and the full POSIX `test-cxx` aggregate.
-- [ ] Virtual or virtual-base-inherited member-function-pointer static
-      initialization, owner/signature conversions, and virtual constexpr
-      dispatch remain open.
+- [ ] Member-function-pointer owner/signature conversions and virtual
+      constexpr dispatch remain open.
 
 ## RCC continuation (2026-10-27, inherited member-function-pointer static adjustment)
 
@@ -8825,9 +8823,20 @@ remains a separate open item.
       pointer in global and thread-local initializers. Validate i686/AMD64
       emitted adjustment words, execute both AMD64 calls, compare with a strict
       GCC C++20 host run, and pass the full POSIX `test-cxx` aggregate.
-- [ ] Virtual and virtual-base inherited member-function-pointer static
-      initialization, further owner/signature conversions, and virtual
-      constexpr dispatch remain open.
+- [ ] Further owner/signature conversions and virtual constexpr dispatch
+      remain open.
+
+## RCC continuation (2026-10-27, virtual member-function-pointer static initialization)
+
+- [x] Emit exact-owner virtual member-function pointers in global and
+      thread-local initializers with the ABI virtual-slot discriminator and
+      zero `this` adjustment; execute calls through a derived override. Also
+      apply global/TLS nonvirtual member-function pointers owned by a virtual
+      base to a virtually-derived object, exercising virtual-base receiver
+      adjustment. Check i686/AMD64 data words, a strict GCC C++20 host oracle,
+      AMD64 execution, and the full POSIX `test-cxx` aggregate.
+- [ ] Virtual constexpr dispatch and further member-function-pointer
+      owner/signature conversions remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
