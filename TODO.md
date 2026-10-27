@@ -652,6 +652,10 @@
         verified SSA backend. GCC C++20 syntax checking, fallback-free i686 and
         AMD64 `-O2` object generation, and execution of both objects verify
         returned-address identity through mutation.
+  - [x] Preserve a function lvalue reference through a non-template identity
+        function and call the returned function. GCC C++20 syntax checking,
+        i686/AMD64 code generation, and x64 host execution pass in
+        `test-cxx-function-template-references`.
   - [x] Apply fixed derived-to-base adjustment to direct non-template
         lvalue-reference returns, including `const` references, after lvalue
         address generation in both backends. A multiple-inheritance fixture

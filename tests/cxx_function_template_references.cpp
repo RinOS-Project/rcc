@@ -66,6 +66,17 @@ int&& return_rvalue_reference(int&& value) {
     return static_cast<int&&>(value);
 }
 
+using UnaryFunctionReference = int(int);
+
+int triple_for_function_reference(int value) {
+    return value * 3;
+}
+
+UnaryFunctionReference& forward_function_reference(
+        UnaryFunctionReference& function) {
+    return function;
+}
+
 using IntArray = int[3];
 using IntArrayLvalueReference = IntArray&;
 using IntArrayRvalueReference = IntArray&&;
@@ -581,6 +592,9 @@ int main() {
             static_cast<int&&>(mutable_value));
     rvalue_result += 2;
     if (mutable_value != 12) return 7;
+    UnaryFunctionReference& function_reference =
+            forward_function_reference(triple_for_function_reference);
+    if (function_reference(14) != 42) return 94;
     IntArray array_reference_values = {13, 14, 15};
     IntArrayLvalueReference array_lvalue_result =
             return_array_lvalue(array_reference_values);

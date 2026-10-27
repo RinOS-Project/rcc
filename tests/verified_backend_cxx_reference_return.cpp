@@ -18,6 +18,17 @@ ReferenceValue&& return_rvalue_reference(ReferenceValue&& value) {
     return static_cast<ReferenceValue&&>(value);
 }
 
+using UnaryFunctionReference = int(int);
+
+int triple_for_function_reference(int value) {
+    return value * 3;
+}
+
+UnaryFunctionReference& forward_function_reference(
+    UnaryFunctionReference& function) {
+    return function;
+}
+
 int main() {
     ReferenceValue value{40};
     XvalueSource source{&value};
@@ -31,5 +42,10 @@ int main() {
     ReferenceValue&& rvalue_result = return_rvalue_reference(
         static_cast<ReferenceValue&&>(value));
     rvalue_result.value += 4;
-    return value.value != 49;
+    if (value.value != 49) {
+        return 2;
+    }
+    UnaryFunctionReference& function_reference =
+        forward_function_reference(triple_for_function_reference);
+    return function_reference(14) != 42;
 }
