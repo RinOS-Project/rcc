@@ -8899,9 +8899,14 @@ remains a separate open item.
       constructed object's target-layout bytes. Verify inherited base state,
       the updated member, strict GCC C++20, dual-architecture focused generation
       and execution, and the full POSIX `test-cxx` aggregate.
-- [ ] Broader constructor-body expressions/side effects, omitted or
-      default-initialized subobjects, reference/pointer constructor parameters,
-      and complete virtual-base constructor evaluation remain open.
+- [x] Evaluate omitted direct nonvirtual-base and class-member default
+      constructors, together with an omitted scalar member's default-member
+      initializer, during constexpr construction. Verify all subobject values,
+      strict GCC C++20, and focused i686/AMD64 generation and execution.
+- [ ] Broader constructor-body expressions/side effects, reference/pointer
+      constructor parameters, indeterminate scalar default-initialization
+      diagnostics, and complete virtual-base constructor evaluation remain
+      open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
