@@ -9004,6 +9004,11 @@ remains a separate open item.
       member initializer. Keep reads of omitted/uninitialized members rejected.
       Verify GCC C++20, the negative diagnostic path, positive constexpr and
       runtime cases on i686/AMD64, and the focused plus full POSIX C++ suites.
+- [x] Track preceding direct scalar assignments in constructor-body order so a
+      later assignment can read an earlier body-initialized member, while a
+      read before the first write remains invalid. Verify a valid two-write
+      constexpr/runtime case and an invalid read-before-write case on both
+      targets, with GCC C++20 and the full POSIX `test-cxx` suite.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

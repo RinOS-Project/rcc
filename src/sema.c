@@ -8541,9 +8541,15 @@ static const char* sema_constexpr_constructor_direct_member_name(
     return NULL;
 }
 
+static bool sema_constexpr_constructor_rhs_is_safe(
+    Expr* expression, CxxConstructorInfo* constructor, CxxClass* cls,
+    Type* type, StmtList* body_statements, StmtList* before_statement,
+    unsigned depth);
+
 static bool sema_constexpr_constructor_member_is_initialized(
     CxxConstructorInfo* constructor, CxxClass* cls, Type* type,
-    const char* member_name) {
+    const char* member_name, StmtList* body_statements,
+    StmtList* before_statement) {
     bool is_class_member = false;
     if (!constructor || !cls || cls->is_union || !type || !member_name) {
         return false;
@@ -8566,15 +8572,30 @@ static bool sema_constexpr_constructor_member_is_initialized(
     for (TypeField* field = type->fields; field; field = field->next) {
         if (field->name && strcmp(field->name, member_name) == 0 &&
             field->cxx_declaring_class == cls) {
-            return field->initializer != NULL;
+            if (field->initializer) return true;
+            break;
         }
+    }
+    for (StmtList* item = body_statements;
+         item && item != before_statement; item = item->next) {
+        Stmt* statement = item->stmt;
+        const char* written_name;
+        if (!statement || statement->kind != STMT_EXPR ||
+            !statement->expr || statement->expr->kind != EXPR_ASSIGN ||
+            !(written_name =
+                  sema_constexpr_constructor_direct_member_name(
+                      statement->expr->binary_lhs))) {
+            continue;
+        }
+        if (strcmp(written_name, member_name) == 0) return true;
     }
     return false;
 }
 
 static bool sema_constexpr_constructor_rhs_is_safe(
     Expr* expression, CxxConstructorInfo* constructor, CxxClass* cls,
-    Type* type, unsigned depth) {
+    Type* type, StmtList* body_statements, StmtList* before_statement,
+    unsigned depth) {
     if (!expression || depth >= 64u) return false;
     switch (expression->kind) {
         case EXPR_INT_LIT:
@@ -8596,7 +8617,8 @@ static bool sema_constexpr_constructor_rhs_is_safe(
                 sema_constexpr_constructor_direct_member_name(expression);
             return member_name &&
                    sema_constexpr_constructor_member_is_initialized(
-                       constructor, cls, type, member_name);
+                       constructor, cls, type, member_name, body_statements,
+                       before_statement);
         }
         case EXPR_POS:
         case EXPR_NEG:
@@ -8604,10 +8626,11 @@ static bool sema_constexpr_constructor_rhs_is_safe(
         case EXPR_BITNOT:
             return sema_constexpr_constructor_rhs_is_safe(
                 expression->unary_operand, constructor, cls, type,
-                depth + 1u);
+                body_statements, before_statement, depth + 1u);
         case EXPR_CAST:
             return sema_constexpr_constructor_rhs_is_safe(
-                expression->cast_expr, constructor, cls, type, depth + 1u);
+                expression->cast_expr, constructor, cls, type,
+                body_statements, before_statement, depth + 1u);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -8628,20 +8651,20 @@ static bool sema_constexpr_constructor_rhs_is_safe(
         case EXPR_OR:
             return sema_constexpr_constructor_rhs_is_safe(
                        expression->binary_lhs, constructor, cls, type,
-                       depth + 1u) &&
+                       body_statements, before_statement, depth + 1u) &&
                    sema_constexpr_constructor_rhs_is_safe(
                        expression->binary_rhs, constructor, cls, type,
-                       depth + 1u);
+                       body_statements, before_statement, depth + 1u);
         case EXPR_COND:
             return sema_constexpr_constructor_rhs_is_safe(
                        expression->cond_test, constructor, cls, type,
-                       depth + 1u) &&
+                       body_statements, before_statement, depth + 1u) &&
                    sema_constexpr_constructor_rhs_is_safe(
                        expression->cond_then, constructor, cls, type,
-                       depth + 1u) &&
+                       body_statements, before_statement, depth + 1u) &&
                    sema_constexpr_constructor_rhs_is_safe(
                        expression->cond_else, constructor, cls, type,
-                       depth + 1u);
+                       body_statements, before_statement, depth + 1u);
         default:
             return false;
     }
@@ -8667,7 +8690,8 @@ static bool sema_constexpr_constructor_body_writes_direct_member(
         if (!statement || statement->kind != STMT_EXPR ||
             !statement->expr || statement->expr->kind != EXPR_ASSIGN ||
             !sema_constexpr_constructor_rhs_is_safe(
-                statement->expr->binary_rhs, constructor, cls, type, 0u) ||
+                statement->expr->binary_rhs, constructor, cls, type,
+                body->block_stmts, item, 0u) ||
             !(written_name =
                   sema_constexpr_constructor_direct_member_name(
                       statement->expr->binary_lhs))) {

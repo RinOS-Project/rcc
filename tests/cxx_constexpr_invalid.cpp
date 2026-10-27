@@ -104,6 +104,16 @@ struct UninitializedBodyMemberRead {
     }
 };
 
+struct UninitializedBodyReadBeforeWrite {
+    int source;
+    int target;
+
+    constexpr explicit UninitializedBodyReadBeforeWrite(int value) {
+        this->target = this->source + value;
+        this->source = value;
+    }
+};
+
 constexpr UninitializedNestedAggregateMember
     invalid_uninitialized_nested_aggregate_member{3};
 constexpr UninitializedArrayMember invalid_uninitialized_array_member{5};
@@ -113,3 +123,5 @@ constexpr UninitializedBodyNestedMember
     invalid_uninitialized_body_nested_member{13};
 constexpr UninitializedBodyMemberRead
     invalid_uninitialized_body_member_read{17};
+constexpr UninitializedBodyReadBeforeWrite
+    invalid_uninitialized_body_read_before_write{19};
