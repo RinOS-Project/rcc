@@ -8705,6 +8705,22 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             int index;
             if (!expression) return false;
             switch (expression->kind) {
+                case EXPR_PREINC:
+                case EXPR_PREDEC:
+                case EXPR_POSTINC:
+                case EXPR_POSTDEC:
+                    member_name =
+                        sema_constexpr_constructor_direct_member_name(
+                            expression->unary_operand);
+                    index = sema_constexpr_constructor_member_index(
+                        cls, member_name);
+                    return index >= 0 &&
+                        (*initialized_members &
+                         (UINT64_C(1) << (unsigned)index)) != 0u;
+                default:
+                    break;
+            }
+            switch (expression->kind) {
                 case EXPR_ASSIGN:
                     break;
                 case EXPR_ADD_ASSIGN:

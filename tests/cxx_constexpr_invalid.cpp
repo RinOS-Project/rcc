@@ -114,6 +114,14 @@ struct UninitializedCompoundBodyMemberRead {
     }
 };
 
+struct UninitializedBodyStandaloneIncrement {
+    int omitted;
+
+    constexpr UninitializedBodyStandaloneIncrement() {
+        this->omitted++;
+    }
+};
+
 struct UninitializedBodyReadBeforeWrite {
     int source;
     int target;
@@ -135,5 +143,7 @@ constexpr UninitializedBodyMemberRead
     invalid_uninitialized_body_member_read{17};
 constexpr UninitializedCompoundBodyMemberRead
     invalid_uninitialized_compound_body_member_read{18};
+constexpr UninitializedBodyStandaloneIncrement
+    invalid_uninitialized_body_standalone_increment{};
 constexpr UninitializedBodyReadBeforeWrite
     invalid_uninitialized_body_read_before_write{19};

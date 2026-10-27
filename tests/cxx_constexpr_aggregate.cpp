@@ -144,6 +144,10 @@ struct ConstructorBodyCompoundAssignments {
         this->accumulator ^= 2;
         this->accumulator <<= 1;
         this->accumulator >>= 1;
+        this->accumulator++;
+        ++this->accumulator;
+        this->accumulator--;
+        --this->accumulator;
         this->result = this->accumulator;
     }
 };

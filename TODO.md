@@ -9031,6 +9031,11 @@ remains a separate open item.
       write of an uninitialized member as initialization. Verify all supported
       scalar compound operators, constexpr/runtime values, GCC C++20, both
       target architectures, and the full POSIX `test-cxx` suite.
+- [x] Permit pre/post increment and decrement statements on already
+      initialized scalar members in the supported constructor-body profile,
+      while rejecting mutation of an uninitialized member. Verify constexpr/
+      runtime results, GCC C++20, both target architectures, and the full
+      POSIX `test-cxx` suite.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,
