@@ -11350,8 +11350,12 @@ remains a separate open item.
       where the identifier is a stable frame-resident pointer to a nonvolatile,
       non-atomic integer. Load the pointer from its frame slot and then load the
       pointee with target-sized `DW_OP_deref_size` operations; cover i686/x64
-      legacy and verified backends and signed boundary values. Focused
-      `test-debug-info-inline-expression` passed with `make SHELL=cmd.exe`.
+      legacy and verified C and C++20 backends. Interpret the emitted DWARF
+      operations against signed boundary values. Focused
+      `test-debug-info-inline-expression` passed with `make SHELL=cmd.exe`; the
+      full debug-info verifier also passed after the remaining Make recipe
+      steps were run directly because `cmd.exe` misparsed its multiline output
+      redirection.
 - [ ] Add negative coverage for global/TLS/static, volatile/atomic,
       member-pointer, wider-than-address-size pointee, and indirect
       pointer-chain cases before extending support to them.

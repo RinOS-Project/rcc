@@ -246,11 +246,23 @@ long long debug_inline_nonconstant_signed_long_long_global_shift_source =
     -0x123456789abcdefLL;
 unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_zero_source = 0u;
+int** debug_inline_indirect_pointer_cpp_slot_escape;
 }
 
 static inline int debug_nonconstant_integer_parameter_inline(int value)
 {
     return value;
+}
+
+extern "C" int debug_inline_indirect_pointer_cpp_entry(int value)
+{
+    int debug_inline_indirect_pointer_cpp_value = value;
+    int* debug_inline_indirect_pointer_cpp_slot =
+        &debug_inline_indirect_pointer_cpp_value;
+    debug_inline_indirect_pointer_cpp_slot_escape =
+        &debug_inline_indirect_pointer_cpp_slot;
+    return debug_nonconstant_integer_parameter_inline(
+        *debug_inline_indirect_pointer_cpp_slot);
 }
 
 static inline unsigned long long

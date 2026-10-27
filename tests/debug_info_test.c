@@ -16231,8 +16231,78 @@ typedef struct VerifyInlineIntegerExpressionCase {
     bool evaluate_full_width_unsigned;
 } VerifyInlineIntegerExpressionCase;
 
+static uint64_t evaluate_inline_indirect_integer_parameter(
+    const uint8_t* data, uint64_t expression_end, uint64_t expression_offset,
+    uint16_t architecture, int64_t pointer_frame_offset,
+    int64_t value_frame_offset, int32_t pointee_value) {
+    uint64_t stack[2];
+    size_t stack_size = 0u;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t address_bits = address_size * 8u;
+    uint64_t address_mask = address_bits == 64u
+        ? UINT64_MAX : (UINT64_C(1) << address_bits) - 1u;
+    uint64_t frame_base = architecture == ARCH_X64
+        ? UINT64_C(0x1000000000) : UINT64_C(0x80000000);
+    uint64_t pointer_slot_address =
+        (frame_base + (uint64_t)pointer_frame_offset) & address_mask;
+    uint64_t value_address =
+        (frame_base + (uint64_t)value_frame_offset) & address_mask;
+    while (expression_offset < expression_end) {
+        uint8_t opcode = data[expression_offset++];
+        if (opcode == (architecture == ARCH_X64 ? 0x76u : 0x75u)) {
+            int64_t displacement = read_sleb(
+                data, expression_end, &expression_offset);
+            assert(stack_size == 0u && displacement == pointer_frame_offset);
+            stack[stack_size++] =
+                (frame_base + (uint64_t)displacement) & address_mask;
+        } else if (opcode == 0x94u) {
+            uint8_t load_size;
+            uint64_t address;
+            assert(stack_size == 1u && expression_offset < expression_end);
+            load_size = data[expression_offset++];
+            address = stack[--stack_size];
+            if (load_size == address_size && address == pointer_slot_address) {
+                stack[stack_size++] = value_address;
+            } else {
+                assert(load_size == 4u && address == value_address);
+                stack[stack_size++] = (uint32_t)pointee_value;
+            }
+        } else if (opcode == 0x10u) {
+            assert(stack_size < sizeof(stack) / sizeof(stack[0]));
+            stack[stack_size++] = read_uleb(
+                data, expression_end, &expression_offset) & address_mask;
+        } else if (opcode == 0x24u || opcode == 0x26u) {
+            uint64_t shift;
+            uint64_t value;
+            assert(stack_size == 2u);
+            shift = stack[--stack_size];
+            value = stack[--stack_size];
+            assert(shift < address_bits);
+            if (opcode == 0x24u) {
+                stack[stack_size++] = (value << shift) & address_mask;
+            } else {
+                int64_t signed_value = verify_inline_integer_signed_bits(
+                    value, (unsigned int)address_bits);
+                stack[stack_size++] =
+                    (uint64_t)(signed_value >> shift) & address_mask;
+            }
+        } else if (opcode == 0x9fu) {
+            assert(stack_size == 1u && expression_offset == expression_end);
+            return stack[0] & address_mask;
+        } else {
+            fprintf(stderr,
+                    "unexpected indirect-parameter DWARF opcode %#x\n",
+                    opcode);
+            assert(!"unexpected opcode in indirect parameter expression");
+        }
+    }
+    assert(!"indirect parameter expression has no DW_OP_stack_value");
+    return 0u;
+}
+
 static void verify_inline_indirect_pointer_parameter(
-    const char* path, uint16_t architecture) {
+    const char* path, uint16_t architecture, const char* entry_name,
+    const char* pointer_name, const char* value_name) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -16246,17 +16316,18 @@ static void verify_inline_indirect_pointer_parameter(
     bool pointer_is_location_list;
     bool has_value_location;
     bool value_is_location_list;
-    assert(object && object->arch == architecture);
+    assert(object && object->arch == architecture && entry_name &&
+           pointer_name && value_name);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
-    assert(info && strings && locations);
+    assert(info && strings);
     assert(find_variable_location(
-        info, strings, locations, "debug_inline_indirect_pointer_slot",
+        info, strings, locations, pointer_name,
         architecture, &has_pointer_location, &pointer_is_location_list,
         &pointer_frame_offset));
     assert(find_variable_location(
-        info, strings, locations, "debug_inline_indirect_pointer_value",
+        info, strings, locations, value_name,
         architecture, &has_value_location, &value_is_location_list,
         &value_frame_offset));
     assert(has_pointer_location && has_value_location &&
@@ -16282,8 +16353,7 @@ static void verify_inline_indirect_pointer_parameter(
              relocation = relocation->next) {
             if (relocation->offset == die + 1u + 4u &&
                 relocation->symbol_name &&
-                strcmp(relocation->symbol_name,
-                       "debug_inline_indirect_pointer_entry") == 0) {
+                strcmp(relocation->symbol_name, entry_name) == 0) {
                 matches_call = true;
                 break;
             }
@@ -16307,10 +16377,12 @@ static void verify_inline_indirect_pointer_parameter(
         uint64_t cursor = parameter_die + 5u;
         uint64_t expression_size;
         uint64_t expression_end;
+        uint64_t expression_start;
         assert(parameter_die + 5u < info->size &&
                info->data[parameter_die] == 67u &&
                read_u32(info->data, parameter_die + 1u) == origin_die + 27u);
         expression_size = read_uleb(info->data, info->size, &cursor);
+        expression_start = cursor;
         expression_end = cursor + expression_size;
         assert(expression_end <= info->size && cursor < expression_end &&
                info->data[cursor++] ==
@@ -16335,9 +16407,10 @@ static void verify_inline_indirect_pointer_parameter(
             for (size_t index = 0u;
                  index < sizeof(samples) / sizeof(samples[0]); ++index) {
                 int32_t pointee = samples[index];
-                uint32_t loaded = (uint32_t)pointee;
-                uint64_t result = architecture == ARCH_X64
-                    ? (uint64_t)(int64_t)(int32_t)loaded : loaded;
+                uint64_t result = evaluate_inline_indirect_integer_parameter(
+                    info->data, expression_end, expression_start,
+                    architecture, pointer_frame_offset, value_frame_offset,
+                    pointee);
                 if (architecture == ARCH_X64) {
                     assert((int64_t)result == (int64_t)pointee);
                 } else {
@@ -16883,7 +16956,10 @@ static void verify_inline_integer_expression_cases(
                 (cases[index].value_size == address_size ||
                  cases[index].divisor_source_name != NULL));
     }
-    verify_inline_indirect_pointer_parameter(path, architecture);
+    verify_inline_indirect_pointer_parameter(
+        path, architecture, "debug_inline_indirect_pointer_entry",
+        "debug_inline_indirect_pointer_slot",
+        "debug_inline_indirect_pointer_value");
     if (architecture == ARCH_X86) {
         verify_inline_integer_expression_parameter(
             path, architecture, "debug_nonconstant_integer_parameter_inline",
@@ -17216,6 +17292,15 @@ int main(int argc, char** argv)
         verify_inline_integer_expression_cases(argv[3], ARCH_X64);
         verify_inline_integer_expression_cases(argv[4], ARCH_X86);
         verify_inline_integer_expression_cases(argv[5], ARCH_X64);
+        for (size_t path_index = 0u;
+             path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
+             ++path_index) {
+            verify_inline_indirect_pointer_parameter(
+                wide_paths[path_index], wide_architectures[path_index],
+                "debug_inline_indirect_pointer_cpp_entry",
+                "debug_inline_indirect_pointer_cpp_slot",
+                "debug_inline_indirect_pointer_cpp_value");
+        }
         verify_inline_reference_parameter_address(
             argv[6], ARCH_X86,
             "debug_inline_volatile_reference_global_entry",
