@@ -8922,6 +8922,11 @@ remains a separate open item.
       branch. Verify that the early-return branch preserves its mutation and
       that the fallthrough branch still executes, with GCC C++20 and the
       focused i686/AMD64 generation and execution target.
+- [x] Preserve a by-value pointer constructor argument's alias to a local
+      aggregate inside a constexpr function. Mutate a member through that
+      pointer in the constructor body, then verify the caller's aggregate and
+      the retained pointer see the updated value with GCC C++20 and the focused
+      i686/AMD64 generation/execution target.
 - [ ] Broader constructor-body expressions/side effects, mutable-reference
       aliasing, aggregate and other pointer-reference parameters, indeterminate
       scalar default-initialization diagnostics, and complete virtual-base

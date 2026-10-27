@@ -72,6 +72,15 @@ struct ConstructorPointerDereference : ConstructorDefaultBase {
         : value(*initial) {}
 };
 
+struct ConstructorAggregatePointerBody : ConstructorDefaultBase {
+    Pair* alias;
+
+    constexpr explicit ConstructorAggregatePointerBody(Pair* initial)
+        : alias(initial) {
+        initial->first += 3;
+    }
+};
+
 struct FloatPair {
     float first;
     double second;
@@ -159,6 +168,15 @@ constexpr int mutate_array() {
 constexpr int mutated_pair_value = mutate_pair();
 constexpr int mutated_array_value = mutate_array();
 
+constexpr int mutate_aggregate_through_constructor() {
+    Pair source{10, 20};
+    ConstructorAggregatePointerBody pointer_mutation{&source};
+    return source.first * 100 + source.second + pointer_mutation.alias->first;
+}
+
+constexpr int aggregate_pointer_constructor_result =
+    mutate_aggregate_through_constructor();
+
 static_assert(pair.first == 3);
 static_assert(nested.pair.second + nested.tail == 13);
 static_assert(returned_pair.first == 11 && returned_pair.second == 13);
@@ -183,6 +201,7 @@ static_assert(constructor_pointer_reference_lvalue.seed == 19 &&
 static_assert(constructor_pointer_dereference_lvalue.seed == 19 &&
               constructor_pointer_dereference_lvalue.value == 43 &&
               constructor_pointer_dereference_temporary.value == 43);
+static_assert(aggregate_pointer_constructor_result == 1333);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
@@ -212,6 +231,7 @@ int main(void) {
                    constructor_pointer_dereference_lvalue.seed == 19 &&
                    constructor_pointer_dereference_lvalue.value == 43 &&
                    constructor_pointer_dereference_temporary.value == 43 &&
+                   aggregate_pointer_constructor_result == 1333 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
                    consteval_float_value == 6.25 &&
