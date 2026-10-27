@@ -161,6 +161,15 @@ struct UninitializedConstructorLocalIncrement {
     }
 };
 
+struct UninitializedFloatingConstructorLocal {
+    double value;
+
+    constexpr explicit UninitializedFloatingConstructorLocal() {
+        double uninitialized;
+        this->value = uninitialized;
+    }
+};
+
 struct UninitializedBodyReadBeforeWrite {
     int source;
     int target;
@@ -235,6 +244,8 @@ constexpr UninitializedConstructorLocalModify
     invalid_uninitialized_constructor_local_modify{9};
 constexpr UninitializedConstructorLocalIncrement
     invalid_uninitialized_constructor_local_increment{};
+constexpr UninitializedFloatingConstructorLocal
+    invalid_uninitialized_floating_constructor_local{};
 constexpr UninitializedBodyReadBeforeWrite
     invalid_uninitialized_body_read_before_write{19};
 constexpr UninitializedForLoopBodyMember

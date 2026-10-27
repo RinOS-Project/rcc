@@ -368,11 +368,16 @@ struct ConstructorBodyConstexprCall {
 
 struct ConstructorBodyFloatingLocal {
     double value;
+    double assigned_after_default_initialization;
 
     constexpr explicit ConstructorBodyFloatingLocal(int initial) {
         double computed = initial * 1.5;
         computed += 0.5;
         this->value = computed;
+
+        double assigned_later;
+        assigned_later = initial / 2.0 + 0.25;
+        this->assigned_after_default_initialization = assigned_later;
     }
 };
 
@@ -1278,6 +1283,8 @@ int main(void) {
                      constructor_body_constexpr_call.value == 27 &&
                      constructor_body_constexpr_call.local_value == 28 &&
                      constructor_body_floating_local.value == 6.5 &&
+                     constructor_body_floating_local
+                             .assigned_after_default_initialization == 2.25 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -1324,6 +1331,8 @@ int main(void) {
                      runtime_body_constexpr_call.value == 33 &&
                      runtime_body_constexpr_call.local_value == 34 &&
                      runtime_body_floating_local.value == 8.0 &&
+                     runtime_body_floating_local
+                             .assigned_after_default_initialization == 2.75 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&

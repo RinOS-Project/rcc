@@ -10472,7 +10472,8 @@ static bool sema_eval_constexpr_scalar_statement(
                 return false;
             }
             if (!declaration->var_init) {
-                if (!sema_constexpr_integer_type(declaration->type)) {
+                if (!sema_constexpr_scalar_type(declaration->type) ||
+                    declaration->type->kind == TYPE_PTR) {
                     return false;
                 }
                 memset(&bindings[*binding_count], 0,
