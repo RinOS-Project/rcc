@@ -648,6 +648,10 @@
   - [x] Reject non-template `int&` returns from prvalues and `int&&` returns
         from lvalues as hard C++ semantic errors; verify both cases, invalid
         reference initializers, and invalid ordinary calls for i686/AMD64.
+  - [x] Exercise direct non-template `T&` and `T&&` function returns in the
+        verified SSA backend. GCC C++20 syntax checking, fallback-free i686 and
+        AMD64 `-O2` object generation, and execution of both objects verify
+        returned-address identity through mutation.
   - [x] Apply fixed derived-to-base adjustment to direct non-template
         lvalue-reference returns, including `const` references, after lvalue
         address generation in both backends. A multiple-inheritance fixture
