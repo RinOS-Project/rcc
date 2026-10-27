@@ -8720,14 +8720,15 @@ remains a separate open item.
 
 - [x] Allow the bounded dependent constexpr member-call evaluator to rank and
       evaluate by-value non-member pointer and `nullptr` arguments. Regressions
-      cover typed null, direct `nullptr`, and a non-null file-scope address in
-      a dependent non-type template argument. Correctly test pointer truth in
-      constexpr conditional, `&&`, and `||` expressions. GCC C++20 and the
-      i686/AMD64 `test-cxx-function-template-overloads` generation/execution
-      gate pass.
+      cover typed null, direct `nullptr`, and non-null addresses of a global
+      object and a global array element in dependent non-type template
+      arguments. Also test a constexpr pointer dereference of that array
+      element and pointer truth in conditional, `&&`, and `||` expressions.
+      GCC C++20 and the i686/AMD64 `test-cxx-function-template-overloads`
+      generation/execution gate pass.
 - [ ] Pointer references, member pointers, broader pointer conversions, and
-      non-null pointer expressions beyond a direct file-scope address remain
-      open.
+      dependent calls that dereference pointer arguments or use pointer
+      arithmetic remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
