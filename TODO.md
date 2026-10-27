@@ -1658,7 +1658,7 @@
    - [x] typed SSAのunsigned `/`／`%`を、非ゼロ定数2冪についてlogical shift／maskへ
          削減。8/16/32/64-bit全幅で上位bit divisor、8-bit全入力、広幅の境界値と
          4,096 deterministic inputsを検証し、0と非2冪divisorは元の演算に保持。
-         `test-ir`でi686/AMD64 host runnerの両方をgate
+         `rcc_ir_optimize_function(O1)`経由で`test-ir`のi686/AMD64 host runnerをgate
 - [x] mem2reg、DCE、CSE/GVN
   - [x] 定数`if`分岐選択とゼロ回`while/for`のAST dead-code除去
     （`goto`および`case/default`からのentryを保持）

@@ -932,12 +932,14 @@ static void verify_signed_power_of_two_reduction_case(
     RccIrValue operands[] = {function->parameters[0], divisor_value};
     RccIrInstruction* arithmetic = rcc_ir_append(
         entry, operation, type, operands, 2u, NULL, 0u);
-    RccIrSimplifyStats stats;
+    RccIrOptimizationStats stats;
     char error[256];
     assert(arithmetic != NULL);
     append_return(entry, arithmetic->result);
-    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
-    assert(error[0] == '\0' && stats.folded_instructions >= 1u);
+    assert(rcc_ir_optimize_function(
+        function, 1u, &stats, error, sizeof(error)));
+    assert(error[0] == '\0' &&
+           stats.simplify.folded_instructions >= 1u);
     assert(count_opcode(function, RCC_IR_SDIV) == 0u);
     assert(count_opcode(function, RCC_IR_SREM) == 0u);
     assert(rcc_ir_verify_function(function, error, sizeof(error)));
@@ -1051,12 +1053,14 @@ static void verify_unsigned_power_of_two_reduction_case(
     RccIrValue operands[] = {function->parameters[0], divisor_value};
     RccIrInstruction* arithmetic = rcc_ir_append(
         entry, operation, type, operands, 2u, NULL, 0u);
-    RccIrSimplifyStats stats;
+    RccIrOptimizationStats stats;
     char error[256];
     assert(arithmetic != NULL);
     append_return(entry, arithmetic->result);
-    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
-    assert(error[0] == '\0' && stats.folded_instructions >= 1u);
+    assert(rcc_ir_optimize_function(
+        function, 1u, &stats, error, sizeof(error)));
+    assert(error[0] == '\0' &&
+           stats.simplify.folded_instructions >= 1u);
     assert(count_opcode(function, RCC_IR_UDIV) == 0u);
     assert(count_opcode(function, RCC_IR_UREM) == 0u);
     assert(rcc_ir_verify_function(function, error, sizeof(error)));
