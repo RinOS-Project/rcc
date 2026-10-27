@@ -12083,6 +12083,13 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
     bool is_subtract;
     size_t size = 0u;
     const uint64_t sign_bit = UINT64_C(0x80000000);
+    DebugInlineI686ExpressionRelocations tls_relocations;
+
+    if (relocations) {
+        tls_relocations = *relocations;
+        tls_relocations.allow_tls = true;
+        relocations = &tls_relocations;
+    }
 
     if (!mod || !callee || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !expression ||
@@ -12117,8 +12124,7 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
     if (!left_source || !right_source || left_source->kind != DECL_VAR ||
         right_source->kind != DECL_VAR || !left_source->var_is_global ||
         !right_source->var_is_global || left_source->var_is_static_local ||
-        right_source->var_is_static_local || left_source->var_is_thread_local ||
-        right_source->var_is_thread_local || left_source->var_is_vla ||
+        right_source->var_is_static_local || left_source->var_is_vla ||
         right_source->var_is_vla || !left_source->type || !right_source->type ||
         left_source->type->size != 8u || right_source->type->size != 8u ||
         left_source->type->is_volatile || right_source->type->is_volatile ||
@@ -14708,12 +14714,16 @@ static void debug_emit_inline_parameter_instances(
             for (size_t relocation_index = 0u;
                  relocation_index < integer_value_relocation_count;
                  ++relocation_index) {
+                const ModuleSymbol* relocation_symbol =
+                    integer_value_relocation_symbols[relocation_index];
                 objfile_add_reloc(
                     obj, info_section,
                     expression_offset +
                         integer_value_relocation_offsets[relocation_index],
-                    integer_value_relocation_symbols[relocation_index]->name,
-                    RELOC_ABS32U, 0);
+                    relocation_symbol->name,
+                    relocation_symbol->section == MODULE_SYMBOL_TLS
+                        ? RELOC_TLSOFF32S : RELOC_ABS32U,
+                    0);
             }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&
