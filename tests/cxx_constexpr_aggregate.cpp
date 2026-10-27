@@ -119,6 +119,16 @@ struct ConstructorBodyReadsDefaultMember {
     }
 };
 
+struct ConstructorBodyPostIncrement {
+    int source;
+    int result;
+
+    constexpr explicit ConstructorBodyPostIncrement(int initial)
+        : source(initial) {
+        this->result = this->source++;
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -409,6 +419,7 @@ constexpr ConstructorBodySelectedBranchInitializes
     constructor_body_selected_branch_initializes{97};
 constexpr ConstructorBodyReadsDefaultMember
     constructor_body_reads_default_member{};
+constexpr ConstructorBodyPostIncrement constructor_body_post_increment{107};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -792,6 +803,7 @@ int main(void) {
     ConstructorBodySelectedBranchInitializes
         runtime_body_selected_branch_initializes{101};
     ConstructorBodyReadsDefaultMember runtime_body_reads_default_member{};
+    ConstructorBodyPostIncrement runtime_body_post_increment{109};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -922,6 +934,8 @@ int main(void) {
                      constructor_body_reads_default_member.initialized == 61 &&
                      constructor_body_reads_default_member.written_by_body ==
                          62 &&
+                     constructor_body_post_increment.source == 108 &&
+                     constructor_body_post_increment.result == 107 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -934,6 +948,8 @@ int main(void) {
                      runtime_body_reads_default_member.initialized == 61 &&
                      runtime_body_reads_default_member.written_by_body ==
                          62 &&
+                     runtime_body_post_increment.source == 110 &&
+                     runtime_body_post_increment.result == 109 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&

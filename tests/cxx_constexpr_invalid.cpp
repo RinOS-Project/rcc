@@ -100,7 +100,7 @@ struct UninitializedBodyMemberRead {
 
     constexpr explicit UninitializedBodyMemberRead(int value)
         : written_in_body(value) {
-        this->written_in_body = this->omitted + value;
+        this->written_in_body = this->omitted++ + value;
     }
 };
 

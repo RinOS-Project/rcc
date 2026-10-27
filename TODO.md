@@ -9022,6 +9022,10 @@ remains a separate open item.
       selected branch initializes an omitted scalar and the discarded branch
       is not required, with GCC C++17/C++20 and i686/AMD64 constexpr/runtime
       coverage.
+- [x] Permit pre/post increment and decrement of already initialized scalar
+      members inside the supported constructor-body assignment RHS, while
+      keeping uninitialized reads invalid. Verify constexpr/runtime values,
+      GCC C++20, both target architectures, and the full POSIX `test-cxx` suite.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

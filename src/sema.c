@@ -8628,6 +8628,10 @@ static bool sema_constexpr_constructor_rhs_is_safe(
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
             return sema_constexpr_constructor_rhs_is_safe(
                 expression->unary_operand, cls, initialized_members,
                 depth + 1u);
