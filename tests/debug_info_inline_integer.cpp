@@ -155,6 +155,12 @@ debug_inline_nonconstant_unsigned_long_long_tls_compare_lhs =
 thread_local unsigned long long
 debug_inline_nonconstant_unsigned_long_long_tls_compare_rhs =
     0xfedcba9876543217ULL;
+thread_local long long
+debug_inline_nonconstant_signed_long_long_tls_compare_lhs =
+    0x7ffffffffffffff0LL;
+thread_local long long
+debug_inline_nonconstant_signed_long_long_tls_compare_rhs =
+    (-0x0123456789abcde9LL);
 long long debug_inline_nonconstant_signed_long_long_global_bitwise_lhs =
     -0x0123456789abcdefLL;
 long long debug_inline_nonconstant_signed_long_long_global_bitwise_rhs =
@@ -1137,6 +1143,60 @@ debug_inline_nonconstant_unsigned_long_long_tls_pair_ne_entry(void)
         static_cast<unsigned long long>(
             debug_inline_nonconstant_unsigned_long_long_tls_compare_lhs !=
             debug_inline_nonconstant_unsigned_long_long_tls_compare_rhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_pair_lt_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            debug_inline_nonconstant_signed_long_long_tls_compare_lhs <
+            debug_inline_nonconstant_signed_long_long_tls_compare_rhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_pair_le_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            debug_inline_nonconstant_signed_long_long_tls_compare_lhs <=
+            debug_inline_nonconstant_signed_long_long_tls_compare_rhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_pair_gt_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            debug_inline_nonconstant_signed_long_long_tls_compare_rhs >
+            debug_inline_nonconstant_signed_long_long_tls_compare_lhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_pair_ge_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            debug_inline_nonconstant_signed_long_long_tls_compare_rhs >=
+            debug_inline_nonconstant_signed_long_long_tls_compare_lhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_pair_eq_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            debug_inline_nonconstant_signed_long_long_tls_compare_lhs ==
+            debug_inline_nonconstant_signed_long_long_tls_compare_rhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_pair_ne_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            debug_inline_nonconstant_signed_long_long_tls_compare_lhs !=
+            debug_inline_nonconstant_signed_long_long_tls_compare_rhs));
 }
 
 extern "C" long long

@@ -11063,5 +11063,16 @@ remains a separate open item.
       high-bit unsigned ordering, equality boundaries, and expression results
       in normal and verified C++20 objects. The focused
       `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
-- [ ] Signed comparisons, function-local static operands, volatile/reference/
-      atomic operands, and broader optimized multi-piece locations remain open.
+- [ ] Function-local static operands, volatile/reference/atomic operands,
+      and broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, signed i686 TLS comparison DWARF)
+
+- [x] Extend signed i686 64-bit global-pair `==`, `!=`, `<`, `<=`, `>`, and
+      `>=` inline-parameter expressions to TLS operands. Compare the upper
+      32-bit word as signed and the lower word as unsigned, and verify
+      `TLSOFF32S` relocation identities, equality and signed-boundary pairs,
+      and expression results in normal and verified C++20 objects. The focused
+      `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
+- [ ] Function-local static operands, volatile/reference/atomic operands, and
+      broader optimized multi-piece locations remain open.

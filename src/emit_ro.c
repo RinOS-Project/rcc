@@ -11910,12 +11910,13 @@ static bool debug_inline_parameter_i686_u64_global_pair_mul_expression(
 
 static bool debug_inline_parameter_i686_global_u32_compare(
     const Module* mod, const Decl* left, const Decl* right, bool high_word,
-    bool equality, uint8_t* expression, size_t capacity, size_t* size,
+    bool signed_comparison, bool equality, uint8_t* expression,
+    size_t capacity, size_t* size,
     DebugInlineI686ExpressionRelocations* relocations) {
     if (!debug_inline_parameter_i686_append_storage_u32(
             mod, left, 0, high_word, expression, capacity, size,
             relocations) ||
-        (!equality &&
+        (!equality && (!signed_comparison || !high_word) &&
          (!debug_inline_integer_expression_append_constu(
               expression, capacity, size, UINT32_C(0x80000000)) ||
           !debug_inline_integer_expression_append_byte(
@@ -11923,7 +11924,7 @@ static bool debug_inline_parameter_i686_global_u32_compare(
         !debug_inline_parameter_i686_append_storage_u32(
             mod, right, 0, high_word, expression, capacity, size,
             relocations) ||
-        (!equality &&
+        (!equality && (!signed_comparison || !high_word) &&
          (!debug_inline_integer_expression_append_constu(
               expression, capacity, size, UINT32_C(0x80000000)) ||
           !debug_inline_integer_expression_append_byte(
@@ -11972,7 +11973,8 @@ static bool debug_inline_parameter_i686_u64_global_pair_comparison_expression(
     parameter_type = value->declaration->type;
     source_expression = argument->expr;
     if (!parameter_type || parameter_type->size != 8u ||
-        !parameter_type->is_unsigned || !source_expression->type ||
+        !debug_inline_integer_expression_type(parameter_type) ||
+        !source_expression->type ||
         source_expression->kind != EXPR_CAST || !source_expression->cast_expr ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, source_expression->type, 0u)) {
@@ -12009,7 +12011,6 @@ static bool debug_inline_parameter_i686_u64_global_pair_comparison_expression(
         right_source->var_is_static_local || left_source->var_is_vla ||
         right_source->var_is_vla || !left_source->type || !right_source->type ||
         left_source->type->size != 8u || right_source->type->size != 8u ||
-        !left_source->type->is_unsigned || !right_source->type->is_unsigned ||
         left_source->type->is_volatile || right_source->type->is_volatile ||
         left_source->type->is_reference || right_source->type->is_reference ||
         left_source->type->is_atomic || right_source->type->is_atomic ||
@@ -12023,10 +12024,12 @@ static bool debug_inline_parameter_i686_u64_global_pair_comparison_expression(
     *relocations->count = 0u;
     if (kind == EXPR_EQ || kind == EXPR_NE) {
         if (!debug_inline_parameter_i686_global_u32_compare(
-                mod, left_source, right_source, true, true, expression,
+                mod, left_source, right_source, true,
+                !parameter_type->is_unsigned, true, expression,
                 expression_capacity, &size, relocations) ||
             !debug_inline_parameter_i686_global_u32_compare(
-                mod, left_source, right_source, false, true, expression,
+                mod, left_source, right_source, false,
+                !parameter_type->is_unsigned, true, expression,
                 expression_capacity, &size, relocations) ||
             !debug_inline_integer_expression_append_byte(
                 expression, expression_capacity, &size, 0x1au) ||
@@ -12043,14 +12046,17 @@ static bool debug_inline_parameter_i686_u64_global_pair_comparison_expression(
         negate = kind == EXPR_LE || kind == EXPR_GE;
         if (!debug_inline_parameter_i686_global_u32_compare(
                 mod, reverse ? right_source : left_source,
-                reverse ? left_source : right_source, true, false,
+                reverse ? left_source : right_source, true,
+                !parameter_type->is_unsigned, false,
                 expression, expression_capacity, &size, relocations) ||
             !debug_inline_parameter_i686_global_u32_compare(
-                mod, left_source, right_source, true, true, expression,
+                mod, left_source, right_source, true,
+                !parameter_type->is_unsigned, true, expression,
                 expression_capacity, &size, relocations) ||
             !debug_inline_parameter_i686_global_u32_compare(
                 mod, reverse ? right_source : left_source,
-                reverse ? left_source : right_source, false, false,
+                reverse ? left_source : right_source, false,
+                !parameter_type->is_unsigned, false,
                 expression, expression_capacity, &size, relocations) ||
             !debug_inline_integer_expression_append_byte(
                 expression, expression_capacity, &size, 0x1au) ||
