@@ -9066,6 +9066,11 @@ remains a separate open item.
       including loop-local initialization, body updates, the increment
       expression, zero iterations, and post-loop member initialization. Verify
       GCC C++20, constexpr/runtime, i686/AMD64, and full POSIX `test-cxx`.
+- [x] Analyze compile-time-bounded `while` and `do-while` loops in constexpr
+      constructor bodies, preserving their distinct zero-iteration/at-least-
+      once behavior and carrying loop-local values into post-loop member
+      initialization. Verify GCC C++20, constexpr/runtime, i686/AMD64, and full
+      POSIX `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

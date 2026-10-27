@@ -9082,6 +9082,65 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             *binding_count = saved_binding_count;
             return iteration < 1000000u;
         }
+        case STMT_WHILE:
+        case STMT_DO: {
+            int saved_binding_count = *binding_count;
+            bool is_do = statement->kind == STMT_DO;
+            bool condition_prechecked = is_do;
+            unsigned iteration;
+            if (!statement->while_cond) return false;
+            for (iteration = 0u; iteration < 1000000u; ++iteration) {
+                SemaConstexprScalar condition_value;
+                if (!is_do || !condition_prechecked) {
+                    if (!sema_constexpr_constructor_condition_is_pure(
+                            statement->while_cond, depth + 1u) ||
+                        !sema_constexpr_constructor_rhs_is_safe(
+                            statement->while_cond, cls,
+                            *initialized_members, bindings, *binding_count,
+                            depth + 1u) ||
+                        !sema_eval_constexpr_scalar_expr(
+                            statement->while_cond, bindings, *binding_count,
+                            &condition_value)) {
+                        *binding_count = saved_binding_count;
+                        return false;
+                    }
+                    if (!sema_constexpr_scalar_truth(&condition_value)) break;
+                }
+                condition_prechecked = false;
+                if (statement->while_body) {
+                    int body_binding_count = *binding_count;
+                    bool body_supported =
+                        sema_constexpr_constructor_analyze_body_statement(
+                            statement->while_body, cls, initialized_members,
+                            bindings, binding_count, initial_binding_count,
+                            allow_local_writes, allow_unknown_branch_join,
+                            depth + 1u);
+                    *binding_count = body_binding_count;
+                    if (!body_supported) {
+                        *binding_count = saved_binding_count;
+                        return false;
+                    }
+                }
+                if (is_do) {
+                    if (!sema_constexpr_constructor_condition_is_pure(
+                            statement->while_cond, depth + 1u) ||
+                        !sema_constexpr_constructor_rhs_is_safe(
+                            statement->while_cond, cls,
+                            *initialized_members, bindings, *binding_count,
+                            depth + 1u) ||
+                        !sema_eval_constexpr_scalar_expr(
+                            statement->while_cond, bindings, *binding_count,
+                            &condition_value)) {
+                        *binding_count = saved_binding_count;
+                        return false;
+                    }
+                    if (!sema_constexpr_scalar_truth(&condition_value)) break;
+                    condition_prechecked = true;
+                }
+            }
+            *binding_count = saved_binding_count;
+            return iteration < 1000000u;
+        }
         default:
             return false;
     }
