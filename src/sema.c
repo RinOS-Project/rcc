@@ -5783,7 +5783,8 @@ typedef struct SemaConstexprScalar {
 
 static bool sema_eval_constexpr_scalar_statement(
     Stmt* statement, SemaConstexprBinding* bindings, int* binding_count,
-    SemaConstexprScalar* value, SemaConstexprStatementResult* result);
+    SemaConstexprScalar* value, SemaConstexprStatementResult* result,
+    bool allow_empty_return);
 
 static void sema_constexpr_capture_pointer_target_object(
     SemaConstexprBinding* pointer_binding,
@@ -6802,8 +6803,9 @@ static bool sema_constexpr_materialize_cxx_constructor(
         body_binding_count = binding_count;
         if (!sema_eval_constexpr_scalar_statement(
                 declaration->func_body, bindings, &body_binding_count,
-                &body_value, &body_result) ||
-            body_result != SEMA_CONSTEXPR_STMT_FALLTHROUGH) {
+                &body_value, &body_result, true) ||
+            (body_result != SEMA_CONSTEXPR_STMT_FALLTHROUGH &&
+             body_result != SEMA_CONSTEXPR_STMT_RETURNED)) {
             return false;
         }
     }
@@ -8248,7 +8250,8 @@ static bool sema_constexpr_scalar_assign(
 
 static bool sema_eval_constexpr_scalar_statement(
     Stmt* statement, SemaConstexprBinding* bindings, int* binding_count,
-    SemaConstexprScalar* value, SemaConstexprStatementResult* result);
+    SemaConstexprScalar* value, SemaConstexprStatementResult* result,
+    bool allow_empty_return);
 
 static bool sema_constexpr_scalar_truth(const SemaConstexprScalar* value) {
     if (!value) return false;
@@ -8744,7 +8747,8 @@ static bool sema_fold_constexpr_aggregate_call(Expr* expression,
 
 static bool sema_eval_constexpr_scalar_statement(
     Stmt* statement, SemaConstexprBinding* bindings, int* binding_count,
-    SemaConstexprScalar* value, SemaConstexprStatementResult* result) {
+    SemaConstexprScalar* value, SemaConstexprStatementResult* result,
+    bool allow_empty_return) {
     int saved_binding_count;
 
     if (!statement || !bindings || !binding_count || !value || !result) {
@@ -8766,9 +8770,12 @@ static bool sema_eval_constexpr_scalar_statement(
             return sema_eval_constexpr_scalar_expr(
                 statement->expr, bindings, *binding_count, value);
         case STMT_RETURN:
-            if (!statement->return_val ||
-                !sema_eval_constexpr_scalar_expr(
-                    statement->return_val, bindings, *binding_count, value)) {
+            if (!statement->return_val) {
+                if (!allow_empty_return) return false;
+                memset(value, 0, sizeof(*value));
+            } else if (!sema_eval_constexpr_scalar_expr(
+                           statement->return_val, bindings, *binding_count,
+                           value)) {
                 return false;
             }
             *result = SEMA_CONSTEXPR_STMT_RETURNED;
@@ -8851,7 +8858,7 @@ static bool sema_eval_constexpr_scalar_statement(
                 SemaConstexprStatementResult nested_result;
                 if (!sema_eval_constexpr_scalar_statement(
                         item->stmt, bindings, binding_count, value,
-                        &nested_result)) {
+                        &nested_result, allow_empty_return)) {
                     *binding_count = saved_binding_count;
                     return false;
                 }
@@ -8876,7 +8883,8 @@ static bool sema_eval_constexpr_scalar_statement(
                 ? statement->if_then : statement->if_else;
             if (!selected) return true;
             return sema_eval_constexpr_scalar_statement(
-                selected, bindings, binding_count, value, result);
+                selected, bindings, binding_count, value, result,
+                allow_empty_return);
         }
         case STMT_BREAK:
             *result = SEMA_CONSTEXPR_STMT_BREAK;
@@ -8892,7 +8900,7 @@ static bool sema_eval_constexpr_scalar_statement(
                 SemaConstexprStatementResult init_result;
                 if (!sema_eval_constexpr_scalar_statement(
                         statement->for_init, bindings, binding_count, value,
-                        &init_result) ||
+                        &init_result, allow_empty_return) ||
                     init_result != SEMA_CONSTEXPR_STMT_FALLTHROUGH) {
                     *binding_count = saved_count;
                     return false;
@@ -8913,7 +8921,7 @@ static bool sema_eval_constexpr_scalar_statement(
                 if (statement->for_body &&
                     !sema_eval_constexpr_scalar_statement(
                         statement->for_body, bindings, binding_count, value,
-                        &body_result)) {
+                        &body_result, allow_empty_return)) {
                     *binding_count = saved_count;
                     return false;
                 }
@@ -8955,7 +8963,7 @@ static bool sema_eval_constexpr_scalar_statement(
                 if (statement->while_body &&
                     !sema_eval_constexpr_scalar_statement(
                         statement->while_body, bindings, binding_count, value,
-                        &body_result)) return false;
+                        &body_result, allow_empty_return)) return false;
                 if (body_result == SEMA_CONSTEXPR_STMT_RETURNED) {
                     *result = body_result;
                     return true;
@@ -9437,7 +9445,7 @@ static bool sema_eval_constexpr_scalar_function(
     ++constexpr_eval_depth;
     if (!sema_eval_constexpr_scalar_statement(
             declaration->func_body, bindings, &count, &result,
-            &statement_result)) {
+            &statement_result, false)) {
         --constexpr_eval_depth;
         constexpr_dynamic_live_count = saved_dynamic_live_count;
         return false;

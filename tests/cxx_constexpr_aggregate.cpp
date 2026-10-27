@@ -23,9 +23,9 @@ struct ConstructorBodyDerived : ConstructorBodyBase {
         : ConstructorBodyBase(seed), value(initial) {
         if (increment >= 0) {
             this->value += increment;
-        } else {
-            this->value -= -increment;
+            return;
         }
+        this->value -= -increment;
     }
 };
 

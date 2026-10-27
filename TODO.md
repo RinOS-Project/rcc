@@ -8918,6 +8918,10 @@ remains a separate open item.
       `this->value` in each branch. Verify positive and negative inputs against
       GCC C++20 and focused i686/AMD64 generation and execution; broader body
       expressions and side effects remain open.
+- [x] Honor an empty `return;` from a selected constexpr-constructor-body
+      branch. Verify that the early-return branch preserves its mutation and
+      that the fallthrough branch still executes, with GCC C++20 and the
+      focused i686/AMD64 generation and execution target.
 - [ ] Broader constructor-body expressions/side effects, mutable-reference
       aliasing, aggregate and other pointer-reference parameters, indeterminate
       scalar default-initialization diagnostics, and complete virtual-base
