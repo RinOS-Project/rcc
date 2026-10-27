@@ -812,6 +812,24 @@ debug_inline_nonconstant_unsigned_long_long_global_pair_sub_entry(void)
         debug_inline_nonconstant_unsigned_long_long_global_mod_source);
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_static_pair_divide_entry(void)
+{
+    static unsigned long long dividend = 0xfedcba9876543217ULL;
+    static unsigned long long divisor = 0x8000000000000001ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend / divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_static_pair_remainder_entry(void)
+{
+    static unsigned long long dividend = 0xfedcba9876543217ULL;
+    static unsigned long long divisor = 0x8000000000000001ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend % divisor);
+}
+
 extern "C" long long
 debug_inline_nonconstant_signed_long_long_global_pair_add_entry(void)
 {

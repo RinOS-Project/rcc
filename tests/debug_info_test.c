@@ -9226,11 +9226,12 @@ static void verify_inline_i686_s64_global_constant_division_expression(
     }
 }
 
-static void verify_inline_i686_static_local_signed_division(
-    const char* path, const char* call_site_name, bool variable_divisor,
-    bool remainder) {
-    const char* inline_name =
-        "debug_nonconstant_signed_long_long_parameter_inline";
+static void verify_inline_i686_static_local_division(
+    const char* path, const char* call_site_name, bool is_signed,
+    bool variable_divisor, bool remainder) {
+    const char* inline_name = is_signed
+        ? "debug_nonconstant_signed_long_long_parameter_inline"
+        : "debug_nonconstant_unsigned_long_long_parameter_inline";
     const char* source_name = NULL;
     const char* divisor_name = NULL;
     ObjectFile* object = objfile_read(path);
@@ -9340,9 +9341,10 @@ static void verify_inline_i686_static_local_signed_division(
         verify_inline_i686_u64_global_variable_division_expression(
             object, info->data, expression_offset + expression_size,
             expression_offset, info, strings, NULL,
-            source_name, divisor_name, true, true, remainder, true,
+            source_name, divisor_name, true, true, remainder, is_signed,
             false, false, false);
     } else {
+        assert(is_signed);
         verify_inline_i686_s64_global_constant_division_expression(
             object, info->data, expression_offset + expression_size,
             expression_offset, info, source_name,
@@ -16060,38 +16062,54 @@ int main(int argc, char** argv)
         verify_inline_i686_global_shift_parameter(argv[8], 0x80u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x81u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x81u);
-        verify_inline_i686_static_local_signed_division(
+        verify_inline_i686_static_local_division(
             argv[6],
             "debug_inline_nonconstant_signed_long_long_static_pair_divide_entry",
-            true, false);
-        verify_inline_i686_static_local_signed_division(
+            true, true, false);
+        verify_inline_i686_static_local_division(
             argv[8],
             "debug_inline_nonconstant_signed_long_long_static_pair_divide_entry",
-            true, false);
-        verify_inline_i686_static_local_signed_division(
+            true, true, false);
+        verify_inline_i686_static_local_division(
             argv[6],
             "debug_inline_nonconstant_signed_long_long_static_pair_remainder_entry",
-            true, true);
-        verify_inline_i686_static_local_signed_division(
+            true, true, true);
+        verify_inline_i686_static_local_division(
             argv[8],
             "debug_inline_nonconstant_signed_long_long_static_pair_remainder_entry",
-            true, true);
-        verify_inline_i686_static_local_signed_division(
+            true, true, true);
+        verify_inline_i686_static_local_division(
             argv[6],
             "debug_inline_nonconstant_signed_long_long_static_constant_divide_entry",
-            false, false);
-        verify_inline_i686_static_local_signed_division(
+            true, false, false);
+        verify_inline_i686_static_local_division(
             argv[8],
             "debug_inline_nonconstant_signed_long_long_static_constant_divide_entry",
-            false, false);
-        verify_inline_i686_static_local_signed_division(
+            true, false, false);
+        verify_inline_i686_static_local_division(
             argv[6],
             "debug_inline_nonconstant_signed_long_long_static_constant_remainder_entry",
-            false, true);
-        verify_inline_i686_static_local_signed_division(
+            true, false, true);
+        verify_inline_i686_static_local_division(
             argv[8],
             "debug_inline_nonconstant_signed_long_long_static_constant_remainder_entry",
-            false, true);
+            true, false, true);
+        verify_inline_i686_static_local_division(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_static_pair_divide_entry",
+            false, true, false);
+        verify_inline_i686_static_local_division(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_static_pair_divide_entry",
+            false, true, false);
+        verify_inline_i686_static_local_division(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_static_pair_remainder_entry",
+            false, true, true);
+        verify_inline_i686_static_local_division(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_static_pair_remainder_entry",
+            false, true, true);
         verify_inline_integer_expression_parameter(
             argv[6], ARCH_X86,
             "debug_nonconstant_signed_long_long_parameter_inline",

@@ -8677,8 +8677,15 @@ remains a separate open item.
       high-bit and wraparound operand pairs against the emitted two-piece
       expression in legacy and verified-backend objects; both debug-info gates
       pass.
-- [ ] i686 unsigned 64-bit division/remainder with nonconstant operands,
-      and broader optimized multi-piece locations remain open.
+- [x] Preserve i686 unsigned 64-bit runtime division/remainder when both
+      operands are non-TLS function-local statics. Emit source-file-scoped
+      relocations for each storage symbol and verify initialized high-bit
+      operands plus the 11-by-9 division/remainder boundary matrix in normal
+      and verified C++20 objects. Focused and full native-Windows
+      `test-debug-info` gates pass.
+- [ ] TLS or volatile/reference/atomic operands, wider computed i686 64-bit
+      division/remainder expressions, and broader optimized multi-piece
+      locations remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
@@ -10515,3 +10522,15 @@ remains a separate open item.
 - [ ] TLS and volatile/reference/atomic operands, wider computed signed
       expression trees, width-changing casts, and broader optimized
       multi-piece locations remain open.
+
+## RCC continuation (2026-10-27, i686 unsigned static-local divmod DWARF)
+
+- [x] Preserve unsigned i686 64-bit runtime `/` and `%` when both operands are
+      non-TLS function-local statics. Resolve each storage symbol to a
+      source-file-scoped relocation and verify the initialized high-bit values
+      and 11-by-9 division/remainder boundary matrix in normal and
+      verified-backend C++20 objects. Focused and full native-Windows
+      `test-debug-info` gates pass.
+- [ ] TLS or volatile/reference/atomic operands, wider computed i686 64-bit
+      division/remainder expressions, and broader optimized multi-piece
+      locations remain open.
