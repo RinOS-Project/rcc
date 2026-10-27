@@ -8900,9 +8900,9 @@ remains a separate open item.
       `/1073741825` and `%2147483647` in legacy and verified DWARF. Focused
       native-Windows and Linux inline-expression tests, full native-Windows
       `test-debug-info`, and GCC ASan/UBSan full `test-debug-info` pass.
-- [ ] Variable i686 64-bit divisors, signed 64-bit division/remainder,
-      non-frame-backed operands, and broader optimized multi-piece locations
-      remain open.
+- [ ] TLS or volatile/reference/atomic operands, wider computed i686 64-bit
+      division/remainder expressions, and broader optimized multi-piece
+      locations remain open.
 
 ## RCC continuation (2026-10-23, i686 unsigned 64-bit divmod through UINT32_MAX)
 
@@ -8953,9 +8953,9 @@ remains a separate open item.
       two `ABS32U` relocations per global operand. Verify both initialized
       globals and the 11-by-9 division/remainder boundary matrix in legacy and
       verified objects.
-- [ ] TLS/static-local or volatile/reference/atomic operands, signed 64-bit
-      division/remainder, and broader optimized multi-piece locations remain
-      open.
+- [ ] TLS or volatile/reference/atomic operands, wider computed i686 64-bit
+      division/remainder expressions, and broader optimized multi-piece
+      locations remain open.
 
 ## RCC continuation (2026-10-23, Windows MinGW structural NTTP host ABI)
 
@@ -10446,8 +10446,8 @@ remains a separate open item.
       `test-debug-info-inline-expression` and full `test-debug-info` pass on
       native Windows; the static-local cases run for normal and verified i686
       objects.
-- [ ] Computed signed operand trees beyond identifier operands, one unary
-      minus, and same-type signed 64-bit casts; TLS or
+- [ ] Wider computed signed operand trees beyond identifier operands, unary
+      +/- and same-type signed 64-bit casts; TLS or
       volatile/reference/atomic operands; and broader optimized multi-piece
       locations remain open.
 
@@ -10525,12 +10525,13 @@ remains a separate open item.
 
 ## RCC continuation (2026-10-27, i686 unsigned static-local divmod DWARF)
 
-- [x] Preserve unsigned i686 64-bit runtime `/` and `%` when both operands are
-      non-TLS function-local statics. Resolve each storage symbol to a
-      source-file-scoped relocation and verify the initialized high-bit values
-      and 11-by-9 division/remainder boundary matrix in normal and
-      verified-backend C++20 objects. Focused and full native-Windows
-      `test-debug-info` gates pass.
+- [x] Preserve unsigned i686 64-bit `/` and `%` for two non-TLS function-local
+      static operands with a runtime divisor, and for a static dividend with
+      high-bit literal divisor `0x8000000000000001`. Resolve storage symbols
+      with source-file-scoped relocations and verify initialized values, the
+      11-by-9 runtime-divisor matrix, constant-divisor boundary values, and
+      exact relocation counts in normal and verified C++20 objects. Focused
+      and full native-Windows `test-debug-info` gates pass.
 - [ ] TLS or volatile/reference/atomic operands, wider computed i686 64-bit
       division/remainder expressions, and broader optimized multi-piece
       locations remain open.

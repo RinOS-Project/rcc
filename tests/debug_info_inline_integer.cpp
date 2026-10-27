@@ -830,6 +830,22 @@ debug_inline_nonconstant_unsigned_long_long_static_pair_remainder_entry(void)
         dividend % divisor);
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_static_constant_divide_entry(void)
+{
+    static unsigned long long dividend = 0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend / 0x8000000000000001ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_static_constant_remainder_entry(void)
+{
+    static unsigned long long dividend = 0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend % 0x8000000000000001ULL);
+}
+
 extern "C" long long
 debug_inline_nonconstant_signed_long_long_global_pair_add_entry(void)
 {
