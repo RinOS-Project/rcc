@@ -81,6 +81,23 @@ struct ConstructorConstPointerReference : ConstructorDefaultBase {
         : value(initial) {}
 };
 
+struct ConstructorMutableScalarReference {
+    int observed;
+
+    constexpr explicit ConstructorMutableScalarReference(int& source)
+        : observed(source) {
+        source += 7;
+    }
+};
+
+struct ConstructorForwardedMutableScalarReference {
+    ConstructorMutableScalarReference nested;
+
+    constexpr explicit ConstructorForwardedMutableScalarReference(
+        int& source)
+        : nested(source) {}
+};
+
 struct ConstructorPointerDereference : ConstructorDefaultBase {
     int value;
 
@@ -202,6 +219,33 @@ constexpr int mutate_aggregate_through_constructor() {
 constexpr int aggregate_pointer_constructor_result =
     mutate_aggregate_through_constructor();
 
+constexpr int mutate_scalar_reference_through_constructor() {
+    Pair source{9, 12};
+    ConstructorMutableScalarReference alias{source.first};
+    return source.first * 100 + alias.observed;
+}
+
+constexpr int scalar_reference_constructor_result =
+    mutate_scalar_reference_through_constructor();
+
+constexpr int mutate_local_scalar_through_constructor_reference() {
+    int source = 10;
+    ConstructorMutableScalarReference alias{source};
+    return source * 100 + alias.observed;
+}
+
+constexpr int local_scalar_reference_constructor_result =
+    mutate_local_scalar_through_constructor_reference();
+
+constexpr int mutate_scalar_through_forwarded_constructor_reference() {
+    Pair source{11, 12};
+    ConstructorForwardedMutableScalarReference alias{source.first};
+    return source.first * 100 + alias.nested.observed;
+}
+
+constexpr int forwarded_scalar_reference_constructor_result =
+    mutate_scalar_through_forwarded_constructor_reference();
+
 static_assert(pair.first == 3);
 static_assert(nested.pair.second + nested.tail == 13);
 static_assert(returned_pair.first == 11 && returned_pair.second == 13);
@@ -229,6 +273,9 @@ static_assert(constructor_pointer_dereference_lvalue.seed == 19 &&
               constructor_pointer_dereference_lvalue.value == 43 &&
               constructor_pointer_dereference_temporary.value == 43);
 static_assert(aggregate_pointer_constructor_result == 1333);
+static_assert(scalar_reference_constructor_result == 1609);
+static_assert(local_scalar_reference_constructor_result == 1710);
+static_assert(forwarded_scalar_reference_constructor_result == 1811);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
@@ -239,6 +286,14 @@ int main(void) {
     ConstructorDefaultInitializedScalars default_initialized{17};
     default_initialized.before = 3;
     default_initialized.after = 5;
+    Pair runtime_source{9, 12};
+    ConstructorMutableScalarReference runtime_alias{runtime_source.first};
+    int runtime_scalar_source = 10;
+    ConstructorMutableScalarReference runtime_scalar_alias{
+        runtime_scalar_source};
+    Pair runtime_forwarded_source{11, 12};
+    ConstructorForwardedMutableScalarReference runtime_forwarded_alias{
+        runtime_forwarded_source.first};
     return first_value == 3 && second_value == 5 &&
                    nested_value == 13 && array_value == 19 &&
                    returned_value == 24 && mutated_returned_value == 44 &&
@@ -267,6 +322,14 @@ int main(void) {
                    constructor_pointer_dereference_lvalue.value == 43 &&
                    constructor_pointer_dereference_temporary.value == 43 &&
                    aggregate_pointer_constructor_result == 1333 &&
+                   scalar_reference_constructor_result == 1609 &&
+                   local_scalar_reference_constructor_result == 1710 &&
+                   runtime_source.first == 16 &&
+                   runtime_alias.observed == 9 &&
+                   runtime_scalar_source == 17 &&
+                   runtime_scalar_alias.observed == 10 &&
+                   runtime_forwarded_source.first == 18 &&
+                   runtime_forwarded_alias.nested.observed == 11 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
                    consteval_float_value == 6.25 &&

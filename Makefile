@@ -3188,6 +3188,8 @@ test-cxx-constexpr: $(RCXX_TARGET)
 	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" $(TEST_OUT)/cxx-constexpr/invalid-x86.log
 	$(GREP) -F -q "constexpr initializer leaves a scalar member indeterminate" $(TEST_OUT)/cxx-constexpr/invalid-x86.log
 	$(GREP) -F -q "consteval call is not a constant expression" $(TEST_OUT)/cxx-constexpr/invalid-x86.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_constexpr_invalid.cpp,$(TEST_OUT)/cxx-constexpr/invalid-gcc.log)
+	$(GREP) -F -q "because it refers to an incompletely initialized variable" $(TEST_OUT)/cxx-constexpr/invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constexpr/invalid-x64.ro tests/cxx_constexpr_invalid.cpp,$(TEST_OUT)/cxx-constexpr/invalid-x64.log)
 	$(GREP) -F -q "constexpr variable requires an initializer" $(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" $(TEST_OUT)/cxx-constexpr/invalid-x64.log
@@ -3242,6 +3244,11 @@ test-cxx-constexpr-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
 	$(GREP) -q "consteval call is not a constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x86.log
+	! $(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_constexpr_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr/invalid-gcc.log 2>&1
+	$(GREP) -F -q "because it refers to an incompletely initialized variable" \
+		$(TEST_OUT)/cxx-constexpr/invalid-gcc.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-constexpr/invalid-x64.ro \
 		tests/cxx_constexpr_invalid.cpp \
@@ -3274,6 +3281,7 @@ test-cxx-constexpr-posix: $(RCXX_TARGET)
 ifeq ($(OS),Windows_NT)
 test-cxx-constexpr-aggregate: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-aggregate)
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_constexpr_aggregate.cpp
 	$(call CXX_WINDOWS_CONSTEXPR_TEST,cxx-constexpr-aggregate,cxx_constexpr_aggregate.cpp)
 	@echo "RCC++ aggregate constexpr tests completed"
 else
@@ -3282,6 +3290,7 @@ endif
 
 test-cxx-constexpr-aggregate-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-aggregate)
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_constexpr_aggregate.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-constexpr-aggregate/x86.s \
 		tests/cxx_constexpr_aggregate.cpp

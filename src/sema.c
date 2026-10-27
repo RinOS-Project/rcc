@@ -4880,6 +4880,12 @@ typedef struct SemaConstexprBinding {
     unsigned char* object_bytes;
     size_t object_size;
     bool is_object;
+    /* Mutable scalar reference parameters alias the caller's evaluation
+     * binding, not a copied value.  The caller frame remains alive for the
+     * duration of the nested constexpr constructor/function evaluation. */
+    struct SemaConstexprBinding* reference_binding;
+    size_t reference_offset;
+    bool is_reference_alias;
     bool is_constexpr_dynamic;
     bool is_constexpr_dynamic_array;
     bool is_constexpr_initialized;
@@ -6497,6 +6503,9 @@ static bool sema_constexpr_load_scalar_bytes(
 static bool sema_constexpr_materialize_object(
     Type* type, Expr* initializer, SemaConstexprBinding* bindings,
     int binding_count, unsigned char* storage, size_t storage_size);
+static bool sema_constexpr_binding_lvalue(
+    Expr* expression, SemaConstexprBinding* bindings, int binding_count,
+    int* binding_index, size_t* offset, Type** type);
 static int sema_cxx_constructor_base_index(CxxClass* cls,
                                            const char* name);
 static int sema_cxx_constructor_virtual_base_index(CxxClass* cls,
@@ -6543,27 +6552,75 @@ static bool sema_constexpr_materialize_cxx_constructor(
         SemaConstexprBinding* binding;
         Type* parameter_type;
         Type* parameter_value_type;
+        bool mutable_scalar_reference = false;
         if (binding_count >= (int)(sizeof(bindings) / sizeof(bindings[0])) ||
             !parameter->decl || !(parameter_type = parameter->decl->type)) {
             return false;
         }
         parameter_value_type = parameter_type;
         if (parameter_type->is_reference) {
+            Type* referred_type;
             parameter_value_type = parameter_type->base;
-            if (!parameter_value_type || !parameter_value_type->is_const ||
-                parameter_value_type->is_volatile ||
-                (!sema_constexpr_integer_type(parameter_value_type) &&
-                 parameter_value_type->kind != TYPE_FLOAT &&
-                 parameter_value_type->kind != TYPE_DOUBLE &&
-                 (parameter_value_type->kind != TYPE_PTR ||
-                  parameter_value_type->cxx_is_member_pointer))) {
+            referred_type = parameter_value_type;
+            if (!referred_type || referred_type->is_volatile ||
+                (referred_type->kind == TYPE_PTR &&
+                 referred_type->cxx_is_member_pointer)) {
+                return false;
+            }
+            if (!referred_type->is_const) {
+                if (parameter_type->is_rvalue_reference ||
+                    !sema_constexpr_scalar_type(referred_type)) {
+                    return false;
+                }
+                mutable_scalar_reference = true;
+            } else if (!sema_constexpr_integer_type(referred_type) &&
+                       referred_type->kind != TYPE_FLOAT &&
+                       referred_type->kind != TYPE_DOUBLE &&
+                       referred_type->kind != TYPE_PTR) {
                 return false;
             }
         }
         binding = &bindings[binding_count++];
         binding->declaration = parameter->decl;
         binding->type = parameter_value_type;
-        if (sema_constexpr_scalar_type(parameter_value_type)) {
+        if (mutable_scalar_reference) {
+            int referenced_binding_index;
+            size_t referenced_offset;
+            Type* referenced_type;
+            bool valid_reference_target = caller_bindings &&
+                sema_constexpr_binding_lvalue(
+                    argument->expr, caller_bindings, caller_binding_count,
+                    &referenced_binding_index, &referenced_offset,
+                    &referenced_type);
+            if (!valid_reference_target && caller_bindings &&
+                argument->expr && argument->expr->kind == EXPR_IDENT) {
+                referenced_binding_index = sema_constexpr_binding_index(
+                    argument->expr, caller_bindings, caller_binding_count);
+                if (referenced_binding_index >= 0 &&
+                    !caller_bindings[referenced_binding_index].is_object &&
+                    !caller_bindings[referenced_binding_index]
+                         .is_reference_alias &&
+                    sema_constexpr_scalar_type(
+                        caller_bindings[referenced_binding_index].type)) {
+                    referenced_offset = 0u;
+                    referenced_type =
+                        caller_bindings[referenced_binding_index].type;
+                    valid_reference_target = true;
+                }
+            }
+            if (!valid_reference_target || referenced_binding_index < 0 ||
+                referenced_binding_index >= caller_binding_count ||
+                referenced_binding_index >= 64 ||
+                !referenced_type || referenced_type->is_const ||
+                referenced_type->is_volatile ||
+                !type_is_compatible(parameter_value_type, referenced_type)) {
+                return false;
+            }
+            binding->reference_binding =
+                &caller_bindings[referenced_binding_index];
+            binding->reference_offset = referenced_offset;
+            binding->is_reference_alias = true;
+        } else if (sema_constexpr_scalar_type(parameter_value_type)) {
             SemaConstexprScalar value;
             if (!sema_eval_constexpr_scalar_expr(
                     argument->expr, caller_bindings, caller_binding_count,
@@ -6864,10 +6921,13 @@ static bool sema_constexpr_binding_lvalue(
     if (expression->kind == EXPR_IDENT) {
         int index = sema_constexpr_binding_index(
             expression, bindings, binding_count);
-        if (index < 0 || !bindings[index].is_object ||
-            !bindings[index].object_bytes || !bindings[index].type) {
+        if (index < 0 || !bindings[index].type) {
             return false;
         }
+        if (bindings[index].is_object &&
+            !bindings[index].object_bytes) return false;
+        if (!bindings[index].is_object &&
+            !bindings[index].is_reference_alias) return false;
         *binding_index = index;
         *offset = 0u;
         *type = bindings[index].type;
@@ -7032,24 +7092,86 @@ static bool sema_constexpr_binding_lvalue(
     return true;
 }
 
+static bool sema_constexpr_resolve_binding_target(
+    SemaConstexprBinding* bindings, int binding_count, int binding_index,
+    size_t offset, SemaConstexprBinding** target_out,
+    size_t* target_offset_out) {
+    SemaConstexprBinding* target;
+    if (!bindings || binding_index < 0 || binding_index >= binding_count ||
+        !target_out || !target_offset_out) {
+        return false;
+    }
+    target = &bindings[binding_index];
+    for (unsigned depth = 0; target->is_reference_alias; ++depth) {
+        if (depth >= 64u || !target->reference_binding ||
+            offset > SIZE_MAX - target->reference_offset) {
+            return false;
+        }
+        offset += target->reference_offset;
+        target = target->reference_binding;
+    }
+    *target_out = target;
+    *target_offset_out = offset;
+    return true;
+}
+
 static bool sema_constexpr_load_binding_scalar(
     Expr* expression, SemaConstexprBinding* bindings, int binding_count,
     SemaConstexprScalar* value) {
     int binding_index;
     size_t offset;
     Type* type;
+    SemaConstexprBinding* target;
+    size_t target_offset;
     if (!sema_constexpr_binding_lvalue(
             expression, bindings, binding_count, &binding_index, &offset,
-            &type) || !sema_constexpr_scalar_type(type) ||
-        (bindings[binding_index].is_constexpr_dynamic &&
-         !bindings[binding_index].is_constexpr_initialized) ||
-        offset > bindings[binding_index].object_size ||
-        (size_t)type->size > bindings[binding_index].object_size - offset) {
+            &type) || !sema_constexpr_scalar_type(type) || type->size <= 0 ||
+        binding_index < 0 || binding_index >= 64) {
         return false;
     }
-    return sema_constexpr_load_scalar_bytes(
-        bindings[binding_index].object_bytes + offset,
-        bindings[binding_index].object_size - offset, type, value);
+    if (!bindings[binding_index].is_reference_alias) {
+        if ((bindings[binding_index].is_constexpr_dynamic &&
+             !bindings[binding_index].is_constexpr_initialized) ||
+            offset > bindings[binding_index].object_size ||
+            (size_t)type->size >
+                bindings[binding_index].object_size - offset) {
+            return false;
+        }
+        return sema_constexpr_load_scalar_bytes(
+            bindings[binding_index].object_bytes + offset,
+            bindings[binding_index].object_size - offset, type, value);
+    }
+    if (!sema_constexpr_resolve_binding_target(
+            bindings, binding_count, binding_index, offset,
+            &target, &target_offset) ||
+        (target->is_constexpr_dynamic &&
+         !target->is_constexpr_initialized)) return false;
+    if (target->is_object) {
+        if (!target->object_bytes || target->object_size < (size_t)type->size ||
+            target_offset > target->object_size ||
+            (size_t)type->size > target->object_size - target_offset) {
+            return false;
+        }
+        return sema_constexpr_load_scalar_bytes(
+            target->object_bytes + target_offset,
+            target->object_size - target_offset, type, value);
+    }
+    if (target_offset != 0u || !sema_constexpr_scalar_type(target->type) ||
+        !type_is_compatible(type, target->type)) {
+        return false;
+    }
+    memset(value, 0, sizeof(*value));
+    value->type = type;
+    value->integer_value = target->value;
+    value->floating_value = target->floating_value;
+    value->is_floating = target->is_floating;
+    value->is_pointer = target->is_pointer;
+    value->pointer_declaration = target->pointer_declaration;
+    value->pointer_offset = target->pointer_offset;
+    value->is_member_pointer = target->is_member_pointer;
+    value->member_pointer_field = target->member_pointer_field;
+    value->member_pointer_method = target->member_pointer_method;
+    return true;
 }
 
 static bool sema_constexpr_store_binding_scalar(
@@ -7059,19 +7181,62 @@ static bool sema_constexpr_store_binding_scalar(
     size_t offset;
     Type* type;
     SemaConstexprScalar converted;
+    SemaConstexprBinding* target;
+    size_t target_offset;
     if (!sema_constexpr_binding_lvalue(
             expression, bindings, binding_count, &binding_index, &offset,
-            &type) || !sema_constexpr_scalar_type(type) ||
-        offset > bindings[binding_index].object_size ||
-        (size_t)type->size > bindings[binding_index].object_size - offset ||
-        !sema_constexpr_scalar_convert(value, type, &converted) ||
-        !sema_constexpr_store_scalar_bytes(
-            bindings[binding_index].object_bytes + offset,
-            bindings[binding_index].object_size - offset, type, &converted)) {
+            &type) || !sema_constexpr_scalar_type(type) || type->size <= 0 ||
+        binding_index < 0 || binding_index >= 64 ||
+        !sema_constexpr_scalar_convert(value, type, &converted)) {
         return false;
     }
-    if (bindings[binding_index].is_constexpr_dynamic) {
-        bindings[binding_index].is_constexpr_initialized = true;
+    if (!bindings[binding_index].is_reference_alias) {
+        if (offset > bindings[binding_index].object_size ||
+            (size_t)type->size >
+                bindings[binding_index].object_size - offset ||
+            !sema_constexpr_store_scalar_bytes(
+                bindings[binding_index].object_bytes + offset,
+                bindings[binding_index].object_size - offset,
+                type, &converted)) {
+            return false;
+        }
+        if (bindings[binding_index].is_constexpr_dynamic) {
+            bindings[binding_index].is_constexpr_initialized = true;
+        }
+        if (stored) *stored = converted;
+        return true;
+    }
+    if (!sema_constexpr_resolve_binding_target(
+            bindings, binding_count, binding_index, offset,
+            &target, &target_offset)) return false;
+    if (target->is_object) {
+        if (!target->object_bytes ||
+            target->object_size < (size_t)type->size ||
+            target_offset > target->object_size ||
+            (size_t)type->size > target->object_size - target_offset ||
+            !sema_constexpr_store_scalar_bytes(
+                target->object_bytes + target_offset,
+                target->object_size - target_offset, type, &converted)) {
+            return false;
+        }
+    } else {
+        if (target_offset != 0u ||
+            !sema_constexpr_scalar_type(target->type) ||
+            !type_is_compatible(type, target->type)) {
+            return false;
+        }
+        target->value = converted.integer_value;
+        target->floating_value = converted.floating_value;
+        target->is_floating = converted.is_floating;
+        target->is_pointer = converted.is_pointer;
+        target->pointer_declaration = converted.pointer_declaration;
+        target->pointer_offset = converted.pointer_offset;
+        target->is_member_pointer = converted.is_member_pointer;
+        target->member_pointer_field = converted.member_pointer_field;
+        target->member_pointer_method = converted.member_pointer_method;
+    }
+    if (target->is_constexpr_dynamic) {
+        target->is_constexpr_initialized = true;
     }
     if (stored) *stored = converted;
     return true;
@@ -9709,6 +9874,10 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
             binding_index = sema_constexpr_binding_index(
                 expression, bindings, binding_count);
             if (binding_index >= 0) {
+                if (bindings[binding_index].is_reference_alias) {
+                    return sema_constexpr_load_binding_scalar(
+                        expression, bindings, binding_count, value);
+                }
                 if (bindings[binding_index].is_object &&
                     bindings[binding_index].type &&
                     bindings[binding_index].type->kind == TYPE_ARRAY &&
@@ -10201,6 +10370,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
             int object_binding_index;
             size_t object_offset;
             Type* object_type;
+            SemaConstexprBinding* target_binding;
+            size_t target_offset;
             if (expression->type && expression->type->kind == TYPE_PTR &&
                 expression->type->cxx_is_member_pointer &&
                 expression->type->base &&
@@ -10215,14 +10386,18 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
             if (bindings && sema_constexpr_binding_lvalue(
                     expression->unary_operand, bindings, binding_count,
                     &object_binding_index, &object_offset, &object_type)) {
-                if (!object_type || (uint64_t)object_offset > INT64_MAX) {
+                if (!object_type ||
+                    !sema_constexpr_resolve_binding_target(
+                        bindings, binding_count, object_binding_index,
+                        object_offset, &target_binding, &target_offset) ||
+                    (uint64_t)target_offset > INT64_MAX) {
                     return false;
                 }
                 value->type = expression->type;
                 value->is_pointer = true;
                 value->pointer_declaration =
-                    bindings[object_binding_index].declaration;
-                value->pointer_offset = (int64_t)object_offset;
+                    target_binding->declaration;
+                value->pointer_offset = (int64_t)target_offset;
                 return true;
             }
             if (!sema_constexpr_address_target(

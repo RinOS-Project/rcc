@@ -8934,10 +8934,18 @@ remains a separate open item.
       scalar members are rejected with a targeted diagnostic. Verify the
       invalid diagnostic on both targets and execute the focused i686/AMD64
       runtime regression after assigning each indeterminate member.
-- [ ] Broader constructor-body expressions/side effects, mutable-reference
-      aliasing, aggregate and other pointer-reference parameters, indeterminate
-      tracking for nested/array/base subobjects, and complete virtual-base
-      constructor evaluation remain open.
+- [x] Preserve mutable scalar lvalue-reference aliases into caller locals and
+      aggregate fields during constexpr constructor evaluation, including
+      forwarding the alias through a nested constructor. Verify that member
+      initialization observes the pre-body value and constructor-body writes
+      update the caller on constexpr and runtime paths, with strict GCC C++20,
+      focused i686/AMD64 generation and execution, and the full POSIX
+      `test-cxx` aggregate.
+- [ ] Broader constructor-body expressions/side effects, mutable references to
+      nonscalar objects, reference parameters in general constexpr functions,
+      aggregate and other pointer-reference parameters, indeterminate tracking
+      for nested/array/base subobjects, and complete virtual-base constructor
+      evaluation remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
