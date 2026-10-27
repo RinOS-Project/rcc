@@ -12590,6 +12590,21 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
         }
         return true;
     }
+    if (codegen64_asm_parse_memory(text + destination_begin,
+                                    destination_length, &destination,
+                                    &displacement) &&
+        mnemonic_width == 8 &&
+        codegen64_asm_parse_immediate_width(text + source_begin,
+                                             source_length, 8,
+                                             &immediate_value) &&
+        (int64_t)immediate_value ==
+            (int64_t)(int32_t)(uint32_t)immediate_value) {
+        emit_rex(mod, true, 0, 0, destination);
+        emit_byte(mod, 0xC7);
+        codegen64_asm_emit_modrm_memory(mod, 0, destination, displacement);
+        emit_dword(mod, (uint32_t)immediate_value);
+        return true;
+    }
     if (!codegen64_asm_parse_register_width(text + source_begin,
                                             source_length, &source,
                                             &source_width) ||
@@ -12609,10 +12624,141 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
     return true;
 }
 
+static bool codegen64_asm_emit_alu_immediate(Module* mod, const char* text,
+                                              size_t length)
+{
+    size_t mnemonic_length;
+    int extension;
+    int width;
+    size_t cursor;
+    size_t comma;
+    size_t immediate_length;
+    size_t destination_begin;
+    size_t destination_length;
+    uint64_t immediate;
+    int destination;
+    int destination_width;
+
+    if (length >= 5u && strncmp(text, "subq", 4u) == 0) {
+        mnemonic_length = 4u; extension = 5; width = 8;
+    } else if (length >= 5u && strncmp(text, "andq", 4u) == 0) {
+        mnemonic_length = 4u; extension = 4; width = 8;
+    } else if (length >= 4u && strncmp(text, "orq", 3u) == 0) {
+        mnemonic_length = 3u; extension = 1; width = 8;
+    } else {
+        return false;
+    }
+    if (length <= mnemonic_length ||
+        (text[mnemonic_length] != ' ' && text[mnemonic_length] != '\t')) {
+        return false;
+    }
+    cursor = mnemonic_length + 1u;
+    while (cursor < length && (text[cursor] == ' ' || text[cursor] == '\t'))
+        ++cursor;
+    comma = cursor;
+    while (comma < length && text[comma] != ',') ++comma;
+    if (comma == length) return false;
+    immediate_length = comma - cursor;
+    while (immediate_length > 0u &&
+           (text[cursor + immediate_length - 1u] == ' ' ||
+            text[cursor + immediate_length - 1u] == '\t'))
+        --immediate_length;
+    destination_begin = comma + 1u;
+    while (destination_begin < length &&
+           (text[destination_begin] == ' ' || text[destination_begin] == '\t'))
+        ++destination_begin;
+    destination_length = length - destination_begin;
+    while (destination_length > 0u &&
+           (text[destination_begin + destination_length - 1u] == ' ' ||
+            text[destination_begin + destination_length - 1u] == '\t'))
+        --destination_length;
+    if (!codegen64_asm_parse_register_width(text + destination_begin,
+                                             destination_length, &destination,
+                                             &destination_width) ||
+        destination_width != width ||
+        !codegen64_asm_parse_immediate_width(text + cursor, immediate_length,
+                                              8, &immediate) ||
+        (int64_t)immediate != (int64_t)(int32_t)(uint32_t)immediate) {
+        return false;
+    }
+    emit_rex(mod, true, 0, 0, destination);
+    emit_byte(mod, 0x81);
+    emit_byte(mod, modrm64(3, extension, destination));
+    emit_dword(mod, (uint32_t)immediate);
+    return true;
+}
+
+static bool codegen64_asm_emit_fxsave(Module* mod, const char* text,
+                                      size_t length)
+{
+    int base;
+    int32_t displacement;
+    int extension;
+    if (length >= 8u && memcmp(text, "fxsave ", 7u) == 0) {
+        extension = 0;
+    } else if (length >= 9u && memcmp(text, "fxrstor ", 8u) == 0) {
+        extension = 1;
+    } else {
+        return false;
+    }
+    if (!codegen64_asm_parse_memory(text + (extension == 0 ? 7u : 8u),
+                                    length - (extension == 0 ? 7u : 8u),
+                                    &base, &displacement)) return false;
+    emit_rex(mod, false, 0, 0, base);
+    emit_byte(mod, 0x0F);
+    emit_byte(mod, 0xAE);
+    codegen64_asm_emit_modrm_memory(mod, extension, base, displacement);
+    return true;
+}
+
+static bool codegen64_asm_emit_call(Module* mod, const char* text,
+                                    size_t length)
+{
+    char name[256];
+    size_t cursor = 5u;
+    if (length <= cursor || memcmp(text, "call ", cursor) != 0 ||
+        length - cursor >= sizeof(name)) return false;
+    if (!((text[cursor] >= 'a' && text[cursor] <= 'z') ||
+          (text[cursor] >= 'A' && text[cursor] <= 'Z') ||
+          text[cursor] == '_' || text[cursor] == '.' || text[cursor] == '$')) {
+        return false;
+    }
+    for (; cursor < length; ++cursor) {
+        char c = text[cursor];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '$')) {
+            return false;
+        }
+    }
+    memcpy(name, text + 5u, length - 5u);
+    name[length - 5u] = '\0';
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t displacement_offset = (uint32_t)code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64(rcc_intern(name), displacement_offset);
+    }
+    return true;
+}
+
+static bool codegen64_asm_emit_pushq(Module* mod, const char* text,
+                                     size_t length)
+{
+    int reg;
+    int width;
+    if (length <= 6u || memcmp(text, "pushq ", 6u) != 0 ||
+        !codegen64_asm_parse_register_width(text + 6u, length - 6u,
+                                             &reg, &width) || width != 8) {
+        return false;
+    }
+    emit64_push_reg(mod, reg);
+    return true;
+}
+
 static bool codegen64_asm_emit_lea(Module* mod, const char* text,
                                    size_t length)
 {
-    size_t cursor = 3u;
+    size_t cursor;
     size_t comma;
     size_t source_length;
     size_t destination_begin;
@@ -12621,8 +12767,15 @@ static bool codegen64_asm_emit_lea(Module* mod, const char* text,
     int destination;
     int width;
     int32_t displacement;
-    if (length < 4u || strncmp(text, "lea", 3u) != 0 ||
-        (text[3] != ' ' && text[3] != '\t')) return false;
+    if (length >= 5u && strncmp(text, "leaq", 4u) == 0 &&
+        (text[4] == ' ' || text[4] == '\t')) {
+        cursor = 4u;
+    } else if (length >= 4u && strncmp(text, "lea", 3u) == 0 &&
+               (text[3] == ' ' || text[3] == '\t')) {
+        cursor = 3u;
+    } else {
+        return false;
+    }
     while (cursor < length && (text[cursor] == ' ' || text[cursor] == '\t')) {
         ++cursor;
     }
@@ -12941,6 +13094,10 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
     }
     if (codegen64_asm_emit_mov(mod, text, length)) return true;
     if (codegen64_asm_emit_lea(mod, text, length)) return true;
+    if (codegen64_asm_emit_alu_immediate(mod, text, length) ||
+        codegen64_asm_emit_fxsave(mod, text, length) ||
+        codegen64_asm_emit_pushq(mod, text, length) ||
+        codegen64_asm_emit_call(mod, text, length)) return true;
     if (codegen64_asm_emit_test_xor(mod, text, length, "test", 0x85) ||
         codegen64_asm_emit_test_xor(mod, text, length, "testb", 0x85) ||
         codegen64_asm_emit_test_xor(mod, text, length, "testw", 0x85) ||
@@ -13035,6 +13192,14 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
     }
     if (codegen64_asm_no_operands(text, length, "ret")) {
         emit_byte(mod, 0xC3);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "pushfq")) {
+        emit_byte(mod, 0x9C);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "popfq")) {
+        emit_byte(mod, 0x9D);
         return true;
     }
     if (codegen64_asm_no_operands(text, length, "leave")) {

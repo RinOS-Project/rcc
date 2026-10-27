@@ -350,7 +350,23 @@ void asm_x64_ucontext_encoder(void)
         "xorw %ax, %ax\n\t"
         "xorl %eax, %eax\n\t"
         "xorq %rax, %rax\n\t"
+        "movq $0x202, 176(%rdi)\n\t"
+        "fxsave (%rax)\n\t"
+        "fxrstor (%rax)\n\t"
+        "subq $8, %r11\n\t"
+        "andq $0xcd5, %rax\n\t"
+        "orq $0x202, %rax\n\t"
+        "pushq %rax\n\t"
+        "pushfq\n\t"
+        "popfq\n\t"
         "ud2\n\t");
+}
+
+static void asm_x64_call_target(void) {}
+
+void asm_x64_call_local(void)
+{
+    __asm__ __volatile__("call asm_x64_call_target");
 }
 
 long long asm_x64_q_modifier(long long value)

@@ -248,6 +248,25 @@ int main(int argc, char** argv)
     static const uint8_t x64_xor32[] = {0x31u, 0xc0u};
     static const uint8_t x64_xor64[] = {0x48u, 0x31u, 0xc0u};
     static const uint8_t x64_ud2[] = {0x0fu, 0x0bu};
+    static const uint8_t x64_mov_imm_memory[] = {
+        0x48u, 0xc7u, 0x87u, 0xb0u, 0x00u, 0x00u, 0x00u,
+        0x02u, 0x02u, 0x00u, 0x00u
+    };
+    static const uint8_t x64_fxsave[] = {0x0fu, 0xaeu, 0x00u};
+    static const uint8_t x64_fxrstor[] = {0x0fu, 0xaeu, 0x08u};
+    static const uint8_t x64_sub_imm[] = {
+        0x49u, 0x81u, 0xebu, 0x08u, 0x00u, 0x00u, 0x00u
+    };
+    static const uint8_t x64_and_imm[] = {
+        0x48u, 0x81u, 0xe0u, 0xd5u, 0x0cu, 0x00u, 0x00u
+    };
+    static const uint8_t x64_or_imm[] = {
+        0x48u, 0x81u, 0xc8u, 0x02u, 0x02u, 0x00u, 0x00u
+    };
+    static const uint8_t x64_push_rax[] = {0x50u};
+    static const uint8_t x64_pushfq[] = {0x9cu};
+    static const uint8_t x64_popfq[] = {0x9du};
+    static const uint8_t x64_call[] = {0xe8u};
     verify(argv[1], ARCH_X86, "asm_placeholder_move");
     verify(argv[2], ARCH_X64, "asm_placeholder_move");
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
@@ -346,6 +365,26 @@ int main(int argc, char** argv)
                    x64_xor64, sizeof(x64_xor64));
     verify_pattern(argv[2], ARCH_X64, "asm_x64_ucontext_encoder",
                    x64_ud2, sizeof(x64_ud2));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_ucontext_encoder",
+                   x64_mov_imm_memory, sizeof(x64_mov_imm_memory));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_ucontext_encoder",
+                   x64_fxsave, sizeof(x64_fxsave));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_ucontext_encoder",
+                   x64_fxrstor, sizeof(x64_fxrstor));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_ucontext_encoder",
+                   x64_sub_imm, sizeof(x64_sub_imm));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_ucontext_encoder",
+                   x64_and_imm, sizeof(x64_and_imm));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_ucontext_encoder",
+                   x64_or_imm, sizeof(x64_or_imm));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_ucontext_encoder",
+                   x64_push_rax, sizeof(x64_push_rax));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_ucontext_encoder",
+                   x64_pushfq, sizeof(x64_pushfq));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_ucontext_encoder",
+                   x64_popfq, sizeof(x64_popfq));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_call_local",
+                   x64_call, sizeof(x64_call));
     verify_generic_output(argv[1], ARCH_X86, "asm_general_output_move");
     verify_generic_output(argv[2], ARCH_X64, "asm_general_output_move");
     verify_generic(argv[3], ARCH_X64, "asm_cpp_general_input_move");
