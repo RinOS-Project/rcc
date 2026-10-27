@@ -8936,8 +8936,7 @@ static bool sema_eval_constexpr_scalar_expr(
             if (!sema_eval_constexpr_scalar_expr(expression->cond_test,
                                                   bindings, binding_count,
                                                   &left)) return false;
-            if (left.is_floating ? left.floating_value != 0.0
-                                 : left.integer_value != 0) {
+            if (sema_constexpr_scalar_truth(&left)) {
                 if (!sema_eval_constexpr_scalar_expr(
                         expression->cond_then, bindings, binding_count,
                         &selected)) return false;
@@ -8963,8 +8962,7 @@ static bool sema_eval_constexpr_scalar_expr(
             if (!sema_eval_constexpr_scalar_expr(expression->binary_lhs,
                                                   bindings, binding_count,
                                                   &left)) return false;
-            integer = left.is_floating ? left.floating_value != 0.0
-                                       : left.integer_value != 0;
+            integer = sema_constexpr_scalar_truth(&left);
             if ((expression->kind == EXPR_AND && !integer) ||
                 (expression->kind == EXPR_OR && integer)) {
                 value->type = type_int;
@@ -8975,8 +8973,7 @@ static bool sema_eval_constexpr_scalar_expr(
                                                   bindings, binding_count,
                                                   &right)) return false;
             value->type = type_int;
-            value->integer_value = right.is_floating
-                ? right.floating_value != 0.0 : right.integer_value != 0;
+            value->integer_value = sema_constexpr_scalar_truth(&right);
             return true;
         case EXPR_CALL:
             if (expression->call_func &&

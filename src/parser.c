@@ -54,6 +54,8 @@ extern Type* rcc_parser_cxx_find_class_type(const char*) RCC_OPTIONAL_CXX;
 extern Type* rcc_parser_cxx_destructor_type(const char*) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_functional_cast(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_bind_explicit_global_variable(Expr*)
+    RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_member_template_arguments(Expr*) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_concept_expression(void) RCC_OPTIONAL_CXX;
@@ -2536,7 +2538,11 @@ static Expr* parse_primary(void) {
                 ? enum_expression_type : type_int;
             return value;
         }
-        return expr_ident(qualified_name, loc);
+        Expr* identifier = expr_ident(qualified_name, loc);
+        if (parser_cxx_mode && rcc_parser_cxx_bind_explicit_global_variable) {
+            rcc_parser_cxx_bind_explicit_global_variable(identifier);
+        }
+        return identifier;
     }
     if (match(TOK_IDENT)) {
         int64_t enum_value;

@@ -8720,13 +8720,14 @@ remains a separate open item.
 
 - [x] Allow the bounded dependent constexpr member-call evaluator to rank and
       evaluate by-value non-member pointer and `nullptr` arguments. Regressions
-      cover `static_cast<const int*>(nullptr)` and a direct `nullptr` call,
-      compared with GCC C++20 and generated/executed for i686 and AMD64 by
-      `test-cxx-function-template-overloads`.
-- [ ] Non-null pointer arguments in dependent expressions, pointer references,
-      member pointers, and broader pointer conversions remain open. In
-      particular, template cloning still loses declaration resolution for a
-      non-null global address used inside the dependent call expression.
+      cover typed null, direct `nullptr`, and a non-null file-scope address in
+      a dependent non-type template argument. Correctly test pointer truth in
+      constexpr conditional, `&&`, and `||` expressions. GCC C++20 and the
+      i686/AMD64 `test-cxx-function-template-overloads` generation/execution
+      gate pass.
+- [ ] Pointer references, member pointers, broader pointer conversions, and
+      non-null pointer expressions beyond a direct file-scope address remain
+      open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

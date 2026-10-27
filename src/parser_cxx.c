@@ -650,6 +650,45 @@ static bool cxx_decl_leaf_matches(const char* qualified_name,
     return strcmp(leaf, member_name) == 0;
 }
 
+void rcc_parser_cxx_bind_explicit_global_variable(Expr* expression) {
+    const char* global_name;
+    if (!expression || expression->kind != EXPR_IDENT ||
+        !expression->ident_name || expression->ident_decl ||
+        expression->ident_name[0] != ':' ||
+        expression->ident_name[1] != ':' ||
+        strstr(expression->ident_name + 2, "::") || !active_ast) {
+        return;
+    }
+    global_name = expression->ident_name + 2;
+    for (DeclList* item = active_ast->decls; item; item = item->next) {
+        Decl* declaration = item->decl;
+        if (!declaration || declaration->kind != DECL_VAR ||
+            !declaration->name ||
+            strcmp(declaration->name, global_name) != 0) {
+            continue;
+        }
+        expression->ident_decl = declaration;
+        expression->type = declaration->type;
+        declaration->var_is_global = true;
+        return;
+    }
+    if (g_global_namespace) {
+        for (DeclList* item = g_global_namespace->decls; item;
+             item = item->next) {
+            Decl* declaration = item->decl;
+            if (!declaration || declaration->kind != DECL_VAR ||
+                !declaration->name ||
+                strcmp(declaration->name, global_name) != 0) {
+                continue;
+            }
+            expression->ident_decl = declaration;
+            expression->type = declaration->type;
+            declaration->var_is_global = true;
+            return;
+        }
+    }
+}
+
 static void cxx_replace_pending_form(Expr* pending, Expr* resolved) {
     if (pending && resolved) *pending = *resolved;
 }
@@ -3827,9 +3866,11 @@ static bool cxx_dependent_integer_call_constant_argument_supported(
         return rcc_sema_eval_constexpr_arithmetic_constant(argument);
     }
     if (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
+        if (!argument->type) argument->type = type;
         return rcc_sema_eval_constexpr_pointer_constant(argument);
     }
     if (type->kind == TYPE_NULLPTR) {
+        if (!argument->type) argument->type = type;
         return rcc_sema_eval_constexpr_pointer_constant(argument);
     }
     return (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
@@ -4635,6 +4676,7 @@ static Decl* cxx_template_integer_call_select_candidate(
              argument_type->kind != TYPE_ARRAY)) {
             return NULL;
         }
+        if (!argument->expr->type) argument->expr->type = argument_type;
         if (argument_count == INT_MAX) return NULL;
         ++argument_count;
     }
