@@ -21,7 +21,11 @@ struct ConstructorBodyDerived : ConstructorBodyBase {
 
     constexpr ConstructorBodyDerived(int seed, int initial, int increment)
         : ConstructorBodyBase(seed), value(initial) {
-        this->value += increment;
+        if (increment >= 0) {
+            this->value += increment;
+        } else {
+            this->value -= -increment;
+        }
     }
 };
 
@@ -97,6 +101,8 @@ constexpr Nested nested{{5, 6}, 7};
 constexpr Pair returned_pair = make_pair(11, 13);
 constexpr Pair mutated_returned_pair = make_mutated_pair(20);
 constexpr ConstructorBodyDerived constructor_body_value{19, 20, 22};
+constexpr ConstructorBodyDerived constructor_body_negative_value{
+    23, 20, -3};
 constexpr ConstructorDefaultedSubobjects constructor_defaulted_subobjects{31};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
@@ -160,6 +166,8 @@ static_assert(mutated_returned_pair.first == 22 &&
               mutated_returned_pair.second == 22);
 static_assert(constructor_body_value.seed == 19 &&
               constructor_body_value.value == 42);
+static_assert(constructor_body_negative_value.seed == 23 &&
+              constructor_body_negative_value.value == 17);
 static_assert(constructor_defaulted_subobjects.seed == 19 &&
               constructor_defaulted_subobjects.member.value == 23 &&
               constructor_defaulted_subobjects.value == 31 &&
@@ -187,6 +195,8 @@ int main(void) {
                    returned_value == 24 && mutated_returned_value == 44 &&
                    constructor_body_value.seed == 19 &&
                    constructor_body_value.value == 42 &&
+                   constructor_body_negative_value.seed == 23 &&
+                   constructor_body_negative_value.value == 17 &&
                    constructor_defaulted_subobjects.seed == 19 &&
                    constructor_defaulted_subobjects.member.value == 23 &&
                    constructor_defaulted_subobjects.value == 31 &&

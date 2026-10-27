@@ -8914,6 +8914,10 @@ remains a separate open item.
       parameter in a member initializer. Cover both a global constexpr pointer
       lvalue and a temporary address, with GCC C++20, dual-architecture focused
       generation/execution, and the full POSIX `test-cxx` aggregate.
+- [x] Execute a parameter-dependent constructor-body `if/else` that updates
+      `this->value` in each branch. Verify positive and negative inputs against
+      GCC C++20 and focused i686/AMD64 generation and execution; broader body
+      expressions and side effects remain open.
 - [ ] Broader constructor-body expressions/side effects, mutable-reference
       aliasing, aggregate and other pointer-reference parameters, indeterminate
       scalar default-initialization diagnostics, and complete virtual-base
