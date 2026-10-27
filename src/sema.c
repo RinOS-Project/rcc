@@ -8785,6 +8785,43 @@ static bool sema_constexpr_constructor_rhs_is_safe(
                        expression->cond_else, cls, initialized_members,
                        bindings, binding_count, depth + 1u);
         }
+        case EXPR_CALL: {
+            Decl* function = expression->call_func &&
+                    expression->call_func->kind == EXPR_IDENT
+                ? expression->call_func->ident_decl : NULL;
+            DeclList* parameter;
+            ExprList* argument;
+            if (!function || function->kind != DECL_FUNC ||
+                !function->func_is_constexpr || function->func_this_param ||
+                !function->type || function->type->kind != TYPE_FUNC ||
+                function->type->variadic || !function->type->ret_type ||
+                function->type->ret_type->kind == TYPE_PTR ||
+                !sema_constexpr_scalar_type(function->type->ret_type) ||
+                expression->call_is_new || expression->call_is_delete ||
+                expression->call_member_pointer_application) {
+                return false;
+            }
+            parameter = function->func_params;
+            argument = expression->call_args;
+            while (parameter && argument) {
+                Type* parameter_type = parameter->decl
+                    ? parameter->decl->type : NULL;
+                Type* argument_type = argument->expr
+                    ? argument->expr->type : NULL;
+                if (!parameter_type || parameter_type->kind == TYPE_PTR ||
+                    !sema_constexpr_scalar_type(parameter_type) ||
+                    !argument_type || argument_type->kind == TYPE_PTR ||
+                    !sema_constexpr_scalar_type(argument_type) ||
+                    !sema_constexpr_constructor_rhs_is_safe(
+                        argument->expr, cls, initialized_members, bindings,
+                        binding_count, depth + 1u)) {
+                    return false;
+                }
+                parameter = parameter->next;
+                argument = argument->next;
+            }
+            return parameter == NULL && argument == NULL;
+        }
         default:
             return false;
     }

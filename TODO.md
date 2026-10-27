@@ -9084,6 +9084,11 @@ remains a separate open item.
       definite initialization of omitted scalar members. Verify matched,
       unmatched, and fallthrough paths against GCC C++20 and full POSIX
       `test-cxx`.
+- [x] Allow side-effect-contained calls to free constexpr functions with
+      by-value scalar arguments in direct constructor-body member assignments.
+      Check arguments for indeterminate member reads; retain conservative
+      handling of reference/pointer and member-function calls. Verify GCC C++20,
+      constexpr/runtime, i686/AMD64, and full POSIX `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,
