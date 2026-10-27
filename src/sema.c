@@ -7400,7 +7400,7 @@ static bool sema_constexpr_materialize_object(
     }
     if (initializer->kind == EXPR_COMPOUND &&
         initializer->compound_constructor && type->kind == TYPE_STRUCT &&
-        type->cxx_class && type->cxx_class->base_count > 0) {
+        type->cxx_class) {
         return sema_constexpr_materialize_cxx_constructor(
             type, initializer->compound_constructor,
             initializer->compound_init, true, bindings, binding_count,
@@ -7757,7 +7757,7 @@ static bool sema_validate_constexpr_object(
     }
     if (initializer->kind == EXPR_COMPOUND &&
         initializer->compound_constructor && type->kind == TYPE_STRUCT &&
-        type->cxx_class && type->cxx_class->base_count > 0) {
+        type->cxx_class) {
         unsigned char* storage = ast_arena_alloc((size_t)type->size);
         return storage && sema_constexpr_materialize_object(
             type, initializer, NULL, 0, storage, (size_t)type->size);
@@ -7806,6 +7806,47 @@ static bool sema_validate_constexpr_object(
         }
         return true;
     }
+}
+
+static bool sema_constexpr_constructor_leaves_indeterminate_scalar(
+    Type* type, Expr* initializer) {
+    CxxConstructorInfo* constructor;
+    CxxClass* cls;
+    Decl* declaration;
+    if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
+        !initializer || initializer->kind != EXPR_COMPOUND ||
+        !(constructor = initializer->compound_constructor) ||
+        !constructor->body_is_empty ||
+        !(declaration = constructor->method
+              ? constructor->method->decl : NULL) ||
+        !declaration->func_is_constexpr ||
+        !(cls = type->cxx_class) || cls->base_count != 0 ||
+        cls->virtual_base_count != 0) {
+        return false;
+    }
+    for (TypeParam* member = cls->fields; member; member = member->next) {
+        TypeField* field = type->fields;
+        bool explicitly_initialized = false;
+        if (member->is_static || !member->name) continue;
+        while (field && (!field->name ||
+                         strcmp(field->name, member->name) != 0)) {
+            field = field->next;
+        }
+        if (!field || !field->type ||
+            !sema_constexpr_scalar_type(field->type) || field->initializer) {
+            continue;
+        }
+        for (CxxConstructorInitializer* item = constructor->initializers;
+             item; item = item->next) {
+            if (!item->is_base_initializer && !item->is_delegating_constructor &&
+                item->field && strcmp(item->field, member->name) == 0) {
+                explicitly_initialized = true;
+                break;
+            }
+        }
+        if (!explicitly_initialized) return true;
+    }
+    return false;
 }
 
 static bool sema_constexpr_scalar_binary(
@@ -28009,8 +28050,14 @@ static void sema_decl(Decl* decl) {
                             decl->type, decl->var_init);
                     }
                     if (!valid_constinit) {
-                        rcc_error(decl->loc,
-                                  "constinit variable initializer is not a supported constant expression");
+                        if (sema_constexpr_constructor_leaves_indeterminate_scalar(
+                                decl->type, decl->var_init)) {
+                            rcc_error(decl->loc,
+                                      "constinit initializer leaves a scalar member indeterminate");
+                        } else {
+                            rcc_error(decl->loc,
+                                      "constinit variable initializer is not a supported constant expression");
+                        }
                     }
                 }
                 if (decl->var_is_constexpr) {
@@ -28029,8 +28076,14 @@ static void sema_decl(Decl* decl) {
                             decl->type, decl->var_init);
                     }
                     if (!valid_constexpr) {
-                        rcc_error(decl->loc,
-                                  "constexpr variable initializer is not a supported constant expression");
+                        if (sema_constexpr_constructor_leaves_indeterminate_scalar(
+                                decl->type, decl->var_init)) {
+                            rcc_error(decl->loc,
+                                      "constexpr initializer leaves a scalar member indeterminate");
+                        } else {
+                            rcc_error(decl->loc,
+                                      "constexpr variable initializer is not a supported constant expression");
+                        }
                     } else if (sema_constexpr_scalar_type(decl->type)) {
                         SemaConstexprScalar folded;
                         if (sema_eval_constexpr_scalar_object(

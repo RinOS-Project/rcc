@@ -9425,15 +9425,29 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             initializer = initializer->next;
         }
         if (!supported) continue;
-        while (field && initializer) {
+        while (field) {
             while (field && field->is_static) field = field->next;
             if (!field) {
+                break;
+            }
+            if (!initializer || !initializer->field ||
+                !field->name ||
+                strcmp(initializer->field, field->name) != 0) {
+                /* Default-initialization leaves scalar members without a
+                 * default member initializer untouched.  They need no
+                 * constructor store; constexpr materialization separately
+                 * rejects an object whose value remains indeterminate. */
+                if (!field->is_bitfield && field->type &&
+                    cxx_constructor_scalar_type(field->type) &&
+                    !field->type->is_volatile &&
+                    !field->type->is_atomic && !field->initializer) {
+                    field = field->next;
+                    continue;
+                }
                 supported = false;
                 break;
             }
-            if (!initializer->field ||
-                strcmp(initializer->field, field->name) != 0 ||
-                (!initializer->value && !initializer->arguments &&
+            if ((!initializer->value && !initializer->arguments &&
                  !(field->type &&
                    (field->type->cxx_class ||
                     (field->type->kind == TYPE_ARRAY &&

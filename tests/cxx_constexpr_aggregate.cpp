@@ -41,6 +41,22 @@ struct ConstructorDefaultMember {
     constexpr ConstructorDefaultMember() : value(23) {}
 };
 
+struct ConstructorNoBaseConstexpr {
+    int value;
+
+    constexpr explicit ConstructorNoBaseConstexpr(int initial)
+        : value(initial) {}
+};
+
+struct ConstructorDefaultInitializedScalars {
+    int before;
+    int initialized;
+    int after;
+
+    constexpr explicit ConstructorDefaultInitializedScalars(int value)
+        : initialized(value) {}
+};
+
 struct ConstructorDefaultedSubobjects : ConstructorDefaultBase {
     ConstructorDefaultMember member;
     int value;
@@ -113,6 +129,7 @@ constexpr ConstructorBodyDerived constructor_body_value{19, 20, 22};
 constexpr ConstructorBodyDerived constructor_body_negative_value{
     23, 20, -3};
 constexpr ConstructorDefaultedSubobjects constructor_defaulted_subobjects{31};
+constexpr ConstructorNoBaseConstexpr constructor_no_base{41};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -198,6 +215,7 @@ static_assert(constructor_defaulted_subobjects.seed == 19 &&
               constructor_defaulted_subobjects.member.value == 23 &&
               constructor_defaulted_subobjects.value == 31 &&
               constructor_defaulted_subobjects.default_member == 37);
+static_assert(constructor_no_base.value == 41);
 static_assert(constructor_reference_global.seed == 19 &&
               constructor_reference_global.value == 29 &&
               constructor_reference_temporary.value == 31);
@@ -218,6 +236,9 @@ static_assert(mutated_pair_value == 56);
 static_assert(mutated_array_value == 18);
 
 int main(void) {
+    ConstructorDefaultInitializedScalars default_initialized{17};
+    default_initialized.before = 3;
+    default_initialized.after = 5;
     return first_value == 3 && second_value == 5 &&
                    nested_value == 13 && array_value == 19 &&
                    returned_value == 24 && mutated_returned_value == 44 &&
@@ -229,6 +250,10 @@ int main(void) {
                    constructor_defaulted_subobjects.member.value == 23 &&
                    constructor_defaulted_subobjects.value == 31 &&
                    constructor_defaulted_subobjects.default_member == 37 &&
+                   constructor_no_base.value == 41 &&
+                   default_initialized.before +
+                           default_initialized.initialized +
+                           default_initialized.after == 25 &&
                    constructor_reference_global.seed == 19 &&
                    constructor_reference_global.value == 29 &&
                    constructor_reference_temporary.value == 31 &&

@@ -8927,9 +8927,16 @@ remains a separate open item.
       pointer in the constructor body, then verify the caller's aggregate and
       the retained pointer see the updated value with GCC C++20 and the focused
       i686/AMD64 generation/execution target.
+- [x] Lower constructors that leave non-volatile scalar members default-
+      initialized, including members before and after an explicit initializer.
+      Route no-base constexpr constructors through object materialization so
+      fully initialized objects evaluate correctly and direct indeterminate
+      scalar members are rejected with a targeted diagnostic. Verify the
+      invalid diagnostic on both targets and execute the focused i686/AMD64
+      runtime regression after assigning each indeterminate member.
 - [ ] Broader constructor-body expressions/side effects, mutable-reference
       aliasing, aggregate and other pointer-reference parameters, indeterminate
-      scalar default-initialization diagnostics, and complete virtual-base
+      tracking for nested/array/base subobjects, and complete virtual-base
       constructor evaluation remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)

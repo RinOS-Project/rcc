@@ -32,3 +32,12 @@ constexpr int invalid_constexpr_array_read() {
 }
 
 constexpr int invalid_dynamic_array = invalid_constexpr_array_read();
+
+struct UninitializedConstexprMember {
+    int value;
+
+    constexpr UninitializedConstexprMember() {}
+};
+
+constexpr UninitializedConstexprMember
+    invalid_uninitialized_constexpr_member{};
