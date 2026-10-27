@@ -9,11 +9,19 @@ struct DependentPointerBase {
     }
 };
 
+struct DependentConstexprVirtualState {
+    int value;
+};
+
 struct DependentConstexprVirtualBase {
     int value;
 
     constexpr explicit DependentConstexprVirtualBase(int initial)
         : value(initial) {}
+
+    constexpr explicit DependentConstexprVirtualBase(
+        DependentConstexprVirtualState initial)
+        : value(initial.value) {}
 
     constexpr virtual int add(int amount) const {
         return value + amount;
@@ -35,6 +43,11 @@ struct DependentConstexprVirtualDerived
     : DependentConstexprVirtualPrefix, DependentConstexprVirtualBase {
     constexpr explicit DependentConstexprVirtualDerived(int initial)
         : DependentConstexprVirtualPrefix(initial - 1),
+          DependentConstexprVirtualBase(initial) {}
+
+    constexpr explicit DependentConstexprVirtualDerived(
+        DependentConstexprVirtualState initial)
+        : DependentConstexprVirtualPrefix(initial.value - 1),
           DependentConstexprVirtualBase(initial) {}
 
     constexpr int add(int amount) const override {
@@ -256,6 +269,10 @@ static_assert(invoke_virtual_member_function_pointer_arrow_from_local(25) ==
               142);
 static_assert(invoke_virtual_member_function_pointer_arrow_from_value(
                   DependentConstexprVirtualDerived{17}, 25) == 142);
+static_assert(invoke_virtual_member_function_pointer_arrow_from_value(
+                  DependentConstexprVirtualDerived{
+                      DependentConstexprVirtualState{17}},
+                  25) == 142);
 template<typename Owner>
 using DependentMemberFunctionPointerCall = DependentPointerConstexprBox<
     Owner::has_member_function_pointer(&DependentPointerBase::add), Owner>;

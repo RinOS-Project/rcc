@@ -6508,32 +6508,50 @@ static bool sema_constexpr_materialize_cxx_constructor(
     argument = arguments;
     while (parameter && argument) {
         SemaConstexprBinding* binding;
-        SemaConstexprScalar value;
         Type* parameter_type;
         if (binding_count >= (int)(sizeof(bindings) / sizeof(bindings[0])) ||
             !parameter->decl || !(parameter_type = parameter->decl->type) ||
-            !sema_constexpr_scalar_type(parameter_type) ||
-            !sema_eval_constexpr_scalar_expr(
-                argument->expr, caller_bindings, caller_binding_count,
-                &value) ||
-            !sema_constexpr_scalar_convert(
-                &value, parameter_type, &value)) {
+            parameter_type->is_reference) {
             return false;
         }
         binding = &bindings[binding_count++];
         binding->declaration = parameter->decl;
         binding->type = parameter_type;
-        binding->value = value.integer_value;
-        binding->floating_value = value.floating_value;
-        binding->is_floating = value.is_floating;
-        binding->is_pointer = value.is_pointer;
-        binding->pointer_declaration = value.pointer_declaration;
-        binding->pointer_offset = value.pointer_offset;
-        binding->is_member_pointer = value.is_member_pointer;
-        binding->member_pointer_field = value.member_pointer_field;
-        binding->member_pointer_method = value.member_pointer_method;
-        sema_constexpr_capture_pointer_target_object(
-            binding, &value, caller_bindings, caller_binding_count);
+        if (sema_constexpr_scalar_type(parameter_type)) {
+            SemaConstexprScalar value;
+            if (!sema_eval_constexpr_scalar_expr(
+                    argument->expr, caller_bindings, caller_binding_count,
+                    &value) ||
+                !sema_constexpr_scalar_convert(
+                    &value, parameter_type, &value)) {
+                return false;
+            }
+            binding->value = value.integer_value;
+            binding->floating_value = value.floating_value;
+            binding->is_floating = value.is_floating;
+            binding->is_pointer = value.is_pointer;
+            binding->pointer_declaration = value.pointer_declaration;
+            binding->pointer_offset = value.pointer_offset;
+            binding->is_member_pointer = value.is_member_pointer;
+            binding->member_pointer_field = value.member_pointer_field;
+            binding->member_pointer_method = value.member_pointer_method;
+            sema_constexpr_capture_pointer_target_object(
+                binding, &value, caller_bindings, caller_binding_count);
+        } else if (sema_constexpr_aggregate_type(parameter_type)) {
+            if (parameter_type->size <= 0) return false;
+            binding->object_bytes = ast_arena_alloc(
+                (size_t)parameter_type->size);
+            if (!sema_constexpr_materialize_object(
+                    parameter_type, argument->expr, caller_bindings,
+                    caller_binding_count, binding->object_bytes,
+                    (size_t)parameter_type->size)) {
+                return false;
+            }
+            binding->object_size = (size_t)parameter_type->size;
+            binding->is_object = true;
+        } else {
+            return false;
+        }
         parameter = parameter->next;
         argument = argument->next;
     }
