@@ -8757,7 +8757,7 @@ remains a separate open item.
       i686/AMD64 generation plus execution gate.
 - [ ] Member-function-pointer owner/signature conversions, virtual constexpr
       dispatch outside a unique nonvirtual owner path, data-member-pointer
-      owner-conversion paths beyond three inheritance steps, other member-pointee
+      owner-conversion paths beyond four inheritance steps, other member-pointee
       cv-qualification combinations, and additional pointer conversions
       remain open.
 
@@ -8792,7 +8792,12 @@ remains a separate open item.
       the converted pointer to the nested by-value aggregate as a dependent
       constexpr argument. GCC C++20 host execution, i686/AMD64 generation,
       AMD64 execution, and the focused function-template overload gate pass.
-- [ ] Owner-conversion paths beyond three inheritance steps, additional
+- [x] Extend the same conversion through four accessible nonvirtual
+      inheritance steps and a nonzero accumulated offset. Apply the pointer to
+      the four-level nested by-value aggregate in dependent constexpr
+      selection. The exact fixture passes GCC C++20 host execution, i686/AMD64
+      generation, and AMD64 execution.
+- [ ] Owner-conversion paths beyond four inheritance steps, additional
       member-pointee cv combinations, and broader pointer conversions remain
       open.
 
