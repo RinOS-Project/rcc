@@ -181,6 +181,18 @@ struct UninitializedForLoopBodyMember {
     }
 };
 
+struct UninitializedWhileLoopBodyMember {
+    int value;
+
+    constexpr explicit UninitializedWhileLoopBodyMember(int count) {
+        int index = 0;
+        while (index < count) {
+            this->value = index;
+            ++index;
+        }
+    }
+};
+
 constexpr UninitializedNestedAggregateMember
     invalid_uninitialized_nested_aggregate_member{3};
 constexpr UninitializedArrayMember invalid_uninitialized_array_member{5};
@@ -206,3 +218,5 @@ constexpr UninitializedBodyReadBeforeWrite
     invalid_uninitialized_body_read_before_write{19};
 constexpr UninitializedForLoopBodyMember
     invalid_uninitialized_for_loop_body_member{0};
+constexpr UninitializedWhileLoopBodyMember
+    invalid_uninitialized_while_loop_body_member{0};
