@@ -185,6 +185,26 @@ struct ConstructorBodyInitializedLocals {
     }
 };
 
+struct ConstructorBodySelectedLocalMutation {
+    int value;
+    int doubled;
+
+    constexpr explicit ConstructorBodySelectedLocalMutation(
+        bool choose_first, int initial) {
+        int temporary;
+        if (choose_first) {
+            temporary = initial + 2;
+        } else {
+            temporary = initial - 2;
+        }
+        if constexpr (true) {
+            temporary += 3;
+        }
+        this->value = temporary;
+        this->doubled = temporary * 2;
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -482,6 +502,10 @@ constexpr ConstructorBodySelectedRhsBranches
     constructor_body_selected_rhs_branches{true};
 constexpr ConstructorBodyInitializedLocals
     constructor_body_initialized_locals{59};
+constexpr ConstructorBodySelectedLocalMutation
+    constructor_body_selected_local_mutation_true{true, 31};
+constexpr ConstructorBodySelectedLocalMutation
+    constructor_body_selected_local_mutation_false{false, 41};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -869,6 +893,10 @@ int main(void) {
     ConstructorBodyCompoundAssignments runtime_body_compound_assignments{4};
     ConstructorBodySelectedRhsBranches runtime_body_selected_rhs_branches{true};
     ConstructorBodyInitializedLocals runtime_body_initialized_locals{61};
+    ConstructorBodySelectedLocalMutation runtime_body_selected_local_true{
+        true, 33};
+    ConstructorBodySelectedLocalMutation runtime_body_selected_local_false{
+        false, 45};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -1009,6 +1037,10 @@ int main(void) {
                      constructor_body_selected_rhs_branches.short_or == 1 &&
                      constructor_body_initialized_locals.value == 62 &&
                      constructor_body_initialized_locals.doubled == 124 &&
+                     constructor_body_selected_local_mutation_true.value == 36 &&
+                     constructor_body_selected_local_mutation_true.doubled == 72 &&
+                     constructor_body_selected_local_mutation_false.value == 42 &&
+                     constructor_body_selected_local_mutation_false.doubled == 84 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -1031,6 +1063,10 @@ int main(void) {
                      runtime_body_selected_rhs_branches.short_or == 1 &&
                      runtime_body_initialized_locals.value == 64 &&
                      runtime_body_initialized_locals.doubled == 128 &&
+                     runtime_body_selected_local_true.value == 38 &&
+                     runtime_body_selected_local_true.doubled == 76 &&
+                     runtime_body_selected_local_false.value == 46 &&
+                     runtime_body_selected_local_false.doubled == 92 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&

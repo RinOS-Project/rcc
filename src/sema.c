@@ -8972,7 +8972,9 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             int saved_binding_count = *binding_count;
             if (!statement->if_cond) return false;
             if (statement->if_is_constexpr) {
-                if (!sema_eval_constexpr_scalar_expr(
+                if (!sema_constexpr_constructor_condition_is_pure(
+                        statement->if_cond, depth + 1u) ||
+                    !sema_eval_constexpr_scalar_expr(
                         statement->if_cond, bindings, *binding_count,
                         &condition_value)) {
                     return false;
@@ -8982,7 +8984,7 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                 return !selected ||
                     sema_constexpr_constructor_analyze_body_statement(
                         selected, cls, initialized_members, bindings,
-                        binding_count, initial_binding_count, false,
+                        binding_count, initial_binding_count, true,
                         allow_unknown_branch_join, depth + 1u);
             }
             if (!sema_constexpr_constructor_rhs_is_safe(
@@ -8990,7 +8992,9 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                     bindings, *binding_count, depth + 1u)) {
                 return false;
             }
-            if (sema_eval_constexpr_scalar_expr(
+            if (sema_constexpr_constructor_condition_is_pure(
+                    statement->if_cond, depth + 1u) &&
+                sema_eval_constexpr_scalar_expr(
                     statement->if_cond, bindings, *binding_count,
                     &condition_value)) {
                 bool condition_is_true =
@@ -9000,7 +9004,7 @@ static bool sema_constexpr_constructor_analyze_body_statement(
                 return !selected ||
                     sema_constexpr_constructor_analyze_body_statement(
                         selected, cls, initialized_members, bindings,
-                        binding_count, initial_binding_count, false,
+                        binding_count, initial_binding_count, true,
                         allow_unknown_branch_join, depth + 1u);
             }
             if (!allow_unknown_branch_join) return false;

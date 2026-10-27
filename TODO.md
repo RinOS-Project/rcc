@@ -9057,6 +9057,11 @@ remains a separate open item.
       analysis; reject read-before-write, compound assignment, and increment
       while indeterminate. Verify GCC C++20, constexpr/runtime, i686/AMD64, and
       full POSIX `test-cxx`.
+- [x] Track initialized local writes inside constexpr-selected `if` and
+      `if constexpr` constructor branches, carrying the selected local value
+      forward while keeping unresolved branch-local mutations out of joins.
+      Verify both selected paths, GCC C++20, constexpr/runtime, i686/AMD64, and
+      full POSIX `test-cxx`.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,
