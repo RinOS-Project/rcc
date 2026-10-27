@@ -11358,11 +11358,11 @@ remains a separate open item.
       redirection.
 - [x] Extend the same frame-local expression to `**identifier` pointer chains
       by loading one address-sized pointer layer per dereference before the
-      scalar load. Verify both C i686/x64 legacy and verified objects by
+      scalar load. Verify C and C++20 i686/x64 legacy and verified objects by
       interpreting the generated expression against a chained frame-memory
       model; focused `test-debug-info-inline-expression` and the full
-      debug-info verifier passed on refreshed outputs. The full Make target's
-      `cmd.exe` redirection issue is documented above.
+      debug-info verifier passed on refreshed C outputs. The full Make
+      target's `cmd.exe` redirection issue is documented above.
 - [ ] Add negative coverage for global/TLS/static, volatile/atomic,
       member-pointer, and wider-than-address-size pointee cases before
       extending support to them.

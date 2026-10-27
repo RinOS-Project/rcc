@@ -17332,6 +17332,12 @@ int main(int argc, char** argv)
                 "debug_inline_indirect_pointer_cpp_entry",
                 "debug_inline_indirect_pointer_cpp_slot",
                 NULL, "debug_inline_indirect_pointer_cpp_value", 1u);
+            verify_inline_indirect_pointer_parameter(
+                wide_paths[path_index], wide_architectures[path_index],
+                "debug_inline_indirect_pointer_cpp_chain_entry",
+                "debug_inline_indirect_pointer_cpp_chain_slot",
+                "debug_inline_indirect_pointer_cpp_chain_target",
+                "debug_inline_indirect_pointer_cpp_chain_value", 2u);
         }
         verify_inline_reference_parameter_address(
             argv[6], ARCH_X86,

@@ -247,6 +247,7 @@ long long debug_inline_nonconstant_signed_long_long_global_shift_source =
 unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_zero_source = 0u;
 int** debug_inline_indirect_pointer_cpp_slot_escape;
+int*** debug_inline_indirect_pointer_cpp_chain_slot_escape;
 }
 
 static inline int debug_nonconstant_integer_parameter_inline(int value)
@@ -263,6 +264,19 @@ extern "C" int debug_inline_indirect_pointer_cpp_entry(int value)
         &debug_inline_indirect_pointer_cpp_slot;
     return debug_nonconstant_integer_parameter_inline(
         *debug_inline_indirect_pointer_cpp_slot);
+}
+
+extern "C" int debug_inline_indirect_pointer_cpp_chain_entry(int value)
+{
+    int debug_inline_indirect_pointer_cpp_chain_value = value;
+    int* debug_inline_indirect_pointer_cpp_chain_target =
+        &debug_inline_indirect_pointer_cpp_chain_value;
+    int** debug_inline_indirect_pointer_cpp_chain_slot =
+        &debug_inline_indirect_pointer_cpp_chain_target;
+    debug_inline_indirect_pointer_cpp_chain_slot_escape =
+        &debug_inline_indirect_pointer_cpp_chain_slot;
+    return debug_nonconstant_integer_parameter_inline(
+        **debug_inline_indirect_pointer_cpp_chain_slot);
 }
 
 static inline unsigned long long
