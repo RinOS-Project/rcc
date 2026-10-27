@@ -1380,6 +1380,54 @@ debug_inline_nonconstant_signed_long_long_tls_static_pair_ne_entry(void)
 }
 
 extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_add_entry(void)
+{
+    static thread_local long long lhs = 0x1ffffffffLL;
+    static thread_local long long rhs = 1LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(lhs + rhs);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_sub_entry(void)
+{
+    static thread_local long long lhs = 0x100000000LL;
+    static thread_local long long rhs = 0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(lhs - rhs);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_and_entry(void)
+{
+    static thread_local long long lhs = -0x0123456789abcdefLL;
+    static thread_local long long rhs = 0x70000000fedcba98LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(lhs & rhs);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_or_entry(void)
+{
+    static thread_local long long lhs = -0x0123456789abcdefLL;
+    static thread_local long long rhs = 0x70000000fedcba98LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(lhs | rhs);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_xor_entry(void)
+{
+    static thread_local long long lhs = -0x0123456789abcdefLL;
+    static thread_local long long rhs = 0x70000000fedcba98LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(lhs ^ rhs);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_mul_entry(void)
+{
+    static thread_local long long lhs = 0x200000001LL;
+    static thread_local long long rhs = 3LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(lhs * rhs);
+}
+
+extern "C" long long
 debug_inline_nonconstant_signed_long_long_global_pair_and_entry(void)
 {
     return debug_nonconstant_signed_long_long_parameter_inline(

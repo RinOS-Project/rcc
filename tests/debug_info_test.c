@@ -14104,6 +14104,18 @@ static void verify_inline_i686_global_shift_parameter(
             ? "debug_inline_nonconstant_signed_long_long_tls_static_pair_eq_entry"
         : operation == 0xa5u
             ? "debug_inline_nonconstant_signed_long_long_tls_static_pair_ne_entry"
+        : operation == 0xa6u
+            ? "debug_inline_nonconstant_signed_long_long_tls_static_pair_add_entry"
+        : operation == 0xa7u
+            ? "debug_inline_nonconstant_signed_long_long_tls_static_pair_sub_entry"
+        : operation == 0xa8u
+            ? "debug_inline_nonconstant_signed_long_long_tls_static_pair_and_entry"
+        : operation == 0xa9u
+            ? "debug_inline_nonconstant_signed_long_long_tls_static_pair_or_entry"
+        : operation == 0xaau
+            ? "debug_inline_nonconstant_signed_long_long_tls_static_pair_xor_entry"
+        : operation == 0xabu
+            ? "debug_inline_nonconstant_signed_long_long_tls_static_pair_mul_entry"
         : operation == 0x82u
             ? "debug_inline_nonconstant_signed_long_long_global_pair_add_entry"
         : operation == 0x83u
@@ -14172,7 +14184,7 @@ static void verify_inline_i686_global_shift_parameter(
     const char* inline_name = operation == 0x55u || operation == 0x56u ||
             (operation >= 0x82u && operation <= 0x8du) ||
             (operation >= 0x94u && operation <= 0x99u) ||
-            (operation >= 0xa0u && operation <= 0xa5u) ||
+            (operation >= 0xa0u && operation <= 0xabu) ||
             operation == 0x6au || operation == 0x6bu ||
             operation == 0x6eu || operation == 0x6fu ||
             operation == 0x72u || operation == 0x73u ||
@@ -14224,7 +14236,7 @@ static void verify_inline_i686_global_shift_parameter(
         ? "debug_inline_nonconstant_unsigned_long_long_tls_compare_lhs"
         : operation >= 0x94u && operation <= 0x99u
         ? "debug_inline_nonconstant_signed_long_long_tls_compare_lhs"
-        : operation >= 0x9au && operation <= 0xa5u
+        : operation >= 0x9au && operation <= 0xabu
         ? NULL
         : operation == 0x82u
         ? "debug_inline_nonconstant_signed_long_long_global_add_lhs"
@@ -14254,7 +14266,7 @@ static void verify_inline_i686_global_shift_parameter(
         ? "debug_inline_nonconstant_unsigned_long_long_tls_compare_rhs"
         : operation >= 0x94u && operation <= 0x99u
         ? "debug_inline_nonconstant_signed_long_long_tls_compare_rhs"
-        : operation >= 0x9au && operation <= 0xa5u
+        : operation >= 0x9au && operation <= 0xabu
         ? NULL
         : operation == 0x82u
         ? "debug_inline_nonconstant_signed_long_long_global_add_rhs"
@@ -14300,7 +14312,7 @@ static void verify_inline_i686_global_shift_parameter(
     };
 
     assert(path != NULL && call_site_name != NULL && operation >= 0x51u &&
-        operation <= 0xa5u);
+        operation <= 0xabu);
     object = objfile_read(path);
     assert(object != NULL && object->arch == ARCH_X86);
     info = objfile_get_section(object, ".debug_info");
@@ -14345,12 +14357,19 @@ static void verify_inline_i686_global_shift_parameter(
             info->data, info->size, &expression_offset);
         assert(expression_offset + expression_size <= info->size &&
                info->data[expression_offset] ==
-                   ((operation >= 0x88u && operation <= 0xa5u)
+                   ((operation >= 0x88u && operation <= 0xabu)
                         ? 0x0du : 0x03u));
-        if (operation >= 0x9au && operation <= 0xa5u) {
+        if (operation >= 0x9au && operation <= 0xabu) {
             static const char static_local_prefix[] =
                 "tests/debug_info_inline_integer.cpp::";
             const char* static_symbols[2] = {NULL, NULL};
+            uint64_t expected_static_left =
+                operation <= 0xa5u ? UINT64_C(0x7ffffffffffffff0) :
+                operation == 0xa6u ? UINT64_C(0x1ffffffff) :
+                operation == 0xa7u ? UINT64_C(0x100000000) :
+                operation >= 0xa8u && operation <= 0xaau
+                    ? UINT64_C(0xfedcba9876543211)
+                    : UINT64_C(0x200000001);
             size_t static_symbol_count = 0u;
             for (const ObjReloc* relocation = info->relocs; relocation;
                  relocation = relocation->next) {
@@ -14379,13 +14398,13 @@ static void verify_inline_i686_global_shift_parameter(
             assert(static_symbol_count == 2u);
             if (verify_inline_global_storage(
                     object, static_symbols[0], 8u) ==
-                UINT64_C(0x7ffffffffffffff0)) {
+                expected_static_left) {
                 source_name = static_symbols[0];
                 count_name = static_symbols[1];
             } else {
                 assert(verify_inline_global_storage(
                            object, static_symbols[1], 8u) ==
-                       UINT64_C(0x7ffffffffffffff0));
+                       expected_static_left);
                 source_name = static_symbols[1];
                 count_name = static_symbols[0];
             }
@@ -14418,7 +14437,7 @@ static void verify_inline_i686_global_shift_parameter(
             }
             assert(source_relocations == 2u);
         } else if ((operation >= 0x5bu && operation <= 0x66u) ||
-                   (operation >= 0x82u && operation <= 0xa5u)) {
+                   (operation >= 0x82u && operation <= 0xabu)) {
             size_t left_relocations = 0u;
             size_t right_relocations = 0u;
             for (const ObjReloc* relocation = info->relocs; relocation;
@@ -14429,7 +14448,7 @@ static void verify_inline_i686_global_shift_parameter(
                     continue;
                 }
                 assert(relocation->type ==
-                    ((operation >= 0x88u && operation <= 0xa5u)
+                    ((operation >= 0x88u && operation <= 0xabu)
                          ? RELOC_TLSOFF32S : RELOC_ABS32U));
                 if (strcmp(relocation->symbol_name, source_name) == 0) {
                     ++left_relocations;
@@ -14451,6 +14470,10 @@ static void verify_inline_i686_global_shift_parameter(
                 operation >= 0x9au && operation <= 0xa5u
                     ? (operation == 0x9eu || operation == 0x9fu ||
                        operation == 0xa4u || operation == 0xa5u ? 2u : 3u) :
+                operation >= 0xa6u && operation <= 0xabu
+                    ? operation == 0xa6u ? 4u :
+                      operation == 0xa7u ? 3u :
+                      operation >= 0xa8u && operation <= 0xaau ? 2u : 9u :
                 operation == 0x66u || operation == 0x87u ||
                     operation == 0x8du ? 9u :
                 operation <= 0x5fu ? 2u :
@@ -14459,7 +14482,8 @@ static void verify_inline_i686_global_shift_parameter(
                    right_relocations ==
                        (operation <= 0x5cu || operation == 0x82u ||
                         operation == 0x83u || operation == 0x88u ||
-                        operation == 0x89u ? 3u : expected_each));
+                        operation == 0x89u || operation == 0xa6u
+                            ? 3u : expected_each));
         }
     }
     source_value = verify_inline_global_storage(
@@ -14515,6 +14539,11 @@ static void verify_inline_i686_global_shift_parameter(
                     ? UINT64_C(0x7ffffffffffffff0)
                 : operation >= 0x9au && operation <= 0xa5u
                     ? UINT64_C(0x7ffffffffffffff0)
+                : operation == 0xa6u ? UINT64_C(0x1ffffffff)
+                : operation == 0xa7u ? UINT64_C(0x100000000)
+                : operation >= 0xa8u && operation <= 0xaau
+                    ? UINT64_C(0xfedcba9876543211)
+                : operation == 0xabu ? UINT64_C(0x200000001)
                 : operation == 0x82u
                     ? UINT64_C(0x1ffffffff)
                 : operation == 0x83u
@@ -14545,10 +14574,16 @@ static void verify_inline_i686_global_shift_parameter(
               count_value == UINT64_C(0xfedcba9876543217)) ||
              (operation >= 0x9au && operation <= 0xa5u &&
               count_value == UINT64_C(0xfedcba9876543217)) ||
+             (operation == 0xa6u && count_value == 1u) ||
+             (operation == 0xa7u &&
+              count_value == UINT64_C(0x100000001)) ||
+             (operation >= 0xa8u && operation <= 0xaau &&
+              count_value == UINT64_C(0x70000000fedcba98)) ||
+             (operation == 0xabu && count_value == 3u) ||
              (operation == 0x87u &&
               count_value == UINT64_C(0xfffffffffffffffd)) ||
              ((operation < 0x5bu || operation > 0x66u) &&
-              (operation < 0x82u || operation > 0xa5u) &&
+              (operation < 0x82u || operation > 0xabu) &&
               count_value == 4u))));
     if (operation == 0x57u) {
         for (size_t index = 0u;
@@ -14605,7 +14640,7 @@ static void verify_inline_i686_global_shift_parameter(
                        source_name, value, NULL, 0u) == expected);
         }
     } else if ((operation >= 0x5bu && operation <= 0x66u) ||
-               (operation >= 0x82u && operation <= 0xa5u)) {
+               (operation >= 0x82u && operation <= 0xabu)) {
         struct InlineI686U64TestPair { uint64_t left; uint64_t right; };
         static const struct InlineI686U64TestPair test_pairs[] = {
             {0u, 0u},
@@ -14692,6 +14727,11 @@ static void verify_inline_i686_global_shift_parameter(
             ((operation >= 0x94u && operation <= 0x99u) ||
              (operation >= 0xa0u && operation <= 0xa5u))
                 ? tls_signed_compare_pairs :
+            operation == 0xa6u ? tls_signed_add_pairs :
+            operation == 0xa7u ? signed_sub_pairs :
+            operation >= 0xa8u && operation <= 0xaau
+                ? signed_bitwise_pairs :
+            operation == 0xabu ? tls_signed_multiply_pairs :
             operation == 0x87u ? signed_multiply_pairs : test_pairs;
         size_t pair_count = operation == 0x88u
             ? sizeof(tls_signed_add_pairs) / sizeof(tls_signed_add_pairs[0])
@@ -14712,6 +14752,15 @@ static void verify_inline_i686_global_shift_parameter(
                (operation >= 0xa0u && operation <= 0xa5u))
             ? sizeof(tls_signed_compare_pairs) /
                 sizeof(tls_signed_compare_pairs[0])
+            : operation == 0xa6u
+            ? sizeof(tls_signed_add_pairs) / sizeof(tls_signed_add_pairs[0])
+            : operation == 0xa7u
+            ? sizeof(signed_sub_pairs) / sizeof(signed_sub_pairs[0])
+            : operation >= 0xa8u && operation <= 0xaau
+            ? sizeof(signed_bitwise_pairs) / sizeof(signed_bitwise_pairs[0])
+            : operation == 0xabu
+            ? sizeof(tls_signed_multiply_pairs) /
+                sizeof(tls_signed_multiply_pairs[0])
             : sizeof(test_pairs) / sizeof(test_pairs[0]);
         for (size_t index = 0u;
              index < pair_count; ++index) {
@@ -14742,6 +14791,12 @@ static void verify_inline_i686_global_shift_parameter(
                 operation == 0xa3u ? (int64_t)right >= (int64_t)left :
                 operation == 0xa4u ? left == right :
                 operation == 0xa5u ? left != right :
+                operation == 0xabu ? left * right :
+                operation == 0xa6u ? left + right :
+                operation == 0xa7u ? left - right :
+                operation == 0xa8u ? left & right :
+                operation == 0xa9u ? left | right :
+                operation == 0xaau ? left ^ right :
                 operation == 0x66u || operation == 0x87u ||
                     operation == 0x8du ? left * right :
                 operation == 0x5bu || operation == 0x82u ||
@@ -14756,7 +14811,7 @@ static void verify_inline_i686_global_shift_parameter(
             assert(verify_inline_i686_global_shift_expression_kind(
                        object, info, expression_offset, expression_size,
                        source_name, left, count_name, right,
-                       operation >= 0x88u && operation <= 0xa5u) == expected);
+                       operation >= 0x88u && operation <= 0xabu) == expected);
         }
     } else {
         for (size_t index = 0u;
@@ -16517,6 +16572,18 @@ int main(int argc, char** argv)
         verify_inline_i686_global_shift_parameter(argv[8], 0xa4u);
         verify_inline_i686_global_shift_parameter(argv[6], 0xa5u);
         verify_inline_i686_global_shift_parameter(argv[8], 0xa5u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0xa6u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0xa6u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0xa7u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0xa7u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0xa8u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0xa8u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0xa9u);
+        verify_inline_i686_global_shift_parameter(argv[8], 0xa9u);
+        verify_inline_i686_global_shift_parameter(argv[6], 0xaau);
+        verify_inline_i686_global_shift_parameter(argv[8], 0xaau);
+        verify_inline_i686_global_shift_parameter(argv[6], 0xabu);
+        verify_inline_i686_global_shift_parameter(argv[8], 0xabu);
         verify_inline_i686_global_shift_parameter(argv[6], 0x84u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x84u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x85u);

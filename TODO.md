@@ -11029,8 +11029,9 @@ remains a separate open item.
       signed boundary pairs (including `INT64_MIN - (-1)`), and results in
       normal and verified C++20 objects. The focused
       `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
-- [ ] Function-local static operands, volatile/reference/atomic operands, and
-      broader optimized multi-piece locations remain open.
+- [ ] Unsigned and non-TLS function-local static arithmetic, volatile/
+      reference/atomic operands, and broader optimized multi-piece locations
+      remain open.
 
 ## RCC continuation (2026-10-28, signed i686 TLS bitwise DWARF)
 
@@ -11040,8 +11041,9 @@ remains a separate open item.
       values, signed bit-pattern pairs, and results in normal and verified C++20
       objects. The focused `test-debug-info-inline-expression` gate passes under
       WSL2 Ubuntu-24.04.
-- [ ] Function-local static operands, volatile/reference/atomic operands, and
-      broader optimized multi-piece locations remain open.
+- [ ] Unsigned and non-TLS function-local static arithmetic, volatile/
+      reference/atomic operands, and broader optimized multi-piece locations
+      remain open.
 
 ## RCC continuation (2026-10-28, signed i686 TLS multiplication DWARF)
 
@@ -11051,8 +11053,9 @@ remains a separate open item.
       partial-product/carry cases, and signed boundary pairs in normal and
       verified C++20 objects. The focused
       `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
-- [ ] Function-local static operands, volatile/reference/atomic operands, and
-      broader optimized multi-piece locations remain open.
+- [ ] Unsigned and non-TLS function-local static arithmetic, volatile/
+      reference/atomic operands, and broader optimized multi-piece locations
+      remain open.
 
 ## RCC continuation (2026-10-28, unsigned i686 TLS comparison DWARF)
 
@@ -11089,3 +11092,16 @@ remains a separate open item.
 - [ ] Function-local static operands for other arithmetic operations,
       non-TLS static storage, volatile/reference/atomic operands, and broader
       optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, function-local static TLS arithmetic)
+
+- [x] Extend signed i686 64-bit global-pair addition, subtraction, AND, OR,
+      XOR, and multiplication expressions to block-scope `static thread_local`
+      operands. Scope local TLS relocation symbols to the source module and
+      verify exact operand relocation counts, initialized values, carry/borrow,
+      partial products, bit patterns, and expression results in normal and
+      verified C++20 objects. The focused
+      `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
+- [ ] Unsigned static TLS arithmetic, non-TLS static storage,
+      volatile/reference/atomic operands, and broader optimized multi-piece
+      locations remain open.
