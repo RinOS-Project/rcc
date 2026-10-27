@@ -139,6 +139,12 @@ debug_inline_nonconstant_signed_long_long_tls_sub_lhs =
     (-0x7fffffffffffffffLL - 1LL);
 thread_local long long debug_inline_nonconstant_signed_long_long_tls_sub_rhs =
     -1LL;
+thread_local long long
+debug_inline_nonconstant_signed_long_long_tls_bitwise_lhs =
+    -0x0123456789abcdefLL;
+thread_local long long
+debug_inline_nonconstant_signed_long_long_tls_bitwise_rhs =
+    0x70000000fedcba98LL;
 long long debug_inline_nonconstant_signed_long_long_global_bitwise_lhs =
     -0x0123456789abcdefLL;
 long long debug_inline_nonconstant_signed_long_long_global_bitwise_rhs =
@@ -1035,6 +1041,30 @@ debug_inline_nonconstant_signed_long_long_tls_pair_sub_entry(void)
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_tls_sub_lhs -
         debug_inline_nonconstant_signed_long_long_tls_sub_rhs);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_pair_and_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_tls_bitwise_lhs &
+        debug_inline_nonconstant_signed_long_long_tls_bitwise_rhs);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_pair_or_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_tls_bitwise_lhs |
+        debug_inline_nonconstant_signed_long_long_tls_bitwise_rhs);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_pair_xor_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_tls_bitwise_lhs ^
+        debug_inline_nonconstant_signed_long_long_tls_bitwise_rhs);
 }
 
 extern "C" long long

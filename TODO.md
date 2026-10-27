@@ -10839,7 +10839,7 @@ remains a separate open item.
       negative initialized globals, exact relocations, and six bit-pattern
       pairs in legacy and verified objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] TLS/static-local or volatile/reference/atomic operands, and broader
+- [ ] Function-local static, volatile/reference/atomic operands, and broader
       optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-26, signed i686 global 64-bit multiplication)
@@ -11029,5 +11029,16 @@ remains a separate open item.
       signed boundary pairs (including `INT64_MIN - (-1)`), and results in
       normal and verified C++20 objects. The focused
       `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
+- [ ] Function-local static operands, volatile/reference/atomic operands, and
+      broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, signed i686 TLS bitwise DWARF)
+
+- [x] Extend signed i686 64-bit global-pair AND, OR, and XOR inline expressions
+      to TLS operands, using `DW_OP_const4s`, `DW_OP_form_tls_address`, and
+      `RELOC_TLSOFF32S`. Verify two relocations per operand, initialized TLS
+      values, signed bit-pattern pairs, and results in normal and verified C++20
+      objects. The focused `test-debug-info-inline-expression` gate passes under
+      WSL2 Ubuntu-24.04.
 - [ ] Function-local static operands, volatile/reference/atomic operands, and
       broader optimized multi-piece locations remain open.
