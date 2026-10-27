@@ -1199,6 +1199,186 @@ debug_inline_nonconstant_signed_long_long_tls_pair_ne_entry(void)
             debug_inline_nonconstant_signed_long_long_tls_compare_rhs));
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_pair_lt_entry(void)
+{
+    static thread_local unsigned long long
+        lhs =
+            0x7ffffffffffffff0ULL;
+    static thread_local unsigned long long
+        rhs =
+            0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            lhs <
+            rhs));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_pair_le_entry(void)
+{
+    static thread_local unsigned long long
+        lhs =
+            0x7ffffffffffffff0ULL;
+    static thread_local unsigned long long
+        rhs =
+            0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            lhs <=
+            rhs));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_pair_gt_entry(void)
+{
+    static thread_local unsigned long long
+        lhs =
+            0x7ffffffffffffff0ULL;
+    static thread_local unsigned long long
+        rhs =
+            0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            rhs >
+            lhs));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_pair_ge_entry(void)
+{
+    static thread_local unsigned long long
+        lhs =
+            0x7ffffffffffffff0ULL;
+    static thread_local unsigned long long
+        rhs =
+            0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            rhs >=
+            lhs));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_pair_eq_entry(void)
+{
+    static thread_local unsigned long long
+        lhs =
+            0x7ffffffffffffff0ULL;
+    static thread_local unsigned long long
+        rhs =
+            0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            lhs ==
+            rhs));
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_pair_ne_entry(void)
+{
+    static thread_local unsigned long long
+        lhs =
+            0x7ffffffffffffff0ULL;
+    static thread_local unsigned long long
+        rhs =
+            0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        static_cast<unsigned long long>(
+            lhs !=
+            rhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_lt_entry(void)
+{
+    static thread_local long long
+        lhs =
+            0x7ffffffffffffff0LL;
+    static thread_local long long
+        rhs =
+            -0x0123456789abcde9LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            lhs <
+            rhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_le_entry(void)
+{
+    static thread_local long long
+        lhs =
+            0x7ffffffffffffff0LL;
+    static thread_local long long
+        rhs =
+            -0x0123456789abcde9LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            lhs <=
+            rhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_gt_entry(void)
+{
+    static thread_local long long
+        lhs =
+            0x7ffffffffffffff0LL;
+    static thread_local long long
+        rhs =
+            -0x0123456789abcde9LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            rhs >
+            lhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_ge_entry(void)
+{
+    static thread_local long long
+        lhs =
+            0x7ffffffffffffff0LL;
+    static thread_local long long
+        rhs =
+            -0x0123456789abcde9LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            rhs >=
+            lhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_eq_entry(void)
+{
+    static thread_local long long
+        lhs =
+            0x7ffffffffffffff0LL;
+    static thread_local long long
+        rhs =
+            -0x0123456789abcde9LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            lhs ==
+            rhs));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_ne_entry(void)
+{
+    static thread_local long long
+        lhs =
+            0x7ffffffffffffff0LL;
+    static thread_local long long
+        rhs =
+            -0x0123456789abcde9LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        static_cast<long long>(
+            lhs !=
+            rhs));
+}
+
 extern "C" long long
 debug_inline_nonconstant_signed_long_long_global_pair_and_entry(void)
 {

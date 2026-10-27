@@ -12006,9 +12006,10 @@ static bool debug_inline_parameter_i686_u64_global_pair_comparison_expression(
     left_source = left_expression->ident_decl;
     right_source = right_expression->ident_decl;
     if (!left_source || !right_source || left_source->kind != DECL_VAR ||
-        right_source->kind != DECL_VAR || !left_source->var_is_global ||
-        !right_source->var_is_global || left_source->var_is_static_local ||
-        right_source->var_is_static_local || left_source->var_is_vla ||
+        right_source->kind != DECL_VAR ||
+        !(left_source->var_is_global || left_source->var_is_static_local) ||
+        !(right_source->var_is_global || right_source->var_is_static_local) ||
+        left_source->var_is_vla ||
         right_source->var_is_vla || !left_source->type || !right_source->type ||
         left_source->type->size != 8u || right_source->type->size != 8u ||
         left_source->type->is_volatile || right_source->type->is_volatile ||
@@ -14719,14 +14720,19 @@ static void debug_emit_inline_parameter_instances(
                  ++relocation_index) {
                 const ModuleSymbol* relocation_symbol =
                     integer_value_relocation_symbols[relocation_index];
+                char* scoped_relocation_symbol = relocation_symbol->is_global
+                    ? NULL : module_scoped_symbol(
+                          filename, relocation_symbol->name);
                 objfile_add_reloc(
                     obj, info_section,
                     expression_offset +
                         integer_value_relocation_offsets[relocation_index],
-                    relocation_symbol->name,
+                    scoped_relocation_symbol
+                        ? scoped_relocation_symbol : relocation_symbol->name,
                     relocation_symbol->section == MODULE_SYMBOL_TLS
                         ? RELOC_TLSOFF32S : RELOC_ABS32U,
                     0);
+                rcc_free(scoped_relocation_symbol);
             }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&

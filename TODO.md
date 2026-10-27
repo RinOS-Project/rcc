@@ -11063,8 +11063,8 @@ remains a separate open item.
       high-bit unsigned ordering, equality boundaries, and expression results
       in normal and verified C++20 objects. The focused
       `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
-- [ ] Function-local static operands, volatile/reference/atomic operands,
-      and broader optimized multi-piece locations remain open.
+- [ ] Function-local static arithmetic operands, volatile/reference/atomic
+      operands, and broader optimized multi-piece locations remain open.
 
 ## RCC continuation (2026-10-28, signed i686 TLS comparison DWARF)
 
@@ -11074,5 +11074,18 @@ remains a separate open item.
       `TLSOFF32S` relocation identities, equality and signed-boundary pairs,
       and expression results in normal and verified C++20 objects. The focused
       `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
-- [ ] Function-local static operands, volatile/reference/atomic operands, and
-      broader optimized multi-piece locations remain open.
+- [ ] Function-local static arithmetic operands, volatile/reference/atomic
+      operands, and broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, function-local static TLS comparisons)
+
+- [x] Extend signed and unsigned i686 64-bit global-pair comparison
+      expressions to block-scope `static thread_local` operands for all six
+      relational/equality operators. Scope local TLS symbol relocations to the
+      source module and verify their identities, initialized values, signed
+      boundaries, and expression results in normal and verified C++20 objects.
+      The focused `test-debug-info-inline-expression` gate passes under WSL2
+      Ubuntu-24.04.
+- [ ] Function-local static operands for other arithmetic operations,
+      non-TLS static storage, volatile/reference/atomic operands, and broader
+      optimized multi-piece locations remain open.
