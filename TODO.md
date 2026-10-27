@@ -11322,3 +11322,12 @@ remains a separate open item.
       result in legacy and verified C++20 objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` gates pass
       with `make SHELL=cmd.exe`.
+
+## RCC continuation (2026-10-28, signed volatile x64 TLS shift DWARF)
+
+- [x] Verify signed x64 computed inline-parameter expressions reading
+      volatile namespace-scope TLS source/count objects. Check exactly one
+      `TLSOFF32S` relocation per operand, `DW_OP_form_tls_address`, and the
+      negative arithmetic-right-shift result in legacy and verified C++20
+      objects. Focused `test-debug-info-inline-expression` and full
+      `test-debug-info` gates pass with `make SHELL=cmd.exe`.
