@@ -397,16 +397,18 @@ struct ConstructorBodyPointerLocal {
     }
 };
 
-struct ConstructorBodyConstReferenceLocal {
+struct ConstructorBodyScalarReferenceLocal {
     int value;
     double floating_value;
 
-    constexpr explicit ConstructorBodyConstReferenceLocal(int initial) {
+    constexpr explicit ConstructorBodyScalarReferenceLocal(int initial) {
         int local = initial + 4;
-        const int& reference = local;
-        const int& chained_reference = reference;
-        local += 2;
-        this->value = chained_reference;
+        const int& const_reference = local;
+        local += 1;
+        int& mutable_reference = local;
+        int& chained_reference = mutable_reference;
+        chained_reference += 1;
+        this->value = const_reference;
 
         double floating_local = initial * 0.5 + 0.25;
         const double& floating_reference = floating_local;
@@ -742,8 +744,8 @@ constexpr ConstructorBodySwitch constructor_body_switch_default{7, 40};
 constexpr ConstructorBodyConstexprCall constructor_body_constexpr_call{22};
 constexpr ConstructorBodyFloatingLocal constructor_body_floating_local{4};
 constexpr ConstructorBodyPointerLocal constructor_body_pointer_local{4};
-constexpr ConstructorBodyConstReferenceLocal
-    constructor_body_const_reference_local{4};
+constexpr ConstructorBodyScalarReferenceLocal
+    constructor_body_scalar_reference_local{4};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -1157,7 +1159,7 @@ int main(void) {
     ConstructorBodyConstexprCall runtime_body_constexpr_call{28};
     ConstructorBodyFloatingLocal runtime_body_floating_local{5};
     ConstructorBodyPointerLocal runtime_body_pointer_local{5};
-    ConstructorBodyConstReferenceLocal runtime_body_const_reference_local{5};
+    ConstructorBodyScalarReferenceLocal runtime_body_scalar_reference_local{5};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -1326,8 +1328,8 @@ int main(void) {
                              .assigned_after_default_initialization == 2.25 &&
                      constructor_body_pointer_local.value == 7 &&
                      constructor_body_pointer_local.floating_value == 2.25 &&
-                     constructor_body_const_reference_local.value == 10 &&
-                     constructor_body_const_reference_local.floating_value ==
+                     constructor_body_scalar_reference_local.value == 10 &&
+                     constructor_body_scalar_reference_local.floating_value ==
                          2.75 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
@@ -1379,8 +1381,8 @@ int main(void) {
                              .assigned_after_default_initialization == 2.75 &&
                      runtime_body_pointer_local.value == 8 &&
                      runtime_body_pointer_local.floating_value == 2.75 &&
-                     runtime_body_const_reference_local.value == 11 &&
-                     runtime_body_const_reference_local.floating_value ==
+                     runtime_body_scalar_reference_local.value == 11 &&
+                     runtime_body_scalar_reference_local.floating_value ==
                          3.25 &&
                    default_initialized.before +
                            default_initialized.initialized +

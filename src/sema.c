@@ -8926,7 +8926,7 @@ static bool sema_constexpr_constructor_update_local(
         expression, bindings, binding_count, &ignored_value);
 }
 
-static bool sema_constexpr_const_scalar_reference_target(
+static bool sema_constexpr_scalar_reference_target(
     Decl* declaration, SemaConstexprBinding* bindings, int binding_count,
     int* target_index) {
     Type* reference_type;
@@ -8940,7 +8940,7 @@ static bool sema_constexpr_const_scalar_reference_target(
         declaration->type->is_rvalue_reference ||
         declaration->type->cxx_is_member_pointer ||
         !(reference_type = declaration->type->base) ||
-        !reference_type->is_const || reference_type->is_volatile ||
+        reference_type->is_volatile ||
         reference_type->kind == TYPE_PTR ||
         !sema_constexpr_scalar_type(reference_type) || !bindings ||
         !target_index) {
@@ -8958,6 +8958,8 @@ static bool sema_constexpr_const_scalar_reference_target(
         !bindings[index].type ||
         bindings[index].type->kind == TYPE_PTR ||
         !sema_constexpr_scalar_type(bindings[index].type) ||
+        bindings[index].type->is_volatile ||
+        (!reference_type->is_const && bindings[index].type->is_const) ||
         bindings[index].is_constexpr_uninitialized_local ||
         !type_is_compatible(reference_type, bindings[index].type) ||
         !sema_eval_constexpr_scalar_expr(
@@ -9027,7 +9029,7 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             bindings[*binding_count].declaration = declaration;
             if (scalar_reference_local) {
                 int target_index;
-                if (!sema_constexpr_const_scalar_reference_target(
+                if (!sema_constexpr_scalar_reference_target(
                         declaration, bindings, *binding_count,
                         &target_index)) {
                     return false;
@@ -10566,7 +10568,7 @@ static bool sema_eval_constexpr_scalar_statement(
                 declaration->type->is_reference) {
                 int target_index;
                 if (*binding_count >= 64 ||
-                    !sema_constexpr_const_scalar_reference_target(
+                    !sema_constexpr_scalar_reference_target(
                         declaration, bindings, *binding_count,
                         &target_index)) {
                     return false;
