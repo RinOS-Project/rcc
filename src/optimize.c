@@ -1544,6 +1544,64 @@ static bool inline_scalar_expression_shape(
     }
 }
 
+static bool inline_scalar_argument_volatile_read_tree(
+    const Expr* expression) {
+    if (!expression) return false;
+    switch (expression->kind) {
+        case EXPR_IDENT:
+            return expression->ident_decl &&
+                (expression->ident_decl->kind == DECL_VAR ||
+                 expression->ident_decl->kind == DECL_PARAM) &&
+                expression->ident_decl->type &&
+                !expression->ident_decl->type->is_reference &&
+                !expression->ident_decl->type->is_atomic &&
+                expression->type && type_is_scalar(expression->type);
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+            return true;
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_CAST:
+            return inline_scalar_argument_volatile_read_tree(
+                expression->kind == EXPR_CAST
+                    ? expression->cast_expr : expression->unary_operand);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return inline_scalar_argument_volatile_read_tree(
+                       expression->binary_lhs) &&
+                inline_scalar_argument_volatile_read_tree(
+                    expression->binary_rhs);
+        case EXPR_COND:
+            return inline_scalar_argument_volatile_read_tree(
+                       expression->cond_test) &&
+                inline_scalar_argument_volatile_read_tree(
+                    expression->cond_then) &&
+                inline_scalar_argument_volatile_read_tree(
+                    expression->cond_else);
+        default:
+            return false;
+    }
+}
+
 static bool inline_scalar_parameter_conversion(
     Type* parameter_type, Type* argument_type) {
     bool function_pointer_decay = parameter_type && argument_type &&
@@ -2864,7 +2922,10 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                                      argument->expr->type) &&
                  !inline_scalar_parameter_conversion(
                      parameter->decl->type, argument->expr->type)) ||
-                expression_has_side_effect(argument->expr)) {
+                (expression_has_side_effect(argument->expr) &&
+                 (!g_opts.debug_info || parameter_count != 1u ||
+                  !inline_scalar_argument_volatile_read_tree(
+                      argument->expr)))) {
                 return false;
             }
             bindings[binding_count].parameter = parameter->decl;
@@ -2990,6 +3051,12 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         !inline_scalar_expression_shape(returned, bindings, binding_count) ||
         expression_has_side_effect(returned)) {
         return false;
+    }
+    for (index = 0u; index < binding_count; ++index) {
+        if (expression_has_side_effect(bindings[index].argument) &&
+            bindings[index].uses != 1u) {
+            return false;
+        }
     }
     for (index = 0u; index < binding_count; ++index) {
         size_t cost;

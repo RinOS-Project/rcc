@@ -4935,6 +4935,14 @@ static bool debug_inline_integer_expression_type(const Type* type) {
          type->kind == TYPE_ENUM);
 }
 
+static bool debug_inline_integer_expression_type_allow_volatile(
+    const Type* type) {
+    return type && !type->is_reference && !type->is_atomic &&
+        type->size > 0 && type->size <= 8 &&
+        ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+         type->kind == TYPE_ENUM);
+}
+
 static uint8_t debug_inline_integer_comparison_opcode(ExprKind kind) {
     switch (kind) {
         case EXPR_EQ: return 0x29u;
@@ -8360,6 +8368,7 @@ typedef struct DebugInlineI686ExpressionRelocations {
     size_t capacity;
     size_t* count;
     bool allow_tls;
+    bool allow_volatile;
 } DebugInlineI686ExpressionRelocations;
 
 static bool debug_inline_parameter_i686_append_global_integer(
@@ -8400,10 +8409,11 @@ static bool debug_inline_parameter_i686_append_global_integer(
             expression, capacity, size, width);
 }
 
-static bool debug_inline_parameter_i686_append_storage_u32(
+static bool debug_inline_parameter_i686_append_storage_u32_impl(
     const Module* mod, const Decl* source, int64_t frame_offset,
     bool high_word, uint8_t* expression, size_t capacity, size_t* size,
-    DebugInlineI686ExpressionRelocations* relocations) {
+    DebugInlineI686ExpressionRelocations* relocations,
+    bool allow_volatile) {
     bool is_tls;
     if (!mod || !source || !expression || !size) return false;
     if (source->var_is_global || source->var_is_static_local) {
@@ -8412,7 +8422,8 @@ static bool debug_inline_parameter_i686_append_storage_u32(
         if (source->kind != DECL_VAR ||
             (is_tls && (!relocations || !relocations->allow_tls)) ||
             !source->type ||
-            source->type->is_volatile || source->type->is_reference ||
+            (source->type->is_volatile && !allow_volatile) ||
+            source->type->is_reference ||
             source->type->is_atomic || !relocations ||
             !relocations->offsets || !relocations->symbols ||
             !relocations->count ||
@@ -8469,6 +8480,15 @@ static bool debug_inline_parameter_i686_append_storage_u32(
     }
     return debug_inline_integer_expression_append_frame_u32(
         expression, capacity, size, ARCH_X86, frame_offset);
+}
+
+static bool debug_inline_parameter_i686_append_storage_u32(
+    const Module* mod, const Decl* source, int64_t frame_offset,
+    bool high_word, uint8_t* expression, size_t capacity, size_t* size,
+    DebugInlineI686ExpressionRelocations* relocations) {
+    return debug_inline_parameter_i686_append_storage_u32_impl(
+        mod, source, frame_offset, high_word, expression, capacity, size,
+        relocations, relocations && relocations->allow_volatile);
 }
 
 static bool debug_inline_parameter_i686_u64_append_shift_count(
@@ -8557,24 +8577,22 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         (source_is_global && source->kind != DECL_VAR) ||
         source->var_is_vla ||
         !source->type ||
-        (source_is_address_backed && (source->type->is_volatile ||
-                                      source->type->is_reference ||
+        (source_is_address_backed && (source->type->is_reference ||
                                       source->type->is_atomic)) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source->type, parameter_type, 0u) ||
-        !debug_inline_integer_expression_type(shift_count_expression->type) ||
+        !debug_inline_integer_expression_type_allow_volatile(
+            shift_count_expression->type) ||
         (shift_count_source &&
          ((shift_count_source->kind != DECL_VAR &&
            shift_count_source->kind != DECL_PARAM) ||
           !shift_count_source->type ||
           (shift_count_is_global &&
            (shift_count_source->kind != DECL_VAR ||
-            shift_count_source->type->is_volatile ||
             shift_count_source->type->is_reference ||
             shift_count_source->type->is_atomic)) ||
           (shift_count_is_address_backed &&
-           (shift_count_source->type->is_volatile ||
-            shift_count_source->type->is_reference ||
+           (shift_count_source->type->is_reference ||
             shift_count_source->type->is_atomic)) ||
           shift_count_source->var_is_vla ||
           (shift_count_source->type->size != 4u &&
@@ -8627,6 +8645,7 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         tls_relocations = *relocations;
         tls_relocations.count = &relocation_count;
         tls_relocations.allow_tls = true;
+        tls_relocations.allow_volatile = true;
         relocations = &tls_relocations;
     }
     if (relocations) *relocations->count = 0u;
@@ -10348,7 +10367,8 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
             sizeof(chunk_relocation_offsets) /
                 sizeof(chunk_relocation_offsets[0]),
             &chunk_relocation_count,
-            relocations && relocations->allow_tls
+            relocations && relocations->allow_tls,
+            relocations && relocations->allow_volatile
         };
         unsigned int bit_offset =
             (chunk_count - 1u - chunk_index) * chunk_width;
@@ -14435,6 +14455,7 @@ static void debug_emit_inline_parameter_instances(
             sizeof(integer_value_relocation_offsets) /
                 sizeof(integer_value_relocation_offsets[0]),
             &integer_value_relocation_count,
+            false,
             false
         };
         int64_t address_addend = 0;

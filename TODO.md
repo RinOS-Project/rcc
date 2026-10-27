@@ -11223,3 +11223,18 @@ remains a separate open item.
       `test-debug-info` gates passed.
 - [ ] Volatile/reference/atomic operands, wider computed signed trees, and
       broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, volatile i686 dynamic-shift DWARF)
+
+- [x] Emit i686 unsigned 64-bit dynamic left/right-shift inline-parameter
+      expressions for volatile namespace-scope source and count objects. Keep
+      `ABS32U` relocation identities and per-operand reference counts exact.
+      Permit inlining of a volatile-read tree only for one scalar parameter
+      used exactly once, preserving exactly-once evaluation. Verify initial
+      storage, relocation targets, and defined shift-count boundaries in
+      legacy and verified C++20 objects;
+      focused `test-debug-info-inline-expression` and full `test-debug-info`
+      pass under WSL2 Ubuntu-24.04.
+- [ ] Volatile TLS/block-scope static forms, signed volatile operations,
+      reference/atomic operands, wider computed signed trees, and broader
+      optimized multi-piece locations remain open.
