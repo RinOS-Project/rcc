@@ -9009,6 +9009,12 @@ remains a separate open item.
       read before the first write remains invalid. Verify a valid two-write
       constexpr/runtime case and an invalid read-before-write case on both
       targets, with GCC C++20 and the full POSIX `test-cxx` suite.
+- [x] Analyze bounded straight-line `if`/`else` branches in the constructor-body
+      scalar assignment profile. Join branch state by definite initialization:
+      accept reads/writes only when initialized on every incoming path, and
+      reject a constexpr object if either path leaves a scalar omitted.
+      Verify both-branches-initialize and one-branch-misses cases on i686 and
+      AMD64 with GCC C++20 and the full POSIX `test-cxx` suite.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

@@ -8541,60 +8541,60 @@ static const char* sema_constexpr_constructor_direct_member_name(
     return NULL;
 }
 
-static bool sema_constexpr_constructor_rhs_is_safe(
-    Expr* expression, CxxConstructorInfo* constructor, CxxClass* cls,
-    Type* type, StmtList* body_statements, StmtList* before_statement,
-    unsigned depth);
+static int sema_constexpr_constructor_member_index(
+    CxxClass* cls, const char* member_name) {
+    int index = 0;
+    if (!cls || !member_name) return -1;
+    for (TypeParam* member = cls->fields; member; member = member->next) {
+        if (member->is_static || !member->name) continue;
+        if (strcmp(member->name, member_name) == 0) return index;
+        if (index == 63) return -1;
+        ++index;
+    }
+    return -1;
+}
 
-static bool sema_constexpr_constructor_member_is_initialized(
+static bool sema_constexpr_constructor_initial_member_state(
     CxxConstructorInfo* constructor, CxxClass* cls, Type* type,
-    const char* member_name, StmtList* body_statements,
-    StmtList* before_statement) {
-    bool is_class_member = false;
-    if (!constructor || !cls || cls->is_union || !type || !member_name) {
+    uint64_t* initialized_members) {
+    uint64_t initialized = 0u;
+    if (!constructor || !cls || cls->is_union || !type ||
+        !initialized_members) {
         return false;
     }
     for (TypeParam* member = cls->fields; member; member = member->next) {
-        if (member->name && !member->is_static &&
-            strcmp(member->name, member_name) == 0) {
-            is_class_member = true;
-            break;
+        bool is_initialized = false;
+        int index;
+        if (member->is_static || !member->name) continue;
+        index = sema_constexpr_constructor_member_index(cls, member->name);
+        if (index < 0) return false;
+        for (CxxConstructorInitializer* item = constructor->initializers;
+             item; item = item->next) {
+            if (!item->is_base_initializer &&
+                !item->is_delegating_constructor && item->field &&
+                strcmp(item->field, member->name) == 0) {
+                is_initialized = true;
+                break;
+            }
         }
-    }
-    if (!is_class_member) return false;
-    for (CxxConstructorInitializer* item = constructor->initializers;
-         item; item = item->next) {
-        if (!item->is_base_initializer && !item->is_delegating_constructor &&
-            item->field && strcmp(item->field, member_name) == 0) {
-            return true;
+        if (!is_initialized) {
+            for (TypeField* field = type->fields; field; field = field->next) {
+                if (field->name &&
+                    strcmp(field->name, member->name) == 0 &&
+                    field->cxx_declaring_class == cls) {
+                    is_initialized = field->initializer != NULL;
+                    break;
+                }
+            }
         }
+        if (is_initialized) initialized |= UINT64_C(1) << (unsigned)index;
     }
-    for (TypeField* field = type->fields; field; field = field->next) {
-        if (field->name && strcmp(field->name, member_name) == 0 &&
-            field->cxx_declaring_class == cls) {
-            if (field->initializer) return true;
-            break;
-        }
-    }
-    for (StmtList* item = body_statements;
-         item && item != before_statement; item = item->next) {
-        Stmt* statement = item->stmt;
-        const char* written_name;
-        if (!statement || statement->kind != STMT_EXPR ||
-            !statement->expr || statement->expr->kind != EXPR_ASSIGN ||
-            !(written_name =
-                  sema_constexpr_constructor_direct_member_name(
-                      statement->expr->binary_lhs))) {
-            continue;
-        }
-        if (strcmp(written_name, member_name) == 0) return true;
-    }
-    return false;
+    *initialized_members = initialized;
+    return true;
 }
 
 static bool sema_constexpr_constructor_rhs_is_safe(
-    Expr* expression, CxxConstructorInfo* constructor, CxxClass* cls,
-    Type* type, StmtList* body_statements, StmtList* before_statement,
+    Expr* expression, CxxClass* cls, uint64_t initialized_members,
     unsigned depth) {
     if (!expression || depth >= 64u) return false;
     switch (expression->kind) {
@@ -8615,22 +8615,22 @@ static bool sema_constexpr_constructor_rhs_is_safe(
         case EXPR_PTR_MEMBER: {
             const char* member_name =
                 sema_constexpr_constructor_direct_member_name(expression);
-            return member_name &&
-                   sema_constexpr_constructor_member_is_initialized(
-                       constructor, cls, type, member_name, body_statements,
-                       before_statement);
+            int index = sema_constexpr_constructor_member_index(
+                cls, member_name);
+            return index >= 0 &&
+                   (initialized_members &
+                    (UINT64_C(1) << (unsigned)index)) != 0u;
         }
         case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
             return sema_constexpr_constructor_rhs_is_safe(
-                expression->unary_operand, constructor, cls, type,
-                body_statements, before_statement, depth + 1u);
+                expression->unary_operand, cls, initialized_members,
+                depth + 1u);
         case EXPR_CAST:
             return sema_constexpr_constructor_rhs_is_safe(
-                expression->cast_expr, constructor, cls, type,
-                body_statements, before_statement, depth + 1u);
+                expression->cast_expr, cls, initialized_members, depth + 1u);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -8650,21 +8650,81 @@ static bool sema_constexpr_constructor_rhs_is_safe(
         case EXPR_AND:
         case EXPR_OR:
             return sema_constexpr_constructor_rhs_is_safe(
-                       expression->binary_lhs, constructor, cls, type,
-                       body_statements, before_statement, depth + 1u) &&
+                       expression->binary_lhs, cls, initialized_members,
+                       depth + 1u) &&
                    sema_constexpr_constructor_rhs_is_safe(
-                       expression->binary_rhs, constructor, cls, type,
-                       body_statements, before_statement, depth + 1u);
+                       expression->binary_rhs, cls, initialized_members,
+                       depth + 1u);
         case EXPR_COND:
             return sema_constexpr_constructor_rhs_is_safe(
-                       expression->cond_test, constructor, cls, type,
-                       body_statements, before_statement, depth + 1u) &&
+                       expression->cond_test, cls, initialized_members,
+                       depth + 1u) &&
                    sema_constexpr_constructor_rhs_is_safe(
-                       expression->cond_then, constructor, cls, type,
-                       body_statements, before_statement, depth + 1u) &&
+                       expression->cond_then, cls, initialized_members,
+                       depth + 1u) &&
                    sema_constexpr_constructor_rhs_is_safe(
-                       expression->cond_else, constructor, cls, type,
-                       body_statements, before_statement, depth + 1u);
+                       expression->cond_else, cls, initialized_members,
+                       depth + 1u);
+        default:
+            return false;
+    }
+}
+
+static bool sema_constexpr_constructor_analyze_body_statement(
+    Stmt* statement, CxxClass* cls, uint64_t* initialized_members,
+    unsigned depth) {
+    if (!statement || !cls || !initialized_members || depth >= 64u) {
+        return false;
+    }
+    switch (statement->kind) {
+        case STMT_NULL:
+            return true;
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts;
+                 item; item = item->next) {
+                if (!sema_constexpr_constructor_analyze_body_statement(
+                        item->stmt, cls, initialized_members, depth + 1u)) {
+                    return false;
+                }
+            }
+            return true;
+        case STMT_EXPR: {
+            const char* member_name;
+            int index;
+            if (!statement->expr ||
+                statement->expr->kind != EXPR_ASSIGN ||
+                !sema_constexpr_constructor_rhs_is_safe(
+                    statement->expr->binary_rhs, cls, *initialized_members,
+                    depth + 1u) ||
+                !(member_name =
+                      sema_constexpr_constructor_direct_member_name(
+                          statement->expr->binary_lhs)) ||
+                (index = sema_constexpr_constructor_member_index(
+                     cls, member_name)) < 0) {
+                return false;
+            }
+            *initialized_members |= UINT64_C(1) << (unsigned)index;
+            return true;
+        }
+        case STMT_IF: {
+            uint64_t then_state = *initialized_members;
+            uint64_t else_state = *initialized_members;
+            if (statement->if_is_constexpr || !statement->if_cond ||
+                !sema_constexpr_constructor_rhs_is_safe(
+                    statement->if_cond, cls, *initialized_members,
+                    depth + 1u) ||
+                !sema_constexpr_constructor_analyze_body_statement(
+                    statement->if_then, cls, &then_state, depth + 1u)) {
+                return false;
+            }
+            if (statement->if_else &&
+                !sema_constexpr_constructor_analyze_body_statement(
+                    statement->if_else, cls, &else_state, depth + 1u)) {
+                return false;
+            }
+            *initialized_members = then_state & else_state;
+            return true;
+        }
         default:
             return false;
     }
@@ -8676,37 +8736,22 @@ static bool sema_constexpr_constructor_body_writes_direct_member(
     Decl* declaration = constructor && constructor->method
         ? constructor->method->decl : NULL;
     Stmt* body = declaration ? declaration->func_body : NULL;
-    bool writes_member = false;
+    uint64_t initialized_members = 0u;
+    int member_index;
     if (supported) *supported = false;
     if (!constructor || !cls || !type || !member_name || !supported || !body ||
-        body->kind != STMT_BLOCK) {
+        body->kind != STMT_BLOCK ||
+        (member_index = sema_constexpr_constructor_member_index(
+             cls, member_name)) < 0 ||
+        !sema_constexpr_constructor_initial_member_state(
+            constructor, cls, type, &initialized_members) ||
+        !sema_constexpr_constructor_analyze_body_statement(
+            body, cls, &initialized_members, 0u)) {
         return false;
     }
-    for (StmtList* item = body->block_stmts; item; item = item->next) {
-        Stmt* statement = item->stmt;
-        const char* written_name;
-        TypeParam* field;
-        if (statement && statement->kind == STMT_NULL) continue;
-        if (!statement || statement->kind != STMT_EXPR ||
-            !statement->expr || statement->expr->kind != EXPR_ASSIGN ||
-            !sema_constexpr_constructor_rhs_is_safe(
-                statement->expr->binary_rhs, constructor, cls, type,
-                body->block_stmts, item, 0u) ||
-            !(written_name =
-                  sema_constexpr_constructor_direct_member_name(
-                      statement->expr->binary_lhs))) {
-            return false;
-        }
-        for (field = cls->fields; field; field = field->next) {
-            if (field->name && strcmp(field->name, written_name) == 0) {
-                break;
-            }
-        }
-        if (!field || field->is_static) return false;
-        if (strcmp(written_name, member_name) == 0) writes_member = true;
-    }
     *supported = true;
-    return writes_member;
+    return (initialized_members &
+            (UINT64_C(1) << (unsigned)member_index)) != 0u;
 }
 
 static bool sema_constexpr_constructor_leaves_indeterminate_scalar(

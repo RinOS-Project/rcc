@@ -88,6 +88,18 @@ struct ConstructorBodyReadsPriorWrite {
     }
 };
 
+struct ConstructorBodyBranchesInitialize {
+    int value;
+
+    constexpr explicit ConstructorBodyBranchesInitialize(int initial) {
+        if (initial >= 0) {
+            this->value = initial;
+        } else {
+            this->value = -initial;
+        }
+    }
+};
+
 struct ConstructorBodyReadsDefaultMember {
     int initialized = 61;
     int written_by_body;
@@ -381,6 +393,8 @@ constexpr ConstructorBodyReadsInitialized
     constructor_body_reads_initialized{53};
 constexpr ConstructorBodyReadsPriorWrite constructor_body_reads_prior_write{
     67};
+constexpr ConstructorBodyBranchesInitialize
+    constructor_body_branches_initialize{83};
 constexpr ConstructorBodyReadsDefaultMember
     constructor_body_reads_default_member{};
 constexpr int constructor_reference_source = 29;
@@ -762,6 +776,7 @@ int main(void) {
     ConstructorBodyInitializesOmitted runtime_body_initializes_omitted{47};
     ConstructorBodyReadsInitialized runtime_body_reads_initialized{59};
     ConstructorBodyReadsPriorWrite runtime_body_reads_prior_write{73};
+    ConstructorBodyBranchesInitialize runtime_body_branches_initialize{-89};
     ConstructorBodyReadsDefaultMember runtime_body_reads_default_member{};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
@@ -887,6 +902,7 @@ int main(void) {
                          67 &&
                      constructor_body_reads_prior_write.written_second ==
                          68 &&
+                     constructor_body_branches_initialize.value == 83 &&
                      constructor_body_reads_default_member.initialized == 61 &&
                      constructor_body_reads_default_member.written_by_body ==
                          62 &&
@@ -897,6 +913,7 @@ int main(void) {
                          60 &&
                      runtime_body_reads_prior_write.written_first == 73 &&
                      runtime_body_reads_prior_write.written_second == 74 &&
+                     runtime_body_branches_initialize.value == 89 &&
                      runtime_body_reads_default_member.initialized == 61 &&
                      runtime_body_reads_default_member.written_by_body ==
                          62 &&
