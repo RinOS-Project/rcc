@@ -8842,17 +8842,17 @@ remains a separate open item.
 
 ## RCC continuation (2026-10-27, bounded constexpr virtual member-function-pointer dispatch)
 
-- [x] Evaluate a virtual member-function-pointer call through a `const Base*`
-      when its constexpr receiver is a global constexpr `Derived` object and
-      the owner is reached through a unique accessible nonvirtual base path.
-      Select and evaluate the derived final overrider in a dependent constexpr
-      call, with a static assertion distinguishing the override from the base
-      implementation. The strict GCC C++20 oracle, focused
-      `test-cxx-function-template-overloads` gate, and full POSIX `test-cxx`
-      aggregate pass on the final compiler source.
-- [ ] Extend constexpr virtual dispatch to local/dynamic object flows, virtual
-      base owner paths, and additional ambiguous or repeated-base cases; member-
-      function-pointer owner/signature conversions remain open.
+- [x] Evaluate virtual member-function-pointer calls through a `const Base*`
+      when the constexpr receiver is either a global or local constexpr
+      `Derived` object and the owner is reached through a unique accessible
+      nonvirtual base path. Select and evaluate the derived final overrider
+      across nested dependent constexpr calls, with static assertions that
+      distinguish the override from the base implementation. The strict GCC
+      C++20 oracle, focused `test-cxx-function-template-overloads` gate, and
+      full POSIX `test-cxx` aggregate pass on the final compiler source.
+- [ ] Extend constexpr virtual dispatch to runtime/dynamic object flows,
+      virtual-base owner paths, and additional ambiguous or repeated-base
+      cases; member-function-pointer owner/signature conversions remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
