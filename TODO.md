@@ -8755,10 +8755,10 @@ remains a separate open item.
       qualification conversion from `T Owner::*` to `const T Owner::*`. Verify
       dependent non-type template argument selection against GCC C++20 and the
       i686/AMD64 generation plus execution gate.
-- [ ] Non-null member-function-pointer values, multiple-inheritance or
-      nonzero-adjustment data-member-pointer owner conversions, other
-      member-pointee cv-qualification combinations, and additional pointer
-      conversions remain open.
+- [ ] Non-null member-function-pointer values, further multilevel
+      data-member-pointer owner-conversion paths, other member-pointee
+      cv-qualification combinations, and additional pointer conversions
+      remain open.
 
 ## RCC continuation (2026-10-27, constexpr data-member-pointer owner conversion)
 
@@ -8767,15 +8767,16 @@ remains a separate open item.
       an accessible nonvirtual base path and pointee qualification is
       preserved. Apply the converted pointer to a by-value derived aggregate
       argument containing the base subobject during dependent non-type
-      template argument selection.
+      template argument selection. Test both a zero-offset single base and a
+      nonzero-offset `Base` as the second of two direct bases.
 - [x] Preserve static code generation for the fixture's brace-elided
       single-element aggregate base subobject. Verify the fixture against GCC
       C++20, generate and execute both i686 and AMD64 output, pass the focused
       function-template overload gate, and pass the full POSIX `test-cxx`
       aggregate.
-- [ ] Multiple-inheritance/nonzero-adjustment constexpr owner conversions,
-      other member-pointee cv combinations, member-function-pointer constants,
-      and broader pointer conversions remain open.
+- [ ] Further multilevel constexpr owner-conversion paths, other
+      member-pointee cv combinations, non-null member-function-pointer
+      constants, and broader pointer conversions remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
