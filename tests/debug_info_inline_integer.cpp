@@ -194,6 +194,20 @@ debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_source =
     0x1ffffffffULL;
 thread_local volatile unsigned long long
 debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_count = 4u;
+volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_lshift_source = 1LL;
+volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_rshift_source =
+    -81985529216486889LL;
+volatile unsigned long long
+debug_inline_nonconstant_signed_long_long_volatile_shift_count = 4u;
+thread_local volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_lshift_source = 1LL;
+thread_local volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_rshift_source =
+    -81985529216486889LL;
+thread_local volatile unsigned long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_shift_count = 4u;
 thread_local unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_tls_shift_source =
     0x1ffffffffULL;
@@ -3125,4 +3139,100 @@ debug_inline_nonconstant_unsigned_long_long_volatile_static_tls_dynamic_rshift_e
     count = shift_count;
     return debug_nonconstant_unsigned_long_long_parameter_inline(
         source >> count);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_global_dynamic_lshift_entry(
+    long long source_value, unsigned long long shift_count)
+{
+    debug_inline_nonconstant_signed_long_long_volatile_lshift_source =
+        source_value;
+    debug_inline_nonconstant_signed_long_long_volatile_shift_count =
+        shift_count;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_lshift_source <<
+        debug_inline_nonconstant_signed_long_long_volatile_shift_count);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_global_dynamic_rshift_entry(
+    long long source_value, unsigned long long shift_count)
+{
+    debug_inline_nonconstant_signed_long_long_volatile_rshift_source =
+        source_value;
+    debug_inline_nonconstant_signed_long_long_volatile_shift_count =
+        shift_count;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_rshift_source >>
+        debug_inline_nonconstant_signed_long_long_volatile_shift_count);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_global_dynamic_lshift_entry(
+    long long source_value, unsigned long long shift_count)
+{
+    debug_inline_nonconstant_signed_long_long_volatile_tls_lshift_source =
+        source_value;
+    debug_inline_nonconstant_signed_long_long_volatile_tls_shift_count =
+        shift_count;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_tls_lshift_source <<
+        debug_inline_nonconstant_signed_long_long_volatile_tls_shift_count);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_global_dynamic_rshift_entry(
+    long long source_value, unsigned long long shift_count)
+{
+    debug_inline_nonconstant_signed_long_long_volatile_tls_rshift_source =
+        source_value;
+    debug_inline_nonconstant_signed_long_long_volatile_tls_shift_count =
+        shift_count;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_tls_rshift_source >>
+        debug_inline_nonconstant_signed_long_long_volatile_tls_shift_count);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_static_dynamic_lshift_entry(
+    long long source_value, unsigned long long shift_count)
+{
+    static volatile long long source = 1LL;
+    static volatile unsigned long long count = 4u;
+    source = source_value;
+    count = shift_count;
+    return debug_nonconstant_signed_long_long_parameter_inline(source << count);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_static_dynamic_rshift_entry(
+    long long source_value, unsigned long long shift_count)
+{
+    static volatile long long source = -81985529216486889LL;
+    static volatile unsigned long long count = 4u;
+    source = source_value;
+    count = shift_count;
+    return debug_nonconstant_signed_long_long_parameter_inline(source >> count);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_static_tls_dynamic_lshift_entry(
+    long long source_value, unsigned long long shift_count)
+{
+    static thread_local volatile long long source = 1LL;
+    static thread_local volatile unsigned long long count = 4u;
+    source = source_value;
+    count = shift_count;
+    return debug_nonconstant_signed_long_long_parameter_inline(source << count);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_static_tls_dynamic_rshift_entry(
+    long long source_value, unsigned long long shift_count)
+{
+    static thread_local volatile long long source = -81985529216486889LL;
+    static thread_local volatile unsigned long long count = 4u;
+    source = source_value;
+    count = shift_count;
+    return debug_nonconstant_signed_long_long_parameter_inline(source >> count);
 }
