@@ -10439,10 +10439,18 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
 static bool debug_inline_parameter_i686_u64_bitnot_expression(
     const Module* mod, const Type* parameter_type,
     const Expr* source_expression, uint8_t* expression, size_t capacity,
-    size_t* expression_size) {
+    size_t* expression_size,
+    DebugInlineI686ExpressionRelocations* relocations) {
     const Decl* source;
-    int64_t frame_offset;
+    int64_t frame_offset = 0;
+    bool source_is_address_backed;
     size_t size = 0u;
+    DebugInlineI686ExpressionRelocations tls_relocations;
+    if (relocations) {
+        tls_relocations = *relocations;
+        tls_relocations.allow_tls = true;
+        relocations = &tls_relocations;
+    }
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || source_expression->kind != EXPR_BITNOT ||
         !source_expression->unary_operand ||
@@ -10452,21 +10460,31 @@ static bool debug_inline_parameter_i686_u64_bitnot_expression(
         return false;
     }
     source = source_expression->unary_operand->ident_decl;
+    source_is_address_backed = source &&
+        (source->var_is_global || source->var_is_static_local);
     if (!source || (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
-        source->var_is_global || source->var_is_static_local ||
-        source->var_is_thread_local || source->var_is_vla || !source->type ||
+        (source->var_is_global && source->kind != DECL_VAR) ||
+        (source->var_is_thread_local && !source_is_address_backed) ||
+        source->var_is_vla || !source->type ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source_expression->unary_operand->type, parameter_type, 0u) ||
-        !debug_inline_parameter_frame_offset(mod, source, &frame_offset) ||
-        frame_offset > INT64_MAX - 4) {
+        (relocations && (!relocations->offsets || !relocations->symbols ||
+                         !relocations->count)) ||
+        (source_is_address_backed &&
+         (!relocations || !relocations->offsets || !relocations->symbols ||
+          !relocations->count)) ||
+        (!source_is_address_backed && !debug_inline_parameter_frame_offset(
+            mod, source, &frame_offset)) ||
+        (!source_is_address_backed && frame_offset > INT64_MAX - 4)) {
         return false;
     }
+    if (relocations) *relocations->count = 0u;
     for (unsigned int word = 0u; word < 2u; ++word) {
-        if (!debug_inline_integer_expression_append_frame_u32(
-                expression, capacity, &size, ARCH_X86,
-                frame_offset + (int64_t)(word * 4u)) ||
+        if (!debug_inline_parameter_i686_append_storage_u32(
+                mod, source, frame_offset, word != 0u, expression,
+                capacity, &size, relocations) ||
             !debug_inline_integer_expression_append_byte(
                 expression, capacity, &size, 0x20u) || /* DW_OP_not */
             !debug_inline_integer_expression_append_byte(
@@ -10477,6 +10495,11 @@ static bool debug_inline_parameter_i686_u64_bitnot_expression(
                 expression, capacity, &size, 4u)) {
             return false;
         }
+    }
+    if ((source_is_address_backed && *relocations->count != 2u) ||
+        (!source_is_address_backed && relocations &&
+         *relocations->count != 0u)) {
+        return false;
     }
     *expression_size = size;
     return true;
@@ -11038,7 +11061,7 @@ static bool debug_inline_parameter_integer_expression(
         debug_inline_parameter_i686_u64_bitnot_expression(
             mod, parameter_type, source_expression, expression,
             DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY,
-            expression_size)) {
+            expression_size, NULL)) {
         return true;
     }
 
@@ -14443,6 +14466,43 @@ static void debug_emit_inline_parameter_instances(
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);
             section_add_bytes(info, expression, expression_size);
+        } else if (architecture == ARCH_X86 && value->declaration &&
+                   argument && argument->expr &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_i686_u64_bitnot_expression(
+                       mod, value->declaration->type, argument->expr,
+                       integer_value_expression,
+                       sizeof(integer_value_expression),
+                       &integer_value_expression_size,
+                       &integer_value_relocations) &&
+                   integer_value_relocation_count != 0u) {
+            uint64_t expression_offset;
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, integer_value_expression_size);
+            expression_offset = info->size;
+            section_add_bytes(info, integer_value_expression,
+                              integer_value_expression_size);
+            for (size_t relocation_index = 0u;
+                 relocation_index < integer_value_relocation_count;
+                 ++relocation_index) {
+                const ModuleSymbol* relocation_symbol =
+                    integer_value_relocation_symbols[relocation_index];
+                char* scoped_relocation_symbol = relocation_symbol->is_global
+                    ? NULL : module_scoped_symbol(
+                          filename, relocation_symbol->name);
+                objfile_add_reloc(
+                    obj, info_section,
+                    expression_offset +
+                        integer_value_relocation_offsets[relocation_index],
+                    scoped_relocation_symbol
+                        ? scoped_relocation_symbol : relocation_symbol->name,
+                    relocation_symbol->section == MODULE_SYMBOL_TLS
+                        ? RELOC_TLSOFF32S : RELOC_ABS32U,
+                    0);
+                rcc_free(scoped_relocation_symbol);
+            }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(

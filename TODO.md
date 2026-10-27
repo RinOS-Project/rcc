@@ -11140,3 +11140,16 @@ remains a separate open item.
       under WSL2 Ubuntu-24.04.
 - [ ] Volatile/reference/atomic operands and broader optimized multi-piece
       locations remain open.
+
+## RCC continuation (2026-10-28, function-local static bitwise complement DWARF)
+
+- [x] Extend i686 signed and unsigned 64-bit bitwise-complement
+      inline-parameter expressions to block-scope `static` and
+      `static thread_local` sources. Emit two module-scoped `ABS32U`
+      relocations for non-TLS statics and two module-scoped `TLSOFF32S`
+      relocations for TLS statics; verify initialized bit patterns and
+      complement results in normal and verified C++20 objects. The focused
+      `test-debug-info-inline-expression` and full `test-debug-info` gates pass
+      under WSL2 Ubuntu-24.04.
+- [ ] Volatile/reference/atomic operands and broader optimized multi-piece
+      locations remain open.
