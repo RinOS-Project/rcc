@@ -8774,7 +8774,13 @@ remains a separate open item.
       C++20, generate and execute both i686 and AMD64 output, pass the focused
       function-template overload gate, and pass the full POSIX `test-cxx`
       aggregate.
-- [ ] Further multilevel constexpr owner-conversion paths, other
+- [x] Cover combined owner adjustment and qualification addition from
+      `int Base::*` to `const int Derived::*`, with `Base` as the second
+      nonzero-offset direct base. A dependent constexpr call applies the
+      converted pointer to a by-value derived aggregate. GCC C++20, i686/AMD64
+      generation, AMD64 execution, the focused overload gate, and the full
+      POSIX `test-cxx` aggregate pass.
+- [ ] Further multilevel constexpr owner-conversion paths, additional
       member-pointee cv combinations, non-null member-function-pointer
       constants, and broader pointer conversions remain open.
 

@@ -70,6 +70,13 @@ struct DependentPointerConstexprOwner {
         return object.*selected;
     }
 
+    static constexpr int read_const_multiple_derived_member_pointer(
+        const int DependentPointerMultipleDerived::* member,
+        DependentPointerMultipleDerived object) {
+        const int DependentPointerMultipleDerived::* selected = member;
+        return object.*selected;
+    }
+
     static constexpr int read_const_member_pointer(
         const int DependentPointerBase::* member,
         DependentPointerBase object) {
@@ -231,6 +238,22 @@ int select_dependent_member_pointer_multiple_owner_conversion_call(
 }
 
 template<typename Owner, typename... Tail>
+int select_dependent_member_pointer_const_multiple_owner_conversion_call(
+    DependentPointerConstexprBox<
+        Owner::read_const_multiple_derived_member_pointer(
+            ::dependent_pointer_constexpr_member,
+            DependentPointerMultipleDerived{{13}, {41}, 43}),
+        Owner, Tail...>) {
+    return 391;
+}
+
+template<typename Owner, typename... Tail>
+int select_dependent_member_pointer_const_multiple_owner_conversion_call(
+    DependentPointerConstexprBox<0, Owner, Tail...>) {
+    return 392;
+}
+
+template<typename Owner, typename... Tail>
 int select_dependent_array_element_pointer_call(
     DependentPointerConstexprBox<
         Owner::value(&::dependent_pointer_constexpr_values[1]),
@@ -333,6 +356,11 @@ int main() {
             DependentPointerConstexprBox<
                 41, DependentPointerConstexprOwner, int>{}) != 381) {
         return 12;
+    }
+    if (select_dependent_member_pointer_const_multiple_owner_conversion_call(
+            DependentPointerConstexprBox<
+                41, DependentPointerConstexprOwner, int>{}) != 391) {
+        return 13;
     }
     if (select_dependent_array_element_pointer_call(
             DependentPointerConstexprBox<
