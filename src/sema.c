@@ -4866,6 +4866,10 @@ typedef struct SemaConstexprBinding {
      * the pointer through nested constexpr calls. */
     unsigned char* pointer_target_object_bytes;
     size_t pointer_target_object_size;
+    Type* pointer_target_object_type;
+    unsigned char* pointer_complete_object_bytes;
+    size_t pointer_complete_object_size;
+    Type* pointer_complete_object_type;
     bool is_member_pointer;
     TypeField* member_pointer_field;
     TypeMethod* member_pointer_method;
@@ -5798,6 +5802,12 @@ static void sema_constexpr_capture_pointer_target_object(
                 source->object_bytes + offset;
             pointer_binding->pointer_target_object_size =
                 source->object_size - offset;
+            pointer_binding->pointer_target_object_type = source->type;
+            pointer_binding->pointer_complete_object_bytes =
+                source->object_bytes;
+            pointer_binding->pointer_complete_object_size =
+                source->object_size;
+            pointer_binding->pointer_complete_object_type = source->type;
             return;
         }
     }
@@ -5818,6 +5828,14 @@ static void sema_constexpr_capture_pointer_target_object(
             source->pointer_target_object_bytes + offset;
         pointer_binding->pointer_target_object_size =
             source->pointer_target_object_size - offset;
+        pointer_binding->pointer_target_object_type =
+            source->pointer_target_object_type;
+        pointer_binding->pointer_complete_object_bytes =
+            source->pointer_complete_object_bytes;
+        pointer_binding->pointer_complete_object_size =
+            source->pointer_complete_object_size;
+        pointer_binding->pointer_complete_object_type =
+            source->pointer_complete_object_type;
         return;
     }
 }
@@ -8615,9 +8633,13 @@ static bool sema_constexpr_materialize_member_pointer_receiver(
         unsigned char* complete_storage;
         size_t complete_size;
         size_t offset;
-        if (!receiver_expression->type->base ||
-            !type_is_compatible(
-                receiver_expression->type->base, receiver_type) ||
+        size_t pointer_value_offset;
+        Type* pointer_base = receiver_expression->type->base;
+        Type* receiver_object_type = sema_cxx_object_type(receiver_type);
+        Type* pointer_object_type = sema_cxx_object_type(pointer_base);
+        int base_adjustment = 0;
+        bool exact_receiver_type;
+        if (!pointer_base ||
             !sema_eval_constexpr_scalar_expr(
                 receiver_expression, caller_bindings, caller_binding_count,
                 &pointer_value) || !pointer_value.is_pointer ||
@@ -8626,12 +8648,30 @@ static bool sema_constexpr_materialize_member_pointer_receiver(
             (uint64_t)pointer_value.pointer_offset > SIZE_MAX) {
             return false;
         }
+        exact_receiver_type = type_is_compatible(
+            pointer_object_type, receiver_object_type);
+        if (!exact_receiver_type &&
+            !sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
+                receiver_object_type, pointer_object_type,
+                &base_adjustment)) {
+            return false;
+        }
         declaration = pointer_value.pointer_declaration;
-        offset = (size_t)pointer_value.pointer_offset;
+        pointer_value_offset = (size_t)pointer_value.pointer_offset;
+        if (!exact_receiver_type &&
+            pointer_value_offset < (size_t)base_adjustment) {
+            return false;
+        }
+        offset = exact_receiver_type
+            ? pointer_value_offset
+            : pointer_value_offset - (size_t)base_adjustment;
         for (int index = 0; index < caller_binding_count; ++index) {
             if (caller_bindings[index].declaration == declaration &&
                 caller_bindings[index].is_object &&
                 caller_bindings[index].object_bytes &&
+                (exact_receiver_type || type_is_compatible(
+                    sema_cxx_object_type(caller_bindings[index].type),
+                    receiver_object_type)) &&
                 offset <= caller_bindings[index].object_size &&
                 (size_t)receiver_type->size <=
                     caller_bindings[index].object_size - offset) {
@@ -8645,6 +8685,21 @@ static bool sema_constexpr_materialize_member_pointer_receiver(
             SemaConstexprBinding* binding = &caller_bindings[index];
             size_t pointer_offset;
             size_t relative_offset;
+            if (binding->is_pointer &&
+                binding->pointer_declaration == declaration &&
+                binding->pointer_complete_object_bytes &&
+                type_is_compatible(
+                    sema_cxx_object_type(
+                        binding->pointer_complete_object_type),
+                    receiver_object_type) &&
+                offset <= binding->pointer_complete_object_size &&
+                (size_t)receiver_type->size <=
+                    binding->pointer_complete_object_size - offset) {
+                memcpy(receiver_storage,
+                       binding->pointer_complete_object_bytes + offset,
+                       (size_t)receiver_type->size);
+                return true;
+            }
             if (!binding->is_pointer ||
                 binding->pointer_declaration != declaration ||
                 binding->pointer_offset < 0 ||
@@ -8653,7 +8708,7 @@ static bool sema_constexpr_materialize_member_pointer_receiver(
                 continue;
             }
             pointer_offset = (size_t)binding->pointer_offset;
-            relative_offset = offset - pointer_offset;
+            relative_offset = pointer_value_offset - pointer_offset;
             if (relative_offset > binding->pointer_target_object_size ||
                 (size_t)receiver_type->size >
                     binding->pointer_target_object_size - relative_offset) {
@@ -8671,6 +8726,18 @@ static bool sema_constexpr_materialize_member_pointer_receiver(
             declaration->type->size <= 0) {
             return false;
         }
+        {
+            Type* declaration_object_type =
+                sema_cxx_object_type(declaration->type);
+            if (!type_is_compatible(
+                    declaration_object_type, receiver_object_type) &&
+                !(exact_receiver_type &&
+                  sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
+                      declaration_object_type, pointer_object_type,
+                      &base_adjustment))) {
+                return false;
+            }
+        }
         complete_size = (size_t)declaration->type->size;
         if (offset > complete_size ||
             (size_t)receiver_type->size > complete_size - offset) {
@@ -8687,6 +8754,91 @@ static bool sema_constexpr_materialize_member_pointer_receiver(
                (size_t)receiver_type->size);
         return true;
     }
+}
+
+static Type* sema_constexpr_member_pointer_dynamic_type(
+    Expr* receiver_expression, SemaConstexprBinding* bindings,
+    int binding_count) {
+    SemaConstexprScalar pointer_value;
+    Decl* declaration;
+    if (!receiver_expression || !receiver_expression->type) return NULL;
+    if (receiver_expression->type->kind != TYPE_PTR ||
+        !sema_eval_constexpr_scalar_expr(
+            receiver_expression, bindings, binding_count, &pointer_value) ||
+        !pointer_value.is_pointer || !pointer_value.pointer_declaration) {
+        return receiver_expression->type->kind == TYPE_PTR
+            ? receiver_expression->type->base : receiver_expression->type;
+    }
+    declaration = pointer_value.pointer_declaration;
+    for (int index = 0; index < binding_count; ++index) {
+        SemaConstexprBinding* binding = &bindings[index];
+        if (binding->declaration == declaration && binding->is_object) {
+            return binding->type;
+        }
+        if (binding->is_pointer &&
+            binding->pointer_declaration == declaration) {
+            if (binding->pointer_complete_object_type) {
+                return binding->pointer_complete_object_type;
+            }
+            if (binding->pointer_target_object_type) {
+                return binding->pointer_target_object_type;
+            }
+        }
+    }
+    if (declaration->kind == DECL_VAR && declaration->type) {
+        return declaration->type;
+    }
+    return receiver_expression->type->base;
+}
+
+static Decl* sema_constexpr_virtual_member_function_overrider(
+    TypeMethod* method, Type* dynamic_type) {
+    Type* owner_type;
+    CxxClass* dynamic_class;
+    CxxMethod* selected = NULL;
+    int matching_secondary_tables = 0;
+    if (!method || !method->is_virtual || !dynamic_type ||
+        method->vtable_index < 0 || !dynamic_type->cxx_class) {
+        return NULL;
+    }
+    owner_type = method->this_owner;
+    if (!owner_type && method->function_decl &&
+        method->function_decl->func_method_owner &&
+        method->function_decl->func_method_owner->cxx_class) {
+        owner_type =
+            method->function_decl->func_method_owner->cxx_class->type;
+    }
+    if (!owner_type || !owner_type->cxx_class) return NULL;
+    dynamic_class = dynamic_type->cxx_class;
+    for (int index = 0; index < dynamic_class->secondary_vtable_count; ++index) {
+        CxxSecondaryVtable* table = &dynamic_class->secondary_vtables[index];
+        if (!table->base || table->base->type != owner_type) continue;
+        if (method->vtable_index >= table->size || !table->entries) {
+            return NULL;
+        }
+        ++matching_secondary_tables;
+        selected = table->entries[method->vtable_index].method;
+    }
+    if (matching_secondary_tables > 1) return NULL;
+    if (matching_secondary_tables == 0) {
+        int ignored_adjustment;
+        Type* dynamic_object_type = sema_cxx_object_type(dynamic_type);
+        Type* owner_object_type = sema_cxx_object_type(owner_type);
+        if (!type_is_compatible(dynamic_object_type, owner_object_type) &&
+            !sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
+                dynamic_object_type, owner_object_type,
+                &ignored_adjustment)) {
+            return NULL;
+        }
+        if (method->vtable_index >= dynamic_class->vtable_size ||
+            !dynamic_class->vtable) {
+            return NULL;
+        }
+        selected = dynamic_class->vtable[method->vtable_index].method;
+    }
+    return selected && selected->is_virtual &&
+                   selected->vtable_index == method->vtable_index
+        ? selected->decl : NULL;
 }
 
 static bool sema_eval_constexpr_scalar_function(
@@ -8716,12 +8868,17 @@ static bool sema_eval_constexpr_scalar_function(
         Type* this_type = declaration->func_this_param->type;
         Type* receiver_type = this_type && this_type->kind == TYPE_PTR
             ? this_type->base : NULL;
+        bool const_virtual_receiver = this_type &&
+            this_type->kind == TYPE_PTR && this_type->base &&
+            this_type->base->is_const && receiver_type &&
+            receiver_type->cxx_vtable_size > 0;
         Decl* receiver_storage;
         unsigned char* receiver_bytes;
         if (!sema_constexpr_aggregate_type(receiver_type) ||
             receiver_type->kind == TYPE_ARRAY || receiver_type->is_volatile ||
-            receiver_type->cxx_nontrivial ||
-            receiver_type->cxx_vtable_size != 0 ||
+            (receiver_type->cxx_nontrivial && !const_virtual_receiver) ||
+            (receiver_type->cxx_vtable_size != 0 &&
+             !const_virtual_receiver) ||
             receiver_type->size <= 0 ||
             count > (int)(sizeof(bindings) / sizeof(bindings[0])) - 2) {
             return false;
@@ -9772,6 +9929,8 @@ static bool sema_eval_constexpr_scalar_expr(
                 Type* receiver_type = application->binary_lhs
                     ? application->binary_lhs->type : NULL;
                 TypeMethod* method;
+                Decl* function;
+                Type* dynamic_receiver_type = NULL;
                 if (application->kind == EXPR_CXX_MEMBER_PTR_ARROW &&
                     receiver_type && receiver_type->kind == TYPE_PTR) {
                     receiver_type = receiver_type->base;
@@ -9798,14 +9957,22 @@ static bool sema_eval_constexpr_scalar_expr(
                     return false;
                 }
                 method = member_pointer.member_pointer_method;
-                if (method->is_virtual || !method->function_decl ||
-                    !method->function_decl->func_is_constexpr) {
+                function = method->function_decl;
+                if (method->is_virtual) {
+                    dynamic_receiver_type =
+                        sema_constexpr_member_pointer_dynamic_type(
+                            application->binary_lhs, bindings,
+                            binding_count);
+                    function = sema_constexpr_virtual_member_function_overrider(
+                        method, dynamic_receiver_type);
+                }
+                if (!function || !function->func_is_constexpr) {
                     return false;
                 }
                 explicit_arguments = explicit_arguments->next;
                 return sema_eval_constexpr_scalar_function(
-                    method->function_decl, application->binary_lhs,
-                    explicit_arguments, bindings, binding_count, value);
+                    function, application->binary_lhs, explicit_arguments,
+                    bindings, binding_count, value);
             }
             if (!expression->call_func ||
                 expression->call_func->kind != EXPR_IDENT ||

@@ -8756,8 +8756,8 @@ remains a separate open item.
       dependent non-type template argument selection against GCC C++20 and the
       i686/AMD64 generation plus execution gate.
 - [ ] Member-function-pointer owner/signature conversions, virtual constexpr
-      dispatch, further multilevel data-member-pointer owner-conversion paths,
-      other member-pointee
+      dispatch outside a unique nonvirtual owner path, further multilevel
+      data-member-pointer owner-conversion paths, other member-pointee
       cv-qualification combinations, and additional pointer conversions
       remain open.
 
@@ -8814,7 +8814,8 @@ remains a separate open item.
       object, GCC C++20, focused i686/AMD64 generation and AMD64 execution,
       and the full POSIX `test-cxx` aggregate.
 - [ ] Member-function-pointer owner/signature conversions and virtual
-      constexpr dispatch remain open.
+      constexpr dispatch outside the tested global-object/unique-nonvirtual-base
+      case remain open.
 
 ## RCC continuation (2026-10-27, inherited member-function-pointer static adjustment)
 
@@ -8824,7 +8825,7 @@ remains a separate open item.
       emitted adjustment words, execute both AMD64 calls, compare with a strict
       GCC C++20 host run, and pass the full POSIX `test-cxx` aggregate.
 - [ ] Further owner/signature conversions and virtual constexpr dispatch
-      remain open.
+      beyond the tested global-object/unique-nonvirtual-base case remain open.
 
 ## RCC continuation (2026-10-27, virtual member-function-pointer static initialization)
 
@@ -8835,8 +8836,23 @@ remains a separate open item.
       base to a virtually-derived object, exercising virtual-base receiver
       adjustment. Check i686/AMD64 data words, a strict GCC C++20 host oracle,
       AMD64 execution, and the full POSIX `test-cxx` aggregate.
-- [ ] Virtual constexpr dispatch and further member-function-pointer
-      owner/signature conversions remain open.
+- [ ] Virtual constexpr dispatch beyond the tested global-object/unique-
+      nonvirtual-base case and further member-function-pointer owner/signature
+      conversions remain open.
+
+## RCC continuation (2026-10-27, bounded constexpr virtual member-function-pointer dispatch)
+
+- [x] Evaluate a virtual member-function-pointer call through a `const Base*`
+      when its constexpr receiver is a global constexpr `Derived` object and
+      the owner is reached through a unique accessible nonvirtual base path.
+      Select and evaluate the derived final overrider in a dependent constexpr
+      call, with a static assertion distinguishing the override from the base
+      implementation. The strict GCC C++20 oracle, focused
+      `test-cxx-function-template-overloads` gate, and full POSIX `test-cxx`
+      aggregate pass on the final compiler source.
+- [ ] Extend constexpr virtual dispatch to local/dynamic object flows, virtual
+      base owner paths, and additional ambiguous or repeated-base cases; member-
+      function-pointer owner/signature conversions remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

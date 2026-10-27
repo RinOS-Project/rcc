@@ -9,6 +9,26 @@ struct DependentPointerBase {
     }
 };
 
+struct DependentConstexprVirtualBase {
+    int value;
+
+    constexpr explicit DependentConstexprVirtualBase(int initial)
+        : value(initial) {}
+
+    constexpr virtual int add(int amount) const {
+        return value + amount;
+    }
+};
+
+struct DependentConstexprVirtualDerived : DependentConstexprVirtualBase {
+    constexpr explicit DependentConstexprVirtualDerived(int initial)
+        : DependentConstexprVirtualBase(initial) {}
+
+    constexpr int add(int amount) const override {
+        return value + amount + 100;
+    }
+};
+
 constexpr int DependentPointerBase::* dependent_pointer_constexpr_member =
     &DependentPointerBase::value;
 constexpr int (DependentPointerBase::*
@@ -19,6 +39,11 @@ thread_local int (DependentPointerBase::*
         &DependentPointerBase::add;
 constexpr DependentPointerBase
     dependent_member_function_constexpr_object{17};
+constexpr DependentConstexprVirtualDerived
+    dependent_constexpr_virtual_object{17};
+constexpr int (DependentConstexprVirtualBase::*
+    dependent_constexpr_virtual_member_function)(int) const =
+        &DependentConstexprVirtualBase::add;
 struct DependentPointerDerived : DependentPointerBase {
     int tail;
 };
@@ -161,6 +186,12 @@ constexpr int invoke_member_function_pointer_arrow_from_local(int amount) {
         &DependentPointerBase::add, &object, amount);
 }
 
+constexpr int invoke_virtual_member_function_pointer_arrow(
+    int (DependentConstexprVirtualBase::* member)(int) const,
+    const DependentConstexprVirtualBase* object, int amount) {
+    return (object->*member)(amount);
+}
+
 static_assert(DependentPointerConstexprOwner::value(
     &::dependent_pointer_constexpr_target) == 17);
 static_assert(DependentPointerConstexprOwner::value_void(
@@ -192,6 +223,9 @@ static_assert(invoke_member_function_pointer_arrow(
     &DependentPointerBase::add,
     &dependent_member_function_constexpr_object, 25) == 42);
 static_assert(invoke_member_function_pointer_arrow_from_local(25) == 42);
+static_assert(invoke_virtual_member_function_pointer_arrow(
+    ::dependent_constexpr_virtual_member_function,
+    &::dependent_constexpr_virtual_object, 25) == 142);
 template<typename Owner>
 using DependentMemberFunctionPointerCall = DependentPointerConstexprBox<
     Owner::has_member_function_pointer(&DependentPointerBase::add), Owner>;
