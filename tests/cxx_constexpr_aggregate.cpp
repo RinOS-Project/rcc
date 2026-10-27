@@ -46,6 +46,13 @@ struct ConstructorDefaultedSubobjects : ConstructorDefaultBase {
         : value(initial) {}
 };
 
+struct ConstructorConstReference : ConstructorDefaultBase {
+    int value;
+
+    constexpr explicit ConstructorConstReference(const int& initial)
+        : value(initial) {}
+};
+
 struct FloatPair {
     float first;
     double second;
@@ -76,6 +83,10 @@ constexpr Pair returned_pair = make_pair(11, 13);
 constexpr Pair mutated_returned_pair = make_mutated_pair(20);
 constexpr ConstructorBodyDerived constructor_body_value{19, 20, 22};
 constexpr ConstructorDefaultedSubobjects constructor_defaulted_subobjects{31};
+constexpr int constructor_reference_source = 29;
+constexpr ConstructorConstReference constructor_reference_global{
+    constructor_reference_source};
+constexpr ConstructorConstReference constructor_reference_temporary{31};
 constexpr FloatPair float_pair{1.25f, 2.5};
 constexpr FloatPair returned_float_pair = make_float_pair(1.5f, 2.25);
 constexpr FloatPair consteval_float_pair = make_consteval_float_pair(2.5f, 3.75);
@@ -124,6 +135,9 @@ static_assert(constructor_defaulted_subobjects.seed == 19 &&
               constructor_defaulted_subobjects.member.value == 23 &&
               constructor_defaulted_subobjects.value == 31 &&
               constructor_defaulted_subobjects.default_member == 37);
+static_assert(constructor_reference_global.seed == 19 &&
+              constructor_reference_global.value == 29 &&
+              constructor_reference_temporary.value == 31);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
@@ -140,6 +154,9 @@ int main(void) {
                    constructor_defaulted_subobjects.member.value == 23 &&
                    constructor_defaulted_subobjects.value == 31 &&
                    constructor_defaulted_subobjects.default_member == 37 &&
+                   constructor_reference_global.seed == 19 &&
+                   constructor_reference_global.value == 29 &&
+                   constructor_reference_temporary.value == 31 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
                    consteval_float_value == 6.25 &&
