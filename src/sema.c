@@ -8931,8 +8931,6 @@ static bool sema_constexpr_scalar_reference_target(
     int* target_index) {
     Type* reference_type;
     Expr* target;
-    SemaConstexprScalar target_value;
-    SemaConstexprScalar converted_value;
     int index;
     if (!declaration || !declaration->type || !declaration->var_init ||
         declaration->type->kind != TYPE_PTR ||
@@ -8960,12 +8958,7 @@ static bool sema_constexpr_scalar_reference_target(
         !sema_constexpr_scalar_type(bindings[index].type) ||
         bindings[index].type->is_volatile ||
         (!reference_type->is_const && bindings[index].type->is_const) ||
-        bindings[index].is_constexpr_uninitialized_local ||
-        !type_is_compatible(reference_type, bindings[index].type) ||
-        !sema_eval_constexpr_scalar_expr(
-            target, bindings, binding_count, &target_value) ||
-        !sema_constexpr_scalar_convert(
-            &target_value, reference_type, &converted_value)) {
+        !type_is_compatible(reference_type, bindings[index].type)) {
         return false;
     }
     *target_index = index;

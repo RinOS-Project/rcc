@@ -10964,10 +10964,10 @@ remains a separate open item.
 
 - [x] Bind initialized scalar constructor-body locals through read-only
       lvalue-reference locals, preserving aliasing when the original local is
-      subsequently updated and through reference aliases. Reject uninitialized
-      targets and keep rvalue, aggregate, and subobject references out of this
-      subset. Verify GCC C++20, constexpr/runtime values, i686/AMD64, and the
-      full POSIX `test-cxx` suite.
+      subsequently updated and through reference aliases. Reject reads through
+      uninitialized targets and keep rvalue, aggregate, and subobject references
+      out of this subset. Verify GCC C++20, constexpr/runtime values, i686/AMD64,
+      and the full POSIX `test-cxx` suite.
 
 ## RCC continuation (2026-10-28, mutable constexpr constructor references)
 
@@ -10976,3 +10976,11 @@ remains a separate open item.
       Preserve const-reference reads, reject binding non-const references to
       const locals, and verify GCC C++20, constexpr/runtime, i686/AMD64, and
       full POSIX `test-cxx`.
+
+## RCC continuation (2026-10-28, constexpr reference initializes local)
+
+- [x] Allow a local reference to bind an indeterminate scalar local without
+      reading it, then carry the target's initialized state through assignment
+      via the reference or a chained alias. Reject any read before that write;
+      verify GCC C++20, integer/floating constexpr and runtime values,
+      i686/AMD64, and full POSIX `test-cxx`.

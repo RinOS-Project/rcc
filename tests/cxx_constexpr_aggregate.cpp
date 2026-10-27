@@ -417,6 +417,24 @@ struct ConstructorBodyScalarReferenceLocal {
     }
 };
 
+struct ConstructorBodyReferenceInitializesLocal {
+    int value;
+    double floating_value;
+
+    constexpr explicit ConstructorBodyReferenceInitializesLocal(int initial) {
+        int local;
+        int& reference = local;
+        int& alias = reference;
+        alias = initial + 6;
+        this->value = reference;
+
+        double floating_local;
+        double& floating_reference = floating_local;
+        floating_reference = initial * 0.5 + 0.5;
+        this->floating_value = floating_reference;
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -746,6 +764,8 @@ constexpr ConstructorBodyFloatingLocal constructor_body_floating_local{4};
 constexpr ConstructorBodyPointerLocal constructor_body_pointer_local{4};
 constexpr ConstructorBodyScalarReferenceLocal
     constructor_body_scalar_reference_local{4};
+constexpr ConstructorBodyReferenceInitializesLocal
+    constructor_body_reference_initializes_local{4};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -1160,6 +1180,8 @@ int main(void) {
     ConstructorBodyFloatingLocal runtime_body_floating_local{5};
     ConstructorBodyPointerLocal runtime_body_pointer_local{5};
     ConstructorBodyScalarReferenceLocal runtime_body_scalar_reference_local{5};
+    ConstructorBodyReferenceInitializesLocal
+        runtime_body_reference_initializes_local{5};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -1331,6 +1353,10 @@ int main(void) {
                      constructor_body_scalar_reference_local.value == 10 &&
                      constructor_body_scalar_reference_local.floating_value ==
                          2.75 &&
+                     constructor_body_reference_initializes_local.value ==
+                         10 &&
+                     constructor_body_reference_initializes_local
+                             .floating_value == 2.5 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -1384,6 +1410,9 @@ int main(void) {
                      runtime_body_scalar_reference_local.value == 11 &&
                      runtime_body_scalar_reference_local.floating_value ==
                          3.25 &&
+                     runtime_body_reference_initializes_local.value == 11 &&
+                     runtime_body_reference_initializes_local
+                             .floating_value == 3.0 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&
