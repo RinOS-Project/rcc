@@ -1679,6 +1679,35 @@ debug_inline_nonconstant_signed_long_long_static_pair_ne_entry(void)
         static_cast<long long>(lhs != rhs));
 }
 
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_static_neg_entry(void)
+{
+    static unsigned long long source = 0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(-source);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_static_neg_entry(void)
+{
+    static long long source = -0x0123456789abcde9LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(-source);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_neg_entry(void)
+{
+    static thread_local unsigned long long source =
+        0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(-source);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_neg_entry(void)
+{
+    static thread_local long long source = -0x0123456789abcde9LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(-source);
+}
+
 extern "C" long long
 debug_inline_nonconstant_signed_long_long_global_pair_and_entry(void)
 {

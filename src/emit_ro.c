@@ -10490,7 +10490,14 @@ static bool debug_inline_parameter_i686_u64_negate_expression(
     const Decl* source;
     int64_t frame_offset = 0;
     bool source_is_global;
+    bool source_is_address_backed;
     size_t size = 0u;
+    DebugInlineI686ExpressionRelocations tls_relocations;
+    if (relocations) {
+        tls_relocations = *relocations;
+        tls_relocations.allow_tls = true;
+        relocations = &tls_relocations;
+    }
     if (!mod || !parameter_type || !source_expression || !expression ||
         !expression_size || source_expression->kind != EXPR_NEG ||
         !source_expression->unary_operand ||
@@ -10501,19 +10508,24 @@ static bool debug_inline_parameter_i686_u64_negate_expression(
     }
     source = source_expression->unary_operand->ident_decl;
     source_is_global = source && source->var_is_global;
+    source_is_address_backed = source &&
+        (source->var_is_global || source->var_is_static_local);
     if (!source || (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
         (source_is_global && source->kind != DECL_VAR) ||
-        source->var_is_static_local ||
-        source->var_is_thread_local || source->var_is_vla || !source->type ||
+        (source->var_is_thread_local && !source_is_address_backed) ||
+        source->var_is_vla || !source->type ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source_expression->unary_operand->type, parameter_type, 0u) ||
         (relocations && (!relocations->offsets || !relocations->symbols ||
                          !relocations->count)) ||
-        (!source_is_global && !debug_inline_parameter_frame_offset(
+        (source_is_address_backed &&
+         (!relocations || !relocations->offsets || !relocations->symbols ||
+          !relocations->count)) ||
+        (!source_is_address_backed && !debug_inline_parameter_frame_offset(
             mod, source, &frame_offset)) ||
-        (!source_is_global && frame_offset > INT64_MAX - 4)) {
+        (!source_is_address_backed && frame_offset > INT64_MAX - 4)) {
         return false;
     }
     if (relocations) *relocations->count = 0u;
@@ -10559,6 +10571,11 @@ static bool debug_inline_parameter_i686_u64_negate_expression(
             expression, capacity, &size, 0x93u) || /* DW_OP_piece */
         !debug_inline_integer_expression_append_byte(
             expression, capacity, &size, 4u)) {
+        return false;
+    }
+    if ((source_is_address_backed && *relocations->count != 3u) ||
+        (!source_is_address_backed && relocations &&
+         *relocations->count != 0u)) {
         return false;
     }
     *expression_size = size;
@@ -14515,12 +14532,21 @@ static void debug_emit_inline_parameter_instances(
             for (size_t relocation_index = 0u;
                  relocation_index < integer_value_relocation_count;
                  ++relocation_index) {
+                const ModuleSymbol* relocation_symbol =
+                    integer_value_relocation_symbols[relocation_index];
+                char* scoped_relocation_symbol = relocation_symbol->is_global
+                    ? NULL : module_scoped_symbol(
+                          filename, relocation_symbol->name);
                 objfile_add_reloc(
                     obj, info_section,
                     expression_offset +
                         integer_value_relocation_offsets[relocation_index],
-                    integer_value_relocation_symbols[relocation_index]->name,
-                    RELOC_ABS32U, 0);
+                    scoped_relocation_symbol
+                        ? scoped_relocation_symbol : relocation_symbol->name,
+                    relocation_symbol->section == MODULE_SYMBOL_TLS
+                        ? RELOC_TLSOFF32S : RELOC_ABS32U,
+                    0);
+                rcc_free(scoped_relocation_symbol);
             }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&

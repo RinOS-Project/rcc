@@ -11127,3 +11127,16 @@ remains a separate open item.
       `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
 - [ ] Volatile/reference/atomic operands and broader optimized multi-piece
       locations remain open.
+
+## RCC continuation (2026-10-28, function-local static unary negation DWARF)
+
+- [x] Extend i686 signed and unsigned 64-bit unary-negation inline-parameter
+      expressions to block-scope `static` and `static thread_local` sources.
+      Emit three module-scoped `ABS32U` relocations for non-TLS statics and
+      three module-scoped `TLSOFF32S` relocations for TLS statics; verify the
+      initialized bit patterns, low-word borrow behavior, and negated results
+      in normal and verified C++20 objects. Both focused
+      `test-debug-info-inline-expression` and full `test-debug-info` gates pass
+      under WSL2 Ubuntu-24.04.
+- [ ] Volatile/reference/atomic operands and broader optimized multi-piece
+      locations remain open.
