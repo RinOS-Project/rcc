@@ -8808,10 +8808,12 @@ remains a separate open item.
       relocations, and the full POSIX `test-cxx` aggregate pass.
 - [x] Invoke an exact-owner nonvirtual member-function pointer through `.*`
       from a constexpr function using a by-value trivial aggregate receiver,
-      and through `->*` using a pointer to a constexpr global object. Verify
-      direct and global-constexpr PMF values, member access through the bound
-      `this` object, GCC C++20, focused i686/AMD64 generation and AMD64
-      execution, and the full POSIX `test-cxx` aggregate.
+      and through `->*` using pointers to constexpr global and nested
+      constexpr-call local objects. Preserve the local receiver bytes while
+      forwarding its pointer across evaluator frames. Verify direct and
+      global-constexpr PMF values, member access through the bound `this`
+      object, GCC C++20, focused i686/AMD64 generation and AMD64 execution,
+      and the full POSIX `test-cxx` aggregate.
 - [ ] Virtual/inherited member-function-pointer static initialization,
       owner/signature conversions, and virtual constexpr dispatch remain open.
 

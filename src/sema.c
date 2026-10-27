@@ -4861,6 +4861,11 @@ typedef struct SemaConstexprBinding {
     bool is_pointer;
     Decl* pointer_declaration;
     int64_t pointer_offset;
+    /* A pointer parameter/local may refer to a constexpr aggregate owned by
+     * an outer evaluator frame. Retain that frame's bytes while forwarding
+     * the pointer through nested constexpr calls. */
+    unsigned char* pointer_target_object_bytes;
+    size_t pointer_target_object_size;
     bool is_member_pointer;
     TypeField* member_pointer_field;
     TypeMethod* member_pointer_method;
@@ -5771,6 +5776,51 @@ typedef struct SemaConstexprScalar {
     TypeField* member_pointer_field;
     TypeMethod* member_pointer_method;
 } SemaConstexprScalar;
+
+static void sema_constexpr_capture_pointer_target_object(
+    SemaConstexprBinding* pointer_binding,
+    const SemaConstexprScalar* pointer_value,
+    SemaConstexprBinding* source_bindings, int source_binding_count) {
+    if (!pointer_binding || !pointer_value || !pointer_value->is_pointer ||
+        !pointer_value->pointer_declaration ||
+        pointer_value->pointer_offset < 0 ||
+        (uint64_t)pointer_value->pointer_offset > SIZE_MAX ||
+        !source_bindings) {
+        return;
+    }
+    for (int index = 0; index < source_binding_count; ++index) {
+        SemaConstexprBinding* source = &source_bindings[index];
+        size_t offset = (size_t)pointer_value->pointer_offset;
+        if (source->declaration == pointer_value->pointer_declaration &&
+            source->is_object && source->object_bytes &&
+            offset <= source->object_size) {
+            pointer_binding->pointer_target_object_bytes =
+                source->object_bytes + offset;
+            pointer_binding->pointer_target_object_size =
+                source->object_size - offset;
+            return;
+        }
+    }
+    for (int index = 0; index < source_binding_count; ++index) {
+        SemaConstexprBinding* source = &source_bindings[index];
+        size_t offset;
+        if (!source->is_pointer ||
+            source->pointer_declaration != pointer_value->pointer_declaration ||
+            source->pointer_offset < 0 ||
+            !source->pointer_target_object_bytes ||
+            pointer_value->pointer_offset < source->pointer_offset) {
+            continue;
+        }
+        offset = (size_t)(pointer_value->pointer_offset -
+                          source->pointer_offset);
+        if (offset > source->pointer_target_object_size) continue;
+        pointer_binding->pointer_target_object_bytes =
+            source->pointer_target_object_bytes + offset;
+        pointer_binding->pointer_target_object_size =
+            source->pointer_target_object_size - offset;
+        return;
+    }
+}
 
 /* Aggregate constant evaluation uses target-layout bytes so the evaluator
  * never has to manufacture a host pointer.  Keep the corresponding pointer
@@ -7925,6 +7975,9 @@ static bool sema_eval_constexpr_aggregate_statement(
                     initializer.member_pointer_field;
                 bindings[*binding_count].member_pointer_method =
                     initializer.member_pointer_method;
+                sema_constexpr_capture_pointer_target_object(
+                    &bindings[*binding_count], &initializer, bindings,
+                    *binding_count);
                 ++*binding_count;
                 *value = initializer;
                 return true;
@@ -8110,6 +8163,9 @@ static bool sema_eval_constexpr_aggregate_function(
                 argument_value.member_pointer_field;
             bindings[count].member_pointer_method =
                 argument_value.member_pointer_method;
+            sema_constexpr_capture_pointer_target_object(
+                &bindings[count], &argument_value, caller_bindings,
+                caller_binding_count);
         } else if (sema_constexpr_aggregate_type(parameter->decl->type)) {
             if (parameter->decl->type->size <= 0) return false;
             bindings[count].object_bytes = ast_arena_alloc(
@@ -8398,6 +8454,9 @@ static bool sema_eval_constexpr_scalar_statement(
                 initializer.member_pointer_field;
             bindings[*binding_count].member_pointer_method =
                 initializer.member_pointer_method;
+            sema_constexpr_capture_pointer_target_object(
+                &bindings[*binding_count], &initializer, bindings,
+                *binding_count);
             bindings[*binding_count].object_bytes = NULL;
             bindings[*binding_count].object_size = 0u;
             bindings[*binding_count].is_object = false;
@@ -8582,6 +8641,29 @@ static bool sema_constexpr_materialize_member_pointer_receiver(
                 return true;
             }
         }
+        for (int index = 0; index < caller_binding_count; ++index) {
+            SemaConstexprBinding* binding = &caller_bindings[index];
+            size_t pointer_offset;
+            size_t relative_offset;
+            if (!binding->is_pointer ||
+                binding->pointer_declaration != declaration ||
+                binding->pointer_offset < 0 ||
+                !binding->pointer_target_object_bytes ||
+                offset < (size_t)binding->pointer_offset) {
+                continue;
+            }
+            pointer_offset = (size_t)binding->pointer_offset;
+            relative_offset = offset - pointer_offset;
+            if (relative_offset > binding->pointer_target_object_size ||
+                (size_t)receiver_type->size >
+                    binding->pointer_target_object_size - relative_offset) {
+                continue;
+            }
+            memcpy(receiver_storage,
+                   binding->pointer_target_object_bytes + relative_offset,
+                   (size_t)receiver_type->size);
+            return true;
+        }
         if (declaration->kind != DECL_VAR || !declaration->type ||
             !declaration->var_init ||
             (!declaration->var_is_global &&
@@ -8735,6 +8817,9 @@ static bool sema_eval_constexpr_scalar_function(
                 argument_value.member_pointer_field;
             bindings[count].member_pointer_method =
                 argument_value.member_pointer_method;
+            sema_constexpr_capture_pointer_target_object(
+                &bindings[count], &argument_value, argument_bindings,
+                argument_binding_count);
         } else if (sema_constexpr_aggregate_type(parameter_value_type)) {
             if (parameter_value_type->size <= 0) return false;
             bindings[count].object_bytes = ast_arena_alloc(
