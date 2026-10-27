@@ -276,7 +276,8 @@ constexpr int redirect_mutable_const_pointer_reference(
 constexpr int redirect_mutable_double_pointer_reference(
     int**& target, int** replacement) {
     target = replacement;
-    return target == replacement;
+    **target += 4;
+    return **target;
 }
 
 constexpr FloatPair make_float_pair(float first, double second) {
@@ -610,7 +611,6 @@ constexpr int redirect_double_pointer_through_constexpr_function() {
     int** target = &original_pointer;
     int** next = &replacement_pointer;
     int result = redirect_mutable_double_pointer_reference(target, next);
-    **target += 4;
     return original * 1000 + replacement * 100 + result * 10 +
            (target == next ? 1 : 0);
 }
@@ -669,7 +669,7 @@ static_assert(mutable_pointer_reference_function_result == 277);
 static_assert(mutable_aggregate_pointer_reference_function_result == 2408);
 static_assert(mutable_const_pointer_reference_function_result == 399);
 static_assert(local_double_pointer_dereference_result == 9);
-static_assert(mutable_double_pointer_reference_function_result == 4011);
+static_assert(mutable_double_pointer_reference_function_result == 4101);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
               "aggregate constexpr subscript evaluation");
@@ -779,7 +779,6 @@ int main(void) {
     int runtime_double_pointer_result =
         redirect_mutable_double_pointer_reference(
             runtime_double_pointer_target, runtime_double_pointer_next);
-    **runtime_double_pointer_target += 4;
     return first_value == 3 && second_value == 5 &&
                    nested_value == 13 && array_value == 19 &&
                    returned_value == 24 && mutated_returned_value == 44 &&
@@ -873,7 +872,7 @@ int main(void) {
                     runtime_double_pointer_original == 3 &&
                     runtime_double_pointer_replacement == 10 &&
                     runtime_double_pointer_target == runtime_double_pointer_next &&
-                    runtime_double_pointer_result == 1 &&
+                    runtime_double_pointer_result == 10 &&
                    float_first_value == 1.25f &&
                    float_returned_value == 3.75 &&
                    consteval_float_value == 6.25 &&

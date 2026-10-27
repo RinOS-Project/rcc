@@ -4867,6 +4867,12 @@ typedef struct SemaConstexprBinding {
     unsigned char* pointer_target_object_bytes;
     size_t pointer_target_object_size;
     Type* pointer_target_object_type;
+    /* Scalar locals are kept as values rather than object byte arrays.  A
+     * pointer parameter may nevertheless designate one in an outer
+     * constexpr frame, so retain the binding while that frame is alive. */
+    struct SemaConstexprBinding* pointer_target_scalar_binding;
+    /* Scratch target selected while resolving a pointer lvalue. */
+    struct SemaConstexprBinding* pointer_lvalue_scalar_binding;
     unsigned char* pointer_complete_object_bytes;
     size_t pointer_complete_object_size;
     Type* pointer_complete_object_type;
@@ -5792,6 +5798,8 @@ static bool sema_eval_constexpr_scalar_statement(
     SemaConstexprScalar* value, SemaConstexprStatementResult* result,
     bool allow_empty_return);
 
+static bool sema_constexpr_scalar_type(Type* type);
+
 static void sema_constexpr_capture_pointer_target_object(
     SemaConstexprBinding* pointer_binding,
     const SemaConstexprScalar* pointer_value,
@@ -5803,6 +5811,13 @@ static void sema_constexpr_capture_pointer_target_object(
         !source_bindings) {
         return;
     }
+    pointer_binding->pointer_target_object_bytes = NULL;
+    pointer_binding->pointer_target_object_size = 0u;
+    pointer_binding->pointer_target_object_type = NULL;
+    pointer_binding->pointer_target_scalar_binding = NULL;
+    pointer_binding->pointer_complete_object_bytes = NULL;
+    pointer_binding->pointer_complete_object_size = 0u;
+    pointer_binding->pointer_complete_object_type = NULL;
     for (int index = 0; index < source_binding_count; ++index) {
         SemaConstexprBinding* source = &source_bindings[index];
         size_t offset = (size_t)pointer_value->pointer_offset;
@@ -5821,6 +5836,15 @@ static void sema_constexpr_capture_pointer_target_object(
             pointer_binding->pointer_complete_object_type = source->type;
             return;
         }
+        if (source->declaration == pointer_value->pointer_declaration &&
+            !source->is_object && source->type &&
+            sema_constexpr_scalar_type(source->type) && offset == 0u) {
+            pointer_binding->pointer_target_scalar_binding = source;
+            pointer_binding->pointer_target_object_size =
+                source->type->size > 0 ? (size_t)source->type->size : 0u;
+            pointer_binding->pointer_target_object_type = source->type;
+            return;
+        }
     }
     for (int index = 0; index < source_binding_count; ++index) {
         SemaConstexprBinding* source = &source_bindings[index];
@@ -5828,10 +5852,22 @@ static void sema_constexpr_capture_pointer_target_object(
         if (!source->is_pointer ||
             source->pointer_declaration != pointer_value->pointer_declaration ||
             source->pointer_offset < 0 ||
-            !source->pointer_target_object_bytes ||
             pointer_value->pointer_offset < source->pointer_offset) {
             continue;
         }
+        if (source->pointer_target_scalar_binding) {
+            if (pointer_value->pointer_offset == source->pointer_offset) {
+                pointer_binding->pointer_target_scalar_binding =
+                    source->pointer_target_scalar_binding;
+                pointer_binding->pointer_target_object_size =
+                    source->pointer_target_object_size;
+                pointer_binding->pointer_target_object_type =
+                    source->pointer_target_object_type;
+                return;
+            }
+            continue;
+        }
+        if (!source->pointer_target_object_bytes) continue;
         offset = (size_t)(pointer_value->pointer_offset -
                           source->pointer_offset);
         if (offset > source->pointer_target_object_size) continue;
@@ -7022,6 +7058,9 @@ static bool sema_constexpr_pointer_target_binding(
     }
     if (binding_count < 0) return false;
     live_binding_count = binding_count < 64 ? binding_count : 64;
+    for (int candidate = 0; candidate < 64; ++candidate) {
+        bindings[candidate].pointer_lvalue_scalar_binding = NULL;
+    }
     offset = (size_t)pointer_value->pointer_offset;
     for (int candidate = 0; candidate < 64; ++candidate) {
         SemaConstexprBinding* binding = &bindings[candidate];
@@ -7045,9 +7084,32 @@ static bool sema_constexpr_pointer_target_binding(
     }
     for (int candidate = 0; candidate < live_binding_count; ++candidate) {
         SemaConstexprBinding* binding = &bindings[candidate];
+        SemaConstexprBinding* scalar_target =
+            binding->pointer_target_scalar_binding;
         size_t base_offset;
-        if (!binding->is_pointer ||
-            binding->pointer_declaration !=
+        if (!binding->is_pointer) continue;
+        for (unsigned depth = 0u; scalar_target && depth < 64u; ++depth) {
+            SemaConstexprBinding* resolved_scalar = NULL;
+            if (scalar_target->declaration ==
+                    pointer_value->pointer_declaration && offset == 0u) {
+                resolved_scalar = scalar_target;
+            } else if (scalar_target->pointer_declaration ==
+                           pointer_value->pointer_declaration &&
+                       scalar_target->pointer_offset == 0 &&
+                       scalar_target->pointer_target_scalar_binding) {
+                resolved_scalar =
+                    scalar_target->pointer_target_scalar_binding;
+            }
+            if (resolved_scalar) {
+                binding->pointer_lvalue_scalar_binding = resolved_scalar;
+                *binding_index = candidate;
+                *target_offset = 0u;
+                *uses_pointer_target = true;
+                return true;
+            }
+            scalar_target = scalar_target->pointer_target_scalar_binding;
+        }
+        if (binding->pointer_declaration !=
                 pointer_value->pointer_declaration ||
             binding->pointer_offset < 0 ||
             !binding->pointer_target_object_bytes ||
@@ -7063,6 +7125,19 @@ static bool sema_constexpr_pointer_target_binding(
         return true;
     }
     return false;
+}
+
+static size_t sema_constexpr_pointer_target_size(
+    SemaConstexprBinding* binding, bool uses_pointer_target) {
+    SemaConstexprBinding* scalar_target;
+    if (!binding) return 0u;
+    scalar_target = binding->pointer_lvalue_scalar_binding;
+    if (uses_pointer_target && scalar_target && scalar_target->type &&
+        scalar_target->type->size > 0) {
+        return (size_t)scalar_target->type->size;
+    }
+    return uses_pointer_target ? binding->pointer_target_object_size
+                               : binding->object_size;
 }
 
 static bool sema_constexpr_binding_lvalue(
@@ -7125,9 +7200,8 @@ static bool sema_constexpr_binding_lvalue(
             expression->member_field->offset < 0) {
             return false;
         }
-        object_size = uses_pointer_target
-            ? bindings[pointer_index].pointer_target_object_size
-            : bindings[pointer_index].object_size;
+        object_size = sema_constexpr_pointer_target_size(
+            &bindings[pointer_index], uses_pointer_target);
         if (pointer_offset > object_size ||
             (size_t)expression->member_field->offset >
                 object_size - pointer_offset) {
@@ -7157,9 +7231,8 @@ static bool sema_constexpr_binding_lvalue(
             target_type->size <= 0) {
             return false;
         }
-        object_size = uses_pointer_target
-            ? bindings[pointer_index].pointer_target_object_size
-            : bindings[pointer_index].object_size;
+        object_size = sema_constexpr_pointer_target_size(
+            &bindings[pointer_index], uses_pointer_target);
         if (!uses_pointer_target &&
             !bindings[pointer_index].is_object &&
             sema_constexpr_scalar_type(bindings[pointer_index].type) &&
@@ -7396,7 +7469,10 @@ static bool sema_constexpr_load_binding_scalar(
         if (!sema_constexpr_binding_storage(
                 &bindings[binding_index], &target_storage,
                 &target_storage_size)) {
-            SemaConstexprBinding* scalar = &bindings[binding_index];
+            SemaConstexprBinding* scalar =
+                bindings[binding_index].pointer_lvalue_scalar_binding
+                    ? bindings[binding_index].pointer_lvalue_scalar_binding
+                    : &bindings[binding_index];
             if (offset != 0u || scalar->is_object ||
                 !sema_constexpr_scalar_type(scalar->type) ||
                 !type_is_compatible(type, scalar->type)) return false;
@@ -7481,7 +7557,10 @@ static bool sema_constexpr_store_binding_scalar(
         if (!sema_constexpr_binding_storage(
                 &bindings[binding_index], &target_storage,
                 &target_storage_size)) {
-            SemaConstexprBinding* scalar = &bindings[binding_index];
+            SemaConstexprBinding* scalar =
+                bindings[binding_index].pointer_lvalue_scalar_binding
+                    ? bindings[binding_index].pointer_lvalue_scalar_binding
+                    : &bindings[binding_index];
             if (offset != 0u || scalar->is_object || type->is_const ||
                 !sema_constexpr_scalar_type(scalar->type) ||
                 !type_is_compatible(type, scalar->type)) return false;
@@ -7494,6 +7573,20 @@ static bool sema_constexpr_store_binding_scalar(
             scalar->is_member_pointer = converted.is_member_pointer;
             scalar->member_pointer_field = converted.member_pointer_field;
             scalar->member_pointer_method = converted.member_pointer_method;
+            if (scalar->type && scalar->type->kind == TYPE_PTR) {
+                scalar->pointer_target_object_bytes = NULL;
+                scalar->pointer_target_object_size = 0u;
+                scalar->pointer_target_object_type = NULL;
+                scalar->pointer_target_scalar_binding = NULL;
+                scalar->pointer_lvalue_scalar_binding = NULL;
+                scalar->pointer_complete_object_bytes = NULL;
+                scalar->pointer_complete_object_size = 0u;
+                scalar->pointer_complete_object_type = NULL;
+                if (converted.is_pointer) {
+                    sema_constexpr_capture_pointer_target_object(
+                        scalar, &converted, bindings, binding_count);
+                }
+            }
             if (scalar->is_constexpr_dynamic) {
                 scalar->is_constexpr_initialized = true;
             }
@@ -7551,6 +7644,8 @@ static bool sema_constexpr_store_binding_scalar(
             target->pointer_target_object_bytes = NULL;
             target->pointer_target_object_size = 0u;
             target->pointer_target_object_type = NULL;
+            target->pointer_target_scalar_binding = NULL;
+            target->pointer_lvalue_scalar_binding = NULL;
             target->pointer_complete_object_bytes = NULL;
             target->pointer_complete_object_size = 0u;
             target->pointer_complete_object_type = NULL;
