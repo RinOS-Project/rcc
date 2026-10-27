@@ -8727,9 +8727,12 @@ remains a separate open item.
       truth in conditional, `&&`, and `||` expressions.
       GCC C++20 and the i686/AMD64 `test-cxx-function-template-overloads`
       generation/execution gate pass.
+- [x] Infer the bound of a global incomplete array from its initializer while
+      evaluating a dependent constexpr call that dereferences a pointer to an
+      array element. The i686/AMD64 generation and AMD64 runtime checks pass,
+      along with the GCC C++20 host oracle and focused overload gate.
 - [ ] Pointer references, member pointers, broader pointer conversions, and
-      dependent calls that dereference array-element pointers or use pointer
-      arithmetic remain open.
+      dependent calls that use pointer arithmetic remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

@@ -6150,6 +6150,30 @@ static bool sema_constexpr_materialize_object(
     Type* type, Expr* initializer, SemaConstexprBinding* bindings,
     int binding_count, unsigned char* storage, size_t storage_size);
 
+static bool sema_constexpr_inferred_array_length(
+    const Expr* initializer, int* length) {
+    const ExprList* item;
+    int64_t cursor = 0;
+    int64_t maximum = 0;
+
+    if (!initializer || initializer->kind != EXPR_COMPOUND || !length) {
+        return false;
+    }
+    for (item = initializer->compound_init; item; item = item->next) {
+        if (item->designator_kind == INIT_DESIGNATOR_FIELD) return false;
+        if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+            if (item->designator_index < 0) return false;
+            cursor = item->designator_index;
+        }
+        if (cursor < 0 || cursor >= INT_MAX) return false;
+        if (cursor + 1 > maximum) maximum = cursor + 1;
+        ++cursor;
+    }
+    if (maximum <= 0 || maximum > INT_MAX) return false;
+    *length = (int)maximum;
+    return true;
+}
+
 static bool sema_eval_constexpr_aggregate_function(
     Decl* declaration, ExprList* args, SemaConstexprBinding* caller_bindings,
     int caller_binding_count, unsigned char* storage, size_t storage_size);
@@ -8819,8 +8843,10 @@ static bool sema_eval_constexpr_scalar_expr(
         }
         case EXPR_DEREF: {
             Decl* declaration;
+            Type* object_type;
             unsigned char* storage;
             size_t offset;
+            size_t object_size;
             Type* target_type = expression->type;
             if (!target_type) {
                 Type* pointer_type = expression->unary_operand
@@ -8850,21 +8876,38 @@ static bool sema_eval_constexpr_scalar_expr(
                 return false;
             }
             declaration = left.pointer_declaration;
-            if (declaration->type->size <= 0 || !declaration->var_init) {
-                return false;
+            object_type = declaration->type;
+            object_size = object_type->size > 0
+                ? (size_t)object_type->size : 0u;
+            if (object_size == 0u && object_type->kind == TYPE_ARRAY &&
+                object_type->base && object_type->base->size > 0 &&
+                object_type->array_len <= 0) {
+                int inferred_length;
+                if (!sema_constexpr_inferred_array_length(
+                        declaration->var_init, &inferred_length)) {
+                    return false;
+                }
+                Type* completed_array = ast_arena_alloc(
+                    sizeof(*completed_array));
+                if (!completed_array) return false;
+                *completed_array = *object_type;
+                completed_array->array_len = inferred_length;
+                if (inferred_length >
+                    INT_MAX / object_type->base->size) return false;
+                completed_array->size =
+                    inferred_length * object_type->base->size;
+                object_type = completed_array;
+                object_size = (size_t)completed_array->size;
             }
+            if (object_size == 0u || !declaration->var_init) return false;
             offset = (size_t)left.pointer_offset;
-            if (offset > (size_t)declaration->type->size ||
+            if (offset > object_size ||
                 (size_t)target_type->size >
-                    (size_t)declaration->type->size - offset) {
-                return false;
-            }
-            storage = ast_arena_alloc((size_t)declaration->type->size);
+                    object_size - offset) return false;
+            storage = ast_arena_alloc(object_size);
             if (!sema_constexpr_materialize_object(
-                    declaration->type, declaration->var_init, NULL, 0,
-                    storage, (size_t)declaration->type->size)) {
-                return false;
-            }
+                    object_type, declaration->var_init, NULL, 0,
+                    storage, object_size)) return false;
             return sema_constexpr_load_scalar_bytes(
                 storage + offset, (size_t)target_type->size,
                 target_type, value);
