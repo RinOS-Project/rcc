@@ -8975,8 +8975,13 @@ remains a separate open item.
       constructor/function aliases, aggregate return and whole-union copy,
       allow a valid scalar-member switch, and reject reading an inactive member
       on both targets with diagnostics matching strict GCC C++20.
+- [x] Track active non-scalar aggregate alternatives in constexpr unions passed
+      by mutable reference. Verify nested member writes, `Pair -> scalar ->
+      Pair` implicit-lifetime transitions, and rejection of an inactive
+      aggregate read against GCC C++20; run focused i686/AMD64 generation and
+      execution.
 - [ ] Constructor bodies beyond the covered expressions/branches, mutable
-      references to unions with non-scalar alternatives or nested lifetime
+      references to non-trivial union alternatives or untested lifetime
       transitions, other pointer-reference forms not covered by the scalar-
       and aggregate-returning evaluators,
       indeterminate tracking for nested/array/base subobjects, and complete

@@ -15,6 +15,11 @@ union MutableReferenceUnion {
     int other;
 };
 
+union MutableAggregateReferenceUnion {
+    Pair pair;
+    int scalar;
+};
+
 struct ConstructorBodyBase {
     int seed;
 
@@ -210,6 +215,21 @@ constexpr int assign_through_mutable_union_references(
     target = source;
     target.value += 1;
     return target.value;
+}
+
+constexpr int mutate_union_aggregate_alternative(
+    MutableAggregateReferenceUnion& value) {
+    value.pair.first += 2;
+    value.pair.second += 3;
+    return value.pair.first * 100 + value.pair.second;
+}
+
+constexpr int transition_union_aggregate_alternative(
+    MutableAggregateReferenceUnion& value) {
+    value.scalar = value.pair.first + value.pair.second;
+    value.pair.first = value.scalar + 1;
+    value.pair.second = value.pair.first + 2;
+    return value.pair.first * 100 + value.pair.second;
 }
 
 constexpr Pair make_pair_after_mutating_scalar_reference(int& value) {
@@ -476,6 +496,24 @@ constexpr int assign_union_through_reference_function() {
 constexpr int union_reference_assignment_result =
     assign_union_through_reference_function();
 
+constexpr int mutate_union_aggregate_alternative_function() {
+    MutableAggregateReferenceUnion source{Pair{1, 2}};
+    int result = mutate_union_aggregate_alternative(source);
+    return source.pair.first * 1000 + source.pair.second * 10 + result;
+}
+
+constexpr int union_aggregate_reference_result =
+    mutate_union_aggregate_alternative_function();
+
+constexpr int transition_union_aggregate_alternative_function() {
+    MutableAggregateReferenceUnion source{Pair{3, 4}};
+    int result = transition_union_aggregate_alternative(source);
+    return source.pair.first * 1000 + source.pair.second * 10 + result;
+}
+
+constexpr int union_aggregate_member_transition_result =
+    transition_union_aggregate_alternative_function();
+
 constexpr int mutate_scalar_through_aggregate_return_function() {
     int source = 5;
     Pair result = make_pair_after_mutating_scalar_reference(source);
@@ -589,6 +627,8 @@ static_assert(union_reference_function_result == 606);
 static_assert(union_reference_member_switch_result == 707);
 static_assert(aggregate_return_union_reference_result == 7078);
 static_assert(union_reference_assignment_result == 707);
+static_assert(union_aggregate_reference_result == 3355);
+static_assert(union_aggregate_member_transition_result == 8910);
 static_assert(aggregate_return_reference_function_result == 778);
 static_assert(aggregate_return_object_reference_function_result == 7078);
 static_assert(aggregate_return_array_reference_function_result == 12062);
@@ -649,6 +689,15 @@ int main(void) {
     int runtime_union_assignment_result =
         assign_through_mutable_union_references(
             runtime_union_assignment_target, runtime_union_assignment_source);
+    MutableAggregateReferenceUnion runtime_union_aggregate_source{
+        Pair{1, 2}};
+    int runtime_union_aggregate_result =
+        mutate_union_aggregate_alternative(runtime_union_aggregate_source);
+    MutableAggregateReferenceUnion runtime_union_transition_source{
+        Pair{3, 4}};
+    int runtime_union_transition_result =
+        transition_union_aggregate_alternative(
+            runtime_union_transition_source);
     int runtime_aggregate_return_source = 5;
     Pair runtime_aggregate_return_result =
         make_pair_after_mutating_scalar_reference(
@@ -742,6 +791,12 @@ int main(void) {
                     runtime_union_return_result.second == 8 &&
                     runtime_union_assignment_target.value == 7 &&
                     runtime_union_assignment_result == 7 &&
+                    runtime_union_aggregate_source.pair.first == 3 &&
+                    runtime_union_aggregate_source.pair.second == 5 &&
+                    runtime_union_aggregate_result == 305 &&
+                    runtime_union_transition_source.pair.first == 8 &&
+                    runtime_union_transition_source.pair.second == 10 &&
+                    runtime_union_transition_result == 810 &&
                    runtime_aggregate_return_source == 7 &&
                    runtime_aggregate_return_result.first == 7 &&
                    runtime_aggregate_return_result.second == 8 &&
