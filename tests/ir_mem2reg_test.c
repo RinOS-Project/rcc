@@ -858,7 +858,7 @@ static int64_t ir_test_signed_value(uint64_t value, uint16_t width)
     return -(int64_t)magnitude;
 }
 
-static uint64_t evaluate_reduced_signed_integer_function(
+static uint64_t evaluate_reduced_integer_function(
     const RccIrFunction* function, uint64_t input)
 {
     uint64_t values[64] = {0u};
@@ -904,8 +904,11 @@ static uint64_t evaluate_reduced_signed_integer_function(
                         ir_test_arithmetic_shift_right(
                             left, width, (unsigned)right);
                     break;
+                case RCC_IR_LSHR:
+                    values[instruction->result] = left >> right;
+                    break;
                 default:
-                    assert(!"unexpected opcode in signed division reduction");
+                    assert(!"unexpected opcode in integer division reduction");
                     return 0u;
             }
         }
@@ -1032,6 +1035,116 @@ static void verify_signed_power_of_two_reduction(void)
     verify_signed_divisor_is_not_reduced(32u, 0);
     verify_signed_divisor_is_not_reduced(32u, 3);
     verify_signed_divisor_is_not_reduced(32u, -1);
+}
+
+static void verify_unsigned_power_of_two_reduction_case(
+    uint16_t width, uint64_t divisor, RccIrOpcode operation)
+{
+    RccIrType type = rcc_ir_type_integer(width);
+    RccIrType parameters[] = {type};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "unsigned_power_of_two_reduction", type, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    uint64_t mask = ir_test_integer_mask(width);
+    RccIrValue divisor_value = append_const(entry, type, divisor & mask);
+    RccIrValue operands[] = {function->parameters[0], divisor_value};
+    RccIrInstruction* arithmetic = rcc_ir_append(
+        entry, operation, type, operands, 2u, NULL, 0u);
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(arithmetic != NULL);
+    append_return(entry, arithmetic->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0' && stats.folded_instructions >= 1u);
+    assert(count_opcode(function, RCC_IR_UDIV) == 0u);
+    assert(count_opcode(function, RCC_IR_UREM) == 0u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+
+    if (width == 8u) {
+        for (uint64_t input = 0u; input <= UINT8_MAX; ++input) {
+            uint64_t expected = operation == RCC_IR_UDIV
+                ? input / divisor : input % divisor;
+            assert(evaluate_reduced_integer_function(
+                       function, input) == expected);
+        }
+    } else {
+        static const uint64_t edges[] = {
+            0u, 1u, 2u, UINT64_MAX, UINT64_C(0x7fffffffffffffff),
+            UINT64_C(0x8000000000000000),
+            UINT64_C(0x8000000000000001), UINT64_C(0x123456789abcdef0),
+        };
+        uint64_t seed = UINT64_C(0x9e3779b97f4a7c15);
+        for (size_t index = 0u; index < sizeof(edges) / sizeof(edges[0]);
+             ++index) {
+            uint64_t input = edges[index] & mask;
+            uint64_t expected = operation == RCC_IR_UDIV
+                ? input / divisor : input % divisor;
+            assert(evaluate_reduced_integer_function(
+                       function, input) == expected);
+        }
+        for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
+            uint64_t input;
+            uint64_t expected;
+            seed = seed * UINT64_C(6364136223846793005) +
+                UINT64_C(1442695040888963407);
+            input = seed & mask;
+            expected = operation == RCC_IR_UDIV
+                ? input / divisor : input % divisor;
+            assert(evaluate_reduced_integer_function(
+                       function, input) == expected);
+        }
+    }
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_unsigned_divisor_is_not_reduced(
+    uint16_t width, uint64_t divisor, RccIrOpcode operation)
+{
+    RccIrType type = rcc_ir_type_integer(width);
+    RccIrType parameters[] = {type};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "preserve_unsigned_divisor", type, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrValue divisor_value = append_const(
+        entry, type, divisor & ir_test_integer_mask(width));
+    RccIrValue operands[] = {function->parameters[0], divisor_value};
+    RccIrInstruction* division = rcc_ir_append(
+        entry, operation, type, operands, 2u, NULL, 0u);
+    char error[256];
+    assert(division != NULL);
+    append_return(entry, division->result);
+    assert(rcc_ir_simplify(function, NULL, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(count_opcode(function, operation) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_unsigned_power_of_two_reduction(void)
+{
+    static const uint16_t widths[] = {8u, 16u, 32u, 64u};
+    for (size_t index = 0u; index < sizeof(widths) / sizeof(widths[0]);
+         ++index) {
+        uint16_t width = widths[index];
+        verify_unsigned_power_of_two_reduction_case(
+            width, 2u, RCC_IR_UDIV);
+        verify_unsigned_power_of_two_reduction_case(
+            width, 8u, RCC_IR_UDIV);
+        verify_unsigned_power_of_two_reduction_case(
+            width, UINT64_C(1) << (width - 1u), RCC_IR_UDIV);
+        verify_unsigned_power_of_two_reduction_case(
+            width, 2u, RCC_IR_UREM);
+        verify_unsigned_power_of_two_reduction_case(
+            width, 8u, RCC_IR_UREM);
+        verify_unsigned_power_of_two_reduction_case(
+            width, UINT64_C(1) << (width - 1u), RCC_IR_UREM);
+    }
+    verify_unsigned_divisor_is_not_reduced(32u, 0u, RCC_IR_UDIV);
+    verify_unsigned_divisor_is_not_reduced(32u, 0u, RCC_IR_UREM);
+    verify_unsigned_divisor_is_not_reduced(32u, 3u, RCC_IR_UDIV);
+    verify_unsigned_divisor_is_not_reduced(32u, 3u, RCC_IR_UREM);
 }
 
 static void verify_integer_identities(void)
@@ -2342,6 +2455,7 @@ int main(void)
     verify_self_binary_simplification();
     verify_modulo_one_simplification();
     verify_signed_power_of_two_reduction();
+    verify_unsigned_power_of_two_reduction();
     verify_constant_branch_pruning();
     verify_equal_branch_target_simplification();
     verify_constant_phi_and_select_folding();

@@ -1805,6 +1805,10 @@
         境界値と4,096 deterministic inputsを実行し、side-effect dividendの一回評価と
         optimized `idiv` removalを`test-optimize`で検証。Windows native runnerも
         ABI-aware SysV function pointerでAMD64 C/C++ O1 objectsを実行
+   - [x] typed SSAのunsigned `/`／`%`を、非ゼロ定数2冪についてlogical shift／maskへ
+         削減。8/16/32/64-bit全幅で上位bit divisor、8-bit全入力、広幅の境界値と
+         4,096 deterministic inputsを検証し、0と非2冪divisorは元の演算に保持。
+         `test-ir`でi686/AMD64 host runnerの両方をgate
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline

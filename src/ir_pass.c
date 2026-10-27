@@ -2345,6 +2345,71 @@ static void ir_pass_rewrite_binary(
     instruction->opcode = opcode;
 }
 
+static bool ir_pass_reduce_unsigned_power_of_two_division(
+    RccIrFunction* function, RccIrSimplifyStats* stats,
+    char* error, size_t error_size) {
+    RccIrBlock* block;
+    /* Unsigned division rounds down directly, so a nonzero power-of-two
+     * divisor is exactly a logical shift or low-bit mask. */
+    for (block = function->first_block; block; block = block->next) {
+        RccIrInstruction* instruction = block->first;
+        while (instruction) {
+            RccIrInstruction* next = instruction->next;
+            uint64_t encoded_divisor;
+            uint64_t divisor;
+            uint64_t shift_count = 0u;
+            uint64_t mask;
+            uint16_t width;
+            RccIrValue replacement_constant;
+            RccIrOpcode replacement_opcode;
+
+            if ((instruction->opcode != RCC_IR_UDIV &&
+                 instruction->opcode != RCC_IR_UREM) ||
+                instruction->result == RCC_IR_VALUE_NONE ||
+                instruction->operand_count != 2u ||
+                instruction->type.kind != RCC_IR_TYPE_INTEGER ||
+                !ir_pass_constant_operand(
+                    function, instruction->operands[1], &encoded_divisor)) {
+                instruction = next;
+                continue;
+            }
+            width = instruction->type.bit_width;
+            if (width < 8u || width > 64u) {
+                instruction = next;
+                continue;
+            }
+            mask = ir_pass_integer_mask(width);
+            divisor = encoded_divisor & mask;
+            if (divisor <= 1u || (divisor & (divisor - 1u)) != 0u) {
+                instruction = next;
+                continue;
+            }
+            while ((divisor >> shift_count) > 1u) ++shift_count;
+            if (shift_count == 0u || shift_count >= width) {
+                instruction = next;
+                continue;
+            }
+            replacement_opcode = instruction->opcode == RCC_IR_UDIV
+                ? RCC_IR_LSHR : RCC_IR_AND;
+            replacement_constant = ir_pass_insert_integer_constant_before(
+                instruction, instruction->type,
+                replacement_opcode == RCC_IR_LSHR
+                    ? shift_count : divisor - 1u);
+            if (replacement_constant == RCC_IR_VALUE_NONE) {
+                return ir_pass_error(
+                    error, error_size,
+                    "SSA unsigned-division reduction could not create its constant");
+            }
+            ir_pass_rewrite_binary(
+                instruction, replacement_opcode,
+                instruction->operands[0], replacement_constant);
+            if (stats) ++stats->folded_instructions;
+            instruction = next;
+        }
+    }
+    return true;
+}
+
 static bool ir_pass_reduce_signed_power_of_two_division(
     RccIrFunction* function, RccIrSimplifyStats* stats,
     char* error, size_t error_size) {
@@ -2986,6 +3051,8 @@ static bool ir_pass_simplify(RccIrFunction* function, bool enable_gvn,
     if (!ir_pass_fold_constants(function, &local_stats) ||
         !ir_pass_simplify_integer_identities(function, &local_stats,
                                               error, error_size) ||
+        !ir_pass_reduce_unsigned_power_of_two_division(
+            function, &local_stats, error, error_size) ||
         !ir_pass_reduce_signed_power_of_two_division(
             function, &local_stats, error, error_size) ||
         !ir_pass_prune_unreachable(function, &local_stats,
