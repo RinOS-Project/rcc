@@ -8755,9 +8755,10 @@ remains a separate open item.
       qualification conversion from `T Owner::*` to `const T Owner::*`. Verify
       dependent non-type template argument selection against GCC C++20 and the
       i686/AMD64 generation plus execution gate.
-- [ ] Non-null member-function-pointer values, data-member-pointer owner
-      conversions and other cv-qualification combinations, and additional
-      pointer conversions remain open.
+- [ ] Non-null member-function-pointer values, multiple-inheritance or
+      nonzero-adjustment data-member-pointer owner conversions, other
+      member-pointee cv-qualification combinations, and additional pointer
+      conversions remain open.
 
 ## RCC continuation (2026-10-27, constexpr data-member-pointer owner conversion)
 
