@@ -10425,17 +10425,22 @@ remains a separate open item.
 ## RCC continuation (2026-10-26, signed i686 64-bit division and remainder)
 
 - [x] Lower signed i686 64-bit `/` and `%` for matching signed identifier
-      operands backed by globals or frame storage, and signed 64-bit literals.
+      operands backed by globals, frame storage, or non-TLS function-local
+      statics, and signed 64-bit literals.
       Convert operands to unsigned magnitudes, then restore quotient sign from
       operand-sign XOR and remainder sign from the dividend. Preserve the
       reloc-free frame/frame expression as well as global/global, global/frame,
       and frame/global operands; verify negative `-7` constants in legacy and
       verified objects. Cover signed boundaries while excluding division by
       zero and the undefined `INT64_MIN / -1` case. Require three exact
-      `ABS32U` relocations per global operand for sign and magnitude loads.
-      Focused `test-debug-info-inline-expression` and full `test-debug-info` pass.
+      `ABS32U` relocations per global operand for sign and magnitude loads;
+      function-local static sources use source-file-scoped relocations and are
+      checked at three relocations per static source. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass on
+      native Windows; the static-local cases run for normal and verified i686
+      objects.
 - [ ] Computed signed operand trees beyond identifier operands, one unary
-      minus, and same-type signed 64-bit casts; TLS/static-local or
+      minus, and same-type signed 64-bit casts; TLS or
       volatile/reference/atomic operands; and broader optimized multi-piece
       locations remain open.
 
@@ -10466,7 +10471,7 @@ remains a separate open item.
       divisor, pass in legacy and verified objects. Both focused and complete
       DWARF gates pass under WSL2 Ubuntu-24.04/GCC.
 - [ ] Broader computed signed operand trees, width-changing casts,
-      TLS/static-local or volatile/reference/atomic operands, and optimized
+      TLS or volatile/reference/atomic operands, and optimized
       multi-piece locations remain open.
 
 ## RCC continuation (2026-10-27, nested multiple-pointer structural NTTP)
@@ -10494,3 +10499,19 @@ remains a separate open item.
       present/missing cases and native-Windows
       `test-cxx-structural-array-nttp` pass; observed elapsed time fell from
       about 65 seconds to 22.5 seconds across the two runs.
+
+## RCC continuation (2026-10-27, i686 static-local signed divmod DWARF)
+
+- [x] Extend signed i686 64-bit runtime variable-divisor and literal-divisor
+      `/` and `%` inline-parameter expressions to non-TLS function-local static
+      identifiers. Resolve their local storage symbols, emit file-scoped
+      `DW_OP_addr` relocations, and keep TLS, volatile, reference, and atomic
+      operands rejected. Regressions cover both static operands for variable
+      division/remainder and a static dividend with divisor `-7`; verify
+      relocation identities and signed boundary-value evaluation in normal
+      and verified i686 C++20 objects. Native Windows
+      `make SHELL=cmd.exe test-debug-info-inline-expression` and full
+      `make SHELL=cmd.exe test-debug-info` pass.
+- [ ] TLS and volatile/reference/atomic operands, wider computed signed
+      expression trees, width-changing casts, and broader optimized
+      multi-piece locations remain open.

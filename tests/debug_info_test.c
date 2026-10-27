@@ -9226,6 +9226,131 @@ static void verify_inline_i686_s64_global_constant_division_expression(
     }
 }
 
+static void verify_inline_i686_static_local_signed_division(
+    const char* path, const char* call_site_name, bool variable_divisor,
+    bool remainder) {
+    const char* inline_name =
+        "debug_nonconstant_signed_long_long_parameter_inline";
+    const char* source_name = NULL;
+    const char* divisor_name = NULL;
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t call_die = UINT64_MAX;
+    uint64_t origin_die = UINT64_MAX;
+    uint64_t parameter_die = UINT64_MAX;
+    uint64_t expression_offset;
+    uint64_t expression_size;
+    assert(object != NULL && object->arch == ARCH_X86 && call_site_name);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info && strings);
+    for (uint64_t die = 11u; die + 1u + 4u + 4u + 16u <= info->size;
+         ++die) {
+        uint32_t candidate_origin;
+        uint32_t name_offset;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        candidate_origin = read_u32(info->data, die + 1u);
+        if (candidate_origin >= info->size ||
+            info->data[candidate_origin] != 40u) continue;
+        name_offset = read_u32(info->data, candidate_origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   inline_name) != 0) {
+            continue;
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == die + 1u + 4u &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+        origin_die = candidate_origin;
+    }
+    assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    {
+        uint64_t children_begin = call_die + 1u + 4u + 4u + 4u + 12u;
+        uint64_t children_end = info->size;
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            uint64_t candidate;
+            if (relocation->offset <= call_die + 5u ||
+                relocation->offset < 5u) {
+                continue;
+            }
+            candidate = relocation->offset - 5u;
+            if (candidate >= children_begin && candidate < children_end &&
+                info->data[candidate] == 41u) {
+                children_end = candidate;
+            }
+        }
+        for (uint64_t candidate = children_begin;
+             candidate + 5u < children_end; ++candidate) {
+            if (info->data[candidate] == 67u &&
+                read_u32(info->data, candidate + 1u) == origin_die + 27u) {
+                parameter_die = candidate;
+                break;
+            }
+        }
+        if (parameter_die == UINT64_MAX) {
+            fprintf(stderr,
+                    "static-local inline parameter missing: call=%s "
+                    "children=[%llu,%llu)\n",
+                    call_site_name, (unsigned long long)children_begin,
+                    (unsigned long long)children_end);
+        }
+        assert(parameter_die != UINT64_MAX);
+        expression_offset = parameter_die + 5u;
+        expression_size = read_uleb(
+            info->data, info->size, &expression_offset);
+        assert(expression_offset + expression_size <= info->size);
+    }
+    for (const ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset < expression_offset ||
+            relocation->offset >= expression_offset + expression_size) {
+            continue;
+        }
+        assert(relocation->type == RELOC_ABS32U &&
+               relocation->symbol_name &&
+               strncmp(relocation->symbol_name,
+                       "tests/debug_info_inline_integer.cpp::",
+                       sizeof("tests/debug_info_inline_integer.cpp::") - 1u) ==
+                   0);
+        if (!source_name) {
+            source_name = relocation->symbol_name;
+        } else if (strcmp(source_name, relocation->symbol_name) == 0) {
+            continue;
+        } else if (!divisor_name) {
+            divisor_name = relocation->symbol_name;
+        } else if (strcmp(divisor_name, relocation->symbol_name) != 0) {
+            assert(0 && "unexpected third static-local division operand");
+        }
+    }
+    assert(source_name &&
+           (variable_divisor ? divisor_name != NULL : divisor_name == NULL));
+    if (variable_divisor) {
+        verify_inline_i686_u64_global_variable_division_expression(
+            object, info->data, expression_offset + expression_size,
+            expression_offset, info, strings, NULL,
+            source_name, divisor_name, true, true, remainder, true,
+            false, false, false);
+    } else {
+        verify_inline_i686_s64_global_constant_division_expression(
+            object, info->data, expression_offset + expression_size,
+            expression_offset, info, source_name,
+            UINT64_C(0xfffffffffffffff9), remainder);
+    }
+    objfile_free(object);
+}
+
 static uint64_t verify_inline_unsigned_division_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_offset,
     uint16_t architecture, uint64_t dividend, uint64_t divisor,
@@ -15935,6 +16060,38 @@ int main(int argc, char** argv)
         verify_inline_i686_global_shift_parameter(argv[8], 0x80u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x81u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x81u);
+        verify_inline_i686_static_local_signed_division(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_static_pair_divide_entry",
+            true, false);
+        verify_inline_i686_static_local_signed_division(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_static_pair_divide_entry",
+            true, false);
+        verify_inline_i686_static_local_signed_division(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_static_pair_remainder_entry",
+            true, true);
+        verify_inline_i686_static_local_signed_division(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_static_pair_remainder_entry",
+            true, true);
+        verify_inline_i686_static_local_signed_division(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_static_constant_divide_entry",
+            false, false);
+        verify_inline_i686_static_local_signed_division(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_static_constant_divide_entry",
+            false, false);
+        verify_inline_i686_static_local_signed_division(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_static_constant_remainder_entry",
+            false, true);
+        verify_inline_i686_static_local_signed_division(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_static_constant_remainder_entry",
+            false, true);
         verify_inline_integer_expression_parameter(
             argv[6], ARCH_X86,
             "debug_nonconstant_signed_long_long_parameter_inline",

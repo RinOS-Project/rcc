@@ -877,6 +877,40 @@ debug_inline_nonconstant_signed_long_long_global_pair_remainder_entry(void)
 }
 
 extern "C" long long
+debug_inline_nonconstant_signed_long_long_static_pair_divide_entry(void)
+{
+    static long long dividend = -0x7123456789abcdefLL;
+    static long long divisor = -0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend / divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_static_pair_remainder_entry(void)
+{
+    static long long dividend = -0x7123456789abcdefLL;
+    static long long divisor = -0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend % divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_static_constant_divide_entry(void)
+{
+    static long long dividend = -0x7123456789abcdefLL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend / -7LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_static_constant_remainder_entry(void)
+{
+    static long long dividend = -0x7123456789abcdefLL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend % -7LL);
+}
+
+extern "C" long long
 debug_inline_nonconstant_signed_long_long_negated_global_dividend_divide_entry(
     void)
 {

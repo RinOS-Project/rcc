@@ -8404,10 +8404,10 @@ static bool debug_inline_parameter_i686_append_storage_u32(
     bool high_word, uint8_t* expression, size_t capacity, size_t* size,
     DebugInlineI686ExpressionRelocations* relocations) {
     if (!mod || !source || !expression || !size) return false;
-    if (source->var_is_global) {
+    if (source->var_is_global || source->var_is_static_local) {
         const ModuleSymbol* symbol;
-        if (source->kind != DECL_VAR || source->var_is_static_local ||
-            source->var_is_thread_local || !source->type ||
+        if (source->kind != DECL_VAR || source->var_is_thread_local ||
+            !source->type ||
             source->type->is_volatile || source->type->is_reference ||
             source->type->is_atomic || !relocations ||
             !relocations->offsets || !relocations->symbols ||
@@ -8415,8 +8415,13 @@ static bool debug_inline_parameter_i686_append_storage_u32(
             *relocations->count >= relocations->capacity) {
             return false;
         }
-        symbol = debug_find_global_symbol(mod, source);
-        if (!symbol || !symbol->is_global || !symbol->name ||
+        symbol = source->var_is_static_local
+            ? debug_find_static_local_symbol(mod, source)
+            : debug_find_global_symbol(mod, source);
+        if (!symbol || (source->var_is_global &&
+                        !source->var_is_static_local &&
+                        !symbol->is_global) ||
+            !symbol->name ||
             symbol->section == MODULE_SYMBOL_TLS ||
             !debug_inline_integer_expression_append_byte(
                 expression, capacity, size, 0x03u)) { /* DW_OP_addr */
@@ -10171,6 +10176,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     DebugInlineI686ExpressionRelocations* relocations) {
     const Expr* dividend_value_expression;
     const Decl* dividend;
+    const ModuleSymbol* dividend_symbol = NULL;
     int64_t frame_offset = 0;
     uint64_t divisor;
     size_t size = 0u;
@@ -10200,21 +10206,31 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         return false;
     }
     dividend = dividend_value_expression->ident_decl;
+    if (dividend->var_is_global || dividend->var_is_static_local) {
+        dividend_symbol = dividend->var_is_static_local
+            ? debug_find_static_local_symbol(mod, dividend)
+            : debug_find_global_symbol(mod, dividend);
+    }
     if ((dividend->kind != DECL_VAR && dividend->kind != DECL_PARAM) ||
-        dividend->var_is_static_local ||
         dividend->var_is_thread_local || dividend->var_is_vla ||
         !dividend->type ||
         dividend->type->is_volatile || dividend->type->is_reference ||
         dividend->type->is_atomic ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             dividend->type, parameter_type, 0u) ||
-        (dividend->var_is_global
-             ? (dividend->kind != DECL_VAR || !relocations ||
+        ((dividend->var_is_global || dividend->var_is_static_local)
+             ? (dividend->kind != DECL_VAR || !dividend_symbol ||
+                (dividend->var_is_global &&
+                 !dividend->var_is_static_local &&
+                 !dividend_symbol->is_global) ||
+                dividend_symbol->section == MODULE_SYMBOL_TLS ||
+                !relocations ||
                 !relocations->offsets || !relocations->symbols ||
-                !relocations->count || !debug_find_global_symbol(mod, dividend))
+                !relocations->count)
              : !debug_inline_parameter_frame_offset(
                    mod, dividend, &frame_offset)) ||
-        frame_offset > INT64_MAX - 6) {
+        (!(dividend->var_is_global || dividend->var_is_static_local) &&
+         frame_offset > INT64_MAX - 6)) {
         return false;
     }
     if (relocations) *relocations->count = 0u;
@@ -10580,6 +10596,10 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
     const Expr* divisor_value_expression;
     const Decl* dividend;
     const Decl* divisor;
+    bool dividend_is_address_backed;
+    bool divisor_is_address_backed;
+    const ModuleSymbol* dividend_symbol = NULL;
+    const ModuleSymbol* divisor_symbol = NULL;
     bool negate_dividend;
     bool negate_divisor;
     int64_t dividend_frame_offset = 0;
@@ -10612,11 +10632,24 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
     }
     dividend = dividend_value_expression->ident_decl;
     divisor = divisor_value_expression->ident_decl;
+    dividend_is_address_backed = dividend->var_is_global ||
+        dividend->var_is_static_local;
+    divisor_is_address_backed = divisor->var_is_global ||
+        divisor->var_is_static_local;
+    if (dividend_is_address_backed) {
+        dividend_symbol = dividend->var_is_static_local
+            ? debug_find_static_local_symbol(mod, dividend)
+            : debug_find_global_symbol(mod, dividend);
+    }
+    if (divisor_is_address_backed) {
+        divisor_symbol = divisor->var_is_static_local
+            ? debug_find_static_local_symbol(mod, divisor)
+            : debug_find_global_symbol(mod, divisor);
+    }
     if ((dividend->kind != DECL_VAR && dividend->kind != DECL_PARAM) ||
         (divisor->kind != DECL_VAR && divisor->kind != DECL_PARAM) ||
         (dividend->var_is_global && dividend->kind != DECL_VAR) ||
         (divisor->var_is_global && divisor->kind != DECL_VAR) ||
-        dividend->var_is_static_local || divisor->var_is_static_local ||
         dividend->var_is_thread_local || divisor->var_is_thread_local ||
         dividend->var_is_vla || divisor->var_is_vla ||
         !dividend->type || !divisor->type ||
@@ -10627,17 +10660,31 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
             dividend->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             divisor->type, parameter_type, 0u) ||
-        ((dividend->var_is_global || divisor->var_is_global) &&
+        (dividend_is_address_backed &&
+         (!dividend_symbol ||
+          (dividend->var_is_global &&
+           !dividend->var_is_static_local &&
+           !dividend_symbol->is_global) ||
+          dividend_symbol->section == MODULE_SYMBOL_TLS)) ||
+        (divisor_is_address_backed &&
+         (!divisor_symbol ||
+          (divisor->var_is_global &&
+           !divisor->var_is_static_local &&
+           !divisor_symbol->is_global) ||
+          divisor_symbol->section == MODULE_SYMBOL_TLS)) ||
+        ((dividend_is_address_backed || divisor_is_address_backed) &&
          (!relocations || !relocations->offsets || !relocations->symbols ||
           !relocations->count)) ||
-        (!dividend->var_is_global &&
+        (!dividend_is_address_backed &&
          !debug_inline_parameter_frame_offset(
              mod, dividend, &dividend_frame_offset)) ||
-        (!divisor->var_is_global &&
+        (!divisor_is_address_backed &&
          !debug_inline_parameter_frame_offset(
              mod, divisor, &divisor_frame_offset)) ||
-        dividend_frame_offset > INT64_MAX - 6 ||
-        divisor_frame_offset > INT64_MAX - 6) {
+        (!dividend_is_address_backed &&
+         dividend_frame_offset > INT64_MAX - 6) ||
+        (!divisor_is_address_backed &&
+         divisor_frame_offset > INT64_MAX - 6)) {
         return false;
     }
     if (relocations) *relocations->count = 0u;
@@ -14333,12 +14380,19 @@ static void debug_emit_inline_parameter_instances(
             for (size_t relocation_index = 0u;
                  relocation_index < integer_value_relocation_count;
                  ++relocation_index) {
+                const ModuleSymbol* relocation_symbol =
+                    integer_value_relocation_symbols[relocation_index];
+                char* scoped_relocation_symbol = relocation_symbol->is_global
+                    ? NULL : module_scoped_symbol(
+                          filename, relocation_symbol->name);
                 objfile_add_reloc(
                     obj, info_section,
                     expression_offset +
                         integer_value_relocation_offsets[relocation_index],
-                    integer_value_relocation_symbols[relocation_index]->name,
+                    scoped_relocation_symbol
+                        ? scoped_relocation_symbol : relocation_symbol->name,
                     RELOC_ABS32U, 0);
+                rcc_free(scoped_relocation_symbol);
             }
         } else if (architecture == ARCH_X86 && value->declaration &&
                    argument && argument->expr &&
@@ -14648,12 +14702,19 @@ static void debug_emit_inline_parameter_instances(
             for (size_t relocation_index = 0u;
                  relocation_index < integer_value_relocation_count;
                  ++relocation_index) {
+                const ModuleSymbol* relocation_symbol =
+                    integer_value_relocation_symbols[relocation_index];
+                char* scoped_relocation_symbol = relocation_symbol->is_global
+                    ? NULL : module_scoped_symbol(
+                          filename, relocation_symbol->name);
                 objfile_add_reloc(
                     obj, info_section,
                     expression_offset +
                         integer_value_relocation_offsets[relocation_index],
-                    integer_value_relocation_symbols[relocation_index]->name,
+                    scoped_relocation_symbol
+                        ? scoped_relocation_symbol : relocation_symbol->name,
                     RELOC_ABS32U, 0);
+                rcc_free(scoped_relocation_symbol);
             }
         } else if (architecture == ARCH_X64 && value->declaration &&
                    argument && argument->expr &&
