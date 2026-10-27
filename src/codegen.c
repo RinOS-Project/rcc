@@ -1511,6 +1511,39 @@ static bool codegen_static_address(Module* mod, Expr* expression,
     return false;
 }
 
+static bool codegen_static_member_function_pointer_adjustment(
+    Expr* initializer, uint32_t width, int64_t* adjustment) {
+    int64_t total = 0;
+    if (!initializer || !adjustment || (width != 4u && width != 8u)) {
+        return false;
+    }
+    for (Expr* current = initializer; current;
+         current = current->kind == EXPR_CAST ? current->cast_expr : NULL) {
+        int64_t step;
+        if (!current->cxx_member_pointer_adjustment_valid) continue;
+        step = current->cxx_member_pointer_adjustment;
+        if ((step > 0 && total > INT64_MAX - step) ||
+            (step < 0 && total < INT64_MIN - step)) {
+            return false;
+        }
+        total += step;
+    }
+    if (width == 4u && (total < INT32_MIN || total > INT32_MAX)) {
+        return false;
+    }
+    *adjustment = total;
+    return true;
+}
+
+static void codegen_write_member_function_pointer_adjustment(
+    uint8_t* storage, uint32_t offset, uint32_t width,
+    int64_t adjustment) {
+    uint64_t bits = (uint64_t)adjustment;
+    for (uint32_t byte = 0u; byte < width; ++byte) {
+        storage[offset + byte] = (uint8_t)(bits >> (byte * 8u));
+    }
+}
+
 static bool codegen_emit_static_pointer(Module* mod, Type* type,
                                         Expr* initializer, uint32_t offset) {
     const char* symbol_name = NULL;
@@ -1526,6 +1559,7 @@ static bool codegen_emit_static_pointer(Module* mod, Type* type,
             TypeMethod* method =
                 initializer->cxx_member_function_pointer_method;
             Decl* function = method ? method->function_decl : NULL;
+            int64_t this_adjustment;
             if (!function && initializer->kind == EXPR_ADDR &&
                 initializer->unary_operand) {
                 function = initializer->unary_operand->ident_decl;
@@ -1541,7 +1575,9 @@ static bool codegen_emit_static_pointer(Module* mod, Type* type,
             if (!method || type->size < (int)(width * 2u) ||
                 (!method->is_virtual &&
                  (!function || !function->link_name)) ||
-                (method->is_virtual && method->vtable_index < 0)) {
+                (method->is_virtual && method->vtable_index < 0) ||
+                !codegen_static_member_function_pointer_adjustment(
+                    initializer, width, &this_adjustment)) {
                 return false;
             }
             if (method->is_virtual) {
@@ -1558,7 +1594,8 @@ static bool codegen_emit_static_pointer(Module* mod, Type* type,
                           width == 8u ? RIN_RELOC_ABS64
                                       : RIN_RELOC_ABS32);
             }
-            memset(mod->data.data + offset + width, 0, width);
+            codegen_write_member_function_pointer_adjustment(
+                mod->data.data, offset + width, width, this_adjustment);
             return true;
         }
         uint64_t bits;
@@ -2005,6 +2042,7 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
                 Decl* function = method ? method->function_decl : NULL;
                 uint32_t width =
                     g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+                int64_t this_adjustment;
                 if (!function && initializer->kind == EXPR_ADDR &&
                     initializer->unary_operand) {
                     function = initializer->unary_operand->ident_decl;
@@ -2021,7 +2059,9 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
                 if (!method || type->size < (int)(width * 2u) ||
                     (!method->is_virtual &&
                      (!function || !function->link_name)) ||
-                    (method->is_virtual && method->vtable_index < 0)) {
+                    (method->is_virtual && method->vtable_index < 0) ||
+                    !codegen_static_member_function_pointer_adjustment(
+                        initializer, width, &this_adjustment)) {
                     return false;
                 }
                 if (method->is_virtual) {
@@ -2038,7 +2078,8 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
                               width == 8u ? RIN_RELOC_ABS64
                                           : RIN_RELOC_ABS32);
                 }
-                memset(mod->tls.data + offset + width, 0, width);
+                codegen_write_member_function_pointer_adjustment(
+                    mod->tls.data, offset + width, width, this_adjustment);
                 return true;
             }
             if (initializer->is_cxx_nullptr ||

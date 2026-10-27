@@ -4520,6 +4520,12 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 		> $(TEST_OUT)/cxx-member-pointer-functions/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x86-arch.log
+	$(GREP) -A 2 -F "global_adjusted_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x86.s | \
+		$(GREP) -F -q ".byte 0x04, 0x00, 0x00, 0x00"
+	$(GREP) -A 2 -F "tls_adjusted_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x86.s | \
+		$(GREP) -F -q ".byte 0x04, 0x00, 0x00, 0x00"
 	$(GREP) -F -q "_Z10invoke_dotR19MemberFunctionOwnerMS_FiiEi" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x86.s
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
@@ -4542,6 +4548,12 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(GREP) -F -q "_Z23invoke_inherited_memberR30InheritedMemberFunctionDerivedM27InheritedMemberFunctionBaseFiiEi" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(GREP) -A 2 -F "global_adjusted_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s | \
+		$(GREP) -F -q ".byte 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00"
+	$(GREP) -A 2 -F "tls_adjusted_member_function:" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s | \
+		$(GREP) -F -q ".byte 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00"
 	$(CC) -c -o $(TEST_OUT)/cxx-member-pointer-functions/x64.o \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
@@ -4551,6 +4563,10 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 		tests/cxx_language_core_host.c \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.o
 	$(TEST_OUT)/cxx-member-pointer-functions/x64-host
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-member-pointer-functions/gcc-host \
+		tests/cxx_member_pointer_functions.cpp
+	$(TEST_OUT)/cxx-member-pointer-functions/gcc-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.ro \

@@ -160,6 +160,11 @@ struct RefNoexceptMemberFunctionOwner {
 typedef int (MemberFunctionOwner::*MemberFunctionMethod)(int);
 
 MemberFunctionMethod global_member_function = &MemberFunctionOwner::add;
+int (MemberFunctionAdjustmentDerived::*global_adjusted_member_function)(int) =
+    &MemberFunctionAdjustmentBase::add;
+thread_local int
+    (MemberFunctionAdjustmentDerived::*tls_adjusted_member_function)(int) =
+        &MemberFunctionAdjustmentBase::add;
 
 MemberFunctionMethod identity_member_function(MemberFunctionMethod method) {
     return method;
@@ -331,6 +336,12 @@ int main() {
     adjusted_object.prefix = 3;
     adjusted_object.value = 41;
     if ((adjusted_object.*derived_method)(1) != 42) return 21;
+    if ((adjusted_object.*global_adjusted_member_function)(3) != 44) {
+        return 34;
+    }
+    if ((adjusted_object.*tls_adjusted_member_function)(4) != 45) {
+        return 35;
+    }
     if ((adjusted_object.*derived_overload)(2) != 53) return 22;
     if ((adjusted_base.*round_trip_owner_method)(2) != 43) return 23;
     if (null_derived_method != nullptr) return 30;

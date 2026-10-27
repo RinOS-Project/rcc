@@ -8755,9 +8755,9 @@ remains a separate open item.
       qualification conversion from `T Owner::*` to `const T Owner::*`. Verify
       dependent non-type template argument selection against GCC C++20 and the
       i686/AMD64 generation plus execution gate.
-- [ ] Virtual/inherited global member-function-pointer initialization,
-      member-function-pointer owner/signature conversions, virtual constexpr
-      invocation, constexpr invocation through `->*`, further multilevel
+- [ ] Virtual and virtual-base-inherited global/TLS member-function-pointer
+      initialization, member-function-pointer owner/signature conversions,
+      virtual constexpr dispatch, further multilevel
       data-member-pointer owner-conversion paths, other member-pointee
       cv-qualification combinations, and additional pointer conversions
       remain open.
@@ -8814,8 +8814,20 @@ remains a separate open item.
       global-constexpr PMF values, member access through the bound `this`
       object, GCC C++20, focused i686/AMD64 generation and AMD64 execution,
       and the full POSIX `test-cxx` aggregate.
-- [ ] Virtual/inherited member-function-pointer static initialization,
-      owner/signature conversions, and virtual constexpr dispatch remain open.
+- [ ] Virtual or virtual-base-inherited member-function-pointer static
+      initialization, owner/signature conversions, and virtual constexpr
+      dispatch remain open.
+
+## RCC continuation (2026-10-27, inherited member-function-pointer static adjustment)
+
+- [x] Preserve the nonzero `this` adjustment when a nonvirtual method owned by
+      a second nonvirtual base is converted to a derived-class member-function
+      pointer in global and thread-local initializers. Validate i686/AMD64
+      emitted adjustment words, execute both AMD64 calls, compare with a strict
+      GCC C++20 host run, and pass the full POSIX `test-cxx` aggregate.
+- [ ] Virtual and virtual-base inherited member-function-pointer static
+      initialization, further owner/signature conversions, and virtual
+      constexpr dispatch remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
