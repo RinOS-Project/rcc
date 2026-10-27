@@ -2222,6 +2222,111 @@ static void verify_loop_invariant_code_motion(void)
     rcc_ir_module_destroy(module);
 }
 
+static RccIrModule* build_loop_licm_local_load_fixture(
+    RccIrFunction** function_out, RccIrInstruction** load_out,
+    bool initialize, bool volatile_load, bool write_in_loop,
+    bool escape_address, uint64_t allocation_size)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i32};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "loop_licm_local_load", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* header = rcc_ir_block_add(function, "header");
+    RccIrBlock* body = rcc_ir_block_add(function, "body");
+    RccIrBlock* exit = rcc_ir_block_add(function, "exit");
+    RccIrValue address = append_alloca(entry, allocation_size);
+    RccIrValue zero = append_const(entry, i32, 0u);
+    RccIrValue one = append_const(entry, i32, 1u);
+    RccIrValue initial = append_const(entry, i32, 7u);
+    RccIrValue index_inputs[] = {zero, RCC_IR_VALUE_NONE};
+    RccIrValue total_inputs[] = {zero, RCC_IR_VALUE_NONE};
+    RccIrBlockId phi_predecessors[] = {entry->id, body->id};
+    RccIrValue compare_operands[2];
+    RccIrValue condition[1];
+    RccIrBlockId branch_targets[] = {body->id, exit->id};
+    RccIrInstruction* allocation;
+    RccIrInstruction* index_phi;
+    RccIrInstruction* total_phi;
+    RccIrInstruction* compare;
+    RccIrInstruction* load;
+    RccIrValue total_next;
+    RccIrValue index_next;
+
+    allocation = entry->first;
+    while (allocation && allocation->result != address) {
+        allocation = allocation->next;
+    }
+    assert(allocation != NULL);
+    allocation->source_declaration = function;
+    if (initialize) append_store(entry, initial, address);
+    append_branch(entry, header->id);
+    index_phi = rcc_ir_append(header, RCC_IR_PHI, i32, index_inputs, 2u,
+                              phi_predecessors, 2u);
+    total_phi = rcc_ir_append(header, RCC_IR_PHI, i32, total_inputs, 2u,
+                              phi_predecessors, 2u);
+    assert(index_phi != NULL && total_phi != NULL);
+    compare_operands[0] = index_phi->result;
+    compare_operands[1] = function->parameters[0];
+    compare = rcc_ir_append(header, RCC_IR_ICMP, i1,
+                            compare_operands, 2u, NULL, 0u);
+    assert(compare != NULL);
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_SLT);
+    condition[0] = compare->result;
+    assert(rcc_ir_append(header, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                         condition, 1u, branch_targets, 2u) != NULL);
+
+    load = rcc_ir_append(body, RCC_IR_LOAD, i32, &address, 1u, NULL, 0u);
+    assert(load != NULL);
+    load->volatile_access = volatile_load;
+    total_next = append_binary(body, RCC_IR_ADD, i32,
+                               total_phi->result, load->result);
+    if (write_in_loop) append_store(body, index_phi->result, address);
+    if (escape_address) {
+        RccIrInstruction* call = rcc_ir_append(
+            body, RCC_IR_CALL, rcc_ir_type_void(), &address, 1u,
+            NULL, 0u);
+        assert(call != NULL);
+        rcc_ir_set_callee(call, "unknown_local_mutator");
+    }
+    index_next = append_binary(body, RCC_IR_ADD, i32,
+                               index_phi->result, one);
+    append_branch(body, header->id);
+    index_phi->operands[1] = index_next;
+    total_phi->operands[1] = total_next;
+    append_return(exit, total_phi->result);
+    *function_out = function;
+    *load_out = load;
+    return module;
+}
+
+static void verify_loop_invariant_initialized_local_load(void)
+{
+    for (unsigned mode = 0u; mode < 6u; ++mode) {
+        RccIrModule* module;
+        RccIrFunction* function;
+        RccIrInstruction* load;
+        RccIrOptimizationStats stats;
+        char error[256];
+        bool should_hoist = mode == 0u;
+        module = build_loop_licm_local_load_fixture(
+            &function, &load, mode != 1u, mode == 2u,
+            mode == 3u, mode == 4u,
+            mode == 5u ? 2u : sizeof(uint32_t));
+        assert(rcc_ir_optimize_function_preserving_source_declarations(
+            function, 2u, &stats, error, sizeof(error)));
+        assert(error[0] == '\0');
+        assert(stats.hoisted_instructions == (should_hoist ? 1u : 0u));
+        assert(load->block == (should_hoist
+                                   ? function->first_block
+                                   : function->first_block->next->next));
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+}
+
 static RccIrModule* build_loop_licm_fixed_point_fixture(
     RccIrFunction** function_out, RccIrBlock** entry_out,
     RccIrBlock** body_out, RccIrInstruction** candidate_out)
@@ -2482,6 +2587,7 @@ int main(void)
     verify_dominator_scoped_gvn();
     verify_sibling_values_are_not_commoned();
     verify_loop_invariant_code_motion();
+    verify_loop_invariant_initialized_local_load();
     verify_o3_repeats_licm_after_simplification();
     verify_loop_invariant_code_motion_with_multiple_entries();
     verify_loop_invariant_code_motion_preserves_entry_phi_values();

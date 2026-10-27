@@ -2623,6 +2623,116 @@ static bool ir_pass_licm_candidate(
     return ir_pass_cse_candidate(instruction);
 }
 
+static bool ir_pass_licm_initialized_local_load(
+    const RccIrFunction* function, const RccIrInstruction* load,
+    RccIrBlock** blocks, size_t block_count, const bool* dominators,
+    const size_t* definition_blocks,
+    RccIrInstruction* const* definitions, const bool* loop,
+    size_t preheader) {
+    RccIrValue address;
+    RccIrInstruction* allocation;
+    RccIrInstruction* initializing_store = NULL;
+    size_t address_block;
+    size_t store_count = 0u;
+    size_t block_index;
+    size_t load_bytes;
+
+    if (!function || !load || load->opcode != RCC_IR_LOAD ||
+        load->result == RCC_IR_VALUE_NONE || load->volatile_access ||
+        load->operand_count != 1u || !blocks || !dominators ||
+        !definition_blocks || !loop || preheader >= block_count ||
+        (load->type.kind != RCC_IR_TYPE_INTEGER &&
+         load->type.kind != RCC_IR_TYPE_FLOAT) ||
+        load->type.bit_width == 0u || load->type.bit_width > 64u) {
+        return false;
+    }
+    address = load->operands[0];
+    if (address >= function->value_count) return false;
+    address_block = definition_blocks[address];
+    if (address_block == SIZE_MAX || address_block >= block_count ||
+        loop[address_block] ||
+        !dominators[preheader * block_count + address_block]) {
+        return false;
+    }
+    allocation = definitions[address];
+    if (!allocation || allocation->opcode != RCC_IR_ALLOCA) return false;
+    load_bytes = ((size_t)load->type.bit_width + 7u) / 8u;
+    if (allocation->immediate < load_bytes) return false;
+
+    /* Only allow a direct, non-escaping stack object. Any derived pointer,
+     * call, atomic access, or other use could introduce an aliasing write. */
+    for (block_index = 0u; block_index < block_count; ++block_index) {
+        RccIrInstruction* instruction;
+        for (instruction = blocks[block_index]->first; instruction;
+             instruction = instruction->next) {
+            if (instruction == allocation) continue;
+            if (instruction->opcode == RCC_IR_LOAD &&
+                instruction->operand_count == 1u &&
+                instruction->operands[0] == address) {
+                if (instruction->volatile_access ||
+                    !rcc_ir_type_equal(instruction->type, load->type)) {
+                    return false;
+                }
+                continue;
+            }
+            if (instruction->opcode == RCC_IR_STORE &&
+                instruction->operand_count == 2u &&
+                instruction->operands[1] == address) {
+                RccIrValue stored_value = instruction->operands[0];
+                size_t store_block = instruction->block
+                    ? instruction->block->id : SIZE_MAX;
+                if (instruction->volatile_access ||
+                    stored_value >= function->value_count ||
+                    !rcc_ir_type_equal(
+                        function->value_types[stored_value], load->type) ||
+                    store_block >= block_count || loop[store_block] ||
+                    !dominators[preheader * block_count + store_block] ||
+                    ++store_count != 1u) {
+                    return false;
+                }
+                initializing_store = instruction;
+                continue;
+            }
+            for (size_t operand = 0u;
+                 operand < instruction->operand_count; ++operand) {
+                if (instruction->operands[operand] == address) return false;
+            }
+            if (instruction->callee_value == address) return false;
+        }
+    }
+    /* Hoisting is only valid if the object is initialized on every path to
+     * the preheader. Requiring one dominating store also avoids path-sensitive
+     * alias and reaching-definition analysis here. */
+    return store_count == 1u && initializing_store != NULL;
+}
+
+static bool ir_pass_licm_candidate_for_loop(
+    const RccIrFunction* function, const RccIrInstruction* instruction,
+    RccIrBlock** blocks, size_t block_count, const bool* dominators,
+    const size_t* definition_blocks,
+    RccIrInstruction* const* definitions, const bool* loop,
+    size_t preheader, uint8_t* local_load_eligibility) {
+    RccIrValue address;
+    bool eligible;
+    if (ir_pass_licm_candidate(function, instruction)) return true;
+    if (!function || !instruction ||
+        instruction->opcode != RCC_IR_LOAD ||
+        instruction->operand_count != 1u ||
+        !local_load_eligibility) {
+        return false;
+    }
+    address = instruction->operands[0];
+    if (address >= function->value_count) return false;
+    if (local_load_eligibility[address] != 0u) {
+        return local_load_eligibility[address] == 1u;
+    }
+    eligible = ir_pass_licm_initialized_local_load(
+        function, instruction, blocks, block_count, dominators,
+        definition_blocks, definitions, loop, preheader);
+    local_load_eligibility[address] = eligible ? 1u : 2u;
+    return eligible;
+}
+
 static bool ir_pass_loop_has_hoistable_invariant(
     const RccIrFunction* function, RccIrBlock** blocks,
     size_t block_count, const bool* dominators, const size_t* definitions,
@@ -2861,6 +2971,8 @@ static bool ir_pass_licm(
     size_t* immediate = NULL;
     bool* children = NULL;
     size_t* definition_blocks = NULL;
+    RccIrInstruction** definitions = NULL;
+    uint8_t* local_load_eligibility = NULL;
     bool* loop = NULL;
     size_t* stack = NULL;
     size_t block_count;
@@ -2878,6 +2990,8 @@ restart:
     immediate = NULL;
     children = NULL;
     definition_blocks = NULL;
+    definitions = NULL;
+    local_load_eligibility = NULL;
     loop = NULL;
     stack = NULL;
     restart_requested = false;
@@ -2888,7 +3002,8 @@ restart:
     if (block_count > SIZE_MAX / sizeof(*loop) ||
         block_count > SIZE_MAX / sizeof(*stack) ||
         (value_count != 0u &&
-         value_count > SIZE_MAX / sizeof(*definition_blocks))) {
+         (value_count > SIZE_MAX / sizeof(*definition_blocks) ||
+          value_count > SIZE_MAX / sizeof(*definitions)))) {
         return ir_pass_error(error, error_size,
                              "SSA LICM tables are too large");
     }
@@ -2903,8 +3018,12 @@ restart:
     if (value_count != 0u) {
         definition_blocks = rcc_alloc(
             value_count * sizeof(*definition_blocks));
+        definitions = rcc_alloc(value_count * sizeof(*definitions));
+        local_load_eligibility = rcc_alloc(
+            value_count * sizeof(*local_load_eligibility));
         for (index = 0u; index < value_count; ++index) {
             definition_blocks[index] = SIZE_MAX;
+            definitions[index] = NULL;
         }
     }
     loop = rcc_alloc(block_count * sizeof(*loop));
@@ -2921,6 +3040,7 @@ restart:
                 goto cleanup;
             }
             definition_blocks[instruction->result] = index;
+            definitions[instruction->result] = instruction;
         }
     }
     for (source = 0u; source < block_count; ++source) {
@@ -2985,6 +3105,10 @@ restart:
                 continue;
             }
             if (outside_predecessors != 1u) continue;
+            if (value_count != 0u) {
+                memset(local_load_eligibility, 0,
+                       value_count * sizeof(*local_load_eligibility));
+            }
             do {
                 changed = false;
                 for (index = 0u; index < block_count; ++index) {
@@ -2995,7 +3119,10 @@ restart:
                         RccIrInstruction* next = instruction->next;
                         bool invariant = true;
                         size_t operand;
-                        if (!ir_pass_licm_candidate(function, instruction)) {
+                        if (!ir_pass_licm_candidate_for_loop(
+                                function, instruction, blocks, block_count,
+                                dominators, definition_blocks, definitions,
+                                loop, preheader, local_load_eligibility)) {
                             instruction = next;
                             continue;
                         }
@@ -3032,6 +3159,8 @@ restart:
 cleanup:
     rcc_free(stack);
     rcc_free(loop);
+    rcc_free(local_load_eligibility);
+    rcc_free(definitions);
     rcc_free(definition_blocks);
     rcc_free(children);
     rcc_free(immediate);

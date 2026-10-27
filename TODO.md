@@ -1709,6 +1709,11 @@
         入力で無効となる可能性があるため、loopが0回の場合にも実行されるhoistを
         禁止する。direct IR regressionで両変換をloop bodyに保持し、`test-ir`と
         `test-optimize`で検証
+  - [x] LICMで、単一のdominantな同型storeにより事前初期化され、loop内storeがなく、
+        volatileでなく、address escapeのないdirect alloca scalar loadをpreheaderへ
+        hoistする。allocation sizeとload widthも検査し、未初期化・volatile・loop write・
+        escaping callは保持するtyped-SSA回帰を追加し、native-Windowsのx86/x64
+        `ir_mem2reg_test` variantsで検証
   - [x] 副作用のない単純整数識別子／リテラル引数が関数本体で複数回参照される
         場合も、複雑式のAST共有は行わず安全にO1 inlineし、両archでcall除去と
         実行結果を回帰検証
