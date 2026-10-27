@@ -16449,6 +16449,77 @@ static void verify_inline_indirect_pointer_parameter(
     objfile_free(object);
 }
 
+static void verify_inline_indirect_value_expression_absent(
+    const char* path, uint16_t architecture, const char* entry_name,
+    const char* inline_name, bool allow_missing_call) {
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    bool found_call = false;
+    assert(object && object->arch == architecture && entry_name &&
+           inline_name);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info && strings);
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 4u + 12u <= info->size; ++die) {
+        uint32_t origin;
+        uint32_t name_offset;
+        uint64_t parameter_die;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        origin = read_u32(info->data, die + 1u);
+        if (origin >= info->size || info->data[origin] != 40u) continue;
+        name_offset = read_u32(info->data, origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   inline_name) != 0) {
+            continue;
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == die + 1u + 4u &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, entry_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(!found_call);
+        found_call = true;
+        parameter_die = die + 1u + 4u + address_size + 4u + 12u;
+        if (parameter_die >= info->size || info->data[parameter_die] != 67u) {
+            continue;
+        }
+        assert(parameter_die + 5u <= info->size &&
+               read_u32(info->data, parameter_die + 1u) == origin + 27u);
+        {
+            uint64_t cursor = parameter_die + 5u;
+            uint64_t expression_size =
+                read_uleb(info->data, info->size, &cursor);
+            uint64_t expression_end = cursor + expression_size;
+            if (cursor < expression_end &&
+                info->data[cursor] ==
+                    (architecture == ARCH_X64 ? 0x76u : 0x75u)) {
+                ++cursor;
+                (void)read_sleb(info->data, expression_end, &cursor);
+                assert(!(cursor + 4u <= expression_end &&
+                         info->data[cursor] == 0x94u &&
+                         info->data[cursor + 1u] == address_size &&
+                         info->data[cursor + 2u] == 0x94u));
+            }
+        }
+    }
+    if (!found_call) {
+        assert(allow_missing_call);
+        objfile_free(object);
+        return;
+    }
+    objfile_free(object);
+}
+
 static void verify_inline_integer_expression_cases(
     const char* path, uint16_t architecture) {
     static const VerifyInlineIntegerExpressionCase cases[] = {
@@ -16992,6 +17063,32 @@ static void verify_inline_integer_expression_cases(
         "debug_inline_indirect_pointer_chain_slot",
         "debug_inline_indirect_pointer_chain_target",
         "debug_inline_indirect_pointer_chain_value", 2u);
+    verify_inline_indirect_value_expression_absent(
+        path, architecture, "debug_inline_indirect_global_pointer_entry",
+        "debug_nonconstant_integer_parameter_inline", false);
+    verify_inline_indirect_value_expression_absent(
+        path, architecture, "debug_inline_indirect_tls_pointer_entry",
+        "debug_nonconstant_integer_parameter_inline", false);
+    verify_inline_indirect_value_expression_absent(
+        path, architecture, "debug_inline_indirect_static_pointer_entry",
+        "debug_nonconstant_integer_parameter_inline", false);
+    verify_inline_indirect_value_expression_absent(
+        path, architecture, "debug_inline_indirect_volatile_pointer_entry",
+        "debug_nonconstant_integer_parameter_inline", true);
+    verify_inline_indirect_value_expression_absent(
+        path, architecture, "debug_inline_indirect_volatile_pointee_entry",
+        "debug_nonconstant_integer_parameter_inline", true);
+    verify_inline_indirect_value_expression_absent(
+        path, architecture, "debug_inline_indirect_atomic_pointer_entry",
+        "debug_nonconstant_integer_parameter_inline", true);
+    verify_inline_indirect_value_expression_absent(
+        path, architecture, "debug_inline_indirect_atomic_pointee_entry",
+        "debug_nonconstant_integer_parameter_inline", true);
+    if (architecture == ARCH_X86) {
+        verify_inline_indirect_value_expression_absent(
+            path, architecture, "debug_inline_indirect_wide_pointee_entry",
+            "debug_nonconstant_signed_long_long_parameter_inline", false);
+    }
     if (architecture == ARCH_X86) {
         verify_inline_integer_expression_parameter(
             path, architecture, "debug_nonconstant_integer_parameter_inline",
@@ -17338,6 +17435,10 @@ int main(int argc, char** argv)
                 "debug_inline_indirect_pointer_cpp_chain_slot",
                 "debug_inline_indirect_pointer_cpp_chain_target",
                 "debug_inline_indirect_pointer_cpp_chain_value", 2u);
+            verify_inline_indirect_value_expression_absent(
+                wide_paths[path_index], wide_architectures[path_index],
+                "debug_inline_indirect_member_pointer_entry",
+                "debug_nonconstant_integer_parameter_inline", true);
         }
         verify_inline_reference_parameter_address(
             argv[6], ARCH_X86,

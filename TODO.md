@@ -11363,6 +11363,9 @@ remains a separate open item.
       model; focused `test-debug-info-inline-expression` and the full
       debug-info verifier passed on refreshed C outputs. The full Make
       target's `cmd.exe` redirection issue is documented above.
-- [ ] Add negative coverage for global/TLS/static, volatile/atomic,
-      member-pointer, and wider-than-address-size pointee cases before
-      extending support to them.
+- [x] Verify global/TLS/static pointer sources, volatile or atomic pointer and
+      pointee, i686 wider-than-address-size pointees, and C++20 data-member-
+      pointer accesses do not produce the frame-local indirect-value
+      expression. The verifier permits omission of the inline-call DIE for
+      volatile and atomic cases that must preserve the original read
+      semantics. Focused `test-debug-info-inline-expression` passed.

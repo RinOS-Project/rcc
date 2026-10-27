@@ -61,6 +61,11 @@ int** debug_inline_escaped_pointer;
 int* debug_inline_escaped_object_address;
 int** debug_inline_indirect_pointer_slot_escape;
 int*** debug_inline_indirect_pointer_chain_slot_escape;
+int* debug_inline_indirect_global_pointer_source;
+_Thread_local int* debug_inline_indirect_tls_pointer_source;
+int* volatile* debug_inline_indirect_volatile_pointer_slot_escape;
+volatile int** debug_inline_indirect_volatile_pointee_slot_escape;
+long long** debug_inline_indirect_wide_pointer_slot_escape;
 int* debug_inline_nonconstant_integer_escape;
 long* debug_inline_nonconstant_long_escape;
 unsigned long* debug_inline_nonconstant_unsigned_long_escape;
@@ -598,6 +603,84 @@ int debug_inline_indirect_pointer_chain_entry(int value)
         &debug_inline_indirect_pointer_chain_slot;
     return debug_nonconstant_integer_parameter_inline(
         **debug_inline_indirect_pointer_chain_slot);
+}
+
+int debug_inline_indirect_global_pointer_entry(int value)
+{
+    int debug_inline_indirect_global_pointer_value = value;
+    debug_inline_indirect_global_pointer_source =
+        &debug_inline_indirect_global_pointer_value;
+    return debug_nonconstant_integer_parameter_inline(
+        *debug_inline_indirect_global_pointer_source);
+}
+
+int debug_inline_indirect_tls_pointer_entry(int value)
+{
+    int debug_inline_indirect_tls_pointer_value = value;
+    debug_inline_indirect_tls_pointer_source =
+        &debug_inline_indirect_tls_pointer_value;
+    return debug_nonconstant_integer_parameter_inline(
+        *debug_inline_indirect_tls_pointer_source);
+}
+
+int debug_inline_indirect_static_pointer_entry(int value)
+{
+    int debug_inline_indirect_static_pointer_value = value;
+    static int* debug_inline_indirect_static_pointer_slot;
+    debug_inline_indirect_static_pointer_slot =
+        &debug_inline_indirect_static_pointer_value;
+    return debug_nonconstant_integer_parameter_inline(
+        *debug_inline_indirect_static_pointer_slot);
+}
+
+int debug_inline_indirect_volatile_pointer_entry(int value)
+{
+    int debug_inline_indirect_volatile_pointer_value = value;
+    int* volatile debug_inline_indirect_volatile_pointer_slot =
+        &debug_inline_indirect_volatile_pointer_value;
+    debug_inline_indirect_volatile_pointer_slot_escape =
+        &debug_inline_indirect_volatile_pointer_slot;
+    return debug_nonconstant_integer_parameter_inline(
+        *debug_inline_indirect_volatile_pointer_slot);
+}
+
+int debug_inline_indirect_volatile_pointee_entry(int value)
+{
+    volatile int debug_inline_indirect_volatile_pointee_value = value;
+    volatile int* debug_inline_indirect_volatile_pointee_slot =
+        &debug_inline_indirect_volatile_pointee_value;
+    debug_inline_indirect_volatile_pointee_slot_escape =
+        &debug_inline_indirect_volatile_pointee_slot;
+    return debug_nonconstant_integer_parameter_inline(
+        *debug_inline_indirect_volatile_pointee_slot);
+}
+
+int debug_inline_indirect_atomic_pointer_entry(int value)
+{
+    int debug_inline_indirect_atomic_pointer_value = value;
+    _Atomic(int*) debug_inline_indirect_atomic_pointer_slot;
+    debug_inline_indirect_atomic_pointer_slot =
+        &debug_inline_indirect_atomic_pointer_value;
+    return debug_nonconstant_integer_parameter_inline(
+        *debug_inline_indirect_atomic_pointer_slot);
+}
+
+int debug_inline_indirect_atomic_pointee_entry(int value)
+{
+    _Atomic(int) debug_inline_indirect_atomic_pointee_value = value;
+    _Atomic(int)* debug_inline_indirect_atomic_pointee_slot =
+        &debug_inline_indirect_atomic_pointee_value;
+    return debug_nonconstant_integer_parameter_inline(
+        *debug_inline_indirect_atomic_pointee_slot);
+}
+
+long long debug_inline_indirect_wide_pointee_entry(long long value)
+{
+    long long* debug_inline_indirect_wide_pointee_slot = &value;
+    debug_inline_indirect_wide_pointer_slot_escape =
+        &debug_inline_indirect_wide_pointee_slot;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        *debug_inline_indirect_wide_pointee_slot);
 }
 
 int debug_inline_nonconstant_integer_logical_not_entry(int value)

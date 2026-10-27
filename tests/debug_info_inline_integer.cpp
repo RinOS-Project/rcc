@@ -248,6 +248,12 @@ unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_zero_source = 0u;
 int** debug_inline_indirect_pointer_cpp_slot_escape;
 int*** debug_inline_indirect_pointer_cpp_chain_slot_escape;
+struct DebugInlineIndirectMemberPointerObject {
+    int value;
+};
+using DebugInlineIndirectMemberPointer =
+    int DebugInlineIndirectMemberPointerObject::*;
+DebugInlineIndirectMemberPointer debug_inline_indirect_member_pointer_escape;
 }
 
 static inline int debug_nonconstant_integer_parameter_inline(int value)
@@ -277,6 +283,16 @@ extern "C" int debug_inline_indirect_pointer_cpp_chain_entry(int value)
         &debug_inline_indirect_pointer_cpp_chain_slot;
     return debug_nonconstant_integer_parameter_inline(
         **debug_inline_indirect_pointer_cpp_chain_slot);
+}
+
+extern "C" int debug_inline_indirect_member_pointer_entry(int value)
+{
+    DebugInlineIndirectMemberPointerObject object;
+    object.value = value;
+    DebugInlineIndirectMemberPointer member =
+        &DebugInlineIndirectMemberPointerObject::value;
+    debug_inline_indirect_member_pointer_escape = member;
+    return debug_nonconstant_integer_parameter_inline(object.*member);
 }
 
 static inline unsigned long long
