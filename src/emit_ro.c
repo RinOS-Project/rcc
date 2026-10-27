@@ -12402,7 +12402,7 @@ static bool debug_inline_x64_global_expression_collect(
         const Decl* source = expression->ident_decl;
         const ModuleSymbol* symbol;
         if (source->kind != DECL_VAR || !source->var_is_global ||
-            source->var_is_static_local || source->var_is_thread_local ||
+            source->var_is_static_local ||
             !source->type || !debug_inline_integer_expression_type(source->type) ||
             source->type->size <= 0 || source->type->size > 8 ||
             source->type->is_volatile ||
@@ -12417,7 +12417,8 @@ static bool debug_inline_x64_global_expression_collect(
         }
         symbol = debug_find_global_symbol(mod, source);
         if (!symbol || !symbol->is_global || !symbol->name ||
-            symbol->section == MODULE_SYMBOL_TLS) {
+            ((symbol->section == MODULE_SYMBOL_TLS) !=
+             source->var_is_thread_local)) {
             return false;
         }
         globals->sources[globals->global_count] = source;
@@ -12567,24 +12568,35 @@ static bool debug_inline_x64_global_expression_append(
     }
     if (expression->kind == EXPR_IDENT && expression->ident_decl) {
         size_t relocation_index = globals->relocation_count;
+        const ModuleSymbol* symbol;
+        bool is_tls;
+        size_t address_size;
         if (relocation_index >= globals->global_count ||
             relocation_index >=
                 DEBUG_INLINE_GLOBAL_EXPRESSION_RELOCATION_CAPACITY ||
             globals->sources[relocation_index] != expression->ident_decl ||
-            !globals->symbols[relocation_index] ||
-            !debug_inline_integer_expression_append_byte(
-                output, capacity, size, 0x03u)) { /* DW_OP_addr */
+            !(symbol = globals->symbols[relocation_index])) {
+            return false;
+        }
+        is_tls = symbol->section == MODULE_SYMBOL_TLS;
+        address_size = is_tls ? 4u : 8u;
+        if (!debug_inline_integer_expression_append_byte(
+                output, capacity, size, is_tls ? 0x0du : 0x03u)) {
             return false;
         }
         globals->relocation_offsets[relocation_index] = *size;
         globals->relocation_symbols[relocation_index] =
-            globals->symbols[relocation_index];
+            symbol;
         globals->relocation_count++;
-        for (unsigned int byte = 0u; byte < 8u; ++byte) {
+        for (size_t byte = 0u; byte < address_size; ++byte) {
             if (!debug_inline_integer_expression_append_byte(
                     output, capacity, size, 0u)) {
                 return false;
             }
+        }
+        if (is_tls && !debug_inline_integer_expression_append_byte(
+                output, capacity, size, 0x9bu)) { /* DW_OP_form_tls_address */
+            return false;
         }
         return debug_inline_integer_expression_append_byte(
                    output, capacity, size, 0x94u) && /* DW_OP_deref_size */
@@ -15072,7 +15084,10 @@ static void debug_emit_inline_parameter_instances(
                     expression_offset +
                         integer_value_relocation_offsets[relocation_index],
                     integer_value_relocation_symbols[relocation_index]->name,
-                    RELOC_ABS64, 0);
+                integer_value_relocation_symbols[relocation_index]->section ==
+                        MODULE_SYMBOL_TLS
+                    ? RELOC_TLSOFF32S : RELOC_ABS64,
+                0);
             }
         } else if (value->declaration && argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(

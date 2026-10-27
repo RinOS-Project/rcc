@@ -13323,11 +13323,14 @@ static uint64_t verify_inline_global_expression_tree(
         uint64_t lhs;
         uint64_t rhs;
         uint64_t result;
-        if (operation == 0x03u) { /* DW_OP_addr */
+        if (operation == 0x03u || operation == 0x0du) {
+            bool is_tls = operation == 0x0du;
+            size_t address_size = is_tls ? 4u : 8u;
             bool found_relocation = false;
             uint64_t relocated_value = 0u;
             uint8_t dereference_size = 8u;
-            assert(cursor + 8u <= expression_end && stack_size < 64u);
+            assert(cursor + address_size <= expression_end &&
+                   stack_size < 64u);
             for (const ObjReloc* relocation = info->relocs; relocation;
                  relocation = relocation->next) {
                 if (relocation->offset != cursor || !relocation->symbol_name)
@@ -13344,7 +13347,8 @@ static uint64_t verify_inline_global_expression_tree(
                 } else {
                     continue;
                 }
-                assert(relocation->type == RELOC_ABS64);
+                assert(relocation->type == (is_tls ? RELOC_TLSOFF32S
+                                                   : RELOC_ABS64));
                 found_relocation = true;
                 break;
             }
@@ -13353,7 +13357,11 @@ static uint64_t verify_inline_global_expression_tree(
             stack[stack_size].value = relocated_value;
             stack[stack_size].dereference_size = dereference_size;
             stack[stack_size++].is_address = true;
-            cursor += 8u;
+            cursor += address_size;
+            continue;
+        }
+        if (operation == 0x9bu) { /* DW_OP_form_tls_address */
+            assert(stack_size > 0u && stack[stack_size - 1u].is_address);
             continue;
         }
         if (operation == 0x94u) { /* DW_OP_deref_size */
@@ -17416,6 +17424,16 @@ int main(int argc, char** argv)
             argv[9], "debug_inline_nonconstant_signed_long_long_global_pair_add_entry",
             "debug_inline_nonconstant_signed_long_long_global_add_lhs",
             "debug_inline_nonconstant_signed_long_long_global_add_rhs",
+            0x22u, 2u, UINT64_C(0x200000000));
+        verify_inline_x64_global_integer_expression(
+            argv[7], "debug_inline_nonconstant_signed_long_long_tls_pair_add_entry",
+            "debug_inline_nonconstant_signed_long_long_tls_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_tls_add_rhs",
+            0x22u, 2u, UINT64_C(0x200000000));
+        verify_inline_x64_global_integer_expression(
+            argv[9], "debug_inline_nonconstant_signed_long_long_tls_pair_add_entry",
+            "debug_inline_nonconstant_signed_long_long_tls_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_tls_add_rhs",
             0x22u, 2u, UINT64_C(0x200000000));
         verify_inline_x64_global_integer_expression(
             argv[7], "debug_inline_nonconstant_signed_long_long_global_pair_sub_entry",

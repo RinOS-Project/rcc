@@ -11303,3 +11303,13 @@ remains a separate open item.
       nested expressions, and negative arithmetic shifts in C++20 legacy and
       verified objects; `test-debug-info-inline-expression` and the full
       `test-debug-info` gate pass under WSL2 Ubuntu-24.04.
+
+## RCC continuation (2026-10-28, signed x64 TLS computed DWARF)
+
+- [x] Emit signed x64 computed inline-parameter expressions over stable
+      namespace-scope TLS integers with `TLSOFF32S` relocations and
+      `DW_OP_form_tls_address`, keeping TLS loads distinct from `ABS64` global
+      loads. Verify the relocated symbols and evaluated TLS-template values
+      in C++20 legacy and verified objects; focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass
+      under WSL2 Ubuntu-24.04.
