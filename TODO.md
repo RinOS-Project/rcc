@@ -11053,3 +11053,15 @@ remains a separate open item.
       `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
 - [ ] Function-local static operands, volatile/reference/atomic operands, and
       broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, unsigned i686 TLS comparison DWARF)
+
+- [x] Extend unsigned i686 64-bit global-pair `==`, `!=`, `<`, `<=`, `>`, and
+      `>=` inline-parameter expressions to TLS operands. Emit
+      `DW_OP_const4s`, `DW_OP_form_tls_address`, and `RELOC_TLSOFF32S`; verify
+      both TLS symbol identities, the expected 2/3 relocations per operand,
+      high-bit unsigned ordering, equality boundaries, and expression results
+      in normal and verified C++20 objects. The focused
+      `test-debug-info-inline-expression` gate passes under WSL2 Ubuntu-24.04.
+- [ ] Signed comparisons, function-local static operands, volatile/reference/
+      atomic operands, and broader optimized multi-piece locations remain open.
