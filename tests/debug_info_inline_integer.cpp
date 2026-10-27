@@ -259,6 +259,86 @@ debug_inline_nonconstant_unsigned_long_long_tls_constant_remainder_entry(void)
         debug_inline_nonconstant_unsigned_long_long_tls_dividend % 7ULL);
 }
 
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_divide_entry(void)
+{
+    static thread_local long long dividend = -0x7123456789abcdefLL;
+    static thread_local long long divisor = -0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend / divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_pair_remainder_entry(void)
+{
+    static thread_local long long dividend = -0x7123456789abcdefLL;
+    static thread_local long long divisor = -0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend % divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_constant_divide_entry(
+    void)
+{
+    static thread_local long long dividend = -0x7123456789abcdefLL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend / -7LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_tls_static_constant_remainder_entry(
+    void)
+{
+    static thread_local long long dividend = -0x7123456789abcdefLL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend % -7LL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_pair_divide_entry(
+    void)
+{
+    static thread_local unsigned long long dividend =
+        0xfedcba9876543217ULL;
+    static thread_local unsigned long long divisor =
+        0x8000000000000001ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend / divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_pair_remainder_entry(
+    void)
+{
+    static thread_local unsigned long long dividend =
+        0xfedcba9876543217ULL;
+    static thread_local unsigned long long divisor =
+        0x8000000000000001ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend % divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_constant_divide_entry(
+    void)
+{
+    static thread_local unsigned long long dividend =
+        0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend / 0x8000000000000001ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_tls_static_constant_remainder_entry(
+    void)
+{
+    static thread_local unsigned long long dividend =
+        0xfedcba9876543217ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend % 0x8000000000000001ULL);
+}
+
 extern "C" unsigned long long
 debug_inline_unsigned_long_long_global_u32_widen_entry(void)
 {

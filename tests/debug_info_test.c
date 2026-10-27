@@ -9294,7 +9294,9 @@ static void verify_inline_i686_u64_static_constant_division_expression(
             relocation->offset >= expression_end) {
             continue;
         }
-        assert(relocation->type == RELOC_ABS32U && relocation->symbol_name &&
+        assert((relocation->type == RELOC_ABS32U ||
+                relocation->type == RELOC_TLSOFF32S) &&
+               relocation->symbol_name &&
                strcmp(relocation->symbol_name, source_name) == 0);
         ++relocation_count;
     }
@@ -9415,7 +9417,8 @@ static void verify_inline_i686_static_local_division(
             relocation->offset >= expression_offset + expression_size) {
             continue;
         }
-        assert(relocation->type == RELOC_ABS32U &&
+        assert((relocation->type == RELOC_ABS32U ||
+                relocation->type == RELOC_TLSOFF32S) &&
                relocation->symbol_name &&
                strncmp(relocation->symbol_name,
                        "tests/debug_info_inline_integer.cpp::",
@@ -16310,6 +16313,42 @@ int main(int argc, char** argv)
             argv[8],
             "debug_inline_nonconstant_unsigned_long_long_static_constant_remainder_entry",
             false, false, true);
+        for (size_t tls_path_index = 0u; tls_path_index < 2u;
+             ++tls_path_index) {
+            const char* tls_path = tls_path_index == 0u ? argv[6] : argv[8];
+            verify_inline_i686_static_local_division(
+                tls_path,
+                "debug_inline_nonconstant_signed_long_long_tls_static_pair_divide_entry",
+                true, true, false);
+            verify_inline_i686_static_local_division(
+                tls_path,
+                "debug_inline_nonconstant_signed_long_long_tls_static_pair_remainder_entry",
+                true, true, true);
+            verify_inline_i686_static_local_division(
+                tls_path,
+                "debug_inline_nonconstant_signed_long_long_tls_static_constant_divide_entry",
+                true, false, false);
+            verify_inline_i686_static_local_division(
+                tls_path,
+                "debug_inline_nonconstant_signed_long_long_tls_static_constant_remainder_entry",
+                true, false, true);
+            verify_inline_i686_static_local_division(
+                tls_path,
+                "debug_inline_nonconstant_unsigned_long_long_tls_static_pair_divide_entry",
+                false, true, false);
+            verify_inline_i686_static_local_division(
+                tls_path,
+                "debug_inline_nonconstant_unsigned_long_long_tls_static_pair_remainder_entry",
+                false, true, true);
+            verify_inline_i686_static_local_division(
+                tls_path,
+                "debug_inline_nonconstant_unsigned_long_long_tls_static_constant_divide_entry",
+                false, false, false);
+            verify_inline_i686_static_local_division(
+                tls_path,
+                "debug_inline_nonconstant_unsigned_long_long_tls_static_constant_remainder_entry",
+                false, false, true);
+        }
         verify_inline_integer_expression_parameter(
             argv[6], ARCH_X86,
             "debug_nonconstant_signed_long_long_parameter_inline",
