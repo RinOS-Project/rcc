@@ -62,6 +62,20 @@ int select_dependent_array_element_pointer_call(
 }
 
 template<typename Owner, typename... Tail>
+int select_dependent_pointer_dereference_call(
+    DependentPointerConstexprBox<
+        Owner::read(&::dependent_pointer_constexpr_target),
+        Owner, Tail...>) {
+    return 321;
+}
+
+template<typename Owner, typename... Tail>
+int select_dependent_pointer_dereference_call(
+    DependentPointerConstexprBox<1, Owner, Tail...>) {
+    return 322;
+}
+
+template<typename Owner, typename... Tail>
 int select_dependent_nullptr_constexpr_call(
     DependentPointerConstexprBox<Owner::value(nullptr), Owner, Tail...>) {
     return 303;
@@ -84,10 +98,15 @@ int main() {
                 17, DependentPointerConstexprOwner, int>{}) != 311) {
         return 2;
     }
+    if (select_dependent_pointer_dereference_call(
+            DependentPointerConstexprBox<
+                17, DependentPointerConstexprOwner, int>{}) != 321) {
+        return 3;
+    }
     if (select_dependent_nullptr_constexpr_call(
             DependentPointerConstexprBox<
                 0, DependentPointerConstexprOwner, int>{}) != 303) {
-        return 3;
+        return 4;
     }
     return 0;
 }

@@ -8822,6 +8822,19 @@ static bool sema_eval_constexpr_scalar_expr(
             unsigned char* storage;
             size_t offset;
             Type* target_type = expression->type;
+            if (!target_type) {
+                Type* pointer_type = expression->unary_operand
+                    ? expression->unary_operand->type : NULL;
+                int pointer_binding = sema_constexpr_binding_index(
+                    expression->unary_operand, bindings, binding_count);
+                if (!pointer_type && pointer_binding >= 0) {
+                    pointer_type = bindings[pointer_binding].type;
+                }
+                if (pointer_type && pointer_type->kind == TYPE_PTR &&
+                    !pointer_type->is_reference) {
+                    target_type = pointer_type->base;
+                }
+            }
             if (bindings && sema_constexpr_load_binding_scalar(
                     expression, bindings, binding_count, value)) {
                 return true;

@@ -8723,11 +8723,12 @@ remains a separate open item.
       cover typed null, direct `nullptr`, and non-null addresses of a global
       object and a global array element in dependent non-type template
       arguments. Also test a constexpr pointer dereference of that array
-      element and pointer truth in conditional, `&&`, and `||` expressions.
+      element, a dependent-call dereference of a global scalar, and pointer
+      truth in conditional, `&&`, and `||` expressions.
       GCC C++20 and the i686/AMD64 `test-cxx-function-template-overloads`
       generation/execution gate pass.
 - [ ] Pointer references, member pointers, broader pointer conversions, and
-      dependent calls that dereference pointer arguments or use pointer
+      dependent calls that dereference array-element pointers or use pointer
       arithmetic remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
