@@ -67,6 +67,38 @@ struct ConstructorDefaultInitializedScalars {
         : initialized(value) {}
 };
 
+struct ImplicitDefaultNested {
+    int first;
+    int second;
+};
+
+struct ConstructorImplicitDefaultNested {
+    ImplicitDefaultNested nested;
+    int initialized;
+
+    constexpr explicit ConstructorImplicitDefaultNested(int value)
+        : initialized(value) {}
+};
+
+struct ConstructorImplicitDefaultArray {
+    int values[2];
+    int initialized;
+
+    constexpr explicit ConstructorImplicitDefaultArray(int value)
+        : initialized(value) {}
+};
+
+struct ImplicitDefaultBase {
+    int value;
+};
+
+struct ConstructorImplicitDefaultBase : ImplicitDefaultBase {
+    int initialized;
+
+    constexpr explicit ConstructorImplicitDefaultBase(int value)
+        : initialized(value) {}
+};
+
 struct ConstructorDefaultedSubobjects : ConstructorDefaultBase {
     ConstructorDefaultMember member;
     int value;
@@ -680,6 +712,9 @@ int main(void) {
     ConstructorDefaultInitializedScalars default_initialized{17};
     default_initialized.before = 3;
     default_initialized.after = 5;
+    ConstructorImplicitDefaultNested implicit_default_nested{29};
+    ConstructorImplicitDefaultArray implicit_default_array{31};
+    ConstructorImplicitDefaultBase implicit_default_base{37};
     Pair runtime_source{9, 12};
     ConstructorMutableScalarReference runtime_alias{runtime_source.first};
     int runtime_scalar_source = 10;
@@ -794,6 +829,9 @@ int main(void) {
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&
+                   implicit_default_nested.initialized == 29 &&
+                   implicit_default_array.initialized == 31 &&
+                   implicit_default_base.initialized == 37 &&
                    constructor_reference_global.seed == 19 &&
                    constructor_reference_global.value == 29 &&
                    constructor_reference_temporary.value == 31 &&

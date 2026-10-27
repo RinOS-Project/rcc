@@ -7207,6 +7207,9 @@ static int cxx_constructor_virtual_base_index(CxxClass* cls,
     return -1;
 }
 
+static bool cxx_implicit_default_subobject_supported(Type* type,
+                                                    unsigned depth);
+
 static bool cxx_constructor_base_layout_supported(CxxClass* cls, int index) {
     CxxClass* base;
     if (!cls || index < 0 || index >= cls->base_count ||
@@ -7218,13 +7221,11 @@ static bool cxx_constructor_base_layout_supported(CxxClass* cls, int index) {
     if (!base || !base->type || !type_is_complete(base->type)) {
         return false;
     }
-    /* A class without a user constructor is only safe to zero here when it
-     * is genuinely empty.  Zeroing a POD with fields would change the
-     * semantics of default-initialization, while a non-trivial member needs
-     * its own constructor path. */
+    /* A data-bearing base with no selected default constructor is valid when
+     * its implicit default initialization consists solely of starting
+     * lifetimes; scalar subobjects must remain indeterminate, not be zeroed. */
     if (!base->constructors &&
-        (base->fields || base->base_count || base->has_field_initializer ||
-         base->type->cxx_nontrivial)) {
+        !cxx_implicit_default_subobject_supported(base->type, 0u)) {
         return false;
     }
     return true;
@@ -7240,6 +7241,46 @@ static bool cxx_constructor_scalar_type(Type* type);
 static bool cxx_constructor_scalar_constant(Expr* expression);
 static bool cxx_constructor_dmi_expression_is_lowerable(
     CxxClass* cls, TypeParam* initialized_field, Expr* expression);
+
+static bool cxx_implicit_default_subobject_supported(Type* type,
+                                                    unsigned depth) {
+    CxxClass* cls;
+    if (!type || depth >= 64u || type->is_const ||
+        type->is_reference || type->is_atomic || type->is_volatile) {
+        return false;
+    }
+    if (type_is_scalar(type)) return true;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len > 0 && type->base &&
+            cxx_implicit_default_subobject_supported(
+                type->base, depth + 1u);
+    }
+    if (!type->is_complete || type->kind != TYPE_STRUCT ||
+        !(cls = type->cxx_class) ||
+        cls->has_user_constructor || cls->has_field_initializer ||
+        cls->destructor_method || cls->vtable_size != 0 ||
+        cls->virtual_base_count != 0 || type->cleanup_function ||
+        type->cleanup_field) {
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || cls->bases[index].is_virtual ||
+            !cxx_implicit_default_subobject_supported(
+                base->type, depth + 1u)) {
+            return false;
+        }
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!field->type || field->initializer || field->is_bitfield ||
+            !cxx_implicit_default_subobject_supported(
+                field->type, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
 
 /* Constructor default arguments are stored on both the declaration
  * parameters and the function type parameters.  Keep the parser-side
@@ -8054,11 +8095,16 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
             }
             if (!item) {
                 base_constructor = cxx_find_base_constructor(base, 0);
-                if ((!base_constructor && base && base->constructors) ||
-                    (!base_constructor && base &&
-                     (base->fields || base->base_count ||
-                      base->has_field_initializer ||
-                      base->type->cxx_nontrivial))) {
+                if (!base_constructor && base &&
+                    !base->has_user_constructor &&
+                    cxx_implicit_default_subobject_supported(
+                        base->type, 0u)) {
+                    continue;
+                }
+                if (!base_constructor && base &&
+                    (base->has_user_constructor ||
+                     !cxx_implicit_default_subobject_supported(
+                         base->type, 0u))) {
                     valid = false;
                     break;
                 }
@@ -8208,14 +8254,23 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                     member_class, (int)member_argument_count);
                 if ((!member_constructor &&
                      (member_argument_count != 0u || field->initializer ||
-                      !cxx_implicit_default_array_element_supported(
-                          member_class->type))) ||
+                      !(field->type->kind == TYPE_ARRAY
+                            ? cxx_implicit_default_array_element_supported(
+                                  member_class->type)
+                            : cxx_implicit_default_subobject_supported(
+                                  member_class->type, 0u)))) ||
                     !member_class->type || member_argument_count >= 32u ||
                     (member_constructor &&
                      (lowerable_constructor_arity_mask(member_class) &
                       (UINT32_C(1) << member_argument_count)) == 0u)) {
                     valid = false;
                     break;
+                }
+                if (field->type->kind != TYPE_ARRAY &&
+                    !member_constructor && !field->initializer &&
+                    cxx_implicit_default_subobject_supported(
+                        member_class->type, 0u)) {
+                    continue;
                 }
                 item = ast_arena_alloc(sizeof(*item));
                 item->field = field->name;
@@ -9437,10 +9492,9 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                  * default member initializer untouched.  They need no
                  * constructor store; constexpr materialization separately
                  * rejects an object whose value remains indeterminate. */
-                if (!field->is_bitfield && field->type &&
-                    cxx_constructor_scalar_type(field->type) &&
-                    !field->type->is_volatile &&
-                    !field->type->is_atomic && !field->initializer) {
+                if (!field->is_bitfield && !field->initializer &&
+                    cxx_implicit_default_subobject_supported(
+                        field->type, 0u)) {
                     field = field->next;
                     continue;
                 }

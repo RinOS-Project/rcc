@@ -41,3 +41,40 @@ struct UninitializedConstexprMember {
 
 constexpr UninitializedConstexprMember
     invalid_uninitialized_constexpr_member{};
+
+struct UninitializedNestedAggregate {
+    int first;
+    int second;
+};
+
+struct UninitializedNestedAggregateMember {
+    UninitializedNestedAggregate nested;
+    int initialized;
+
+    constexpr explicit UninitializedNestedAggregateMember(int value)
+        : initialized(value) {}
+};
+
+struct UninitializedArrayMember {
+    int values[2];
+    int initialized;
+
+    constexpr explicit UninitializedArrayMember(int value)
+        : initialized(value) {}
+};
+
+struct UninitializedBase {
+    int value;
+};
+
+struct UninitializedBaseSubobject : UninitializedBase {
+    int initialized;
+
+    constexpr explicit UninitializedBaseSubobject(int value)
+        : initialized(value) {}
+};
+
+constexpr UninitializedNestedAggregateMember
+    invalid_uninitialized_nested_aggregate_member{3};
+constexpr UninitializedArrayMember invalid_uninitialized_array_member{5};
+constexpr UninitializedBaseSubobject invalid_uninitialized_base_subobject{7};

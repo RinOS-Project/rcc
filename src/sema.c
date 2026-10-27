@@ -8476,6 +8476,39 @@ static bool sema_validate_constexpr_object(
     }
 }
 
+static bool sema_constexpr_defaulted_aggregate_has_indeterminate_scalar(
+    Type* type, unsigned depth) {
+    if (!type || depth >= 64u) return false;
+    if (sema_constexpr_scalar_type(type)) return true;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len > 0 && type->base &&
+               sema_constexpr_defaulted_aggregate_has_indeterminate_scalar(
+                   type->base, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT || type->cxx_nontrivial ||
+        type->size <= 0 ||
+        (type->cxx_class && type->cxx_class->has_user_constructor)) {
+        return false;
+    }
+    if (type->cxx_class) {
+        for (int index = 0; index < type->cxx_class->base_count; ++index) {
+            CxxClass* base = type->cxx_class->bases[index].base;
+            if (base && sema_constexpr_defaulted_aggregate_has_indeterminate_scalar(
+                            base->type, depth + 1u)) {
+                return true;
+            }
+        }
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (field->initializer) continue;
+        if (sema_constexpr_defaulted_aggregate_has_indeterminate_scalar(
+                field->type, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool sema_constexpr_constructor_leaves_indeterminate_scalar(
     Type* type, Expr* initializer) {
     CxxConstructorInfo* constructor;
@@ -8488,9 +8521,27 @@ static bool sema_constexpr_constructor_leaves_indeterminate_scalar(
         !(declaration = constructor->method
               ? constructor->method->decl : NULL) ||
         !declaration->func_is_constexpr ||
-        !(cls = type->cxx_class) || cls->base_count != 0 ||
-        cls->virtual_base_count != 0) {
+        !(cls = type->cxx_class) || cls->virtual_base_count != 0) {
         return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        bool explicitly_initialized = false;
+        CxxClass* base = cls->bases[index].base;
+        if (!base || !base->type) continue;
+        for (CxxConstructorInitializer* item = constructor->initializers;
+             item; item = item->next) {
+            if (item->is_base_initializer &&
+                !item->is_virtual_base_initializer &&
+                sema_cxx_constructor_base_index(cls, item->field) == index) {
+                explicitly_initialized = true;
+                break;
+            }
+        }
+        if (!explicitly_initialized &&
+            sema_constexpr_defaulted_aggregate_has_indeterminate_scalar(
+                base->type, 0u)) {
+            return true;
+        }
     }
     for (TypeParam* member = cls->fields; member; member = member->next) {
         TypeField* field = type->fields;
@@ -8500,8 +8551,7 @@ static bool sema_constexpr_constructor_leaves_indeterminate_scalar(
                          strcmp(field->name, member->name) != 0)) {
             field = field->next;
         }
-        if (!field || !field->type ||
-            !sema_constexpr_scalar_type(field->type) || field->initializer) {
+        if (!field || !field->type || field->initializer) {
             continue;
         }
         for (CxxConstructorInitializer* item = constructor->initializers;
@@ -8512,7 +8562,12 @@ static bool sema_constexpr_constructor_leaves_indeterminate_scalar(
                 break;
             }
         }
-        if (!explicitly_initialized) return true;
+        if (!explicitly_initialized &&
+            (sema_constexpr_scalar_type(field->type) ||
+             sema_constexpr_defaulted_aggregate_has_indeterminate_scalar(
+                 field->type, 0u))) {
+            return true;
+        }
     }
     return false;
 }
@@ -28786,6 +28841,9 @@ static void sema_decl(Decl* decl) {
                 }
                 if (decl->var_is_constexpr) {
                     bool valid_constexpr = false;
+                    bool leaves_indeterminate_scalar =
+                        sema_constexpr_constructor_leaves_indeterminate_scalar(
+                            decl->type, decl->var_init);
                     if (sema_constexpr_scalar_type(decl->type)) {
                         SemaConstexprScalar constexpr_value;
                         valid_constexpr =
@@ -28796,12 +28854,12 @@ static void sema_decl(Decl* decl) {
                                 &constexpr_value, decl->type,
                                 &constexpr_value);
                     } else if (sema_constexpr_aggregate_type(decl->type)) {
-                        valid_constexpr = sema_validate_constexpr_object(
-                            decl->type, decl->var_init);
+                        valid_constexpr = !leaves_indeterminate_scalar &&
+                            sema_validate_constexpr_object(
+                                decl->type, decl->var_init);
                     }
                     if (!valid_constexpr) {
-                        if (sema_constexpr_constructor_leaves_indeterminate_scalar(
-                                decl->type, decl->var_init)) {
+                        if (leaves_indeterminate_scalar) {
                             rcc_error(decl->loc,
                                       "constexpr initializer leaves a scalar member indeterminate");
                         } else {

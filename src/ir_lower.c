@@ -7312,6 +7312,50 @@ static bool lower_cxx_empty_trivial_subobject(
     return true;
 }
 
+/* Default-initializing these subobjects has no generated work: implicit
+ * default constructors begin their lifetime but leave scalar storage alone.
+ * Keep the proof recursive and exclude user constructors, default member
+ * initializers, virtual dispatch, and cleanup-bearing objects. */
+static bool lower_cxx_implicit_default_subobject_supported(
+    const Type* type, unsigned depth) {
+    const CxxClass* cls;
+    if (!type || depth >= 64u || type->is_const ||
+        type->is_reference || type->is_atomic || type->is_volatile) {
+        return false;
+    }
+    if (type_is_scalar((Type*)type)) return true;
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len > 0 && type->base &&
+            lower_cxx_implicit_default_subobject_supported(
+                type->base, depth + 1u);
+    }
+    if (!type->is_complete || type->kind != TYPE_STRUCT ||
+        !(cls = type->cxx_class) ||
+        cls->has_user_constructor || cls->has_field_initializer ||
+        cls->destructor_method || cls->vtable_size != 0 ||
+        cls->virtual_base_count != 0 || type->cleanup_function ||
+        type->cleanup_field) {
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        if (!base || cls->bases[index].is_virtual ||
+            !lower_cxx_implicit_default_subobject_supported(
+                base->type, depth + 1u)) {
+            return false;
+        }
+    }
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!field->type || field->initializer || field->is_bitfield ||
+            !lower_cxx_implicit_default_subobject_supported(
+                field->type, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int lower_cxx_constructor_parameter_index(
     const CxxConstructorInfo* constructor, const Decl* declaration) {
     const DeclList* parameter;
@@ -7568,12 +7612,15 @@ static bool lower_cxx_empty_noop_constructor_supported(
         if (member_count == UINT_MAX || member->is_bitfield || !member->name ||
             !member->type ||
             (!type_is_scalar(member->type) &&
-             (member->type->kind != TYPE_STRUCT ||
-              !member->type->cxx_class)) ||
+             (member->type->kind != TYPE_STRUCT &&
+              member->type->kind != TYPE_ARRAY)) ||
             member->type->cxx_is_member_pointer ||
             member->type->is_volatile || member->type->is_atomic ||
             (type_is_scalar(member->type) &&
-             lower_i686_wide_scalar_type(member->type))) {
+             lower_i686_wide_scalar_type(member->type)) ||
+            (member->type->kind == TYPE_ARRAY &&
+             !lower_cxx_implicit_default_subobject_supported(
+                 member->type, 0u))) {
             return false;
         }
         ++member_count;
@@ -7588,9 +7635,13 @@ static bool lower_cxx_empty_noop_constructor_supported(
         base_initializer = lower_cxx_find_base_initializer(
             cls, constructor, base_index, &duplicate_initializer);
         if (duplicate_initializer) return false;
-        if (!base_initializer || !base_initializer->constructor) {
-            if ((base_initializer &&
-                 (base_initializer->value || base_initializer->arguments)) ||
+        if (!base_initializer) {
+            if (!lower_cxx_implicit_default_subobject_supported(
+                    base->type, 0u)) {
+                return false;
+            }
+        } else if (!base_initializer->constructor) {
+            if (base_initializer->value || base_initializer->arguments ||
                 !lower_cxx_empty_trivial_subobject(base->type, 0u)) {
                 return false;
             }
@@ -7619,6 +7670,7 @@ static bool lower_cxx_empty_noop_constructor_supported(
     }
     for (initializer = constructor->initializers; initializer;
          initializer = initializer->next) {
+        member = NULL;
         if (initializer->is_delegating_constructor ||
             initializer->is_default_member_initializer ||
             initializer->is_pack_expansion) {
@@ -7665,15 +7717,15 @@ static bool lower_cxx_empty_noop_constructor_supported(
             }
             continue;
         }
-        if (!initializer->arguments || initializer->arguments->next ||
-            !initializer->arguments->expr) return false;
         member = cls->fields;
         while (member && (member->is_static || !initializer->field ||
                strcmp(initializer->field, member->name) != 0)) {
             member = member->next;
         }
-        if (!member || member_initializer_count >= member_count ||
-            initializer->value != initializer->arguments->expr) {
+        if (!member || member_initializer_count >= member_count) return false;
+        if (!initializer->arguments || initializer->arguments->next ||
+            !initializer->arguments->expr) return false;
+        if (initializer->value != initializer->arguments->expr) {
             return false;
         }
         for (previous_initializer = constructor->initializers;
@@ -7753,7 +7805,25 @@ static bool lower_cxx_empty_noop_constructor_supported(
         }
         ++member_initializer_count;
     }
-    if (member_initializer_count != member_count) return false;
+    if (member_initializer_count > member_count) return false;
+    for (member = cls->fields; member; member = member->next) {
+        bool has_initializer = false;
+        if (member->is_static) continue;
+        for (initializer = constructor->initializers;
+             initializer; initializer = initializer->next) {
+            if (!initializer->is_base_initializer && initializer->field &&
+                member->name &&
+                strcmp(initializer->field, member->name) == 0) {
+                has_initializer = true;
+                break;
+            }
+        }
+        if (!has_initializer &&
+            !lower_cxx_implicit_default_subobject_supported(
+                member->type, 0u)) {
+            return false;
+        }
+    }
     return true;
 }
 

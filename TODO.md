@@ -8985,12 +8985,18 @@ remains a separate open item.
       Pair` implicit-lifetime transitions, and rejection of an inactive
       aggregate read against GCC C++20; run focused i686/AMD64 generation and
       execution.
+- [x] Lower empty constexpr constructors with omitted trivial nested aggregate,
+      scalar-array, and direct nonvirtual-base subobjects without writing their
+      default-initialized storage. Reject constexpr objects that leave scalar
+      state indeterminate through each subobject shape with a targeted
+      diagnostic; verify exact diagnostic counts and GCC agreement on i686 and
+      AMD64, plus runtime construction on both targets.
 - [ ] Constructor bodies beyond the covered expressions/branches, mutable
       references to non-trivial union alternatives or untested lifetime
       transitions, other pointer-reference forms not covered by the scalar- and
-      aggregate-returning evaluators,
-      indeterminate tracking for nested/array/base subobjects, and complete
-      virtual-base constructor evaluation remain open.
+      aggregate-returning evaluators, indeterminate-state analysis beyond the
+      empty constexpr-constructor path and trivial non-union subobjects, and
+      complete virtual-base constructor evaluation remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
