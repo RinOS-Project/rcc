@@ -8780,6 +8780,12 @@ remains a separate open item.
       converted pointer to a by-value derived aggregate. GCC C++20, i686/AMD64
       generation, AMD64 execution, the focused overload gate, and the full
       POSIX `test-cxx` aggregate pass.
+- [x] Cover the same `int Base::*` to `const int Derived::*` conversion through
+      two accessible nonvirtual inheritance steps, with `Base` nested inside
+      the intermediate base and a nonzero accumulated offset. Apply the
+      converted pointer to the nested by-value aggregate in a dependent
+      constexpr call. GCC C++20, i686/AMD64 generation, AMD64 execution, the
+      focused overload gate, and the full POSIX `test-cxx` aggregate pass.
 - [ ] Further multilevel constexpr owner-conversion paths, additional
       member-pointee cv combinations, non-null member-function-pointer
       constants, and broader pointer conversions remain open.
