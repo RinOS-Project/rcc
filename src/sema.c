@@ -8716,8 +8716,22 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             uint64_t then_state = *initialized_members;
             uint64_t else_state = *initialized_members;
             SemaConstexprScalar condition_value;
-            if (statement->if_is_constexpr || !statement->if_cond ||
-                !sema_constexpr_constructor_rhs_is_safe(
+            if (!statement->if_cond) return false;
+            if (statement->if_is_constexpr) {
+                if (!sema_eval_constexpr_scalar_expr(
+                        statement->if_cond, bindings, binding_count,
+                        &condition_value)) {
+                    return false;
+                }
+                Stmt* selected = sema_constexpr_scalar_truth(&condition_value)
+                    ? statement->if_then : statement->if_else;
+                return !selected ||
+                    sema_constexpr_constructor_analyze_body_statement(
+                        selected, cls, initialized_members, bindings,
+                        binding_count, allow_unknown_branch_join,
+                        depth + 1u);
+            }
+            if (!sema_constexpr_constructor_rhs_is_safe(
                     statement->if_cond, cls, *initialized_members,
                     depth + 1u)) {
                 return false;

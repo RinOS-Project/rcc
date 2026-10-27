@@ -9017,6 +9017,11 @@ remains a separate open item.
       whose selected path leaves a scalar omitted. Verify both-branches,
       selected-branch, and selected-missing-branch cases on i686/AMD64 with GCC
       C++20 and the full POSIX `test-cxx` suite.
+- [x] Evaluate `if constexpr` branches in constructor-body initialization
+      analysis using the compile-time-selected branch only. Verify that the
+      selected branch initializes an omitted scalar and the discarded branch
+      is not required, with GCC C++17/C++20 and i686/AMD64 constexpr/runtime
+      coverage.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

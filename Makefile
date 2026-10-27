@@ -11460,6 +11460,28 @@ endif
 
 test-cxx-if-constexpr-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-if-constexpr)
+	$(CXX) -std=c++17 -pedantic-errors -fsyntax-only \
+		tests/cxx_if_constexpr.cpp
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_if_constexpr.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -S \
+		-o $(TEST_OUT)/cxx-if-constexpr/cxx17-x86.s \
+		tests/cxx_if_constexpr.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-if-constexpr/cxx17-x86.o \
+		$(TEST_OUT)/cxx-if-constexpr/cxx17-x86.s
+	$(CC) -m32 -o $(TEST_OUT)/cxx-if-constexpr/cxx17-x86 \
+		tests/cxx_if_constexpr_run_test.c \
+		$(TEST_OUT)/cxx-if-constexpr/cxx17-x86.o
+	$(TEST_OUT)/cxx-if-constexpr/cxx17-x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -S \
+		-o $(TEST_OUT)/cxx-if-constexpr/cxx17-x64.s \
+		tests/cxx_if_constexpr.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-if-constexpr/cxx17-x64.o \
+		$(TEST_OUT)/cxx-if-constexpr/cxx17-x64.s
+	$(CC) -o $(TEST_OUT)/cxx-if-constexpr/cxx17-x64 \
+		tests/cxx_if_constexpr_run_test.c \
+		$(TEST_OUT)/cxx-if-constexpr/cxx17-x64.o
+	$(TEST_OUT)/cxx-if-constexpr/cxx17-x64
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-if-constexpr/x86.s \
 		tests/cxx_if_constexpr.cpp
