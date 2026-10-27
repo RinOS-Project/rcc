@@ -98,6 +98,23 @@ struct ConstructorForwardedMutableScalarReference {
         : nested(source) {}
 };
 
+struct ConstructorMutableAggregateReference {
+    int observed;
+
+    constexpr explicit ConstructorMutableAggregateReference(Pair& source)
+        : observed(source.first) {
+        source.first += 2;
+    }
+};
+
+struct ConstructorForwardedMutableAggregateReference {
+    ConstructorMutableAggregateReference nested;
+
+    constexpr explicit ConstructorForwardedMutableAggregateReference(
+        Pair& source)
+        : nested(source) {}
+};
+
 struct ConstructorPointerDereference : ConstructorDefaultBase {
     int value;
 
@@ -132,9 +149,30 @@ constexpr int forward_mutable_scalar_reference(int& value) {
     return add_through_mutable_scalar_reference(value);
 }
 
+constexpr int add_through_mutable_aggregate_reference(Pair& value) {
+    value.first += 3;
+    return value.first * 100 + value.second;
+}
+
+constexpr int forward_mutable_aggregate_reference(Pair& value) {
+    return add_through_mutable_aggregate_reference(value);
+}
+
 constexpr Pair make_pair_after_mutating_scalar_reference(int& value) {
     value += 2;
     return Pair{value, value + 1};
+}
+
+constexpr Pair make_pair_after_mutating_aggregate_reference(Pair& value) {
+    value.first += 2;
+    return Pair{value.first, value.second};
+}
+
+constexpr int assign_through_mutable_aggregate_references(Pair& target,
+                                                          Pair& source) {
+    target = source;
+    target.second += 1;
+    return target.first * 100 + target.second;
 }
 
 constexpr int redirect_mutable_pointer_reference(int*& target,
@@ -266,6 +304,15 @@ constexpr int mutate_scalar_through_forwarded_constructor_reference() {
 constexpr int forwarded_scalar_reference_constructor_result =
     mutate_scalar_through_forwarded_constructor_reference();
 
+constexpr int mutate_aggregate_through_forwarded_constructor_reference() {
+    Pair source{3, 8};
+    ConstructorForwardedMutableAggregateReference alias{source};
+    return source.first * 100 + alias.nested.observed;
+}
+
+constexpr int forwarded_aggregate_reference_constructor_result =
+    mutate_aggregate_through_forwarded_constructor_reference();
+
 constexpr int mutate_local_scalar_through_constexpr_function() {
     int source = 4;
     int result = forward_mutable_scalar_reference(source);
@@ -284,6 +331,15 @@ constexpr int mutate_aggregate_member_through_constexpr_function() {
 constexpr int aggregate_member_reference_function_result =
     mutate_aggregate_member_through_constexpr_function();
 
+constexpr int mutate_aggregate_through_constexpr_function() {
+    Pair source{4, 8};
+    int result = forward_mutable_aggregate_reference(source);
+    return source.first * 1000 + result;
+}
+
+constexpr int aggregate_object_reference_function_result =
+    mutate_aggregate_through_constexpr_function();
+
 constexpr int mutate_scalar_through_aggregate_return_function() {
     int source = 5;
     Pair result = make_pair_after_mutating_scalar_reference(source);
@@ -292,6 +348,25 @@ constexpr int mutate_scalar_through_aggregate_return_function() {
 
 constexpr int aggregate_return_reference_function_result =
     mutate_scalar_through_aggregate_return_function();
+
+constexpr int mutate_aggregate_through_aggregate_return_function() {
+    Pair source{5, 8};
+    Pair result = make_pair_after_mutating_aggregate_reference(source);
+    return source.first * 1000 + result.first * 10 + result.second;
+}
+
+constexpr int aggregate_return_object_reference_function_result =
+    mutate_aggregate_through_aggregate_return_function();
+
+constexpr int assign_through_aggregate_reference_function() {
+    Pair target{1, 2};
+    Pair source{6, 9};
+    int result = assign_through_mutable_aggregate_references(target, source);
+    return target.first * 1000 + target.second * 10 + result;
+}
+
+constexpr int aggregate_reference_assignment_function_result =
+    assign_through_aggregate_reference_function();
 
 constexpr int redirect_pointer_through_constexpr_function() {
     Pair source{2, 7};
@@ -334,9 +409,13 @@ static_assert(aggregate_pointer_constructor_result == 1333);
 static_assert(scalar_reference_constructor_result == 1609);
 static_assert(local_scalar_reference_constructor_result == 1710);
 static_assert(forwarded_scalar_reference_constructor_result == 1811);
+static_assert(forwarded_aggregate_reference_constructor_result == 503);
 static_assert(local_scalar_reference_function_result == 909);
 static_assert(aggregate_member_reference_function_result == 1111);
+static_assert(aggregate_object_reference_function_result == 7708);
 static_assert(aggregate_return_reference_function_result == 778);
+static_assert(aggregate_return_object_reference_function_result == 7078);
+static_assert(aggregate_reference_assignment_function_result == 6710);
 static_assert(mutable_pointer_reference_function_result == 277);
 static_assert(consteval_float_value == 6.25);
 static_assert(array_values[0] + array_values[1] == 17,
@@ -356,16 +435,30 @@ int main(void) {
     Pair runtime_forwarded_source{11, 12};
     ConstructorForwardedMutableScalarReference runtime_forwarded_alias{
         runtime_forwarded_source.first};
+    Pair runtime_forwarded_aggregate_source{3, 8};
+    ConstructorForwardedMutableAggregateReference
+        runtime_forwarded_aggregate_alias{runtime_forwarded_aggregate_source};
     int runtime_function_source = 4;
     int runtime_function_result =
         forward_mutable_scalar_reference(runtime_function_source);
     Pair runtime_function_aggregate{6, 12};
     int runtime_function_aggregate_result =
         add_through_mutable_scalar_reference(runtime_function_aggregate.first);
+    Pair runtime_aggregate_object{4, 8};
+    int runtime_aggregate_object_result =
+        forward_mutable_aggregate_reference(runtime_aggregate_object);
     int runtime_aggregate_return_source = 5;
     Pair runtime_aggregate_return_result =
         make_pair_after_mutating_scalar_reference(
             runtime_aggregate_return_source);
+    Pair runtime_aggregate_return_object_source{5, 8};
+    Pair runtime_aggregate_return_object_result =
+        make_pair_after_mutating_aggregate_reference(
+            runtime_aggregate_return_object_source);
+    Pair runtime_assignment_target{1, 2};
+    Pair runtime_assignment_source{6, 9};
+    int runtime_assignment_result = assign_through_mutable_aggregate_references(
+        runtime_assignment_target, runtime_assignment_source);
     Pair runtime_pointer_pair{2, 7};
     int* runtime_pointer_target = &runtime_pointer_pair.first;
     int* runtime_pointer_replacement = &runtime_pointer_pair.second;
@@ -407,13 +500,23 @@ int main(void) {
                    runtime_scalar_alias.observed == 10 &&
                    runtime_forwarded_source.first == 18 &&
                    runtime_forwarded_alias.nested.observed == 11 &&
+                    runtime_forwarded_aggregate_source.first == 5 &&
+                    runtime_forwarded_aggregate_alias.nested.observed == 3 &&
                    runtime_function_source == 9 &&
                    runtime_function_result == 9 &&
                    runtime_function_aggregate.first == 11 &&
                    runtime_function_aggregate_result == 11 &&
+                    runtime_aggregate_object.first == 7 &&
+                    runtime_aggregate_object_result == 708 &&
                    runtime_aggregate_return_source == 7 &&
                    runtime_aggregate_return_result.first == 7 &&
                    runtime_aggregate_return_result.second == 8 &&
+                    runtime_aggregate_return_object_source.first == 7 &&
+                    runtime_aggregate_return_object_result.first == 7 &&
+                    runtime_aggregate_return_object_result.second == 8 &&
+                    runtime_assignment_target.first == 6 &&
+                    runtime_assignment_target.second == 10 &&
+                    runtime_assignment_result == 610 &&
                    runtime_pointer_pair.first == 2 &&
                    runtime_pointer_pair.second == 7 &&
                    runtime_pointer_target == runtime_pointer_replacement &&

@@ -8955,12 +8955,17 @@ remains a separate open item.
       constexpr function, then dereference the updated pointer to a caller
       aggregate member. Verify constexpr and runtime results, strict GCC C++20,
       and focused i686/AMD64 generation and execution.
+- [x] Preserve mutable lvalue-reference aliases to struct objects through
+      constexpr constructors, scalar-returning functions, and aggregate-
+      returning functions, including nested forwarding, member mutation, and
+      whole-object assignment through reference parameters. Verify compile-time
+      values and caller-visible mutations against strict GCC C++20 and execute
+      the focused i686/AMD64 regressions.
 - [ ] Constructor bodies beyond the covered expressions/branches, mutable
-      references to nonscalar objects, reference forms not covered by the
+      references to arrays and unions, reference forms not covered by the
       scalar- and aggregate-returning evaluators (including other pointer-
-      reference forms), indeterminate tracking for
-      nested/array/base subobjects, and complete virtual-base constructor
-      evaluation remain open.
+      reference forms), indeterminate tracking for nested/array/base subobjects,
+      and complete virtual-base constructor evaluation remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
