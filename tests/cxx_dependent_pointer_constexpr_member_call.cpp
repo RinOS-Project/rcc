@@ -9,6 +9,10 @@ struct DependentPointerConstexprOwner {
         return pointer ? 17 : 0;
     }
 
+    static constexpr int value_void(const void* pointer) {
+        return pointer ? 23 : 0;
+    }
+
     static constexpr int logical_and(const int* pointer) {
         return pointer && 1;
     }
@@ -32,6 +36,8 @@ struct DependentPointerConstexprOwner {
 
 static_assert(DependentPointerConstexprOwner::value(
     &::dependent_pointer_constexpr_target) == 17);
+static_assert(DependentPointerConstexprOwner::value_void(
+    &::dependent_pointer_constexpr_target) == 23);
 static_assert(DependentPointerConstexprOwner::value(nullptr) == 0);
 static_assert(DependentPointerConstexprOwner::logical_and(
     &::dependent_pointer_constexpr_target) == 1);
@@ -57,6 +63,20 @@ template<typename Owner, typename... Tail>
 int select_dependent_pointer_constexpr_call(
     DependentPointerConstexprBox<1, Owner, Tail...>) {
     return 302;
+}
+
+template<typename Owner, typename... Tail>
+int select_dependent_void_pointer_conversion_call(
+    DependentPointerConstexprBox<
+        Owner::value_void(&::dependent_pointer_constexpr_target),
+        Owner, Tail...>) {
+    return 305;
+}
+
+template<typename Owner, typename... Tail>
+int select_dependent_void_pointer_conversion_call(
+    DependentPointerConstexprBox<1, Owner, Tail...>) {
+    return 306;
 }
 
 template<typename Owner, typename... Tail>
@@ -133,30 +153,35 @@ int main() {
                 17, DependentPointerConstexprOwner, int>{}) != 301) {
         return 1;
     }
+    if (select_dependent_void_pointer_conversion_call(
+            DependentPointerConstexprBox<
+                23, DependentPointerConstexprOwner, int>{}) != 305) {
+        return 2;
+    }
     if (select_dependent_array_element_pointer_call(
             DependentPointerConstexprBox<
                 17, DependentPointerConstexprOwner, int>{}) != 311) {
-        return 2;
+        return 3;
     }
     if (select_dependent_pointer_dereference_call(
             DependentPointerConstexprBox<
                 11, DependentPointerConstexprOwner, int>{}) != 321) {
-        return 3;
+        return 4;
     }
     if (select_dependent_pointer_reference_call(
             DependentPointerConstexprBox<
                 11, DependentPointerConstexprOwner, int>{}) != 331) {
-        return 4;
+        return 5;
     }
     if (select_dependent_pointer_arithmetic_call(
             DependentPointerConstexprBox<
                 11, DependentPointerConstexprOwner, int>{}) != 341) {
-        return 5;
+        return 6;
     }
     if (select_dependent_nullptr_constexpr_call(
             DependentPointerConstexprBox<
                 0, DependentPointerConstexprOwner, int>{}) != 303) {
-        return 6;
+        return 7;
     }
     return 0;
 }

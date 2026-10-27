@@ -8740,7 +8740,10 @@ remains a separate open item.
       the pointee type from the bound pointer expression where early template
       evaluation has not assigned the expression type. GCC C++20, i686/AMD64
       generation, AMD64 execution, and the focused overload gate pass.
-- [ ] Member pointers and broader pointer conversions remain open.
+- [x] Evaluate an `int*` argument converted to a `const void*` parameter in a
+      dependent constexpr call. GCC C++20 and the focused i686/AMD64 generation
+      and AMD64 execution gate pass.
+- [ ] Member pointers and additional pointer conversions remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 
