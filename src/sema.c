@@ -6632,8 +6632,8 @@ static bool sema_constexpr_materialize_object(
     Type* type, Expr* initializer, SemaConstexprBinding* bindings,
     int binding_count, unsigned char* storage, size_t storage_size);
 static bool sema_constexpr_constructor_body_writes_direct_member(
-    CxxConstructorInfo* constructor, CxxClass* cls, const char* member_name,
-    bool* supported);
+    CxxConstructorInfo* constructor, CxxClass* cls, Type* type,
+    const char* member_name, bool* supported);
 static bool sema_constexpr_binding_lvalue(
     Expr* expression, SemaConstexprBinding* bindings, int binding_count,
     int* binding_index, size_t* offset, Type** type);
@@ -6971,7 +6971,7 @@ static bool sema_constexpr_materialize_cxx_constructor(
                 !constructor->body_is_empty &&
                 sema_constexpr_scalar_type(field->type) &&
                 sema_constexpr_constructor_body_writes_direct_member(
-                    constructor, cls, member->name, &body_supported);
+                    constructor, cls, type, member->name, &body_supported);
             if (!body_supported || !body_writes_member) return false;
             /* The straight-line constructor body performs the first write to
              * this scalar.  Leave its storage untouched until that assignment
@@ -8541,8 +8541,40 @@ static const char* sema_constexpr_constructor_direct_member_name(
     return NULL;
 }
 
-static bool sema_constexpr_constructor_rhs_is_object_independent(
-    Expr* expression, CxxClass* cls, unsigned depth) {
+static bool sema_constexpr_constructor_member_is_initialized(
+    CxxConstructorInfo* constructor, CxxClass* cls, Type* type,
+    const char* member_name) {
+    bool is_class_member = false;
+    if (!constructor || !cls || cls->is_union || !type || !member_name) {
+        return false;
+    }
+    for (TypeParam* member = cls->fields; member; member = member->next) {
+        if (member->name && !member->is_static &&
+            strcmp(member->name, member_name) == 0) {
+            is_class_member = true;
+            break;
+        }
+    }
+    if (!is_class_member) return false;
+    for (CxxConstructorInitializer* item = constructor->initializers;
+         item; item = item->next) {
+        if (!item->is_base_initializer && !item->is_delegating_constructor &&
+            item->field && strcmp(item->field, member_name) == 0) {
+            return true;
+        }
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (field->name && strcmp(field->name, member_name) == 0 &&
+            field->cxx_declaring_class == cls) {
+            return field->initializer != NULL;
+        }
+    }
+    return false;
+}
+
+static bool sema_constexpr_constructor_rhs_is_safe(
+    Expr* expression, CxxConstructorInfo* constructor, CxxClass* cls,
+    Type* type, unsigned depth) {
     if (!expression || depth >= 64u) return false;
     switch (expression->kind) {
         case EXPR_INT_LIT:
@@ -8558,15 +8590,24 @@ static bool sema_constexpr_constructor_rhs_is_object_independent(
                 }
             }
             return true;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER: {
+            const char* member_name =
+                sema_constexpr_constructor_direct_member_name(expression);
+            return member_name &&
+                   sema_constexpr_constructor_member_is_initialized(
+                       constructor, cls, type, member_name);
+        }
         case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
-            return sema_constexpr_constructor_rhs_is_object_independent(
-                expression->unary_operand, cls, depth + 1u);
+            return sema_constexpr_constructor_rhs_is_safe(
+                expression->unary_operand, constructor, cls, type,
+                depth + 1u);
         case EXPR_CAST:
-            return sema_constexpr_constructor_rhs_is_object_independent(
-                expression->cast_expr, cls, depth + 1u);
+            return sema_constexpr_constructor_rhs_is_safe(
+                expression->cast_expr, constructor, cls, type, depth + 1u);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -8585,31 +8626,36 @@ static bool sema_constexpr_constructor_rhs_is_object_independent(
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
-            return sema_constexpr_constructor_rhs_is_object_independent(
-                       expression->binary_lhs, cls, depth + 1u) &&
-                   sema_constexpr_constructor_rhs_is_object_independent(
-                       expression->binary_rhs, cls, depth + 1u);
+            return sema_constexpr_constructor_rhs_is_safe(
+                       expression->binary_lhs, constructor, cls, type,
+                       depth + 1u) &&
+                   sema_constexpr_constructor_rhs_is_safe(
+                       expression->binary_rhs, constructor, cls, type,
+                       depth + 1u);
         case EXPR_COND:
-            return sema_constexpr_constructor_rhs_is_object_independent(
-                       expression->cond_test, cls, depth + 1u) &&
-                   sema_constexpr_constructor_rhs_is_object_independent(
-                       expression->cond_then, cls, depth + 1u) &&
-                   sema_constexpr_constructor_rhs_is_object_independent(
-                       expression->cond_else, cls, depth + 1u);
+            return sema_constexpr_constructor_rhs_is_safe(
+                       expression->cond_test, constructor, cls, type,
+                       depth + 1u) &&
+                   sema_constexpr_constructor_rhs_is_safe(
+                       expression->cond_then, constructor, cls, type,
+                       depth + 1u) &&
+                   sema_constexpr_constructor_rhs_is_safe(
+                       expression->cond_else, constructor, cls, type,
+                       depth + 1u);
         default:
             return false;
     }
 }
 
 static bool sema_constexpr_constructor_body_writes_direct_member(
-    CxxConstructorInfo* constructor, CxxClass* cls, const char* member_name,
-    bool* supported) {
+    CxxConstructorInfo* constructor, CxxClass* cls, Type* type,
+    const char* member_name, bool* supported) {
     Decl* declaration = constructor && constructor->method
         ? constructor->method->decl : NULL;
     Stmt* body = declaration ? declaration->func_body : NULL;
     bool writes_member = false;
     if (supported) *supported = false;
-    if (!constructor || !cls || !member_name || !supported || !body ||
+    if (!constructor || !cls || !type || !member_name || !supported || !body ||
         body->kind != STMT_BLOCK) {
         return false;
     }
@@ -8620,8 +8666,8 @@ static bool sema_constexpr_constructor_body_writes_direct_member(
         if (statement && statement->kind == STMT_NULL) continue;
         if (!statement || statement->kind != STMT_EXPR ||
             !statement->expr || statement->expr->kind != EXPR_ASSIGN ||
-            !sema_constexpr_constructor_rhs_is_object_independent(
-                statement->expr->binary_rhs, cls, 0u) ||
+            !sema_constexpr_constructor_rhs_is_safe(
+                statement->expr->binary_rhs, constructor, cls, type, 0u) ||
             !(written_name =
                   sema_constexpr_constructor_direct_member_name(
                       statement->expr->binary_lhs))) {
@@ -8702,7 +8748,8 @@ static bool sema_constexpr_constructor_leaves_indeterminate_scalar(
                 bool body_supported = false;
                 bool body_writes_member =
                     sema_constexpr_constructor_body_writes_direct_member(
-                        constructor, cls, member->name, &body_supported);
+                        constructor, cls, type, member->name,
+                        &body_supported);
                 if (body_supported && !body_writes_member) return true;
             }
         }

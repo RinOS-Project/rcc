@@ -8999,6 +8999,11 @@ remains a separate open item.
       Preserve the unsupported-expression path for omitted nested aggregates.
       Verify GCC C++20, exact diagnostic counts, i686/AMD64 generation and
       runtime behavior, and the full POSIX `test-cxx` suite.
+- [x] Permit those direct scalar assignments to read another member only when
+      that member is initialized by a constructor mem-initializer or a default
+      member initializer. Keep reads of omitted/uninitialized members rejected.
+      Verify GCC C++20, the negative diagnostic path, positive constexpr and
+      runtime cases on i686/AMD64, and the focused plus full POSIX C++ suites.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

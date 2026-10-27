@@ -94,6 +94,16 @@ struct UninitializedBodyNestedMember {
     }
 };
 
+struct UninitializedBodyMemberRead {
+    int omitted;
+    int written_in_body;
+
+    constexpr explicit UninitializedBodyMemberRead(int value)
+        : written_in_body(value) {
+        this->written_in_body = this->omitted + value;
+    }
+};
+
 constexpr UninitializedNestedAggregateMember
     invalid_uninitialized_nested_aggregate_member{3};
 constexpr UninitializedArrayMember invalid_uninitialized_array_member{5};
@@ -101,3 +111,5 @@ constexpr UninitializedBaseSubobject invalid_uninitialized_base_subobject{7};
 constexpr UninitializedBodyMember invalid_uninitialized_body_member{11};
 constexpr UninitializedBodyNestedMember
     invalid_uninitialized_body_nested_member{13};
+constexpr UninitializedBodyMemberRead
+    invalid_uninitialized_body_member_read{17};

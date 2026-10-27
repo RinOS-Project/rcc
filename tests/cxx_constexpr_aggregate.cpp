@@ -68,6 +68,25 @@ struct ConstructorBodyInitializesOmitted {
     }
 };
 
+struct ConstructorBodyReadsInitialized {
+    int initialized;
+    int written_by_body;
+
+    constexpr explicit ConstructorBodyReadsInitialized(int initial)
+        : initialized(initial) {
+        this->written_by_body = this->initialized + 1;
+    }
+};
+
+struct ConstructorBodyReadsDefaultMember {
+    int initialized = 61;
+    int written_by_body;
+
+    constexpr ConstructorBodyReadsDefaultMember() {
+        this->written_by_body = this->initialized + 1;
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -348,6 +367,10 @@ constexpr ConstructorDefaultedSubobjects constructor_defaulted_subobjects{31};
 constexpr ConstructorNoBaseConstexpr constructor_no_base{41};
 constexpr ConstructorBodyInitializesOmitted
     constructor_body_initializes_omitted{43};
+constexpr ConstructorBodyReadsInitialized
+    constructor_body_reads_initialized{53};
+constexpr ConstructorBodyReadsDefaultMember
+    constructor_body_reads_default_member{};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -725,6 +748,8 @@ int main(void) {
     default_initialized.before = 3;
     default_initialized.after = 5;
     ConstructorBodyInitializesOmitted runtime_body_initializes_omitted{47};
+    ConstructorBodyReadsInitialized runtime_body_reads_initialized{59};
+    ConstructorBodyReadsDefaultMember runtime_body_reads_default_member{};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -842,8 +867,20 @@ int main(void) {
                      constructor_body_initializes_omitted.written_by_body ==
                          44 &&
                      constructor_body_initializes_omitted.initialized == 43 &&
+                     constructor_body_reads_initialized.initialized == 53 &&
+                     constructor_body_reads_initialized.written_by_body ==
+                         54 &&
+                     constructor_body_reads_default_member.initialized == 61 &&
+                     constructor_body_reads_default_member.written_by_body ==
+                         62 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
+                     runtime_body_reads_initialized.initialized == 59 &&
+                     runtime_body_reads_initialized.written_by_body ==
+                         60 &&
+                     runtime_body_reads_default_member.initialized == 61 &&
+                     runtime_body_reads_default_member.written_by_body ==
+                         62 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&
