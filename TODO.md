@@ -8904,12 +8904,12 @@ remains a separate open item.
       initializer, during constexpr construction. Verify all subobject values,
       strict GCC C++20, and focused i686/AMD64 generation and execution.
 - [x] Bind read-only scalar constructor references during constexpr
-      materialization: `const int&` from a global constexpr lvalue and a
-      temporary, plus `const int* const&` from a constexpr pointer lvalue and
-      a temporary pointer value. Copy the pointer into a derived object's
-      member without claiming reference identity or mutable aliasing. Verify
-      strict GCC C++20, dual-architecture focused generation and execution,
-      and the full POSIX `test-cxx` aggregate.
+      materialization: `const int&` from global and constexpr-function-local
+      lvalues and a temporary, plus `const int* const&` from a constexpr
+      pointer lvalue and a temporary pointer value. Copy the pointer into a
+      derived object's member without claiming reference identity or mutable
+      aliasing. Verify strict GCC C++20, dual-architecture focused generation
+      and execution, and the full POSIX `test-cxx` aggregate.
 - [x] Read a scalar pointee through a by-value object-pointer constructor
       parameter in a member initializer. Cover both a global constexpr pointer
       lvalue and a temporary address, with GCC C++20, dual-architecture focused

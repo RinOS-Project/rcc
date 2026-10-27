@@ -165,8 +165,16 @@ constexpr int mutate_array() {
     return values[0] + values[1] + values[2];
 }
 
+constexpr int read_local_constructor_reference() {
+    const int initial = 37;
+    ConstructorConstReference reference{initial};
+    return reference.value;
+}
+
 constexpr int mutated_pair_value = mutate_pair();
 constexpr int mutated_array_value = mutate_array();
+constexpr int constructor_reference_local_value =
+    read_local_constructor_reference();
 
 constexpr int mutate_aggregate_through_constructor() {
     Pair source{10, 20};
@@ -193,6 +201,7 @@ static_assert(constructor_defaulted_subobjects.seed == 19 &&
 static_assert(constructor_reference_global.seed == 19 &&
               constructor_reference_global.value == 29 &&
               constructor_reference_temporary.value == 31);
+static_assert(constructor_reference_local_value == 37);
 static_assert(constructor_pointer_reference_lvalue.seed == 19 &&
               constructor_pointer_reference_lvalue.value ==
                   &constructor_pointer_reference_source &&
@@ -223,6 +232,7 @@ int main(void) {
                    constructor_reference_global.seed == 19 &&
                    constructor_reference_global.value == 29 &&
                    constructor_reference_temporary.value == 31 &&
+                   constructor_reference_local_value == 37 &&
                    constructor_pointer_reference_lvalue.seed == 19 &&
                    constructor_pointer_reference_lvalue.value ==
                        &constructor_pointer_reference_source &&
