@@ -9026,6 +9026,11 @@ remains a separate open item.
       members inside the supported constructor-body assignment RHS, while
       keeping uninitialized reads invalid. Verify constexpr/runtime values,
       GCC C++20, both target architectures, and the full POSIX `test-cxx` suite.
+- [x] Permit compound assignments to already initialized scalar members in
+      the supported constructor-body profile, without treating a read-modify-
+      write of an uninitialized member as initialization. Verify all supported
+      scalar compound operators, constexpr/runtime values, GCC C++20, both
+      target architectures, and the full POSIX `test-cxx` suite.
 - [ ] Constructor bodies outside the recognized straight-line assignments,
       omitted nested subobject state when a body is present, mutable references
       to non-trivial union alternatives or untested lifetime transitions,

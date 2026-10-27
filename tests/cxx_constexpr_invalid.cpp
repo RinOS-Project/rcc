@@ -104,6 +104,16 @@ struct UninitializedBodyMemberRead {
     }
 };
 
+struct UninitializedCompoundBodyMemberRead {
+    int omitted;
+    int initialized;
+
+    constexpr explicit UninitializedCompoundBodyMemberRead(int value)
+        : initialized(value) {
+        this->omitted += value;
+    }
+};
+
 struct UninitializedBodyReadBeforeWrite {
     int source;
     int target;
@@ -123,5 +133,7 @@ constexpr UninitializedBodyNestedMember
     invalid_uninitialized_body_nested_member{13};
 constexpr UninitializedBodyMemberRead
     invalid_uninitialized_body_member_read{17};
+constexpr UninitializedCompoundBodyMemberRead
+    invalid_uninitialized_compound_body_member_read{18};
 constexpr UninitializedBodyReadBeforeWrite
     invalid_uninitialized_body_read_before_write{19};

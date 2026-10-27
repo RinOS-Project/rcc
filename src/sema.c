@@ -8700,17 +8700,41 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             return true;
         case STMT_EXPR: {
             const char* member_name;
+            Expr* expression = statement->expr;
+            bool is_compound_assignment = false;
             int index;
-            if (!statement->expr ||
-                statement->expr->kind != EXPR_ASSIGN ||
-                !sema_constexpr_constructor_rhs_is_safe(
-                    statement->expr->binary_rhs, cls, *initialized_members,
+            if (!expression) return false;
+            switch (expression->kind) {
+                case EXPR_ASSIGN:
+                    break;
+                case EXPR_ADD_ASSIGN:
+                case EXPR_SUB_ASSIGN:
+                case EXPR_MUL_ASSIGN:
+                case EXPR_DIV_ASSIGN:
+                case EXPR_MOD_ASSIGN:
+                case EXPR_AND_ASSIGN:
+                case EXPR_OR_ASSIGN:
+                case EXPR_XOR_ASSIGN:
+                case EXPR_LSHIFT_ASSIGN:
+                case EXPR_RSHIFT_ASSIGN:
+                    is_compound_assignment = true;
+                    break;
+                default:
+                    return false;
+            }
+            if (!sema_constexpr_constructor_rhs_is_safe(
+                    expression->binary_rhs, cls, *initialized_members,
                     depth + 1u) ||
                 !(member_name =
                       sema_constexpr_constructor_direct_member_name(
-                          statement->expr->binary_lhs)) ||
+                          expression->binary_lhs)) ||
                 (index = sema_constexpr_constructor_member_index(
                      cls, member_name)) < 0) {
+                return false;
+            }
+            if (is_compound_assignment &&
+                (*initialized_members &
+                 (UINT64_C(1) << (unsigned)index)) == 0u) {
                 return false;
             }
             *initialized_members |= UINT64_C(1) << (unsigned)index;

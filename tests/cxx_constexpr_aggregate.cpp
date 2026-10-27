@@ -129,6 +129,25 @@ struct ConstructorBodyPostIncrement {
     }
 };
 
+struct ConstructorBodyCompoundAssignments {
+    int accumulator = 5;
+    int result;
+
+    constexpr explicit ConstructorBodyCompoundAssignments(int amount) {
+        this->accumulator += amount;
+        this->accumulator -= 2;
+        this->accumulator *= 2;
+        this->accumulator /= 3;
+        this->accumulator %= 3;
+        this->accumulator |= 8;
+        this->accumulator &= 15;
+        this->accumulator ^= 2;
+        this->accumulator <<= 1;
+        this->accumulator >>= 1;
+        this->result = this->accumulator;
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -420,6 +439,8 @@ constexpr ConstructorBodySelectedBranchInitializes
 constexpr ConstructorBodyReadsDefaultMember
     constructor_body_reads_default_member{};
 constexpr ConstructorBodyPostIncrement constructor_body_post_increment{107};
+constexpr ConstructorBodyCompoundAssignments
+    constructor_body_compound_assignments{4};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -804,6 +825,7 @@ int main(void) {
         runtime_body_selected_branch_initializes{101};
     ConstructorBodyReadsDefaultMember runtime_body_reads_default_member{};
     ConstructorBodyPostIncrement runtime_body_post_increment{109};
+    ConstructorBodyCompoundAssignments runtime_body_compound_assignments{4};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -936,6 +958,8 @@ int main(void) {
                          62 &&
                      constructor_body_post_increment.source == 108 &&
                      constructor_body_post_increment.result == 107 &&
+                     constructor_body_compound_assignments.accumulator == 11 &&
+                     constructor_body_compound_assignments.result == 11 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -950,6 +974,8 @@ int main(void) {
                          62 &&
                      runtime_body_post_increment.source == 110 &&
                      runtime_body_post_increment.result == 109 &&
+                     runtime_body_compound_assignments.accumulator == 11 &&
+                     runtime_body_compound_assignments.result == 11 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&
