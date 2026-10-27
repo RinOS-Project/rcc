@@ -6058,6 +6058,34 @@ static TypeField* sema_constexpr_convert_data_member_pointer_field(
     return selected;
 }
 
+static bool sema_constexpr_member_function_pointer_convertible(
+    Type* source_type, Type* target_type) {
+    Type* source_owner;
+    Type* target_owner;
+
+    if (!source_type || !target_type || source_type->kind != TYPE_PTR ||
+        target_type->kind != TYPE_PTR ||
+        !type_is_cxx_member_function_pointer(source_type) ||
+        !type_is_cxx_member_function_pointer(target_type) ||
+        !source_type->base || !target_type->base ||
+        !sema_cxx_member_function_signature_convertible(
+            source_type->base, target_type->base) ||
+        !sema_pointee_qualification_preserved(
+            source_type->base, target_type->base) ||
+        !(source_owner = source_type->cxx_member_pointer_owner) ||
+        !(target_owner = target_type->cxx_member_pointer_owner)) {
+        return false;
+    }
+    if (type_is_compatible(source_owner, target_owner)) return true;
+
+    /* A non-null Base::* value can become Derived::* only when the target
+     * owner has one accessible nonvirtual Base subobject. The constexpr
+     * representation keeps the selected method declaration while this type
+     * conversion carries the derived owner used by member-pointer dispatch. */
+    return sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
+        target_owner, source_owner, NULL);
+}
+
 static bool sema_constexpr_scalar_convert(
     const SemaConstexprScalar* input, Type* type,
     SemaConstexprScalar* output) {
@@ -6078,7 +6106,8 @@ static bool sema_constexpr_scalar_convert(
             if (!input->type || input->type->kind != TYPE_PTR ||
                 !input->type->cxx_is_member_pointer || !input->type->base ||
                 input->type->base->kind != TYPE_FUNC ||
-                !type_is_compatible(input->type, type)) {
+                !sema_constexpr_member_function_pointer_convertible(
+                    input->type, type)) {
                 return false;
             }
             output->type = type;
@@ -8897,10 +8926,44 @@ static bool sema_constexpr_materialize_member_pointer_receiver(
     }
     if (!receiver_expression->type ||
         receiver_expression->type->kind != TYPE_PTR) {
-        return sema_constexpr_materialize_object(
-            receiver_type, receiver_expression, caller_bindings,
-            caller_binding_count, receiver_storage,
-            (size_t)receiver_type->size);
+        Type* source_type = receiver_expression->type
+            ? sema_cxx_object_type(receiver_expression->type) : NULL;
+        Type* target_type = sema_cxx_object_type(receiver_type);
+        int base_adjustment = 0;
+        size_t source_size;
+        unsigned char* complete_storage;
+        if (sema_constexpr_materialize_object(
+                receiver_type, receiver_expression, caller_bindings,
+                caller_binding_count, receiver_storage,
+                (size_t)receiver_type->size)) {
+            return true;
+        }
+        if (!source_type || !target_type ||
+            !sema_constexpr_aggregate_type(source_type) ||
+            !sema_constexpr_aggregate_type(target_type) ||
+            !sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
+                source_type, target_type, &base_adjustment) ||
+            base_adjustment < 0 || source_type->size <= 0) {
+            return false;
+        }
+        source_size = (size_t)source_type->size;
+        if (source_size < (size_t)receiver_type->size ||
+            (size_t)base_adjustment > source_size ||
+            (size_t)receiver_type->size >
+                source_size - (size_t)base_adjustment) {
+            return false;
+        }
+        complete_storage = ast_arena_alloc(source_size);
+        if (!complete_storage ||
+            !sema_constexpr_materialize_object(
+                source_type, receiver_expression, caller_bindings,
+                caller_binding_count, complete_storage, source_size)) {
+            return false;
+        }
+        memcpy(receiver_storage,
+               complete_storage + (size_t)base_adjustment,
+               (size_t)receiver_type->size);
+        return true;
     }
     {
         SemaConstexprScalar pointer_value;

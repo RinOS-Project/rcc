@@ -8829,9 +8829,15 @@ remains a separate open item.
       global-constexpr PMF values, member access through the bound `this`
       object, GCC C++20, focused i686/AMD64 generation and AMD64 execution,
       and the full POSIX `test-cxx` aggregate.
-- [ ] Member-function-pointer owner/signature conversions and virtual
-      constexpr dispatch outside the tested global-object/unique-nonvirtual-base
-      case remain open.
+- [x] Convert a nonvirtual `Base::*` to `Derived::*` when the owner crosses a
+      unique accessible nonvirtual-base path four levels deep. Verify dependent
+      constexpr parameter conversion/local copy and direct invocation through
+      a by-value aggregate, including extraction of the correct `Base` subobject
+      for `this`. GCC C++20, the focused i686/AMD64 overload gate, and the full
+      POSIX `test-cxx` aggregate pass.
+- [ ] Other member-function-pointer signature/cv conversions and virtual
+      constexpr dispatch beyond the tested global-object/unique-nonvirtual-base
+      cases remain open.
 
 ## RCC continuation (2026-10-27, inherited member-function-pointer static adjustment)
 
