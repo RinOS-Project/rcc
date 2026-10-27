@@ -8751,12 +8751,13 @@ remains a separate open item.
       and the focused i686/AMD64 generation and AMD64 execution gate pass.
 - [x] Preserve non-null data-member-pointer constants through dependent
       constexpr calls, scalar parameters/local copies, equality with `nullptr`,
-      and application with `.*` to a by-value constexpr aggregate. Verify
+      application with `.*` to a by-value constexpr aggregate, and same-owner
+      qualification conversion from `T Owner::*` to `const T Owner::*`. Verify
       dependent non-type template argument selection against GCC C++20 and the
       i686/AMD64 generation plus execution gate.
-- [ ] Non-null member-function-pointer values, broader data-member-pointer
-      owner/qualification conversions and applications, and additional pointer
-      conversions remain open.
+- [ ] Non-null member-function-pointer values, data-member-pointer owner
+      conversions and other cv-qualification combinations, and additional
+      pointer conversions remain open.
 
 ## RCC continuation (2026-10-22, i686 signed 64-bit variable inline DWARF)
 

@@ -45,6 +45,13 @@ struct DependentPointerConstexprOwner {
         return object.*selected;
     }
 
+    static constexpr int read_const_member_pointer(
+        const int DependentPointerBase::* member,
+        DependentPointerBase object) {
+        const int DependentPointerBase::* selected = member;
+        return object.*selected;
+    }
+
     static constexpr int logical_and(const int* pointer) {
         return pointer && 1;
     }
@@ -77,6 +84,9 @@ static_assert(DependentPointerConstexprOwner::is_null_member_pointer(
 static_assert(DependentPointerConstexprOwner::is_null_member_pointer(
     &DependentPointerBase::value) == 0);
 static_assert(DependentPointerConstexprOwner::read_member_pointer(
+    ::dependent_pointer_constexpr_member,
+    ::dependent_member_pointer_constexpr_object) == 43);
+static_assert(DependentPointerConstexprOwner::read_const_member_pointer(
     ::dependent_pointer_constexpr_member,
     ::dependent_member_pointer_constexpr_object) == 43);
 static_assert(DependentPointerConstexprOwner::value(nullptr) == 0);
@@ -150,7 +160,7 @@ int select_dependent_null_member_pointer_call(
 template<typename Owner, typename... Tail>
 int select_dependent_member_pointer_application_call(
     DependentPointerConstexprBox<
-        Owner::read_member_pointer(
+        Owner::read_const_member_pointer(
             ::dependent_pointer_constexpr_member,
             ::dependent_member_pointer_constexpr_object),
         Owner, Tail...>) {
