@@ -8503,6 +8503,8 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
     const Expr* source_expression, uint8_t* expression, size_t capacity,
     size_t* expression_size,
     DebugInlineI686ExpressionRelocations* relocations) {
+    DebugInlineI686ExpressionRelocations tls_relocations;
+    DebugInlineI686ExpressionRelocations* output_relocations = relocations;
     const Expr* source_value_expression;
     const Expr* shift_count_expression;
     const Decl* source;
@@ -8510,6 +8512,7 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
     int64_t source_frame_offset = 0;
     int64_t shift_count_frame_offset = 0;
     uint64_t constant_shift_count;
+    size_t relocation_count = 0u;
     const ModuleSymbol* source_global_symbol = NULL;
     const ModuleSymbol* shift_count_global_symbol = NULL;
     bool source_is_global;
@@ -8552,7 +8555,6 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
     if (!source ||
         (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
         (source_is_global && source->kind != DECL_VAR) ||
-        source->var_is_thread_local ||
         source->var_is_vla ||
         !source->type ||
         (source_is_address_backed && (source->type->is_volatile ||
@@ -8570,7 +8572,6 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
             shift_count_source->type->is_volatile ||
             shift_count_source->type->is_reference ||
             shift_count_source->type->is_atomic)) ||
-          shift_count_source->var_is_thread_local ||
           (shift_count_is_address_backed &&
            (shift_count_source->type->is_volatile ||
             shift_count_source->type->is_reference ||
@@ -8603,7 +8604,8 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
             (source_is_global && !source->var_is_static_local &&
              !source_global_symbol->is_global) ||
             !source_global_symbol->name ||
-            source_global_symbol->section == MODULE_SYMBOL_TLS) {
+            ((source_global_symbol->section == MODULE_SYMBOL_TLS) !=
+             source->var_is_thread_local)) {
             return false;
         }
     }
@@ -8616,9 +8618,16 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
              !shift_count_source->var_is_static_local &&
              !shift_count_global_symbol->is_global) ||
             !shift_count_global_symbol->name ||
-            shift_count_global_symbol->section == MODULE_SYMBOL_TLS) {
+            ((shift_count_global_symbol->section == MODULE_SYMBOL_TLS) !=
+             shift_count_source->var_is_thread_local)) {
             return false;
         }
+    }
+    if (relocations) {
+        tls_relocations = *relocations;
+        tls_relocations.count = &relocation_count;
+        tls_relocations.allow_tls = true;
+        relocations = &tls_relocations;
     }
     if (relocations) *relocations->count = 0u;
     is_left_shift = source_expression->kind == EXPR_LSHIFT;
@@ -8828,6 +8837,9 @@ static bool debug_inline_parameter_i686_u64_shift_variable_expression(
         }
     }
     *expression_size = size;
+    if (output_relocations) {
+        *output_relocations->count = relocation_count;
+    }
     return true;
 }
 
@@ -14714,7 +14726,9 @@ static void debug_emit_inline_parameter_instances(
                         integer_value_relocation_offsets[relocation_index],
                     scoped_relocation_symbol
                         ? scoped_relocation_symbol : relocation_symbol->name,
-                    RELOC_ABS32U, 0);
+                    relocation_symbol->section == MODULE_SYMBOL_TLS
+                        ? RELOC_TLSOFF32S : RELOC_ABS32U,
+                    0);
                 rcc_free(scoped_relocation_symbol);
             }
         } else if (architecture == ARCH_X86 && value->declaration &&

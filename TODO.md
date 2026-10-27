@@ -11183,8 +11183,18 @@ remains a separate open item.
       non-TLS block-scope `static` source and shift-count objects. Preserve
       module-scoped `ABS32U` relocations, verify both static symbol identities
       and initialized values, and evaluate boundary shift counts through the
-      emitted expression in legacy and verified C++20 objects. The focused
-      `test-debug-info-inline-expression` gate passed for legacy and verified
-      output on i686/x64.
+      emitted expression in legacy and verified i686 C++20 objects. The
+      focused `test-debug-info-inline-expression` gate passed for both paths.
 - [ ] TLS/volatile/reference/atomic operands, wider computed signed trees, and
+      broader optimized multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, i686 TLS dynamic-shift DWARF)
+
+- [x] Extend i686 64-bit inline-parameter left/right shift expressions to
+      block-scope `static thread_local` source and shift-count objects. Emit
+      module-scoped `TLSOFF32S` relocations, verify both TLS symbol identities
+      and template values, and evaluate boundary counts through the emitted
+      expression in legacy and verified i686 C++20 objects. The focused
+      `test-debug-info-inline-expression` gate passed for both paths.
+- [ ] Volatile/reference/atomic operands, wider computed signed trees, and
       broader optimized multi-piece locations remain open.
