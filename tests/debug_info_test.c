@@ -3438,7 +3438,7 @@ static void verify_inline_dynamic_scalar_parameter(
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
-    assert(info && strings && locations);
+    assert(info && strings);
     for (uint64_t die = 11u;
          die + 1u + 4u + address_size + 4u + 12u <= info->size; ++die) {
         uint32_t origin;
@@ -3493,6 +3493,98 @@ static void verify_inline_dynamic_scalar_parameter(
                read_sleb(info->data, expression_end, &expression_offset) ==
                    source_frame_offset &&
                expression_offset == expression_end);
+    }
+    objfile_free(object);
+}
+
+static void verify_inline_reference_parameter_address(
+    const char* path, uint16_t architecture, const char* call_site_name,
+    const char* source_name, bool is_tls) {
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t call_die = UINT64_MAX;
+    assert(object && object->arch == architecture && call_site_name &&
+           source_name);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info && strings);
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 4u + 12u <= info->size; ++die) {
+        uint32_t origin;
+        uint32_t name_offset;
+        uint64_t low_pc_offset;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        origin = read_u32(info->data, die + 1u);
+        if (origin >= info->size || info->data[origin] != 40u) continue;
+        name_offset = read_u32(info->data, origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_inline_volatile_reference_read") != 0) {
+            continue;
+        }
+        low_pc_offset = die + 1u + 4u;
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == low_pc_offset &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+    }
+    assert(call_die != UINT64_MAX);
+    {
+        uint64_t concrete_parameter = call_die + 1u + 4u + address_size +
+            4u + 12u;
+        uint64_t expression_offset = concrete_parameter + 5u;
+        uint64_t expression_size;
+        uint64_t expression_end;
+        uint64_t relocation_offset;
+        uint32_t abstract_parameter = read_u32(info->data, call_die + 1u) +
+            27u;
+        bool found_source_relocation = false;
+        assert(info->data[concrete_parameter] == 67u &&
+               read_u32(info->data, concrete_parameter + 1u) ==
+                   abstract_parameter);
+        expression_size = read_uleb(
+            info->data, info->size, &expression_offset);
+        expression_end = expression_offset + expression_size;
+        assert(expression_end <= info->size);
+        if (is_tls) {
+            assert(expression_size == 6u &&
+                   info->data[expression_offset] == 0x0du &&
+                   info->data[expression_offset + 5u] == 0x9bu);
+            relocation_offset = expression_offset + 1u;
+            for (uint64_t byte = 0u; byte < 4u; ++byte) {
+                assert(info->data[relocation_offset + byte] == 0u);
+            }
+        } else {
+            assert(expression_size == address_size + 1u &&
+                   info->data[expression_offset] == 0x03u);
+            relocation_offset = expression_offset + 1u;
+            for (uint64_t byte = 0u; byte < address_size; ++byte) {
+                assert(info->data[relocation_offset + byte] == 0u);
+            }
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == relocation_offset &&
+                relocation->type == (is_tls ? RELOC_TLSOFF32S :
+                    (architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U)) &&
+                relocation->addend == 0 && relocation->symbol_name &&
+                strcmp(relocation->symbol_name, source_name) == 0) {
+                assert(!found_source_relocation);
+                found_source_relocation = true;
+            }
+        }
+        assert(found_source_relocation);
     }
     objfile_free(object);
 }
@@ -16912,6 +17004,46 @@ int main(int argc, char** argv)
         verify_inline_integer_expression_cases(argv[3], ARCH_X64);
         verify_inline_integer_expression_cases(argv[4], ARCH_X86);
         verify_inline_integer_expression_cases(argv[5], ARCH_X64);
+        verify_inline_reference_parameter_address(
+            argv[6], ARCH_X86,
+            "debug_inline_volatile_reference_global_entry",
+            "debug_inline_volatile_reference_global", false);
+        verify_inline_reference_parameter_address(
+            argv[7], ARCH_X64,
+            "debug_inline_volatile_reference_global_entry",
+            "debug_inline_volatile_reference_global", false);
+        verify_inline_reference_parameter_address(
+            argv[8], ARCH_X86,
+            "debug_inline_volatile_reference_global_entry",
+            "debug_inline_volatile_reference_global", false);
+        verify_inline_reference_parameter_address(
+            argv[9], ARCH_X64,
+            "debug_inline_volatile_reference_global_entry",
+            "debug_inline_volatile_reference_global", false);
+        verify_inline_reference_parameter_address(
+            argv[6], ARCH_X86,
+            "debug_inline_volatile_reference_tls_entry",
+            "debug_inline_volatile_reference_tls", true);
+        verify_inline_reference_parameter_address(
+            argv[7], ARCH_X64,
+            "debug_inline_volatile_reference_tls_entry",
+            "debug_inline_volatile_reference_tls", true);
+        verify_inline_reference_parameter_address(
+            argv[8], ARCH_X86,
+            "debug_inline_volatile_reference_tls_entry",
+            "debug_inline_volatile_reference_tls", true);
+        verify_inline_reference_parameter_address(
+            argv[9], ARCH_X64,
+            "debug_inline_volatile_reference_tls_entry",
+            "debug_inline_volatile_reference_tls", true);
+        for (size_t index = 0u;
+             index < sizeof(wide_paths) / sizeof(wide_paths[0]); ++index) {
+            verify_inline_dynamic_scalar_parameter(
+                wide_paths[index], wide_architectures[index],
+                "debug_inline_volatile_reference_read",
+                "debug_inline_volatile_reference_local_entry",
+                "debug_inline_volatile_reference_local");
+        }
         verify_inline_global_wide_parameter(argv[6], ARCH_X86, 0u);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0u);
         verify_inline_global_wide_parameter(argv[8], ARCH_X86, 0u);

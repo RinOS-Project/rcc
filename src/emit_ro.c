@@ -13917,7 +13917,9 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
     const ModuleSymbol* symbol;
     const Expr* source_expression;
     Type* parameter_type;
+    const Type* parameter_object_type;
     Type* argument_type;
+    bool reference_parameter;
     if (scoped_symbol) *scoped_symbol = NULL;
     if (frame_based) *frame_based = false;
     if (frame_offset) *frame_offset = 0;
@@ -13927,6 +13929,16 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
     }
     parameter = value->declaration;
     parameter_type = parameter->type;
+    reference_parameter = parameter_type && parameter_type->is_reference;
+    parameter_object_type = parameter_type;
+    if (reference_parameter) {
+        if (parameter_type->kind != TYPE_PTR ||
+            parameter_type->is_rvalue_reference || !parameter_type->base ||
+            parameter_type->base->is_reference) {
+            return NULL;
+        }
+        parameter_object_type = parameter_type->base;
+    }
     argument_type = argument->expr->type;
     source_expression = argument->expr;
     if (parameter_type &&
@@ -13950,21 +13962,26 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
     source = source_expression->ident_decl;
     if (parameter->kind != DECL_PARAM ||
         (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
-        !parameter_type || !argument_type ||
-        !debug_inline_parameter_storage_type(parameter_type) ||
-        !debug_inline_parameter_storage_type_equal(
-            parameter_type, argument_type, 0u) ||
+        !parameter_type || !parameter_object_type || !argument_type ||
+        !debug_inline_parameter_storage_type(parameter_object_type) ||
+        !(reference_parameter
+              ? debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    parameter_object_type, argument_type, 0u)
+              : debug_inline_parameter_storage_type_equal(
+                    parameter_object_type, argument_type, 0u)) ||
         !source_expression->type ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-            parameter_type, source_expression->type, 0u) ||
-        parameter_type->size == 0u ||
-        parameter_type->size != argument_type->size ||
-        parameter_type->is_volatile || parameter_type->is_reference ||
-        parameter_type->is_atomic || argument_type->is_volatile ||
-        argument_type->is_reference || argument_type->is_atomic ||
-        source_expression->type->is_volatile ||
-        source_expression->type->is_reference ||
-        source_expression->type->is_atomic) {
+            parameter_object_type, source_expression->type, 0u) ||
+        parameter_object_type->size == 0u ||
+        parameter_object_type->size != argument_type->size ||
+        argument_type->is_reference || source_expression->type->is_reference ||
+        parameter_object_type->is_atomic || argument_type->is_atomic ||
+        source_expression->type->is_atomic ||
+        (!reference_parameter &&
+         (parameter_object_type->is_volatile || argument_type->is_volatile ||
+          source_expression->type->is_volatile)) ||
+        (reference_parameter && source->type &&
+         source->type->is_reference)) {
         return NULL;
     }
     if (!debug_inline_parameter_body_is_read_only(callee)) return NULL;

@@ -3236,3 +3236,36 @@ debug_inline_nonconstant_signed_long_long_volatile_static_tls_dynamic_rshift_ent
     count = shift_count;
     return debug_nonconstant_signed_long_long_parameter_inline(source >> count);
 }
+
+static inline long long debug_inline_volatile_reference_read(
+    const volatile long long& value)
+{
+    return value;
+}
+
+extern "C" {
+volatile long long debug_inline_volatile_reference_global =
+    -81985529216486889LL;
+thread_local volatile long long debug_inline_volatile_reference_tls =
+    0x123456789abcdefLL;
+
+long long debug_inline_volatile_reference_global_entry()
+{
+    return debug_inline_volatile_reference_read(
+        debug_inline_volatile_reference_global);
+}
+
+long long debug_inline_volatile_reference_tls_entry()
+{
+    return debug_inline_volatile_reference_read(
+        debug_inline_volatile_reference_tls);
+}
+
+long long debug_inline_volatile_reference_local_entry()
+{
+    volatile long long debug_inline_volatile_reference_local =
+        -0x123456789abcdefLL;
+    return debug_inline_volatile_reference_read(
+        debug_inline_volatile_reference_local);
+}
+}

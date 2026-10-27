@@ -1640,10 +1640,59 @@ static bool inline_scalar_parameter_conversion(
 }
 
 static bool inline_scalar_parameter_type_supported(Type* type) {
+    if (type && type->is_reference) {
+        Type* object_type = type->base;
+        return type->kind == TYPE_PTR && !type->is_rvalue_reference &&
+            object_type && !object_type->is_reference &&
+            !object_type->is_atomic && type_is_scalar(object_type) &&
+            object_type->size > 0 && object_type->size <= 8;
+    }
     return type_is_scalar(type) ||
         (type && type->kind == TYPE_ENUM && !type->is_volatile &&
          !type->is_reference && !type->is_atomic && type->size > 0 &&
          type->size <= 8);
+}
+
+static bool inline_scalar_reference_binding_supported(
+    Type* parameter_type, const Expr* argument) {
+    Type* object_type;
+    Type* argument_type;
+    Type unqualified_object;
+    Type unqualified_argument;
+    const Decl* source;
+    if (!parameter_type || !parameter_type->is_reference ||
+        parameter_type->kind != TYPE_PTR ||
+        parameter_type->is_rvalue_reference || !parameter_type->base ||
+        !argument || argument->kind != EXPR_IDENT ||
+        !(source = argument->ident_decl) ||
+        (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+        !source->type || source->type->is_reference ||
+        source->type->is_atomic || !argument->type ||
+        argument->type->is_reference || argument->type->is_atomic) {
+        return false;
+    }
+    object_type = parameter_type->base;
+    argument_type = argument->type;
+    if (!type_is_scalar(object_type) || !type_is_scalar(argument_type) ||
+        object_type->size <= 0 || object_type->size > 8 ||
+        object_type->size != argument_type->size ||
+        (argument_type->is_const && !object_type->is_const) ||
+        (argument_type->is_volatile && !object_type->is_volatile) ||
+        (argument_type->is_restrict && !object_type->is_restrict)) {
+        return false;
+    }
+    unqualified_object = *object_type;
+    unqualified_argument = *argument_type;
+    unqualified_object.is_const = false;
+    unqualified_object.is_volatile = false;
+    unqualified_object.is_atomic = false;
+    unqualified_object.is_restrict = false;
+    unqualified_argument.is_const = false;
+    unqualified_argument.is_volatile = false;
+    unqualified_argument.is_atomic = false;
+    unqualified_argument.is_restrict = false;
+    return type_is_compatible_qualified(
+        &unqualified_object, &unqualified_argument);
 }
 
 static Expr* clone_inline_scalar_expression(
@@ -2872,6 +2921,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     size_t operation_count = 0u;
     size_t index;
     size_t expansion_cost;
+    bool has_reference_parameter = false;
     if (!expression_out || !*expression_out) return false;
     expression = *expression_out;
     if (expression->kind != EXPR_CALL ||
@@ -2910,28 +2960,37 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             DeclList* parameter = parameters;
             ExprList* argument = arguments;
             size_t offset;
+            bool reference_parameter;
             for (offset = 0u; offset < index; ++offset) {
                 parameter = parameter->next;
                 argument = argument ? argument->next : NULL;
             }
+            reference_parameter = parameter && parameter->decl &&
+                parameter->decl->type &&
+                parameter->decl->type->is_reference;
             if (!parameter || !parameter->decl || !argument ||
                 !argument->expr || parameter->decl->kind != DECL_PARAM ||
                 !inline_scalar_parameter_type_supported(
                     parameter->decl->type) ||
-                (!type_is_compatible(parameter->decl->type,
-                                     argument->expr->type) &&
-                 !inline_scalar_parameter_conversion(
-                     parameter->decl->type, argument->expr->type)) ||
+                (reference_parameter
+                     ? !inline_scalar_reference_binding_supported(
+                           parameter->decl->type, argument->expr)
+                     : (!type_is_compatible(parameter->decl->type,
+                                            argument->expr->type) &&
+                        !inline_scalar_parameter_conversion(
+                            parameter->decl->type, argument->expr->type))) ||
                 (expression_has_side_effect(argument->expr) &&
                  (!g_opts.debug_info || parameter_count != 1u ||
                   !inline_scalar_argument_volatile_read_tree(
                       argument->expr)))) {
                 return false;
             }
+            has_reference_parameter |= reference_parameter;
             bindings[binding_count].parameter = parameter->decl;
             bindings[binding_count].argument =
-                type_is_compatible(parameter->decl->type,
-                                   argument->expr->type)
+                reference_parameter ||
+                        type_is_compatible(parameter->decl->type,
+                                           argument->expr->type)
                 ? argument->expr
                 : expr_cast(parameter->decl->type, argument->expr,
                             argument->expr->loc);
@@ -2946,6 +3005,10 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         }
         if (extra_argument) return false;
     }
+    /* The currently supported reference case substitutes a read-only return
+     * tree.  Do not reuse by-value parameter/local update lowering for a
+     * reference, where it would mutate the caller's object. */
+    if (has_reference_parameter && operation_count != 0u) return false;
     for (index = 0u; index < operation_count; ++index) {
         const InlineScalarOperation* operation = &operations[index];
         size_t local_binding;
@@ -3048,9 +3111,21 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     }
     if (!returned || !type_is_scalar(returned->type) ||
         !type_is_compatible(returned->type, expression->type) ||
-        !inline_scalar_expression_shape(returned, bindings, binding_count) ||
-        expression_has_side_effect(returned)) {
+        !inline_scalar_expression_shape(returned, bindings, binding_count)) {
         return false;
+    }
+    if (expression_has_side_effect(returned)) {
+        bool single_reference_read = false;
+        for (index = 0u; index < binding_count; ++index) {
+            if (bindings[index].parameter &&
+                bindings[index].parameter->type &&
+                bindings[index].parameter->type->is_reference &&
+                bindings[index].uses == 1u) {
+                single_reference_read = true;
+                break;
+            }
+        }
+        if (!single_reference_read) return false;
     }
     for (index = 0u; index < binding_count; ++index) {
         if (expression_has_side_effect(bindings[index].argument) &&
