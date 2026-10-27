@@ -6514,8 +6514,9 @@ remains a separate open item.
       the focused RCC/GCC host regression (`test-cxx-structural-array-nttp`).
 - [x] Complete the full native-Windows `test-cxx` aggregate (exit 0).
 - [x] Run native-Windows `test-debug-info` (exit 0).
-- [ ] Member-pointer arrays and multidimensional arrays of structural-class
-      elements remain open.
+- [x] Member-pointer arrays and multidimensional arrays of structural-class
+      elements are covered by the implementation and regression continuations
+      below; `test-cxx-structural-array-nttp` passes on native Windows.
 
 ## RCC continuation (2026-10-18, member-pointer arrays in structural NTTPs)
 
