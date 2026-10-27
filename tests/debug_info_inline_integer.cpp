@@ -189,6 +189,11 @@ debug_inline_nonconstant_unsigned_long_long_volatile_shift_source =
     0x1ffffffffULL;
 volatile unsigned long long
 debug_inline_nonconstant_unsigned_long_long_volatile_shift_count = 4u;
+thread_local volatile unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_source =
+    0x1ffffffffULL;
+thread_local volatile unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_count = 4u;
 thread_local unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_tls_shift_source =
     0x1ffffffffULL;
@@ -3046,4 +3051,30 @@ debug_inline_nonconstant_unsigned_long_long_volatile_global_dynamic_rshift_entry
     return debug_nonconstant_unsigned_long_long_parameter_inline(
         debug_inline_nonconstant_unsigned_long_long_volatile_shift_source >>
         debug_inline_nonconstant_unsigned_long_long_volatile_shift_count);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_global_dynamic_lshift_entry(
+    unsigned long long source_value, unsigned long long shift_count)
+{
+    debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_source =
+        source_value;
+    debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_count =
+        shift_count;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_source <<
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_count);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_global_dynamic_rshift_entry(
+    unsigned long long source_value, unsigned long long shift_count)
+{
+    debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_source =
+        source_value;
+    debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_count =
+        shift_count;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_source >>
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_shift_count);
 }
