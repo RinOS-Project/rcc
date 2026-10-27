@@ -8596,9 +8596,63 @@ static bool sema_constexpr_constructor_initial_member_state(
     return true;
 }
 
+static bool sema_constexpr_constructor_condition_is_pure(
+    Expr* expression, unsigned depth) {
+    if (!expression || depth >= 64u) return false;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_IDENT:
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return true;
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_CAST:
+            return sema_constexpr_constructor_condition_is_pure(
+                expression->kind == EXPR_CAST ? expression->cast_expr
+                                              : expression->unary_operand,
+                depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return sema_constexpr_constructor_condition_is_pure(
+                       expression->binary_lhs, depth + 1u) &&
+                   sema_constexpr_constructor_condition_is_pure(
+                       expression->binary_rhs, depth + 1u);
+        case EXPR_COND:
+            return sema_constexpr_constructor_condition_is_pure(
+                       expression->cond_test, depth + 1u) &&
+                   sema_constexpr_constructor_condition_is_pure(
+                       expression->cond_then, depth + 1u) &&
+                   sema_constexpr_constructor_condition_is_pure(
+                       expression->cond_else, depth + 1u);
+        default:
+            return false;
+    }
+}
+
 static bool sema_constexpr_constructor_rhs_is_safe(
     Expr* expression, CxxClass* cls, uint64_t initialized_members,
-    unsigned depth) {
+    SemaConstexprBinding* bindings, int binding_count, unsigned depth) {
     if (!expression || depth >= 64u) return false;
     switch (expression->kind) {
         case EXPR_INT_LIT:
@@ -8634,10 +8688,11 @@ static bool sema_constexpr_constructor_rhs_is_safe(
         case EXPR_POSTDEC:
             return sema_constexpr_constructor_rhs_is_safe(
                 expression->unary_operand, cls, initialized_members,
-                depth + 1u);
+                bindings, binding_count, depth + 1u);
         case EXPR_CAST:
             return sema_constexpr_constructor_rhs_is_safe(
-                expression->cast_expr, cls, initialized_members, depth + 1u);
+                expression->cast_expr, cls, initialized_members, bindings,
+                binding_count, depth + 1u);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -8654,24 +8709,60 @@ static bool sema_constexpr_constructor_rhs_is_safe(
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE:
-        case EXPR_AND:
-        case EXPR_OR:
             return sema_constexpr_constructor_rhs_is_safe(
                        expression->binary_lhs, cls, initialized_members,
-                       depth + 1u) &&
+                       bindings, binding_count, depth + 1u) &&
                    sema_constexpr_constructor_rhs_is_safe(
                        expression->binary_rhs, cls, initialized_members,
-                       depth + 1u);
-        case EXPR_COND:
+                       bindings, binding_count, depth + 1u);
+        case EXPR_AND:
+        case EXPR_OR: {
+            SemaConstexprScalar left_value;
+            bool left_safe = sema_constexpr_constructor_rhs_is_safe(
+                expression->binary_lhs, cls, initialized_members,
+                bindings, binding_count, depth + 1u);
+            if (!left_safe) return false;
+            if (sema_constexpr_constructor_condition_is_pure(
+                    expression->binary_lhs, depth + 1u) &&
+                sema_eval_constexpr_scalar_expr(
+                    expression->binary_lhs, bindings, binding_count,
+                    &left_value)) {
+                bool left_truth = sema_constexpr_scalar_truth(&left_value);
+                if ((expression->kind == EXPR_AND && !left_truth) ||
+                    (expression->kind == EXPR_OR && left_truth)) {
+                    return true;
+                }
+            }
             return sema_constexpr_constructor_rhs_is_safe(
-                       expression->cond_test, cls, initialized_members,
-                       depth + 1u) &&
-                   sema_constexpr_constructor_rhs_is_safe(
+                expression->binary_rhs, cls, initialized_members,
+                bindings, binding_count, depth + 1u);
+        }
+        case EXPR_COND: {
+            SemaConstexprScalar condition_value;
+            if (!sema_constexpr_constructor_rhs_is_safe(
+                    expression->cond_test, cls, initialized_members,
+                    bindings, binding_count, depth + 1u)) {
+                return false;
+            }
+            if (sema_constexpr_constructor_condition_is_pure(
+                    expression->cond_test, depth + 1u) &&
+                sema_eval_constexpr_scalar_expr(
+                    expression->cond_test, bindings, binding_count,
+                    &condition_value)) {
+                Expr* selected = sema_constexpr_scalar_truth(
+                                     &condition_value)
+                    ? expression->cond_then : expression->cond_else;
+                return sema_constexpr_constructor_rhs_is_safe(
+                    selected, cls, initialized_members, bindings,
+                    binding_count, depth + 1u);
+            }
+            return sema_constexpr_constructor_rhs_is_safe(
                        expression->cond_then, cls, initialized_members,
-                       depth + 1u) &&
+                       bindings, binding_count, depth + 1u) &&
                    sema_constexpr_constructor_rhs_is_safe(
                        expression->cond_else, cls, initialized_members,
-                       depth + 1u);
+                       bindings, binding_count, depth + 1u);
+        }
         default:
             return false;
     }
@@ -8740,7 +8831,7 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             }
             if (!sema_constexpr_constructor_rhs_is_safe(
                     expression->binary_rhs, cls, *initialized_members,
-                    depth + 1u) ||
+                    bindings, binding_count, depth + 1u) ||
                 !(member_name =
                       sema_constexpr_constructor_direct_member_name(
                           expression->binary_lhs)) ||
@@ -8777,7 +8868,7 @@ static bool sema_constexpr_constructor_analyze_body_statement(
             }
             if (!sema_constexpr_constructor_rhs_is_safe(
                     statement->if_cond, cls, *initialized_members,
-                    depth + 1u)) {
+                    bindings, binding_count, depth + 1u)) {
                 return false;
             }
             if (sema_eval_constexpr_scalar_expr(

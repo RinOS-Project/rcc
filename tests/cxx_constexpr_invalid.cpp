@@ -122,6 +122,16 @@ struct UninitializedBodyStandaloneIncrement {
     }
 };
 
+struct UninitializedConditionalBodyRead {
+    int delayed;
+    int selected;
+
+    constexpr explicit UninitializedConditionalBodyRead(bool choose) {
+        this->selected = choose ? 1 : this->delayed;
+        this->delayed = 2;
+    }
+};
+
 struct UninitializedBodyReadBeforeWrite {
     int source;
     int target;
@@ -145,5 +155,7 @@ constexpr UninitializedCompoundBodyMemberRead
     invalid_uninitialized_compound_body_member_read{18};
 constexpr UninitializedBodyStandaloneIncrement
     invalid_uninitialized_body_standalone_increment{};
+constexpr UninitializedConditionalBodyRead
+    invalid_uninitialized_conditional_body_read{false};
 constexpr UninitializedBodyReadBeforeWrite
     invalid_uninitialized_body_read_before_write{19};

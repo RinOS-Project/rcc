@@ -152,6 +152,20 @@ struct ConstructorBodyCompoundAssignments {
     }
 };
 
+struct ConstructorBodySelectedRhsBranches {
+    int delayed;
+    int conditional;
+    int short_and;
+    int short_or;
+
+    constexpr explicit ConstructorBodySelectedRhsBranches(bool choose) {
+        this->conditional = choose ? 47 : this->delayed;
+        this->short_and = !choose && this->delayed;
+        this->short_or = choose || this->delayed;
+        this->delayed = 53;
+    }
+};
+
 struct ConstructorDefaultInitializedScalars {
     int before;
     int initialized;
@@ -445,6 +459,8 @@ constexpr ConstructorBodyReadsDefaultMember
 constexpr ConstructorBodyPostIncrement constructor_body_post_increment{107};
 constexpr ConstructorBodyCompoundAssignments
     constructor_body_compound_assignments{4};
+constexpr ConstructorBodySelectedRhsBranches
+    constructor_body_selected_rhs_branches{true};
 constexpr int constructor_reference_source = 29;
 constexpr ConstructorConstReference constructor_reference_global{
     constructor_reference_source};
@@ -830,6 +846,7 @@ int main(void) {
     ConstructorBodyReadsDefaultMember runtime_body_reads_default_member{};
     ConstructorBodyPostIncrement runtime_body_post_increment{109};
     ConstructorBodyCompoundAssignments runtime_body_compound_assignments{4};
+    ConstructorBodySelectedRhsBranches runtime_body_selected_rhs_branches{true};
     ConstructorImplicitDefaultNested implicit_default_nested{29};
     ConstructorImplicitDefaultArray implicit_default_array{31};
     ConstructorImplicitDefaultBase implicit_default_base{37};
@@ -964,6 +981,10 @@ int main(void) {
                      constructor_body_post_increment.result == 107 &&
                      constructor_body_compound_assignments.accumulator == 11 &&
                      constructor_body_compound_assignments.result == 11 &&
+                     constructor_body_selected_rhs_branches.delayed == 53 &&
+                     constructor_body_selected_rhs_branches.conditional == 47 &&
+                     constructor_body_selected_rhs_branches.short_and == 0 &&
+                     constructor_body_selected_rhs_branches.short_or == 1 &&
                      runtime_body_initializes_omitted.written_by_body == 48 &&
                      runtime_body_initializes_omitted.initialized == 47 &&
                      runtime_body_reads_initialized.initialized == 59 &&
@@ -980,6 +1001,10 @@ int main(void) {
                      runtime_body_post_increment.result == 109 &&
                      runtime_body_compound_assignments.accumulator == 11 &&
                      runtime_body_compound_assignments.result == 11 &&
+                     runtime_body_selected_rhs_branches.delayed == 53 &&
+                     runtime_body_selected_rhs_branches.conditional == 47 &&
+                     runtime_body_selected_rhs_branches.short_and == 0 &&
+                     runtime_body_selected_rhs_branches.short_or == 1 &&
                    default_initialized.before +
                            default_initialized.initialized +
                            default_initialized.after == 25 &&
