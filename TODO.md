@@ -25,12 +25,19 @@
   semantics (`deprecated`, `fallthrough`, `maybe_unused`, `unsequenced`, and
   `reproducible`); accepting/ignoring unknown attributes is not equivalent to
   implementing these attributes.
-  - Progress: C23 `[[deprecated]]` now marks function, object, and enumerator
-    declarations and diagnoses later uses, including optional messages and
-    redeclarations; duplicate warnings from semantic re-visits are suppressed.
-    C17 misuse is rejected. Typedef, tag, member, and parameter applications
-    are explicitly diagnosed as unsupported; `__has_c_attribute(deprecated)`
-    therefore remains zero.
+  - [x] Implement C23 `[[deprecated]]` for functions, objects, struct/union
+    members, struct/union/enum tags, typedef names, and enumerators. Preserve
+    messages/redeclarations and emit one diagnostic per use; advertise
+    `__has_c_attribute(deprecated) == 202311L`. Verify C17 misuse and malformed
+    arguments, i686/AMD64 generation, and GCC C2x overlap in
+    `test-c23-deprecated-attribute`, which is part of `test-c23`/`test-ci`.
+  - [x] Diagnose C23 `[[deprecated]]` on a parameter as outside the standard
+    attribute's appertainment constraint while retaining it as an explicit
+    extension; the extension warns when the parameter is referenced.
+  - Progress: `deprecated` no longer has unsupported valid-position errors.
+    GCC's current C2x frontend does not provide a tag-attribute diagnostic
+    oracle, so RCC's struct/enum tag positions are directly covered by the
+    dual-target regression. The other listed standard attributes remain open.
 
 ## RCC continuation (2026-10-29, C23 bit-precise integers)
 

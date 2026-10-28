@@ -1879,6 +1879,8 @@ Decl* decl_param(const char* name, Type* type, int index, SourceLoc loc) {
     d->param_index = index;
     d->param_array_type = NULL;
     d->param_is_pack = false;
+    d->param_is_deprecated = false;
+    d->param_deprecated_message = NULL;
     d->param_is_cxx_indirect = false;
     return d;
 }
@@ -1892,6 +1894,8 @@ Decl* decl_typedef(const char* name, Type* type, SourceLoc loc) {
     d->loc = loc;
     d->is_weak = false;
     d->param_default = NULL;
+    d->typedef_is_deprecated = false;
+    d->typedef_deprecated_message = NULL;
     d->typedef_type = type;
     return d;
 }

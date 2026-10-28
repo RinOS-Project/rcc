@@ -232,6 +232,8 @@ struct Type {
     bool is_atomic;          /* C17 _Atomic-qualified scalar object type. */
     bool is_nodiscard;       /* C23/C++ nodiscard return-type attribute. */
     const char* nodiscard_message;
+    bool c23_tag_is_deprecated;
+    const char* c23_tag_deprecated_message;
     bool is_restrict;
     bool is_reference;        /* C++ lvalue/rvalue reference ABI carrier. */
     bool is_rvalue_reference;
@@ -1446,6 +1448,11 @@ struct Decl {
     /* C++ function parameter pack marker.  Supported type packs are expanded
      * during template instantiation before semantic analysis/codegen. */
     bool param_is_pack;
+    /* Deprecated parameter declarations warn when the parameter is used. */
+    bool param_is_deprecated;
+    const char* param_deprecated_message;
+    bool typedef_is_deprecated;
+    const char* typedef_deprecated_message;
     /* Itanium ABI passes a non-trivial by-value class parameter as an
      * invisible pointer to the caller-created parameter object. */
     bool param_is_cxx_indirect;

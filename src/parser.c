@@ -147,6 +147,8 @@ extern bool rcc_parser_cxx_enum_namespace_is_visible(
 typedef struct ParserTypeName {
     const char* name;
     Type* type;
+    bool is_deprecated;
+    const char* deprecated_message;
     const char* cxx_namespace;
     struct ParserTagScope* scope;
     uint32_t cxx_constructor_arity_mask;
@@ -526,6 +528,8 @@ static void parser_define_type(const char* name, Type* type) {
     ParserTypeName* entry = ast_arena_alloc(sizeof(*entry));
     entry->name = name;
     entry->type = type;
+    entry->is_deprecated = false;
+    entry->deprecated_message = NULL;
     entry->cxx_namespace = parser_cxx_mode &&
         rcc_parser_cxx_current_namespace_identity
         ? rcc_parser_cxx_current_namespace_identity() : NULL;
@@ -536,6 +540,56 @@ static void parser_define_type(const char* name, Type* type) {
     entry->cxx_constructor_arity_mask = 0u;
     entry->next = parser_type_names;
     parser_type_names = entry;
+}
+
+static void parser_mark_latest_type_deprecated(const char* name,
+                                              const char* message) {
+    ParserTypeName* entry;
+    for (entry = parser_type_names; entry; entry = entry->next) {
+        if (entry->name && name && strcmp(entry->name, name) == 0 &&
+            entry->scope == parser_tag_scope) {
+            entry->is_deprecated = true;
+            if (!entry->deprecated_message) {
+                entry->deprecated_message = message;
+            }
+            return;
+        }
+    }
+}
+
+static bool parser_current_type_is_deprecated(const char* name,
+                                             const char** message) {
+    ParserTypeName* entry;
+    if (message) *message = NULL;
+    for (entry = parser_type_names; entry; entry = entry->next) {
+        if (entry->name && name && strcmp(entry->name, name) == 0 &&
+            entry->scope == parser_tag_scope) {
+            if (message) *message = entry->deprecated_message;
+            return entry->is_deprecated;
+        }
+    }
+    return false;
+}
+
+static bool parser_tag_scope_is_visible(ParserTagScope* scope);
+
+static void parser_warn_deprecated_typedef(const char* name, SourceLoc loc) {
+    ParserTypeName* entry;
+    if (!name || parser_cxx_mode) return;
+    for (entry = parser_type_names; entry; entry = entry->next) {
+        if (entry->name && strcmp(entry->name, name) == 0 &&
+            parser_tag_scope_is_visible(entry->scope)) {
+            if (entry->is_deprecated) {
+                if (entry->deprecated_message) {
+                    rcc_warning(loc, "use of deprecated typedef '%s': %s",
+                                name, entry->deprecated_message);
+                } else {
+                    rcc_warning(loc, "use of deprecated typedef '%s'", name);
+                }
+            }
+            return;
+        }
+    }
 }
 
 static bool parser_tag_scope_is_visible(ParserTagScope* scope) {
@@ -4311,12 +4365,12 @@ static void parser_reset_bitfield_layout(ParserBitfieldLayout* layout) {
     layout->used = 0u;
 }
 
-static void parser_append_bitfield(Type* aggregate,
-                                   ParserBitfieldLayout* layout,
-                                   const char* name,
-                                   Type* type,
-                                   int64_t width_value,
-                                   SourceLoc loc) {
+static TypeField* parser_append_bitfield(Type* aggregate,
+                                         ParserBitfieldLayout* layout,
+                                         const char* name,
+                                         Type* type,
+                                         int64_t width_value,
+                                         SourceLoc loc) {
     TypeField* field;
     TypeField** tail;
     int alignment;
@@ -4327,7 +4381,7 @@ static void parser_append_bitfield(Type* aggregate,
     if (!type || (!type_is_integer(type) && type->kind != TYPE_ENUM)) {
         rcc_error(loc, "bit-field type must be an integer or enum type");
         parser_reset_bitfield_layout(layout);
-        return;
+        return NULL;
     }
     size = type->size;
     if (size <= 0 || size > 8) {
@@ -4335,7 +4389,7 @@ static void parser_append_bitfield(Type* aggregate,
                   "bit-field type width of %d bytes is not supported",
                   size);
         parser_reset_bitfield_layout(layout);
-        return;
+        return NULL;
     }
     storage_bits = (unsigned)size * 8u;
     if (width_value < 0 ||
@@ -4344,7 +4398,7 @@ static void parser_append_bitfield(Type* aggregate,
                   "bit-field width %lld exceeds its %u-bit declared type",
                   (long long)width_value, type_integer_width(type));
         parser_reset_bitfield_layout(layout);
-        return;
+        return NULL;
     }
     width = (unsigned)width_value;
     if (width == 0u) {
@@ -4363,7 +4417,7 @@ static void parser_append_bitfield(Type* aggregate,
             aggregate->size = parser_align_up(aggregate->size, alignment);
             if (alignment > aggregate->align) aggregate->align = alignment;
         }
-        return;
+        return NULL;
     }
 
     alignment = type->align > 0 ? type->align : 1;
@@ -4395,7 +4449,7 @@ static void parser_append_bitfield(Type* aggregate,
      * by a member expression or by an initializer designator. */
     if (!name) {
         layout->used += width;
-        return;
+        return NULL;
     }
     field = ast_arena_alloc(sizeof(*field));
     field->name = name;
@@ -4415,6 +4469,7 @@ static void parser_append_bitfield(Type* aggregate,
     while (*tail) tail = &(*tail)->next;
     *tail = field;
     layout->used += width;
+    return field;
 }
 
 /* C17 does not permit a variably modified type as a struct or union member.
@@ -4583,6 +4638,9 @@ typedef struct ParserAggregateAttributes {
     bool nodiscard;
     const char* nodiscard_message;
     SourceLoc nodiscard_loc;
+    bool deprecated;
+    const char* deprecated_message;
+    SourceLoc deprecated_loc;
 } ParserAggregateAttributes;
 
 static void parser_parse_c_type_attributes(
@@ -4603,9 +4661,12 @@ static void parser_parse_c_type_attributes(
             }
             attributes->nodiscard_loc = loc;
         }
-        if (take_c_deprecated_attribute(NULL)) {
-            rcc_error(loc,
-                      "C23 [[deprecated]] on aggregate types is not yet supported");
+        if (take_c_deprecated_attribute(&message)) {
+            attributes->deprecated = true;
+            if (!attributes->deprecated_message) {
+                attributes->deprecated_message = message;
+            }
+            attributes->deprecated_loc = loc;
         }
     }
 }
@@ -4771,7 +4832,32 @@ static void parser_apply_aggregate_attributes(
             }
         }
     }
+    if (attributes->deprecated && aggregate) {
+        aggregate->c23_tag_is_deprecated = true;
+        if (!aggregate->c23_tag_deprecated_message) {
+            aggregate->c23_tag_deprecated_message =
+                attributes->deprecated_message;
+        }
+    }
     (void)attribute_loc;
+}
+
+static void parser_warn_deprecated_tag(Type* type, Token* tag) {
+    const char* kind;
+    if (!type || !type->c23_tag_is_deprecated || !tag ||
+        parser_cxx_mode) {
+        return;
+    }
+    kind = type->kind == TYPE_ENUM ? "enum" :
+           type->kind == TYPE_UNION ? "union" : "struct";
+    if (type->c23_tag_deprecated_message) {
+        rcc_warning(tag->loc, "use of deprecated %s '%s': %s", kind,
+                    tag->value.str_val,
+                    type->c23_tag_deprecated_message);
+    } else {
+        rcc_warning(tag->loc, "use of deprecated %s '%s'", kind,
+                    tag->value.str_val);
+    }
 }
 
 static void parse_aggregate_body(Type* aggregate) {
@@ -4783,6 +4869,8 @@ static void parse_aggregate_body(Type* aggregate) {
     parser_reset_bitfield_layout(&bitfield_layout);
     while (!check(TOK_RBRACE) && !at_end()) {
         Type* field_base;
+        bool declaration_is_deprecated = false;
+        const char* declaration_deprecated_message = NULL;
         int explicit_alignment = 0;
         SourceLoc alignment_loc = peek()->loc;
         if (match(TOK_PRAGMA_PACK)) {
@@ -4808,20 +4896,25 @@ static void parse_aggregate_body(Type* aggregate) {
             rcc_error(peek()->loc,
                       "C23 [[nodiscard]] requires a function or type definition");
         }
-        if (take_c_deprecated_attribute(NULL)) {
-            rcc_error(peek()->loc,
-                      "C23 [[deprecated]] on aggregate members is not yet supported");
-        }
         field_base = parse_type_spec();
         if (!field_base) {
             rcc_error(peek()->loc, "expected field type specifier");
             if (check(TOK_IDENT)) advance();
             field_base = type_int;
         }
+        skip_attributes();
+        parser_accumulate_c_deprecated_attribute(
+            &declaration_is_deprecated, &declaration_deprecated_message);
         do {
             const char* field_name = NULL;
+            bool field_is_deprecated = declaration_is_deprecated;
+            const char* field_deprecated_message =
+                declaration_deprecated_message;
             Type* field_type = parse_declarator(field_base, &field_name, NULL);
             Expr* field_initializer = NULL;
+            skip_attributes();
+            parser_accumulate_c_deprecated_attribute(
+                &field_is_deprecated, &field_deprecated_message);
             if (explicit_alignment != 0) {
                 field_type = rcc_parser_apply_explicit_alignment(
                     field_type, explicit_alignment, alignment_loc);
@@ -4841,10 +4934,14 @@ static void parse_aggregate_body(Type* aggregate) {
                     rcc_error(width_expression ? width_expression->loc : previous()->loc,
                               "bit-field width must be an integer constant");
                 }
-                parser_append_bitfield(aggregate, &bitfield_layout,
-                                       field_name, field_type, width_value,
-                                       width_expression ? width_expression->loc
-                                                        : previous()->loc);
+                TypeField* field = parser_append_bitfield(
+                    aggregate, &bitfield_layout, field_name, field_type,
+                    width_value, width_expression ? width_expression->loc
+                                                  : previous()->loc);
+                if (field) {
+                    field->is_deprecated = field_is_deprecated;
+                    field->deprecated_message = field_deprecated_message;
+                }
                 continue;
             }
             if (!field_name) {
@@ -4873,6 +4970,8 @@ static void parse_aggregate_body(Type* aggregate) {
             TypeField* field = parser_append_field(
                 aggregate, field_name, field_type);
             field->initializer = field_initializer;
+            field->is_deprecated = field_is_deprecated;
+            field->deprecated_message = field_deprecated_message;
         } while (match(TOK_COMMA));
         expect(TOK_SEMICOLON, ";");
     }
@@ -4988,6 +5087,7 @@ static Type* parser_parse_aggregate_type_spec(TypeKind kind) {
         aggregate = parser_tag_type(kind,
                                     tag ? tag->value.str_val : NULL);
     }
+    parser_warn_deprecated_tag(aggregate, tag);
 
     if (check(TOK_LBRACE)) {
         is_definition = true;
@@ -5256,6 +5356,7 @@ static Type* parse_type_spec(void) {
             parse_enum_body(t, scoped, tag ? tag->value.str_val : NULL);
         }
         parser_parse_c_type_attributes(&attributes);
+        parser_warn_deprecated_tag(t, tag);
         parser_apply_aggregate_attributes(
             t, &attributes, enum_loc, is_definition);
         if (parser_cxx_mode && tag) {
@@ -5279,6 +5380,7 @@ static Type* parse_type_spec(void) {
         const char* name = peek()->value.str_val;
         t = parser_lookup_type(name);
         if (t) {
+            parser_warn_deprecated_typedef(name, peek()->loc);
             advance();
         } else if (parser_cxx_mode && saw_sign) {
             /* C++ accepts the C-compatible shorthand `unsigned value` and
@@ -5361,8 +5463,8 @@ static TypeParam* parser_type_params(DeclList* parameters, bool* variadic) {
         param->bit_width = 0u;
         param->is_static = false;
         param->initializer = NULL;
-        param->is_deprecated = false;
-        param->deprecated_message = NULL;
+        param->is_deprecated = item->decl->param_is_deprecated;
+        param->deprecated_message = item->decl->param_deprecated_message;
         param->cxx_access = 0u;
         param->next = NULL;
         *tail = param;
@@ -5386,6 +5488,8 @@ static DeclList* parse_parameter_list(bool* variadic) {
         Type* parameter_array_type = NULL;
         const char* parameter_name = NULL;
         Expr* parameter_default = NULL;
+        bool parameter_is_deprecated = false;
+        const char* parameter_deprecated_message = NULL;
         Decl* parameter;
         if (match(TOK_ELLIPSIS)) {
             if (parameter_index == 0 && !parser_cxx_mode) {
@@ -5395,12 +5499,18 @@ static DeclList* parse_parameter_list(bool* variadic) {
             *variadic = true;
             break;
         }
+        skip_attributes();
+        parser_accumulate_c_deprecated_attribute(
+            &parameter_is_deprecated, &parameter_deprecated_message);
         parameter_base = parse_type_spec();
         if (!parameter_base) {
             rcc_error(peek()->loc, "expected parameter type specifier");
             if (check(TOK_IDENT)) advance();
             parameter_base = type_int;
         }
+        skip_attributes();
+        parser_accumulate_c_deprecated_attribute(
+            &parameter_is_deprecated, &parameter_deprecated_message);
         parameter_type = parse_declarator(parameter_base, &parameter_name, NULL);
         /* In a function type pattern, `Args...` is a type-pack expansion,
          * distinct from the final C-style `...` handled at the top of this
@@ -5423,9 +5533,11 @@ static DeclList* parse_parameter_list(bool* variadic) {
             rcc_error(previous()->loc,
                       "C23 [[nodiscard]] requires a function or type definition");
         }
-        if (take_c_deprecated_attribute(NULL)) {
-            rcc_error(previous()->loc,
-                      "C23 [[deprecated]] on parameters is not yet supported");
+        parser_accumulate_c_deprecated_attribute(
+            &parameter_is_deprecated, &parameter_deprecated_message);
+        if (parameter_is_deprecated) {
+            rcc_warning(previous()->loc,
+                        "C23 [[deprecated]] on a parameter violates the attribute appertainment constraint; accepting it as an extension");
         }
         if (parameter_type->kind == TYPE_ARRAY) {
             parameter_array_type = parameter_type;
@@ -5457,6 +5569,8 @@ static DeclList* parse_parameter_list(bool* variadic) {
         parameter->param_is_pack = parser_last_declarator_parameter_pack;
         parameter->param_array_type = parameter_array_type;
         parameter->param_default = parameter_default;
+        parameter->param_is_deprecated = parameter_is_deprecated;
+        parameter->param_deprecated_message = parameter_deprecated_message;
         decllist_append(&parameters, parameter);
         if (!match(TOK_COMMA)) break;
         if (check(TOK_RPAREN)) {
@@ -7139,6 +7253,17 @@ Stmt* parse_declaration(void) {
 
     if (is_typedef) {
         StmtList* declarations = NULL;
+        const char* previous_typedef_message = NULL;
+        bool previous_typedef_is_deprecated =
+            parser_current_type_is_deprecated(
+                declaration_name, &previous_typedef_message);
+        bool typedef_is_deprecated = is_deprecated ||
+            declarator_is_deprecated || previous_typedef_is_deprecated;
+        const char* typedef_deprecated_message =
+            declarator_deprecated_message
+                ? declarator_deprecated_message
+                : deprecated_message ? deprecated_message
+                                     : previous_typedef_message;
         if (is_nodiscard || declarator_is_nodiscard) {
             rcc_error(loc,
                       "C23 [[nodiscard]] requires a function or type definition");
@@ -7147,10 +7272,6 @@ Stmt* parse_declaration(void) {
             rcc_error(loc,
                       "C23 [[noreturn]] requires a function declaration");
         }
-        if (is_deprecated || declarator_is_deprecated) {
-            rcc_error(loc,
-                      "C23 [[deprecated]] on typedef names is not yet supported");
-        }
         if (is_thread_local) {
             rcc_error(loc, "thread-local storage is not valid on a typedef");
         }
@@ -7158,27 +7279,59 @@ Stmt* parse_declaration(void) {
             rcc_error(loc, "constinit declaration must declare a variable");
         }
         parser_define_type(declaration_name, type);
+        if (typedef_is_deprecated) {
+            parser_mark_latest_type_deprecated(
+                declaration_name, typedef_deprecated_message);
+        }
+        Decl* typedef_declaration = decl_typedef(
+            declaration_name, type, loc);
+        typedef_declaration->typedef_is_deprecated =
+            typedef_is_deprecated;
+        typedef_declaration->typedef_deprecated_message =
+            typedef_deprecated_message;
         stmtlist_append(&declarations,
-                        stmt_decl(decl_typedef(declaration_name, type, loc),
-                                  loc));
+                        stmt_decl(typedef_declaration, loc));
         while (match(TOK_COMMA)) {
             const char* next_name = NULL;
             DeclList* next_parameters = NULL;
+            bool next_is_deprecated = is_deprecated;
+            const char* next_deprecated_message = deprecated_message;
             Type* next_type = parse_declarator(
                 base_type, &next_name, &next_parameters);
             (void)next_parameters;
             next_type = parse_declarator_attributes(next_type);
             next_type = apply_explicit_alignment(
                 next_type, explicit_alignment, loc);
+            skip_attributes();
+            parser_accumulate_c_deprecated_attribute(
+                &next_is_deprecated, &next_deprecated_message);
             if (!next_name) {
                 rcc_error(loc, "expected identifier in declaration list");
                 synchronize();
                 break;
             }
+            {
+                const char* previous_message = NULL;
+                bool was_deprecated = parser_current_type_is_deprecated(
+                    next_name, &previous_message);
+                next_is_deprecated = next_is_deprecated || was_deprecated;
+                if (!next_deprecated_message) {
+                    next_deprecated_message = previous_message;
+                }
+            }
             parser_define_type(next_name, next_type);
+            if (next_is_deprecated) {
+                parser_mark_latest_type_deprecated(
+                    next_name, next_deprecated_message);
+            }
+            Decl* next_typedef_declaration = decl_typedef(
+                next_name, next_type, loc);
+            next_typedef_declaration->typedef_is_deprecated =
+                next_is_deprecated;
+            next_typedef_declaration->typedef_deprecated_message =
+                next_deprecated_message;
             stmtlist_append(&declarations,
-                            stmt_decl(decl_typedef(next_name, next_type,
-                                                   loc), loc));
+                            stmt_decl(next_typedef_declaration, loc));
         }
         expect(TOK_SEMICOLON, ";");
         return parser_declaration_list_result(declarations, loc);

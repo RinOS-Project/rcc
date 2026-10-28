@@ -895,6 +895,7 @@ static long pp_c_attribute_value(const Preprocessor* pp,
         return 202311L;
     }
     if (strcmp(attribute, "nodiscard") == 0) return 202311L;
+    if (strcmp(attribute, "deprecated") == 0) return 202311L;
     return 0;
 }
 

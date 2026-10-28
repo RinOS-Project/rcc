@@ -23922,6 +23922,11 @@ static Type* sema_expr(Expr* expr) {
                     sema_warn_deprecated_use(
                         expr, "variable", expr->ident_decl->name,
                         expr->ident_decl->var_deprecated_message);
+                } else if (expr->ident_decl->kind == DECL_PARAM &&
+                           expr->ident_decl->param_is_deprecated) {
+                    sema_warn_deprecated_use(
+                        expr, "parameter", expr->ident_decl->name,
+                        expr->ident_decl->param_deprecated_message);
                 }
                 expr->type = expr->ident_decl->type &&
                     expr->ident_decl->type->is_reference
@@ -24007,6 +24012,11 @@ static Type* sema_expr(Expr* expr) {
                     sema_warn_deprecated_use(
                         expr, "variable", sym->decl->name,
                         sym->decl->var_deprecated_message);
+                } else if (sym->decl && sym->decl->kind == DECL_PARAM &&
+                           sym->decl->param_is_deprecated) {
+                    sema_warn_deprecated_use(
+                        expr, "parameter", sym->decl->name,
+                        sym->decl->param_deprecated_message);
                 }
                 if (sym->kind == SYM_FUNC && sym->decl &&
                     sym->decl->func_overload_next) {

@@ -1331,11 +1331,11 @@ test-c23-nodiscard-attribute: $(RCC_TARGET)
 test-c23-deprecated-attribute: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-deprecated-attribute)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -c \
-		-o $(TEST_OUT)/c23-deprecated-attribute/unadvertised-x86.ro \
-		tests/c23_deprecated_feature_unadvertised.c
+		-o $(TEST_OUT)/c23-deprecated-attribute/feature-x86.ro \
+		tests/c23_deprecated_feature_advertised.c
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -c \
-		-o $(TEST_OUT)/c23-deprecated-attribute/unadvertised-x64.ro \
-		tests/c23_deprecated_feature_unadvertised.c
+		-o $(TEST_OUT)/c23-deprecated-attribute/feature-x64.ro \
+		tests/c23_deprecated_feature_advertised.c
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -S \
 		-o $(TEST_OUT)/c23-deprecated-attribute/x86.s \
 		tests/c23_attribute_deprecated.c \
@@ -1344,8 +1344,8 @@ test-c23-deprecated-attribute: $(RCC_TARGET)
 		-o $(TEST_OUT)/c23-deprecated-attribute/x64.s \
 		tests/c23_attribute_deprecated.c \
 		>$(TEST_OUT)/c23-deprecated-attribute/x64.log 2>&1
-	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/c23-deprecated-attribute/x86.log,7)
-	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/c23-deprecated-attribute/x64.log,7)
+	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/c23-deprecated-attribute/x86.log,12)
+	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/c23-deprecated-attribute/x64.log,12)
 	$(GREP) -F -q 'use replacement_function' \
 		$(TEST_OUT)/c23-deprecated-attribute/x64.log
 	$(GREP) -F -q 'use replacement_object' \
@@ -1356,12 +1356,30 @@ test-c23-deprecated-attribute: $(RCC_TARGET)
 		$(TEST_OUT)/c23-deprecated-attribute/x64.log
 	$(GREP) -F -q 'use current_kind' \
 		$(TEST_OUT)/c23-deprecated-attribute/x64.log
+	$(GREP) -F -q 'use current_member' \
+		$(TEST_OUT)/c23-deprecated-attribute/x64.log
+	$(GREP) -F -q 'use current_parameter' \
+		$(TEST_OUT)/c23-deprecated-attribute/x64.log
+	$(GREP) -F -q 'use CurrentTag' \
+		$(TEST_OUT)/c23-deprecated-attribute/x64.log
+	$(GREP) -F -q 'use CurrentEnum' \
+		$(TEST_OUT)/c23-deprecated-attribute/x64.log
+	$(GREP) -F -q 'use CurrentInteger' \
+		$(TEST_OUT)/c23-deprecated-attribute/x64.log
+	$(GREP) -F -q 'violates the attribute appertainment constraint' \
+		$(TEST_OUT)/c23-deprecated-attribute/x64.log
 	$(CC) -std=c2x -Wdeprecated-declarations -fsyntax-only \
 		tests/c23_attribute_deprecated.c \
 		>$(TEST_OUT)/c23-deprecated-attribute/gcc.log 2>&1
 	$(GREP) -F -q 'use replacement_function' \
 		$(TEST_OUT)/c23-deprecated-attribute/gcc.log
 	$(GREP) -F -q 'use replacement_object' \
+		$(TEST_OUT)/c23-deprecated-attribute/gcc.log
+	$(GREP) -F -q 'use current_member' \
+		$(TEST_OUT)/c23-deprecated-attribute/gcc.log
+	$(GREP) -F -q 'use current_parameter' \
+		$(TEST_OUT)/c23-deprecated-attribute/gcc.log
+	$(GREP) -F -q 'use CurrentInteger' \
 		$(TEST_OUT)/c23-deprecated-attribute/gcc.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
 		-std=c17 -c -o $(TEST_OUT)/c23-deprecated-attribute/c17.ro \
@@ -1375,31 +1393,7 @@ test-c23-deprecated-attribute: $(RCC_TARGET)
 		$(TEST_OUT)/c23-deprecated-attribute/arguments.log)
 	$(GREP) -F -q 'C23 [[deprecated]] argument must be a string literal' \
 		$(TEST_OUT)/c23-deprecated-attribute/arguments.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
-		-std=c23 -c -o $(TEST_OUT)/c23-deprecated-attribute/typedef.ro \
-		tests/invalid_c23_attribute_deprecated_typedef.c,\
-		$(TEST_OUT)/c23-deprecated-attribute/typedef.log)
-	$(GREP) -F -q 'C23 [[deprecated]] on typedef names is not yet supported' \
-		$(TEST_OUT)/c23-deprecated-attribute/typedef.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
-		-std=c23 -c -o $(TEST_OUT)/c23-deprecated-attribute/tag.ro \
-		tests/invalid_c23_attribute_deprecated_tag.c,\
-		$(TEST_OUT)/c23-deprecated-attribute/tag.log)
-	$(GREP) -F -q 'C23 [[deprecated]] on aggregate types is not yet supported' \
-		$(TEST_OUT)/c23-deprecated-attribute/tag.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
-		-std=c23 -c -o $(TEST_OUT)/c23-deprecated-attribute/member.ro \
-		tests/invalid_c23_attribute_deprecated_member.c,\
-		$(TEST_OUT)/c23-deprecated-attribute/member.log)
-	$(GREP) -F -q 'C23 [[deprecated]] on aggregate members is not yet supported' \
-		$(TEST_OUT)/c23-deprecated-attribute/member.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
-		-std=c23 -c -o $(TEST_OUT)/c23-deprecated-attribute/parameter.ro \
-		tests/invalid_c23_attribute_deprecated_parameter.c,\
-		$(TEST_OUT)/c23-deprecated-attribute/parameter.log)
-	$(GREP) -F -q 'C23 [[deprecated]] on parameters is not yet supported' \
-		$(TEST_OUT)/c23-deprecated-attribute/parameter.log
-	@echo "C23 deprecated function/object/enumerator attributes and diagnostics tested"
+	@echo "C23 deprecated function/object/enumerator/member/parameter/tag/typedef attributes and diagnostics tested"
 
 test-c23-embed: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-embed)
