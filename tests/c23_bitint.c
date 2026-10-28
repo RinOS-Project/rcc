@@ -13,6 +13,12 @@ typedef unsigned _BitInt(33) u33;
 typedef _BitInt(64) s64;
 typedef unsigned _BitInt(64) u64;
 
+struct bitint_fields {
+    signed _BitInt(9) signed_narrow : 5;
+    unsigned _BitInt(9) unsigned_narrow : 5;
+    unsigned _BitInt(33) unsigned_wide : 33;
+};
+
 static s5 global_signed_min = -16;
 static u5 global_unsigned_max = 31;
 
@@ -35,6 +41,11 @@ int main(void)
     s64 signed_min64 = -9223372036854775807LL - 1LL;
     u64 unsigned_literal = 18446744073709551615UWB;
     u64 unsigned_wrapped64 = unsigned_literal + (u64)1;
+    struct bitint_fields fields = {0};
+
+    fields.signed_narrow = -16;
+    fields.unsigned_narrow = 31;
+    fields.unsigned_wide = ((u33)1 << 32) | (u33)17;
 
     if (one != 1u || zero != 0u || signed_min != -2 || signed_max != 1)
         return 1;
@@ -48,5 +59,7 @@ int main(void)
         (long long)signed_min64 != LLONG_MIN) return 6;
     if ((unsigned long long)unsigned_literal != ULLONG_MAX ||
         unsigned_wrapped64 != 0u) return 7;
+    if (fields.signed_narrow != -16 || fields.unsigned_narrow != 31u ||
+        fields.unsigned_wide != (((u33)1 << 32) | (u33)17)) return 8;
     return 0;
 }

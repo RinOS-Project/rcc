@@ -27,9 +27,13 @@
   objects, x86_64 host execution, direct RIN plus RLD-linked RIN, and direct
   RLL/DRV output using `rinvalidate`; verify width diagnostics and C17/C++20
   mode rejection.
+- [x] Verify signed and unsigned `_BitInt` bit-fields, including 5-bit fields
+  based on 9-bit types and a 33-bit field; execute sign/value preservation and
+  boundary reads on the x86_64 host and validate both targets' RIN/RLL/DRV
+  outputs through the `test-c23-bitint` gate.
 - [ ] Audit remaining C23 bit-precise integer rules and contexts, especially
-  bit-fields, variadic arguments, `_Generic` and mixed-rank usual arithmetic
-  conversions, shift/overflow constraints, and `wb` constants in preprocessing.
+  variadic arguments, `_Generic` and mixed-rank usual arithmetic conversions,
+  shift/overflow constraints, and `wb` constants in preprocessing.
 
 ## RCC continuation (2026-10-29, C23 binary resource inclusion)
 
