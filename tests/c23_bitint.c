@@ -35,19 +35,19 @@ struct bitint_fields {
 static int check_bitint_varargs(int marker, ...)
 {
     va_list arguments;
-    int signed_narrow;
-    int unsigned_narrow;
+    s5 signed_narrow;
+    u5 unsigned_narrow;
     u33 unsigned_wide;
     u64 unsigned_full;
 
     va_start(arguments, marker);
-    signed_narrow = va_arg(arguments, int);
-    unsigned_narrow = va_arg(arguments, int);
+    signed_narrow = va_arg(arguments, s5);
+    unsigned_narrow = va_arg(arguments, u5);
     unsigned_wide = va_arg(arguments, u33);
     unsigned_full = va_arg(arguments, u64);
     va_end(arguments);
 
-    return marker == 23 && signed_narrow == -7 && unsigned_narrow == 31 &&
+    return marker == 23 && signed_narrow == -7 && unsigned_narrow == 31u &&
            unsigned_wide == (((u33)1 << 32) | (u33)17) &&
            unsigned_full == ULLONG_MAX;
 }
