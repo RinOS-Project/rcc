@@ -1315,6 +1315,8 @@ static bool pending_naked_attribute;
 static bool pending_c_noreturn_attribute;
 static bool pending_c_nodiscard_attribute;
 static const char* pending_c_nodiscard_message;
+static bool pending_c_deprecated_attribute;
+static const char* pending_c_deprecated_message;
 
 static bool take_weak_attribute(void) {
     bool result = pending_weak_attribute;
@@ -1342,10 +1344,29 @@ static bool take_c_nodiscard_attribute(const char** message) {
     return result;
 }
 
+static bool take_c_deprecated_attribute(const char** message) {
+    bool result = pending_c_deprecated_attribute;
+    if (message) {
+        *message = result ? pending_c_deprecated_message : NULL;
+    }
+    pending_c_deprecated_attribute = false;
+    pending_c_deprecated_message = NULL;
+    return result;
+}
+
 static void parser_accumulate_c_nodiscard_attribute(
     bool* present, const char** message) {
     const char* parsed_message = NULL;
     if (take_c_nodiscard_attribute(&parsed_message)) {
+        if (present) *present = true;
+        if (message && !*message) *message = parsed_message;
+    }
+}
+
+static void parser_accumulate_c_deprecated_attribute(
+    bool* present, const char** message) {
+    const char* parsed_message = NULL;
+    if (take_c_deprecated_attribute(&parsed_message)) {
         if (present) *present = true;
         if (message && !*message) *message = parsed_message;
     }
@@ -1397,10 +1418,13 @@ static void parser_skip_c_attribute_sequence(void) {
     while (!at_end()) {
         bool is_noreturn = false;
         bool is_nodiscard = false;
+        bool is_deprecated = false;
         bool has_prefix = false;
         bool has_arguments = false;
         bool valid_nodiscard_arguments = true;
+        bool valid_deprecated_arguments = true;
         const char* nodiscard_message = NULL;
+        const char* deprecated_message = NULL;
         SourceLoc attribute_loc = peek()->loc;
 
         if (check(TOK_RBRACKET) && check_next(TOK_RBRACKET)) {
@@ -1417,6 +1441,7 @@ static void parser_skip_c_attribute_sequence(void) {
                           strcmp(name, "_Noreturn") == 0 ||
                           strcmp(name, "__noreturn__") == 0;
             is_nodiscard = strcmp(name, "nodiscard") == 0;
+            is_deprecated = strcmp(name, "deprecated") == 0;
             advance();
         } else if (match(TOK__NORETURN)) {
             /* Keywords used as attribute tokens are identifiers here. */
@@ -1438,15 +1463,23 @@ static void parser_skip_c_attribute_sequence(void) {
         }
         if (check(TOK_LPAREN)) {
             has_arguments = true;
-            if (is_nodiscard && !has_prefix) {
+            if ((is_nodiscard || is_deprecated) && !has_prefix) {
                 advance();
                 if (check(TOK_STRING_LIT) && check_next(TOK_RPAREN)) {
-                    nodiscard_message = advance()->value.str_val;
+                    const char* parsed_message = advance()->value.str_val;
+                    if (is_nodiscard) nodiscard_message = parsed_message;
+                    if (is_deprecated) deprecated_message = parsed_message;
                     advance();
                 } else {
-                    rcc_error(attribute_loc,
-                              "C23 [[nodiscard]] argument must be a string literal");
-                    valid_nodiscard_arguments = false;
+                    if (is_nodiscard) {
+                        rcc_error(attribute_loc,
+                                  "C23 [[nodiscard]] argument must be a string literal");
+                        valid_nodiscard_arguments = false;
+                    } else {
+                        rcc_error(attribute_loc,
+                                  "C23 [[deprecated]] argument must be a string literal");
+                        valid_deprecated_arguments = false;
+                    }
                     (void)parser_skip_c_attribute_arguments(attribute_loc);
                 }
             } else {
@@ -1473,6 +1506,17 @@ static void parser_skip_c_attribute_sequence(void) {
                 pending_c_nodiscard_attribute = true;
                 if (!pending_c_nodiscard_message) {
                     pending_c_nodiscard_message = nodiscard_message;
+                }
+            }
+        }
+        if (is_deprecated && !has_prefix) {
+            if (g_opts.c_standard < 23) {
+                rcc_error(attribute_loc,
+                          "C23 [[deprecated]] requires -std=c23");
+            } else if (valid_deprecated_arguments) {
+                pending_c_deprecated_attribute = true;
+                if (!pending_c_deprecated_message) {
+                    pending_c_deprecated_message = deprecated_message;
                 }
             }
         }
@@ -4036,6 +4080,13 @@ static void parse_enum_body(Type* enum_type, bool scoped,
     bool next_value_exceeds_underlying = false;
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* name = expect(TOK_IDENT, "enumerator name");
+        if (!parser_cxx_mode) {
+            skip_attributes();
+            if (take_c_deprecated_attribute(NULL)) {
+                rcc_error(name ? name->loc : peek()->loc,
+                          "C23 [[deprecated]] on enumerators is not yet supported");
+            }
+        }
         int64_t value;
         bool value_is_unsigned = false;
         Type* value_type_before_close = NULL;
@@ -4514,6 +4565,10 @@ static void parser_parse_c_type_attributes(
             }
             attributes->nodiscard_loc = loc;
         }
+        if (take_c_deprecated_attribute(NULL)) {
+            rcc_error(loc,
+                      "C23 [[deprecated]] on aggregate types is not yet supported");
+        }
     }
 }
 
@@ -4714,6 +4769,10 @@ static void parse_aggregate_body(Type* aggregate) {
         if (take_c_nodiscard_attribute(NULL)) {
             rcc_error(peek()->loc,
                       "C23 [[nodiscard]] requires a function or type definition");
+        }
+        if (take_c_deprecated_attribute(NULL)) {
+            rcc_error(peek()->loc,
+                      "C23 [[deprecated]] on aggregate members is not yet supported");
         }
         field_base = parse_type_spec();
         if (!field_base) {
@@ -5325,6 +5384,10 @@ static DeclList* parse_parameter_list(bool* variadic) {
         if (take_c_nodiscard_attribute(NULL)) {
             rcc_error(previous()->loc,
                       "C23 [[nodiscard]] requires a function or type definition");
+        }
+        if (take_c_deprecated_attribute(NULL)) {
+            rcc_error(previous()->loc,
+                      "C23 [[deprecated]] on parameters is not yet supported");
         }
         if (parameter_type->kind == TYPE_ARRAY) {
             parameter_array_type = parameter_type;
@@ -6493,6 +6556,25 @@ static void parser_apply_c_nodiscard_attribute(
               "C23 [[nodiscard]] requires a function or type definition");
 }
 
+static void parser_apply_c_deprecated_attribute(
+    Decl* declaration, bool deprecated, const char* message) {
+    if (!deprecated) return;
+    if (declaration && declaration->kind == DECL_FUNC) {
+        declaration->func_is_deprecated = true;
+        if (!declaration->func_deprecated_message) {
+            declaration->func_deprecated_message = message;
+        }
+    } else if (declaration && declaration->kind == DECL_VAR) {
+        declaration->var_is_deprecated = true;
+        if (!declaration->var_deprecated_message) {
+            declaration->var_deprecated_message = message;
+        }
+    } else {
+        rcc_error(declaration ? declaration->loc : peek()->loc,
+                  "C23 [[deprecated]] currently requires an object or function declaration");
+    }
+}
+
 static void parser_apply_cxx_statement_attributes(
     Stmt* statement, bool nodiscard, bool deprecated,
     const char* deprecated_message) {
@@ -6562,6 +6644,7 @@ Stmt* parse_declaration(void) {
     bool is_constinit = false;
     bool is_noreturn = false;
     bool is_nodiscard = false;
+    bool is_deprecated = false;
     bool is_noexcept = false;
     Expr* noexcept_expr = NULL;
     bool is_thread_local = false;
@@ -6569,8 +6652,11 @@ Stmt* parse_declaration(void) {
     bool is_naked = false;
     bool declarator_is_noreturn = false;
     bool declarator_is_nodiscard = false;
+    bool declarator_is_deprecated = false;
     const char* nodiscard_message = NULL;
     const char* declarator_nodiscard_message = NULL;
+    const char* deprecated_message = NULL;
+    const char* declarator_deprecated_message = NULL;
     bool cxx_is_nodiscard = false;
     bool cxx_is_deprecated = false;
     const char* cxx_deprecated_message = NULL;
@@ -6652,6 +6738,8 @@ Stmt* parse_declaration(void) {
     is_noreturn = is_noreturn || take_c_noreturn_attribute();
     parser_accumulate_c_nodiscard_attribute(
         &is_nodiscard, &nodiscard_message);
+    parser_accumulate_c_deprecated_attribute(
+        &is_deprecated, &deprecated_message);
     is_weak = is_weak || take_weak_attribute();
     is_naked = take_naked_attribute();
     if (parser_cxx_mode && match(TOK_CONSTEXPR)) is_constexpr = true;
@@ -6688,6 +6776,10 @@ Stmt* parse_declaration(void) {
         if (is_nodiscard) {
             rcc_error(peek()->loc,
                       "C23 [[nodiscard]] requires a function or type definition");
+        }
+        if (is_deprecated) {
+            rcc_error(peek()->loc,
+                      "C23 [[deprecated]] requires an object or function declaration");
         }
         if (friend_signature_context &&
             rcc_parser_cxx_end_function_signature_access) {
@@ -6813,6 +6905,8 @@ Stmt* parse_declaration(void) {
             rcc_error(attribute_loc,
                       "C23 [[nodiscard]] requires a function or type definition");
         }
+        parser_accumulate_c_deprecated_attribute(
+            &is_deprecated, &deprecated_message);
     }
 
     /* A standalone aggregate declaration has no declarator. Enum constants
@@ -6821,6 +6915,10 @@ Stmt* parse_declaration(void) {
         if (is_nodiscard) {
             rcc_error(loc,
                       "C23 [[nodiscard]] requires a function or type definition");
+        }
+        if (is_deprecated) {
+            rcc_error(loc,
+                      "C23 [[deprecated]] requires an object or function declaration");
         }
         if (friend_signature_context &&
             rcc_parser_cxx_end_function_signature_access) {
@@ -6965,6 +7063,8 @@ Stmt* parse_declaration(void) {
     declarator_is_noreturn = take_c_noreturn_attribute();
     parser_accumulate_c_nodiscard_attribute(
         &declarator_is_nodiscard, &declarator_nodiscard_message);
+    parser_accumulate_c_deprecated_attribute(
+        &declarator_is_deprecated, &declarator_deprecated_message);
     is_weak = is_weak || take_weak_attribute();
     is_naked = is_naked || take_naked_attribute();
     if (friend_signature_context) {
@@ -7008,6 +7108,10 @@ Stmt* parse_declaration(void) {
         if (is_noreturn || declarator_is_noreturn) {
             rcc_error(loc,
                       "C23 [[noreturn]] requires a function declaration");
+        }
+        if (is_deprecated || declarator_is_deprecated) {
+            rcc_error(loc,
+                      "C23 [[deprecated]] on typedef names is not yet supported");
         }
         if (is_thread_local) {
             rcc_error(loc, "thread-local storage is not valid on a typedef");
@@ -7130,6 +7234,10 @@ Stmt* parse_declaration(void) {
                 declaration, is_nodiscard || declarator_is_nodiscard,
                 declarator_nodiscard_message
                     ? declarator_nodiscard_message : nodiscard_message);
+            parser_apply_c_deprecated_attribute(
+                declaration, is_deprecated || declarator_is_deprecated,
+                declarator_deprecated_message
+                    ? declarator_deprecated_message : deprecated_message);
             declaration->is_weak = is_weak;
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
             while (match(TOK_COMMA)) {
@@ -7138,7 +7246,9 @@ Stmt* parse_declaration(void) {
                 bool next_is_weak;
                 bool next_is_noreturn;
                 bool next_is_nodiscard = is_nodiscard;
+                bool next_is_deprecated = is_deprecated;
                 const char* next_nodiscard_message = nodiscard_message;
+                const char* next_deprecated_message = deprecated_message;
                 if (friend_signature_context &&
                     rcc_parser_cxx_reset_function_signature_alias_uses) {
                     rcc_parser_cxx_reset_function_signature_alias_uses(
@@ -7150,6 +7260,8 @@ Stmt* parse_declaration(void) {
                     is_noreturn || take_c_noreturn_attribute();
                 parser_accumulate_c_nodiscard_attribute(
                     &next_is_nodiscard, &next_nodiscard_message);
+                parser_accumulate_c_deprecated_attribute(
+                    &next_is_deprecated, &next_deprecated_message);
                 Type* next_type = parse_declarator(
                     base_type, &next_name, &next_parameters);
                 next_type = parse_declarator_attributes(next_type);
@@ -7158,6 +7270,8 @@ Stmt* parse_declaration(void) {
                     next_is_noreturn || take_c_noreturn_attribute();
                 parser_accumulate_c_nodiscard_attribute(
                     &next_is_nodiscard, &next_nodiscard_message);
+                parser_accumulate_c_deprecated_attribute(
+                    &next_is_deprecated, &next_deprecated_message);
                 const char* next_register_asm_name =
                     parser_parse_register_asm_name(storage, next_type, loc);
                 next_is_weak = next_is_weak || take_weak_attribute();
@@ -7200,6 +7314,9 @@ Stmt* parse_declaration(void) {
                     parser_apply_c_nodiscard_attribute(
                         next_declaration, next_is_nodiscard,
                         next_nodiscard_message);
+                    parser_apply_c_deprecated_attribute(
+                        next_declaration, next_is_deprecated,
+                        next_deprecated_message);
                     next_declaration->is_weak = next_is_weak;
                     stmtlist_append(&declarations,
                                     stmt_decl(next_declaration, loc));
@@ -7218,6 +7335,9 @@ Stmt* parse_declaration(void) {
                     parser_apply_c_nodiscard_attribute(
                         next_declaration, next_is_nodiscard,
                         next_nodiscard_message);
+                    parser_apply_c_deprecated_attribute(
+                        next_declaration, next_is_deprecated,
+                        next_deprecated_message);
                     next_declaration->is_weak = next_is_weak;
                     stmtlist_append(&declarations,
                                     stmt_decl(next_declaration, loc));
@@ -7245,6 +7365,10 @@ Stmt* parse_declaration(void) {
             declaration, is_nodiscard || declarator_is_nodiscard,
             declarator_nodiscard_message
                 ? declarator_nodiscard_message : nodiscard_message);
+        parser_apply_c_deprecated_attribute(
+            declaration, is_deprecated || declarator_is_deprecated,
+            declarator_deprecated_message
+                ? declarator_deprecated_message : deprecated_message);
         declaration->is_weak = is_weak;
         declaration->func_is_naked = is_naked;
         return stmt_decl(declaration, loc);
@@ -7267,6 +7391,10 @@ Stmt* parse_declaration(void) {
             declaration, is_nodiscard || declarator_is_nodiscard,
             declarator_nodiscard_message
                 ? declarator_nodiscard_message : nodiscard_message);
+        parser_apply_c_deprecated_attribute(
+            declaration, is_deprecated || declarator_is_deprecated,
+            declarator_deprecated_message
+                ? declarator_deprecated_message : deprecated_message);
         declaration->is_weak = is_weak;
         stmtlist_append(&declarations, stmt_decl(declaration, loc));
 
@@ -7276,12 +7404,16 @@ Stmt* parse_declaration(void) {
             bool next_is_weak;
             bool next_is_noreturn;
             bool next_is_nodiscard = is_nodiscard;
+            bool next_is_deprecated = is_deprecated;
             const char* next_nodiscard_message = nodiscard_message;
+            const char* next_deprecated_message = deprecated_message;
             skip_attributes();
             next_is_weak = take_weak_attribute();
             next_is_noreturn = is_noreturn || take_c_noreturn_attribute();
             parser_accumulate_c_nodiscard_attribute(
                 &next_is_nodiscard, &next_nodiscard_message);
+            parser_accumulate_c_deprecated_attribute(
+                &next_is_deprecated, &next_deprecated_message);
             Type* next_type = parse_declarator(
                 base_type, &next_name, &next_parameters);
             next_type = parse_declarator_attributes(next_type);
@@ -7290,6 +7422,8 @@ Stmt* parse_declaration(void) {
                 next_is_noreturn || take_c_noreturn_attribute();
             parser_accumulate_c_nodiscard_attribute(
                 &next_is_nodiscard, &next_nodiscard_message);
+            parser_accumulate_c_deprecated_attribute(
+                &next_is_deprecated, &next_deprecated_message);
             const char* next_register_asm_name =
                 parser_parse_register_asm_name(storage, next_type, loc);
             next_is_weak = next_is_weak || take_weak_attribute();
@@ -7314,6 +7448,9 @@ Stmt* parse_declaration(void) {
                 parser_apply_c_nodiscard_attribute(
                     next_declaration, next_is_nodiscard,
                     next_nodiscard_message);
+                parser_apply_c_deprecated_attribute(
+                    next_declaration, next_is_deprecated,
+                    next_deprecated_message);
                 next_declaration->is_weak = next_is_weak;
                 stmtlist_append(&declarations,
                                 stmt_decl(next_declaration, loc));
@@ -7331,6 +7468,9 @@ Stmt* parse_declaration(void) {
             parser_apply_c_nodiscard_attribute(
                 declaration, next_is_nodiscard,
                 next_nodiscard_message);
+            parser_apply_c_deprecated_attribute(
+                declaration, next_is_deprecated,
+                next_deprecated_message);
             declaration->is_weak = next_is_weak;
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
         }
@@ -7361,6 +7501,8 @@ AST* rcc_parse(TokenList* tokens) {
     pending_c_noreturn_attribute = false;
     pending_c_nodiscard_attribute = false;
     pending_c_nodiscard_message = NULL;
+    pending_c_deprecated_attribute = false;
+    pending_c_deprecated_message = NULL;
     parser.cur = tokens->head;
     parser.prev = NULL;
     rcc_parser_reset_type_scopes();

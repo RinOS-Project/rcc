@@ -23579,6 +23579,19 @@ static Type* sema_resolve_typeof_type(Type* type) {
     return sema_resolve_typeof_type_recursive(type, NULL);
 }
 
+static void sema_warn_deprecated_use(Expr* expression, const char* kind,
+                                    const char* name, const char* message) {
+    if (!expression || expression->deprecated_warning_emitted) return;
+    expression->deprecated_warning_emitted = true;
+    if (message && *message) {
+        rcc_warning(expression->loc, "use of deprecated %s '%s': %s",
+                    kind, name ? name : "<declaration>", message);
+    } else {
+        rcc_warning(expression->loc, "use of deprecated %s '%s'",
+                    kind, name ? name : "<declaration>");
+    }
+}
+
 static Type* sema_expr(Expr* expr) {
     Expr* preanalyzed_binary_lhs = NULL;
     Type* preanalyzed_binary_lhs_type = NULL;
@@ -23901,19 +23914,9 @@ static Type* sema_expr(Expr* expr) {
                     expr->ident_name, expr->ident_decl, expr->loc);
                 if (expr->ident_decl->kind == DECL_VAR &&
                     expr->ident_decl->var_is_deprecated) {
-                    if (expr->ident_decl->var_deprecated_message &&
-                        *expr->ident_decl->var_deprecated_message) {
-                        rcc_warning(expr->loc,
-                                    "use of deprecated variable '%s': %s",
-                                    expr->ident_decl->name
-                                        ? expr->ident_decl->name : "<variable>",
-                                    expr->ident_decl->var_deprecated_message);
-                    } else {
-                        rcc_warning(expr->loc,
-                                    "use of deprecated variable '%s'",
-                                    expr->ident_decl->name
-                                        ? expr->ident_decl->name : "<variable>");
-                    }
+                    sema_warn_deprecated_use(
+                        expr, "variable", expr->ident_decl->name,
+                        expr->ident_decl->var_deprecated_message);
                 }
                 expr->type = expr->ident_decl->type &&
                     expr->ident_decl->type->is_reference
@@ -23996,19 +23999,9 @@ static Type* sema_expr(Expr* expr) {
                     ? sym->type->base : sym->type;
                 if (sym->decl && sym->decl->kind == DECL_VAR &&
                     sym->decl->var_is_deprecated) {
-                    if (sym->decl->var_deprecated_message &&
-                        *sym->decl->var_deprecated_message) {
-                        rcc_warning(expr->loc,
-                                    "use of deprecated variable '%s': %s",
-                                    sym->decl->name ? sym->decl->name
-                                                    : "<variable>",
-                                    sym->decl->var_deprecated_message);
-                    } else {
-                        rcc_warning(expr->loc,
-                                    "use of deprecated variable '%s'",
-                                    sym->decl->name ? sym->decl->name
-                                                    : "<variable>");
-                    }
+                    sema_warn_deprecated_use(
+                        expr, "variable", sym->decl->name,
+                        sym->decl->var_deprecated_message);
                 }
                 if (sym->kind == SYM_FUNC && sym->decl &&
                     sym->decl->func_overload_next) {
@@ -26034,22 +26027,9 @@ static Type* sema_expr(Expr* expr) {
                     expr->cxx_call_is_noexcept = method->is_noexcept;
                     if (method->source_decl &&
                         method->source_decl->func_is_deprecated) {
-                        if (method->source_decl->func_deprecated_message &&
-                            *method->source_decl->func_deprecated_message) {
-                            rcc_warning(expr->loc,
-                                        "use of deprecated function '%s': %s",
-                                        method->source_decl->name
-                                            ? method->source_decl->name
-                                            : "<function>",
-                                        method->source_decl
-                                            ->func_deprecated_message);
-                        } else {
-                            rcc_warning(expr->loc,
-                                        "use of deprecated function '%s'",
-                                        method->source_decl->name
-                                            ? method->source_decl->name
-                                            : "<function>");
-                        }
+                        sema_warn_deprecated_use(
+                            expr, "function", method->source_decl->name,
+                            method->source_decl->func_deprecated_message);
                     }
                     if (method->kind == TYPE_METHOD_FIELD_CLOSE) {
                         sema_prepare_cxx_close_call(expr, method,
@@ -26355,19 +26335,9 @@ static Type* sema_expr(Expr* expr) {
                 break;
             }
             if (call_declaration && call_declaration->func_is_deprecated) {
-                if (call_declaration->func_deprecated_message &&
-                    *call_declaration->func_deprecated_message) {
-                    rcc_warning(expr->loc,
-                                "use of deprecated function '%s': %s",
-                                call_declaration->name
-                                    ? call_declaration->name : "<function>",
-                                call_declaration->func_deprecated_message);
-                } else {
-                    rcc_warning(expr->loc,
-                                "use of deprecated function '%s'",
-                                call_declaration->name
-                                    ? call_declaration->name : "<function>");
-                }
+                sema_warn_deprecated_use(
+                    expr, "function", call_declaration->name,
+                    call_declaration->func_deprecated_message);
             }
             expr->cxx_call_is_noexcept = call_declaration &&
                                          call_declaration->func_is_noexcept;
@@ -26845,17 +26815,9 @@ static Type* sema_expr(Expr* expr) {
                         expr->cxx_member_xvalue = true;
                     }
                     if (field->is_deprecated) {
-                        if (field->deprecated_message &&
-                            *field->deprecated_message) {
-                            rcc_warning(expr->loc,
-                                        "use of deprecated member '%s': %s",
-                                        field->name,
-                                        field->deprecated_message);
-                        } else {
-                            rcc_warning(expr->loc,
-                                        "use of deprecated member '%s'",
-                                        field->name);
-                        }
+                        sema_warn_deprecated_use(
+                            expr, "member", field->name,
+                            field->deprecated_message);
                     }
                     /* cv-qualification of the containing object does not
                      * propagate through a reference data member: a const
@@ -31362,6 +31324,13 @@ static void sema_decl(Decl* decl) {
                 sym = symtab_define(g_symtab, decl->name, SYM_VAR,
                                     decl->type, decl->loc);
             }
+            if (sym->decl && sym->decl->var_is_deprecated) {
+                decl->var_is_deprecated = true;
+                if (!decl->var_deprecated_message) {
+                    decl->var_deprecated_message =
+                        sym->decl->var_deprecated_message;
+                }
+            }
             sym->decl = decl;
             if (!is_global || decl->var_init) sym->is_defined = true;
             decl->var_offset = sym->offset;
@@ -31650,6 +31619,14 @@ static void sema_decl(Decl* decl) {
                 if (!decl->func_nodiscard_message) {
                     decl->func_nodiscard_message =
                         redeclaration_prior->func_nodiscard_message;
+                }
+            }
+            if (redeclaration_prior &&
+                redeclaration_prior->func_is_deprecated) {
+                decl->func_is_deprecated = true;
+                if (!decl->func_deprecated_message) {
+                    decl->func_deprecated_message =
+                        redeclaration_prior->func_deprecated_message;
                 }
             }
 

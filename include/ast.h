@@ -722,6 +722,9 @@ struct Expr {
     ExprKind kind;
     Type* type;
     SourceLoc loc;
+    /* Semantic analysis may revisit an expression; deprecation diagnostics
+     * should still be emitted only once for this source-level use. */
+    bool deprecated_warning_emitted;
     /* Marks the literal spelling of C++ nullptr so it remains excluded from
      * integer constant expressions.  Its semantic type is TYPE_NULLPTR. */
     bool is_cxx_nullptr;
