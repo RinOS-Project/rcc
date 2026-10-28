@@ -11429,3 +11429,20 @@ remains a separate open item.
 - [ ] Atomic reads, volatile operands outside this bounded global/TLS form,
       more general computed division/remainder operands, and optimized
       multi-piece locations remain open.
+
+## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
+
+- [x] Compare direct `operator<`, `operator>`, `operator<=`, and `operator>=`
+      candidates with normal and reversed `operator<=>` rewritten candidates
+      before lowering. Prefer a better conversion sequence, prefer the direct
+      spelling on an equal sequence, and lower reversed candidates with the
+      operands in the correct comparison order. Also allow class-valued
+      spaceship results to use their own comparison-with-zero operators.
+      Regression coverage checks better-spaceship and direct-tie selection,
+      all four reversed relational spellings, and a class-valued comparison
+      result; `test-cxx-spaceship` passes for i686/AMD64 generation and x64
+      host execution. GCC C++20 `-pedantic-errors` agrees on a focused oracle.
+- [ ] Complete the full standard candidate set and ranking interactions,
+      including remaining built-in conversion candidates, templates, and
+      hidden-friend/ADL corner cases; retain the broader C++20 overload
+      conformance item as open.
