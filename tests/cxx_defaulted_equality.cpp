@@ -64,6 +64,21 @@ struct EqualityReversedFriend {
     }
 };
 
+struct EqualityInheritedBase {
+    int prefix;
+    bool operator==(const EqualityInheritedBase& other) const {
+        return prefix == other.prefix;
+    }
+};
+
+struct EqualityInheritedReverse : EqualityInheritedBase {
+    int value;
+    friend bool operator==(int expected,
+                           const EqualityInheritedReverse& actual) {
+        return expected == actual.value;
+    }
+};
+
 struct EqualityNonviableNotEqual {
     int value;
     friend bool operator==(const EqualityNonviableNotEqual&,
@@ -92,6 +107,7 @@ int main() {
     EqualityDirectNotEqual direct_not_equal_first{53};
     EqualityDirectNotEqual direct_not_equal_same{53};
     EqualityReversedFriend reversed_friend{59};
+    EqualityInheritedReverse inherited_reverse{{67}, 71};
     EqualityNonviableNotEqual nonviable_not_equal_first{61};
     EqualityNonviableNotEqual nonviable_not_equal_same{61};
     EqualityNonviableNotEqual nonviable_not_equal_different{62};
@@ -135,6 +151,10 @@ int main() {
     if (!(reversed_friend != 60)) return 24;
     if (!(reversed_friend == 59)) return 27;
     if (reversed_friend == 60) return 28;
+    if (!(inherited_reverse == 71)) return 29;
+    if (inherited_reverse == 72) return 30;
+    if (inherited_reverse != 71) return 31;
+    if (!(inherited_reverse != 72)) return 32;
     if (nonviable_not_equal_first != nonviable_not_equal_same) return 25;
     if (!(nonviable_not_equal_first != nonviable_not_equal_different)) {
         return 26;

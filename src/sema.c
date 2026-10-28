@@ -21100,6 +21100,26 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
                 *expression = *call;
                 return true;
             }
+            if (expression->kind == EXPR_EQ) {
+                ExprList* reversed_arguments = NULL;
+                Symbol* reversed_function;
+                exprlist_append(&reversed_arguments,
+                                expression->binary_rhs);
+                exprlist_append(&reversed_arguments,
+                                expression->binary_lhs);
+                reversed_function = sema_cxx_operator_function(
+                    "operator==", reversed_arguments);
+                if (sema_cxx_operator_has_viable_nonmember_candidate(
+                        reversed_function, reversed_arguments)) {
+                    function_expression = expr_ident("operator==",
+                                                     expression->loc);
+                    call = expr_call(function_expression,
+                                     reversed_arguments,
+                                     expression->loc);
+                    *expression = *call;
+                    return true;
+                }
+            }
         }
         member = expr_member(expression->binary_lhs, name, expression->loc);
         call = expr_call(member, exprlist_new(expression->binary_rhs),
