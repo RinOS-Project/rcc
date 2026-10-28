@@ -1,5 +1,21 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-10-29, C23 binary resource inclusion)
+
+- [x] Implement C23-only `#embed` and `__has_embed` using the compiler's
+  include-path search policy. Read resource bytes with explicit lengths,
+  preserve embedded NULs, honor `limit` without loading bytes past the selected
+  count, and track embedded resources in `-MMD` dependency output.
+- [x] Support `limit`, `prefix`, `suffix`, and `if_empty`, including the
+  standard double-underscore spellings; report NOT_FOUND/EMPTY/FOUND from
+  `__has_embed`, and diagnose malformed, duplicate, negative, and unsupported
+  parameters. Keep C17 `#embed` on the existing unknown-directive diagnostic
+  path.
+- [x] Add `test-c23-embed` to `test-c23` and therefore `test-ci`. Native
+  Windows verifies quoted/angle and macro-expanded names, empty and NUL-byte
+  resources, dependency output, i686/AMD64 objects, host execution, invalid
+  diagnostics, and the C17 mode boundary.
+
 ## RCC continuation (2026-10-28, C23 typeof type-name operands)
 
 - [x] Add C23-only `typeof` / `typeof_unqual` tokens and type-name parsing;

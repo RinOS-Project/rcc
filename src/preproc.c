@@ -18,6 +18,8 @@ typedef struct {
     size_t capacity;
 } PPBuffer;
 
+#define PP_MAX_FILE_BYTES ((size_t)-1 - 1u)
+
 static void buf_init(PPBuffer* buf) {
     buf->capacity = 4096;
     buf->data = rcc_alloc(buf->capacity);
@@ -169,6 +171,11 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__STDC__", "1");
     pp_define(pp, "__STDC_VERSION__",
               g_opts.c_standard >= 23 ? "202311L" : "201710L");
+    if (g_opts.c_standard >= 23) {
+        pp_define(pp, "__STDC_EMBED_NOT_FOUND__", "0");
+        pp_define(pp, "__STDC_EMBED_FOUND__", "1");
+        pp_define(pp, "__STDC_EMBED_EMPTY__", "2");
+    }
     char date_literal[12];
     char time_literal[9];
     if (pp_build_date_time_literals(date_literal, time_literal)) {
@@ -501,7 +508,10 @@ void pp_undef(Preprocessor* pp, const char* name) {
 }
 
 bool pp_is_defined(Preprocessor* pp, const char* name) {
-    if (name && strcmp(name, "__has_builtin") == 0) return true;
+    if (name && (strcmp(name, "__has_builtin") == 0 ||
+                 strcmp(name, "__has_include") == 0 ||
+                 (!pp->cxx_mode && g_opts.c_standard >= 23 &&
+                  strcmp(name, "__has_embed") == 0))) return true;
     return pp_get_macro(pp, name) != NULL;
 }
 
@@ -642,8 +652,12 @@ static const char* read_string(const char* p, char* buf, size_t buf_size,
     return p;
 }
 
-/* Read entire file into memory */
-static char* read_file(const char* filename) {
+/* Read an entire file into memory while preserving its byte count.  Source
+ * files still consume the trailing NUL sentinel; binary resources use the
+ * reported length so embedded zero bytes are not mistaken for EOF. */
+static char* read_file_with_size(const char* filename, size_t max_size,
+                                size_t* size_out) {
+    if (size_out) *size_out = 0u;
     FILE* f = fopen(filename, "rb");
     if (!f) return NULL;
 
@@ -652,15 +666,23 @@ static char* read_file(const char* filename) {
         rcc_fatal("cannot seek include file '%s'", filename);
         return NULL;
     }
-    long size = ftell(f);
-    if (size < 0 || fseek(f, 0, SEEK_SET) != 0) {
+    long file_size = ftell(f);
+    if (file_size < 0 || fseek(f, 0, SEEK_SET) != 0) {
         fclose(f);
         rcc_fatal("cannot determine include file size '%s'", filename);
         return NULL;
     }
 
-    char* buf = rcc_alloc((size_t)size + 1u);
-    if (fread(buf, 1, (size_t)size, f) != (size_t)size) {
+    size_t size = (size_t)file_size;
+    if ((long)size != file_size || size == (size_t)-1) {
+        fclose(f);
+        rcc_fatal("include file is too large '%s'", filename);
+        return NULL;
+    }
+    if (size > max_size) size = max_size;
+
+    char* buf = rcc_alloc(size + 1u);
+    if (fread(buf, 1, size, f) != size) {
         rcc_free(buf);
         fclose(f);
         rcc_fatal("cannot read include file '%s'", filename);
@@ -668,7 +690,12 @@ static char* read_file(const char* filename) {
     }
     buf[size] = '\0';
     fclose(f);
+    if (size_out) *size_out = size;
     return buf;
+}
+
+static char* read_file(const char* filename) {
+    return read_file_with_size(filename, PP_MAX_FILE_BYTES, NULL);
 }
 
 /* C17/C++20 translation phase 1 maps the supported physical line endings to
@@ -729,7 +756,9 @@ static bool include_path_contains_file(const char* include_path,
  * cannot include itself again through an accidental search restart. */
 static char* find_include(Preprocessor* pp, const char* name, const char* current_file,
                           bool is_system, bool include_next,
-                          char* resolved, size_t resolved_size) {
+                          char* resolved, size_t resolved_size,
+                          size_t max_content_size,
+                          size_t* content_size) {
     char path[RCC_MAX_PATH];
     int include_path_start = 0;
 
@@ -767,7 +796,8 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
             }
             memcpy(path, current_file, dir_len);
             memcpy(path + dir_len, name, name_len + 1u);
-            char* content = read_file(path);
+            char* content = read_file_with_size(path, max_content_size,
+                                                content_size);
             if (content) {
                 WRITE_RESOLVED_PATH(path);
                 return content;
@@ -786,7 +816,8 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
         memcpy(path, pp->include_paths[i], dir_len);
         path[dir_len] = '/';
         memcpy(path + dir_len + 1u, name, name_len + 1u);
-        char* content = read_file(path);
+        char* content = read_file_with_size(path, max_content_size,
+                                            content_size);
         if (content) {
             WRITE_RESOLVED_PATH(path);
             return content;
@@ -798,7 +829,7 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
     if (strlen(name) >= sizeof(path)) {
         rcc_fatal("include path is too long");
     }
-    char* content = read_file(name);
+    char* content = read_file_with_size(name, max_content_size, content_size);
     if (content) {
         WRITE_RESOLVED_PATH(name);
         return content;
@@ -816,7 +847,7 @@ static bool pp_has_include(Preprocessor* pp, const char* name,
                            bool is_system) {
     char resolved[RCC_MAX_PATH];
     char* content = find_include(pp, name, pp->current_file, is_system, false,
-                                 resolved, sizeof(resolved));
+                                 resolved, sizeof(resolved), 0u, NULL);
     if (!content) return false;
     rcc_free(content);
     return true;
@@ -882,6 +913,27 @@ typedef struct {
     const char* input;
     bool invalid;
 } PPExprParser;
+
+typedef struct {
+    char resource_name[RCC_MAX_PATH];
+    bool is_system;
+    bool has_limit;
+    uint64_t limit;
+    bool has_prefix;
+    const char* prefix;
+    size_t prefix_length;
+    bool has_suffix;
+    const char* suffix;
+    size_t suffix_length;
+    bool has_if_empty;
+    const char* if_empty;
+    size_t if_empty_length;
+    bool has_unsupported_parameter;
+    bool has_unrecognized_parameter;
+} PPEmbedSpec;
+
+static int pp_probe_embed_expression(Preprocessor* pp, const char* open_paren,
+                                     const char** after, bool* valid);
 
 static PPExprValue pp_expr_signed(int64_t value) {
     PPExprValue result = {(uint64_t)value, false};
@@ -1347,6 +1399,24 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
                 p = cursor;
                 continue;
             }
+            if (strcmp(ident, "__has_embed") == 0 &&
+                !pp->cxx_mode && g_opts.c_standard >= 23) {
+                const char* cursor = pp_expr_skip(end);
+                bool probe_valid = true;
+                int value = pp_probe_embed_expression(
+                    pp, cursor, &cursor, &probe_valid);
+                if (!probe_valid) {
+                    *valid = false;
+                    buf_append_str(&protected, "0");
+                    p = end;
+                    continue;
+                }
+                char value_text[16];
+                snprintf(value_text, sizeof(value_text), "%d", value);
+                buf_append_str(&protected, value_text);
+                p = cursor;
+                continue;
+            }
             if (strcmp(ident, "__has_cpp_attribute") == 0) {
                 const char* cursor = pp_expr_skip(end);
                 char attribute[256];
@@ -1414,8 +1484,9 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
     return expanded;
 }
 
-static bool pp_eval_expression(Preprocessor* pp, const char* expression,
-                               bool* valid) {
+static PPExprValue pp_eval_integer_expression(Preprocessor* pp,
+                                             const char* expression,
+                                             bool* valid) {
     char* expanded = pp_prepare_if_expression(pp, expression, valid);
     PPExprParser parser = {expanded, !*valid};
     PPExprValue value = pp_expr_conditional(&parser);
@@ -1425,7 +1496,298 @@ static bool pp_eval_expression(Preprocessor* pp, const char* expression,
     }
     *valid = !parser.invalid;
     rcc_free(expanded);
+    return value;
+}
+
+static bool pp_eval_expression(Preprocessor* pp, const char* expression,
+                               bool* valid) {
+    PPExprValue value = pp_eval_integer_expression(pp, expression, valid);
     return *valid && pp_expr_truth(value);
+}
+
+static const char* pp_matching_paren(const char* open,
+                                     bool allow_angle_header) {
+    const char* p;
+    char quoted = '\0';
+    char close_stack[256];
+    size_t stack_depth = 1u;
+    bool in_angle_header = false;
+
+    if (!open || *open != '(') return NULL;
+    close_stack[0] = ')';
+    p = open + 1;
+    if (allow_angle_header && *pp_expr_skip(p) == '<') {
+        p = pp_expr_skip(p);
+        in_angle_header = true;
+    }
+    for (; *p && *p != '\n'; ++p) {
+        if (quoted) {
+            if (*p == '\\' && p[1]) ++p;
+            else if (*p == quoted) quoted = '\0';
+            continue;
+        }
+        if (in_angle_header) {
+            if (*p == '>') in_angle_header = false;
+            continue;
+        }
+        if (*p == '"' || *p == '\'') {
+            quoted = *p;
+            continue;
+        }
+        if (*p == '(' || *p == '[' || *p == '{') {
+            if (stack_depth >= sizeof(close_stack)) return NULL;
+            close_stack[stack_depth++] = *p == '(' ? ')'
+                : *p == '[' ? ']' : '}';
+        } else if (*p == ')' || *p == ']' || *p == '}') {
+            if (stack_depth == 0u || close_stack[stack_depth - 1u] != *p) {
+                return NULL;
+            }
+            if (--stack_depth == 0u) return p;
+        }
+    }
+    return NULL;
+}
+
+static bool pp_contains_defined_token(const char* text) {
+    const char* p = text;
+    while (*p) {
+        if (*p == '"' || *p == '\'') {
+            char quote = *p++;
+            while (*p && *p != quote && *p != '\n') {
+                if (*p == '\\' && p[1]) p += 2;
+                else ++p;
+            }
+            if (*p == quote) ++p;
+            continue;
+        }
+        if (isalpha((unsigned char)*p) || *p == '_') {
+            const char* start = p++;
+            while (isalnum((unsigned char)*p) || *p == '_') ++p;
+            if ((size_t)(p - start) == 7u &&
+                memcmp(start, "defined", 7u) == 0) return true;
+            continue;
+        }
+        ++p;
+    }
+    return false;
+}
+
+static bool pp_parse_embed_spec(Preprocessor* pp, const char* text,
+                                PPEmbedSpec* spec, const char** error) {
+    const char* p = pp_expr_skip(text);
+    size_t resource_length = 0u;
+
+    memset(spec, 0, sizeof(*spec));
+    if (error) *error = "expected a quoted or angle-bracket resource name";
+    if (*p == '"') {
+        const char* start = ++p;
+        while (*p && *p != '"' && *p != '\n') ++p;
+        if (*p != '"') return false;
+        resource_length = (size_t)(p - start);
+        if (resource_length >= sizeof(spec->resource_name)) {
+            if (error) *error = "resource name is too long";
+            return false;
+        }
+        memcpy(spec->resource_name, start, resource_length);
+        ++p;
+    } else if (*p == '<') {
+        const char* start = ++p;
+        while (*p && *p != '>' && *p != '\n') ++p;
+        if (*p != '>') return false;
+        resource_length = (size_t)(p - start);
+        if (resource_length >= sizeof(spec->resource_name)) {
+            if (error) *error = "resource name is too long";
+            return false;
+        }
+        memcpy(spec->resource_name, start, resource_length);
+        spec->is_system = true;
+        ++p;
+    } else {
+        return false;
+    }
+    spec->resource_name[resource_length] = '\0';
+    if (resource_length == 0u) return false;
+
+    for (;;) {
+        char parameter[128];
+        const char* parameter_start;
+        const char* argument_start;
+        const char* close;
+        size_t parameter_length;
+        p = pp_expr_skip(p);
+        if (!*p || *p == '\r' || *p == '\n') return true;
+
+        parameter_start = p;
+        if (!(isalpha((unsigned char)*p) || *p == '_')) {
+            if (error) *error = "expected an embed parameter name";
+            return false;
+        }
+        ++p;
+        while (isalnum((unsigned char)*p) || *p == '_') ++p;
+        if (p[0] == ':' && p[1] == ':') {
+            p += 2;
+            if (!(isalpha((unsigned char)*p) || *p == '_')) {
+                if (error) *error = "expected a name after '::'";
+                return false;
+            }
+            ++p;
+            while (isalnum((unsigned char)*p) || *p == '_') ++p;
+        }
+        parameter_length = (size_t)(p - parameter_start);
+        if (parameter_length >= sizeof(parameter)) {
+            if (error) *error = "embed parameter name is too long";
+            return false;
+        }
+        memcpy(parameter, parameter_start, parameter_length);
+        parameter[parameter_length] = '\0';
+        if (strcmp(parameter, "__limit__") == 0) {
+            strcpy(parameter, "limit");
+        } else if (strcmp(parameter, "__prefix__") == 0) {
+            strcpy(parameter, "prefix");
+        } else if (strcmp(parameter, "__suffix__") == 0) {
+            strcpy(parameter, "suffix");
+        } else if (strcmp(parameter, "__if_empty__") == 0) {
+            strcpy(parameter, "if_empty");
+        }
+        p = pp_expr_skip(p);
+        if (*p != '(') {
+            if (strstr(parameter, "::")) {
+                spec->has_unsupported_parameter = true;
+                continue;
+            }
+            if (error) *error = "standard embed parameter requires a parenthesized argument";
+            return false;
+        }
+        close = pp_matching_paren(p, false);
+        if (!close) {
+            if (error) *error = "unterminated embed parameter argument";
+            return false;
+        }
+        argument_start = p + 1;
+
+        if (strcmp(parameter, "limit") == 0) {
+            bool expression_valid = true;
+            PPExprValue limit_value;
+            size_t argument_length = (size_t)(close - argument_start);
+            char* expression;
+            if (spec->has_limit) {
+                if (error) *error = "duplicate 'limit' embed parameter";
+                return false;
+            }
+            if (argument_length == 0u) {
+                if (error) *error = "'limit' requires an integer constant expression";
+                return false;
+            }
+            expression = rcc_alloc(argument_length + 1u);
+            memcpy(expression, argument_start, argument_length);
+            expression[argument_length] = '\0';
+            if (pp_contains_defined_token(expression)) {
+                rcc_free(expression);
+                if (error) *error = "'defined' is not permitted in a 'limit' expression";
+                return false;
+            }
+            limit_value = pp_eval_integer_expression(
+                pp, expression, &expression_valid);
+            rcc_free(expression);
+            if (!expression_valid ||
+                (!limit_value.is_unsigned &&
+                 (int64_t)limit_value.bits < 0)) {
+                if (error) *error = "'limit' requires a nonnegative integer constant expression";
+                return false;
+            }
+            spec->has_limit = true;
+            spec->limit = limit_value.bits;
+        } else if (strcmp(parameter, "prefix") == 0) {
+            if (spec->has_prefix) {
+                if (error) *error = "duplicate 'prefix' embed parameter";
+                return false;
+            }
+            spec->has_prefix = true;
+            spec->prefix = argument_start;
+            spec->prefix_length = (size_t)(close - argument_start);
+        } else if (strcmp(parameter, "suffix") == 0) {
+            if (spec->has_suffix) {
+                if (error) *error = "duplicate 'suffix' embed parameter";
+                return false;
+            }
+            spec->has_suffix = true;
+            spec->suffix = argument_start;
+            spec->suffix_length = (size_t)(close - argument_start);
+        } else if (strcmp(parameter, "if_empty") == 0) {
+            if (spec->has_if_empty) {
+                if (error) *error = "duplicate 'if_empty' embed parameter";
+                return false;
+            }
+            spec->has_if_empty = true;
+            spec->if_empty = argument_start;
+            spec->if_empty_length = (size_t)(close - argument_start);
+        } else {
+            if (strstr(parameter, "::")) {
+                spec->has_unsupported_parameter = true;
+            } else {
+                spec->has_unrecognized_parameter = true;
+            }
+        }
+        p = close + 1;
+    }
+}
+
+static int pp_probe_embed_expression(Preprocessor* pp, const char* open_paren,
+                                     const char** after, bool* valid) {
+    const char* close = pp_matching_paren(open_paren, true);
+    size_t argument_length;
+    char* argument;
+    char* expanded;
+    PPEmbedSpec spec;
+    const char* error = NULL;
+    char resolved[RCC_MAX_PATH];
+    size_t resource_size = 0u;
+    char* resource;
+    int result = 0;
+
+    if (!close) {
+        *valid = false;
+        if (after) *after = open_paren;
+        return 0;
+    }
+    if (after) *after = close + 1;
+    argument_length = (size_t)(close - (open_paren + 1));
+    argument = rcc_alloc(argument_length + 1u);
+    memcpy(argument, open_paren + 1, argument_length);
+    argument[argument_length] = '\0';
+    expanded = expand_macros(pp, argument);
+    rcc_free(argument);
+
+    if (!pp_parse_embed_spec(pp, expanded, &spec, &error)) {
+        *valid = false;
+        rcc_free(expanded);
+        return 0;
+    }
+    if (spec.has_unrecognized_parameter) {
+        *valid = false;
+        rcc_free(expanded);
+        return 0;
+    }
+    if (spec.has_unsupported_parameter) {
+        rcc_free(expanded);
+        return 0;
+    }
+    size_t max_content_size = spec.has_limit &&
+            spec.limit < (uint64_t)PP_MAX_FILE_BYTES
+        ? (size_t)spec.limit : PP_MAX_FILE_BYTES;
+    resource = find_include(pp, spec.resource_name, pp->current_file,
+                            spec.is_system, false, resolved, sizeof(resolved),
+                            max_content_size, &resource_size);
+    if (resource) {
+        size_t selected_size = resource_size;
+        if (spec.has_limit && spec.limit < (uint64_t)selected_size) {
+            selected_size = (size_t)spec.limit;
+        }
+        result = selected_size == 0u ? 2 : 1;
+        rcc_free(resource);
+    }
+    rcc_free(expanded);
+    return result;
 }
 
 /* C17 translation phase 2 removes every backslash-newline pair before
@@ -2085,6 +2447,89 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
     return result.data;
 }
 
+static const char* process_embed_directive(Preprocessor* pp, const char* p,
+                                           const char* filename,
+                                           int source_line,
+                                           PPBuffer* output) {
+    const char* original_end = skip_to_eol(p);
+    size_t directive_length = (size_t)(original_end - p);
+    char* directive_text;
+    char* expanded;
+    PPEmbedSpec spec;
+    const char* error = NULL;
+    char resolved[RCC_MAX_PATH];
+    size_t resource_size = 0u;
+    char* resource;
+
+    if (!pp_is_active(pp)) return original_end;
+    directive_text = rcc_alloc(directive_length + 1u);
+    memcpy(directive_text, p, directive_length);
+    directive_text[directive_length] = '\0';
+    expanded = expand_macros(pp, directive_text);
+    rcc_free(directive_text);
+    if (!pp_parse_embed_spec(pp, expanded, &spec, &error)) {
+        rcc_error((SourceLoc){filename, source_line, 0},
+                  "invalid #embed directive: %s",
+                  error ? error : "invalid resource or parameter syntax");
+        rcc_free(expanded);
+        return original_end;
+    }
+    if (spec.has_unsupported_parameter || spec.has_unrecognized_parameter) {
+        rcc_error((SourceLoc){filename, source_line, 0},
+                  "unsupported #embed parameter");
+        rcc_free(expanded);
+        return original_end;
+    }
+
+    resource = find_include(pp, spec.resource_name, filename, spec.is_system,
+                            false, resolved, sizeof(resolved),
+                            spec.has_limit &&
+                                    spec.limit < (uint64_t)PP_MAX_FILE_BYTES
+                                ? (size_t)spec.limit : PP_MAX_FILE_BYTES,
+                            &resource_size);
+    if (!resource) {
+        rcc_error((SourceLoc){filename, source_line, 0},
+                  "cannot find binary resource: %s", spec.resource_name);
+        rcc_free(expanded);
+        return original_end;
+    }
+    pp_add_dependency(pp, resolved);
+
+    size_t selected_size = resource_size;
+    if (spec.has_limit && spec.limit < (uint64_t)selected_size) {
+        selected_size = (size_t)spec.limit;
+    }
+    if (selected_size == 0u) {
+        if (spec.has_if_empty && spec.if_empty_length > 0u) {
+            buf_append(output, spec.if_empty, spec.if_empty_length);
+        }
+    } else {
+        if (spec.has_prefix && spec.prefix_length > 0u) {
+            buf_append(output, spec.prefix, spec.prefix_length);
+            buf_append_char(output, ' ');
+        }
+        for (size_t index = 0u; index < selected_size; ++index) {
+            char value[4];
+            int written;
+            if (index != 0u) buf_append_str(output, ", ");
+            written = snprintf(value, sizeof(value), "%u",
+                               (unsigned int)(unsigned char)resource[index]);
+            if (written < 0 || (size_t)written >= sizeof(value)) {
+                rcc_fatal("cannot format #embed byte value");
+            }
+            buf_append(output, value, (size_t)written);
+        }
+        if (spec.has_suffix && spec.suffix_length > 0u) {
+            buf_append_char(output, ' ');
+            buf_append(output, spec.suffix, spec.suffix_length);
+        }
+    }
+
+    rcc_free(resource);
+    rcc_free(expanded);
+    return original_end;
+}
+
 /* Process a single directive */
 static const char* process_directive(Preprocessor* pp, const char* p,
                                      const char* filename, int source_line,
@@ -2146,8 +2591,8 @@ static const char* process_directive(Preprocessor* pp, const char* p,
 
         char resolved[RCC_MAX_PATH];
         char* content = find_include(pp, inc_name, filename, is_system,
-                                     include_next,
-                                     resolved, sizeof(resolved));
+                                     include_next, resolved, sizeof(resolved),
+                                     PP_MAX_FILE_BYTES, NULL);
         if (!content) {
             rcc_error((SourceLoc){filename, 0, 0},
                       "cannot find %s file: %s", include_directive, inc_name);
@@ -2192,6 +2637,11 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         rcc_free(processed);
 
         return original_end;
+    }
+
+    if (strcmp(directive, "embed") == 0 &&
+        !pp->cxx_mode && g_opts.c_standard >= 23) {
+        return process_embed_directive(pp, p, filename, source_line, output);
     }
 
     if (strcmp(directive, "define") == 0) {

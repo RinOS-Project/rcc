@@ -1185,8 +1185,69 @@ test-c-null-void-pointer-constant: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.ro)
 	@echo "C17 void-pointer null constant and C++ rejection tests completed"
 
-test-c23: $(RCC_TARGET) test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order
-	@echo "RCC C23 nullptr, empty-initialization, and typeof regressions completed"
+.PHONY: test-c23-embed
+test-c23: $(RCC_TARGET) test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-embed
+	@echo "RCC C23 nullptr, empty-initialization, typeof, and binary-resource regressions completed"
+
+test-c23-embed: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-embed)
+	$(CC) -std=c17 -Wall -Wextra -Werror -o \
+		$(TEST_OUT)/c23-embed/write-resource tests/c23_embed_resource_writer.c
+	$(TEST_OUT)/c23-embed/write-resource $(TEST_OUT)/c23-embed/nul.bin
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -Itests -E \
+		tests/c23_embed.c > $(TEST_OUT)/c23-embed/preprocessed.i
+	$(GREP) -F -q '65, 66, 67, 10' $(TEST_OUT)/c23-embed/preprocessed.i
+	$(GREP) -F -q '99, 65, 66, 67, 10' $(TEST_OUT)/c23-embed/preprocessed.i
+	$(GREP) -F -q '55' $(TEST_OUT)/c23-embed/preprocessed.i
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -E \
+		tests/preprocessor_embed_c17.c > $(TEST_OUT)/c23-embed/c17.i 2> \
+		$(TEST_OUT)/c23-embed/c17.log
+	$(GREP) -F -q 'int c17_preprocessor_embed_stays_unexpanded(void)' \
+		$(TEST_OUT)/c23-embed/c17.i
+	$(GREP) -F -q 'unknown preprocessor directive: #embed' \
+		$(TEST_OUT)/c23-embed/c17.log
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -Itests -c \
+		-o $(TEST_OUT)/c23-embed/x86.ro tests/c23_embed.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -Itests -c \
+		-o $(TEST_OUT)/c23-embed/x64.ro tests/c23_embed.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -Itests -c -MMD \
+		-MF $(TEST_OUT)/c23-embed/embed.d \
+		-o $(TEST_OUT)/c23-embed/dependencies.ro tests/c23_embed.c
+	$(GREP) -F -q 'tests/c23_embed_resource.bin' \
+		$(TEST_OUT)/c23-embed/embed.d
+	$(GREP) -F -q 'tests/c23_embed_empty_resource.bin' \
+		$(TEST_OUT)/c23-embed/embed.d
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -Itests -S \
+		-o $(TEST_OUT)/c23-embed/host.s tests/c23_embed.c
+	$(CC) -o $(TEST_OUT)/c23-embed/host $(TEST_OUT)/c23-embed/host.s
+	$(TEST_OUT)/c23-embed/host
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c \
+		-o $(TEST_OUT)/c23-embed/nul-x86.ro tests/c23_embed_nul.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c \
+		-o $(TEST_OUT)/c23-embed/nul-x64.ro tests/c23_embed_nul.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S \
+		-o $(TEST_OUT)/c23-embed/nul-host.s tests/c23_embed_nul.c
+	$(CC) -o $(TEST_OUT)/c23-embed/nul-host $(TEST_OUT)/c23-embed/nul-host.s
+	$(TEST_OUT)/c23-embed/nul-host
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -Itests -c -o $(TEST_OUT)/c23-embed/unsupported.ro tests/invalid_c23_embed_parameter.c,$(TEST_OUT)/c23-embed/unsupported.log)
+	$(GREP) -F -q 'unsupported #embed parameter' \
+		$(TEST_OUT)/c23-embed/unsupported.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -Itests -c -o $(TEST_OUT)/c23-embed/negative-limit.ro tests/invalid_c23_embed_limit.c,$(TEST_OUT)/c23-embed/negative-limit.log)
+	$(GREP) -F -q 'nonnegative integer constant expression' \
+		$(TEST_OUT)/c23-embed/negative-limit.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -Itests -c -o $(TEST_OUT)/c23-embed/duplicate-limit.ro tests/invalid_c23_embed_duplicate.c,$(TEST_OUT)/c23-embed/duplicate-limit.log)
+	$(GREP) -F -q "duplicate 'limit' embed parameter" \
+		$(TEST_OUT)/c23-embed/duplicate-limit.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -Itests -c -o $(TEST_OUT)/c23-embed/defined-limit.ro tests/invalid_c23_embed_defined.c,$(TEST_OUT)/c23-embed/defined-limit.log)
+	$(GREP) -F -q "not permitted in a 'limit' expression" \
+		$(TEST_OUT)/c23-embed/defined-limit.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -Itests -c -o $(TEST_OUT)/c23-embed/unbalanced.ro tests/invalid_c23_embed_unbalanced.c,$(TEST_OUT)/c23-embed/unbalanced.log)
+	$(GREP) -F -q 'unterminated embed parameter argument' \
+		$(TEST_OUT)/c23-embed/unbalanced.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -Itests -c -o $(TEST_OUT)/c23-embed/invalid-probe.ro tests/invalid_preprocessor_has_embed.c,$(TEST_OUT)/c23-embed/invalid-probe.log)
+	$(GREP) -F -q 'invalid #if expression' \
+		$(TEST_OUT)/c23-embed/invalid-probe.log
+	@echo "C23 #embed and __has_embed tests completed"
 
 test-c23-vla-declarator-order: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-vla-declarator-order)
