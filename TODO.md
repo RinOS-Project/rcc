@@ -11413,8 +11413,9 @@ remains a separate open item.
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [x] Compose i686 signed 64-bit global and TLS add/sub operands nested as
       `left ± (right * 2)` into low/high `DW_OP_piece` values, including the
-      cross-word high bit from doubling. Interpret signed-boundary cases in
-      both legacy and verified C++20 objects with global and TLS relocations.
-      Focused `test-debug-info-inline-expression` passes.
+      cross-word high bit from doubling; also verify the TLS `left + (right <<
+      1)` form. Interpret signed-boundary cases in both legacy and verified
+      C++20 objects with global and TLS relocations. Focused
+      `test-debug-info-inline-expression` passes.
 - [ ] Volatile or atomic reads, more general computed division/remainder
       operands, and optimized multi-piece locations remain open.

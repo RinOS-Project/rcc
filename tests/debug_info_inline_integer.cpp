@@ -1190,7 +1190,7 @@ debug_inline_nonconstant_signed_long_long_tls_nested_add_entry(void)
 {
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_tls_add_lhs +
-        debug_inline_nonconstant_signed_long_long_tls_add_rhs * 2LL);
+        (debug_inline_nonconstant_signed_long_long_tls_add_rhs << 1));
 }
 
 extern "C" long long
