@@ -11460,4 +11460,7 @@ remains a separate open item.
       `-pedantic-errors` runtime oracle confirms the reversed rewrite in named
       and inline namespaces.
 - [ ] Continue auditing ADL candidate identity and hidden-friend lookup across
-      templates and redeclarations.
+      templates and redeclarations. A hidden-friend `operator<=>` dependent on
+      a class-template specialization is not yet surfaced to relational
+      rewritten-candidate selection; bridge class/function-template
+      materialization into operator lookup before claiming that case.
