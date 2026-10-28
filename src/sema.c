@@ -25080,6 +25080,14 @@ static Type* sema_expr(Expr* expr) {
                 expr->call_func->ident_decl->kind == DECL_FUNC) {
                 call_declaration = expr->call_func->ident_decl;
             }
+            if (call_declaration && call_declaration->func_is_deleted) {
+                rcc_error(expr->loc,
+                          "use of deleted function '%s'",
+                          call_declaration->name
+                              ? call_declaration->name : "<function>");
+                expr->type = type_int;
+                break;
+            }
             if (call_declaration && call_declaration->func_is_deprecated) {
                 if (call_declaration->func_deprecated_message &&
                     *call_declaration->func_deprecated_message) {

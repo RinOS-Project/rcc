@@ -1421,6 +1421,7 @@ struct Decl {
             Type* func_method_owner; /* Owning class type for C++ methods. */
             CxxFriendAccess* func_friend_access; /* Classes granting friendship. */
             bool func_is_hidden_friend; /* Lookup only through ADL. */
+            bool func_is_deleted; /* Deleted free/hidden-friend function. */
             bool func_is_inline;
             bool func_is_naked;
             bool func_is_defined;

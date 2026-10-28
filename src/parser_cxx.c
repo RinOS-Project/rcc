@@ -11149,6 +11149,7 @@ static void cxx_complete_defaulted_equality_methods(CxxClass* cls) {
          * there are no memberwise semantics for choosing an active member. */
         if (cls->is_union) {
             method->is_deleted = true;
+            method->decl->func_is_deleted = true;
             continue;
         }
 
@@ -11308,8 +11309,14 @@ static void cxx_complete_defaulted_equality_methods(CxxClass* cls) {
             strcmp(method->source_name, "operator==") != 0 ||
             !method->decl || method->decl->func_body ||
             !method->decl->type ||
-            !type_is_compatible(method->decl->type->ret_type, type_bool) ||
-            cls->is_union) {
+            !type_is_compatible(method->decl->type->ret_type, type_bool)) {
+            continue;
+        }
+        /* As with a member defaulted equality operator, a hidden friend
+         * defaulted for a union is implicitly deleted. */
+        if (cls->is_union) {
+            method->is_deleted = true;
+            method->decl->func_is_deleted = true;
             continue;
         }
         loc = method->decl->loc;
@@ -12080,6 +12087,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_pure_virtual = is_pure;
         method->is_deleted = is_deleted;
         method->is_defaulted = is_defaulted;
+        method->decl->func_is_deleted = is_deleted;
         method->is_constructor = is_constructor;
         method->is_destructor = is_destructor;
         if ((is_const || is_volatile ||
