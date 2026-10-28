@@ -49,6 +49,8 @@ extern int rcc_parser_cxx_materialize_member_function_templates(
     __attribute__((weak));
 extern int rcc_parser_cxx_materialize_constructor_templates(
     Type*, ExprList*, bool, TypeMethod**, int, bool*) __attribute__((weak));
+extern int rcc_parser_cxx_materialize_adl_function_templates(
+    const char*, ExprList*, Decl**, int, bool*) __attribute__((weak));
 extern bool rcc_parser_cxx_has_constructor_template(
     Type*) __attribute__((weak));
 extern bool rcc_parser_cxx_normalize_constructor_body(
@@ -12642,6 +12644,7 @@ static Symbol* sema_cxx_operator_function(const char* name,
                                           ExprList* arguments) {
     Symbol* functions;
     SemaCxxAdlCandidates matching = {0};
+    Decl* template_candidates[32] = { NULL };
     int argument_count = 0;
     if (!name) return NULL;
     for (ExprList* argument = arguments; argument;
@@ -12672,7 +12675,72 @@ static Symbol* sema_cxx_operator_function(const char* name,
             sema_cxx_adl_append_candidate(&matching, candidate);
         }
     }
+#if defined(__GNUC__) || defined(__clang__)
+    if (arguments && rcc_parser_cxx_materialize_adl_function_templates) {
+        bool constraint_unsupported = false;
+        int template_count =
+            rcc_parser_cxx_materialize_adl_function_templates(
+                name, arguments, template_candidates,
+                (int)(sizeof(template_candidates) /
+                      sizeof(template_candidates[0])),
+                &constraint_unsupported);
+        if (constraint_unsupported) {
+            SourceLoc loc = arguments->expr ? arguments->expr->loc
+                                            : (SourceLoc){"<sema>", 0, 0};
+            rcc_error(loc,
+                      "function template constraint for overloaded operator '%s' could not be evaluated",
+                      name);
+        }
+        if (template_count > (int)(sizeof(template_candidates) /
+                                   sizeof(template_candidates[0]))) {
+            template_count = (int)(sizeof(template_candidates) /
+                                   sizeof(template_candidates[0]));
+        }
+        for (int index = 0; index < template_count; ++index) {
+            Decl* candidate = template_candidates[index];
+            TypeParam* parameter = candidate && candidate->type &&
+                    candidate->type->kind == TYPE_FUNC
+                ? candidate->type->params : NULL;
+            int parameter_count = 0;
+            for (; parameter; parameter = parameter->next) {
+                if (parameter_count == INT_MAX) break;
+                ++parameter_count;
+            }
+            if (parameter_count == argument_count &&
+                !sema_cxx_adl_contains(&matching, candidate)) {
+                sema_cxx_adl_append_candidate(&matching, candidate);
+            }
+        }
+    }
+#endif
     return sema_cxx_make_function_symbol(name, &matching);
+}
+
+static Expr* sema_cxx_selected_operator_function(const char* name,
+                                                 Decl* declaration,
+                                                 SourceLoc loc) {
+    Expr* function = expr_ident(name, loc);
+    if (!declaration || declaration->kind != DECL_FUNC ||
+        !declaration->func_is_template_instance) {
+        return function;
+    }
+    function->ident_decl = declaration;
+    function->type = declaration->type;
+    if (current_ast) {
+        bool already_registered = false;
+        for (DeclList* item = current_ast->decls; item; item = item->next) {
+            if (item->decl == declaration ||
+                (item->decl && item->decl->func_is_template_instance &&
+                 item->decl->link_name && declaration->link_name &&
+                 strcmp(item->decl->link_name,
+                        declaration->link_name) == 0)) {
+                already_registered = true;
+                break;
+            }
+        }
+        if (!already_registered) ast_add_decl(current_ast, declaration);
+    }
+    return function;
 }
 
 static TypeMethod* sema_find_contextual_bool_method(Type* aggregate) {
@@ -21467,14 +21535,20 @@ static bool sema_cxx_rewrite_class_equality_operator(
             ? expr_unary(EXPR_NOT, call, expression->loc) : call;
         *expression = *result;
     } else if (candidates[best_index].rewritten) {
-        Expr* call = expr_call(expr_ident("operator==", expression->loc),
+        Expr* call = expr_call(sema_cxx_selected_operator_function(
+                                   "operator==",
+                                   candidates[best_index].function,
+                                   expression->loc),
                                candidates[best_index].arguments,
                                expression->loc);
         Expr* result = expression->kind == EXPR_NE
             ? expr_unary(EXPR_NOT, call, expression->loc) : call;
         *expression = *result;
     } else {
-        *expression = *expr_call(expr_ident(name, expression->loc),
+        *expression = *expr_call(sema_cxx_selected_operator_function(
+                                     name,
+                                     candidates[best_index].function,
+                                     expression->loc),
                                  candidates[best_index].arguments,
                                  expression->loc);
     }
@@ -21648,7 +21722,9 @@ static bool sema_cxx_rewrite_class_relational_operator(
                     expression->loc);
             } else {
                 spaceship_call = expr_call(
-                    expr_ident("operator<=>", expression->loc),
+                    sema_cxx_selected_operator_function(
+                        "operator<=>", selected->function,
+                        expression->loc),
                     selected->arguments, expression->loc);
             }
             comparison = selected->reversed
@@ -21666,7 +21742,8 @@ static bool sema_cxx_rewrite_class_relational_operator(
                 expression->loc);
         } else {
             *expression = *expr_call(
-                expr_ident(direct_name, expression->loc),
+                sema_cxx_selected_operator_function(
+                    direct_name, selected->function, expression->loc),
                 selected->arguments, expression->loc);
         }
     }

@@ -56,6 +56,25 @@ struct ReverseSpaceshipRight {
     }
 };
 
+struct HiddenFriendTemplateSpaceship {
+private:
+    int value;
+
+public:
+    explicit HiddenFriendTemplateSpaceship(int initial) : value(initial) {}
+
+    template <typename T>
+    friend int operator<=>(const HiddenFriendTemplateSpaceship& left,
+                           T right) {
+        return left.value - static_cast<int>(right) + 100;
+    }
+
+    friend int operator<=>(const HiddenFriendTemplateSpaceship& left,
+                           int right) {
+        return left.value - right;
+    }
+};
+
 template <typename T>
 struct TemplatedHiddenFriendSpaceship {
 private:
@@ -134,6 +153,7 @@ int main() {
     TemplatedHiddenFriendSpaceship<int> templated_friend_right{5};
     TemplatedHiddenFriendSpaceship<long> templated_friend_long_left{7};
     TemplatedHiddenFriendSpaceship<long> templated_friend_long_right{4};
+    HiddenFriendTemplateSpaceship hidden_friend_template{8};
     ReverseSpaceshipLeft reverse_left;
     ReverseSpaceshipRight reverse_right;
     spaceship_associated::Left inline_left;
@@ -162,6 +182,8 @@ int main() {
            !(member_template_tie_left < member_template_tie_right) &&
            (templated_friend_left < templated_friend_right) &&
            !(templated_friend_long_left < templated_friend_long_right) &&
+           (hidden_friend_template < 10) &&
+           !(hidden_friend_template < 10L) &&
            (reverse_left < reverse_right) &&
            (reverse_left <= reverse_right) &&
            !(reverse_left >= reverse_right) &&

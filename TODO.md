@@ -11473,7 +11473,16 @@ remains a separate open item.
       of a hidden-friend `operator<=>` in `test-cxx-spaceship`; the x86/x64
       assembly, x64 host runtime, class-template method/friend regressions, and
       an isolated GCC C++20 `-pedantic-errors` oracle pass.
+- [x] Materialize viable function-template candidates found by ADL before
+      relational rewrite ranking, apply function-template partial ordering,
+      compare conversion sequences against non-template candidates, and bind
+      the selected specialization directly for emission. Cover a hidden-friend
+      `operator<=>` template with private access and an equal-conversion
+      non-template overload, where `int` prefers the non-template and `long`
+      selects the template. The x86/AMD64 spaceship target, host runtime,
+      overload/operator/defaulted-equality regressions, and GCC C++20
+      `-pedantic-errors` runtime oracle pass.
 - [ ] Continue auditing ADL candidate identity and hidden-friend lookup across
-      function-template hidden friends, redeclarations, and remaining
-      class-template interactions; retain the broader C++20 overload
-      conformance item as open.
+      function-template redeclarations, templates declared inside class
+      templates, and ordinary-lookup function-template sets; retain the broader
+      C++20 candidate-set and overload-conformance items as open.

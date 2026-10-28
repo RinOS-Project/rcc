@@ -38353,9 +38353,97 @@ static bool cxx_explicit_specialization_parameters_match(
 static void cxx_add_function_declaration_once(Decl* declaration) {
     if (!active_ast || !declaration) return;
     for (DeclList* item = active_ast->decls; item; item = item->next) {
-        if (item->decl == declaration) return;
+        if (item->decl == declaration ||
+            (declaration->func_is_template_instance && item->decl &&
+             item->decl->func_is_template_instance &&
+             declaration->link_name && item->decl->link_name &&
+             strcmp(declaration->link_name, item->decl->link_name) == 0)) {
+            return;
+        }
     }
     ast_add_decl(active_ast, declaration);
+}
+
+int rcc_parser_cxx_materialize_adl_function_templates(
+    const char* name, ExprList* arguments, Decl** candidates,
+    int candidate_capacity, bool* constraint_unsupported) {
+    CxxTemplate* templates[32] = { NULL };
+    CxxFunctionTemplateMatch matches[32] = { 0 };
+    CxxNamespace* saved_namespace = active_namespace;
+    int template_count;
+    int match_count = 0;
+    int result_count = 0;
+    bool unsupported = false;
+
+    if (constraint_unsupported) *constraint_unsupported = false;
+    if (!name || !arguments || !candidates || candidate_capacity <= 0) {
+        return 0;
+    }
+    template_count = cxx_function_template_candidates_for_adl(
+        name, arguments, templates,
+        (int)(sizeof(templates) / sizeof(templates[0])), 0);
+    if (template_count > (int)(sizeof(templates) / sizeof(templates[0]))) {
+        rcc_error(arguments->expr ? arguments->expr->loc :
+                                    (SourceLoc){"<sema>", 0, 0},
+                  "too many ADL function template candidates for '%s'",
+                  name);
+        template_count = (int)(sizeof(templates) / sizeof(templates[0]));
+    }
+    for (int index = 0; index < template_count; ++index) {
+        CxxTemplate* candidate = templates[index];
+        CxxFunctionTemplateMatch match = { 0 };
+        bool constraint_invalid = false;
+        bool candidate_unsupported = false;
+        if (!candidate || !candidate->func_def ||
+            !cxx_hidden_friend_template_matches_adl(candidate, arguments)) {
+            continue;
+        }
+        active_namespace = candidate->ns ? candidate->ns
+                                         : g_global_namespace;
+        if (prepare_cxx_function_template_match(
+                candidate, arguments, NULL, 0, &match,
+                &constraint_invalid, &candidate_unsupported)) {
+            if (match_count < (int)(sizeof(matches) / sizeof(matches[0]))) {
+                matches[match_count++] = match;
+            }
+        }
+        unsupported = unsupported || candidate_unsupported;
+    }
+    active_namespace = saved_namespace;
+    if (constraint_unsupported) *constraint_unsupported = unsupported;
+    if (unsupported) return 0;
+
+    for (int index = 0; index < match_count; ++index) {
+        bool dominated = false;
+        for (int other = 0; other < match_count; ++other) {
+            if (index != other &&
+                cxx_function_template_match_relation(
+                    &matches[other], &matches[index]) > 0) {
+                dominated = true;
+                break;
+            }
+        }
+        if (dominated || !matches[index].instance) continue;
+        if (result_count >= candidate_capacity) {
+            rcc_error(matches[index].instance->loc,
+                      "ADL function template candidate limit exceeded for '%s'",
+                      name);
+            return result_count;
+        }
+        bool duplicate = false;
+        for (int prior = 0; prior < result_count; ++prior) {
+            if (candidates[prior] == matches[index].instance ||
+                (candidates[prior]->link_name &&
+                 matches[index].instance->link_name &&
+                 strcmp(candidates[prior]->link_name,
+                        matches[index].instance->link_name) == 0)) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (!duplicate) candidates[result_count++] = matches[index].instance;
+    }
+    return result_count;
 }
 
 static bool cxx_resolve_explicit_member_template_owner_suffix(
