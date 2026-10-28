@@ -27,6 +27,29 @@ struct StaticReferenceConversionSource {
     }
 };
 
+struct StaticReferenceConvertedBase {
+    int* destruction_order;
+    int* destruction_count;
+    int value;
+
+    StaticReferenceConvertedBase(int* order, int* count, int initial_value)
+        : destruction_order(order), destruction_count(count),
+          value(initial_value) {}
+
+    ~StaticReferenceConvertedBase() {
+        destruction_order[(*destruction_count)++] = 1;
+    }
+};
+
+struct StaticReferenceConvertedDerived : StaticReferenceConvertedBase {
+    StaticReferenceConvertedDerived(int* order, int* count, int initial_value)
+        : StaticReferenceConvertedBase(order, count, initial_value) {}
+
+    ~StaticReferenceConvertedDerived() {
+        destruction_order[(*destruction_count)++] = 2;
+    }
+};
+
 const StaticReferenceConvertedValue& global_converted_reference =
         StaticReferenceConversionSource{17};
 
@@ -46,6 +69,19 @@ extern "C" int main() {
     if (first.value != 23 || second.value != 23 || &first != &second ||
             cxx_static_reference_events != 22) {
         return 2;
+    }
+    int destruction_order[2] = {0, 0};
+    int destruction_count = 0;
+    {
+        StaticReferenceConvertedBase&& base =
+                static_cast<StaticReferenceConvertedBase&&>(
+                        StaticReferenceConvertedDerived(
+                                destruction_order, &destruction_count, 42));
+        if (base.value != 42 || destruction_count != 0) return 3;
+    }
+    if (destruction_count != 2 || destruction_order[0] != 2 ||
+            destruction_order[1] != 1) {
+        return 4;
     }
     return 0;
 }
