@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <stdarg.h>
 
 #if BITINT_MAXWIDTH != 64
 #error "RCC must publish the supported C23 bit-precise integer width"
@@ -19,6 +20,26 @@ struct bitint_fields {
     unsigned _BitInt(9) unsigned_narrow : 5;
     unsigned _BitInt(33) unsigned_wide : 33;
 };
+
+static int check_bitint_varargs(int marker, ...)
+{
+    va_list arguments;
+    int signed_narrow;
+    int unsigned_narrow;
+    u33 unsigned_wide;
+    u64 unsigned_full;
+
+    va_start(arguments, marker);
+    signed_narrow = va_arg(arguments, int);
+    unsigned_narrow = va_arg(arguments, int);
+    unsigned_wide = va_arg(arguments, u33);
+    unsigned_full = va_arg(arguments, u64);
+    va_end(arguments);
+
+    return marker == 23 && signed_narrow == -7 && unsigned_narrow == 31 &&
+           unsigned_wide == (((u33)1 << 32) | (u33)17) &&
+           unsigned_full == ULLONG_MAX;
+}
 
 static s5 global_signed_min = -16;
 static u5 global_unsigned_max = 31;
@@ -72,5 +93,8 @@ int main(void)
         !_Generic((u33)1 + 1, u33: 1, default: 0) ||
         !_Generic((u64)1 + 1ULL, unsigned long long: 1, default: 0))
         return 10;
+    if (!check_bitint_varargs(23, (s5)-7, (u5)31,
+                              ((u33)1 << 32) | (u33)17,
+                              (u64)ULLONG_MAX)) return 11;
     return 0;
 }

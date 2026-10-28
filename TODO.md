@@ -34,9 +34,13 @@
 - [x] Verify `_Generic` exact-type selection for bit-precise types and usual
   arithmetic conversions across narrower/equal/wider mixed ranks; exercise
   defined unsigned narrow-width left shifts including modulo wraparound.
+- [x] Verify variadic default promotions and retrieval: signed/unsigned
+  `_BitInt(5)` arrive as `int`, while unsigned `_BitInt(33)` and `_BitInt(64)`
+  are read with their original types; execute on the x86_64 host and validate
+  both targets' RIN/RLL/DRV outputs through `test-c23-bitint`.
 - [ ] Audit remaining C23 bit-precise integer rules and contexts, especially
-  variadic arguments, invalid/signed shift and overflow constraints, and `wb`
-  constants in preprocessing.
+  invalid/signed shift and overflow constraints, and `wb` constants in
+  preprocessing.
 
 ## RCC continuation (2026-10-29, C23 binary resource inclusion)
 
