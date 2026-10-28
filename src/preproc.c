@@ -2365,6 +2365,54 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         return skip_to_eol(p);
     }
 
+    if ((strcmp(directive, "elifdef") == 0 ||
+         strcmp(directive, "elifndef") == 0) &&
+        !pp->cxx_mode && g_opts.c_standard >= 23) {
+        char name[256];
+        bool is_undefined_test = strcmp(directive, "elifndef") == 0;
+        bool parent_active;
+        bool had_true;
+        bool condition;
+        const char* identifier_start = skip_ws(p);
+        const char* identifier_end;
+
+        if (pp->cond_depth == 0) {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "#%s without #if", directive);
+            return skip_to_eol(p);
+        }
+        if (pp->cond_stack[pp->cond_depth - 1].in_else) {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "#%s after #else", directive);
+            return skip_to_eol(p);
+        }
+        if (!(isalpha((unsigned char)*identifier_start) ||
+              *identifier_start == '_')) {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "invalid #%s directive: expected an identifier",
+                      directive);
+            return skip_to_eol(p);
+        }
+        identifier_end = read_ident(identifier_start, name, sizeof(name));
+        if (*skip_ws(identifier_end) != '\0' &&
+            *skip_ws(identifier_end) != '\n') {
+            rcc_error((SourceLoc){filename, source_line, 0},
+                      "invalid #%s directive: unexpected trailing text",
+                      directive);
+            return skip_to_eol(p);
+        }
+        parent_active = pp->cond_depth > 1
+            ? pp->cond_stack[pp->cond_depth - 2].active : true;
+        had_true = pp->cond_stack[pp->cond_depth - 1].had_true;
+        condition = pp_is_defined(pp, name);
+        if (is_undefined_test) condition = !condition;
+        pp->cond_stack[pp->cond_depth - 1].active =
+            parent_active && !had_true && condition;
+        if (condition)
+            pp->cond_stack[pp->cond_depth - 1].had_true = true;
+        return skip_to_eol(identifier_end);
+    }
+
     if (strcmp(directive, "else") == 0) {
         if (pp->cond_depth == 0) {
             rcc_error((SourceLoc){filename, 0, 0}, "#else without #if");
