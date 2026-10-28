@@ -1185,8 +1185,18 @@ test-c-null-void-pointer-constant: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.ro)
 	@echo "C17 void-pointer null constant and C++ rejection tests completed"
 
-test-c23: $(RCC_TARGET) test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name
+test-c23: $(RCC_TARGET) test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order
 	@echo "RCC C23 nullptr, empty-initialization, and typeof regressions completed"
+
+test-c23-vla-declarator-order: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-vla-declarator-order)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-vla-declarator-order/x86.ro tests/c23_vla_declarator_order.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S -o $(TEST_OUT)/c23-vla-declarator-order/rcc.s tests/c23_vla_declarator_order.c
+	$(CC) -o $(TEST_OUT)/c23-vla-declarator-order/rcc-host $(TEST_OUT)/c23-vla-declarator-order/rcc.s
+	$(TEST_OUT)/c23-vla-declarator-order/rcc-host
+	gcc -std=c2x -Wall -Wextra -Werror -o $(TEST_OUT)/c23-vla-declarator-order/gcc-host tests/c23_vla_declarator_order.c
+	$(TEST_OUT)/c23-vla-declarator-order/gcc-host
+	@echo "RCC C23 left-to-right VLA declarator and saved typedef-bound regressions passed"
 
 test-c23-typeof-type-name: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-typeof-type-name)

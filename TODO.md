@@ -43,9 +43,13 @@
   array operands: different non-constant bounds are treated as `[*]` for
   compatibility/parameter adjustment. Verify i686/AMD64 objects and GCC C2x
   syntax with only GCC's `-Wvla-parameter` compatibility warning disabled.
-- [ ] Complete exact evaluation ordering across multiple declarators and
-  any remaining prototype-scope contexts. GCC 13.3 and Clang 18 agree on
-  array/function parameter adjustment.
+- [x] Verify left-to-right evaluation across multiple block-scope declarators
+  using a shared counter for ordinary VLAs and multiple VLA typedef names;
+  check the captured extents on RCC x86_64 and GCC C2x runtime, plus RCC i686
+  object generation.
+- [ ] Audit remaining VM sequencing for `typeof` specifiers shared across
+  declarators and nested prototype-scope/typedef contexts. GCC 13.3 and Clang
+  18 agree on array/function parameter adjustment.
   Native i686 execution now passes for the covered typedef/runtime cases.
 
 この一覧は「CLIが存在する」ことと「言語・ABIが完成している」ことを区別する。
