@@ -51,6 +51,10 @@
   separated declarators, while evaluating a separately written specifier again.
   Verify extents and side-effect counts with GCC 13.2 C2x, RCC x86_64 runtime,
   and RCC i686/x86_64 object generation.
+- [x] Capture a `typeof(type-name)` VLA bound at a block-scope typedef
+  declaration, then reuse its saved extent across later objects without
+  reevaluating the bound. Verify declaration timing and `sizeof` results with
+  GCC C2x and RCC x86_64 runtime plus i686/x86_64 object generation.
 - [ ] Audit the remaining nested prototype-scope/typedef VM contexts and
   sequencing interactions. WG14 issue 1120 is open on full-expression
   boundaries for typeof/declarator size expressions, so do not treat one
