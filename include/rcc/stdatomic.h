@@ -26,6 +26,7 @@ typedef _Atomic long atomic_long;
 typedef _Atomic unsigned long atomic_ulong;
 typedef _Atomic long long atomic_llong;
 typedef _Atomic unsigned long long atomic_ullong;
+typedef _Atomic unsigned char atomic_char8_t;
 typedef _Atomic unsigned short atomic_char16_t;
 typedef _Atomic unsigned int atomic_char32_t;
 typedef _Atomic int atomic_wchar_t;
@@ -62,6 +63,7 @@ typedef _Atomic unsigned int atomic_flag;
 
 #define ATOMIC_BOOL_LOCK_FREE 2
 #define ATOMIC_CHAR_LOCK_FREE 2
+#define ATOMIC_CHAR8_T_LOCK_FREE 2
 #define ATOMIC_CHAR16_T_LOCK_FREE 2
 #define ATOMIC_CHAR32_T_LOCK_FREE 2
 #define ATOMIC_WCHAR_T_LOCK_FREE 2
