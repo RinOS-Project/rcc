@@ -2108,8 +2108,9 @@ static Expr* parse_builtin_vararg(SourceLoc loc) {
 
     expect(TOK_LPAREN, "(");
     list = parse_assignment();
-    if (kind == EXPR_VA_START || kind == EXPR_VA_COPY ||
-        kind == EXPR_VA_ARG) {
+    if (kind == EXPR_VA_START) {
+        if (match(TOK_COMMA)) second = parse_assignment();
+    } else if (kind == EXPR_VA_COPY || kind == EXPR_VA_ARG) {
         expect(TOK_COMMA, ",");
         if (kind == EXPR_VA_ARG) {
             if (!is_type_start()) {

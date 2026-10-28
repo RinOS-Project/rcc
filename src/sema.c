@@ -24615,7 +24615,17 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_VA_START: {
             Type* list_type = sema_expr(expr->va_list_operand);
-            sema_expr(expr->va_second_operand);
+            if (!expr->va_second_operand &&
+                !rcc_parser_is_cxx_mode() && g_opts.c_standard >= 23 &&
+                current_func_last_param) {
+                expr->va_second_operand = expr_ident(
+                    current_func_last_param->name, expr->loc);
+                expr->va_second_operand->ident_decl =
+                    current_func_last_param;
+            }
+            if (expr->va_second_operand) {
+                sema_expr(expr->va_second_operand);
+            }
             if (!current_func_variadic) {
                 rcc_error(expr->loc,
                           "va_start is only valid in a variadic function");
