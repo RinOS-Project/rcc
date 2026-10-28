@@ -1939,6 +1939,12 @@ test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
 test-cxx-defaulted-equality: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-defaulted-equality)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-defaulted-equality,cxx_defaulted_equality.cpp)
+ifeq ($(OS),Windows_NT)
+	$(OBJDUMP) -f $(TEST_OUT)/cxx-defaulted-equality/x86.o > \
+		$(TEST_OUT)/cxx-defaulted-equality/x86-arch.log
+	$(GREP) -F -q "pe-i386" \
+		$(TEST_OUT)/cxx-defaulted-equality/x86-arch.log
+else
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-defaulted-equality/start-x86.o \
 		tests/cxx_member_methods_i686_start.s
 	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
@@ -1946,6 +1952,7 @@ test-cxx-defaulted-equality: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-defaulted-equality/start-x86.o \
 		$(TEST_OUT)/cxx-defaulted-equality/x86.o
 	$(TEST_OUT)/cxx-defaulted-equality/x86
+endif
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-defaulted-equality/gcc-host \
 		tests/cxx_defaulted_equality.cpp

@@ -179,6 +179,10 @@ struct CxxClass {
         bool is_final;
         struct CxxMember* next;
     } *members;
+    /* Defaulted hidden-friend comparisons are namespace functions for lookup,
+     * but their bodies need the completed class layout. Keep them separate
+     * from member lookup while the class is being completed. */
+    struct CxxMember* defaulted_friend_comparisons;
     /* True after inherited method aliases have been published. Qualified
      * out-of-class definitions may publish additional declared methods later. */
     bool ordinary_methods_registered;

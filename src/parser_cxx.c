@@ -11096,10 +11096,36 @@ static bool cxx_defaulted_equality_append_comparison(
     return true;
 }
 
-/* Synthesize the ordinary function body for C++20's defaulted member equality
- * operator. Keeping it as a real body means base/member comparisons use normal
- * overload resolution, this-pointer lowering, and the target ABI instead of
- * comparing objects as bytes. */
+static void cxx_record_defaulted_friend_equality(CxxClass* cls,
+                                                CxxMethod* method) {
+    struct CxxMember* member;
+    if (!cls || !method) return;
+    member = rcc_alloc(sizeof(*member));
+    member->access = method->access;
+    member->decl = method->decl;
+    member->method = method;
+    member->is_static = false;
+    member->is_virtual = false;
+    member->is_pure_virtual = false;
+    member->is_override = false;
+    member->is_final = false;
+    member->next = NULL;
+    if (!cls->defaulted_friend_comparisons) {
+        cls->defaulted_friend_comparisons = member;
+        return;
+    }
+    for (struct CxxMember* tail = cls->defaulted_friend_comparisons;
+         tail; tail = tail->next) {
+        if (!tail->next) {
+            tail->next = member;
+            return;
+        }
+    }
+}
+
+/* Synthesize C++20's defaulted equality bodies after the class layout is
+ * complete. Member and hidden-friend comparisons use ordinary expressions,
+ * overload resolution, and the target ABI instead of comparing bytes. */
 static void cxx_complete_defaulted_equality_methods(CxxClass* cls) {
     struct CxxMember* member;
     if (!cls || !cls->type) return;
@@ -11258,6 +11284,182 @@ static void cxx_complete_defaulted_equality_methods(CxxClass* cls) {
                         stmt_return(expr_int(1, method->decl->loc),
                                     method->decl->loc));
         method->decl->func_body = stmt_block(statements, method->decl->loc);
+        method->decl->func_is_defined = true;
+        method->decl->func_is_inline = true;
+    }
+    for (member = cls->defaulted_friend_comparisons; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        DeclList* left_parameter;
+        DeclList* right_parameter;
+        Type* left_parameter_type;
+        Type* right_parameter_type;
+        Type* left_object_type;
+        Type* right_object_type;
+        Expr* left_object;
+        Expr* right_object;
+        StmtList* statements = NULL;
+        unsigned next_index = 0u;
+        bool by_reference;
+        bool supported = true;
+        SourceLoc loc;
+        if (!method || !method->is_defaulted || method->member_template ||
+            !method->source_name ||
+            strcmp(method->source_name, "operator==") != 0 ||
+            !method->decl || method->decl->func_body ||
+            !method->decl->type ||
+            !type_is_compatible(method->decl->type->ret_type, type_bool) ||
+            cls->is_union) {
+            continue;
+        }
+        loc = method->decl->loc;
+        left_parameter = method->decl->func_params;
+        right_parameter = left_parameter ? left_parameter->next : NULL;
+        if (!left_parameter || !left_parameter->decl || !right_parameter ||
+            !right_parameter->decl || right_parameter->next ||
+            !(left_parameter_type = left_parameter->decl->type) ||
+            !(right_parameter_type = right_parameter->decl->type)) {
+            continue;
+        }
+        by_reference = left_parameter_type->kind == TYPE_PTR &&
+                       left_parameter_type->is_reference &&
+                       !left_parameter_type->is_rvalue_reference;
+        if (by_reference) {
+            if (right_parameter_type->kind != TYPE_PTR ||
+                !right_parameter_type->is_reference ||
+                right_parameter_type->is_rvalue_reference ||
+                !left_parameter_type->base ||
+                !right_parameter_type->base ||
+                !left_parameter_type->base->is_const ||
+                !right_parameter_type->base->is_const ||
+                left_parameter_type->base->is_volatile ||
+                right_parameter_type->base->is_volatile ||
+                !type_is_compatible(left_parameter_type->base, cls->type) ||
+                !type_is_compatible(right_parameter_type->base, cls->type)) {
+                continue;
+            }
+            left_object_type = left_parameter_type->base;
+            right_object_type = right_parameter_type->base;
+        } else {
+            if ((left_parameter_type->kind != TYPE_STRUCT &&
+                 left_parameter_type->kind != TYPE_UNION) ||
+                (right_parameter_type->kind != TYPE_STRUCT &&
+                 right_parameter_type->kind != TYPE_UNION) ||
+                !type_is_compatible(left_parameter_type, cls->type) ||
+                !type_is_compatible(right_parameter_type, cls->type)) {
+                continue;
+            }
+            left_object_type = left_parameter_type;
+            right_object_type = right_parameter_type;
+        }
+        left_object = cxx_defaulted_equality_local(
+            left_parameter->decl, "__rcc_defaulted_equality_lhs", loc);
+        right_object = cxx_defaulted_equality_local(
+            right_parameter->decl, "__rcc_defaulted_equality_rhs", loc);
+
+        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+            CxxClass* base = cls->bases[base_index].base;
+            Expr* left_base;
+            Expr* right_base;
+            if (!base || !base->type ||
+                !cxx_defaulted_equality_qualified_type(
+                    base->type, left_object_type->is_const,
+                    left_object_type->is_volatile) ||
+                !cxx_defaulted_equality_qualified_type(
+                    base->type, right_object_type->is_const,
+                    right_object_type->is_volatile)) {
+                supported = false;
+                break;
+            }
+            if (cls->bases[base_index].is_virtual) {
+                int virtual_base_index;
+                Type* left_base_reference_type = type_reference(
+                    cxx_defaulted_equality_qualified_type(
+                        base->type, left_object_type->is_const,
+                        left_object_type->is_volatile), false);
+                Type* right_base_reference_type = type_reference(
+                    cxx_defaulted_equality_qualified_type(
+                        base->type, right_object_type->is_const,
+                        right_object_type->is_volatile), false);
+                for (virtual_base_index = 0;
+                     virtual_base_index < cls->virtual_base_count;
+                     ++virtual_base_index) {
+                    if (cls->virtual_bases[virtual_base_index].base == base) {
+                        break;
+                    }
+                }
+                if (virtual_base_index >= cls->virtual_base_count ||
+                    cls->virtual_base_pointer_offset < 0) {
+                    supported = false;
+                    break;
+                }
+                left_base = expr_cast(left_base_reference_type, left_object,
+                                      loc);
+                right_base = expr_cast(right_base_reference_type, right_object,
+                                       loc);
+                left_base->cxx_cast_kind = CXX_CAST_STATIC;
+                right_base->cxx_cast_kind = CXX_CAST_STATIC;
+                left_base->cxx_synthesized_base_conversion = true;
+                right_base->cxx_synthesized_base_conversion = true;
+                left_base->cxx_virtual_base_adjustment = true;
+                right_base->cxx_virtual_base_adjustment = true;
+                left_base->cxx_virtual_base_index = virtual_base_index;
+                right_base->cxx_virtual_base_index = virtual_base_index;
+                left_base->cxx_virtual_base_nested_adjustment = 0;
+                right_base->cxx_virtual_base_nested_adjustment = 0;
+                left_base->cxx_virtual_base_source_class = cls;
+                right_base->cxx_virtual_base_source_class = cls;
+                left_base->cxx_virtual_base_pointer_offset =
+                    cls->virtual_base_pointer_offset;
+                right_base->cxx_virtual_base_pointer_offset =
+                    cls->virtual_base_pointer_offset;
+            } else {
+                int base_offset = cls->base_offsets
+                    ? cls->base_offsets[base_index] : -1;
+                if (base_offset < 0) {
+                    supported = false;
+                    break;
+                }
+                left_base = cxx_defaulted_equality_base_object(
+                    expr_unary(EXPR_ADDR, left_object, loc), base->type,
+                    base_offset, left_object_type->is_const,
+                    left_object_type->is_volatile, loc);
+                right_base = cxx_defaulted_equality_base_object(
+                    expr_unary(EXPR_ADDR, right_object, loc), base->type,
+                    base_offset, right_object_type->is_const,
+                    right_object_type->is_volatile, loc);
+                if (!left_base || !right_base) {
+                    supported = false;
+                    break;
+                }
+            }
+            if (!cxx_defaulted_equality_append_comparison(
+                    left_base, right_base, base->type, &statements, loc,
+                    &next_index, 0u)) {
+                supported = false;
+                break;
+            }
+        }
+        if (!supported) continue;
+
+        for (TypeField* field = cls->type->fields;
+             field; field = field->next) {
+            Expr* left;
+            Expr* right;
+            if (!field->name || field->cxx_declaring_class != cls) continue;
+            left = expr_member(left_object, field->name, loc);
+            right = expr_member(right_object, field->name, loc);
+            if (!cxx_defaulted_equality_append_comparison(
+                    left, right, field->type, &statements, loc, &next_index,
+                    0u)) {
+                supported = false;
+                break;
+            }
+        }
+        if (!supported) continue;
+        stmtlist_append(&statements,
+                        stmt_return(expr_int(1, loc), loc));
+        method->decl->func_body = stmt_block(statements, loc);
         method->decl->func_is_defined = true;
         method->decl->func_is_inline = true;
     }
@@ -11946,6 +12148,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                                           active_namespace ? active_namespace
                                                            : g_global_namespace,
                                           method->decl);
+            }
+            if (is_defaulted && method->source_name &&
+                strcmp(method->source_name, "operator==") == 0) {
+                cxx_record_defaulted_friend_equality(cls, method);
             }
             return;
         }

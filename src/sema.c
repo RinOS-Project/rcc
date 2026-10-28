@@ -20994,6 +20994,41 @@ static const char* sema_cxx_assignment_operator_name(ExprKind kind) {
     }
 }
 
+/* A non-member operator with exact operand bindings outranks an inherited
+ * member candidate that first converts the derived left operand to its base
+ * owner. Compare the free-function conversion sequences before taking the
+ * member fast path; otherwise hidden-friend operators are silently skipped. */
+static bool sema_cxx_operator_has_exact_nonmember_candidate(
+    Symbol* functions, ExprList* arguments) {
+    if (!functions || functions->kind != SYM_FUNC || !arguments ||
+        !arguments->next || arguments->next->next) {
+        return false;
+    }
+    for (Decl* candidate = functions->decl; candidate;
+         candidate = candidate->func_overload_next) {
+        TypeParam* parameter = candidate->type &&
+                candidate->type->kind == TYPE_FUNC
+            ? candidate->type->params : NULL;
+        ExprList* argument = arguments;
+        int argument_index = 0;
+        bool exact = true;
+        while (parameter && argument && argument_index < 2) {
+            if (cxx_conversion_rank_detail(argument->expr, parameter->type,
+                                          NULL) != 0) {
+                exact = false;
+                break;
+            }
+            parameter = parameter->next;
+            argument = argument->next;
+            ++argument_index;
+        }
+        if (exact && !parameter && !argument && argument_index == 2) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Rewrite a binary expression to an ordinary member call only after a real
  * operator member exists.  This keeps the built-in arithmetic path intact
  * for scalar operands and ensures an overloaded operation uses the same
@@ -21007,6 +21042,7 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     TypeMethod* template_candidates[32];
     int template_candidate_count = 0;
     bool template_constraint_unsupported = false;
+    bool right_analyzed = false;
     ExprList* arguments = NULL;
     Symbol* function;
     Expr* function_expression;
@@ -21023,13 +21059,29 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     if (aggregate && (aggregate->kind == TYPE_STRUCT ||
                       aggregate->kind == TYPE_UNION) &&
         method && method->function_decl) {
+        if (method->this_owner && method->this_owner != aggregate) {
+            right_type = sema_expr(expression->binary_rhs);
+            right_analyzed = true;
+            arguments = NULL;
+            exprlist_append(&arguments, expression->binary_lhs);
+            exprlist_append(&arguments, expression->binary_rhs);
+            function = sema_cxx_operator_function(name, arguments);
+            if (sema_cxx_operator_has_exact_nonmember_candidate(
+                    function, arguments)) {
+                function_expression = expr_ident(name, expression->loc);
+                call = expr_call(function_expression, arguments,
+                                 expression->loc);
+                *expression = *call;
+                return true;
+            }
+        }
         member = expr_member(expression->binary_lhs, name, expression->loc);
         call = expr_call(member, exprlist_new(expression->binary_rhs),
                          expression->loc);
         *expression = *call;
         return true;
     }
-    right_type = sema_expr(expression->binary_rhs);
+    if (!right_analyzed) right_type = sema_expr(expression->binary_rhs);
     if (aggregate && (aggregate->kind == TYPE_STRUCT ||
                       aggregate->kind == TYPE_UNION) &&
         rcc_parser_cxx_materialize_member_function_templates) {

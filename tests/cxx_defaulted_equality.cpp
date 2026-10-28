@@ -36,6 +36,18 @@ struct EqualityVirtual : virtual EqualityVirtualBase {
     bool operator==(const EqualityVirtual&) const = default;
 };
 
+struct EqualityHiddenFriend : EqualityPrefix {
+    int values[2];
+    friend bool operator==(const EqualityHiddenFriend&,
+                           const EqualityHiddenFriend&) = default;
+};
+
+struct EqualityValueFriend {
+    int value;
+    friend bool operator==(EqualityValueFriend,
+                           EqualityValueFriend) = default;
+};
+
 int main() {
     EqualityRecord first{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
     EqualityRecord same{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
@@ -47,6 +59,15 @@ int main() {
     EqualityVirtual virtual_same;
     EqualityVirtual virtual_base_different;
     EqualityVirtual virtual_member_different;
+    EqualityHiddenFriend hidden_first{{37}, {41, 43}};
+    EqualityHiddenFriend hidden_same{{37}, {41, 43}};
+    EqualityHiddenFriend hidden_base_different{{38}, {41, 43}};
+    EqualityHiddenFriend hidden_array_different{{37}, {41, 44}};
+    EqualityValueFriend value_friend_first{47};
+    EqualityValueFriend value_friend_same{47};
+    EqualityValueFriend value_friend_different{48};
+    if (hidden_first.values[1] != 43 ||
+        hidden_array_different.values[1] != 44) return 17;
     virtual_first.virtual_base_value = 29;
     virtual_first.value = 31;
     virtual_same.virtual_base_value = 29;
@@ -71,5 +92,10 @@ int main() {
     if (!(virtual_first == virtual_same)) return 7;
     if (virtual_first == virtual_base_different) return 8;
     if (virtual_first == virtual_member_different) return 9;
+    if (!(hidden_first == hidden_same)) return 12;
+    if (hidden_first == hidden_base_different) return 13;
+    if (hidden_first == hidden_array_different) return 14;
+    if (!(value_friend_first == value_friend_same)) return 15;
+    if (value_friend_first == value_friend_different) return 16;
     return 0;
 }
