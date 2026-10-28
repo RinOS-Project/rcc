@@ -1679,6 +1679,30 @@ static bool parser_type_has_deferred_typeof(Type* type) {
         type, visited, &visited_count);
 }
 
+static void parser_mark_typeof_shared_vla_bounds(Type* type) {
+    if (!type) return;
+
+    switch (type->kind) {
+        case TYPE_PTR:
+        case TYPE_ARRAY:
+        case TYPE_VECTOR:
+            if (type->kind == TYPE_ARRAY && type->array_bound) {
+                type->array_bound->c_vla_shared_typeof_bound = true;
+            }
+            parser_mark_typeof_shared_vla_bounds(type->base);
+            break;
+        case TYPE_FUNC:
+            parser_mark_typeof_shared_vla_bounds(type->ret_type);
+            for (TypeParam* parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                parser_mark_typeof_shared_vla_bounds(parameter->type);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 static bool parser_c23_deferred_type(Type* type) {
     return !parser_cxx_mode && g_opts.c_standard >= 23 &&
            parser_type_has_deferred_typeof(type);
@@ -4704,6 +4728,7 @@ static Type* parse_type_spec(void) {
             operand_type = parse_type_spec();
             operand_type = parse_declarator(operand_type, NULL, NULL);
             expect(TOK_RPAREN, "')' after typeof type-name");
+            parser_mark_typeof_shared_vla_bounds(operand_type);
             t = typeof_operator == TOK_TYPEOF_UNQUAL
                 ? parser_unqual_type(operand_type) : operand_type;
         } else {

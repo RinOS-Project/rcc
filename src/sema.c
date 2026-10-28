@@ -23523,7 +23523,6 @@ static Type* sema_resolve_typeof_type_recursive(
         *type = *inferred;
         type->c_typeof_runtime_expression = runtime_expression;
         type->c_typeof_operand_type = operand_type;
-        type->c_typeof_runtime_expression_emitted = false;
         return type;
     }
 

@@ -245,7 +245,6 @@ struct Type {
     /* Original expression type preserves its runtime VLA-extent identity
      * when typeof creates a qualified or otherwise copied Type node. */
     Type* c_typeof_operand_type;
-    bool c_typeof_runtime_expression_emitted;
     /* C++ fixed-underlying-type enums retain the actual integer type so the
      * parser can validate every enumerator against its signedness and width. */
     bool enum_has_fixed_underlying;
@@ -799,6 +798,16 @@ struct Expr {
     /* The typedef declaration that owns evaluation of this captured bound.
      * Later typedef aliases reuse the slot but must not reevaluate it. */
     Decl* c_vla_typedef_owner;
+    /* Type copies can share one typeof operand expression. Its runtime
+     * evaluation site is emitted once even when declaration processing
+     * creates distinct Type nodes for multiple declarators. */
+    bool c_typeof_runtime_evaluation_emitted;
+    /* A VLA bound inside a typeof(type-name) declaration specifier is shared
+     * by every declarator in that declaration. Cache its computed extent in
+     * the first declarator's VLA slots for later declarators to reuse. */
+    bool c_vla_shared_typeof_bound;
+    Decl* c_vla_shared_bound_owner;
+    int c_vla_shared_bound_index;
     /* `typeid(expr)` on a glvalue of polymorphic class type resolves through
      * the most-derived vtable metadata at runtime. */
     bool cxx_typeid_dynamic;

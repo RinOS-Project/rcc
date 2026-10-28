@@ -1228,9 +1228,11 @@ static void gen64_typeof_runtime_evaluations(Module* mod, Type* type) {
         }
     }
     if (type->c_typeof_runtime_expression &&
-        !type->c_typeof_runtime_expression_emitted) {
+        !type->c_typeof_runtime_expression
+             ->c_typeof_runtime_evaluation_emitted) {
         gen64_expr(mod, type->c_typeof_runtime_expression);
-        type->c_typeof_runtime_expression_emitted = true;
+        type->c_typeof_runtime_expression
+            ->c_typeof_runtime_evaluation_emitted = true;
     }
 }
 
@@ -1387,7 +1389,16 @@ static void gen64_vla_extents(Module* mod, Type* type, Type* source_type,
         emit64_mov_reg_imm32(mod, RAX, type->base && type->base->size > 0
             ? (uint32_t)type->base->size : 0u);
     }
-    if (!gen64_saved_vla_extent(mod, source_type, source_expression)) {
+    bool reused_typeof_bound = type->array_bound &&
+        type->array_bound->c_vla_shared_typeof_bound &&
+        type->array_bound->c_vla_shared_bound_owner;
+    if (reused_typeof_bound) {
+        Expr* bound = type->array_bound;
+        Decl* owner = bound->c_vla_shared_bound_owner;
+        int index = bound->c_vla_shared_bound_index;
+        emit64_mov_reg_mem(mod, RAX, RBP,
+                           owner->var_vla_extent_offset + index * 8);
+    } else if (!gen64_saved_vla_extent(mod, source_type, source_expression)) {
         emit64_push_reg(mod, RAX);
         if (type->array_bound) {
             if (type->array_bound->c_vla_saved_bound_offset < 0) {
@@ -1411,6 +1422,12 @@ static void gen64_vla_extents(Module* mod, Type* type, Type* source_type,
                            declaration->var_vla_extent_offset +
                                *slot_index * 8,
                            RAX);
+        if (type->array_bound &&
+            type->array_bound->c_vla_shared_typeof_bound &&
+            !type->array_bound->c_vla_shared_bound_owner) {
+            type->array_bound->c_vla_shared_bound_owner = declaration;
+            type->array_bound->c_vla_shared_bound_index = *slot_index;
+        }
     }
     if (slot_index) ++*slot_index;
 }

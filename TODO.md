@@ -47,9 +47,14 @@
   using a shared counter for ordinary VLAs and multiple VLA typedef names;
   check the captured extents on RCC x86_64 and GCC C2x runtime, plus RCC i686
   object generation.
-- [ ] Audit remaining VM sequencing for `typeof` specifiers shared across
-  declarators and nested prototype-scope/typedef contexts. GCC 13.3 and Clang
-  18 agree on array/function parameter adjustment.
+- [x] Reuse a VLA bound from one `typeof(type-name)` specifier across comma-
+  separated declarators, while evaluating a separately written specifier again.
+  Verify extents and side-effect counts with GCC 13.2 C2x, RCC x86_64 runtime,
+  and RCC i686/x86_64 object generation.
+- [ ] Audit the remaining nested prototype-scope/typedef VM contexts and
+  sequencing interactions. WG14 issue 1120 is open on full-expression
+  boundaries for typeof/declarator size expressions, so do not treat one
+  compiler's ordering as a general conformance oracle.
   Native i686 execution now passes for the covered typedef/runtime cases.
 
 この一覧は「CLIが存在する」ことと「言語・ABIが完成している」ことを区別する。
