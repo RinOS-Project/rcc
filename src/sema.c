@@ -21055,6 +21055,155 @@ static bool sema_cxx_operator_has_viable_nonmember_candidate(
     return false;
 }
 
+/* Return the best viable non-member operator candidate without issuing a
+ * diagnostic. Equality rewriting compares candidates from different
+ * operator spellings before it builds the final call, so a mere viability
+ * check would incorrectly let any viable operator!= suppress a better
+ * operator== rewrite. */
+static Decl* sema_cxx_operator_best_nonmember_candidate(
+    Symbol* functions, ExprList* arguments,
+    int best_ranks[2], Type* best_targets[2],
+    TypeMethod* best_methods[2]) {
+    Decl* best = NULL;
+
+    if (!functions || functions->kind != SYM_FUNC || !arguments ||
+        !arguments->next || arguments->next->next) {
+        return NULL;
+    }
+    for (Decl* candidate = functions->decl; candidate;
+         candidate = candidate->func_overload_next) {
+        TypeParam* parameter;
+        ExprList* argument = arguments;
+        int ranks[2];
+        Type* targets[2];
+        TypeMethod* methods[2];
+        bool viable = true;
+
+        if (candidate->kind != DECL_FUNC || !candidate->type ||
+            candidate->type->kind != TYPE_FUNC) {
+            continue;
+        }
+        parameter = candidate->type->params;
+        for (int index = 0; index < 2; ++index) {
+            if (!parameter || !argument) {
+                viable = false;
+                break;
+            }
+            methods[index] = NULL;
+            ranks[index] = cxx_conversion_rank_detail(
+                argument->expr, parameter->type, &methods[index]);
+            if (ranks[index] < 0) {
+                viable = false;
+                break;
+            }
+            targets[index] = parameter->type;
+            parameter = parameter->next;
+            argument = argument->next;
+        }
+        if (!viable || parameter || argument) continue;
+        if (!best) {
+            best = candidate;
+            memcpy(best_ranks, ranks, sizeof(ranks));
+            memcpy(best_targets, targets, sizeof(targets));
+            memcpy(best_methods, methods, sizeof(methods));
+            continue;
+        }
+        {
+            int relation = cxx_conversion_vector_relation(
+                ranks, best_ranks, targets, best_targets, methods,
+                best_methods, arguments, 0, 2);
+            if (relation > 0) {
+                best = candidate;
+                memcpy(best_ranks, ranks, sizeof(ranks));
+                memcpy(best_targets, targets, sizeof(targets));
+                memcpy(best_methods, methods, sizeof(methods));
+            } else if (relation == 0 &&
+                       sema_cxx_conversion_vectors_same_sequence(
+                           ranks, targets, methods, best_ranks,
+                           best_targets, best_methods, 2)) {
+                if (best->func_is_template_instance &&
+                    !candidate->func_is_template_instance) {
+                    best = candidate;
+                    memcpy(best_ranks, ranks, sizeof(ranks));
+                    memcpy(best_targets, targets, sizeof(targets));
+                    memcpy(best_methods, methods, sizeof(methods));
+                } else if (!best->func_is_template_instance &&
+                           candidate->func_is_template_instance) {
+                    /* The non-template candidate remains preferred. */
+                }
+            }
+        }
+    }
+    return best;
+}
+
+typedef struct SemaCxxBinaryOperatorCandidate {
+    Symbol* functions;
+    ExprList* arguments;
+    Decl* function;
+    int ranks[2];
+    Type* targets[2];
+    TypeMethod* methods[2];
+    bool rewritten;
+    bool reversed;
+} SemaCxxBinaryOperatorCandidate;
+
+static bool sema_cxx_collect_binary_operator_candidate(
+    SemaCxxBinaryOperatorCandidate* candidate, Symbol* functions,
+    ExprList* arguments, bool rewritten, bool reversed) {
+    int first_rank;
+    Type* first_target;
+    TypeMethod* first_method;
+
+    if (!candidate) return false;
+    memset(candidate, 0, sizeof(*candidate));
+    candidate->functions = functions;
+    candidate->arguments = arguments;
+    candidate->rewritten = rewritten;
+    candidate->reversed = reversed;
+    candidate->function = sema_cxx_operator_best_nonmember_candidate(
+        functions, arguments, candidate->ranks, candidate->targets,
+        candidate->methods);
+    if (!candidate->function) return false;
+    if (reversed) {
+        first_rank = candidate->ranks[0];
+        first_target = candidate->targets[0];
+        first_method = candidate->methods[0];
+        candidate->ranks[0] = candidate->ranks[1];
+        candidate->ranks[1] = first_rank;
+        candidate->targets[0] = candidate->targets[1];
+        candidate->targets[1] = first_target;
+        candidate->methods[0] = candidate->methods[1];
+        candidate->methods[1] = first_method;
+    }
+    return true;
+}
+
+static int sema_cxx_binary_operator_candidate_relation(
+    const SemaCxxBinaryOperatorCandidate* left,
+    const SemaCxxBinaryOperatorCandidate* right,
+    ExprList* expression_arguments) {
+    int relation;
+
+    if (!left || !right) return 0;
+    relation = cxx_conversion_vector_relation(
+        left->ranks, right->ranks, left->targets, right->targets,
+        left->methods, right->methods, expression_arguments, 0, 2);
+    if (relation != 0) return relation;
+    if (!sema_cxx_conversion_vectors_same_sequence(
+            left->ranks, left->targets, left->methods,
+            right->ranks, right->targets, right->methods, 2)) {
+        return 0;
+    }
+    if (left->rewritten != right->rewritten) {
+        return left->rewritten ? -1 : 1;
+    }
+    if (left->reversed != right->reversed) {
+        return left->reversed ? -1 : 1;
+    }
+    return 0;
+}
+
 static bool sema_cxx_member_operator_has_viable_candidate(
     Type* aggregate, Expr* expression, const char* name) {
     Expr* member_expression;
@@ -21238,40 +21387,79 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     exprlist_append(&arguments, expression->binary_lhs);
     exprlist_append(&arguments, expression->binary_rhs);
     function = sema_cxx_operator_function(name, arguments);
-    if (function && (expression->kind == EXPR_EQ ||
-                     expression->kind == EXPR_NE) &&
-        !sema_cxx_operator_has_viable_nonmember_candidate(function,
-                                                          arguments)) {
-        function = NULL;
-    }
-    if (!function && (expression->kind == EXPR_EQ ||
-                      expression->kind == EXPR_NE)) {
-        function = sema_cxx_operator_function("operator==", arguments);
-        if (!sema_cxx_operator_has_viable_nonmember_candidate(function,
-                                                              arguments)) {
-            ExprList* reversed_arguments = NULL;
-            exprlist_append(&reversed_arguments, expression->binary_rhs);
-            exprlist_append(&reversed_arguments, expression->binary_lhs);
-            function = sema_cxx_operator_function("operator==",
-                                                  reversed_arguments);
-            if (sema_cxx_operator_has_viable_nonmember_candidate(
-                    function, reversed_arguments)) {
-                arguments = reversed_arguments;
-            } else {
-                function = NULL;
+    if (expression->kind == EXPR_EQ || expression->kind == EXPR_NE) {
+        SemaCxxBinaryOperatorCandidate candidates[3];
+        int candidate_count = 0;
+        int best_index = -1;
+        bool ambiguous = false;
+        ExprList* reversed_equal_arguments = NULL;
+        Symbol* reversed_equal_functions;
+
+        if (sema_cxx_collect_binary_operator_candidate(
+                &candidates[candidate_count], function, arguments,
+                false, false)) {
+            ++candidate_count;
+        }
+        if (expression->kind == EXPR_NE) {
+            Symbol* normal_equal_functions = sema_cxx_operator_function(
+                "operator==", arguments);
+            if (sema_cxx_collect_binary_operator_candidate(
+                    &candidates[candidate_count], normal_equal_functions,
+                    arguments, true, false)) {
+                ++candidate_count;
             }
         }
-        if (function) {
+        exprlist_append(&reversed_equal_arguments,
+                        expression->binary_rhs);
+        exprlist_append(&reversed_equal_arguments,
+                        expression->binary_lhs);
+        reversed_equal_functions = sema_cxx_operator_function(
+            "operator==", reversed_equal_arguments);
+        if (sema_cxx_collect_binary_operator_candidate(
+                &candidates[candidate_count], reversed_equal_functions,
+                reversed_equal_arguments, true, true)) {
+            ++candidate_count;
+        }
+
+        for (int index = 0; index < candidate_count; ++index) {
+            bool better_than_every_other = true;
+            for (int other = 0; other < candidate_count; ++other) {
+                if (index == other) continue;
+                if (sema_cxx_binary_operator_candidate_relation(
+                        &candidates[index], &candidates[other],
+                        arguments) <= 0) {
+                    better_than_every_other = false;
+                    break;
+                }
+            }
+            if (better_than_every_other) {
+                if (best_index >= 0) ambiguous = true;
+                best_index = index;
+            }
+        }
+        if (candidate_count && best_index < 0) ambiguous = true;
+        if (ambiguous) {
+            rcc_error(expression->loc,
+                      "ambiguous C++20 equality operator candidates");
+            /* Keep semantic traversal deterministic after the diagnostic;
+             * code generation is suppressed by the recorded error. */
+            best_index = 0;
+        }
+        if (best_index >= 0 && candidates[best_index].rewritten) {
             Expr* rewritten;
             function_expression = expr_ident("operator==",
                                              expression->loc);
-            call = expr_call(function_expression, arguments,
+            call = expr_call(function_expression,
+                             candidates[best_index].arguments,
                              expression->loc);
             rewritten = expression->kind == EXPR_NE
                 ? expr_unary(EXPR_NOT, call, expression->loc) : call;
             *expression = *rewritten;
             return true;
         }
+        function = best_index >= 0
+            ? candidates[best_index].functions : NULL;
+        if (best_index >= 0) arguments = candidates[best_index].arguments;
         if (expression->kind == EXPR_NE && aggregate &&
             (aggregate->kind == TYPE_STRUCT ||
              aggregate->kind == TYPE_UNION)) {
