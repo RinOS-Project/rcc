@@ -14615,6 +14615,17 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                 return lower_load_address(context, address,
                                           expression->type->base);
             }
+            /* Complex values use aggregate storage, but casts between their
+             * component types must convert each real/imaginary component.
+             * Handle them before the generic aggregate-preserving cast. */
+            if (expression->cast_expr && expression->cast_expr->type &&
+                (type_is_complex(expression->type) ||
+                 type_is_complex(expression->cast_expr->type))) {
+                operand = lower_expression(context, expression->cast_expr);
+                return lower_complex_convert(
+                    context, expression->cast_expr, operand,
+                    expression->type);
+            }
             if (lower_abi_is_aggregate(expression->type) &&
                 expression->cast_expr &&
                 lower_abi_is_aggregate(expression->cast_expr->type)) {
@@ -14646,14 +14657,6 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                         expression->cxx_pointer_adjustment);
                 }
                 return operand;
-            }
-            if (expression->cast_expr && expression->cast_expr->type &&
-                (type_is_complex(expression->type) ||
-                 type_is_complex(expression->cast_expr->type))) {
-                operand = lower_expression(context, expression->cast_expr);
-                return lower_complex_convert(
-                    context, expression->cast_expr, operand,
-                    expression->type);
             }
             if (lower_i686_wide_scalar_type(expression->type)) {
                 /* A 64-bit i686 result is represented by a pair and must be

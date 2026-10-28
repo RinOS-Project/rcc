@@ -2,10 +2,10 @@
 #error "RCC must define __STDC_HOSTED__"
 #endif
 #if !defined(__STDC_NO_COMPLEX__)
-#error "RCC must define __STDC_NO_COMPLEX__ when complex ABI is unavailable"
+#error "RCC's default legacy backend must report its missing complex lowering"
 #endif
 #if __STDC_NO_COMPLEX__ != 1
-#error "RCC must report the unsupported complex ABI as 1"
+#error "RCC must report unavailable default-backend complex support as 1"
 #endif
 #if defined(__STDC_NO_THREADS__)
 #error "RCC must expose C11 threads when the SDK provides threads.h"

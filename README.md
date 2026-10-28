@@ -101,6 +101,13 @@ debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はr
   integerとのscalar conversion、unary minus、compound update、前後置increment/decrement、
   conditional selectをlowerし、cdecl引数・ST0戻り値も含むC/C++ `-O0`/`-O2`の
   fallbackなしi686実行を検証済みです（[実装状況](docs/implementation-status-i686-typed-fp-arithmetic-v1.md)）。
+- `long double`は独立したC/C++型・rankを保ちつつRinOSのbinary64 size/ABIへlowerします。
+  `L` literal、identity/add、C17/C++20の両target、legacy/verified backendをcompile regressionで
+  確認します。呼出・varargs・roundingのtarget runtime検証は未完です。
+- `float _Complex`／`double _Complex`の型変換、基本演算、truth/equality、`<complex.h>`の
+  `complex`／`I`／`CMPLX`を`-fverified-backend`で実装し、i686/AMD64 object生成、AMD64の
+  `-O0`/`-O2` SysV実行、RinOS libcのmultiply/divide helper連携を`test-complex`で確認します。
+  default legacy backendは未対応のため、通常設定では`__STDC_NO_COMPLEX__`を定義します。
 - direct RIN/NDRVとobject linkでのDATA/CODE/BSS symbol relocation、関数ポインタ
 - 文字列literalのread-only `.rodata`分離と独立RVA mapping
 - `.ro/.ra v2` reader/writer、typed import、依存libraryを扱う`rld`

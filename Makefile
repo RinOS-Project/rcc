@@ -583,6 +583,8 @@ endif
 .PHONY: test-verified-cxx-partial-array-init
 .PHONY: test-verified-cxx-throwing-temporary
 .PHONY: test-rinvalidate-dynamic-tls
+.PHONY: test-complex
+.PHONY: test-long-double
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-posix test-cxx-nested-class-template-owner-structural-value-pack-invalid
@@ -1006,6 +1008,8 @@ C17_REGRESSION_TARGETS += test-c-old-style test-c-multi-declarator
 C17_REGRESSION_TARGETS += test-c11-threads-sdk
 C17_REGRESSION_TARGETS += test-ucontext-sdk
 C17_REGRESSION_TARGETS += test-c-null-void-pointer-constant
+C17_REGRESSION_TARGETS += test-complex
+C17_REGRESSION_TARGETS += test-long-double test-preprocessor-standard-macros
 
 # `-g` currently emits a relocatable DWARF line table.  Keep this gate in the
 # C17 aggregate so the option cannot silently regress to a no-op.
@@ -16805,6 +16809,81 @@ endif
 		tests/invalid_x86_wide_scalar.c,$(TEST_OUT)/x86-wide-scalar/invalid.log)
 	@echo "i686 64-bit scalar ABI test completed"
 
+test-complex: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/complex)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 \
+		-fverified-backend -v -c -o $(TEST_OUT)/complex/complex-x86.ro \
+		tests/c_complex_abi.c \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		>$(TEST_OUT)/complex/complex-x86.log
+	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
+		$(TEST_OUT)/complex/complex-x86.log
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-fverified-backend -v -c -o $(TEST_OUT)/complex/complex-x64.ro \
+		tests/c_complex_abi.c \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		>$(TEST_OUT)/complex/complex-x64.log
+	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
+		$(TEST_OUT)/complex/complex-x64.log
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/complex/complex-x64-o2.ro \
+		tests/c_complex_abi.c -I$(RINOS_ROOT)/public-base/libs/libc \
+		>$(TEST_OUT)/complex/complex-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
+		$(TEST_OUT)/complex/complex-x64-o2.log
+	$(CC) $(CFLAGS) -I$(RINOS_ROOT)/RinOS-SDK/include \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-D__rin_cmul_f32=rcc_host_complex_mul_f32 \
+		-D__rin_cmul_f64=rcc_host_complex_mul_f64 \
+		-D__rin_cdiv_f32=rcc_host_complex_div_f32 \
+		-D__rin_cdiv_f64=rcc_host_complex_div_f64 \
+		-c -o $(TEST_OUT)/complex/complex_runtime.o \
+		$(RINOS_ROOT)/public-base/libs/libc/complex_runtime.c
+	$(CC) $(CFLAGS) -Werror -I$(RINOS_ROOT)/RinOS-SDK/include \
+		-I$(INCDIR) -o $(TEST_OUT)/complex/run-complex$(EXE_SUFFIX) \
+		tests/c_complex_abi_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(TEST_OUT)/complex/complex_runtime.o -lm
+	$(TEST_OUT)/complex/run-complex$(EXE_SUFFIX) \
+		$(TEST_OUT)/complex/complex-x64.ro
+	$(TEST_OUT)/complex/run-complex$(EXE_SUFFIX) \
+		$(TEST_OUT)/complex/complex-x64-o2.ro
+
+test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/long-double)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/long-double/c-x86.ro tests/long_double_abi.c
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/long-double/c-x64.ro tests/long_double_abi.c
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/long-double/cxx-x86.ro tests/long_double_abi.c
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/long-double/cxx-x64.ro tests/long_double_abi.c
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double/verified-c-x86.ro \
+		tests/long_double_abi.c >$(TEST_OUT)/long-double/verified-c-x86.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/long-double/verified-c-x86.log
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double/verified-c-x64.ro \
+		tests/long_double_abi.c >$(TEST_OUT)/long-double/verified-c-x64.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/long-double/verified-c-x64.log
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double/verified-cxx-x86.ro \
+		tests/long_double_abi.c >$(TEST_OUT)/long-double/verified-cxx-x86.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/long-double/verified-cxx-x86.log
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double/verified-cxx-x64.ro \
+		tests/long_double_abi.c >$(TEST_OUT)/long-double/verified-cxx-x64.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/long-double/verified-cxx-x64.log
+
 test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/language-boundaries)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
@@ -16828,38 +16907,14 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q "C17 universal character name cannot designate a basic source character" $(TEST_OUT)/language-boundaries/c-ucn-basic-x64.log
 	$(call EXPECT_FAILURE,gcc -std=c17 -fsyntax-only tests/c_ucn_basic_character_invalid.c,$(TEST_OUT)/language-boundaries/c-ucn-basic-gcc.log)
 	$(GREP) -F -q "universal character" $(TEST_OUT)/language-boundaries/c-ucn-basic-gcc.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/language-boundaries/c-x86.ro tests/unsupported_long_double.c,$(TEST_OUT)/language-boundaries/c-x86.log)
-	$(GREP) -q "long double is not supported by the RinOS floating-point ABI" \
-		$(TEST_OUT)/language-boundaries/c-x86.log
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/language-boundaries/c-x86.ro tests/long_double_abi.c
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
 		-o $(TEST_OUT)/language-boundaries/c17-x86.ro tests/integer_literal.c
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/language-boundaries/c-literal-x86.ro tests/unsupported_long_double_literal.c,$(TEST_OUT)/language-boundaries/c-literal-x86.log)
-	$(GREP) -q "long double literals are not supported by the RinOS floating-point ABI" \
-		$(TEST_OUT)/language-boundaries/c-literal-x86.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/language-boundaries/c-x64.ro tests/unsupported_long_double.c,$(TEST_OUT)/language-boundaries/c-x64.log)
-	$(GREP) -q "long double is not supported by the RinOS floating-point ABI" \
-		$(TEST_OUT)/language-boundaries/c-x64.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/language-boundaries/c-x64.ro tests/long_double_abi.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos --std=gnu17 -c \
 		-o $(TEST_OUT)/language-boundaries/c17-x64.ro tests/integer_literal.c
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/language-boundaries/c-literal-x64.ro tests/unsupported_long_double_literal.c,$(TEST_OUT)/language-boundaries/c-literal-x64.log)
-	$(GREP) -q "long double literals are not supported by the RinOS floating-point ABI" \
-		$(TEST_OUT)/language-boundaries/c-literal-x64.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/cxx-x86.ro tests/unsupported_long_double.c,$(TEST_OUT)/language-boundaries/cxx-x86.log)
-	$(GREP) -q "long double is not supported by the RinOS floating-point ABI" \
-		$(TEST_OUT)/language-boundaries/cxx-x86.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/cxx-literal-x86.ro tests/unsupported_long_double_literal.c,$(TEST_OUT)/language-boundaries/cxx-literal-x86.log)
-	$(GREP) -q "long double literals are not supported by the RinOS floating-point ABI" \
-		$(TEST_OUT)/language-boundaries/cxx-literal-x86.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/cxx-x64.ro tests/unsupported_long_double.c,$(TEST_OUT)/language-boundaries/cxx-x64.log)
-	$(GREP) -q "long double is not supported by the RinOS floating-point ABI" \
-		$(TEST_OUT)/language-boundaries/cxx-x64.log
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/cxx-literal-x64.ro tests/unsupported_long_double_literal.c,$(TEST_OUT)/language-boundaries/cxx-literal-x64.log)
-	$(GREP) -q "long double literals are not supported by the RinOS floating-point ABI" \
-		$(TEST_OUT)/language-boundaries/cxx-literal-x64.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/complex-x86.ro tests/unsupported_complex.c,$(TEST_OUT)/language-boundaries/complex-x86.log)
-	$(GREP) -q "_Complex is not supported by the RinOS floating-point ABI" $(TEST_OUT)/language-boundaries/complex-x86.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/complex-x64.ro tests/unsupported_complex.c,$(TEST_OUT)/language-boundaries/complex-x64.log)
-	$(GREP) -q "_Complex is not supported by the RinOS floating-point ABI" $(TEST_OUT)/language-boundaries/complex-x64.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/imaginary-x86.ro tests/unsupported_imaginary.c,$(TEST_OUT)/language-boundaries/imaginary-x86.log)
 	$(GREP) -q "_Imaginary is not supported by the RinOS floating-point ABI" $(TEST_OUT)/language-boundaries/imaginary-x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/imaginary-x64.ro tests/unsupported_imaginary.c,$(TEST_OUT)/language-boundaries/imaginary-x64.log)
@@ -16876,7 +16931,7 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/language-boundaries/const-cast-x64.ro tests/unsupported_const_cast.cpp,$(TEST_OUT)/language-boundaries/const-cast-x64.log)
 	$(GREP) -q "const_cast requires the same object type" \
 		$(TEST_OUT)/language-boundaries/const-cast-x64.log
-	@echo "RCC/RCC++ unsupported language and floating-point boundary diagnostics completed"
+	@echo "RCC/RCC++ unsupported language diagnostics and long-double ABI checks completed"
 
 test-noreturn: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/noreturn)
