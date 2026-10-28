@@ -183,6 +183,11 @@ struct CxxClass {
      * but their bodies need the completed class layout. Keep them separate
      * from member lookup while the class is being completed. */
     struct CxxMember* defaulted_friend_comparisons;
+    /* Hidden friends are not class members, but class-template specializations
+     * own distinct non-template friend functions. Preserve their declarations
+     * on the associated class for ADL and specialization materialization. */
+    Decl** hidden_friend_functions;
+    int hidden_friend_function_count;
     /* True after inherited method aliases have been published. Qualified
      * out-of-class definitions may publish additional declared methods later. */
     bool ordinary_methods_registered;

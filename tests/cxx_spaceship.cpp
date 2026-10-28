@@ -56,6 +56,20 @@ struct ReverseSpaceshipRight {
     }
 };
 
+template <typename T>
+struct TemplatedHiddenFriendSpaceship {
+private:
+    T value;
+
+public:
+    explicit TemplatedHiddenFriendSpaceship(T initial) : value(initial) {}
+
+    friend int operator<=>(const TemplatedHiddenFriendSpaceship& left,
+                           const TemplatedHiddenFriendSpaceship& right) {
+        return left.value - right.value;
+    }
+};
+
 namespace spaceship_associated {
 inline namespace v1 {
 struct Left {};
@@ -116,6 +130,10 @@ int main() {
     MemberTemplateSpaceship member_template_right{5};
     MemberTemplateDirectLessWinsTie member_template_tie_left{1};
     MemberTemplateDirectLessWinsTie member_template_tie_right{2};
+    TemplatedHiddenFriendSpaceship<int> templated_friend_left{2};
+    TemplatedHiddenFriendSpaceship<int> templated_friend_right{5};
+    TemplatedHiddenFriendSpaceship<long> templated_friend_long_left{7};
+    TemplatedHiddenFriendSpaceship<long> templated_friend_long_right{4};
     ReverseSpaceshipLeft reverse_left;
     ReverseSpaceshipRight reverse_right;
     spaceship_associated::Left inline_left;
@@ -142,6 +160,8 @@ int main() {
            !(tie_left < tie_right) &&
            (member_template_left < member_template_right) &&
            !(member_template_tie_left < member_template_tie_right) &&
+           (templated_friend_left < templated_friend_right) &&
+           !(templated_friend_long_left < templated_friend_long_right) &&
            (reverse_left < reverse_right) &&
            (reverse_left <= reverse_right) &&
            !(reverse_left >= reverse_right) &&

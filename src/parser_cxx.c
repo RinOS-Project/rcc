@@ -4029,6 +4029,7 @@ static int cxx_materialize_member_function_templates_internal(
     int explicit_argument_count, bool explicit_arguments_specified,
     TypeMethod** candidates, int candidate_capacity,
     bool* constraint_unsupported);
+static void cxx_add_function_declaration_once(Decl* declaration);
 
 static bool cxx_eval_dependent_integer_member_template_call(
     Expr* member_expression, ExprList* arguments, int64_t* result) {
@@ -11746,6 +11747,28 @@ static void register_instantiated_class_static_fields(
 }
 
 /* Parse class member (field or method) */
+static void cxx_class_record_hidden_friend(CxxClass* cls,
+                                           Decl* declaration) {
+    if (!cls || !declaration || declaration->kind != DECL_FUNC) return;
+    for (int index = 0; index < cls->hidden_friend_function_count; ++index) {
+        if (cls->hidden_friend_functions[index] == declaration) return;
+    }
+    if (cls->hidden_friend_function_count == INT_MAX) {
+        rcc_error(declaration->loc,
+                  "too many hidden friend functions in class '%s'",
+                  cls->name ? cls->name : "<anonymous>");
+        return;
+    }
+    cls->hidden_friend_functions = ast_arena_grow(
+        cls->hidden_friend_functions,
+        sizeof(cls->hidden_friend_functions[0]) *
+            (size_t)cls->hidden_friend_function_count,
+        sizeof(cls->hidden_friend_functions[0]) *
+            (size_t)(cls->hidden_friend_function_count + 1));
+    cls->hidden_friend_functions[cls->hidden_friend_function_count++] =
+        declaration;
+}
+
 static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
     int explicit_alignment = 0;
@@ -12146,6 +12169,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         if (is_friend) {
             method->owner = NULL;
             method->decl->func_is_hidden_friend = true;
+            cxx_class_record_hidden_friend(cls, method->decl);
             CxxFriendAccess* friend_access =
                 ast_arena_alloc(sizeof(*friend_access));
             friend_access->owner = cls;
@@ -21441,6 +21465,77 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     return copy;
 }
 
+static Decl* cxx_substitute_class_hidden_friend(
+    CxxTemplate* class_template, CxxClass* definition, CxxClass* instance_class,
+    Decl* source, Type** arguments, int argument_count,
+    const int64_t* value_args, const bool* value_present) {
+    Type* function_type;
+    Decl* instance;
+    CxxFriendAccess* friend_access = NULL;
+    CxxFriendAccess** friend_tail = &friend_access;
+    if (!class_template || !definition || !instance_class || !source ||
+        source->kind != DECL_FUNC || !source->type ||
+        source->type->kind != TYPE_FUNC) {
+        return NULL;
+    }
+    function_type = substitute_template_type(
+        class_template, source->type, arguments, argument_count,
+        value_args, value_present);
+    if (!function_type || function_type->kind != TYPE_FUNC) {
+        rcc_error(source->loc,
+                  "hidden friend function type could not be substituted for class template '%s'",
+                  definition->name ? definition->name : "<anonymous>");
+        return NULL;
+    }
+    instance = ast_arena_alloc(sizeof(*instance));
+    *instance = *source;
+    instance->type = function_type;
+    instance->func_params = substitute_template_decl_parameters(
+        class_template, source->func_params, arguments, argument_count,
+        value_args, value_present);
+    instance->func_body = cxx_template_clone_stmt_with_values(
+        class_template, source->func_body, arguments, argument_count,
+        value_args, value_present);
+    instance->func_noexcept_expr = cxx_template_clone_expr_with_values(
+        class_template, source->func_noexcept_expr, arguments,
+        argument_count, value_args, value_present);
+    for (CxxFriendAccess* grant = source->func_friend_access;
+         grant; grant = grant->next) {
+        CxxFriendAccess* copy = ast_arena_alloc(sizeof(*copy));
+        copy->owner = grant->owner == definition
+            ? instance_class : grant->owner;
+        copy->next = NULL;
+        *friend_tail = copy;
+        friend_tail = &copy->next;
+    }
+    instance->func_friend_access = friend_access;
+    instance->func_is_hidden_friend = true;
+    instance->func_is_template_instance = false;
+    instance->func_template_body_deferred = false;
+    instance->func_template_owner = NULL;
+    instance->func_template_args = NULL;
+    instance->func_template_arg_count = 0;
+    instance->func_template_value_args = NULL;
+    instance->func_template_value_present = NULL;
+    instance->func_template_pack_args = NULL;
+    instance->func_template_pack_values = NULL;
+    instance->func_template_pack_value_present = NULL;
+    instance->func_template_pack_count = -1;
+    instance->func_template_pack_offsets = NULL;
+    instance->func_template_pack_counts = NULL;
+    instance->func_is_cxx_method = false;
+    instance->func_method_owner = NULL;
+    instance->func_this_param = NULL;
+    instance->func_has_cxx_linkage = true;
+    instance->func_has_local_linkage = false;
+    instance->func_cxx_namespace = instance_class->ns
+        ? cxx_namespace_qualified_name(instance_class->ns) : NULL;
+    instance->func_cxx_namespace_scope = instance_class->ns;
+    instance->link_name = rcc_intern(cxx_mangle_function(
+        instance, instance_class->ns, NULL));
+    return instance;
+}
+
 static int cxx_template_class_method_ordinal(CxxClass* cls,
                                              CxxMethod* method) {
     int ordinal = 0;
@@ -22962,6 +23057,19 @@ static Type* instantiate_class_template_for_owner(
             method->owner = instance;
             method->decl->func_method_owner = instance->type;
             cxx_class_add_method(instance, method);
+        }
+    }
+    for (int friend_index = 0;
+         friend_index < definition->hidden_friend_function_count;
+         ++friend_index) {
+        Decl* friend_instance = cxx_substitute_class_hidden_friend(
+            tmpl, definition, instance,
+            definition->hidden_friend_functions[friend_index],
+            substitution_arguments, substitution_argument_count,
+            substitution_value_args, substitution_value_present);
+        if (friend_instance) {
+            cxx_class_record_hidden_friend(instance, friend_instance);
+            cxx_add_function_declaration_once(friend_instance);
         }
     }
     {

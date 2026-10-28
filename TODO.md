@@ -11466,8 +11466,14 @@ remains a separate open item.
       operator-overload, and defaulted-equality tests pass. A GCC C++20
       `-pedantic-errors` runtime oracle confirms the reversed rewrite in named
       and inline namespaces.
+- [x] Materialize a non-template hidden friend declared in a class-template
+      pattern for each class specialization, retain that specialization as the
+      friend-access owner, and expose the declaration through associated-class
+      ADL. Cover private-member access and distinct `int`/`long` specializations
+      of a hidden-friend `operator<=>` in `test-cxx-spaceship`; the x86/x64
+      assembly, x64 host runtime, class-template method/friend regressions, and
+      an isolated GCC C++20 `-pedantic-errors` oracle pass.
 - [ ] Continue auditing ADL candidate identity and hidden-friend lookup across
-      templates and redeclarations. A hidden-friend `operator<=>` dependent on
-      a class-template specialization is not yet surfaced to relational
-      rewritten-candidate selection; bridge class/function-template
-      materialization into operator lookup before claiming that case.
+      function-template hidden friends, redeclarations, and remaining
+      class-template interactions; retain the broader C++20 overload
+      conformance item as open.

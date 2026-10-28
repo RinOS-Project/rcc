@@ -1631,6 +1631,19 @@ static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments,
             &candidates, &associated_types);
         if (type->kind == TYPE_ENUM || !class_info) continue;
 
+        for (int friend_index = 0;
+             friend_index < class_info->hidden_friend_function_count;
+             ++friend_index) {
+            Decl* declaration =
+                class_info->hidden_friend_functions[friend_index];
+            if (sema_cxx_adl_declaration_has_name(declaration, name) &&
+                sema_cxx_adl_hidden_friend_matches(
+                    declaration, &associated_types) &&
+                !sema_cxx_adl_contains(&candidates, declaration)) {
+                sema_cxx_adl_append_candidate(&candidates, declaration);
+            }
+        }
+
         /* A class-template specialization contributes the associated entities
          * of each type template argument as well as those of the class. */
         for (int argument = 0; argument < type->cxx_template_arg_count;
