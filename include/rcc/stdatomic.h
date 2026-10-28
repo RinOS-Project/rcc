@@ -1,6 +1,10 @@
 #ifndef RCC_STDATOMIC_H
 #define RCC_STDATOMIC_H
 
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+#define __STDC_VERSION_STDATOMIC_H__ 202311L
+#endif
+
 /* This RinOS C17 surface provides lock-free arithmetic and bitwise operations
  * for 8/16/32/64-bit integer storage on both targets. i686 64-bit operations
  * use the target baseline CMPXCHG8B feature. Pointer load/store/exchange/CAS
@@ -79,7 +83,9 @@ typedef _Atomic unsigned int atomic_flag;
 #define ATOMIC_POINTER_LOCK_FREE 2
 
 #define ATOMIC_FLAG_INIT 0u
+#if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L
 #define ATOMIC_VAR_INIT(value) (value)
+#endif
 
 #define kill_dependency(value) (value)
 #define atomic_is_lock_free(object) \
