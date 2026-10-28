@@ -330,6 +330,10 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_byte(optimized,
                                    "inlined_local_temporary_call", 0xe8u));
     assert(function_contains_byte(
+        unoptimized, "inlined_nested_lexical_constants_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_nested_lexical_constants_call", 0xe8u));
+    assert(function_contains_byte(
         unoptimized, "inlined_two_local_temporaries_call", 0xe8u));
     assert(!function_contains_byte(
         optimized, "inlined_two_local_temporaries_call", 0xe8u));
@@ -1997,6 +2001,8 @@ int main(int argc, char** argv)
             object, "inlined_argument_call");
         ObjSymbol* inlined_local_temporary_call_symbol = function_symbol(
             object, "inlined_local_temporary_call");
+        ObjSymbol* inlined_nested_lexical_constants_call_symbol =
+            function_symbol(object, "inlined_nested_lexical_constants_call");
         ObjSymbol* inlined_two_local_temporaries_call_symbol = function_symbol(
             object, "inlined_two_local_temporaries_call");
         ObjSymbol* preserved_local_side_effect_call_symbol = function_symbol(
@@ -2181,6 +2187,7 @@ int main(int argc, char** argv)
         int (*preserved_signed_div_negative_eight_side_effect)(int*);
         int (*inlined_argument_call)(int);
         int (*inlined_local_temporary_call)(int);
+        int (*inlined_nested_lexical_constants_call)(int);
         int (*inlined_two_local_temporaries_call)(int, int);
         int (*inlined_local_mutations_call)(int);
         int (*inlined_local_compound_mutations_call)(int);
@@ -2606,6 +2613,9 @@ int main(int argc, char** argv)
         address = mapping + inlined_local_temporary_call_symbol->value;
         memcpy(&inlined_local_temporary_call, &address,
                sizeof(inlined_local_temporary_call));
+        address = mapping + inlined_nested_lexical_constants_call_symbol->value;
+        memcpy(&inlined_nested_lexical_constants_call, &address,
+               sizeof(inlined_nested_lexical_constants_call));
         address = mapping + inlined_two_local_temporaries_call_symbol->value;
         memcpy(&inlined_two_local_temporaries_call, &address,
                sizeof(inlined_two_local_temporaries_call));
@@ -3432,6 +3442,8 @@ int main(int argc, char** argv)
         }
         assert(inlined_argument_call(-8) == -7);
         assert(inlined_local_temporary_call(-8) == -10);
+        assert(inlined_nested_lexical_constants_call(-8) == 38);
+        assert(inlined_nested_lexical_constants_call(5) == 51);
         assert(inlined_two_local_temporaries_call(-8, 13) == 11);
         assert(inlined_local_mutations_call(-8) == -11);
         assert(inlined_local_mutations_call(5) == 15);

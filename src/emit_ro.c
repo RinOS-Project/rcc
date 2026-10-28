@@ -4002,6 +4002,71 @@ static DebugInlineLocalOrigin* debug_inline_local_origin_find(
     return NULL;
 }
 
+typedef void (*DebugInlineLocalVisitor)(const Decl* declaration,
+                                        void* context);
+
+static void debug_walk_inline_local_declarations(
+    const Stmt* statement, DebugInlineLocalVisitor visitor, void* context) {
+    const StmtList* item;
+    if (!statement || !visitor) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                debug_walk_inline_local_declarations(
+                    item->stmt, visitor, context);
+            }
+            break;
+        case STMT_IF:
+            debug_walk_inline_local_declarations(
+                statement->if_then, visitor, context);
+            debug_walk_inline_local_declarations(
+                statement->if_else, visitor, context);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            debug_walk_inline_local_declarations(
+                statement->while_body, visitor, context);
+            break;
+        case STMT_FOR:
+            debug_walk_inline_local_declarations(
+                statement->for_init, visitor, context);
+            debug_walk_inline_local_declarations(
+                statement->for_body, visitor, context);
+            break;
+        case STMT_SWITCH:
+            debug_walk_inline_local_declarations(
+                statement->switch_body, visitor, context);
+            break;
+        case STMT_CASE:
+            debug_walk_inline_local_declarations(
+                statement->case_stmt, visitor, context);
+            break;
+        case STMT_DEFAULT:
+            debug_walk_inline_local_declarations(
+                statement->default_stmt, visitor, context);
+            break;
+        case STMT_LABEL:
+            debug_walk_inline_local_declarations(
+                statement->label_stmt, visitor, context);
+            break;
+        case STMT_DECL:
+            visitor(statement->decl, context);
+            break;
+        case STMT_TRY:
+            debug_walk_inline_local_declarations(
+                statement->try_body, visitor, context);
+            for (CxxCatch* handler = statement->try_catches;
+                 handler; handler = handler->next) {
+                if (handler->parameter) visitor(handler->parameter, context);
+                debug_walk_inline_local_declarations(
+                    handler->body, visitor, context);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 static DebugInlineParameterOrigin* debug_inline_parameter_origin_find(
     DebugInlineParameterOrigin* origins, const Decl* function,
     const Decl* declaration) {
@@ -15466,43 +15531,67 @@ static void debug_emit_inline_parameter_instances(
     }
 }
 
+typedef struct {
+    ObjSection* info;
+    ObjSection* strings;
+    DebugTypeContext* types;
+    const char* const* files;
+    int file_count;
+    const Decl* function;
+    DebugInlineLocalOrigin** origins;
+} DebugInlineLocalOriginContext;
+
+static void debug_emit_inline_local_origin_decl(
+    const Decl* local, void* opaque_context) {
+    DebugInlineLocalOriginContext* context = opaque_context;
+    DebugTypeEntry* type_entry;
+    int file_index;
+    DebugInlineLocalOrigin* origin;
+    if (!context || !context->info || !context->strings || !context->types ||
+        !context->function || !context->origins ||
+        !debug_inline_local_constant_supported(local)) {
+        return;
+    }
+    type_entry = debug_type_find(context->types, local->type);
+    file_index = debug_line_file_index(
+        context->files, context->file_count, local->loc.filename);
+    if (!type_entry || file_index <= 0 ||
+        context->info->size > UINT32_MAX) {
+        return;
+    }
+    origin = rcc_alloc(sizeof(*origin));
+    origin->function = context->function;
+    origin->declaration = local;
+    origin->die_offset = (uint32_t)context->info->size;
+    origin->next = *context->origins;
+    *context->origins = origin;
+    /* Abbreviation 32 is the declaration-only form of a local variable:
+     * the abstract origin carries identity/type/source, while the
+     * concrete inlined instance below carries the actual constant. */
+    section_add_byte(context->info, 32u);
+    debug_line_u32(context->info,
+                   debug_str_add(context->strings, local->name));
+    debug_line_u32(context->info, type_entry->offset);
+    debug_line_u32(context->info, (uint32_t)file_index);
+    debug_line_u32(context->info, (uint32_t)local->loc.line);
+    debug_line_u32(context->info, (uint32_t)local->loc.column);
+}
+
 static void debug_emit_inline_local_origin(
     ObjSection* info, ObjSection* strings, DebugTypeContext* types,
     const char* const* files, int file_count, const Decl* function,
     DebugInlineLocalOrigin** origins) {
-    const StmtList* item;
-    if (!info || !strings || !types || !function || !origins ||
-        !function->func_body ||
-        function->func_body->kind != STMT_BLOCK) return;
-    for (item = function->func_body->block_stmts; item; item = item->next) {
-        const Decl* local = item->stmt && item->stmt->kind == STMT_DECL
-            ? item->stmt->decl : NULL;
-        DebugTypeEntry* type_entry;
-        int file_index;
-        DebugInlineLocalOrigin* origin;
-        if (!debug_inline_local_constant_supported(local)) continue;
-        type_entry = debug_type_find(types, local->type);
-        file_index = debug_line_file_index(
-            files, file_count, local->loc.filename);
-        if (!type_entry || file_index <= 0 || info->size > UINT32_MAX) {
-            continue;
-        }
-        origin = rcc_alloc(sizeof(*origin));
-        origin->function = function;
-        origin->declaration = local;
-        origin->die_offset = (uint32_t)info->size;
-        origin->next = *origins;
-        *origins = origin;
-        /* Abbreviation 32 is the declaration-only form of a local variable:
-         * the abstract origin carries identity/type/source, while the
-         * concrete inlined instance below carries the actual constant. */
-        section_add_byte(info, 32u);
-        debug_line_u32(info, debug_str_add(strings, local->name));
-        debug_line_u32(info, type_entry->offset);
-        debug_line_u32(info, (uint32_t)file_index);
-        debug_line_u32(info, (uint32_t)local->loc.line);
-        debug_line_u32(info, (uint32_t)local->loc.column);
-    }
+    DebugInlineLocalOriginContext context;
+    if (!function || !function->func_body || !origins) return;
+    context.info = info;
+    context.strings = strings;
+    context.types = types;
+    context.files = files;
+    context.file_count = file_count;
+    context.function = function;
+    context.origins = origins;
+    debug_walk_inline_local_declarations(
+        function->func_body, debug_emit_inline_local_origin_decl, &context);
 }
 
 static void debug_emit_inline_local_instance(
@@ -15534,17 +15623,30 @@ static void debug_emit_inline_local_instance(
     }
 }
 
+typedef struct {
+    ObjSection* info;
+    DebugInlineLocalOrigin* origins;
+    const Decl* function;
+} DebugInlineLocalInstanceContext;
+
+static void debug_emit_inline_local_instance_decl(
+    const Decl* local, void* opaque_context) {
+    DebugInlineLocalInstanceContext* context = opaque_context;
+    if (!context) return;
+    debug_emit_inline_local_instance(
+        context->info, context->origins, context->function, local);
+}
+
 static void debug_emit_inline_local_instances(
     ObjSection* info, DebugInlineLocalOrigin* origins,
     const Decl* function) {
-    if (!info || !function || !function->func_body ||
-        function->func_body->kind != STMT_BLOCK) return;
-    for (const StmtList* item = function->func_body->block_stmts;
-         item; item = item->next) {
-        const Decl* local = item->stmt && item->stmt->kind == STMT_DECL
-            ? item->stmt->decl : NULL;
-        debug_emit_inline_local_instance(info, origins, function, local);
-    }
+    DebugInlineLocalInstanceContext context;
+    if (!info || !function || !function->func_body) return;
+    context.info = info;
+    context.origins = origins;
+    context.function = function;
+    debug_walk_inline_local_declarations(
+        function->func_body, debug_emit_inline_local_instance_decl, &context);
 }
 
 static void debug_emit_inline_call_tree(

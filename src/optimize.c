@@ -1293,31 +1293,130 @@ static Expr* inline_scalar_debug_const_expression(const Decl* declaration) {
 }
 
 /* Keep the multi-statement inline shape deliberately narrow.  A block may
- * contain only scalar, non-volatile automatic declarations with pure
- * initializers, direct side-effect-free assignments to locals, discarded
- * increment/decrement operations on locals or by-value parameters, and one
- * final return or a terminal, total if/else return tree.  This lets small
- * wrappers such as
+ * contain nested lexical blocks and only scalar, non-volatile automatic
+ * declarations with pure initializers, direct side-effect-free assignments
+ * to locals, discarded increment/decrement operations on locals or by-value
+ * parameters, and one final return or a terminal, total if/else return tree.
+ * Nested scope-only blocks are flattened in source order only for arithmetic
+ * scalar locals, with address-taking and nested control flow excluded after
+ * cleanup and lifetime-sensitive objects have been ruled out.  This lets
+ * small wrappers such as
  * `int f(int x) { int y = x + 1; y = y * 2; return y; }` be expanded without
  * pretending that arbitrary control flow, cleanup, or lifetime-sensitive
  * objects are safe to clone into the caller. */
-static bool collect_inline_scalar_body(
-    const Stmt* body, InlineScalarOperation* operations,
-    size_t* operation_count, const Expr** returned) {
-    const StmtList* item;
-    if (!operations || !operation_count || !returned || !body) {
-        return false;
+static bool collect_inline_scalar_statement_list(
+    const StmtList* item, InlineScalarOperation* operations,
+    size_t* operation_count, const Expr** returned,
+    bool in_nested_block);
+
+static bool inline_scalar_expression_takes_address(const Expr* expression) {
+    if (!expression) return false;
+    switch (expression->kind) {
+        case EXPR_ADDR:
+            return true;
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_DEREF:
+            return inline_scalar_expression_takes_address(
+                expression->unary_operand);
+        case EXPR_CAST:
+            return inline_scalar_expression_takes_address(
+                expression->cast_expr);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            return inline_scalar_expression_takes_address(
+                       expression->binary_lhs) ||
+                   inline_scalar_expression_takes_address(
+                       expression->binary_rhs);
+        case EXPR_INDEX:
+            return inline_scalar_expression_takes_address(
+                       expression->index_base) ||
+                   inline_scalar_expression_takes_address(
+                       expression->index_expr);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return inline_scalar_expression_takes_address(
+                expression->member_base);
+        case EXPR_COND:
+            return inline_scalar_expression_takes_address(
+                       expression->cond_test) ||
+                   inline_scalar_expression_takes_address(
+                       expression->cond_then) ||
+                   inline_scalar_expression_takes_address(
+                       expression->cond_else);
+        default:
+            return false;
     }
-    *operation_count = 0u;
-    *returned = NULL;
-    if (body->kind == STMT_RETURN) {
-        *returned = body->return_val;
-        return *returned != NULL;
-    }
-    if (body->kind != STMT_BLOCK) return false;
-    for (item = body->block_stmts; item; item = item->next) {
+}
+
+static bool collect_inline_scalar_statement_list(
+    const StmtList* item, InlineScalarOperation* operations,
+    size_t* operation_count, const Expr** returned,
+    bool in_nested_block) {
+    if (!operations || !operation_count || !returned) return false;
+    for (; item; item = item->next) {
         const Stmt* statement = item->stmt;
         if (!statement) return false;
+        if (statement->kind == STMT_BLOCK) {
+            if (!collect_inline_scalar_statement_list(
+                    statement->block_stmts, operations, operation_count,
+                    returned, true)) {
+                return false;
+            }
+            continue;
+        }
+        if (in_nested_block) {
+            const Expr* nested_expression = NULL;
+            if (statement->kind == STMT_DECL && statement->decl) {
+                const Type* type = statement->decl->type;
+                bool scalar_value_type = type &&
+                    ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+                     type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE ||
+                     type->kind == TYPE_ENUM);
+                if (!scalar_value_type || type->is_reference) return false;
+                nested_expression = statement->decl->var_init;
+            } else if (statement->kind == STMT_EXPR) {
+                nested_expression = statement->expr;
+            } else if (statement->kind == STMT_RETURN) {
+                nested_expression = statement->return_val;
+            } else if (statement->kind == STMT_IF ||
+                       statement->kind == STMT_SWITCH) {
+                return false;
+            }
+            if (inline_scalar_expression_takes_address(nested_expression)) {
+                return false;
+            }
+        }
         if (statement->kind == STMT_DECL) {
             const Decl* declaration = statement->decl;
             const Expr* initializer = declaration
@@ -1452,6 +1551,27 @@ static bool collect_inline_scalar_body(
             *returned = statement->return_val;
             continue;
         }
+        return false;
+    }
+    return true;
+}
+
+static bool collect_inline_scalar_body(
+    const Stmt* body, InlineScalarOperation* operations,
+    size_t* operation_count, const Expr** returned) {
+    if (!operations || !operation_count || !returned || !body) {
+        return false;
+    }
+    *operation_count = 0u;
+    *returned = NULL;
+    if (body->kind == STMT_RETURN) {
+        *returned = body->return_val;
+        return *returned != NULL;
+    }
+    if (body->kind != STMT_BLOCK ||
+        !collect_inline_scalar_statement_list(
+            body->block_stmts, operations, operation_count, returned,
+            false)) {
         return false;
     }
     return *returned != NULL;

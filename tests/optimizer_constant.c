@@ -131,6 +131,25 @@ int inlined_local_temporary_call(int value)
     return inline_local_temporary(value);
 }
 
+static int inline_nested_lexical_constants(int value)
+{
+    int result = value;
+    {
+        const int scope_constant = 17;
+        result += scope_constant;
+        {
+            const unsigned int scope_constant = 29u;
+            result += (int)scope_constant;
+        }
+    }
+    return result;
+}
+
+int inlined_nested_lexical_constants_call(int value)
+{
+    return inline_nested_lexical_constants(value);
+}
+
 static int inline_two_local_temporaries(int left, int right)
 {
     int sum = left + right;

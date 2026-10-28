@@ -3446,3 +3446,23 @@ long long debug_inline_volatile_reference_local_entry()
         debug_inline_volatile_reference_local);
 }
 }
+
+static inline int debug_inline_nested_const_local(int value)
+{
+    int result = value;
+    {
+        const int debug_inline_positive_block_constant = 17;
+        result += debug_inline_positive_block_constant;
+        {
+            const unsigned int debug_inline_nested_unsigned_constant = 29u;
+            result += static_cast<int>(
+                debug_inline_nested_unsigned_constant);
+        }
+    }
+    return result;
+}
+
+extern "C" int debug_inline_nested_const_local_entry(int value)
+{
+    return debug_inline_nested_const_local(value);
+}

@@ -2407,12 +2407,17 @@
         DIEとして出力し、abstract-originにformal parameter DIEを含める。
         `test-debug-info`で両archのnested parent/child、PC range包含、宣言元
         parameterのname/type/locationを検証
-  - [x] legacy i686/AMD64のinlined-subroutine DIEに、callee本体直下のautomatic
-        const scalar localをabstract declarationとconcrete instanceに分けて出力。
-        signed/unsigned integer・enum・float/doubleの保存済み定数値をDWARFへ記録し、
-        定数initializerが最適化で消えた場合も再構成してpure-scalar inlineを維持する。
-        `test-debug-info`でconst type、abstract-origin、source file、signed値7を両archで検証し、
-        `test-optimize`も成功。nested lexical localやlocation-list値は未対応
+  - [x] legacy i686/AMD64のinlined-subroutine DIEに、callee本体直下とnested lexical
+        block内のautomatic const scalar localをabstract declarationとconcrete instanceに
+        分けて出力。signed/unsigned integer・enum・float/doubleの保存済み定数値を記録し、
+        initializerが最適化で消えた場合も再構成する。
+        `test-debug-info-inline-expression`でC++20 legacy/verified両backend、i686/AMD64の
+        nested block local origin/valueを検証。concrete lexical-block DIE/rangeとmutable localの
+        location listは未対応
+  - [x] safe scalar inlinerがcleanup・lifetime-sensitive objectのないnested lexical blockを
+        arithmetic scalarに限定してsource順に展開し、address-taking／nested control flowを
+        拒否してlocal bindingの同一性をDecl単位で保持。`test-optimize`でC17 i686/AMD64の
+        O0呼出し保持、O1 call除去、および実行値を検証
   - [x] direct inline callの引数式をIR/codegenのdebug metadataまで保持し、
         signed/unsigned integral parameterに整数定数を渡す場合は、
         concrete `DW_TAG_formal_parameter`へabstract-origin参照とcall固有の
@@ -2556,8 +2561,8 @@
         i686 `unsigned long long`) in computed expressions beyond the bounded
         pairwise add/subtract/multiply/bitwise operations above, arbitrary
         nonconstant argument expressions, mutable parameters,
-        optimized-away/register-only sources, nested lexical locals beyond
-        the tested inline-multiply case, tracking
+        optimized-away/register-only sources, nested lexical-block DIEs/ranges
+        and mutable inline locals, tracking
         optimized variables across register and piece locations, declaration
         lifetimes across every optimized CFG edge, and CFI/unwind coverage for
         prologues and epilogues beyond current fixed-frame rules. General

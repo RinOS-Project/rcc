@@ -5895,6 +5895,116 @@ static void verify_cxx_inline_constexpr_parameter(
     objfile_free(object);
 }
 
+static uint32_t find_inline_local_origin(
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* line, const char* name) {
+    for (uint64_t die = 11u; die + 21u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t type_offset;
+        uint32_t file_index;
+        if (info->data[die] != 32u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        type_offset = read_u32(info->data, die + 5u);
+        file_index = read_u32(info->data, die + 9u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset, name) != 0) {
+            continue;
+        }
+        assert(type_offset < info->size);
+        assert(file_index != 0u && line_table_file_matches(
+            line, file_index, "tests/debug_info_inline_integer.cpp"));
+        return (uint32_t)die;
+    }
+    assert(0 && "nested inline local has no abstract-origin DIE");
+    return 0u;
+}
+
+static void verify_inline_local_constant_instance(
+    const ObjSection* info, uint32_t origin_offset, uint8_t abbreviation,
+    int64_t expected_value) {
+    unsigned matches = 0u;
+    for (uint64_t die = 11u; die + 6u <= info->size; ++die) {
+        uint32_t origin;
+        uint64_t value_offset;
+        int64_t value;
+        if (info->data[die] != abbreviation) continue;
+        origin = read_u32(info->data, die + 1u);
+        if (origin != origin_offset) continue;
+        value_offset = die + 5u;
+        if (abbreviation == 60u) {
+            value = read_sleb(info->data, info->size, &value_offset);
+        } else {
+            assert(abbreviation == 61u);
+            value = (int64_t)read_uleb(
+                info->data, info->size, &value_offset);
+        }
+        assert(value == expected_value);
+        ++matches;
+    }
+    assert(matches == 1u);
+}
+
+static void verify_cxx_inline_nested_local_constants(
+    const char* path, uint16_t architecture) {
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* line;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint32_t positive_origin;
+    uint32_t nested_origin;
+    bool found_inline_call = false;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    line = objfile_get_section(object, ".debug_line");
+    assert(info != NULL && strings != NULL && line != NULL);
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 16u <= info->size; ++die) {
+        uint32_t origin;
+        uint32_t name_offset;
+        uint32_t call_file;
+        uint64_t low_pc_offset;
+        bool has_entry_relocation = false;
+        if (info->data[die] != 41u) continue;
+        origin = read_u32(info->data, die + 1u);
+        if ((uint64_t)origin + 25u > info->size ||
+            info->data[origin] != 40u) continue;
+        name_offset = read_u32(info->data, (uint64_t)origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_inline_nested_const_local") != 0) {
+            continue;
+        }
+        low_pc_offset = die + 1u + 4u;
+        call_file = read_u32(
+            info->data, low_pc_offset + address_size + 4u);
+        if (call_file == 0u || !line_table_file_matches(
+                line, call_file, "tests/debug_info_inline_integer.cpp")) {
+            continue;
+        }
+        for (const ObjReloc* relocation = info->relocs;
+             relocation; relocation = relocation->next) {
+            if (relocation->offset != low_pc_offset) continue;
+            assert(relocation->symbol_name != NULL &&
+                   strcmp(relocation->symbol_name,
+                          "debug_inline_nested_const_local_entry") == 0);
+            has_entry_relocation = true;
+            break;
+        }
+        if (has_entry_relocation) found_inline_call = true;
+    }
+    assert(found_inline_call);
+    positive_origin = find_inline_local_origin(
+        info, strings, line, "debug_inline_positive_block_constant");
+    nested_origin = find_inline_local_origin(
+        info, strings, line, "debug_inline_nested_unsigned_constant");
+    verify_inline_local_constant_instance(info, positive_origin, 60u, 17);
+    verify_inline_local_constant_instance(info, nested_origin, 61u, 29);
+    objfile_free(object);
+}
+
 static unsigned count_line_copy_ops(const ObjSection* line)
 {
     uint64_t offset;
@@ -17748,6 +17858,12 @@ int main(int argc, char** argv)
         const uint16_t wide_architectures[] = {
             ARCH_X86, ARCH_X64, ARCH_X86, ARCH_X64
         };
+        for (size_t path_index = 0u;
+             path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
+             ++path_index) {
+            verify_cxx_inline_nested_local_constants(
+                wide_paths[path_index], wide_architectures[path_index]);
+        }
         verify_inline_integer_expression_cases(argv[2], ARCH_X86);
         verify_inline_integer_expression_cases(argv[3], ARCH_X64);
         verify_inline_integer_expression_cases(argv[4], ARCH_X86);
