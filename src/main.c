@@ -488,6 +488,8 @@ static int parse_args(int argc, char** argv) {
 }
 
 static int compile_current_input(char** argv) {
+    bool use_verified_backend = g_opts.verified_backend;
+    bool complex_translation_unit = false;
     type_configure_target(g_opts.target_arch);
 
     if (g_opts.verbose) {
@@ -540,10 +542,12 @@ static int compile_current_input(char** argv) {
        targets the RinOS ABI, but retain the standard command-line distinction
        so hosted preprocessing remains useful for frontend tests and tools. */
     pp_define(pp, "__STDC_HOSTED__", g_opts.freestanding ? "0" : "1");
-    /* Keep the advertised feature set conservative until the complete C99
-       library, exceptional-value rules, and floating environment contract
-       have all been implemented for both x86 ABIs. */
-    pp_define(pp, "__STDC_NO_COMPLEX__", "1");
+    /* Object generation can automatically select typed SSA after preprocessing
+       reveals a C complex type.  Other legacy output modes still report their
+       missing lowering accurately. */
+    if (!g_opts.verified_backend && g_opts.output_format != OUTPUT_OBJ) {
+        pp_define(pp, "__STDC_NO_COMPLEX__", "1");
+    }
     /* Apply command-line defines */
     for (int i = 0; i < g_opts.define_count; i++) {
         const char* def = g_opts.defines[i];
@@ -628,6 +632,23 @@ static int compile_current_input(char** argv) {
         return 1;
     }
 
+    for (Token* token = tokens->head;
+         token && token->type != TOK_EOF; token = token->next) {
+        if (token->type == TOK__COMPLEX ||
+            (token->type == TOK_IDENT && token->value.str_val &&
+             strcmp(token->value.str_val, "__builtin_complex") == 0)) {
+            complex_translation_unit = true;
+            break;
+        }
+    }
+    if (!use_verified_backend &&
+        g_opts.output_format == OUTPUT_OBJ && complex_translation_unit) {
+        use_verified_backend = true;
+        if (g_opts.verbose) {
+            printf("Complex object: selecting typed SSA backend\n");
+        }
+    }
+
     if (g_opts.verbose) {
         printf("Tokens: %d\n", tokens->count);
         Token* tok = tokens->head;
@@ -697,7 +718,8 @@ static int compile_current_input(char** argv) {
         pp_free(pp);
         return 1;
     }
-    if (g_opts.opt_level > 0) {
+    if (g_opts.opt_level > 0 &&
+        !(use_verified_backend && complex_translation_unit)) {
         if (g_opts.verbose) printf("Optimization (-O%d)...\n", g_opts.opt_level);
         rcc_optimize(ast);
     }
@@ -707,7 +729,7 @@ static int compile_current_input(char** argv) {
         printf("Code generation (%s)...\n",
                g_opts.target_arch == ARCH_X64 ? "x86-64" : "x86-32");
     }
-    bool verified_object_request = g_opts.verified_backend &&
+    bool verified_object_request = use_verified_backend &&
                                    g_opts.output_format == OUTPUT_OBJ;
     Module* mod;
     if (verified_object_request) {
@@ -762,7 +784,7 @@ static int compile_current_input(char** argv) {
     }
     switch (g_opts.output_format) {
         case OUTPUT_OBJ:
-            if (g_opts.verified_backend) {
+            if (use_verified_backend) {
                 char reason[256];
                 size_t verified_functions = 0u;
                 RccVerifiedObjectStatus status = rcc_emit_verified_object(

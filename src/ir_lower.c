@@ -3379,7 +3379,7 @@ static RccIrLowerValue lower_sysv_va_start(
         !context->declaration->type ||
         context->declaration->type->kind != TYPE_FUNC ||
         !context->declaration->type->variadic ||
-        context->aggregate_return_kind != LOWER_ABI_RETURN_SCALAR ||
+        context->aggregate_return_kind == LOWER_ABI_RETURN_SRET ||
         !lower_sysv_va_list_type(expression->va_list_operand)) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
@@ -4106,6 +4106,7 @@ static bool lower_i686_va_argument_address(
     RccIrLowerValue next_cursor;
     bool supported_integer_or_pointer;
     bool supported_promoted_double;
+    bool supported_complex;
     uint64_t step;
     if (address_out) *address_out = lower_invalid_value();
     supported_integer_or_pointer = argument_type &&
@@ -4115,11 +4116,18 @@ static bool lower_i686_va_argument_address(
           argument_type->size == 4));
     supported_promoted_double = argument_type &&
         argument_type->kind == TYPE_DOUBLE && argument_type->size == 8;
+    supported_complex = type_is_complex((Type*)argument_type) &&
+        argument_type->complex_component_type &&
+        ((argument_type->complex_component_type->kind == TYPE_FLOAT &&
+          argument_type->size == 8) ||
+         (argument_type->complex_component_type->kind == TYPE_DOUBLE &&
+          argument_type->size == 16));
     if (!context || !address_out || g_opts.target_arch != ARCH_X86 ||
         !lower_i686_va_list_type(list_expression) || !argument_type ||
         argument_type->size <= 0 ||
-        (!supported_integer_or_pointer && !supported_promoted_double) ||
-        argument_type->size > 8 ||
+        (!supported_integer_or_pointer && !supported_promoted_double &&
+         !supported_complex) ||
+        (argument_type->size > 8 && !supported_complex) ||
         ((argument_type->kind == TYPE_PTR ||
           argument_type->kind == TYPE_NULLPTR) &&
          argument_type->size != 4)) {
@@ -4208,6 +4216,9 @@ static RccIrLowerValue lower_i686_va_builtin(
                     expression->va_arg_type, &address)) {
                 context->unsupported = true;
                 return lower_invalid_value();
+            }
+            if (type_is_complex((Type*)expression->va_arg_type)) {
+                return address;
             }
             stored = lower_load_address(
                 context, address, expression->va_arg_type);
@@ -10060,6 +10071,10 @@ static bool lower_sysv_call_memory_arguments(
             ? parameter->type
             : argument->expr ? argument->expr->type : NULL;
         size_t units = 1u;
+        if (!parameter && type_is_complex((Type*)type) &&
+            type->complex_component_type->kind == TYPE_FLOAT) {
+            type = type_complex(type_double);
+        }
         if (lower_abi_indirect_class_parameter(type)) {
             if (gp_arguments_used < 6u) ++gp_arguments_used;
         } else if (lower_abi_is_aggregate(type)) {
@@ -10103,6 +10118,10 @@ static bool lower_sysv_call_memory_arguments(
             ? parameter->type
             : argument->expr ? argument->expr->type : NULL;
         size_t units = 1u;
+        if (!parameter && type_is_complex((Type*)type) &&
+            type->complex_component_type->kind == TYPE_FLOAT) {
+            type = type_complex(type_double);
+        }
         if (lower_abi_indirect_class_parameter(type)) {
             if (gp_arguments_used < 6u) ++gp_arguments_used;
         } else if (lower_abi_is_aggregate(type)) {
@@ -12132,17 +12151,29 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             }
         } else if (!parameter && argument->expr && argument_type &&
                    lower_abi_is_aggregate(argument_type)) {
-            LowerSysvAggregateClass classification;
-            bool stack_argument;
-            if (!function_type->variadic ||
-                !lower_sysv_call_aggregate_assignment(
-                    argument_type, &sysv_gp_arguments_used,
-                    &sysv_sse_arguments_used, &classification,
-                    &stack_argument)) {
+            if (!function_type->variadic) {
                 context->unsupported = true;
                 return lower_invalid_value();
             }
-            units = (size_t)classification.count;
+            if (g_opts.target_arch == ARCH_X64) {
+                LowerSysvAggregateClass classification;
+                bool stack_argument;
+                if (!lower_sysv_call_aggregate_assignment(
+                        argument_type, &sysv_gp_arguments_used,
+                        &sysv_sse_arguments_used, &classification,
+                        &stack_argument)) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                units = (size_t)classification.count;
+            } else {
+                if (!lower_abi_aggregate_supported(argument_type)) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                units = ((size_t)argument_type->size + chunk_size - 1u) /
+                    chunk_size;
+            }
         }
         if (units > SIZE_MAX - argument_count) {
             context->unsupported = true;
@@ -12460,7 +12491,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 context->unsupported = true;
                 return lower_invalid_value();
             }
-            {
+            if (g_opts.target_arch == ARCH_X64) {
                 LowerSysvAggregateClass classification =
                     sysv_aggregate_classification;
                 if (sysv_aggregate_on_stack) {
@@ -12507,6 +12538,18 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                             operands[index++] = chunk.value;
                         }
                     }
+                }
+            } else {
+                size_t units = ((size_t)argument_type->size +
+                                chunk_size - 1u) / chunk_size;
+                for (size_t unit = 0u; unit < units; ++unit) {
+                    RccIrLowerValue chunk = lower_load_aggregate_chunk(
+                        context, value, argument_type, unit * chunk_size);
+                    if (!chunk.valid) {
+                        rcc_free(operands);
+                        return lower_invalid_value();
+                    }
+                    operands[index++] = chunk.value;
                 }
             }
         } else if (parameter) {
@@ -14936,6 +14979,9 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                 lower_i686_va_argument_address(
                     context, expression->va_list_operand,
                     expression->va_arg_type, &operand)) {
+                if (type_is_complex((Type*)expression->va_arg_type)) {
+                    return operand;
+                }
                 return lower_load_address(
                     context, operand, expression->va_arg_type);
             }
