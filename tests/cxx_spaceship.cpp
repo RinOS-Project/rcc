@@ -47,6 +47,15 @@ struct Right {
 }
 }
 
+namespace named_spaceship {
+struct Left {};
+struct Right {
+    friend int operator<=>(const Right&, const Left&) {
+        return 1;
+    }
+};
+}
+
 struct ComparisonResult {
     int value;
     bool operator<(int zero) const {
@@ -87,6 +96,8 @@ int main() {
     ReverseSpaceshipRight reverse_right;
     spaceship_associated::Left inline_left;
     spaceship_associated::Right inline_right;
+    named_spaceship::Left named_left;
+    named_spaceship::Right named_right;
     ClassResultSpaceship class_result_left{2};
     ClassResultSpaceship class_result_right{5};
     int forward = older <=> newer;
@@ -112,6 +123,7 @@ int main() {
            !(reverse_right <= reverse_left) &&
            (reverse_right >= reverse_left) &&
            (inline_left < inline_right) &&
+           (named_left < named_right) &&
            (class_result_left < class_result_right) &&
            spaceship_rewrite_checks(older, newer) ? 0 : 1;
 }

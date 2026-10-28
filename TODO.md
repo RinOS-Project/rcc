@@ -11455,9 +11455,9 @@ remains a separate open item.
       that made unrelated C++20 spaceship expressions ambiguous. Cover a
       reversed hidden-friend `operator<=>` alongside unrelated global
       spaceship comparisons in `test-cxx-spaceship`, including hidden friends
-      in the global and inline namespaces; focused spaceship, overload,
+      in global, named, and inline namespaces; focused spaceship, overload,
       operator-overload, and defaulted-equality tests pass. A GCC C++20
-      `-pedantic-errors` runtime oracle confirms the reversed rewrite in both
-      global and inline namespaces.
+      `-pedantic-errors` runtime oracle confirms the reversed rewrite in named
+      and inline namespaces.
 - [ ] Continue auditing ADL candidate identity and hidden-friend lookup across
-      named namespaces, templates, and redeclarations.
+      templates and redeclarations.
