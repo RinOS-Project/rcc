@@ -18299,6 +18299,54 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_signed_long_long_tls_sub_lhs",
             "debug_inline_nonconstant_signed_long_long_tls_sub_rhs",
             true, true);
+        verify_inline_i686_global_nested_expression(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_volatile_global_nested_add_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_global_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_volatile_global_add_rhs",
+            false, false);
+        verify_inline_i686_global_nested_expression(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_volatile_global_nested_add_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_global_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_volatile_global_add_rhs",
+            false, false);
+        verify_inline_i686_global_nested_expression(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_volatile_global_nested_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_global_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_volatile_global_sub_rhs",
+            false, true);
+        verify_inline_i686_global_nested_expression(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_volatile_global_nested_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_global_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_volatile_global_sub_rhs",
+            false, true);
+        verify_inline_i686_global_nested_expression(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_nested_add_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_add_rhs",
+            true, false);
+        verify_inline_i686_global_nested_expression(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_nested_add_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_add_rhs",
+            true, false);
+        verify_inline_i686_global_nested_expression(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_nested_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_sub_rhs",
+            true, true);
+        verify_inline_i686_global_nested_expression(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_nested_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_volatile_tls_sub_rhs",
+            true, true);
         verify_inline_i686_global_shift_parameter(argv[6], 0x88u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x88u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x89u);

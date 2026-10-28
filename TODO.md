@@ -11417,5 +11417,11 @@ remains a separate open item.
       1)` form. Interpret signed-boundary cases in both legacy and verified
       C++20 objects with global and TLS relocations. Focused
       `test-debug-info-inline-expression` passes.
-- [ ] Volatile or atomic reads, more general computed division/remainder
-      operands, and optimized multi-piece locations remain open.
+- [x] Extend the same i686 signed nested add/sub expressions to volatile
+      namespace-scope globals and TLS. Preserve both words and exact global/TLS
+      relocations; interpret signed-boundary results in legacy and verified
+      C++20 objects; focused `test-debug-info-inline-expression` and full
+      `test-debug-info` pass.
+- [ ] Atomic reads, volatile operands outside this bounded global/TLS form,
+      more general computed division/remainder operands, and optimized
+      multi-piece locations remain open.

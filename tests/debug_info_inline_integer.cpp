@@ -130,6 +130,17 @@ long long debug_inline_nonconstant_signed_long_long_global_sub_lhs =
     0x100000000LL;
 long long debug_inline_nonconstant_signed_long_long_global_sub_rhs =
     0x100000001LL;
+volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_global_add_lhs =
+    0x1ffffffffLL;
+volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_global_add_rhs = 1LL;
+volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_global_sub_lhs =
+    0x100000000LL;
+volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_global_sub_rhs =
+    0x100000001LL;
 thread_local long long
 debug_inline_nonconstant_signed_long_long_tls_add_lhs = 0x1ffffffffLL;
 thread_local long long debug_inline_nonconstant_signed_long_long_tls_add_rhs =
@@ -139,6 +150,16 @@ debug_inline_nonconstant_signed_long_long_tls_sub_lhs =
     (-0x7fffffffffffffffLL - 1LL);
 thread_local long long debug_inline_nonconstant_signed_long_long_tls_sub_rhs =
     -1LL;
+thread_local volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_add_lhs =
+    0x1ffffffffLL;
+thread_local volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_add_rhs = 1LL;
+thread_local volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_sub_lhs =
+    (-0x7fffffffffffffffLL - 1LL);
+thread_local volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_sub_rhs = -1LL;
 thread_local long long
 debug_inline_nonconstant_signed_long_long_tls_bitwise_lhs =
     -0x0123456789abcdefLL;
@@ -1199,6 +1220,40 @@ debug_inline_nonconstant_signed_long_long_tls_nested_sub_entry(void)
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_tls_sub_lhs -
         debug_inline_nonconstant_signed_long_long_tls_sub_rhs * 2LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_global_nested_add_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_global_add_lhs +
+        debug_inline_nonconstant_signed_long_long_volatile_global_add_rhs *
+            2LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_global_nested_sub_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_global_sub_lhs -
+        debug_inline_nonconstant_signed_long_long_volatile_global_sub_rhs *
+            2LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_nested_add_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_tls_add_lhs +
+        debug_inline_nonconstant_signed_long_long_volatile_tls_add_rhs * 2LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_nested_sub_entry(void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_tls_sub_lhs -
+        debug_inline_nonconstant_signed_long_long_volatile_tls_sub_rhs * 2LL);
 }
 
 extern "C" long long

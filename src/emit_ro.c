@@ -12452,7 +12452,8 @@ static bool debug_inline_parameter_i686_global_add_sub_source(
     return (*source)->kind == DECL_VAR &&
         ((*source)->var_is_global || (*source)->var_is_static_local) &&
         !(*source)->var_is_vla && (*source)->type &&
-        (*source)->type->size == 8u && !(*source)->type->is_volatile &&
+        (*source)->type->size == 8u &&
+        (!(*source)->type->is_volatile || (*source)->var_is_global) &&
         !(*source)->type->is_reference && !(*source)->type->is_atomic &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             source_expression->type, (*source)->type, 0u);
@@ -12542,6 +12543,7 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
     if (relocations) {
         tls_relocations = *relocations;
         tls_relocations.allow_tls = true;
+        tls_relocations.allow_volatile = true;
         relocations = &tls_relocations;
     }
 
