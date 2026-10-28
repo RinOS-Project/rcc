@@ -21055,6 +21055,74 @@ static bool sema_cxx_operator_has_viable_nonmember_candidate(
     return false;
 }
 
+static bool sema_cxx_member_operator_has_viable_candidate(
+    Type* aggregate, Expr* expression, const char* name) {
+    Expr* member_expression;
+    Expr* probe_call;
+    ExprList* probe_arguments;
+
+    if (!aggregate || !aggregate->cxx_class || !expression || !name ||
+        !expression->binary_rhs) {
+        return false;
+    }
+    for (struct CxxMember* item = aggregate->cxx_class->members;
+         item; item = item->next) {
+        CxxMethod* method = item->method;
+        if (method && method->member_template && method->source_name &&
+            strcmp(method->source_name, name) == 0) {
+            /* Preserve the existing template-materialization path. */
+            return true;
+        }
+    }
+    member_expression = expr_member(expression->binary_lhs, name,
+                                    expression->loc);
+    probe_arguments = exprlist_new(expression->binary_rhs);
+    probe_call = expr_call(member_expression, probe_arguments,
+                           expression->loc);
+    for (TypeMethod* method = aggregate->methods; method;
+         method = method->next) {
+        Decl* function = method->function_decl;
+        TypeParam* parameter;
+        DeclList* declared_parameter;
+        ExprList* argument;
+        bool viable = true;
+
+        if (method->kind != TYPE_METHOD_FUNCTION || !function ||
+            !method->name || strcmp(method->name, name) != 0 ||
+            !function->type || function->type->kind != TYPE_FUNC ||
+            cxx_member_object_conversion_rank(aggregate, method) < 0 ||
+            cxx_member_ref_qualifier_rank(probe_call, method) < 0) {
+            continue;
+        }
+        parameter = function->type->params;
+        if (function->func_this_param && parameter) {
+            parameter = parameter->next;
+        }
+        declared_parameter = function->func_params;
+        argument = probe_arguments;
+        while (argument && parameter) {
+            if (cxx_conversion_rank_detail(argument->expr, parameter->type,
+                                           NULL) < 0) {
+                viable = false;
+                break;
+            }
+            argument = argument->next;
+            parameter = parameter->next;
+            if (declared_parameter) {
+                declared_parameter = declared_parameter->next;
+            }
+        }
+        if (!viable ||
+            (parameter && !cxx_remaining_parameters_have_defaults(
+                parameter, declared_parameter)) ||
+            (argument && !function->type->variadic)) {
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
 /* Rewrite a binary expression to an ordinary member call only after a real
  * operator member exists.  This keeps the built-in arithmetic path intact
  * for scalar operands and ensures an overloaded operation uses the same
@@ -21082,6 +21150,11 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     name = sema_cxx_binary_operator_name(expression->kind);
     if (!name) return false;
     method = sema_find_function_method(aggregate, name);
+    if (expression->kind == EXPR_NE && method &&
+        !sema_cxx_member_operator_has_viable_candidate(
+            aggregate, expression, name)) {
+        method = NULL;
+    }
     if (aggregate && (aggregate->kind == TYPE_STRUCT ||
                       aggregate->kind == TYPE_UNION) &&
         method && method->function_decl) {
