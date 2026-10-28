@@ -11454,8 +11454,10 @@ remains a separate open item.
       hidden-friend association filtering while avoiding duplicate overloads
       that made unrelated C++20 spaceship expressions ambiguous. Cover a
       reversed hidden-friend `operator<=>` alongside unrelated global
-      spaceship comparisons in `test-cxx-spaceship`; focused spaceship,
-      overload, operator-overload, and defaulted-equality tests pass. A GCC
-      C++20 `-pedantic-errors` runtime oracle confirms the reversed rewrite.
+      spaceship comparisons in `test-cxx-spaceship`, including hidden friends
+      in the global and inline namespaces; focused spaceship, overload,
+      operator-overload, and defaulted-equality tests pass. A GCC C++20
+      `-pedantic-errors` runtime oracle confirms the reversed rewrite in both
+      global and inline namespaces.
 - [ ] Continue auditing ADL candidate identity and hidden-friend lookup across
-      namespaces, inline namespaces, templates, and redeclarations.
+      named namespaces, templates, and redeclarations.
