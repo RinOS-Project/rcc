@@ -206,6 +206,9 @@ struct Type {
     /* C99 complex values use a two-member aggregate for storage and ABI
      * classification while retaining their arithmetic type identity. */
     bool is_complex;
+    /* RinOS gives long double double's binary64 representation and calling
+     * convention while retaining a distinct C type and rank. */
+    bool is_long_double;
     Type* complex_component_type;
     bool has_explicit_alignment;
     /* Deferred C++ alignas expression in a class-template field type. */
@@ -374,6 +377,7 @@ extern Type* type_ulong;
 extern Type* type_ullong;
 extern Type* type_float;
 extern Type* type_double;
+extern Type* type_long_double;
 extern Type* type_nullptr;
 
 /* Configure target-dependent fundamental widths after option parsing and

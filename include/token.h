@@ -238,6 +238,7 @@ typedef struct Token {
      * `f`-suffixed/float literals; retaining the spelling keeps semantic
      * analysis and object emission from silently widening every literal. */
     bool float_suffix;
+    bool float_long_suffix;
     SourceLoc loc;
     struct Token* next;
 } Token;

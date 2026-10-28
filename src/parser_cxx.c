@@ -41751,7 +41751,8 @@ static Type* parse_cxx_decltype_type_legacy(SourceLoc loc) {
     } else if (match(TOK_INT_LIT) || match(TOK_CHAR_LIT)) {
         result = type_int;
     } else if (match(TOK_FLOAT_LIT)) {
-        result = previous()->float_suffix ? type_float : type_double;
+        result = previous()->float_suffix ? type_float
+            : previous()->float_long_suffix ? type_long_double : type_double;
     } else if (match(TOK_TRUE) || match(TOK_FALSE)) {
         result = type_bool;
     } else if (match(TOK_NULLPTR)) {

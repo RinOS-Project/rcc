@@ -2658,6 +2658,8 @@ static Expr* parse_primary(void) {
         Token* literal = previous();
         Expr* expression = expr_float(literal->value.float_val, loc);
         if (literal->float_suffix) expression->type = type_float;
+        else if (literal->float_long_suffix)
+            expression->type = type_long_double;
         if (parser_cxx_mode && literal->user_literal_suffix) {
             return parse_cxx_user_literal_call(literal->user_literal_suffix,
                                                expression, NULL, loc);
@@ -3103,6 +3105,16 @@ static Expr* parse_postfix(void) {
 /* Unary: ++a, --a, &a, *a, +a, -a, ~a, !a */
 static Expr* parse_unary(void) {
     SourceLoc loc = peek()->loc;
+
+    if (check(TOK_IDENT) &&
+        (strcmp(peek()->value.str_val, "__real__") == 0 ||
+         strcmp(peek()->value.str_val, "__imag__") == 0)) {
+        const char* component =
+            strcmp(peek()->value.str_val, "__real__") == 0
+                ? "__real__" : "__imag__";
+        advance();
+        return expr_member(parse_unary(), component, loc);
+    }
 
     if (parser_cxx_mode && match(TOK_TYPEID)) {
         Token* operand_start_cur;
@@ -5000,13 +5012,11 @@ static Type* parse_type_spec(void) {
             t = type_double;
         }
     } else if (long_count != 0 && match(TOK_DOUBLE)) {
-        rcc_error(previous()->loc,
-                  "long double is not supported by the RinOS floating-point ABI");
-        if (is_unsigned || saw_sign || is_short) {
+        if (long_count > 1 || is_unsigned || saw_sign || is_short) {
             rcc_error(previous()->loc,
-                      "invalid integer qualifier on double type");
+                      "invalid qualifiers on long double type");
         }
-        t = type_double;
+        t = type_long_double;
     } else if (match(TOK__BITINT)) {
         Expr* width_expression;
         int64_t width_value = 0;
@@ -5077,15 +5087,15 @@ static Type* parse_type_spec(void) {
         }
         t = type_float;
     } else if (match(TOK_DOUBLE)) {
-        if (long_count != 0) {
-            rcc_error(previous()->loc,
-                      "long double is not supported by the RinOS floating-point ABI");
-        }
         if (is_unsigned || saw_sign || is_short) {
             rcc_error(previous()->loc,
                       "invalid integer qualifier on double type");
         }
-        t = type_double;
+        if (long_count > 1) {
+            rcc_error(previous()->loc,
+                      "long double cannot contain repeated long specifiers");
+        }
+        t = long_count ? type_long_double : type_double;
     } else if (match(TOK__BOOL)) {
         t = type_bool;
     } else if (match(TOK___BUILTIN_VA_LIST)) {
@@ -5211,8 +5221,7 @@ static Type* parse_type_spec(void) {
     }
 
     if (saw_complex) {
-        if (!t || (t->kind != TYPE_FLOAT && t->kind != TYPE_DOUBLE) ||
-            long_count != 0) {
+        if (!type_is_floating(t)) {
             rcc_error(spec_start->loc,
                       "_Complex requires float, double, or long double");
             t = type_complex(type_double);

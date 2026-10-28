@@ -540,7 +540,9 @@ static int compile_current_input(char** argv) {
        targets the RinOS ABI, but retain the standard command-line distinction
        so hosted preprocessing remains useful for frontend tests and tools. */
     pp_define(pp, "__STDC_HOSTED__", g_opts.freestanding ? "0" : "1");
-    /* The RinOS floating-point ABI deliberately excludes C complex types. */
+    /* Keep the advertised feature set conservative until the complete C99
+       library, exceptional-value rules, and floating environment contract
+       have all been implemented for both x86 ABIs. */
     pp_define(pp, "__STDC_NO_COMPLEX__", "1");
     /* Apply command-line defines */
     for (int i = 0; i < g_opts.define_count; i++) {
@@ -705,13 +707,20 @@ static int compile_current_input(char** argv) {
         printf("Code generation (%s)...\n",
                g_opts.target_arch == ARCH_X64 ? "x86-64" : "x86-32");
     }
+    bool verified_object_request = g_opts.verified_backend &&
+                                   g_opts.output_format == OUTPUT_OBJ;
     Module* mod;
-    if (g_opts.target_arch == ARCH_X64) {
+    if (verified_object_request) {
+        /* Verified lowering owns function code in this mode.  Classic
+         * codegen may reject expressions that typed SSA supports, so defer
+         * it until verified lowering explicitly asks for fallback. */
+        mod = NULL;
+    } else if (g_opts.target_arch == ARCH_X64) {
         mod = rcc_codegen64(ast);
     } else {
         mod = rcc_codegen(ast);
     }
-    if (!mod || g_error_count > 0) {
+    if ((!verified_object_request && !mod) || g_error_count > 0) {
         fprintf(stderr, "rcc: code generation failed with %d error(s)\n",
                 g_error_count);
         if (mod) codegen_free(mod);
@@ -721,9 +730,11 @@ static int compile_current_input(char** argv) {
         return 1;
     }
 
-    if (g_opts.verbose) {
+    if (g_opts.verbose && mod) {
         printf("Generated: %lu bytes code, %lu bytes data\n",
                (unsigned long)mod->code.size, (unsigned long)mod->data.size);
+    } else if (g_opts.verbose) {
+        printf("Generating object with typed SSA backend...\n");
     }
 
     /* Phase 5: Output */
@@ -767,16 +778,13 @@ static int compile_current_input(char** argv) {
                     if (g_opts.verbose) {
                         printf("Verified backend fallback: %s\n", reason);
                     }
-                    if (g_opts.debug_info) {
-                        /* A partially attempted verified compile can clear and
-                         * repopulate AST source ranges before discovering an
-                         * unsupported function. Rebuild the legacy module
-                         * after those partial ranges are cleared so fallback
-                         * DWARF uses one backend's offsets consistently. */
-                        codegen_free(mod);
-                        mod = g_opts.target_arch == ARCH_X64
-                            ? rcc_codegen64(ast) : rcc_codegen(ast);
-                    }
+                    /* A partially attempted verified compile can clear and
+                     * repopulate AST source ranges before discovering an
+                     * unsupported function.  Rebuild classic codegen only
+                     * now, after fallback is known to be necessary. */
+                    codegen_free(mod);
+                    mod = g_opts.target_arch == ARCH_X64
+                        ? rcc_codegen64(ast) : rcc_codegen(ast);
                     if (!mod || g_error_count > 0) {
                         fprintf(stderr,
                                 "rcc: classic code generation failed after verified backend fallback\n");
@@ -829,8 +837,14 @@ static int compile_current_input(char** argv) {
         g_opts.output_format == OUTPUT_ASM ? ".s" : "?";
 
     printf("rcc: compiled '%s' -> '%s' (%s)\n", g_opts.input_file, g_opts.output_file, fmt_name);
-    printf("      %d tokens, %d declarations, %lu bytes\n",
-           tokens->count, decl_count, (unsigned long)(mod->code.size + mod->data.size + 64));
+    if (mod) {
+        printf("      %d tokens, %d declarations, %lu bytes\n",
+               tokens->count, decl_count,
+               (unsigned long)(mod->code.size + mod->data.size + 64));
+    } else {
+        printf("      %d tokens, %d declarations, typed SSA object\n",
+               tokens->count, decl_count);
+    }
 
     codegen_free(mod);
     tokenlist_free(tokens);

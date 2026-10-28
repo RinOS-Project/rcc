@@ -1696,7 +1696,8 @@ static const char* debug_type_name(const Type* type) {
         case TYPE_LLONG:
             return type->is_unsigned ? "unsigned long long" : "long long";
         case TYPE_FLOAT: return "float";
-        case TYPE_DOUBLE: return "double";
+        case TYPE_DOUBLE:
+            return type->is_long_double ? "long double" : "double";
         case TYPE_PTR: return "pointer";
         case TYPE_ARRAY: return "array";
         case TYPE_VECTOR: return "vector";

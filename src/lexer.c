@@ -242,6 +242,8 @@ Token* token_new(TokenType type, SourceLoc loc) {
     tok->string_numeric_values = NULL;
     tok->string_element_width = 1u;
     tok->owns_string = false;
+    tok->float_suffix = false;
+    tok->float_long_suffix = false;
     return tok;
 }
 
@@ -623,16 +625,14 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
 
     Token* tok;
     if (is_float) {
-        if (suffix_start < lex->pos &&
-            (*suffix_start == 'l' || *suffix_start == 'L')) {
-            rcc_error(loc,
-                      "long double literals are not supported by the RinOS floating-point ABI");
-        }
         tok = token_new(TOK_FLOAT_LIT, loc);
         tok->value.float_val = strtod(str, NULL);
         tok->float_suffix = suffix_start < lex->pos &&
                             (*suffix_start == 'f' ||
                              *suffix_start == 'F');
+        tok->float_long_suffix = suffix_start < lex->pos &&
+                                 (*suffix_start == 'l' ||
+                                  *suffix_start == 'L');
     } else {
         const char* suffix = suffix_start;
         const char* builtin_suffix_end = user_suffix_start

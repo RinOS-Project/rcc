@@ -2359,7 +2359,9 @@ static void cxx_mangle_type_append_context(
         case TYPE_LLONG:  cxx_mangle_type_char(buf, pos,
                               type->is_unsigned ? 'y' : 'x'); break;
         case TYPE_FLOAT:  cxx_mangle_type_char(buf, pos, 'f'); break;
-        case TYPE_DOUBLE: cxx_mangle_type_char(buf, pos, 'd'); break;
+        case TYPE_DOUBLE:
+            cxx_mangle_type_char(buf, pos, type->is_long_double ? 'e' : 'd');
+            break;
         case TYPE_VECTOR: {
             int written = snprintf(buf + *pos,
                                    CXX_MANGLE_BUFFER_SIZE - *pos, "Dv%d_",

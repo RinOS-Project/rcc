@@ -136,6 +136,9 @@ static Type builtin_ulong  = BUILTIN_TYPE(TYPE_LONG,   4, 4, true);
 static Type builtin_ullong = BUILTIN_TYPE(TYPE_LLONG,  8, 8, true);
 static Type builtin_float  = BUILTIN_TYPE(TYPE_FLOAT,  4, 4, false);
 static Type builtin_double = BUILTIN_TYPE(TYPE_DOUBLE, 8, 8, false);
+static Type builtin_long_double = {
+    .kind = TYPE_DOUBLE, .size = 8, .align = 8, .is_long_double = true
+};
 static Type builtin_nullptr = BUILTIN_TYPE(TYPE_NULLPTR, 4, 4, false);
 
 #undef BUILTIN_TYPE
@@ -159,6 +162,7 @@ Type* type_ulong  = &builtin_ulong;
 Type* type_ullong = &builtin_ullong;
 Type* type_float  = &builtin_float;
 Type* type_double = &builtin_double;
+Type* type_long_double = &builtin_long_double;
 Type* type_nullptr = &builtin_nullptr;
 static Type* builtin_cxx_type_info;
 
@@ -387,9 +391,7 @@ Type* type_complex(Type* component_type) {
     Type* type;
     TypeField* real_field;
     TypeField* imaginary_field;
-    if (!component_type ||
-        (component_type->kind != TYPE_FLOAT &&
-         component_type->kind != TYPE_DOUBLE)) return NULL;
+    if (!type_is_floating(component_type)) return NULL;
     type = type_struct(NULL);
     real_field = rcc_alloc(sizeof(*real_field));
     imaginary_field = rcc_alloc(sizeof(*imaginary_field));
@@ -605,7 +607,8 @@ bool type_is_compatible(Type* a, Type* b) {
     if (!a || !b) return false;
     if (a == b) return true;
     if (a->kind != b->kind) return false;
-    if (a->is_plain_char != b->is_plain_char ||
+    if (a->is_long_double != b->is_long_double ||
+        a->is_plain_char != b->is_plain_char ||
         a->is_char8 != b->is_char8 ||
         a->is_wchar != b->is_wchar ||
         a->is_char16 != b->is_char16 ||
@@ -1051,9 +1054,11 @@ Type* type_common(Type* a, Type* b) {
     a_real = type_is_complex(a) ? a->complex_component_type : a;
     b_real = type_is_complex(b) ? b->complex_component_type : b;
     if (type_is_floating(a_real) || type_is_floating(b_real)) {
-        Type* real_common = a_real->kind == TYPE_DOUBLE ||
-                            b_real->kind == TYPE_DOUBLE
-            ? type_double : type_float;
+        Type* real_common = a_real->is_long_double ||
+                            b_real->is_long_double
+            ? type_long_double
+            : (a_real->kind == TYPE_DOUBLE ||
+               b_real->kind == TYPE_DOUBLE) ? type_double : type_float;
         if (type_is_complex(a) || type_is_complex(b))
             return type_complex(real_common);
         return real_common;
