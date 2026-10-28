@@ -197,6 +197,7 @@ Type* rcc_cxx_type_info_type(void) {
 
 Type* type_ptr(Type* base) {
     Type* t = rcc_alloc(sizeof(Type));
+    memset(t, 0, sizeof(*t));
     t->kind = TYPE_PTR;
     t->size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
     t->align = t->size;
@@ -263,6 +264,7 @@ Type* type_remove_reference(Type* type) {
 
 Type* type_array(Type* base, int len) {
     Type* t = rcc_alloc(sizeof(Type));
+    memset(t, 0, sizeof(*t));
     t->kind = TYPE_ARRAY;
     t->size = len > 0 ? base->size * len : 0;
     t->align = base->align;
@@ -291,6 +293,7 @@ Type* type_array(Type* base, int len) {
 
 Type* type_vector(Type* base, int lanes, int vector_size) {
     Type* t = rcc_alloc(sizeof(Type));
+    memset(t, 0, sizeof(*t));
     t->kind = TYPE_VECTOR;
     t->size = vector_size;
     t->align = vector_size >= 16 ? 16 : vector_size;
@@ -318,6 +321,7 @@ Type* type_vector(Type* base, int lanes, int vector_size) {
 
 Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     Type* t = rcc_alloc(sizeof(Type));
+    memset(t, 0, sizeof(*t));
     t->kind = TYPE_FUNC;
     t->size = 0;
     t->align = 1;
@@ -343,6 +347,7 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic) {
 
 Type* type_struct(const char* tag) {
     Type* t = rcc_alloc(sizeof(Type));
+    memset(t, 0, sizeof(*t));
     t->kind = TYPE_STRUCT;
     t->size = 0;
     t->align = 1;
@@ -366,6 +371,7 @@ Type* type_struct(const char* tag) {
 
 Type* type_union(const char* tag) {
     Type* t = rcc_alloc(sizeof(Type));
+    memset(t, 0, sizeof(*t));
     t->kind = TYPE_UNION;
     t->size = 0;
     t->align = 1;
@@ -414,6 +420,7 @@ Type* type_complex(Type* component_type) {
 
 Type* type_enum(const char* tag) {
     Type* t = rcc_alloc(sizeof(Type));
+    memset(t, 0, sizeof(*t));
     t->kind = TYPE_ENUM;
     t->size = 4;
     t->align = 4;
