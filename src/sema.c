@@ -23822,6 +23822,11 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_INT_LIT:
+            if (expr->is_deprecated_enumerator) {
+                sema_warn_deprecated_use(
+                    expr, "enumerator", expr->deprecated_enumerator_name,
+                    expr->deprecated_enumerator_message);
+            }
             (void)sema_cxx_resolve_deferred_member_pointer_form(expr);
             if (!expr->type) expr->type = type_int;
             if (rcc_parser_is_cxx_mode() &&

@@ -1344,8 +1344,8 @@ test-c23-deprecated-attribute: $(RCC_TARGET)
 		-o $(TEST_OUT)/c23-deprecated-attribute/x64.s \
 		tests/c23_attribute_deprecated.c \
 		>$(TEST_OUT)/c23-deprecated-attribute/x64.log 2>&1
-	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/c23-deprecated-attribute/x86.log,6)
-	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/c23-deprecated-attribute/x64.log,6)
+	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/c23-deprecated-attribute/x86.log,7)
+	$(call CHECK_COUNT,use of deprecated,$(TEST_OUT)/c23-deprecated-attribute/x64.log,7)
 	$(GREP) -F -q 'use replacement_function' \
 		$(TEST_OUT)/c23-deprecated-attribute/x64.log
 	$(GREP) -F -q 'use replacement_object' \
@@ -1353,6 +1353,8 @@ test-c23-deprecated-attribute: $(RCC_TARGET)
 	$(GREP) -F -q 'use replacement_redeclared_after' \
 		$(TEST_OUT)/c23-deprecated-attribute/x64.log
 	$(GREP) -F -q 'use replacement_redeclared_before' \
+		$(TEST_OUT)/c23-deprecated-attribute/x64.log
+	$(GREP) -F -q 'use current_kind' \
 		$(TEST_OUT)/c23-deprecated-attribute/x64.log
 	$(CC) -std=c2x -Wdeprecated-declarations -fsyntax-only \
 		tests/c23_attribute_deprecated.c \
@@ -1392,18 +1394,12 @@ test-c23-deprecated-attribute: $(RCC_TARGET)
 	$(GREP) -F -q 'C23 [[deprecated]] on aggregate members is not yet supported' \
 		$(TEST_OUT)/c23-deprecated-attribute/member.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
-		-std=c23 -c -o $(TEST_OUT)/c23-deprecated-attribute/enumerator.ro \
-		tests/invalid_c23_attribute_deprecated_enumerator.c,\
-		$(TEST_OUT)/c23-deprecated-attribute/enumerator.log)
-	$(GREP) -F -q 'C23 [[deprecated]] on enumerators is not yet supported' \
-		$(TEST_OUT)/c23-deprecated-attribute/enumerator.log
-	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
 		-std=c23 -c -o $(TEST_OUT)/c23-deprecated-attribute/parameter.ro \
 		tests/invalid_c23_attribute_deprecated_parameter.c,\
 		$(TEST_OUT)/c23-deprecated-attribute/parameter.log)
 	$(GREP) -F -q 'C23 [[deprecated]] on parameters is not yet supported' \
 		$(TEST_OUT)/c23-deprecated-attribute/parameter.log
-	@echo "C23 deprecated function/object attributes and mode diagnostics tested"
+	@echo "C23 deprecated function/object/enumerator attributes and diagnostics tested"
 
 test-c23-embed: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-embed)

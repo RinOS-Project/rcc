@@ -139,6 +139,8 @@ typedef struct EnumConstantInfo {
     const char* name;
     int64_t value;
     bool is_unsigned;
+    bool is_deprecated;
+    const char* deprecated_message;
 } EnumConstantInfo;
 
 typedef enum {
@@ -725,6 +727,9 @@ struct Expr {
     /* Semantic analysis may revisit an expression; deprecation diagnostics
      * should still be emitted only once for this source-level use. */
     bool deprecated_warning_emitted;
+    bool is_deprecated_enumerator;
+    const char* deprecated_enumerator_name;
+    const char* deprecated_enumerator_message;
     /* Marks the literal spelling of C++ nullptr so it remains excluded from
      * integer constant expressions.  Its semantic type is TYPE_NULLPTR. */
     bool is_cxx_nullptr;

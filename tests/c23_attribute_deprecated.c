@@ -3,6 +3,9 @@ extern int legacy_object [[deprecated("use replacement_object")]];
 extern int legacy_object_redeclared
     [[deprecated("use replacement_object_redeclared")]];
 extern int legacy_object_redeclared;
+enum LegacyKind {
+    legacy_kind [[deprecated("use current_kind")]] = 4
+};
 [[deprecated]] int legacy_without_message(void);
 int legacy_redeclared_after(int value);
 [[deprecated("use replacement_redeclared_after")]]
@@ -21,6 +24,10 @@ int deprecated_function_use(void) {
 
 int deprecated_function_use_without_message(void) {
     return legacy_without_message();
+}
+
+int deprecated_enumerator_use(void) {
+    return legacy_kind;
 }
 
 int deprecated_redeclaration_use(void) {

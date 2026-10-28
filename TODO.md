@@ -25,10 +25,11 @@
   semantics (`deprecated`, `fallthrough`, `maybe_unused`, `unsequenced`, and
   `reproducible`); accepting/ignoring unknown attributes is not equivalent to
   implementing these attributes.
-  - Progress: C23 `[[deprecated]]` now marks function/object declarations and
-    diagnoses later references, including the optional message and C17 mode
-    boundary. Typedef, tag, member, parameter, and enumerator applications are
-    explicitly diagnosed as unsupported; `__has_c_attribute(deprecated)`
+  - Progress: C23 `[[deprecated]]` now marks function, object, and enumerator
+    declarations and diagnoses later uses, including optional messages and
+    redeclarations; duplicate warnings from semantic re-visits are suppressed.
+    C17 misuse is rejected. Typedef, tag, member, and parameter applications
+    are explicitly diagnosed as unsupported; `__has_c_attribute(deprecated)`
     therefore remains zero.
 
 ## RCC continuation (2026-10-29, C23 bit-precise integers)

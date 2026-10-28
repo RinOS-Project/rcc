@@ -171,6 +171,8 @@ typedef struct ParserEnumConstant {
     int64_t value;
     Type* type;
     Type* expression_type;
+    bool is_deprecated;
+    const char* deprecated_message;
     struct ParserEnumConstant* next;
 } ParserEnumConstant;
 
@@ -625,12 +627,16 @@ static Type* parser_tag_type(TypeKind kind, const char* name) {
 }
 
 static void parser_define_enum_constant(const char* name, int64_t value,
-                                        Type* type, Type* expression_type) {
+                                        Type* type, Type* expression_type,
+                                        bool is_deprecated,
+                                        const char* deprecated_message) {
     ParserEnumConstant* entry = ast_arena_alloc(sizeof(*entry));
     entry->name = name;
     entry->value = value;
     entry->type = type;
     entry->expression_type = expression_type ? expression_type : type;
+    entry->is_deprecated = is_deprecated;
+    entry->deprecated_message = deprecated_message;
     entry->next = parser_enum_constants;
     parser_enum_constants = entry;
 }
@@ -676,13 +682,19 @@ static bool parser_enum_constant_name_matches(
 }
 
 static bool parser_lookup_enum_constant(const char* name, int64_t* value,
-                                        Type** type, Type** expression_type) {
+                                        Type** type, Type** expression_type,
+                                        bool* is_deprecated,
+                                        const char** deprecated_message) {
     ParserEnumConstant* entry;
     for (entry = parser_enum_constants; entry; entry = entry->next) {
         if (parser_enum_constant_name_matches(entry, name)) {
             if (value) *value = entry->value;
             if (type) *type = entry->type;
             if (expression_type) *expression_type = entry->expression_type;
+            if (is_deprecated) *is_deprecated = entry->is_deprecated;
+            if (deprecated_message) {
+                *deprecated_message = entry->deprecated_message;
+            }
             return true;
         }
     }
@@ -2899,13 +2911,21 @@ static Expr* parse_primary(void) {
         int64_t enum_value;
         Type* enum_type = NULL;
         Type* enum_expression_type = NULL;
+        bool enum_is_deprecated = false;
+        const char* enum_deprecated_message = NULL;
         if (parser_lookup_enum_constant(qualified_name, &enum_value,
-                                        &enum_type, &enum_expression_type)) {
+                                        &enum_type, &enum_expression_type,
+                                        &enum_is_deprecated,
+                                        &enum_deprecated_message)) {
             Expr* value = expr_int(enum_value, loc);
             /* C enumerator identifiers have type int; C++ keeps the enum
              * type for the enumerator expression. */
             value->type = parser_cxx_mode && enum_type
                 ? enum_expression_type : type_int;
+            value->is_deprecated_enumerator = enum_is_deprecated;
+            value->deprecated_enumerator_name = enum_is_deprecated
+                ? qualified_name : NULL;
+            value->deprecated_enumerator_message = enum_deprecated_message;
             return value;
         }
         Expr* identifier = expr_ident(qualified_name, loc);
@@ -2918,14 +2938,22 @@ static Expr* parse_primary(void) {
         int64_t enum_value;
         Type* enum_type = NULL;
         Type* enum_expression_type = NULL;
+        bool enum_is_deprecated = false;
+        const char* enum_deprecated_message = NULL;
         const char* local_using_name = NULL;
         if (parser_lookup_enum_constant(previous()->value.str_val,
                                         &enum_value, &enum_type,
-                                        &enum_expression_type)) {
+                                        &enum_expression_type,
+                                        &enum_is_deprecated,
+                                        &enum_deprecated_message)) {
             Expr* value = expr_int(enum_value, loc);
             /* Match the language-specific enumerator expression type. */
             value->type = parser_cxx_mode && enum_type
                 ? enum_expression_type : type_int;
+            value->is_deprecated_enumerator = enum_is_deprecated;
+            value->deprecated_enumerator_name = enum_is_deprecated
+                ? previous()->value.str_val : NULL;
+            value->deprecated_enumerator_message = enum_deprecated_message;
             return value;
         }
     if (parser_cxx_mode && rcc_parser_cxx_capture_expression) {
@@ -4080,12 +4108,12 @@ static void parse_enum_body(Type* enum_type, bool scoped,
     bool next_value_exceeds_underlying = false;
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* name = expect(TOK_IDENT, "enumerator name");
+        bool is_deprecated = false;
+        const char* deprecated_message = NULL;
         if (!parser_cxx_mode) {
             skip_attributes();
-            if (take_c_deprecated_attribute(NULL)) {
-                rcc_error(name ? name->loc : peek()->loc,
-                          "C23 [[deprecated]] on enumerators is not yet supported");
-            }
+            is_deprecated = take_c_deprecated_attribute(
+                &deprecated_message);
         }
         int64_t value;
         bool value_is_unsigned = false;
@@ -4140,7 +4168,8 @@ static void parse_enum_body(Type* enum_type, bool scoped,
             }
             parser_define_enum_constant(
                 spelling, value, enum_type,
-                parser_cxx_mode ? value_type_before_close : type_int);
+                parser_cxx_mode ? value_type_before_close : type_int,
+                is_deprecated, deprecated_message);
             enum_type->enum_constants = ast_arena_grow(
                 enum_type->enum_constants,
                 sizeof(*enum_type->enum_constants) *
@@ -4154,6 +4183,12 @@ static void parse_enum_body(Type* enum_type, bool scoped,
             enum_type->enum_constants[
                 enum_type->enum_constant_count].is_unsigned =
                     value_is_unsigned;
+            enum_type->enum_constants[
+                enum_type->enum_constant_count].is_deprecated =
+                    is_deprecated;
+            enum_type->enum_constants[
+                enum_type->enum_constant_count].deprecated_message =
+                    deprecated_message;
             ++enum_type->enum_constant_count;
         }
         if (parser_cxx_mode && enum_type->enum_has_fixed_underlying &&
@@ -4404,12 +4439,13 @@ bool rcc_parser_import_enum_constants(Type* enum_type, SourceLoc loc) {
         return false;
     }
     for (int index = 0; index < enum_type->enum_constant_count; ++index) {
-        const char* name = enum_type->enum_constants[index].name;
-        int64_t value = enum_type->enum_constants[index].value;
+        const EnumConstantInfo* item = &enum_type->enum_constants[index];
+        const char* name = item->name;
+        int64_t value = item->value;
         int64_t existing_value;
         Type* existing_type = NULL;
         if (parser_lookup_enum_constant(name, &existing_value,
-                                        &existing_type, NULL)) {
+                                        &existing_type, NULL, NULL, NULL)) {
             if (existing_type != enum_type || existing_value != value) {
                 rcc_error(loc,
                           "using enum introduces a conflicting enumerator '%s'",
@@ -4417,7 +4453,9 @@ bool rcc_parser_import_enum_constants(Type* enum_type, SourceLoc loc) {
             }
             continue;
         }
-        parser_define_enum_constant(name, value, enum_type, enum_type);
+        parser_define_enum_constant(name, value, enum_type, enum_type,
+                                    item->is_deprecated,
+                                    item->deprecated_message);
     }
     return true;
 }
