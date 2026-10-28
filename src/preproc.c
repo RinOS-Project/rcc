@@ -511,7 +511,8 @@ bool pp_is_defined(Preprocessor* pp, const char* name) {
     if (name && (strcmp(name, "__has_builtin") == 0 ||
                  strcmp(name, "__has_include") == 0 ||
                  (!pp->cxx_mode && g_opts.c_standard >= 23 &&
-                  strcmp(name, "__has_embed") == 0))) return true;
+                  (strcmp(name, "__has_embed") == 0 ||
+                   strcmp(name, "__has_c_attribute") == 0)))) return true;
     return pp_get_macro(pp, name) != NULL;
 }
 
@@ -883,6 +884,19 @@ static long pp_cpp_attribute_value(const Preprocessor* pp,
 }
 
 static void pp_add_dependency(Preprocessor* pp, const char* path) {
+static long pp_c_attribute_value(const Preprocessor* pp,
+                                const char* attribute) {
+    if (!pp || pp->cxx_mode || g_opts.c_standard < 23 || !attribute) {
+        return 0;
+    }
+    if (strcmp(attribute, "noreturn") == 0 ||
+        strcmp(attribute, "_Noreturn") == 0 ||
+        strcmp(attribute, "__noreturn__") == 0) {
+        return 202311L;
+    }
+    return 0;
+}
+
     for (int i = 0; i < pp->dependency_count; i++) {
         if (strcmp(pp->dependencies[i], path) == 0) return;
     }
@@ -935,6 +949,9 @@ typedef struct {
 static int pp_probe_embed_expression(Preprocessor* pp, const char* open_paren,
                                      const char** after, bool* valid);
 
+static long pp_probe_c_attribute_expression(Preprocessor* pp,
+                                           const char* open_paren,
+                                           const char** after, bool* valid);
 static PPExprValue pp_expr_signed(int64_t value) {
     PPExprValue result = {(uint64_t)value, false};
     return result;
@@ -1442,6 +1459,24 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
                         memcpy(attribute + attribute_length, component,
                                component_length);
                         attribute_length += component_length;
+            if (strcmp(ident, "__has_c_attribute") == 0 &&
+                !pp->cxx_mode && g_opts.c_standard >= 23) {
+                const char* cursor = pp_expr_skip(end);
+                bool probe_valid = true;
+                long value = pp_probe_c_attribute_expression(
+                    pp, cursor, &cursor, &probe_valid);
+                if (!probe_valid) {
+                    *valid = false;
+                    buf_append_str(&protected, "0");
+                    p = end;
+                    continue;
+                }
+                char value_text[32];
+                snprintf(value_text, sizeof(value_text), "%ld", value);
+                buf_append_str(&protected, value_text);
+                p = cursor;
+                continue;
+            }
                         cursor = after;
                         if (cursor[0] == ':' && cursor[1] == ':') {
                             attribute[attribute_length++] = ':';
@@ -1573,6 +1608,62 @@ static bool pp_contains_defined_token(const char* text) {
 }
 
 static bool pp_parse_embed_spec(Preprocessor* pp, const char* text,
+static long pp_probe_c_attribute_expression(Preprocessor* pp,
+                                           const char* open_paren,
+                                           const char** after, bool* valid) {
+    const char* close = pp_matching_paren(open_paren, false);
+    size_t argument_length;
+    char* argument;
+    char* expanded;
+    const char* cursor;
+    char attribute[256];
+    size_t attribute_length = 0u;
+    long value = 0;
+
+    if (valid) *valid = false;
+    if (after) *after = open_paren;
+    if (!open_paren || *open_paren != '(' || !close) return 0;
+    argument_length = (size_t)(close - open_paren - 1);
+    argument = rcc_alloc(argument_length + 1u);
+    memcpy(argument, open_paren + 1, argument_length);
+    argument[argument_length] = '\0';
+    expanded = expand_macros(pp, argument);
+    rcc_free(argument);
+    if (!expanded) return 0;
+
+    cursor = pp_expr_skip(expanded);
+    while (isalpha((unsigned char)*cursor) || *cursor == '_') {
+        char component[128];
+        const char* component_end = read_ident(
+            cursor, component, sizeof(component));
+        size_t component_length = strlen(component);
+        if (attribute_length + component_length + 1u >= sizeof(attribute)) {
+            goto done;
+        }
+        memcpy(attribute + attribute_length, component, component_length);
+        attribute_length += component_length;
+        cursor = pp_expr_skip(component_end);
+        if (cursor[0] == ':' && cursor[1] == ':') {
+            if (attribute_length + 2u >= sizeof(attribute)) goto done;
+            attribute[attribute_length++] = ':';
+            attribute[attribute_length++] = ':';
+            cursor = pp_expr_skip(cursor + 2);
+        } else {
+            break;
+        }
+    }
+    attribute[attribute_length] = '\0';
+    if (attribute_length == 0u || *cursor != '\0') goto done;
+
+    value = pp_c_attribute_value(pp, attribute);
+    if (valid) *valid = true;
+    if (after) *after = close + 1;
+
+done:
+    rcc_free(expanded);
+    return value;
+}
+
                                 PPEmbedSpec* spec, const char** error) {
     const char* p = pp_expr_skip(text);
     size_t resource_length = 0u;

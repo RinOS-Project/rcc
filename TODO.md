@@ -1,5 +1,22 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-10-29, C23 noreturn attribute)
+
+- [x] Parse C23 `[[noreturn]]` in C declaration attribute sequences, retain
+  its function-declaration effect across declaration specifiers and
+  declarators, accept multiple declarators, and reject arguments or
+  non-function application. Preserve the existing C++ attribute parser and
+  gate the C spelling to C23 mode.
+- [x] Implement C23 `__has_c_attribute` preprocessing, including macro-expanded
+  names, supported alias spellings, namespace-prefixed/unknown names, and
+  malformed-argument diagnostics. Add the dual-target regression to
+  `test-c23` and `test-ci`; C23 tests and focused C17/C++ compatibility tests
+  pass.
+- [ ] Implement and test the remaining standard C attributes and their
+  semantics (`deprecated`, `fallthrough`, `maybe_unused`, `nodiscard`,
+  `unsequenced`, and `reproducible`); accepting/ignoring unknown attributes is
+  not equivalent to implementing these attributes.
+
 ## RCC continuation (2026-10-29, C23 binary resource inclusion)
 
 - [x] Implement C23-only `#embed` and `__has_embed` using the compiler's

@@ -532,7 +532,7 @@ AQC_SHELL_TARGET = $(AQC_TARGET)
 endif
 
 # RLD (Linker) - uses minimal common code
-RLD_COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/emit_ro.c $(SRCDIR)/rld_type_width.c $(SRCDIR)/archive.c $(SRCDIR)/build_manifest.c
+RLD_COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/emit_ro.c $(SRCDIR)/archive.c $(SRCDIR)/build_manifest.c
 RLD_COMMON_OBJS = $(RLD_COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RLD_SRCS = $(SRCDIR)/main_rld.c $(SRCDIR)/linker.c
 RLD_OBJS = $(RLD_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
@@ -571,7 +571,7 @@ endif
 -include $(wildcard $(OBJDIR)/*.d)
 
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-explicit-specialization test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-encoding test-inline-asm-ports test-intrin-header test-inline-asm-execute test-inline-asm-validation test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-verified-i686-floating-arithmetic test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-destructor test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override test-cxx-empty-base test-cxx-no-unique-address
-.PHONY: print-host-cc test-c17 test-c23 test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c-utf8-string-literals test-c-utf16-utf32-string-literals test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
+.PHONY: print-host-cc test-c17 test-c23 test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-noreturn-attribute test-c-utf8-string-literals test-c-utf16-utf32-string-literals test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-exception-cleanup-verified test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-member-methods-invalid
@@ -1186,8 +1186,27 @@ test-c-null-void-pointer-constant: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "C17 void-pointer null constant and C++ rejection tests completed"
 
 .PHONY: test-c23-embed
-test-c23: $(RCC_TARGET) test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-embed
-	@echo "RCC C23 nullptr, empty-initialization, typeof, and binary-resource regressions completed"
+test-c23: $(RCC_TARGET) test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-embed test-c23-noreturn-attribute
+	@echo "RCC C23 nullptr, empty-initialization, typeof, attributes, and binary-resource regressions completed"
+
+test-c23-noreturn-attribute: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-noreturn-attribute)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-noreturn-attribute/x86.ro tests/c23_attribute_noreturn.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-noreturn-attribute/x64.ro tests/c23_attribute_noreturn.c
+	gcc -std=c2x -Wall -Wextra -Werror -Wno-attributes -fsyntax-only tests/c23_attribute_noreturn.c
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-noreturn-attribute/arguments.ro tests/invalid_c23_attribute_noreturn_arguments.c,$(TEST_OUT)/c23-noreturn-attribute/arguments.log)
+	$(GREP) -F -q 'C23 [[noreturn]] does not accept arguments' $(TEST_OUT)/c23-noreturn-attribute/arguments.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-noreturn-attribute/variable.ro tests/invalid_c23_attribute_noreturn_variable.c,$(TEST_OUT)/c23-noreturn-attribute/variable.log)
+	$(GREP) -F -q '_Noreturn declaration must declare a function' $(TEST_OUT)/c23-noreturn-attribute/variable.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-noreturn-attribute/malformed-probe.ro tests/invalid_preprocessor_has_c_attribute.c,$(TEST_OUT)/c23-noreturn-attribute/malformed-probe.log)
+	$(GREP) -F -q 'invalid #if expression' $(TEST_OUT)/c23-noreturn-attribute/malformed-probe.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c23-noreturn-attribute/c17.ro tests/invalid_c17_attribute_noreturn.c,$(TEST_OUT)/c23-noreturn-attribute/c17.log)
+	$(GREP) -F -q 'C23 [[noreturn]] requires -std=c23' $(TEST_OUT)/c23-noreturn-attribute/c17.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-noreturn-attribute/arguments.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-noreturn-attribute/variable.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-noreturn-attribute/malformed-probe.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-noreturn-attribute/c17.ro)
+	@echo "RCC C23 noreturn attribute and __has_c_attribute regressions completed"
 
 test-c23-embed: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-embed)

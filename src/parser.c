@@ -22,6 +22,7 @@ typedef struct {
 
 Parser parser;  /* Non-static for C++ parser access */
 static bool check(TokenType type);
+static bool check_next(TokenType type);
 static bool parser_parenthesized_pointer_is_function(void);
 static bool parser_parenthesized_declarator_starts_member_pointer(void);
 static bool parser_type_is_variably_modified(Type* type);
@@ -704,6 +705,11 @@ static bool check(TokenType type) {
     return peek()->type == type;
 }
 
+static bool check_next(TokenType type) {
+    return parser.cur && parser.cur->next &&
+           parser.cur->next->type == type;
+}
+
 static bool at_end(void) {
     return check(TOK_EOF);
 }
@@ -1306,6 +1312,7 @@ static bool pending_weak_attribute;
 static bool pending_naked_attribute;
 
 static bool take_weak_attribute(void) {
+static bool pending_c_noreturn_attribute;
     bool result = pending_weak_attribute;
     pending_weak_attribute = false;
     return result;
@@ -1318,7 +1325,130 @@ static bool take_naked_attribute(void) {
 }
 
 static void skip_attributes(void) {
-    while (match(TOK___ATTRIBUTE__)) {
+    for (;;) {
+        if (!parser_cxx_mode && check(TOK_LBRACKET) &&
+            check_next(TOK_LBRACKET)) {
+            parser_skip_c_attribute_sequence();
+            continue;
+        }
+        if (!match(TOK___ATTRIBUTE__)) break;
+static bool take_c_noreturn_attribute(void) {
+    bool result = pending_c_noreturn_attribute;
+    pending_c_noreturn_attribute = false;
+    return result;
+}
+
+static bool parser_skip_c_attribute_arguments(SourceLoc loc) {
+    int close_tokens[256];
+    size_t depth = 1u;
+    close_tokens[0] = TOK_RPAREN;
+    advance();
+
+    while (!at_end()) {
+        int token = peek()->type;
+        if (token == TOK_LPAREN || token == TOK_LBRACKET ||
+            token == TOK_LBRACE) {
+            if (depth >= sizeof(close_tokens) / sizeof(close_tokens[0])) {
+                rcc_error(loc, "C23 attribute argument nesting is too deep");
+                advance();
+                return false;
+            }
+            close_tokens[depth++] = token == TOK_LPAREN ? TOK_RPAREN
+                : token == TOK_LBRACKET ? TOK_RBRACKET : TOK_RBRACE;
+        } else if (token == TOK_RPAREN || token == TOK_RBRACKET ||
+                   token == TOK_RBRACE) {
+            if (close_tokens[depth - 1u] != token) {
+                rcc_error(peek()->loc,
+                          "mismatched delimiter in C23 attribute argument");
+                advance();
+                return false;
+            }
+            if (--depth == 0u) {
+                advance();
+                return true;
+            }
+        }
+        advance();
+    }
+
+    rcc_error(loc, "unterminated C23 attribute argument");
+    return false;
+}
+
+static void parser_skip_c_attribute_sequence(void) {
+    SourceLoc sequence_loc = peek()->loc;
+    bool terminated = false;
+    advance();
+    advance();
+
+    while (!at_end()) {
+        bool is_noreturn = false;
+        bool has_prefix = false;
+        bool has_arguments = false;
+        SourceLoc attribute_loc = peek()->loc;
+
+        if (check(TOK_RBRACKET) && check_next(TOK_RBRACKET)) {
+            advance();
+            advance();
+            terminated = true;
+            break;
+        }
+        if (match(TOK_COMMA)) continue;
+
+        if (check(TOK_IDENT)) {
+            const char* name = peek()->value.str_val;
+            is_noreturn = strcmp(name, "noreturn") == 0 ||
+                          strcmp(name, "_Noreturn") == 0 ||
+                          strcmp(name, "__noreturn__") == 0;
+            advance();
+        } else if (match(TOK__NORETURN)) {
+            /* Keywords used as attribute tokens are identifiers here. */
+            is_noreturn = true;
+        } else {
+            rcc_error(peek()->loc, "expected C23 attribute token");
+            advance();
+            continue;
+        }
+
+        if (match(TOK_SCOPE)) {
+            has_prefix = true;
+            if (!check(TOK_IDENT)) {
+                rcc_error(peek()->loc,
+                          "expected attribute name after namespace prefix");
+                continue;
+            }
+            advance();
+        }
+        if (check(TOK_LPAREN)) {
+            has_arguments = true;
+            (void)parser_skip_c_attribute_arguments(attribute_loc);
+        }
+
+        if (is_noreturn && !has_prefix) {
+            if (g_opts.c_standard < 23) {
+                rcc_error(attribute_loc,
+                          "C23 [[noreturn]] requires -std=c23");
+            } else if (has_arguments) {
+                rcc_error(attribute_loc,
+                          "C23 [[noreturn]] does not accept arguments");
+            } else {
+                pending_c_noreturn_attribute = true;
+            }
+        }
+
+        if (match(TOK_COMMA)) continue;
+        if (!(check(TOK_RBRACKET) && check_next(TOK_RBRACKET))) {
+            rcc_error(peek()->loc,
+                      "expected ',' or ']]' after C23 attribute");
+            advance();
+        }
+    }
+
+    if (!terminated) {
+        rcc_error(sequence_loc, "unterminated C23 attribute sequence");
+    }
+}
+
         SourceLoc attribute_loc = previous()->loc;
         bool group_weak = false;
         bool weak_arguments = false;
@@ -4476,6 +4606,10 @@ static void parse_aggregate_body(Type* aggregate) {
             Expr* field_initializer = NULL;
             if (explicit_alignment != 0) {
                 field_type = rcc_parser_apply_explicit_alignment(
+        if (take_c_noreturn_attribute()) {
+            rcc_error(peek()->loc,
+                      "C23 [[noreturn]] requires a function declaration");
+        }
                     field_type, explicit_alignment, alignment_loc);
             }
             if (parser_type_has_array_parameter_spec(field_type)) {
@@ -5055,6 +5189,10 @@ static DeclList* parse_parameter_list(bool* variadic) {
         if (check(TOK_RPAREN)) {
             rcc_error(peek()->loc,
                       "expected parameter declaration after ','");
+        if (take_c_noreturn_attribute()) {
+            rcc_error(previous()->loc,
+                      "C23 [[noreturn]] requires a function declaration");
+        }
             break;
         }
     }
@@ -5535,6 +5673,10 @@ static Type* parse_declarator(Type* base_type, const char** name,
                     bound_expression = bound;
                 }
             }
+        if (!parser_cxx_mode && check(TOK_LBRACKET) &&
+            check_next(TOK_LBRACKET)) {
+            break;
+        }
             expect(TOK_RBRACKET, "]");
             if (array_count >= (int)(sizeof(array_lengths) /
                                      sizeof(array_lengths[0]))) {
@@ -6270,6 +6412,7 @@ Stmt* parse_declaration(void) {
                   "[[no_unique_address]] requires a class data member");
     }
     if (parser_cxx_mode && rcc_parser_cxx_take_noreturn_attribute) {
+    bool declarator_is_noreturn = false;
         is_noreturn = rcc_parser_cxx_take_noreturn_attribute();
     }
 
@@ -6348,6 +6491,7 @@ Stmt* parse_declaration(void) {
                 friend_signature_context, NULL, NULL, NULL, peek()->loc);
         }
         return parse_statement();
+    is_noreturn = is_noreturn || take_c_noreturn_attribute();
     }
 
     SourceLoc loc = peek()->loc;
@@ -6377,6 +6521,10 @@ Stmt* parse_declaration(void) {
         else if (check(TOK__ALIGNAS)) {
             int alignment = parse_explicit_alignment();
             if (alignment > explicit_alignment) explicit_alignment = alignment;
+        if (is_noreturn) {
+            rcc_error(peek()->loc,
+                      "C23 [[noreturn]] requires a function declaration");
+        }
         }
         else if (check(TOK___ATTRIBUTE__)) {
             skip_attributes();
@@ -6415,8 +6563,13 @@ Stmt* parse_declaration(void) {
                 is_inline, is_constexpr, is_consteval, loc);
         if (conversion_definition) {
             if (friend_signature_context &&
+            is_noreturn = is_noreturn || take_c_noreturn_attribute();
                 rcc_parser_cxx_end_function_signature_access) {
                 rcc_parser_cxx_end_function_signature_access(
+        } else if (!parser_cxx_mode && check(TOK_LBRACKET) &&
+                   check_next(TOK_LBRACKET)) {
+            skip_attributes();
+            is_noreturn = is_noreturn || take_c_noreturn_attribute();
                     friend_signature_context, NULL, NULL, NULL, loc);
             }
             return conversion_definition;
@@ -6485,6 +6638,11 @@ Stmt* parse_declaration(void) {
                 pointer_type = type_ptr(pointer_return_type);
                 while (match(TOK_CONST) || match(TOK_VOLATILE) ||
                        match(TOK_RESTRICT)) {
+    while (!parser_cxx_mode && check(TOK_LBRACKET) &&
+           check_next(TOK_LBRACKET)) {
+        skip_attributes();
+        is_noreturn = is_noreturn || take_c_noreturn_attribute();
+    }
                     if (previous()->type == TOK_CONST) is_const = true;
                     else if (previous()->type == TOK_VOLATILE) {
                         is_volatile = true;
@@ -6629,6 +6787,7 @@ Stmt* parse_declaration(void) {
     }
 
     if (is_typedef) {
+    declarator_is_noreturn = take_c_noreturn_attribute();
         StmtList* declarations = NULL;
         if (is_thread_local) {
             rcc_error(loc, "thread-local storage is not valid on a typedef");
@@ -6665,6 +6824,10 @@ Stmt* parse_declaration(void) {
 
     /* Function declaration? */
     if (type->kind == TYPE_FUNC) {
+        if (is_noreturn || declarator_is_noreturn) {
+            rcc_error(loc,
+                      "C23 [[noreturn]] requires a function declaration");
+        }
         Stmt* body = NULL;
         if (is_constinit) {
             rcc_error(loc, "constinit declaration must declare a variable");
@@ -6741,7 +6904,8 @@ Stmt* parse_declaration(void) {
             StmtList* declarations = NULL;
             declaration = parser_make_function_decl(
                 declaration_name, type, parameters, NULL, loc, storage,
-                is_inline, is_constexpr, is_noreturn, is_noexcept,
+                is_inline, is_constexpr,
+                is_noreturn || declarator_is_noreturn, is_noexcept,
                 noexcept_expr, is_consteval);
             parser_apply_cxx_declaration_attributes(
                 declaration, cxx_is_nodiscard, cxx_is_deprecated,
@@ -6787,6 +6951,7 @@ Stmt* parse_declaration(void) {
                         next_type && next_type->kind == TYPE_FUNC
                             ? next_type : NULL,
                         next_parameters, loc);
+                bool next_is_noreturn;
                 }
                 if (next_type && next_type->kind == TYPE_FUNC) {
                     Decl* next_declaration;
@@ -6794,9 +6959,14 @@ Stmt* parse_declaration(void) {
                         rcc_error(loc,
                                   "thread-local storage is not valid on a function");
                     }
+                next_is_noreturn =
+                    is_noreturn || take_c_noreturn_attribute();
                     next_declaration = parser_make_function_decl(
                         next_name, next_type, next_parameters, NULL, loc,
-                        storage, is_inline, is_constexpr, is_noreturn,
+                        storage, is_inline, is_constexpr, next_is_noreturn,
+                skip_attributes();
+                next_is_noreturn =
+                    next_is_noreturn || take_c_noreturn_attribute();
                         is_noexcept, noexcept_expr, is_consteval);
                     parser_apply_cxx_declaration_attributes(
                         next_declaration, cxx_is_nodiscard,
@@ -6810,7 +6980,7 @@ Stmt* parse_declaration(void) {
                     Decl* next_declaration = parser_make_variable_decl(
                         next_name, next_type, next_init, loc, storage,
                         is_thread_local, is_constexpr, is_constinit,
-                        is_inline, is_noreturn, is_consteval);
+                        is_inline, next_is_noreturn, is_consteval);
                     next_declaration->var_register_name =
                         next_register_asm_name;
                     parser_apply_cxx_declaration_attributes(
@@ -6833,7 +7003,8 @@ Stmt* parse_declaration(void) {
 
         declaration = parser_make_function_decl(
             declaration_name, type, parameters, body, loc, storage,
-            is_inline, is_constexpr, is_noreturn, is_noexcept,
+            is_inline, is_constexpr,
+            is_noreturn || declarator_is_noreturn, is_noexcept,
             noexcept_expr, is_consteval);
         parser_apply_cxx_declaration_attributes(
             declaration, cxx_is_nodiscard, cxx_is_deprecated,
@@ -6850,7 +7021,8 @@ Stmt* parse_declaration(void) {
         Expr* init = parser_parse_variable_initializer(type, loc);
         declaration = parser_make_variable_decl(
             declaration_name, type, init, loc, storage, is_thread_local,
-            is_constexpr, is_constinit, is_inline, is_noreturn, is_consteval);
+            is_constexpr, is_constinit, is_inline,
+            is_noreturn || declarator_is_noreturn, is_consteval);
         declaration->var_register_name = register_asm_name;
         parser_apply_cxx_declaration_attributes(
             declaration, cxx_is_nodiscard, cxx_is_deprecated,
@@ -6896,12 +7068,17 @@ Stmt* parse_declaration(void) {
             init = parser_parse_variable_initializer(next_type, loc);
             declaration = parser_make_variable_decl(
                 next_name, next_type, init, loc, storage, is_thread_local,
-                is_constexpr, is_constinit, is_inline, is_noreturn,
+                is_constexpr, is_constinit, is_inline, next_is_noreturn,
+            bool next_is_noreturn;
                 is_consteval);
             declaration->var_register_name = next_register_asm_name;
+            next_is_noreturn = is_noreturn || take_c_noreturn_attribute();
             parser_apply_cxx_declaration_attributes(
                 declaration, cxx_is_nodiscard, cxx_is_deprecated,
                 cxx_deprecated_message);
+            skip_attributes();
+            next_is_noreturn =
+                next_is_noreturn || take_c_noreturn_attribute();
             declaration->is_weak = next_is_weak;
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
         }
@@ -6963,6 +7140,7 @@ AST* rcc_parse(TokenList* tokens) {
             }
         } else if (parser.cur != iteration_start ||
                    g_error_count == errors_before) {
+    pending_c_noreturn_attribute = false;
             preserved_recovery_boundary = NULL;
         }
         if (parser.cur == iteration_start && !at_end() &&
