@@ -21141,6 +21141,7 @@ typedef struct SemaCxxBinaryOperatorCandidate {
     Symbol* functions;
     ExprList* arguments;
     Decl* function;
+    const char* member_name;
     int ranks[2];
     Type* targets[2];
     TypeMethod* methods[2];
@@ -21207,7 +21208,7 @@ static int sema_cxx_binary_operator_candidate_relation(
 
 static bool sema_cxx_collect_member_binary_operator_candidate(
     SemaCxxBinaryOperatorCandidate* candidate, Type* aggregate,
-    Expr* expression, const char* name) {
+    Expr* expression, const char* name, bool rewritten) {
     TypeMethod* best = NULL;
     int best_ranks[3] = { 0, 0, 0 };
     Type* best_targets[3] = { NULL, NULL, NULL };
@@ -21245,6 +21246,13 @@ static bool sema_cxx_collect_member_binary_operator_candidate(
         object_rank = cxx_member_object_conversion_rank(aggregate, method);
         ref_rank = cxx_member_ref_qualifier_rank(probe_call, method);
         if (object_rank < 0 || ref_rank < 0) continue;
+        if (method->this_owner && method->this_owner != aggregate) {
+            if (!sema_cxx_unique_public_base(aggregate, method->this_owner,
+                                             NULL)) {
+                continue;
+            }
+            object_rank = 2;
+        }
         parameter = function->type->params;
         if (function->func_this_param && parameter) {
             parameter = parameter->next;
@@ -21324,7 +21332,9 @@ static bool sema_cxx_collect_member_binary_operator_candidate(
         }
         memset(candidate, 0, sizeof(*candidate));
         candidate->arguments = exprlist_new(expression->binary_rhs);
+        candidate->member_name = name;
         candidate->is_member = true;
+        candidate->rewritten = rewritten;
         candidate->ranks[0] = object_conversion_rank;
         candidate->ranks[1] = best_ranks[2];
         candidate->targets[0] = type_reference(
@@ -21338,7 +21348,7 @@ static bool sema_cxx_collect_member_binary_operator_candidate(
 
 static bool sema_cxx_rewrite_class_equality_operator(
     Expr* expression, Type* aggregate, const char* name) {
-    SemaCxxBinaryOperatorCandidate candidates[4];
+    SemaCxxBinaryOperatorCandidate candidates[5];
     int candidate_count = 0;
     int best_index = -1;
     bool ambiguous = false;
@@ -21353,7 +21363,14 @@ static bool sema_cxx_rewrite_class_equality_operator(
     exprlist_append(&arguments, expression->binary_lhs);
     exprlist_append(&arguments, expression->binary_rhs);
     if (sema_cxx_collect_member_binary_operator_candidate(
-            &candidates[candidate_count], aggregate, expression, name)) {
+            &candidates[candidate_count], aggregate, expression, name,
+            false)) {
+        ++candidate_count;
+    }
+    if (expression->kind == EXPR_NE &&
+        sema_cxx_collect_member_binary_operator_candidate(
+            &candidates[candidate_count], aggregate, expression,
+            "operator==", true)) {
         ++candidate_count;
     }
     functions = sema_cxx_operator_function(name, arguments);
@@ -21402,11 +21419,16 @@ static bool sema_cxx_rewrite_class_equality_operator(
         best_index = 0;
     }
     if (candidates[best_index].is_member) {
-        Expr* member = expr_member(expression->binary_lhs, name,
+        Expr* member = expr_member(expression->binary_lhs,
+                                   candidates[best_index].member_name,
                                    expression->loc);
-        *expression = *expr_call(member,
-                                 exprlist_new(expression->binary_rhs),
-                                 expression->loc);
+        Expr* call = expr_call(member,
+                               exprlist_new(expression->binary_rhs),
+                               expression->loc);
+        Expr* result = candidates[best_index].rewritten &&
+                       expression->kind == EXPR_NE
+            ? expr_unary(EXPR_NOT, call, expression->loc) : call;
+        *expression = *result;
     } else if (candidates[best_index].rewritten) {
         Expr* call = expr_call(expr_ident("operator==", expression->loc),
                                candidates[best_index].arguments,
@@ -21500,6 +21522,7 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     Type* right_type = NULL;
     Type* right_aggregate;
     TypeMethod* method;
+    TypeMethod* equality_method;
     TypeMethod* template_candidates[32];
     int template_candidate_count = 0;
     bool template_constraint_unsupported = false;
@@ -21517,10 +21540,13 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     name = sema_cxx_binary_operator_name(expression->kind);
     if (!name) return false;
     method = sema_find_function_method(aggregate, name);
+    equality_method = expression->kind == EXPR_NE
+        ? sema_find_function_method(aggregate, "operator==") : NULL;
     if ((expression->kind == EXPR_EQ || expression->kind == EXPR_NE) &&
         aggregate && (aggregate->kind == TYPE_STRUCT ||
                       aggregate->kind == TYPE_UNION) &&
-        method && method->function_decl) {
+        ((method && method->function_decl) ||
+         (equality_method && equality_method->function_decl))) {
         right_type = sema_expr(expression->binary_rhs);
         right_analyzed = true;
         if (sema_cxx_rewrite_class_equality_operator(
@@ -21691,7 +21717,7 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
         function = best_index >= 0
             ? candidates[best_index].functions : NULL;
         if (best_index >= 0) arguments = candidates[best_index].arguments;
-        if (expression->kind == EXPR_NE && aggregate &&
+        if (!function && expression->kind == EXPR_NE && aggregate &&
             (aggregate->kind == TYPE_STRUCT ||
              aggregate->kind == TYPE_UNION)) {
             TypeMethod* equality_method = sema_find_function_method(

@@ -121,6 +121,32 @@ struct EqualityWorseMemberNotEqual {
                            const EqualityWorseMemberNotEqual&) = default;
 };
 
+struct EqualityWorseDirectNotEqualMemberEquality {
+    int value;
+    operator int() const { return value; }
+    bool operator==(const EqualityWorseDirectNotEqualMemberEquality& other)
+        const {
+        return value == other.value;
+    }
+    friend bool operator!=(
+        const EqualityWorseDirectNotEqualMemberEquality& left, int right) {
+        return left.value == right;
+    }
+};
+
+struct EqualityDirectNotEqualPreferredOverMemberRewrite {
+    int value;
+    bool operator==(const EqualityDirectNotEqualPreferredOverMemberRewrite& other)
+        const {
+        return value == other.value;
+    }
+    friend bool operator!=(
+        const EqualityDirectNotEqualPreferredOverMemberRewrite&,
+        const EqualityDirectNotEqualPreferredOverMemberRewrite&) {
+        return true;
+    }
+};
+
 int main() {
     EqualityRecord first{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
     EqualityRecord same{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
@@ -155,6 +181,12 @@ int main() {
     EqualityWorseDirectNotEqual worse_direct_not_equal_same{83};
     EqualityWorseMemberNotEqual worse_member_not_equal_first{89};
     EqualityWorseMemberNotEqual worse_member_not_equal_same{89};
+    EqualityWorseDirectNotEqualMemberEquality
+        worse_direct_not_equal_member_equality_first{97};
+    EqualityWorseDirectNotEqualMemberEquality
+        worse_direct_not_equal_member_equality_same{97};
+    EqualityDirectNotEqualPreferredOverMemberRewrite
+        direct_not_equal_preferred_member_rewrite_first{101};
     if (hidden_first.values[1] != 43 ||
         hidden_array_different.values[1] != 44) return 17;
     virtual_first.virtual_base_value = 29;
@@ -213,6 +245,14 @@ int main() {
     }
     if (worse_member_not_equal_first != worse_member_not_equal_same) {
         return 37;
+    }
+    if (worse_direct_not_equal_member_equality_first !=
+        worse_direct_not_equal_member_equality_same) {
+        return 38;
+    }
+    if (!(direct_not_equal_preferred_member_rewrite_first !=
+          direct_not_equal_preferred_member_rewrite_first)) {
+        return 39;
     }
     return 0;
 }
