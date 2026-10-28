@@ -61,6 +61,7 @@ int** debug_inline_escaped_pointer;
 int* debug_inline_escaped_object_address;
 int** debug_inline_indirect_pointer_slot_escape;
 int*** debug_inline_indirect_pointer_chain_slot_escape;
+int**** debug_inline_indirect_pointer_triple_chain_slot_escape;
 int* debug_inline_indirect_global_pointer_source;
 _Thread_local int* debug_inline_indirect_tls_pointer_source;
 int* volatile* debug_inline_indirect_volatile_pointer_slot_escape;
@@ -603,6 +604,21 @@ int debug_inline_indirect_pointer_chain_entry(int value)
         &debug_inline_indirect_pointer_chain_slot;
     return debug_nonconstant_integer_parameter_inline(
         **debug_inline_indirect_pointer_chain_slot);
+}
+
+int debug_inline_indirect_pointer_triple_chain_entry(int value)
+{
+    int debug_inline_indirect_pointer_triple_chain_value = value;
+    int* debug_inline_indirect_pointer_triple_chain_target1 =
+        &debug_inline_indirect_pointer_triple_chain_value;
+    int** debug_inline_indirect_pointer_triple_chain_target2 =
+        &debug_inline_indirect_pointer_triple_chain_target1;
+    int*** debug_inline_indirect_pointer_triple_chain_slot =
+        &debug_inline_indirect_pointer_triple_chain_target2;
+    debug_inline_indirect_pointer_triple_chain_slot_escape =
+        &debug_inline_indirect_pointer_triple_chain_slot;
+    return debug_nonconstant_integer_parameter_inline(
+        ***debug_inline_indirect_pointer_triple_chain_slot);
 }
 
 int debug_inline_indirect_global_pointer_entry(int value)

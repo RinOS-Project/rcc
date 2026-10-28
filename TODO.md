@@ -11363,6 +11363,10 @@ remains a separate open item.
       model; focused `test-debug-info-inline-expression` and the full
       debug-info verifier passed on refreshed C outputs. The full Make
       target's `cmd.exe` redirection issue is documented above.
+- [x] Verify the same expression across `***identifier` chains. Add C and
+      C++20 fixtures with three pointer loads and a frame-memory model for both
+      intermediate slots; cover i686/x64 legacy and verified objects with
+      signed boundary values. `test-debug-info-inline-expression` passes.
 - [x] Verify global/TLS/static pointer sources, volatile or atomic pointer and
       pointee, i686 wider-than-address-size pointees, and C++20 data-member-
       pointer accesses do not produce the frame-local indirect-value
