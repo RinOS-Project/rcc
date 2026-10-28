@@ -11484,7 +11484,15 @@ remains a separate open item.
       namespace. The x86/AMD64 spaceship target, host runtime,
       overload/operator/defaulted-equality regressions, and GCC C++20
       `-pedantic-errors` runtime oracle pass.
+- [x] Preserve hidden friend function templates declared in class templates
+      on each concrete class specialization. Substitute the enclosing class
+      arguments into the friend signature and body while leaving the friend
+      template's own parameters deducible; associate the materialized template
+      with that specialization for ADL and private access. Cover `int` and
+      `long` class specializations with independently deduced friend-template
+      argument types in `test-cxx-spaceship`; x86/x64 compilation, x64 runtime,
+      related overload/class-template regressions, and a GCC C++20
+      `-pedantic-errors` runtime oracle pass.
 - [ ] Continue auditing ADL candidate identity and hidden-friend lookup across
-      function-template redeclarations and templates declared inside class
-      templates; retain the broader C++20 candidate-set and overload-
-      conformance items as open.
+      function-template redeclarations, specializations, and the remaining
+      C++20 candidate-set and overload-conformance cases.

@@ -11769,6 +11769,28 @@ static void cxx_class_record_hidden_friend(CxxClass* cls,
         declaration;
 }
 
+static void cxx_class_record_hidden_friend_template(CxxClass* cls,
+                                                    CxxTemplate* tmpl) {
+    if (!cls || !tmpl || tmpl->kind != TMPL_FUNCTION) return;
+    for (int index = 0; index < cls->hidden_friend_template_count; ++index) {
+        if (cls->hidden_friend_templates[index] == tmpl) return;
+    }
+    if (cls->hidden_friend_template_count == INT_MAX) {
+        rcc_error(tmpl->func_def ? tmpl->func_def->loc
+                                 : (SourceLoc){"<friend-template>", 0, 0},
+                  "too many hidden friend function templates in class '%s'",
+                  cls->name ? cls->name : "<anonymous>");
+        return;
+    }
+    cls->hidden_friend_templates = ast_arena_grow(
+        cls->hidden_friend_templates,
+        sizeof(cls->hidden_friend_templates[0]) *
+            (size_t)cls->hidden_friend_template_count,
+        sizeof(cls->hidden_friend_templates[0]) *
+            (size_t)(cls->hidden_friend_template_count + 1));
+    cls->hidden_friend_templates[cls->hidden_friend_template_count++] = tmpl;
+}
+
 static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     SourceLoc loc = peek()->loc;
     int explicit_alignment = 0;
@@ -12747,6 +12769,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                     rcc_error(peek()->loc,
                               "class friend template must declare a function template");
                 } else {
+                    cxx_class_record_hidden_friend_template(cls, tmpl);
                     cxx_namespace_add_template(
                         active_namespace ? active_namespace
                                          : g_global_namespace,
@@ -16859,6 +16882,14 @@ static void cxx_function_template_lookup_adl_type(
     }
     cls = type->cxx_class;
     if (!cls) return;
+    for (int index = 0; index < cls->hidden_friend_template_count; ++index) {
+        CxxTemplate* candidate = cls->hidden_friend_templates[index];
+        if (candidate && candidate->kind == TMPL_FUNCTION &&
+            !candidate->is_concept && candidate->name &&
+            strcmp(candidate->name, name) == 0) {
+            cxx_function_template_lookup_add(&lookup->templates, candidate);
+        }
+    }
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
         if (base) {
@@ -19939,6 +19970,22 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             expression, expression_type,
             type->cxx_dependent_decltype_parenthesized);
     }
+    if (tmpl && tmpl->active_class_instance && tmpl->templated_class &&
+        tmpl->active_class_instance->type && type->cxx_class ==
+            tmpl->templated_class) {
+        Type* instance_type = tmpl->active_class_instance->type;
+        if (type->is_const || type->is_volatile || type->is_atomic ||
+            type->is_restrict) {
+            substituted = ast_arena_alloc(sizeof(*substituted));
+            *substituted = *instance_type;
+            substituted->is_const = type->is_const;
+            substituted->is_volatile = type->is_volatile;
+            substituted->is_atomic = type->is_atomic;
+            substituted->is_restrict = type->is_restrict;
+            return substituted;
+        }
+        return instance_type;
+    }
     if (tmpl && tmpl->is_local_class_template &&
         tmpl->local_class_pattern && tmpl->local_class_instance &&
         tmpl->local_class_pattern->type &&
@@ -21536,6 +21583,252 @@ static Decl* cxx_substitute_class_hidden_friend(
     return instance;
 }
 
+static CxxTemplate* cxx_substitute_class_hidden_friend_template(
+    CxxClass* definition, CxxClass* instance_class, CxxTemplate* source) {
+    CxxTemplate* instance_template;
+    CxxTemplate* substitution_template;
+    Decl* source_function;
+    Decl* instance_function;
+    Type** arguments;
+    int64_t* values;
+    bool* value_present;
+    int owner_argument_count = 0;
+    int substitution_count;
+    size_t slots;
+    CxxClass* owner_scope;
+    CxxClass* owner_cursor;
+
+    if (!definition || !instance_class || !source ||
+        source->kind != TMPL_FUNCTION || !source->func_def ||
+        source->func_def->kind != DECL_FUNC) {
+        return NULL;
+    }
+    owner_cursor = instance_class;
+    for (CxxTemplate* owner_template = source->enclosing_template;
+         owner_template;
+         owner_template = owner_template->enclosing_template) {
+        int owner_count;
+        while (owner_cursor &&
+               !cxx_class_instance_matches_template(
+                   owner_cursor, owner_template)) {
+            owner_cursor = owner_cursor->enclosing_class;
+        }
+        if (!owner_cursor) {
+            rcc_error(source->func_def->loc,
+                      "hidden friend template owner chain is incomplete for class '%s'",
+                      definition->name ? definition->name : "<anonymous>");
+            return NULL;
+        }
+        owner_scope = owner_cursor;
+        owner_count = owner_scope->templ == owner_template
+            ? owner_scope->template_arg_count
+            : owner_scope->template_identity_arg_count;
+        if (owner_count < 0 ||
+            (owner_count > 0 &&
+             !(owner_scope->templ == owner_template
+                   ? owner_scope->template_args
+                   : owner_scope->template_identity_args))) {
+            rcc_error(source->func_def->loc,
+                      "hidden friend template owner arguments are incomplete for class '%s'",
+                      owner_template->name
+                          ? owner_template->name : "<unnamed>");
+            return NULL;
+        }
+        if (owner_count > INT_MAX - owner_argument_count) {
+            rcc_error(source->func_def->loc,
+                      "hidden friend template substitution argument count overflow");
+            return NULL;
+        }
+        owner_argument_count += owner_count;
+        owner_cursor = owner_scope->enclosing_class;
+    }
+    if (source->param_count < 0 ||
+        owner_argument_count > INT_MAX - source->param_count) {
+        rcc_error(source->func_def->loc,
+                  "hidden friend template substitution argument count overflow");
+        return NULL;
+    }
+    substitution_count = source->param_count + owner_argument_count;
+    slots = substitution_count > 0 ? (size_t)substitution_count : 1u;
+    if (slots > SIZE_MAX / sizeof(*arguments) ||
+        slots > SIZE_MAX / sizeof(*values) ||
+        slots > SIZE_MAX / sizeof(*value_present)) {
+        rcc_error(source->func_def->loc,
+                  "hidden friend template substitution storage size overflow");
+        return NULL;
+    }
+    arguments = ast_arena_alloc(sizeof(*arguments) * slots);
+    values = ast_arena_alloc(sizeof(*values) * slots);
+    value_present = ast_arena_alloc(sizeof(*value_present) * slots);
+    memset(arguments, 0, sizeof(*arguments) * slots);
+    memset(values, 0, sizeof(*values) * slots);
+    memset(value_present, 0, sizeof(*value_present) * slots);
+    for (int index = 0; index < source->param_count; ++index) {
+        TemplateParam* parameter = &source->params[index];
+        if (parameter->kind == TPARAM_TYPE ||
+            parameter->kind == TPARAM_TEMPLATE) {
+            Type* placeholder = type_struct(
+                parameter->name ? parameter->name : "<template-parameter>");
+            placeholder->cxx_dependent = true;
+            placeholder->cxx_template_param_index = index;
+            placeholder->cxx_template_param_context = source;
+            arguments[index] = placeholder;
+        }
+    }
+
+    owner_cursor = instance_class;
+    int owner_offset = 0;
+    for (CxxTemplate* owner_template = source->enclosing_template;
+         owner_template;
+         owner_template = owner_template->enclosing_template) {
+        Type** owner_arguments;
+        const int64_t* owner_values;
+        const bool* owner_value_present;
+        int owner_count;
+        while (owner_cursor &&
+               !cxx_class_instance_matches_template(
+                   owner_cursor, owner_template)) {
+            owner_cursor = owner_cursor->enclosing_class;
+        }
+        if (!owner_cursor) {
+            rcc_error(source->func_def->loc,
+                      "hidden friend template owner chain changed during substitution");
+            return NULL;
+        }
+        owner_scope = owner_cursor;
+        if (owner_scope->templ == owner_template) {
+            owner_arguments = owner_scope->template_args;
+            owner_count = owner_scope->template_arg_count;
+            owner_values = owner_scope->template_value_args;
+            owner_value_present = owner_scope->template_value_present;
+        } else {
+            owner_arguments = owner_scope->template_identity_args;
+            owner_count = owner_scope->template_identity_arg_count;
+            owner_values = owner_scope->template_identity_value_args;
+            owner_value_present = owner_scope->template_identity_value_present;
+        }
+        if (owner_count > 0) {
+            memcpy(arguments + source->param_count + owner_offset,
+                   owner_arguments, sizeof(*arguments) * (size_t)owner_count);
+            if (owner_values && owner_value_present) {
+                memcpy(values + source->param_count + owner_offset,
+                       owner_values, sizeof(*values) * (size_t)owner_count);
+                memcpy(value_present + source->param_count + owner_offset,
+                       owner_value_present,
+                       sizeof(*value_present) * (size_t)owner_count);
+            }
+        }
+        owner_offset += owner_count;
+        owner_cursor = owner_scope->enclosing_class;
+    }
+
+    substitution_template = ast_arena_alloc(sizeof(*substitution_template));
+    *substitution_template = *source;
+    substitution_template->templated_class = definition;
+    substitution_template->active_class_instance = instance_class;
+
+    instance_template = ast_arena_alloc(sizeof(*instance_template));
+    *instance_template = *source;
+    instance_template->enclosing_template = NULL;
+    instance_template->enclosing_class = instance_class;
+    instance_template->instances = NULL;
+    instance_template->instance_count = 0;
+    instance_template->pending_pack_args = NULL;
+    instance_template->pending_pack_expansions = NULL;
+    instance_template->pending_pack_values = NULL;
+    instance_template->pending_pack_value_present = NULL;
+    instance_template->pending_pack_value_expressions = NULL;
+    instance_template->pending_pack_count = -1;
+    instance_template->pending_pack_offsets = NULL;
+    instance_template->pending_pack_counts = NULL;
+    instance_template->active_pack_parameters = NULL;
+    instance_template->active_pack_expansion = false;
+    instance_template->active_pack_expansion_index = 0;
+    instance_template->active_pack_expansion_count = 0;
+    instance_template->active_class_instance = NULL;
+    instance_template->friend_access = NULL;
+    CxxFriendAccess** friend_tail = &instance_template->friend_access;
+    for (CxxFriendAccess* grant = source->friend_access; grant;
+         grant = grant->next) {
+        CxxFriendAccess* copy = ast_arena_alloc(sizeof(*copy));
+        copy->owner = grant->owner == definition
+            ? instance_class : grant->owner;
+        copy->next = NULL;
+        *friend_tail = copy;
+        friend_tail = &copy->next;
+    }
+    instance_template->is_hidden_friend = source->is_hidden_friend;
+    if (source->param_count > 0) {
+        instance_template->params = ast_arena_alloc(
+            sizeof(*instance_template->params) *
+            (size_t)source->param_count);
+        for (int index = 0; index < source->param_count; ++index) {
+            TemplateParam* destination =
+                &instance_template->params[index];
+            TemplateParam* parameter = &source->params[index];
+            *destination = *parameter;
+            if (parameter->kind == TPARAM_NONTYPE && parameter->type) {
+                destination->type = substitute_template_type(
+                    substitution_template, parameter->type, arguments,
+                    substitution_count, values, value_present);
+            }
+            if (parameter->has_default &&
+                parameter->kind == TPARAM_TYPE &&
+                parameter->default_type) {
+                destination->default_type = substitute_template_type(
+                    substitution_template, parameter->default_type, arguments,
+                    substitution_count, values, value_present);
+            } else if (parameter->has_default &&
+                       parameter->kind == TPARAM_NONTYPE &&
+                       parameter->default_value) {
+                destination->default_value =
+                    cxx_template_clone_expr_with_values(
+                        substitution_template, parameter->default_value,
+                        arguments,
+                        substitution_count, values, value_present);
+            }
+            destination->default_context = instance_template;
+        }
+    } else {
+        instance_template->params = NULL;
+    }
+    if (source->constraint) {
+        instance_template->constraint = cxx_template_clone_expr_with_values(
+            substitution_template, source->constraint, arguments,
+            substitution_count, values, value_present);
+        instance_template->constraint_context = instance_template;
+    }
+
+    source_function = source->func_def;
+    instance_function = ast_arena_alloc(sizeof(*instance_function));
+    *instance_function = *source_function;
+    instance_function->type = substitute_template_type(
+        substitution_template, source_function->type, arguments,
+        substitution_count, values, value_present);
+    instance_function->func_params = substitute_template_decl_parameters(
+        substitution_template, source_function->func_params, arguments,
+        substitution_count, values, value_present);
+    instance_function->func_body = cxx_template_clone_stmt_with_values(
+        substitution_template, source_function->func_body, arguments,
+        substitution_count, values, value_present);
+    instance_function->func_noexcept_expr =
+        cxx_template_clone_expr_with_values(
+            substitution_template, source_function->func_noexcept_expr,
+            arguments,
+            substitution_count, values, value_present);
+    instance_function->func_friend_access = instance_template->friend_access;
+    instance_function->func_is_hidden_friend =
+        instance_template->is_hidden_friend;
+    instance_function->func_is_template_instance = false;
+    instance_function->func_template_owner = instance_template;
+    instance_function->func_template_args = NULL;
+    instance_function->func_template_arg_count = 0;
+    instance_function->func_template_value_args = NULL;
+    instance_function->func_template_value_present = NULL;
+    instance_template->func_def = instance_function;
+    return instance_template;
+}
+
 static int cxx_template_class_method_ordinal(CxxClass* cls,
                                              CxxMethod* method) {
     int ordinal = 0;
@@ -23070,6 +23363,18 @@ static Type* instantiate_class_template_for_owner(
         if (friend_instance) {
             cxx_class_record_hidden_friend(instance, friend_instance);
             cxx_add_function_declaration_once(friend_instance);
+        }
+    }
+    for (int friend_index = 0;
+         friend_index < definition->hidden_friend_template_count;
+         ++friend_index) {
+        CxxTemplate* friend_template_instance =
+            cxx_substitute_class_hidden_friend_template(
+                definition, instance,
+                definition->hidden_friend_templates[friend_index]);
+        if (friend_template_instance) {
+            cxx_class_record_hidden_friend_template(
+                instance, friend_template_instance);
         }
     }
     {

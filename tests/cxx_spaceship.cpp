@@ -96,6 +96,23 @@ public:
     }
 };
 
+template <typename T>
+struct TemplatedHiddenFriendFunctionTemplateSpaceship {
+private:
+    T value;
+
+public:
+    explicit TemplatedHiddenFriendFunctionTemplateSpaceship(T initial)
+        : value(initial) {}
+
+    template <typename U>
+    friend int operator<=>(
+        const TemplatedHiddenFriendFunctionTemplateSpaceship& left,
+        U right) {
+        return static_cast<int>(left.value) - static_cast<int>(right);
+    }
+};
+
 namespace spaceship_associated {
 inline namespace v1 {
 struct Left {};
@@ -176,6 +193,10 @@ int main() {
     TemplatedHiddenFriendSpaceship<int> templated_friend_right{5};
     TemplatedHiddenFriendSpaceship<long> templated_friend_long_left{7};
     TemplatedHiddenFriendSpaceship<long> templated_friend_long_right{4};
+    TemplatedHiddenFriendFunctionTemplateSpaceship<int>
+        templated_friend_function_template{3};
+    TemplatedHiddenFriendFunctionTemplateSpaceship<long>
+        templated_friend_long_function_template{7};
     HiddenFriendTemplateSpaceship hidden_friend_template{8};
     int hidden_friend_template_pointer_value = 10;
     ReverseSpaceshipLeft reverse_left;
@@ -206,6 +227,8 @@ int main() {
            !(member_template_tie_left < member_template_tie_right) &&
            (templated_friend_left < templated_friend_right) &&
            !(templated_friend_long_left < templated_friend_long_right) &&
+           (templated_friend_function_template < 5L) &&
+           !(templated_friend_long_function_template < 5) &&
            (hidden_friend_template < 10) &&
            !(hidden_friend_template < 10L) &&
            (hidden_friend_template < &hidden_friend_template_pointer_value) &&

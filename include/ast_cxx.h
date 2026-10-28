@@ -188,6 +188,11 @@ struct CxxClass {
      * on the associated class for ADL and specialization materialization. */
     Decl** hidden_friend_functions;
     int hidden_friend_function_count;
+    /* Hidden friend function templates are namespace declarations for
+     * lookup, but class-template specializations need owner-substituted
+     * declarations so ADL and private access use the concrete class. */
+    CxxTemplate** hidden_friend_templates;
+    int hidden_friend_template_count;
     /* True after inherited method aliases have been published. Qualified
      * out-of-class definitions may publish additional declared methods later. */
     bool ordinary_methods_registered;
