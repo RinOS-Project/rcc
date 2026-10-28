@@ -39,9 +39,13 @@
   element; GCC PR112841 confirms the GCC 13 behavior was fixed in GCC 15.
   Retain the mutable-array runtime regression; older GCC/Clang results are not
   the conformance oracle for this case.
+- [x] Cover function prototype scope for ordinary VLA pointers and `typeof`
+  array operands: different non-constant bounds are treated as `[*]` for
+  compatibility/parameter adjustment. Verify i686/AMD64 objects and GCC C2x
+  syntax with only GCC's `-Wvla-parameter` compatibility warning disabled.
 - [ ] Complete exact evaluation ordering across multiple declarators and
-  prototype-scope rules. GCC 13.3 and Clang 18 agree on array/function
-  parameter adjustment.
+  any remaining prototype-scope contexts. GCC 13.3 and Clang 18 agree on
+  array/function parameter adjustment.
   Native i686 execution now passes for the covered typedef/runtime cases.
 
 この一覧は「CLIが存在する」ことと「言語・ABIが完成している」ことを区別する。

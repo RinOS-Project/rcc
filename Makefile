@@ -1204,6 +1204,9 @@ test-c23-typeof-type-name: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S -o $(TEST_OUT)/c23-typeof-type-name/parameter-adjustment.s tests/c23_typeof_parameter_adjustment.c
 	$(CC) -o $(TEST_OUT)/c23-typeof-type-name/parameter-adjustment-host $(TEST_OUT)/c23-typeof-type-name/parameter-adjustment.s
 	$(TEST_OUT)/c23-typeof-type-name/parameter-adjustment-host
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/prototype-scope-x86.ro tests/c23_typeof_prototype_scope.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/prototype-scope-x64.ro tests/c23_typeof_prototype_scope.c
+	gcc -std=c2x -Wall -Wextra -Werror -Wno-vla-parameter -fsyntax-only tests/c23_typeof_prototype_scope.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S -o $(TEST_OUT)/c23-typeof-type-name/c17-identifiers.s tests/c23_typeof_c17_identifier.c
 	$(CC) -o $(TEST_OUT)/c23-typeof-type-name/c17-identifiers-host $(TEST_OUT)/c23-typeof-type-name/c17-identifiers.s
 	$(TEST_OUT)/c23-typeof-type-name/c17-identifiers-host
