@@ -26,6 +26,33 @@ static int typeof_vla_typedef_capture(void) {
     return 0;
 }
 
+static int typeof_prototype_scope_contexts(void) {
+    int typedef_count = 3;
+    typedef typeof(int[typedef_count++]) Row;
+    void consume_row(Row values);
+    if (typedef_count != 4) return 160 + typedef_count;
+
+    int direct_count = 3;
+    void consume_direct(typeof(int[direct_count++]) values);
+    if (direct_count != 3) return 170 + direct_count;
+
+    int nested_count = 2;
+    void consume_nested(
+        void (*callback)(typeof(typeof(int[nested_count++])[
+            nested_count + 1]) values));
+    if (nested_count != 2) return 180 + nested_count;
+    return 0;
+}
+
+static int typeof_declarator_size_interaction(void) {
+    int base_count = 2;
+    int object_count = 4;
+    typeof(int[base_count++]) values[object_count++];
+    if (base_count != 3 || object_count != 5) return 190;
+    if (sizeof(values) != 2u * 4u * sizeof(int)) return 200;
+    return 0;
+}
+
 int main(void) {
     int bound = 3;
     typeof(int[bound++]) first, second;
@@ -35,5 +62,9 @@ int main(void) {
     typeof(int[bound++]) third;
     if (bound != 5) return 40 + bound;
     if (sizeof(third) != 4u * sizeof(int)) return 50;
-    return typeof_vla_typedef_capture();
+    int typedef_status = typeof_vla_typedef_capture();
+    if (typedef_status != 0) return typedef_status;
+    int prototype_status = typeof_prototype_scope_contexts();
+    if (prototype_status != 0) return prototype_status;
+    return typeof_declarator_size_interaction();
 }

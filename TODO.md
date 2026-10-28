@@ -78,10 +78,14 @@
 - [x] Accept compatible prototype-scope redeclarations with nested
   `typeof(type-name)` VLA bounds of different non-constant sizes; verify GCC
   C2x syntax and RCC i686/x86_64 object generation.
-- [ ] Audit the remaining nested prototype-scope/typedef VM contexts and
-  sequencing interactions. WG14 issue 1120 is open on full-expression
-  boundaries for typeof/declarator size expressions, so do not treat one
-  compiler's ordering as a general conformance oracle.
+- [x] Audit prototype-scope typeof parameters using block-scope VLA typedefs,
+  direct and nested typeof VM operands; add a regression proving prototype
+  declarations do not evaluate their size operands. Check a typeof VM bound
+  combined with a declarator VLA bound on independent objects, without
+  assuming a relative evaluation order.
+- [ ] Audit the remaining sequencing cases. WG14 issue 1120 is open on
+  full-expression boundaries for typeof/declarator size expressions, so do
+  not treat one compiler's ordering as a general conformance oracle.
   Native i686 execution now passes for the covered typedef/runtime cases.
 
 この一覧は「CLIが存在する」ことと「言語・ABIが完成している」ことを区別する。
