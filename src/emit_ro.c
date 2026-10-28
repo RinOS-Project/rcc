@@ -7258,6 +7258,7 @@ static bool debug_inline_parameter_i686_u64_variables_expression(
     const Decl* right_source;
     int64_t left_frame_offset;
     int64_t right_frame_offset;
+    uint64_t ignored_literal;
     size_t size = 0u;
     const uint64_t sign_bit = UINT64_C(0x80000000);
     uint8_t bitwise_operation = 0u;
@@ -7273,6 +7274,118 @@ static bool debug_inline_parameter_i686_u64_variables_expression(
         !source_expression->binary_lhs || !source_expression->binary_rhs) {
         return false;
     }
+
+    /* Compose a nested frame-backed add/sub expression from its two 32-bit
+       words.  The recursive word builder already lowers the subexpressions;
+       this wrapper supplies the carry/borrow between the low and high pieces.
+       Direct identifier pairs retain the compact path below. */
+    if ((source_expression->kind == EXPR_ADD ||
+         source_expression->kind == EXPR_SUB) &&
+        source_expression->binary_lhs && source_expression->binary_rhs &&
+        source_expression->type && source_expression->type->size == 8 &&
+        source_expression->binary_lhs->type &&
+        source_expression->binary_rhs->type &&
+        source_expression->binary_lhs->type->size == 8 &&
+        source_expression->binary_rhs->type->size == 8 &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, source_expression->type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, source_expression->binary_lhs->type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            parameter_type, source_expression->binary_rhs->type, 0u) &&
+        (source_expression->binary_lhs->kind != EXPR_IDENT ||
+         source_expression->binary_rhs->kind != EXPR_IDENT) &&
+        !debug_inline_integer_literal_bits(
+            source_expression->binary_lhs, &ignored_literal, 0u) &&
+        !debug_inline_integer_literal_bits(
+            source_expression->binary_rhs, &ignored_literal, 0u)) {
+        bool is_subtract = source_expression->kind == EXPR_SUB;
+        uint8_t arithmetic_opcode = is_subtract ? 0x1cu : 0x22u;
+        size_t size = 0u;
+        if (!debug_inline_parameter_i686_u64_append_word_expression(
+                mod, source_expression->binary_lhs, false, expression,
+                capacity, &size, 0u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, source_expression->binary_rhs, false, expression,
+                capacity, &size, 0u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, arithmetic_opcode) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) || /* stack_value */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, source_expression->binary_lhs, true, expression,
+                capacity, &size, 0u) ||
+            !debug_inline_parameter_i686_u64_append_word_expression(
+                mod, source_expression->binary_rhs, true, expression,
+                capacity, &size, 0u) ||
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, arithmetic_opcode)) {
+            return false;
+        }
+        if (is_subtract) {
+            if (!debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, source_expression->binary_lhs, false, expression,
+                    capacity, &size, 0u) ||
+                !debug_inline_integer_expression_append_constu(
+                    expression, capacity, &size, UINT32_C(0x80000000)) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x27u) ||
+                !debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, source_expression->binary_rhs, false, expression,
+                    capacity, &size, 0u) ||
+                !debug_inline_integer_expression_append_constu(
+                    expression, capacity, &size, UINT32_C(0x80000000)) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x27u) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x2du) || /* unsigned < */
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x1cu)) {
+                return false;
+            }
+        } else if (!debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, source_expression->binary_lhs, false, expression,
+                       capacity, &size, 0u) ||
+                   !debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, source_expression->binary_rhs, false, expression,
+                       capacity, &size, 0u) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, &size, 0x22u) ||
+                   !debug_inline_integer_expression_append_constu(
+                       expression, capacity, &size,
+                       UINT32_C(0x80000000)) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, &size, 0x27u) ||
+                   !debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, source_expression->binary_lhs, false, expression,
+                       capacity, &size, 0u) ||
+                   !debug_inline_integer_expression_append_constu(
+                       expression, capacity, &size,
+                       UINT32_C(0x80000000)) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, &size, 0x27u) ||
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, &size, 0x2du) || /* unsigned < */
+                   !debug_inline_integer_expression_append_byte(
+                       expression, capacity, &size, 0x22u)) {
+            return false;
+        }
+        if (!debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x9fu) || /* stack_value */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+            !debug_inline_integer_expression_append_byte(
+                expression, capacity, &size, 4u)) {
+            return false;
+        }
+        *expression_size = size;
+        return true;
+    }
+
     is_subtract = source_expression->kind == EXPR_SUB;
     switch (source_expression->kind) {
     case EXPR_BITAND: bitwise_operation = 0x1au; break; /* DW_OP_and */

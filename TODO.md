@@ -11401,3 +11401,16 @@ remains a separate open item.
       `.ro` path for i686 and AMD64, while limiting the MinGW host-execution
       adapter to the compatible non-TLS cases; verify `test-tls` and
       `test-cxx-static-member-tls` for both target architectures.
+
+## RCC continuation (2026-10-28, nested frame-backed signed i686 DWARF)
+
+- [x] Compose i686 signed 64-bit inline-parameter values for frame-backed
+      nested add/sub expressions from recursively computed low/high words,
+      preserving low-word carry and borrow. Verify both `left + (right << 1)`
+      and `left - (right << 1)` over signed boundaries by interpreting the
+      emitted `DW_OP_piece` expression in both legacy and verified C++20
+      objects. Focused
+      `test-debug-info-inline-expression` and full `test-debug-info` pass.
+- [ ] Nested global/TLS expressions, volatile or atomic reads, more general
+      computed division/remainder operands, and optimized multi-piece
+      locations remain open.

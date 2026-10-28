@@ -309,6 +309,22 @@ debug_nonconstant_signed_long_long_parameter_inline(long long value)
 }
 
 extern "C" long long
+debug_inline_nonconstant_signed_long_long_local_nested_add_entry(
+    long long left_value, long long right_value)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        left_value + (right_value << 1));
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_local_nested_sub_entry(
+    long long left_value, long long right_value)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        left_value - (right_value << 1));
+}
+
+extern "C" long long
 debug_inline_nonconstant_signed_long_long_tls_pair_divide_entry(void)
 {
     return debug_nonconstant_signed_long_long_parameter_inline(

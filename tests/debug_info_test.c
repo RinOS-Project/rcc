@@ -9733,7 +9733,20 @@ static void verify_inline_unsigned_division_expression_values(
 static void verify_inline_expression_byte(
     const uint8_t* data, uint64_t expression_end, uint64_t* offset,
     uint8_t expected) {
-    assert(*offset < expression_end && data[(*offset)++] == expected);
+    if (*offset >= expression_end || data[*offset] != expected) {
+        if (*offset < expression_end) {
+            fprintf(stderr,
+                    "DWARF opcode mismatch at 0x%llx: expected 0x%02x, "
+                    "got 0x%02x\n",
+                    (unsigned long long)*offset, expected, data[*offset]);
+        } else {
+            fprintf(stderr,
+                    "DWARF opcode mismatch at end 0x%llx: expected 0x%02x\n",
+                    (unsigned long long)*offset, expected);
+        }
+        assert(*offset < expression_end && data[*offset] == expected);
+    }
+    ++*offset;
 }
 
 static void verify_inline_expression_frame_u32(
@@ -10168,6 +10181,99 @@ static uint64_t evaluate_inline_u64_mul_two_variables_expression(
         return stack[0];
     }
     assert(stack_size == 0u && piece_count == 2u);
+    return result;
+}
+
+static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
+    const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
+    int64_t left_frame_offset, int64_t right_frame_offset,
+    uint64_t left_value, uint64_t right_value) {
+    uint32_t stack[128];
+    size_t stack_size = 0u;
+    uint64_t result = 0u;
+    uint64_t offset = expression_start;
+    int64_t pending_frame_offset = 0;
+    unsigned int piece_count = 0u;
+    bool has_pending_frame_offset = false;
+    while (offset < expression_end) {
+        uint8_t opcode = data[offset++];
+        if (opcode == 0x75u) { /* DW_OP_breg5 */
+            assert(!has_pending_frame_offset);
+            pending_frame_offset = read_sleb(data, expression_end, &offset);
+            has_pending_frame_offset = true;
+        } else if (opcode == 0x94u) { /* DW_OP_deref_size */
+            uint8_t access_size;
+            uint32_t value;
+            assert(has_pending_frame_offset && offset < expression_end &&
+                   stack_size < sizeof(stack) / sizeof(stack[0]));
+            access_size = data[offset++];
+            assert(access_size == 4u);
+            if (pending_frame_offset == left_frame_offset) {
+                value = (uint32_t)left_value;
+            } else if (pending_frame_offset == left_frame_offset + 4) {
+                value = (uint32_t)(left_value >> 32u);
+            } else if (pending_frame_offset == right_frame_offset) {
+                value = (uint32_t)right_value;
+            } else {
+                assert(pending_frame_offset == right_frame_offset + 4);
+                value = (uint32_t)(right_value >> 32u);
+            }
+            stack[stack_size++] = value;
+            has_pending_frame_offset = false;
+        } else if (opcode == 0x10u) { /* DW_OP_constu */
+            assert(stack_size < sizeof(stack) / sizeof(stack[0]));
+            stack[stack_size++] = (uint32_t)read_uleb(
+                data, expression_end, &offset);
+        } else if (opcode == 0x1cu || opcode == 0x1eu ||
+                   opcode == 0x21u || opcode == 0x22u ||
+                   opcode == 0x24u || opcode == 0x25u ||
+                   opcode == 0x27u || opcode == 0x2du) {
+            uint32_t left;
+            uint32_t right;
+            uint32_t value;
+            assert(stack_size >= 2u);
+            right = stack[--stack_size];
+            left = stack[--stack_size];
+            switch (opcode) {
+                case 0x1cu: value = left - right; break;
+                case 0x1eu: value = left * right; break;
+                case 0x21u: value = left | right; break;
+                case 0x22u: value = left + right; break;
+                case 0x24u:
+                    assert(right < 32u);
+                    value = left << right;
+                    break;
+                case 0x25u:
+                    assert(right < 32u);
+                    value = left >> right;
+                    break;
+                case 0x27u: value = left ^ right; break;
+                default: {
+                    bool left_negative = (left & UINT32_C(0x80000000)) != 0u;
+                    bool right_negative =
+                        (right & UINT32_C(0x80000000)) != 0u;
+                    value = left_negative != right_negative
+                        ? (uint32_t)left_negative
+                        : (uint32_t)(left < right);
+                    break;
+                }
+            }
+            stack[stack_size++] = value;
+        } else if (opcode == 0x9fu) { /* DW_OP_stack_value */
+            assert(stack_size == 1u);
+        } else if (opcode == 0x93u) { /* DW_OP_piece */
+            assert(read_uleb(data, expression_end, &offset) == 4u &&
+                   stack_size == 1u && piece_count < 2u);
+            result |= (uint64_t)stack[--stack_size] << (piece_count * 32u);
+            ++piece_count;
+        } else {
+            fprintf(stderr, "unexpected opcode in nested i686 expression: "
+                    "0x%02x at 0x%llx\n", opcode,
+                    (unsigned long long)(offset - 1u));
+            assert(!"unexpected opcode in nested i686 expression");
+        }
+    }
+    assert(!has_pending_frame_offset && stack_size == 0u && piece_count == 2u);
     return result;
 }
 
@@ -12093,6 +12199,11 @@ static void verify_inline_integer_expression_parameter(
         call_site_name =
             "debug_inline_nonconstant_signed_long_long_tls_constant_remainder_entry";
     }
+    if (expected_operation == 0xf0u) {
+        call_site_name = expected_constant == 1
+            ? "debug_inline_nonconstant_signed_long_long_local_nested_sub_entry"
+            : "debug_inline_nonconstant_signed_long_long_local_nested_add_entry";
+    }
     if (mixed_rank_comparison) {
         comparison_is_unsigned = architecture == ARCH_X86;
         comparison_value_size = (uint8_t)address_size;
@@ -12138,6 +12249,7 @@ static void verify_inline_integer_expression_parameter(
             expected_operation == 0xf6u || expected_operation == 0xf7u ||
             expected_operation == 0xf8u ||
             expected_operation == 0xf9u ||
+            expected_operation == 0xf0u ||
             expected_operation == 0xfau ||
             expected_operation == 0x22u || expected_operation == 0x1cu ||
             expected_operation == 0x1eu || expected_operation == 0x1fu ||
@@ -12219,6 +12331,59 @@ static void verify_inline_integer_expression_parameter(
     expression_start = expression_offset;
     expression_end = expression_offset + expression_size;
     assert(expression_end <= info->size && expression_size > 0u);
+    if (expected_operation == 0xf0u) {
+        static const InlineU64Pair add_values[] = {
+            {0u, 0u},
+            {1u, 2u},
+            {UINT64_MAX, 1u},
+            {UINT64_MAX - 5u, 2u},
+            {UINT64_C(0x7ffffffffffffff5), 5u},
+            {UINT64_C(0x8000000000000000), 1u},
+            {UINT64_C(0x100000001), UINT64_C(0x20000000)}
+        };
+        static const InlineU64Pair sub_values[] = {
+            {0u, 0u},
+            {10u, 2u},
+            {UINT64_MAX, 1u},
+            {UINT64_MAX, 2u},
+            {UINT64_C(0x7ffffffffffffff5), 5u},
+            {UINT64_C(0x8000000000000014), 5u},
+            {UINT64_C(0x100000001), UINT64_C(0x20000000)}
+        };
+        bool is_subtract = expected_constant == 1;
+        const InlineU64Pair* values = is_subtract ? sub_values : add_values;
+        size_t value_count = is_subtract
+            ? sizeof(sub_values) / sizeof(sub_values[0])
+            : sizeof(add_values) / sizeof(add_values[0]);
+        bool left_has_location;
+        bool left_is_location_list;
+        bool right_has_location;
+        bool right_is_location_list;
+        int64_t left_frame_offset;
+        int64_t right_frame_offset;
+        assert(architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
+               divisor_source_name &&
+               find_variable_location(
+                   info, strings, locations, source_name, ARCH_X86,
+                   &left_has_location, &left_is_location_list,
+                   &left_frame_offset) && left_has_location &&
+               find_variable_location(
+                   info, strings, locations, divisor_source_name, ARCH_X86,
+                   &right_has_location, &right_is_location_list,
+                   &right_frame_offset) && right_has_location);
+        for (size_t index = 0u; index < value_count; ++index) {
+            uint64_t actual = evaluate_inline_i686_u64_nested_frame_expression(
+                info->data, expression_end, expression_start,
+                left_frame_offset, right_frame_offset,
+                values[index].left, values[index].right);
+            uint64_t right_shifted = values[index].right << 1u;
+            assert(actual == (is_subtract
+                ? values[index].left - right_shifted
+                : values[index].left + right_shifted));
+        }
+        objfile_free(object);
+        return;
+    }
     if (architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
         divisor_source_name &&
         (expected_constant == INT64_MIN + 30 ||
@@ -17758,6 +17923,22 @@ int main(int argc, char** argv)
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4bu);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4cu);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4cu);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "left_value", false, 0xf0u, 8u, 0, "right_value", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "left_value", false, 0xf0u, 8u, 0, "right_value", false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "left_value", false, 0xf0u, 8u, 1, "right_value", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "left_value", false, 0xf0u, 8u, 1, "right_value", false);
         verify_inline_x64_global_integer_expression(
             argv[7], "debug_inline_nonconstant_signed_long_long_global_pair_add_entry",
             "debug_inline_nonconstant_signed_long_long_global_add_lhs",
