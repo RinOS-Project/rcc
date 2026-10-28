@@ -12411,6 +12411,118 @@ static bool debug_inline_parameter_i686_u64_global_pair_comparison_expression(
     return true;
 }
 
+static bool debug_inline_parameter_i686_global_add_sub_source(
+    const Module* mod, const Expr* source_expression, const Decl** source,
+    bool* is_doubled) {
+    const Expr* value_expression = source_expression;
+    uint64_t literal_bits;
+    if (!mod || !source_expression || !source || !is_doubled ||
+        !source_expression->type || source_expression->type->size != 8u) {
+        return false;
+    }
+    *source = NULL;
+    *is_doubled = false;
+    if (source_expression->kind == EXPR_MUL ||
+        source_expression->kind == EXPR_LSHIFT) {
+        const Expr* lhs = source_expression->binary_lhs;
+        const Expr* rhs = source_expression->binary_rhs;
+        if (!lhs || !rhs) return false;
+        if (source_expression->kind == EXPR_MUL &&
+            debug_inline_integer_literal_bits(lhs, &literal_bits, 0u) &&
+            literal_bits == 2u) {
+            value_expression = rhs;
+        } else if (debug_inline_integer_literal_bits(
+                       rhs, &literal_bits, 0u) &&
+                   literal_bits == (source_expression->kind == EXPR_MUL
+                       ? 2u : 1u)) {
+            value_expression = lhs;
+        } else {
+            return false;
+        }
+        *is_doubled = true;
+    }
+    if (value_expression->kind != EXPR_IDENT ||
+        !value_expression->ident_decl || !value_expression->type ||
+        value_expression->type->size != 8u ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source_expression->type, value_expression->type, 0u)) {
+        return false;
+    }
+    *source = value_expression->ident_decl;
+    return (*source)->kind == DECL_VAR &&
+        ((*source)->var_is_global || (*source)->var_is_static_local) &&
+        !(*source)->var_is_vla && (*source)->type &&
+        (*source)->type->size == 8u && !(*source)->type->is_volatile &&
+        !(*source)->type->is_reference && !(*source)->type->is_atomic &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source_expression->type, (*source)->type, 0u);
+}
+
+static bool debug_inline_parameter_i686_global_add_sub_append_word(
+    const Module* mod, const Expr* source_expression, bool high_word,
+    uint8_t* expression, size_t capacity, size_t* size,
+    DebugInlineI686ExpressionRelocations* relocations) {
+    const Decl* source;
+    bool is_doubled;
+    if (!debug_inline_parameter_i686_global_add_sub_source(
+            mod, source_expression, &source, &is_doubled)) {
+        return false;
+    }
+    if (!is_doubled) {
+        return debug_inline_parameter_i686_append_storage_u32(
+            mod, source, 0, high_word, expression, capacity, size,
+            relocations);
+    }
+    if (!high_word) {
+        return debug_inline_parameter_i686_append_storage_u32(
+                   mod, source, 0, false, expression, capacity, size,
+                   relocations) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x31u) && /* DW_OP_lit1 */
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x24u); /* DW_OP_shl */
+    }
+    return debug_inline_parameter_i686_append_storage_u32(
+               mod, source, 0, true, expression, capacity, size,
+               relocations) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x31u) && /* DW_OP_lit1 */
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x24u) && /* DW_OP_shl */
+        debug_inline_parameter_i686_append_storage_u32(
+            mod, source, 0, false, expression, capacity, size,
+            relocations) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x4fu) && /* DW_OP_lit31 */
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x25u) && /* DW_OP_shr */
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x22u); /* DW_OP_plus */
+}
+
+static size_t debug_inline_parameter_i686_global_add_sub_relocation_count(
+    const Module* mod, const Expr* source_expression) {
+    const Decl* source;
+    bool left_is_doubled;
+    bool right_is_doubled;
+    bool is_subtract;
+    if (!mod || !source_expression ||
+        (source_expression->kind != EXPR_ADD &&
+         source_expression->kind != EXPR_SUB) ||
+        !debug_inline_parameter_i686_global_add_sub_source(
+            mod, source_expression->binary_lhs, &source,
+            &left_is_doubled) ||
+        !debug_inline_parameter_i686_global_add_sub_source(
+            mod, source_expression->binary_rhs, &source,
+            &right_is_doubled)) {
+        return 0u;
+    }
+    is_subtract = source_expression->kind == EXPR_SUB;
+    return (is_subtract ? 6u : 7u) +
+        (left_is_doubled ? 1u : 0u) +
+        (right_is_doubled ? 1u : 0u);
+}
+
 static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
     const Module* mod, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
@@ -12421,9 +12533,8 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
     const Expr* source_expression;
     const Expr* left_expression;
     const Expr* right_expression;
-    const Decl* left_source;
-    const Decl* right_source;
     bool is_subtract;
+    size_t expected_relocations;
     size_t size = 0u;
     const uint64_t sign_bit = UINT64_C(0x80000000);
     DebugInlineI686ExpressionRelocations tls_relocations;
@@ -12453,33 +12564,21 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
     }
     left_expression = source_expression->binary_lhs;
     right_expression = source_expression->binary_rhs;
-    if (left_expression->kind != EXPR_IDENT ||
-        !left_expression->ident_decl || right_expression->kind != EXPR_IDENT ||
-        !right_expression->ident_decl ||
+    expected_relocations =
+        debug_inline_parameter_i686_global_add_sub_relocation_count(
+            mod, source_expression);
+    if (!left_expression->type || left_expression->type->size != 8u ||
+        !right_expression->type || right_expression->type->size != 8u ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, left_expression->type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             parameter_type, right_expression->type, 0u)) {
         return false;
     }
-    left_source = left_expression->ident_decl;
-    right_source = right_expression->ident_decl;
-    if (!left_source || !right_source || left_source->kind != DECL_VAR ||
-        right_source->kind != DECL_VAR ||
-        !(left_source->var_is_global || left_source->var_is_static_local) ||
-        !(right_source->var_is_global || right_source->var_is_static_local) ||
-        left_source->var_is_vla ||
-        right_source->var_is_vla || !left_source->type || !right_source->type ||
-        left_source->type->size != 8u || right_source->type->size != 8u ||
-        left_source->type->is_volatile || right_source->type->is_volatile ||
-        left_source->type->is_reference || right_source->type->is_reference ||
-        left_source->type->is_atomic || right_source->type->is_atomic ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-            parameter_type, left_source->type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
-            parameter_type, right_source->type, 0u) ||
+    if (!expected_relocations ||
         !relocations->offsets || !relocations->symbols ||
-        !relocations->count || relocations->capacity < 7u) {
+        !relocations->count ||
+        relocations->capacity < expected_relocations) {
         return false;
     }
     is_subtract = source_expression->kind == EXPR_SUB;
@@ -12487,11 +12586,11 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
 
     /* The low word wraps naturally. For the high word, derive unsigned carry
        or borrow from the low words by biasing both operands before DW_OP_lt. */
-    if (!debug_inline_parameter_i686_append_storage_u32(
-            mod, left_source, 0, false, expression, expression_capacity,
+    if (!debug_inline_parameter_i686_global_add_sub_append_word(
+            mod, left_expression, false, expression, expression_capacity,
             &size, relocations) ||
-        !debug_inline_parameter_i686_append_storage_u32(
-            mod, right_source, 0, false, expression, expression_capacity,
+        !debug_inline_parameter_i686_global_add_sub_append_word(
+            mod, right_expression, false, expression, expression_capacity,
             &size, relocations) ||
         !debug_inline_integer_expression_append_byte(
             expression, expression_capacity, &size,
@@ -12502,11 +12601,11 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
             expression, expression_capacity, &size, 0x93u) ||
         !debug_inline_integer_expression_append_byte(
             expression, expression_capacity, &size, 4u) ||
-        !debug_inline_parameter_i686_append_storage_u32(
-            mod, left_source, 0, true, expression, expression_capacity,
+        !debug_inline_parameter_i686_global_add_sub_append_word(
+            mod, left_expression, true, expression, expression_capacity,
             &size, relocations) ||
-        !debug_inline_parameter_i686_append_storage_u32(
-            mod, right_source, 0, true, expression, expression_capacity,
+        !debug_inline_parameter_i686_global_add_sub_append_word(
+            mod, right_expression, true, expression, expression_capacity,
             &size, relocations) ||
         !debug_inline_integer_expression_append_byte(
             expression, expression_capacity, &size,
@@ -12514,16 +12613,16 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
         return false;
     }
     if (is_subtract) {
-        if (!debug_inline_parameter_i686_append_storage_u32(
-                mod, left_source, 0, false, expression, expression_capacity,
-                &size, relocations) ||
+        if (!debug_inline_parameter_i686_global_add_sub_append_word(
+                mod, left_expression, false, expression,
+                expression_capacity, &size, relocations) ||
             !debug_inline_integer_expression_append_constu(
                 expression, expression_capacity, &size, sign_bit) ||
             !debug_inline_integer_expression_append_byte(
                 expression, expression_capacity, &size, 0x27u) ||
-            !debug_inline_parameter_i686_append_storage_u32(
-                mod, right_source, 0, false, expression, expression_capacity,
-                &size, relocations) ||
+            !debug_inline_parameter_i686_global_add_sub_append_word(
+                mod, right_expression, false, expression,
+                expression_capacity, &size, relocations) ||
             !debug_inline_integer_expression_append_constu(
                 expression, expression_capacity, &size, sign_bit) ||
             !debug_inline_integer_expression_append_byte(
@@ -12535,17 +12634,17 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
             return false;
         }
     } else {
-        if (!debug_inline_parameter_i686_append_storage_u32(
-                mod, left_source, 0, false, expression, expression_capacity,
-                &size, relocations) ||
-            !debug_inline_parameter_i686_append_storage_u32(
-                mod, right_source, 0, false, expression, expression_capacity,
-                &size, relocations) ||
+        if (!debug_inline_parameter_i686_global_add_sub_append_word(
+                mod, left_expression, false, expression,
+                expression_capacity, &size, relocations) ||
+            !debug_inline_parameter_i686_global_add_sub_append_word(
+                mod, right_expression, false, expression,
+                expression_capacity, &size, relocations) ||
             !debug_inline_integer_expression_append_byte(
                 expression, expression_capacity, &size, 0x22u) ||
-            !debug_inline_parameter_i686_append_storage_u32(
-                mod, left_source, 0, false, expression, expression_capacity,
-                &size, relocations) ||
+            !debug_inline_parameter_i686_global_add_sub_append_word(
+                mod, left_expression, false, expression,
+                expression_capacity, &size, relocations) ||
             !debug_inline_integer_expression_append_constu(
                 expression, expression_capacity, &size, sign_bit) ||
             !debug_inline_integer_expression_append_byte(
@@ -12571,7 +12670,7 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
             expression, expression_capacity, &size, 0x93u) ||
         !debug_inline_integer_expression_append_byte(
             expression, expression_capacity, &size, 4u) ||
-        *relocations->count != (is_subtract ? 6u : 7u)) {
+        *relocations->count != expected_relocations) {
         return false;
     }
     *expression_size = size;
@@ -15177,7 +15276,8 @@ static void debug_emit_inline_parameter_instances(
                        &integer_value_expression_size,
                        &integer_value_relocations) &&
                    integer_value_relocation_count ==
-                       (argument->expr->kind == EXPR_SUB ? 6u : 7u)) {
+                       debug_inline_parameter_i686_global_add_sub_relocation_count(
+                           mod, argument->expr)) {
             uint64_t expression_offset;
             section_add_byte(info, 67u);
             debug_line_u32(info, origin->die_offset);

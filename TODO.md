@@ -11411,6 +11411,10 @@ remains a separate open item.
       `left + right * 2`, over signed boundaries by interpreting the emitted
       `DW_OP_piece` expression in both legacy and verified C++20 objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
-- [ ] Nested global/TLS expressions, volatile or atomic reads, more general
-      computed division/remainder operands, and optimized multi-piece
-      locations remain open.
+- [x] Compose i686 signed 64-bit global and TLS add/sub operands nested as
+      `left ± (right * 2)` into low/high `DW_OP_piece` values, including the
+      cross-word high bit from doubling. Interpret signed-boundary cases in
+      both legacy and verified C++20 objects with global and TLS relocations.
+      Focused `test-debug-info-inline-expression` passes.
+- [ ] Volatile or atomic reads, more general computed division/remainder
+      operands, and optimized multi-piece locations remain open.

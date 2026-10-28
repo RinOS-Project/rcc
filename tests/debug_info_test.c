@@ -14239,6 +14239,14 @@ static uint64_t verify_inline_i686_global_shift_expression_kind(
             ++stack_size;
             continue;
         }
+        if (operation >= 0x30u && operation <= 0x4fu) {
+            assert(stack_size < 32u);
+            stack[stack_size].value = operation - 0x30u;
+            stack[stack_size].is_address = false;
+            stack[stack_size].is_stack_value = false;
+            ++stack_size;
+            continue;
+        }
         if (operation == 0x9fu) { /* DW_OP_stack_value */
             assert(stack_size > 0u && !stack[stack_size - 1u].is_address);
             stack[stack_size - 1u].is_stack_value = true;
@@ -14364,6 +14372,117 @@ static uint64_t verify_inline_i686_global_shift_expression(
     return verify_inline_i686_global_shift_expression_kind(
         object, info, expression_offset, expression_size, source_name,
         source_value, count_name, count_value, false);
+}
+
+static void verify_inline_i686_global_nested_expression(
+    const char* path, const char* call_site_name, const char* left_name,
+    const char* right_name, bool tls_sources, bool is_subtract) {
+    static const InlineU64Pair add_pairs[] = {
+        {0u, 0u},
+        {1u, 2u},
+        {UINT32_MAX, 1u},
+        {(uint64_t)INT64_MAX - 4u, 2u},
+        {(uint64_t)INT64_MIN + 5u, 1u},
+        {UINT64_C(0x100000001), UINT64_C(0x20000000)}
+    };
+    static const InlineU64Pair sub_pairs[] = {
+        {0u, 1u},
+        {10u, 2u},
+        {UINT64_C(0x100000000), UINT64_C(0x100000001)},
+        {(uint64_t)INT64_MIN + 4u, 1u},
+        {(uint64_t)INT64_MIN + 1u, UINT64_MAX},
+        {UINT64_C(0x100000001), UINT64_C(0x20000000)}
+    };
+    const char* inline_name =
+        "debug_nonconstant_signed_long_long_parameter_inline";
+    const InlineU64Pair* pairs = is_subtract ? sub_pairs : add_pairs;
+    size_t pair_count = is_subtract
+        ? sizeof(sub_pairs) / sizeof(sub_pairs[0])
+        : sizeof(add_pairs) / sizeof(add_pairs[0]);
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t call_die = UINT64_MAX;
+    uint64_t origin_die = UINT64_MAX;
+    uint64_t parameter_die;
+    uint64_t expression_offset;
+    uint64_t expression_size;
+    uint64_t left_value;
+    uint64_t right_value;
+    assert(path && call_site_name && left_name && right_name &&
+           object && object->arch == ARCH_X86);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info && strings);
+    for (uint64_t die = 11u; die + 1u + 4u + 4u + 16u <= info->size;
+         ++die) {
+        uint32_t candidate_origin;
+        uint32_t name_offset;
+        bool matches_call = false;
+        if (info->data[die] != 41u) continue;
+        candidate_origin = read_u32(info->data, die + 1u);
+        if (candidate_origin >= info->size ||
+            info->data[candidate_origin] != 40u) continue;
+        name_offset = read_u32(info->data, candidate_origin + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   inline_name) != 0) {
+            continue;
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == die + 1u + 4u &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name, call_site_name) == 0) {
+                matches_call = true;
+                break;
+            }
+        }
+        if (!matches_call) continue;
+        assert(call_die == UINT64_MAX);
+        call_die = die;
+        origin_die = candidate_origin;
+    }
+    assert(call_die != UINT64_MAX && origin_die != UINT64_MAX);
+    parameter_die = call_die + 1u + 4u + 4u + 4u + 12u;
+    {
+        uint64_t children_begin = parameter_die;
+        parameter_die = UINT64_MAX;
+        for (uint64_t candidate = children_begin;
+             candidate + 5u < info->size; ++candidate) {
+            if (info->data[candidate] == 67u &&
+                read_u32(info->data, candidate + 1u) == origin_die + 27u) {
+                parameter_die = candidate;
+                break;
+            }
+        }
+    }
+    assert(parameter_die != UINT64_MAX && parameter_die + 5u < info->size &&
+           info->data[parameter_die] == 67u &&
+           read_u32(info->data, parameter_die + 1u) == origin_die + 27u);
+    expression_offset = parameter_die + 5u;
+    expression_size = read_uleb(
+        info->data, info->size, &expression_offset);
+    assert(expression_size && expression_offset + expression_size <= info->size);
+    left_value = verify_inline_global_storage(object, left_name, 8u);
+    right_value = verify_inline_global_storage(object, right_name, 8u);
+    assert(left_value == (is_subtract
+        ? tls_sources ? (uint64_t)INT64_MIN : UINT64_C(0x100000000)
+        : UINT64_C(0x1ffffffff)));
+    assert(right_value == (is_subtract
+        ? tls_sources ? UINT64_MAX : UINT64_C(0x100000001)
+        : 1u));
+    for (size_t index = 0u; index < pair_count; ++index) {
+        uint64_t doubled_right = pairs[index].right * 2u;
+        uint64_t expected = is_subtract
+            ? pairs[index].left - doubled_right
+            : pairs[index].left + doubled_right;
+        uint64_t actual = verify_inline_i686_global_shift_expression_kind(
+            object, info, expression_offset, expression_size, left_name,
+            pairs[index].left, right_name, pairs[index].right, tls_sources);
+        assert(actual == expected);
+    }
+    objfile_free(object);
 }
 
 static void verify_inline_i686_global_shift_parameter(
@@ -18132,6 +18251,54 @@ int main(int argc, char** argv)
         verify_inline_i686_global_shift_parameter(argv[8], 0x82u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x83u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x83u);
+        verify_inline_i686_global_nested_expression(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_global_nested_add_entry",
+            "debug_inline_nonconstant_signed_long_long_global_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_add_rhs",
+            false, false);
+        verify_inline_i686_global_nested_expression(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_global_nested_add_entry",
+            "debug_inline_nonconstant_signed_long_long_global_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_add_rhs",
+            false, false);
+        verify_inline_i686_global_nested_expression(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_global_nested_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_global_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_sub_rhs",
+            false, true);
+        verify_inline_i686_global_nested_expression(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_global_nested_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_global_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_global_sub_rhs",
+            false, true);
+        verify_inline_i686_global_nested_expression(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_tls_nested_add_entry",
+            "debug_inline_nonconstant_signed_long_long_tls_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_tls_add_rhs",
+            true, false);
+        verify_inline_i686_global_nested_expression(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_tls_nested_add_entry",
+            "debug_inline_nonconstant_signed_long_long_tls_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_tls_add_rhs",
+            true, false);
+        verify_inline_i686_global_nested_expression(
+            argv[6],
+            "debug_inline_nonconstant_signed_long_long_tls_nested_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_tls_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_tls_sub_rhs",
+            true, true);
+        verify_inline_i686_global_nested_expression(
+            argv[8],
+            "debug_inline_nonconstant_signed_long_long_tls_nested_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_tls_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_tls_sub_rhs",
+            true, true);
         verify_inline_i686_global_shift_parameter(argv[6], 0x88u);
         verify_inline_i686_global_shift_parameter(argv[8], 0x88u);
         verify_inline_i686_global_shift_parameter(argv[6], 0x89u);
