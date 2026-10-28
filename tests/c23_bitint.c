@@ -1,6 +1,17 @@
 #include <limits.h>
 #include <stdarg.h>
 
+#define RCC_C23_PP_SIGNED_WB 9223372036854775807WB
+#define RCC_C23_PP_UNSIGNED_WB 18446744073709551615UWB
+
+#if RCC_C23_PP_SIGNED_WB != 9223372036854775807LL
+#error "signed wb constants must be evaluated in C23 preprocessing"
+#endif
+
+#if RCC_C23_PP_UNSIGNED_WB != 18446744073709551615ULL
+#error "unsigned wb constants must be evaluated in C23 preprocessing"
+#endif
+
 #if BITINT_MAXWIDTH != 64
 #error "RCC must publish the supported C23 bit-precise integer width"
 #endif
