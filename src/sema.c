@@ -21029,6 +21029,32 @@ static bool sema_cxx_operator_has_exact_nonmember_candidate(
     return false;
 }
 
+static bool sema_cxx_operator_has_viable_nonmember_candidate(
+    Symbol* functions, ExprList* arguments) {
+    if (!functions || functions->kind != SYM_FUNC || !arguments) {
+        return false;
+    }
+    for (Decl* candidate = functions->decl; candidate;
+         candidate = candidate->func_overload_next) {
+        TypeParam* parameter = candidate->type &&
+                candidate->type->kind == TYPE_FUNC
+            ? candidate->type->params : NULL;
+        ExprList* argument = arguments;
+        bool viable = parameter != NULL;
+        while (parameter && argument) {
+            if (cxx_conversion_rank_detail(argument->expr, parameter->type,
+                                           NULL) < 0) {
+                viable = false;
+                break;
+            }
+            parameter = parameter->next;
+            argument = argument->next;
+        }
+        if (viable && !parameter && !argument) return true;
+    }
+    return false;
+}
+
 /* Rewrite a binary expression to an ordinary member call only after a real
  * operator member exists.  This keeps the built-in arithmetic path intact
  * for scalar operands and ensures an overloaded operation uses the same
@@ -21119,8 +21145,27 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     exprlist_append(&arguments, expression->binary_lhs);
     exprlist_append(&arguments, expression->binary_rhs);
     function = sema_cxx_operator_function(name, arguments);
+    if (function && expression->kind == EXPR_NE &&
+        !sema_cxx_operator_has_viable_nonmember_candidate(function,
+                                                          arguments)) {
+        function = NULL;
+    }
     if (!function && expression->kind == EXPR_NE) {
         function = sema_cxx_operator_function("operator==", arguments);
+        if (!sema_cxx_operator_has_viable_nonmember_candidate(function,
+                                                              arguments)) {
+            ExprList* reversed_arguments = NULL;
+            exprlist_append(&reversed_arguments, expression->binary_rhs);
+            exprlist_append(&reversed_arguments, expression->binary_lhs);
+            function = sema_cxx_operator_function("operator==",
+                                                  reversed_arguments);
+            if (sema_cxx_operator_has_viable_nonmember_candidate(
+                    function, reversed_arguments)) {
+                arguments = reversed_arguments;
+            } else {
+                function = NULL;
+            }
+        }
         if (function) {
             Expr* negated;
             function_expression = expr_ident("operator==",

@@ -56,6 +56,14 @@ struct EqualityDirectNotEqual {
     }
 };
 
+struct EqualityReversedFriend {
+    int value;
+    friend bool operator==(int expected,
+                           const EqualityReversedFriend& actual) {
+        return expected == actual.value;
+    }
+};
+
 int main() {
     EqualityRecord first{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
     EqualityRecord same{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
@@ -76,6 +84,7 @@ int main() {
     EqualityValueFriend value_friend_different{48};
     EqualityDirectNotEqual direct_not_equal_first{53};
     EqualityDirectNotEqual direct_not_equal_same{53};
+    EqualityReversedFriend reversed_friend{59};
     if (hidden_first.values[1] != 43 ||
         hidden_array_different.values[1] != 44) return 17;
     virtual_first.virtual_base_value = 29;
@@ -112,5 +121,7 @@ int main() {
     if (!(value_friend_first == value_friend_same)) return 15;
     if (value_friend_first == value_friend_different) return 16;
     if (!(direct_not_equal_first != direct_not_equal_same)) return 22;
+    if (reversed_friend != 59) return 23;
+    if (!(reversed_friend != 60)) return 24;
     return 0;
 }
