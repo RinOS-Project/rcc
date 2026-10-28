@@ -2485,6 +2485,10 @@
         evaluation in legacy/verified C and C++20 `-g -O1` objects for both
         architectures with `test-debug-info-inline-expression`; the native
         Windows gate passes.
+  - [x] Preserve the inline wide-multiply source locals' location lists and
+      exact frame slots when they are declared two lexical blocks below the
+      entry function. Verify the evaluated expression in legacy and verified
+      i686/AMD64 `-g -O1` objects through `test-debug-info-inline-expression`.
   - [ ] Other unsigned operands wider than the target address width (notably
         i686 `unsigned long long`) in computed expressions beyond the bounded
         pairwise add/subtract/multiply/bitwise operations above, arbitrary

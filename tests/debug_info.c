@@ -1035,24 +1035,26 @@ int debug_inline_nonconstant_unsigned_long_long_scope_mul_two_variables_entry(
     unsigned int value)
 {
     {
-        unsigned long long
-            debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source =
-                ((unsigned long long)value << 32u) | 0xfffffff1ull;
-        unsigned long long
-            debug_inline_nonconstant_unsigned_long_long_scope_mul_rhs_source =
-                ((unsigned long long)value << 16u) | 0x12345ull;
-        debug_inline_nonconstant_unsigned_long_long_escape =
-            &debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source;
-        debug_inline_nonconstant_unsigned_long_long_rhs_escape =
-            &debug_inline_nonconstant_unsigned_long_long_scope_mul_rhs_source;
-        return (int)debug_nonconstant_unsigned_long_long_mul_two_variables_inline(
-            (0u,
-             (0u,
-              debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source +
-                  0x100000001ull) *
-             (0u,
-              debug_inline_nonconstant_unsigned_long_long_scope_mul_rhs_source -
-                  0x100000001ull)));
+        {
+            unsigned long long
+                debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source =
+                    ((unsigned long long)value << 32u) | 0xfffffff1ull;
+            unsigned long long
+                debug_inline_nonconstant_unsigned_long_long_scope_mul_rhs_source =
+                    ((unsigned long long)value << 16u) | 0x12345ull;
+            debug_inline_nonconstant_unsigned_long_long_escape =
+                &debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source;
+            debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+                &debug_inline_nonconstant_unsigned_long_long_scope_mul_rhs_source;
+            return (int)debug_nonconstant_unsigned_long_long_mul_two_variables_inline(
+                (0u,
+                 (0u,
+                  debug_inline_nonconstant_unsigned_long_long_scope_mul_left_source +
+                      0x100000001ull) *
+                 (0u,
+                  debug_inline_nonconstant_unsigned_long_long_scope_mul_rhs_source -
+                      0x100000001ull)));
+        }
     }
 }
 
