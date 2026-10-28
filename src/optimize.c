@@ -4770,7 +4770,7 @@ static bool integer_literal(const Expr* expression, int64_t* value) {
 static int integer_width(const Type* type) {
     int bits;
     if (!type || !type_is_integer((Type*)type)) return 0;
-    bits = type->size * 8;
+    bits = (int)type_integer_width(type);
     return bits > 0 && bits <= 64 ? bits : 0;
 }
 
@@ -6836,7 +6836,7 @@ static void preserve_debug_const_value(Decl* declaration) {
         declaration->var_debug_const_value_valid = true;
         return;
     }
-    width = (unsigned)value_type->size * 8u;
+    width = type_integer_width(value_type);
     mask = width == 64u ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
     if (value_type->is_unsigned) {
         if (!expr_eval_integer_constant_u64(declaration->var_init, &bits)) {
@@ -6983,7 +6983,8 @@ static bool constant_switch_statement_safe(const Stmt* statement,
 }
 
 static uint64_t constant_switch_bits(int64_t value, const Type* type) {
-    unsigned width = type && type->size > 0 ? (unsigned)type->size * 8u : 64u;
+    unsigned width = type_integer_width(type);
+    if (width == 0u) width = 64u;
     uint64_t bits = (uint64_t)value;
     if (width < 64u) bits &= (UINT64_C(1) << width) - 1u;
     return bits;

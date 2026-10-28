@@ -1364,9 +1364,9 @@ static RccIrLowerValue lower_float_to_unsigned64(
         : lower_invalid_value();
 }
 
-static RccIrLowerValue lower_cast(RccIrLowerContext* context,
-                                  RccIrLowerValue source,
-                                  const Type* target_type) {
+static RccIrLowerValue lower_cast_impl(RccIrLowerContext* context,
+                                       RccIrLowerValue source,
+                                       const Type* target_type) {
     RccIrType target;
     RccIrInstruction* instruction;
     RccIrValue operand;
@@ -1575,6 +1575,63 @@ static RccIrLowerValue lower_cast(RccIrLowerContext* context,
     if (!instruction) return lower_invalid_value();
     return lower_value(instruction->result, target,
                        target_type->is_unsigned);
+}
+
+static RccIrLowerValue lower_normalize_bitint_value(
+    RccIrLowerContext* context, RccIrLowerValue value,
+    const Type* target_type) {
+    unsigned width;
+    unsigned storage_width;
+    uint64_t mask_bits;
+    RccIrLowerValue mask;
+    RccIrValue operands[2];
+    RccIrInstruction* normalized;
+    if (!value.valid || !target_type || !target_type->is_bit_precise ||
+        value.type.kind != RCC_IR_TYPE_INTEGER) {
+        return value;
+    }
+    width = target_type->bit_width;
+    storage_width = value.type.bit_width;
+    if (width == 0u || width > 64u || storage_width == 0u ||
+        width >= storage_width) {
+        value.is_unsigned = target_type->is_unsigned;
+        return value;
+    }
+    mask_bits = width == 64u ? UINT64_MAX
+        : (UINT64_C(1) << width) - 1u;
+    mask = lower_integer_constant(context, value.type, true, mask_bits);
+    if (!mask.valid) return lower_invalid_value();
+    operands[0] = value.value;
+    operands[1] = mask.value;
+    normalized = lower_append(
+        context, RCC_IR_AND, value.type, operands, 2u, NULL, 0u);
+    if (!normalized) return lower_invalid_value();
+    value.value = normalized->result;
+    if (!target_type->is_unsigned) {
+        unsigned shift_amount = storage_width - width;
+        RccIrLowerValue shift = lower_integer_constant(
+            context, value.type, true, shift_amount);
+        if (!shift.valid) return lower_invalid_value();
+        operands[0] = value.value;
+        operands[1] = shift.value;
+        normalized = lower_append(
+            context, RCC_IR_SHL, value.type, operands, 2u, NULL, 0u);
+        if (!normalized) return lower_invalid_value();
+        operands[0] = normalized->result;
+        normalized = lower_append(
+            context, RCC_IR_ASHR, value.type, operands, 2u, NULL, 0u);
+        if (!normalized) return lower_invalid_value();
+        value.value = normalized->result;
+    }
+    value.is_unsigned = target_type->is_unsigned;
+    return value;
+}
+
+static RccIrLowerValue lower_cast(RccIrLowerContext* context,
+                                  RccIrLowerValue source,
+                                  const Type* target_type) {
+    RccIrLowerValue value = lower_cast_impl(context, source, target_type);
+    return lower_normalize_bitint_value(context, value, target_type);
 }
 
 static bool lower_wide_scalar_value_valid(RccIrLowerWideValue value) {
@@ -3187,7 +3244,7 @@ static bool lower_wide_scalar_constant(
     bits = (uint64_t)constant;
     if (expression->type && type_is_integer(expression->type) &&
         expression->type->size > 0 && expression->type->size < 8) {
-        unsigned width = (unsigned)expression->type->size * 8u;
+        unsigned width = type_integer_width(expression->type);
         uint64_t mask = (UINT64_C(1) << width) - 1u;
         bits &= mask;
         if (!expression->type->is_unsigned &&
@@ -6449,6 +6506,84 @@ static bool lower_wide_scalar_expression(
         context->unsupported = true;
         memset(result, 0, sizeof(*result));
         return false;
+    }
+    if (expression->type && expression->type->is_bit_precise &&
+        expression->type->bit_width < 64u) {
+        unsigned width = expression->type->bit_width;
+        RccIrType i32 = rcc_ir_type_integer(32u);
+        RccIrLowerValue mask;
+        RccIrLowerValue shift;
+        RccIrValue operands[2];
+        RccIrInstruction* normalized;
+        if (width == 0u) return false;
+        if (width < 32u) {
+            mask = lower_integer_constant(
+                context, i32, true, (UINT32_C(1) << width) - 1u);
+            if (!mask.valid) return false;
+            operands[0] = result->low.value;
+            operands[1] = mask.value;
+            normalized = lower_append(
+                context, RCC_IR_AND, i32, operands, 2u, NULL, 0u);
+            if (!normalized) return false;
+            result->low = lower_value(normalized->result, i32, true);
+            if (!expression->type->is_unsigned) {
+                shift = lower_integer_constant(
+                    context, i32, true, 32u - width);
+                if (!shift.valid) return false;
+                operands[0] = result->low.value;
+                operands[1] = shift.value;
+                normalized = lower_append(
+                    context, RCC_IR_SHL, i32, operands, 2u, NULL, 0u);
+                if (!normalized) return false;
+                operands[0] = normalized->result;
+                normalized = lower_append(
+                    context, RCC_IR_ASHR, i32, operands, 2u, NULL, 0u);
+                if (!normalized) return false;
+                result->low = lower_value(normalized->result, i32, false);
+            }
+        }
+        if (width <= 32u) {
+            if (expression->type->is_unsigned) {
+                result->high = lower_integer_constant(context, i32, true, 0u);
+            } else {
+                RccIrLowerValue sign_shift = lower_integer_constant(
+                    context, i32, true, 31u);
+                if (!sign_shift.valid) return false;
+                operands[0] = result->low.value;
+                operands[1] = sign_shift.value;
+                normalized = lower_append(
+                    context, RCC_IR_ASHR, i32, operands, 2u, NULL, 0u);
+                if (!normalized) return false;
+                result->high = lower_value(normalized->result, i32, false);
+            }
+        } else {
+            unsigned high_width = width - 32u;
+            mask = lower_integer_constant(
+                context, i32, true, (UINT32_C(1) << high_width) - 1u);
+            if (!mask.valid) return false;
+            operands[0] = result->high.value;
+            operands[1] = mask.value;
+            normalized = lower_append(
+                context, RCC_IR_AND, i32, operands, 2u, NULL, 0u);
+            if (!normalized) return false;
+            result->high = lower_value(normalized->result, i32, true);
+            if (!expression->type->is_unsigned) {
+                shift = lower_integer_constant(
+                    context, i32, true, 32u - high_width);
+                if (!shift.valid) return false;
+                operands[0] = result->high.value;
+                operands[1] = shift.value;
+                normalized = lower_append(
+                    context, RCC_IR_SHL, i32, operands, 2u, NULL, 0u);
+                if (!normalized) return false;
+                operands[0] = normalized->result;
+                normalized = lower_append(
+                    context, RCC_IR_ASHR, i32, operands, 2u, NULL, 0u);
+                if (!normalized) return false;
+                result->high = lower_value(normalized->result, i32, false);
+            }
+        }
+        result->is_unsigned = expression->type->is_unsigned;
     }
     return true;
 }
@@ -14684,6 +14819,10 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
     value = lower_value(instruction->result, value.type, true);
     value.volatile_access = volatile_access;
 cleanup:
+    if (value.valid && expression) {
+        value = lower_normalize_bitint_value(
+            context, value, expression->type);
+    }
     if (context) {
         context->active_debug_inline_call_plus_one =
             previous_inline_call_plus_one;
@@ -15617,7 +15756,7 @@ static uint64_t lower_switch_case_bits(const Expr* expression,
         !expr_eval_integer_constant((Expr*)expression, &value)) {
         return 0u;
     }
-    width = (unsigned)control_type->size * 8u;
+    width = type_integer_width(control_type);
     bits = (uint64_t)value;
     if (width < 64u) bits &= (UINT64_C(1) << width) - 1u;
     if (valid) *valid = true;

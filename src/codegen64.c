@@ -2329,7 +2329,13 @@ static const Type* atomic64_value_type(Expr* call) {
 static void emit64_normalize_atomic_value(Module* mod, int reg,
                                           const Type* type) {
     int width = gen64_type_width(type);
-    if (type && type->kind == TYPE_BOOL) {
+    if (type && type->is_bit_precise && type->bit_width > 0u &&
+        type->bit_width < 64u) {
+        uint8_t shift = (uint8_t)(64u - type->bit_width);
+        emit64_shl_reg_imm(mod, reg, shift);
+        if (type->is_unsigned) emit64_shr_reg_imm(mod, reg, shift);
+        else emit64_sar_reg_imm(mod, reg, shift);
+    } else if (type && type->kind == TYPE_BOOL) {
         emit_rex_w(mod, reg, reg);
         emit_byte(mod, 0x85); /* test reg64, reg64 */
         emit_byte(mod, modrm64(3, reg, reg));
@@ -10215,6 +10221,14 @@ static void emit64_member_pointer_to_bool(Module* mod, int reg,
     emit64_movzx_r64_r8(mod, reg, reg);
 }
 
+static void gen64_normalize_bitint_value(Module* mod, const Type* type) {
+    if (!mod || !type || !type->is_bit_precise ||
+        type->bit_width == 0u || type->bit_width >= 64u) {
+        return;
+    }
+    emit64_normalize_atomic_value(mod, RAX, type);
+}
+
 static void gen64_expr(Module* mod, Expr* expr) {
     const Decl* caller = NULL;
     const Decl* callee = NULL;
@@ -10229,6 +10243,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
         !rcc_optimize_inline_debug_info(expr, &caller, &callee,
                                         &call_location, &arguments)) {
         gen64_expr_impl(mod, expr);
+        gen64_normalize_bitint_value(mod, expr->type);
         return;
     }
     start = code_offset(mod);
@@ -10241,6 +10256,7 @@ static void gen64_expr(Module* mod, Expr* expr) {
     }
     mod->debug_inline_active_call_plus_one = inline_call_index + 1u;
     gen64_expr_impl(mod, expr);
+    gen64_normalize_bitint_value(mod, expr->type);
     end = code_offset(mod);
     mod->debug_inline_active_call_plus_one = parent_index_plus_one;
     module_end_debug_inline_call(mod, inline_call_index, end);
@@ -11822,8 +11838,8 @@ static Type* codegen64_switch_control_type(Type* type) {
 static uint64_t codegen64_switch_case_bits(Expr* expression,
                                            Type* control_type) {
     int64_t value = 0;
-    unsigned width = control_type && control_type->size > 0
-        ? (unsigned)control_type->size * 8u : 32u;
+    unsigned width = type_integer_width(control_type);
+    if (width == 0u) width = 32u;
     uint64_t bits;
     (void)expr_eval_integer_constant(expression, &value);
     bits = (uint64_t)value;

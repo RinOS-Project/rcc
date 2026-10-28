@@ -70,6 +70,7 @@ static struct {
     {"volatile", TOK_VOLATILE},
     {"while", TOK_WHILE},
     {"_Bool", TOK__BOOL},
+    {"_BitInt", TOK__BITINT},
     {"_Complex", TOK__COMPLEX},
     {"_Imaginary", TOK__IMAGINARY},
     {"_Atomic", TOK__ATOMIC},
@@ -228,6 +229,7 @@ Token* token_new(TokenType type, SourceLoc loc) {
     tok->int_base = 0u;
     tok->int_long_suffix = 0u;
     tok->int_unsigned_suffix = false;
+    tok->int_bitint_suffix = false;
     tok->int_overflow = false;
     tok->user_literal_suffix = NULL;
     tok->is_utf8_literal = false;
@@ -582,7 +584,9 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
         }
     } else {
         while (peek(lex) == 'u' || peek(lex) == 'U' ||
-               peek(lex) == 'l' || peek(lex) == 'L') {
+               peek(lex) == 'l' || peek(lex) == 'L' ||
+               peek(lex) == 'w' || peek(lex) == 'W' ||
+               peek(lex) == 'b' || peek(lex) == 'B') {
             advance(lex);
         }
     }
@@ -635,6 +639,7 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
             ? user_suffix_start : lex->pos;
         bool suffix_valid = true;
         bool saw_unsigned = false;
+        bool saw_bitint = false;
         unsigned long_suffix = 0u;
         uint64_t value;
         const char* integer_text = str;
@@ -658,6 +663,17 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
                     long_suffix = 2u;
                     ++suffix;
                 }
+            } else if ((*suffix == 'w' || *suffix == 'W') &&
+                       suffix + 1 < builtin_suffix_end &&
+                       ((suffix[0] == 'w' && suffix[1] == 'b') ||
+                        (suffix[0] == 'W' && suffix[1] == 'B'))) {
+                if (saw_bitint || long_suffix != 0u ||
+                    g_opts.c_standard < 23) {
+                    suffix_valid = false;
+                    break;
+                }
+                saw_bitint = true;
+                suffix += 2;
             } else {
                 suffix_valid = false;
                 break;
@@ -679,6 +695,7 @@ static Token* lex_number(Lexer* lex, bool leading_dot) {
         tok->int_base = (uint8_t)base;
         tok->int_long_suffix = (uint8_t)long_suffix;
         tok->int_unsigned_suffix = saw_unsigned;
+        tok->int_bitint_suffix = saw_bitint;
         tok->int_overflow = errno == ERANGE;
         if (tok->int_overflow) {
             rcc_error(loc, "integer literal is too large for 64-bit C types");

@@ -56,6 +56,7 @@ typedef enum {
     TOK_VOLATILE,
     TOK_WHILE,
     TOK__BOOL,
+    TOK__BITINT,
     TOK__COMPLEX,
     TOK__IMAGINARY,
     TOK__ATOMIC,
@@ -208,6 +209,7 @@ typedef struct Token {
     uint8_t int_base;
     uint8_t int_long_suffix;
     bool int_unsigned_suffix;
+    bool int_bitint_suffix;
     bool int_overflow;
     /* C++ user-defined literal suffix, including its required leading '_'. */
     const char* user_literal_suffix;

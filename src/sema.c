@@ -2021,8 +2021,8 @@ static Type* sema_switch_control_type(Type* type) {
 }
 
 static uint64_t sema_switch_value_bits(int64_t value, Type* control_type) {
-    unsigned width = control_type && control_type->size > 0
-        ? (unsigned)control_type->size * 8u : 32u;
+    unsigned width = type_integer_width(control_type);
+    if (width == 0u) width = 32u;
     uint64_t bits = (uint64_t)value;
     if (width < 64u) bits &= (UINT64_C(1) << width) - 1u;
     return bits;
@@ -4963,7 +4963,7 @@ static bool sema_constexpr_convert(int64_t input, Type* type,
         *output = input != 0;
         return true;
     }
-    bits = (unsigned)type->size * 8u;
+    bits = type_integer_width(type);
     if (bits == 0u || bits > 64u) return false;
     converted = (uint64_t)input;
     if (bits < 64u) {
@@ -4986,7 +4986,7 @@ static bool sema_constexpr_signed_range(Type* type, int64_t* minimum,
         !sema_constexpr_integer_type(type) || type->size <= 0) {
         return false;
     }
-    bits = (unsigned)type->size * 8u;
+    bits = type_integer_width(type);
     if (bits == 0u || bits > 64u) return false;
     if (bits == 64u) {
         if (minimum) *minimum = INT64_MIN;
@@ -5245,7 +5245,7 @@ static bool sema_eval_constexpr_expr(
                         }
                         if (operation_type && !operation_type->is_unsigned &&
                             (left < 0 || right >=
-                                (int64_t)operation_type->size * 8)) {
+                                (int64_t)type_integer_width(operation_type))) {
                             return false;
                         }
                         assigned = left << right;
@@ -6131,8 +6131,7 @@ static void sema_constexpr_copy_object_bytes(
  * the host's signed representation: ULL literals such as UINT64_MAX would
  * otherwise become -1 during static assertion evaluation. */
 static uint64_t sema_constexpr_integer_mask(Type* type) {
-    unsigned bits = type && type->size > 0
-        ? (unsigned)type->size * 8u : 0u;
+    unsigned bits = type_integer_width(type);
     if (bits == 0u) return 0u;
     return bits >= 64u ? UINT64_MAX : (UINT64_C(1) << bits) - 1u;
 }
@@ -6152,8 +6151,8 @@ static int64_t sema_constexpr_integer_signed(
     if (!value || value->is_floating) return 0;
     mask = sema_constexpr_integer_mask(value->type);
     bits = sema_constexpr_integer_bits(value);
-    width = value->type && value->type->size > 0
-        ? (unsigned)value->type->size * 8u : 64u;
+    width = type_integer_width(value->type);
+    if (width == 0u) width = 64u;
     if (width < 64u && !value->type->is_unsigned &&
         (bits & (UINT64_C(1) << (width - 1u))) != 0u) {
         bits |= ~mask;
@@ -6431,7 +6430,7 @@ static bool sema_constexpr_scalar_convert(
     if (input->is_floating) {
         numeric = (double)input->floating_value;
         if (!isfinite(numeric)) return false;
-        bits = (unsigned)type->size * 8u;
+        bits = type_integer_width(type);
         if (bits == 0u || bits > 64u) return false;
         if (type->is_unsigned) {
             maximum = bits == 64u
@@ -9888,11 +9887,11 @@ static bool sema_constexpr_scalar_binary(
                 case EXPR_BITOR: output->integer_value = (int64_t)((left_bits | right_bits) & mask); return true;
                 case EXPR_BITXOR: output->integer_value = (int64_t)((left_bits ^ right_bits) & mask); return true;
                 case EXPR_LSHIFT:
-                    if (right_bits >= (uint64_t)result_type->size * 8u) return false;
+                    if (right_bits >= type_integer_width(result_type)) return false;
                     output->integer_value = (int64_t)((left_bits << (unsigned)right_bits) & mask);
                     return true;
                 case EXPR_RSHIFT:
-                    if (right_bits >= (uint64_t)result_type->size * 8u) return false;
+                    if (right_bits >= type_integer_width(result_type)) return false;
                     output->integer_value = (int64_t)(left_bits >> (unsigned)right_bits);
                     return true;
                 default: return false;
@@ -9965,7 +9964,7 @@ static bool sema_constexpr_scalar_binary(
         case EXPR_LSHIFT:
             if (sema_constexpr_integer_signed(&converted_right) < 0 ||
                 sema_constexpr_integer_signed(&converted_right) >=
-                    (int64_t)result_type->size * 8 ||
+                    (int64_t)type_integer_width(result_type) ||
                 sema_constexpr_integer_signed(&converted_left) < 0 ||
                 (sema_constexpr_integer_signed(&converted_right) < 63 &&
                  sema_constexpr_integer_signed(&converted_left) >
@@ -9980,7 +9979,7 @@ static bool sema_constexpr_scalar_binary(
         case EXPR_RSHIFT:
             if (sema_constexpr_integer_signed(&converted_right) < 0 ||
                 sema_constexpr_integer_signed(&converted_right) >=
-                    (int64_t)result_type->size * 8) return false;
+                    (int64_t)type_integer_width(result_type)) return false;
             output->integer_value = converted_left.integer_value >>
                                     sema_constexpr_integer_signed(&converted_right);
             return true;

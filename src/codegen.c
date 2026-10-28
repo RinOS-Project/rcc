@@ -141,7 +141,7 @@ static bool debug_inline_capture_converted_integer(
             signed_value = 0;
         } else {
             signed_value = debug_inline_sign_extend_integer(
-                unsigned_value, (unsigned int)argument_type->size * 8u);
+                unsigned_value, type_integer_width(argument_type));
             unsigned_value = (uint64_t)signed_value;
         }
     } else {
@@ -153,7 +153,7 @@ static bool debug_inline_capture_converted_integer(
         value->has_signed_integer_constant = true;
         return true;
     }
-    width = (unsigned int)parameter_type->size * 8u;
+    width = type_integer_width(parameter_type);
     if (parameter_type->is_unsigned) {
         if (width < 64u) {
             unsigned_value &= (UINT64_C(1) << width) - 1u;
@@ -6353,7 +6353,16 @@ static const Type* atomic_value_type(Expr* call) {
 static void emit_normalize_atomic_value(Module* mod, int reg,
                                         const Type* type) {
     int width = gen_type_width32(type);
-    if (type && type->kind == TYPE_BOOL) {
+    if (type && type->is_bit_precise && type->bit_width < 32u) {
+        uint32_t value_mask =
+            (UINT32_C(1) << type->bit_width) - UINT32_C(1);
+        emit_and_reg_imm(mod, reg, value_mask);
+        if (!type->is_unsigned) {
+            uint8_t shift = (uint8_t)(32u - type->bit_width);
+            emit_shl_reg_imm(mod, reg, shift);
+            emit_sar_reg_imm(mod, reg, shift);
+        }
+    } else if (type && type->kind == TYPE_BOOL) {
         emit_byte(mod, 0x85); /* test reg, reg */
         emit_byte(mod, modrm(3, reg, reg));
         emit_setcc(mod, CC_NE, reg);
@@ -8801,6 +8810,18 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         !rcc_optimize_inline_debug_info(expr, &caller, &callee,
                                         &call_location, &arguments)) {
         gen_expr64_pair_impl(mod, expr);
+        if (expr && expr->type && expr->type->is_bit_precise &&
+            expr->type->bit_width > 32u &&
+            expr->type->bit_width < 64u) {
+            unsigned high_width = expr->type->bit_width - 32u;
+            uint32_t mask = (UINT32_C(1) << high_width) - UINT32_C(1);
+            emit_and_reg_imm(mod, EDX, mask);
+            if (!expr->type->is_unsigned) {
+                uint8_t shift = (uint8_t)(32u - high_width);
+                emit_shl_reg_imm(mod, EDX, shift);
+                emit_sar_reg_imm(mod, EDX, shift);
+            }
+        }
         return;
     }
     start = code_offset(mod);
@@ -8813,6 +8834,18 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
     }
     mod->debug_inline_active_call_plus_one = inline_call_index + 1u;
     gen_expr64_pair_impl(mod, expr);
+    if (expr && expr->type && expr->type->is_bit_precise &&
+        expr->type->bit_width > 32u &&
+        expr->type->bit_width < 64u) {
+        unsigned high_width = expr->type->bit_width - 32u;
+        uint32_t mask = (UINT32_C(1) << high_width) - UINT32_C(1);
+        emit_and_reg_imm(mod, EDX, mask);
+        if (!expr->type->is_unsigned) {
+            uint8_t shift = (uint8_t)(32u - high_width);
+            emit_shl_reg_imm(mod, EDX, shift);
+            emit_sar_reg_imm(mod, EDX, shift);
+        }
+    }
     end = code_offset(mod);
     mod->debug_inline_active_call_plus_one = parent_index_plus_one;
     module_end_debug_inline_call(mod, inline_call_index, end);
@@ -18298,6 +18331,17 @@ static void gen_expr(Module* mod, Expr* expr) {
         !rcc_optimize_inline_debug_info(expr, &caller, &callee,
                                         &call_location, &arguments)) {
         gen_expr_impl(mod, expr);
+        if (expr && expr->type && expr->type->is_bit_precise &&
+            expr->type->bit_width < 32u) {
+            uint32_t mask =
+                (UINT32_C(1) << expr->type->bit_width) - UINT32_C(1);
+            emit_and_reg_imm(mod, EAX, mask);
+            if (!expr->type->is_unsigned) {
+                uint8_t shift = (uint8_t)(32u - expr->type->bit_width);
+                emit_shl_reg_imm(mod, EAX, shift);
+                emit_sar_reg_imm(mod, EAX, shift);
+            }
+        }
         return;
     }
     start = code_offset(mod);
@@ -18310,6 +18354,17 @@ static void gen_expr(Module* mod, Expr* expr) {
     }
     mod->debug_inline_active_call_plus_one = inline_call_index + 1u;
     gen_expr_impl(mod, expr);
+    if (expr && expr->type && expr->type->is_bit_precise &&
+        expr->type->bit_width < 32u) {
+        uint32_t mask =
+            (UINT32_C(1) << expr->type->bit_width) - UINT32_C(1);
+        emit_and_reg_imm(mod, EAX, mask);
+        if (!expr->type->is_unsigned) {
+            uint8_t shift = (uint8_t)(32u - expr->type->bit_width);
+            emit_shl_reg_imm(mod, EAX, shift);
+            emit_sar_reg_imm(mod, EAX, shift);
+        }
+    }
     end = code_offset(mod);
     mod->debug_inline_active_call_plus_one = parent_index_plus_one;
     module_end_debug_inline_call(mod, inline_call_index, end);
@@ -19947,8 +20002,8 @@ static Type* codegen_switch_control_type(Type* type) {
 static uint64_t codegen_switch_case_bits(Expr* expression,
                                          Type* control_type) {
     int64_t value = 0;
-    unsigned width = control_type && control_type->size > 0
-        ? (unsigned)control_type->size * 8u : 32u;
+    unsigned width = type_integer_width(control_type);
+    if (width == 0u) width = 32u;
     uint64_t bits;
     (void)expr_eval_integer_constant(expression, &value);
     bits = (uint64_t)value;

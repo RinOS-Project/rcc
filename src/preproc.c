@@ -172,6 +172,7 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__STDC_VERSION__",
               g_opts.c_standard >= 23 ? "202311L" : "201710L");
     if (g_opts.c_standard >= 23) {
+        pp_define(pp, "__BITINT_MAXWIDTH__", "64");
         pp_define(pp, "__STDC_EMBED_NOT_FOUND__", "0");
         pp_define(pp, "__STDC_EMBED_FOUND__", "1");
         pp_define(pp, "__STDC_EMBED_EMPTY__", "2");
@@ -883,7 +884,6 @@ static long pp_cpp_attribute_value(const Preprocessor* pp,
     return 0;
 }
 
-static void pp_add_dependency(Preprocessor* pp, const char* path) {
 static long pp_c_attribute_value(const Preprocessor* pp,
                                 const char* attribute) {
     if (!pp || pp->cxx_mode || g_opts.c_standard < 23 || !attribute) {
@@ -897,6 +897,7 @@ static long pp_c_attribute_value(const Preprocessor* pp,
     return 0;
 }
 
+static void pp_add_dependency(Preprocessor* pp, const char* path) {
     for (int i = 0; i < pp->dependency_count; i++) {
         if (strcmp(pp->dependencies[i], path) == 0) return;
     }
@@ -948,10 +949,10 @@ typedef struct {
 
 static int pp_probe_embed_expression(Preprocessor* pp, const char* open_paren,
                                      const char** after, bool* valid);
-
 static long pp_probe_c_attribute_expression(Preprocessor* pp,
                                            const char* open_paren,
                                            const char** after, bool* valid);
+
 static PPExprValue pp_expr_signed(int64_t value) {
     PPExprValue result = {(uint64_t)value, false};
     return result;
@@ -1121,9 +1122,38 @@ static PPExprValue pp_expr_primary(PPExprParser* parser) {
             }
             p = end;
         }
-        while (*p == 'u' || *p == 'U' || *p == 'l' || *p == 'L') {
-            if (*p == 'u' || *p == 'U') is_unsigned = true;
-            p++;
+        {
+            bool saw_unsigned = false;
+            bool saw_bitint = false;
+            bool saw_long = false;
+            while (*p == 'u' || *p == 'U' || *p == 'l' || *p == 'L' ||
+                   *p == 'w' || *p == 'W' || *p == 'b' || *p == 'B') {
+                if (*p == 'u' || *p == 'U') {
+                    if (saw_unsigned) parser->invalid = true;
+                    saw_unsigned = true;
+                    is_unsigned = true;
+                    ++p;
+                } else if (*p == 'l' || *p == 'L') {
+                    if (saw_long) parser->invalid = true;
+                    saw_long = true;
+                    ++p;
+                } else if ((*p == 'w' || *p == 'W') &&
+                           p[1] == (*p == 'w' ? 'b' : 'B')) {
+                    if (saw_bitint || saw_long) parser->invalid = true;
+                    saw_bitint = true;
+                    p += 2;
+                } else {
+                    parser->invalid = true;
+                    ++p;
+                }
+            }
+            if (saw_bitint && g_opts.c_standard < 23) {
+                parser->invalid = true;
+            }
+            if (saw_bitint && !is_unsigned &&
+                value > (uint64_t)INT64_MAX) {
+                parser->invalid = true;
+            }
         }
         parser->input = p;
         if (is_unsigned || value > (uint64_t)INT64_MAX) return pp_expr_unsigned(value);
@@ -1434,6 +1464,24 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
                 p = cursor;
                 continue;
             }
+            if (strcmp(ident, "__has_c_attribute") == 0 &&
+                !pp->cxx_mode && g_opts.c_standard >= 23) {
+                const char* cursor = pp_expr_skip(end);
+                bool probe_valid = true;
+                long value = pp_probe_c_attribute_expression(
+                    pp, cursor, &cursor, &probe_valid);
+                if (!probe_valid) {
+                    *valid = false;
+                    buf_append_str(&protected, "0");
+                    p = end;
+                    continue;
+                }
+                char value_text[32];
+                snprintf(value_text, sizeof(value_text), "%ld", value);
+                buf_append_str(&protected, value_text);
+                p = cursor;
+                continue;
+            }
             if (strcmp(ident, "__has_cpp_attribute") == 0) {
                 const char* cursor = pp_expr_skip(end);
                 char attribute[256];
@@ -1459,24 +1507,6 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
                         memcpy(attribute + attribute_length, component,
                                component_length);
                         attribute_length += component_length;
-            if (strcmp(ident, "__has_c_attribute") == 0 &&
-                !pp->cxx_mode && g_opts.c_standard >= 23) {
-                const char* cursor = pp_expr_skip(end);
-                bool probe_valid = true;
-                long value = pp_probe_c_attribute_expression(
-                    pp, cursor, &cursor, &probe_valid);
-                if (!probe_valid) {
-                    *valid = false;
-                    buf_append_str(&protected, "0");
-                    p = end;
-                    continue;
-                }
-                char value_text[32];
-                snprintf(value_text, sizeof(value_text), "%ld", value);
-                buf_append_str(&protected, value_text);
-                p = cursor;
-                continue;
-            }
                         cursor = after;
                         if (cursor[0] == ':' && cursor[1] == ':') {
                             attribute[attribute_length++] = ':';
@@ -1583,31 +1613,6 @@ static const char* pp_matching_paren(const char* open,
     return NULL;
 }
 
-static bool pp_contains_defined_token(const char* text) {
-    const char* p = text;
-    while (*p) {
-        if (*p == '"' || *p == '\'') {
-            char quote = *p++;
-            while (*p && *p != quote && *p != '\n') {
-                if (*p == '\\' && p[1]) p += 2;
-                else ++p;
-            }
-            if (*p == quote) ++p;
-            continue;
-        }
-        if (isalpha((unsigned char)*p) || *p == '_') {
-            const char* start = p++;
-            while (isalnum((unsigned char)*p) || *p == '_') ++p;
-            if ((size_t)(p - start) == 7u &&
-                memcmp(start, "defined", 7u) == 0) return true;
-            continue;
-        }
-        ++p;
-    }
-    return false;
-}
-
-static bool pp_parse_embed_spec(Preprocessor* pp, const char* text,
 static long pp_probe_c_attribute_expression(Preprocessor* pp,
                                            const char* open_paren,
                                            const char** after, bool* valid) {
@@ -1664,6 +1669,31 @@ done:
     return value;
 }
 
+static bool pp_contains_defined_token(const char* text) {
+    const char* p = text;
+    while (*p) {
+        if (*p == '"' || *p == '\'') {
+            char quote = *p++;
+            while (*p && *p != quote && *p != '\n') {
+                if (*p == '\\' && p[1]) p += 2;
+                else ++p;
+            }
+            if (*p == quote) ++p;
+            continue;
+        }
+        if (isalpha((unsigned char)*p) || *p == '_') {
+            const char* start = p++;
+            while (isalnum((unsigned char)*p) || *p == '_') ++p;
+            if ((size_t)(p - start) == 7u &&
+                memcmp(start, "defined", 7u) == 0) return true;
+            continue;
+        }
+        ++p;
+    }
+    return false;
+}
+
+static bool pp_parse_embed_spec(Preprocessor* pp, const char* text,
                                 PPEmbedSpec* spec, const char** error) {
     const char* p = pp_expr_skip(text);
     size_t resource_length = 0u;

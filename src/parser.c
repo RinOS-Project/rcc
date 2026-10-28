@@ -790,6 +790,7 @@ static bool parser_is_recovery_declaration_start(const Token* token) {
         case TOK_REGISTER:
         case TOK_THREAD_LOCAL:
         case TOK__BOOL:
+        case TOK__BITINT:
         case TOK__COMPLEX:
         case TOK__IMAGINARY:
         case TOK__ATOMIC:
@@ -928,14 +929,14 @@ typedef struct {
 } IntegerConstantValue;
 
 static uint64_t integer_type_mask(const Type* type) {
-    unsigned bits = type && type->size > 0 ? (unsigned)type->size * 8u : 0u;
+    unsigned bits = type_integer_width(type);
     if (bits == 0u) return 0u;
     return bits >= 64u ? UINT64_MAX : (UINT64_C(1) << bits) - 1u;
 }
 
 static int64_t integer_constant_signed(IntegerConstantValue value) {
-    unsigned bits = value.type && value.type->size > 0
-        ? (unsigned)value.type->size * 8u : 64u;
+    unsigned bits = type_integer_width(value.type);
+    if (bits == 0u) bits = 64u;
     uint64_t masked = value.bits & integer_type_mask(value.type);
     if (bits < 64u && (masked & (UINT64_C(1) << (bits - 1u))) != 0u) {
         masked |= ~integer_type_mask(value.type);
@@ -1190,7 +1191,7 @@ static bool eval_integer_constant_typed(Expr* expr,
             if (signed_count < 0) return false;
             count = (uint64_t)signed_count;
         }
-        width = (unsigned)common->size * 8u;
+        width = type_integer_width(common);
         if (count >= width) return false;
         if (expr->kind == EXPR_LSHIFT) {
             value->bits = (left.bits << (unsigned)count) &
@@ -1264,9 +1265,10 @@ static bool eval_integer_constant_typed(Expr* expr,
             } else {
                 int64_t signed_left = integer_constant_signed(left);
                 int64_t signed_right = integer_constant_signed(right);
-                int64_t minimum = common->size == 8
+                unsigned common_width = type_integer_width(common);
+                int64_t minimum = common_width >= 64u
                     ? INT64_MIN
-                    : -(INT64_C(1) << ((unsigned)common->size * 8u - 1u));
+                    : -(INT64_C(1) << (common_width - 1u));
                 if (signed_right == 0 ||
                     (signed_left == minimum && signed_right == -1)) {
                     return false;
@@ -1310,9 +1312,9 @@ bool expr_eval_integer_constant_u64(Expr* expr, uint64_t* value) {
 
 static bool pending_weak_attribute;
 static bool pending_naked_attribute;
+static bool pending_c_noreturn_attribute;
 
 static bool take_weak_attribute(void) {
-static bool pending_c_noreturn_attribute;
     bool result = pending_weak_attribute;
     pending_weak_attribute = false;
     return result;
@@ -1324,14 +1326,6 @@ static bool take_naked_attribute(void) {
     return result;
 }
 
-static void skip_attributes(void) {
-    for (;;) {
-        if (!parser_cxx_mode && check(TOK_LBRACKET) &&
-            check_next(TOK_LBRACKET)) {
-            parser_skip_c_attribute_sequence();
-            continue;
-        }
-        if (!match(TOK___ATTRIBUTE__)) break;
 static bool take_c_noreturn_attribute(void) {
     bool result = pending_c_noreturn_attribute;
     pending_c_noreturn_attribute = false;
@@ -1449,6 +1443,14 @@ static void parser_skip_c_attribute_sequence(void) {
     }
 }
 
+static void skip_attributes(void) {
+    for (;;) {
+        if (!parser_cxx_mode && check(TOK_LBRACKET) &&
+            check_next(TOK_LBRACKET)) {
+            parser_skip_c_attribute_sequence();
+            continue;
+        }
+        if (!match(TOK___ATTRIBUTE__)) break;
         SourceLoc attribute_loc = previous()->loc;
         bool group_weak = false;
         bool weak_arguments = false;
@@ -2580,9 +2582,17 @@ static Expr* parse_primary(void) {
     }
     if (match(TOK_INT_LIT)) {
         Token* literal = previous();
-        Expr* expression = expr_integer_literal(
-            (uint64_t)literal->value.int_val, literal->int_base,
-            literal->int_unsigned_suffix, literal->int_long_suffix, loc);
+        Expr* expression = literal->int_bitint_suffix
+            ? expr_bitint_literal((uint64_t)literal->value.int_val,
+                                  literal->int_unsigned_suffix, loc)
+            : expr_integer_literal(
+                  (uint64_t)literal->value.int_val, literal->int_base,
+                  literal->int_unsigned_suffix, literal->int_long_suffix, loc);
+        if (!expression) {
+            rcc_error(loc,
+                      "bit-precise integer literal exceeds BITINT_MAXWIDTH");
+            expression = expr_int(0, loc);
+        }
         if (parser_cxx_mode && literal->user_literal_suffix) {
             char name[512];
             Expr* function;
@@ -3474,7 +3484,8 @@ static bool is_type_start(void) {
     if (parser_cxx_mode && rcc_parse_cxx_type_start &&
         rcc_parse_cxx_type_start()) return true;
     if (!parser_cxx_mode && g_opts.c_standard >= 23 &&
-        (check(TOK_TYPEOF) || check(TOK_TYPEOF_UNQUAL))) return true;
+        (check(TOK_TYPEOF) || check(TOK_TYPEOF_UNQUAL) ||
+         check(TOK__BITINT))) return true;
     switch (peek()->type) {
         case TOK_DECLTYPE:
             return parser_cxx_mode;
@@ -3499,6 +3510,7 @@ static bool is_type_start(void) {
         case TOK_REGISTER:
         case TOK_THREAD_LOCAL:
         case TOK__BOOL:
+        case TOK__BITINT:
         case TOK__COMPLEX:
         case TOK__IMAGINARY:
         case TOK__ATOMIC:
@@ -3723,7 +3735,7 @@ static bool enum_value_fits_fixed_underlying(int64_t value,
     if (!underlying || underlying->size <= 0 || underlying->size > 8) {
         return false;
     }
-    width = (unsigned)underlying->size * 8u;
+    width = type_integer_width(underlying);
     unsigned_max = width >= 64u
         ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
     if (underlying->is_unsigned) {
@@ -3743,8 +3755,7 @@ static bool enum_value_fits_fixed_underlying(int64_t value,
 }
 
 static uint64_t enum_integer_type_max(const Type* type) {
-    unsigned width = type && type->size > 0
-        ? (unsigned)type->size * 8u : 0u;
+    unsigned width = type_integer_width(type);
     if (width == 0u) return 0u;
     if (type->kind == TYPE_BOOL) return 1u;
     if (type->is_unsigned) {
@@ -3756,8 +3767,7 @@ static uint64_t enum_integer_type_max(const Type* type) {
 }
 
 static int64_t enum_integer_type_min(const Type* type) {
-    unsigned width = type && type->size > 0
-        ? (unsigned)type->size * 8u : 0u;
+    unsigned width = type_integer_width(type);
     if (!type || type->is_unsigned || width == 0u) return 0;
     if (width >= 64u) return INT64_MIN;
     return -(INT64_C(1) << (width - 1u));
@@ -4039,7 +4049,8 @@ static void parse_enum_body(Type* enum_type, bool scoped,
         if (parser_cxx_mode && enum_type->enum_has_fixed_underlying &&
             enum_type->enum_underlying_type &&
             enum_type->enum_underlying_type->is_unsigned) {
-            unsigned width = (unsigned)enum_type->enum_underlying_type->size * 8u;
+            unsigned width = type_integer_width(
+                enum_type->enum_underlying_type);
             uint64_t maximum = width >= 64u
                 ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
             uint64_t current = (uint64_t)value;
@@ -4182,10 +4193,11 @@ static void parser_append_bitfield(Type* aggregate,
         return;
     }
     storage_bits = (unsigned)size * 8u;
-    if (width_value < 0 || (uint64_t)width_value > storage_bits) {
+    if (width_value < 0 ||
+        (uint64_t)width_value > type_integer_width(type)) {
         rcc_error(loc,
-                  "bit-field width %lld exceeds its %u-bit storage unit",
-                  (long long)width_value, storage_bits);
+                  "bit-field width %lld exceeds its %u-bit declared type",
+                  (long long)width_value, type_integer_width(type));
         parser_reset_bitfield_layout(layout);
         return;
     }
@@ -4594,6 +4606,10 @@ static void parse_aggregate_body(Type* aggregate) {
             rcc_error(peek()->loc,
                       "weak attribute requires a file-scope declaration");
         }
+        if (take_c_noreturn_attribute()) {
+            rcc_error(peek()->loc,
+                      "C23 [[noreturn]] requires a function declaration");
+        }
         field_base = parse_type_spec();
         if (!field_base) {
             rcc_error(peek()->loc, "expected field type specifier");
@@ -4606,10 +4622,6 @@ static void parse_aggregate_body(Type* aggregate) {
             Expr* field_initializer = NULL;
             if (explicit_alignment != 0) {
                 field_type = rcc_parser_apply_explicit_alignment(
-        if (take_c_noreturn_attribute()) {
-            rcc_error(peek()->loc,
-                      "C23 [[noreturn]] requires a function declaration");
-        }
                     field_type, explicit_alignment, alignment_loc);
             }
             if (parser_type_has_array_parameter_spec(field_type)) {
@@ -4901,6 +4913,29 @@ static Type* parse_type_spec(void) {
                       "invalid integer qualifier on double type");
         }
         t = type_double;
+    } else if (match(TOK__BITINT)) {
+        Expr* width_expression;
+        int64_t width_value = 0;
+        SourceLoc bitint_loc = previous()->loc;
+        expect(TOK_LPAREN, "'(' after _BitInt");
+        width_expression = parse_assignment();
+        expect(TOK_RPAREN, "')' after _BitInt width");
+        if (parser_cxx_mode || g_opts.c_standard < 23) {
+            rcc_error(bitint_loc, "_BitInt requires C23 mode");
+        }
+        if (long_count != 0 || is_short) {
+            rcc_error(bitint_loc,
+                      "_BitInt cannot be combined with short or long");
+        }
+        if (!eval_integer_constant(width_expression, &width_value) ||
+            width_value < 1 || width_value > 64 ||
+            (!is_unsigned && width_value < 2)) {
+            rcc_error(bitint_loc,
+                      "_BitInt width must be between 1 and 64 (signed widths start at 2)");
+            t = type_bitint(is_unsigned ? 1u : 2u, is_unsigned);
+        } else {
+            t = type_bitint((unsigned)width_value, is_unsigned);
+        }
     } else if (match(TOK_VOID)) {
         t = type_void;
     } else if (parser_cxx_mode && match(TOK_BOOL)) {
@@ -5154,6 +5189,10 @@ static DeclList* parse_parameter_list(bool* variadic) {
             rcc_error(previous()->loc,
                       "weak attribute requires a file-scope declaration");
         }
+        if (take_c_noreturn_attribute()) {
+            rcc_error(previous()->loc,
+                      "C23 [[noreturn]] requires a function declaration");
+        }
         if (parameter_type->kind == TYPE_ARRAY) {
             parameter_array_type = parameter_type;
             {
@@ -5189,10 +5228,6 @@ static DeclList* parse_parameter_list(bool* variadic) {
         if (check(TOK_RPAREN)) {
             rcc_error(peek()->loc,
                       "expected parameter declaration after ','");
-        if (take_c_noreturn_attribute()) {
-            rcc_error(previous()->loc,
-                      "C23 [[noreturn]] requires a function declaration");
-        }
             break;
         }
     }
@@ -5638,6 +5673,10 @@ static Type* parse_declarator(Type* base_type, const char** name,
     }
 
     for (;;) {
+        if (!parser_cxx_mode && check(TOK_LBRACKET) &&
+            check_next(TOK_LBRACKET)) {
+            break;
+        }
         if (match(TOK_LBRACKET)) {
             int length = -1;
             Expr* bound_expression = NULL;
@@ -5673,10 +5712,6 @@ static Type* parse_declarator(Type* base_type, const char** name,
                     bound_expression = bound;
                 }
             }
-        if (!parser_cxx_mode && check(TOK_LBRACKET) &&
-            check_next(TOK_LBRACKET)) {
-            break;
-        }
             expect(TOK_RBRACKET, "]");
             if (array_count >= (int)(sizeof(array_lengths) /
                                      sizeof(array_lengths[0]))) {
@@ -6377,6 +6412,7 @@ Stmt* parse_declaration(void) {
     bool is_thread_local = false;
     bool is_weak = false;
     bool is_naked = false;
+    bool declarator_is_noreturn = false;
     bool cxx_is_nodiscard = false;
     bool cxx_is_deprecated = false;
     const char* cxx_deprecated_message = NULL;
@@ -6412,7 +6448,6 @@ Stmt* parse_declaration(void) {
                   "[[no_unique_address]] requires a class data member");
     }
     if (parser_cxx_mode && rcc_parser_cxx_take_noreturn_attribute) {
-    bool declarator_is_noreturn = false;
         is_noreturn = rcc_parser_cxx_take_noreturn_attribute();
     }
 
@@ -6456,6 +6491,7 @@ Stmt* parse_declaration(void) {
     }
 
     skip_attributes();
+    is_noreturn = is_noreturn || take_c_noreturn_attribute();
     is_weak = is_weak || take_weak_attribute();
     is_naked = take_naked_attribute();
     if (parser_cxx_mode && match(TOK_CONSTEXPR)) is_constexpr = true;
@@ -6485,13 +6521,16 @@ Stmt* parse_declaration(void) {
                 parser_function_scope_depth == 0);
     }
     if (!is_type_start()) {
+        if (is_noreturn) {
+            rcc_error(peek()->loc,
+                      "C23 [[noreturn]] requires a function declaration");
+        }
         if (friend_signature_context &&
             rcc_parser_cxx_end_function_signature_access) {
             rcc_parser_cxx_end_function_signature_access(
                 friend_signature_context, NULL, NULL, NULL, peek()->loc);
         }
         return parse_statement();
-    is_noreturn = is_noreturn || take_c_noreturn_attribute();
     }
 
     SourceLoc loc = peek()->loc;
@@ -6521,15 +6560,16 @@ Stmt* parse_declaration(void) {
         else if (check(TOK__ALIGNAS)) {
             int alignment = parse_explicit_alignment();
             if (alignment > explicit_alignment) explicit_alignment = alignment;
-        if (is_noreturn) {
-            rcc_error(peek()->loc,
-                      "C23 [[noreturn]] requires a function declaration");
-        }
         }
         else if (check(TOK___ATTRIBUTE__)) {
             skip_attributes();
+            is_noreturn = is_noreturn || take_c_noreturn_attribute();
             is_weak = is_weak || take_weak_attribute();
             is_naked = is_naked || take_naked_attribute();
+        } else if (!parser_cxx_mode && check(TOK_LBRACKET) &&
+                   check_next(TOK_LBRACKET)) {
+            skip_attributes();
+            is_noreturn = is_noreturn || take_c_noreturn_attribute();
         }
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else break;
@@ -6563,13 +6603,8 @@ Stmt* parse_declaration(void) {
                 is_inline, is_constexpr, is_consteval, loc);
         if (conversion_definition) {
             if (friend_signature_context &&
-            is_noreturn = is_noreturn || take_c_noreturn_attribute();
                 rcc_parser_cxx_end_function_signature_access) {
                 rcc_parser_cxx_end_function_signature_access(
-        } else if (!parser_cxx_mode && check(TOK_LBRACKET) &&
-                   check_next(TOK_LBRACKET)) {
-            skip_attributes();
-            is_noreturn = is_noreturn || take_c_noreturn_attribute();
                     friend_signature_context, NULL, NULL, NULL, loc);
             }
             return conversion_definition;
@@ -6602,6 +6637,11 @@ Stmt* parse_declaration(void) {
                       "_Noreturn is only valid in C declarations");
         }
         is_noreturn = true;
+    }
+    while (!parser_cxx_mode && check(TOK_LBRACKET) &&
+           check_next(TOK_LBRACKET)) {
+        skip_attributes();
+        is_noreturn = is_noreturn || take_c_noreturn_attribute();
     }
 
     /* A standalone aggregate declaration has no declarator. Enum constants
@@ -6638,11 +6678,6 @@ Stmt* parse_declaration(void) {
                 pointer_type = type_ptr(pointer_return_type);
                 while (match(TOK_CONST) || match(TOK_VOLATILE) ||
                        match(TOK_RESTRICT)) {
-    while (!parser_cxx_mode && check(TOK_LBRACKET) &&
-           check_next(TOK_LBRACKET)) {
-        skip_attributes();
-        is_noreturn = is_noreturn || take_c_noreturn_attribute();
-    }
                     if (previous()->type == TOK_CONST) is_const = true;
                     else if (previous()->type == TOK_VOLATILE) {
                         is_volatile = true;
@@ -6752,6 +6787,7 @@ Stmt* parse_declaration(void) {
         type->function_is_noexcept = is_noexcept;
     }
     skip_attributes();
+    declarator_is_noreturn = take_c_noreturn_attribute();
     is_weak = is_weak || take_weak_attribute();
     is_naked = is_naked || take_naked_attribute();
     if (friend_signature_context) {
@@ -6787,8 +6823,11 @@ Stmt* parse_declaration(void) {
     }
 
     if (is_typedef) {
-    declarator_is_noreturn = take_c_noreturn_attribute();
         StmtList* declarations = NULL;
+        if (is_noreturn || declarator_is_noreturn) {
+            rcc_error(loc,
+                      "C23 [[noreturn]] requires a function declaration");
+        }
         if (is_thread_local) {
             rcc_error(loc, "thread-local storage is not valid on a typedef");
         }
@@ -6824,10 +6863,6 @@ Stmt* parse_declaration(void) {
 
     /* Function declaration? */
     if (type->kind == TYPE_FUNC) {
-        if (is_noreturn || declarator_is_noreturn) {
-            rcc_error(loc,
-                      "C23 [[noreturn]] requires a function declaration");
-        }
         Stmt* body = NULL;
         if (is_constinit) {
             rcc_error(loc, "constinit declaration must declare a variable");
@@ -6916,6 +6951,7 @@ Stmt* parse_declaration(void) {
                 const char* next_name = NULL;
                 DeclList* next_parameters = NULL;
                 bool next_is_weak;
+                bool next_is_noreturn;
                 if (friend_signature_context &&
                     rcc_parser_cxx_reset_function_signature_alias_uses) {
                     rcc_parser_cxx_reset_function_signature_alias_uses(
@@ -6923,9 +6959,14 @@ Stmt* parse_declaration(void) {
                 }
                 skip_attributes();
                 next_is_weak = take_weak_attribute();
+                next_is_noreturn =
+                    is_noreturn || take_c_noreturn_attribute();
                 Type* next_type = parse_declarator(
                     base_type, &next_name, &next_parameters);
                 next_type = parse_declarator_attributes(next_type);
+                skip_attributes();
+                next_is_noreturn =
+                    next_is_noreturn || take_c_noreturn_attribute();
                 const char* next_register_asm_name =
                     parser_parse_register_asm_name(storage, next_type, loc);
                 next_is_weak = next_is_weak || take_weak_attribute();
@@ -6951,7 +6992,6 @@ Stmt* parse_declaration(void) {
                         next_type && next_type->kind == TYPE_FUNC
                             ? next_type : NULL,
                         next_parameters, loc);
-                bool next_is_noreturn;
                 }
                 if (next_type && next_type->kind == TYPE_FUNC) {
                     Decl* next_declaration;
@@ -6959,14 +6999,9 @@ Stmt* parse_declaration(void) {
                         rcc_error(loc,
                                   "thread-local storage is not valid on a function");
                     }
-                next_is_noreturn =
-                    is_noreturn || take_c_noreturn_attribute();
                     next_declaration = parser_make_function_decl(
                         next_name, next_type, next_parameters, NULL, loc,
                         storage, is_inline, is_constexpr, next_is_noreturn,
-                skip_attributes();
-                next_is_noreturn =
-                    next_is_noreturn || take_c_noreturn_attribute();
                         is_noexcept, noexcept_expr, is_consteval);
                     parser_apply_cxx_declaration_attributes(
                         next_declaration, cxx_is_nodiscard,
@@ -7034,11 +7069,16 @@ Stmt* parse_declaration(void) {
             const char* next_name = NULL;
             DeclList* next_parameters = NULL;
             bool next_is_weak;
+            bool next_is_noreturn;
             skip_attributes();
             next_is_weak = take_weak_attribute();
+            next_is_noreturn = is_noreturn || take_c_noreturn_attribute();
             Type* next_type = parse_declarator(
                 base_type, &next_name, &next_parameters);
             next_type = parse_declarator_attributes(next_type);
+            skip_attributes();
+            next_is_noreturn =
+                next_is_noreturn || take_c_noreturn_attribute();
             const char* next_register_asm_name =
                 parser_parse_register_asm_name(storage, next_type, loc);
             next_is_weak = next_is_weak || take_weak_attribute();
@@ -7069,16 +7109,11 @@ Stmt* parse_declaration(void) {
             declaration = parser_make_variable_decl(
                 next_name, next_type, init, loc, storage, is_thread_local,
                 is_constexpr, is_constinit, is_inline, next_is_noreturn,
-            bool next_is_noreturn;
                 is_consteval);
             declaration->var_register_name = next_register_asm_name;
-            next_is_noreturn = is_noreturn || take_c_noreturn_attribute();
             parser_apply_cxx_declaration_attributes(
                 declaration, cxx_is_nodiscard, cxx_is_deprecated,
                 cxx_deprecated_message);
-            skip_attributes();
-            next_is_noreturn =
-                next_is_noreturn || take_c_noreturn_attribute();
             declaration->is_weak = next_is_weak;
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
         }
@@ -7105,6 +7140,8 @@ AST* rcc_parse(TokenList* tokens) {
     rcc_parser_set_cxx_mode(false);
     rcc_parser_initialize_builtin_va_list_type();
     pending_weak_attribute = false;
+    pending_naked_attribute = false;
+    pending_c_noreturn_attribute = false;
     parser.cur = tokens->head;
     parser.prev = NULL;
     rcc_parser_reset_type_scopes();
@@ -7140,7 +7177,6 @@ AST* rcc_parse(TokenList* tokens) {
             }
         } else if (parser.cur != iteration_start ||
                    g_error_count == errors_before) {
-    pending_c_noreturn_attribute = false;
             preserved_recovery_boundary = NULL;
         }
         if (parser.cur == iteration_start && !at_end() &&

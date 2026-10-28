@@ -407,12 +407,53 @@ Type* type_enum(const char* tag) {
     return t;
 }
 
+Type* type_bitint(unsigned width, bool is_unsigned) {
+    static Type* bitint_types[65][2];
+    Type* type;
+    unsigned storage_bytes;
+    unsigned alignment;
+    unsigned sign_index = is_unsigned ? 1u : 0u;
+    if (width == 0u || width > 64u || (!is_unsigned && width < 2u)) {
+        return NULL;
+    }
+    if (bitint_types[width][sign_index]) {
+        return bitint_types[width][sign_index];
+    }
+    storage_bytes = (width + 7u) / 8u;
+    alignment = 1u;
+    while (alignment < storage_bytes) alignment <<= 1u;
+    type = rcc_alloc(sizeof(*type));
+    memset(type, 0, sizeof(*type));
+    type->kind = TYPE_INT;
+    type->size = (int)alignment;
+    type->align = (int)alignment;
+    type->is_unsigned = is_unsigned;
+    type->is_bit_precise = true;
+    type->bit_width = width;
+    bitint_types[width][sign_index] = type;
+    return type;
+}
+
 /* ═══════════════════════════════════════
  * Type Utilities
  * ═══════════════════════════════════════ */
 
 bool type_is_integer(Type* t) {
     return t && t->kind >= TYPE_BOOL && t->kind <= TYPE_LLONG;
+}
+
+unsigned type_integer_width(const Type* type) {
+    if (!type) return 0u;
+    if (type->is_bit_precise) return type->bit_width;
+    if (type->kind == TYPE_ENUM) {
+        if (type->enum_underlying_type) {
+            return type_integer_width(type->enum_underlying_type);
+        }
+        return type->size > 0 ? (unsigned)type->size * 8u : 0u;
+    }
+    if (!type_is_integer((Type*)type)) return 0u;
+    if (type->kind == TYPE_BOOL) return 1u;
+    return type->size > 0 ? (unsigned)type->size * 8u : 0u;
 }
 
 bool type_is_floating(Type* t) {
@@ -538,6 +579,8 @@ bool type_is_compatible(Type* a, Type* b) {
         a->is_wchar != b->is_wchar ||
         a->is_char16 != b->is_char16 ||
         a->is_char32 != b->is_char32) return false;
+    if (a->is_bit_precise != b->is_bit_precise ||
+        (a->is_bit_precise && a->bit_width != b->bit_width)) return false;
     if (a->is_reference != b->is_reference ||
         a->is_rvalue_reference != b->is_rvalue_reference) {
         return false;
@@ -937,6 +980,31 @@ TypeField* ast_cxx_aggregate_member(const Type* type, const char* name) {
     return NULL;
 }
 
+static int type_integer_rank_compare(const Type* left, const Type* right) {
+    if (left->is_bit_precise && right->is_bit_precise) {
+        if (left->bit_width < right->bit_width) return -1;
+        if (left->bit_width > right->bit_width) return 1;
+        return 0;
+    }
+    if (left->is_bit_precise != right->is_bit_precise) {
+        const Type* bitint = left->is_bit_precise ? left : right;
+        const Type* standard = left->is_bit_precise ? right : left;
+        unsigned standard_width = type_integer_width(standard);
+        int bitint_rank = bitint->bit_width <= standard_width ? -1 : 1;
+        return left->is_bit_precise ? bitint_rank : -bitint_rank;
+    }
+    if (left->kind < right->kind) return -1;
+    if (left->kind > right->kind) return 1;
+    return 0;
+}
+
+static bool type_signed_can_represent_all(const Type* signed_type,
+                                          const Type* unsigned_type) {
+    unsigned signed_width = type_integer_width(signed_type);
+    unsigned unsigned_width = type_integer_width(unsigned_type);
+    return signed_width > 0u && signed_width - 1u >= unsigned_width;
+}
+
 Type* type_common(Type* a, Type* b) {
     Type* signed_type;
     Type* unsigned_type;
@@ -950,16 +1018,21 @@ Type* type_common(Type* a, Type* b) {
     if (b->kind < TYPE_INT) b = type_int;
 
     /* Same type */
-    if (a->kind == b->kind && a->is_unsigned == b->is_unsigned) return a;
+    if (type_is_compatible(a, b)) return a;
 
     if (a->is_unsigned == b->is_unsigned) {
-        return a->kind > b->kind ? a : b;
+        return type_integer_rank_compare(a, b) > 0 ? a : b;
     }
 
     unsigned_type = a->is_unsigned ? a : b;
     signed_type = a->is_unsigned ? b : a;
-    if (unsigned_type->kind >= signed_type->kind) return unsigned_type;
-    if (signed_type->size > unsigned_type->size) return signed_type;
+    if (type_integer_rank_compare(unsigned_type, signed_type) >= 0)
+        return unsigned_type;
+    if (type_signed_can_represent_all(signed_type, unsigned_type))
+        return signed_type;
+
+    if (signed_type->is_bit_precise)
+        return type_bitint(signed_type->bit_width, true);
 
     switch (signed_type->kind) {
         case TYPE_INT: return type_uint;
@@ -986,7 +1059,7 @@ static bool integer_literal_fits(Type* type, uint64_t value) {
     unsigned bits;
     uint64_t maximum;
     if (!type || !type_is_integer(type) || type->size <= 0) return false;
-    bits = (unsigned)type->size * 8u;
+    bits = type_integer_width(type);
     if (bits > 64u) return false;
     if (type->is_unsigned) {
         maximum = bits == 64u ? UINT64_MAX : (UINT64_C(1) << bits) - 1u;
@@ -1060,6 +1133,33 @@ Expr* expr_float(double val, SourceLoc loc) {
     e->float_val = val;
     e->type = type_double;
     return e;
+}
+
+Expr* expr_bitint_literal(uint64_t value, bool is_unsigned, SourceLoc loc) {
+    unsigned width = 0u;
+    uint64_t remaining = value;
+    Type* type;
+    Expr* expression;
+    while (remaining != 0u) {
+        ++width;
+        remaining >>= 1u;
+    }
+    if (is_unsigned) {
+        if (width == 0u) width = 1u;
+    } else {
+        if (width >= 64u) {
+            if (value > (uint64_t)INT64_MAX) return NULL;
+            width = 64u;
+        } else {
+            ++width;
+            if (width < 2u) width = 2u;
+        }
+    }
+    type = type_bitint(width, is_unsigned);
+    if (!type) return NULL;
+    expression = expr_int((int64_t)value, loc);
+    expression->type = type;
+    return expression;
 }
 
 Expr* expr_char(char val, SourceLoc loc) {

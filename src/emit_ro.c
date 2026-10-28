@@ -4239,14 +4239,14 @@ static bool debug_inline_integer_constant_mask(const Type* type,
         type->size <= 0 || type->size > 8) {
         return false;
     }
-    width = (unsigned int)type->size * 8u;
+    width = type_integer_width(type);
     *mask = width == 64u ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
     return true;
 }
 
 static int64_t debug_inline_integer_constant_signed_minimum(
     const Type* type) {
-    unsigned int width = (unsigned int)type->size * 8u;
+    unsigned int width = type_integer_width(type);
     return width == 64u ? INT64_MIN
         : -(INT64_C(1) << (width - 1u));
 }
@@ -4260,7 +4260,7 @@ static bool debug_inline_integer_constant_signed_value(
         type->is_unsigned || type->kind == TYPE_BOOL) {
         return false;
     }
-    width = (unsigned int)type->size * 8u;
+    width = type_integer_width(type);
     bits &= mask;
     sign_bit = UINT64_C(1) << (width - 1u);
     if ((bits & sign_bit) == 0u) {
@@ -4285,7 +4285,7 @@ static bool debug_inline_integer_constant_signed_fits(
         type->is_unsigned || type->kind == TYPE_BOOL) {
         return false;
     }
-    width = (unsigned int)type->size * 8u;
+    width = type_integer_width(type);
     if (width == 64u) return true;
     minimum = debug_inline_integer_constant_signed_minimum(type);
     maximum = (INT64_C(1) << (width - 1u)) - 1;
@@ -4311,7 +4311,7 @@ static bool debug_inline_integer_constant_convert_bits(
         *output = input != 0u;
         return true;
     }
-    source_width = (unsigned int)source_type->size * 8u;
+    source_width = type_integer_width(source_type);
     if (source_type->kind != TYPE_BOOL && !source_type->is_unsigned &&
         source_width < 64u &&
         (input & (UINT64_C(1) << (source_width - 1u))) != 0u) {
@@ -5030,7 +5030,7 @@ static bool debug_inline_integer_expression_normalize(
     uint8_t* expression, size_t capacity, size_t* size,
     const Type* type, int architecture) {
     unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
-    unsigned int type_size;
+    unsigned int type_width;
     unsigned int shift;
     uint64_t mask;
     bool is_unsigned;
@@ -5038,18 +5038,19 @@ static bool debug_inline_integer_expression_normalize(
         (unsigned int)type->size > address_size) {
         return false;
     }
-    type_size = (unsigned int)type->size;
-    if (type_size == address_size) return true;
+    type_width = type_integer_width(type);
+    if (type_width == 0u || type_width > address_size * 8u) return false;
+    if (type_width == address_size * 8u) return true;
     is_unsigned = type->is_unsigned || type->kind == TYPE_BOOL;
     if (is_unsigned) {
-        mask = (UINT64_C(1) << (type_size * 8u)) - 1u;
+        mask = (UINT64_C(1) << type_width) - 1u;
         return debug_inline_integer_expression_append_byte(
                    expression, capacity, size, 0x10u) && /* constu */
             debug_expression_uleb(expression, capacity, size, mask) &&
             debug_inline_integer_expression_append_byte(
                 expression, capacity, size, 0x1au); /* and */
     }
-    shift = (address_size - type_size) * 8u;
+    shift = address_size * 8u - type_width;
     return debug_inline_integer_expression_append_byte(
                expression, capacity, size, 0x10u) && /* constu */
         debug_expression_uleb(expression, capacity, size, shift) &&
@@ -5073,14 +5074,15 @@ static bool debug_inline_integer_division_uses_signed_stack_safely(
        zero-extension makes every value nonnegative in the address-sized
        signed stack representation. Full-width unsigned values need another
        exact lowering and must not be interpreted as signed here. */
-    return !type->is_unsigned || (unsigned int)type->size < address_size;
+    return !type->is_unsigned ||
+        type_integer_width(type) < address_size * 8u;
 }
 
 static bool debug_inline_integer_division_uses_full_width_unsigned(
     const Type* type, int architecture) {
     unsigned int address_size = architecture == ARCH_X64 ? 8u : 4u;
     return type && type->is_unsigned &&
-        (unsigned int)type->size == address_size &&
+        type_integer_width(type) == address_size * 8u &&
         (address_size == 4u || address_size == 8u);
 }
 
@@ -5598,7 +5600,7 @@ static bool debug_build_inline_integer_value_expression(
                     architecture);
         }
         signed_constant = debug_inline_integer_bits_to_signed(
-            unsigned_constant, (unsigned int)expression->type->size * 8u);
+            unsigned_constant, type_integer_width(expression->type));
         return debug_inline_integer_expression_append_byte(
                    output, capacity, output_size, 0x11u) &&
             debug_expression_sleb_bounded(
@@ -11559,8 +11561,8 @@ static bool debug_inline_parameter_i686_u64_global_integer_widen_expression(
             source->type, global_expression->type, 0u)) {
         return false;
     }
-    narrow_sign_shift = source->type->size < 4
-        ? 32u - (unsigned int)source->type->size * 8u : 0u;
+    narrow_sign_shift = type_integer_width(source->type) < 32u
+        ? 32u - type_integer_width(source->type) : 0u;
 
     *relocations->count = 0u;
     if (!debug_inline_parameter_i686_append_global_integer(
@@ -13360,6 +13362,10 @@ static bool debug_inline_unsigned_index_multiplier(
         expression_type->is_atomic) {
         return false;
     }
+    if (expression_type->is_bit_precise &&
+        type_integer_width(expression_type) != (unsigned)value_size * 8u) {
+        return false;
+    }
     width_mask = value_size == 8u ? UINT64_MAX
         : (UINT64_C(1) << (value_size * 8u)) - 1u;
     if (expression->kind == EXPR_MUL && expression->binary_lhs &&
@@ -13547,7 +13553,7 @@ static bool debug_inline_signed_index_divisor(
         }
         value_source = adjusted->binary_lhs;
         sign_source = sign_mask->binary_lhs;
-        width = division_type->size * 8;
+        width = (int)type_integer_width(division_type);
         if (value_source->kind != EXPR_IDENT ||
             sign_source->kind != EXPR_IDENT ||
             !value_source->ident_decl ||

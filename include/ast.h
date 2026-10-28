@@ -207,6 +207,10 @@ struct Type {
     /* Deferred C++ alignas expression in a class-template field type. */
     Expr* cxx_dependent_alignment_expr;
     bool is_unsigned;
+    /* C23 bit-precise integer types keep their semantic width separately
+     * from the byte-sized storage and ABI alignment selected by RinCompiler. */
+    bool is_bit_precise;
+    unsigned bit_width;
     /* Integer character types retain distinct C/C++ identities despite
      * sharing their underlying integer representation. */
     bool is_plain_char;
@@ -467,10 +471,12 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic);
 Type* type_struct(const char* tag);
 Type* type_union(const char* tag);
 Type* type_enum(const char* tag);
+Type* type_bitint(unsigned width, bool is_unsigned);
 Type* rcc_cxx_type_info_type(void);
 
 /* Type utilities */
 bool type_is_integer(Type* t);
+unsigned type_integer_width(const Type* type);
 bool type_is_floating(Type* t);
 bool type_is_arithmetic(Type* t);
 bool type_is_scalar(Type* t);
@@ -1081,6 +1087,7 @@ Expr* expr_int(int64_t val, SourceLoc loc);
 Expr* expr_integer_literal(uint64_t val, unsigned base,
                            bool unsigned_suffix, unsigned long_suffix,
                            SourceLoc loc);
+Expr* expr_bitint_literal(uint64_t val, bool is_unsigned, SourceLoc loc);
 Expr* expr_float(double val, SourceLoc loc);
 Expr* expr_char(char val, SourceLoc loc);
 Expr* expr_char_encoded(uint32_t val, uint8_t element_width, SourceLoc loc);
