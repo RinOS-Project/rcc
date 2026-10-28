@@ -83,5 +83,22 @@ extern "C" int main() {
             destruction_order[1] != 1) {
         return 4;
     }
+    destruction_count = 0;
+    {
+        StaticReferenceConvertedBase&& selected =
+                static_cast<StaticReferenceConvertedBase&&>(
+                        true
+                                ? StaticReferenceConvertedDerived(
+                                          destruction_order,
+                                          &destruction_count, 55)
+                                : StaticReferenceConvertedDerived(
+                                          destruction_order,
+                                          &destruction_count, 66));
+        if (selected.value != 55 || destruction_count != 0) return 5;
+    }
+    if (destruction_count != 2 || destruction_order[0] != 2 ||
+            destruction_order[1] != 1) {
+        return 6;
+    }
     return 0;
 }
