@@ -92,6 +92,16 @@ struct EqualityNonviableMemberNotEqual {
     bool operator!=(int) const = delete;
 };
 
+struct EqualityDirectFriendNotEqual {
+    int value;
+    friend bool operator==(const EqualityDirectFriendNotEqual&,
+                           const EqualityDirectFriendNotEqual&) = default;
+    friend bool operator!=(const EqualityDirectFriendNotEqual& left,
+                           const EqualityDirectFriendNotEqual& right) {
+        return left.value == right.value;
+    }
+};
+
 int main() {
     EqualityRecord first{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
     EqualityRecord same{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
@@ -120,6 +130,8 @@ int main() {
     EqualityNonviableMemberNotEqual nonviable_member_first{73};
     EqualityNonviableMemberNotEqual nonviable_member_same{73};
     EqualityNonviableMemberNotEqual nonviable_member_different{74};
+    EqualityDirectFriendNotEqual direct_friend_not_equal_first{79};
+    EqualityDirectFriendNotEqual direct_friend_not_equal_same{79};
     if (hidden_first.values[1] != 43 ||
         hidden_array_different.values[1] != 44) return 17;
     virtual_first.virtual_base_value = 29;
@@ -170,5 +182,8 @@ int main() {
     }
     if (nonviable_member_first != nonviable_member_same) return 33;
     if (!(nonviable_member_first != nonviable_member_different)) return 34;
+    if (!(direct_friend_not_equal_first != direct_friend_not_equal_same)) {
+        return 35;
+    }
     return 0;
 }
