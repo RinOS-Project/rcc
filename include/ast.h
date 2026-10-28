@@ -1039,6 +1039,7 @@ struct Expr {
              * C aggregate designator. */
             bool compound_designator_wrapper;
             bool compound_cxx_default_member_normalized;
+            bool is_complex_constructor; /* Synthesized real/imag pair. */
             /* True when C++ default member initializers rewrote this list
              * into compiler-generated designated clauses. */
             const char* compound_static_symbol;

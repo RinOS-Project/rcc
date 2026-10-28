@@ -383,6 +383,33 @@ Type* type_union(const char* tag) {
     return t;
 }
 
+Type* type_complex(Type* component_type) {
+    Type* type;
+    TypeField* real_field;
+    TypeField* imaginary_field;
+    if (!component_type ||
+        (component_type->kind != TYPE_FLOAT &&
+         component_type->kind != TYPE_DOUBLE)) return NULL;
+    type = type_struct(NULL);
+    real_field = rcc_alloc(sizeof(*real_field));
+    imaginary_field = rcc_alloc(sizeof(*imaginary_field));
+    if (!type || !real_field || !imaginary_field) return NULL;
+    type->is_complex = true;
+    type->complex_component_type = component_type;
+    type->size = component_type->size * 2;
+    type->align = component_type->align;
+    type->is_complete = true;
+    real_field->name = "__real__";
+    real_field->type = component_type;
+    real_field->offset = 0;
+    real_field->next = imaginary_field;
+    imaginary_field->name = "__imag__";
+    imaginary_field->type = component_type;
+    imaginary_field->offset = component_type->size;
+    type->fields = real_field;
+    return type;
+}
+
 Type* type_enum(const char* tag) {
     Type* t = rcc_alloc(sizeof(Type));
     t->kind = TYPE_ENUM;
@@ -460,8 +487,12 @@ bool type_is_floating(Type* t) {
     return t && (t->kind == TYPE_FLOAT || t->kind == TYPE_DOUBLE);
 }
 
+bool type_is_complex(const Type* t) {
+    return t && t->is_complex && t->complex_component_type;
+}
+
 bool type_is_arithmetic(Type* t) {
-    return type_is_integer(t) || type_is_floating(t);
+    return type_is_integer(t) || type_is_floating(t) || type_is_complex(t);
 }
 
 bool type_is_scalar(Type* t) {
@@ -581,6 +612,11 @@ bool type_is_compatible(Type* a, Type* b) {
         a->is_char32 != b->is_char32) return false;
     if (a->is_bit_precise != b->is_bit_precise ||
         (a->is_bit_precise && a->bit_width != b->bit_width)) return false;
+    if (a->is_complex != b->is_complex) return false;
+    if (a->is_complex) {
+        return type_is_compatible(a->complex_component_type,
+                                  b->complex_component_type);
+    }
     if (a->is_reference != b->is_reference ||
         a->is_rvalue_reference != b->is_rvalue_reference) {
         return false;
@@ -1008,10 +1044,20 @@ static bool type_signed_can_represent_all(const Type* signed_type,
 Type* type_common(Type* a, Type* b) {
     Type* signed_type;
     Type* unsigned_type;
+    Type* a_real;
+    Type* b_real;
 
     /* Usual arithmetic conversions */
-    if (a->kind == TYPE_DOUBLE || b->kind == TYPE_DOUBLE) return type_double;
-    if (a->kind == TYPE_FLOAT || b->kind == TYPE_FLOAT) return type_float;
+    a_real = type_is_complex(a) ? a->complex_component_type : a;
+    b_real = type_is_complex(b) ? b->complex_component_type : b;
+    if (type_is_floating(a_real) || type_is_floating(b_real)) {
+        Type* real_common = a_real->kind == TYPE_DOUBLE ||
+                            b_real->kind == TYPE_DOUBLE
+            ? type_double : type_float;
+        if (type_is_complex(a) || type_is_complex(b))
+            return type_complex(real_common);
+        return real_common;
+    }
 
     /* Integer promotions */
     if (a->kind < TYPE_INT) a = type_int;

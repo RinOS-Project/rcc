@@ -94,7 +94,9 @@ typedef _Atomic unsigned int atomic_flag;
 #define atomic_init(object, desired) (*(object) = (desired))
 
 #define atomic_thread_fence(order) __atomic_thread_fence(order)
-#define atomic_signal_fence(order) __atomic_signal_fence(order)
+/* A hardware fence is stronger than the compiler-only signal fence required
+ * by C17 and preserves the same observable contract. */
+#define atomic_signal_fence(order) __atomic_thread_fence(order)
 
 #define atomic_store_explicit(object, desired, order) \
     __atomic_store_n((object), (desired), (order))

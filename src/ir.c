@@ -464,7 +464,6 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_RETURN: return "return";
         case RCC_IR_PREFETCH: return "prefetch";
         case RCC_IR_UNREACHABLE: return "unreachable";
-        case RCC_IR_SIGNAL_FENCE: return "signal_fence";
     }
     return "invalid";
 }
@@ -1136,13 +1135,6 @@ static bool ir_verify_instruction_types(
                 !rcc_ir_type_equal(instruction->type, void_type)) {
                 return ir_verify_error(verifier,
                                        "unreachable has invalid type or shape");
-            }
-            return true;
-        case RCC_IR_SIGNAL_FENCE:
-            if (!ir_require_shape(verifier, instruction, 0u, 0u) ||
-                !rcc_ir_type_equal(instruction->type, void_type)) {
-                return ir_verify_error(
-                    verifier, "signal fence has invalid type or shape");
             }
             return true;
         case RCC_IR_PREFETCH:

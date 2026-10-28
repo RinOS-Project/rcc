@@ -609,9 +609,6 @@ static bool mir_verify_instruction_type(
         case RCC_MIR_UNREACHABLE:
             return mir_shape(verifier, instruction, 0u, 0u) &&
                 rcc_mir_type_equal(instruction->type, void_type);
-        case RCC_MIR_SIGNAL_FENCE:
-            return mir_shape(verifier, instruction, 0u, 0u) &&
-                rcc_mir_type_equal(instruction->type, void_type);
         case RCC_MIR_PREFETCH:
             return mir_shape(verifier, instruction, 1u, 0u) &&
                 rcc_mir_type_equal(instruction->type, void_type) &&
@@ -993,7 +990,7 @@ static bool mir_type_from_ir(RccIrType ir_type, RccMirType* mir_result) {
 
 static bool mir_opcode_from_ir(RccIrOpcode ir_opcode,
                                RccMirOpcode* mir_opcode) {
-    if ((unsigned)ir_opcode > (unsigned)RCC_IR_SIGNAL_FENCE) return false;
+    if ((unsigned)ir_opcode > (unsigned)RCC_IR_UNREACHABLE) return false;
     *mir_opcode = (RccMirOpcode)ir_opcode;
     return true;
 }

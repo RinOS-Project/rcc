@@ -25116,7 +25116,10 @@ static Type* sema_expr(Expr* expr) {
                 sema_is_cxx_nullptr_expr(expr->binary_rhs);
             bool scoped_enum = sema_is_scoped_enum(left_value) ||
                                sema_is_scoped_enum(right_value);
+            bool complex_operand = type_is_complex(left_value) ||
+                                   type_is_complex(right_value);
             bool arithmetic = !left_nullptr && !right_nullptr &&
+                              (!complex_operand || equality) &&
                               ((scoped_enum &&
                                 sema_is_scoped_enum(left_value) &&
                                 sema_is_scoped_enum(right_value) &&
@@ -27928,6 +27931,53 @@ static bool sema_nan_builtin_payload(Expr* expression, uint64_t* payload) {
     return true;
 }
 
+static bool sema_builtin_complex_call(Expr* expression,
+                                     const char* name) {
+    ExprList* arguments;
+    ExprList* argument;
+    Type* component_type = NULL;
+    Type* complex_type;
+    int count = 0;
+    if (!expression || !name || strcmp(name, "__builtin_complex") != 0) {
+        return false;
+    }
+    arguments = expression->call_args;
+    for (argument = arguments; argument; argument = argument->next) {
+        Type* argument_type = sema_expr(argument->expr);
+        if (!argument_type || !type_is_arithmetic(argument_type) ||
+            type_is_complex(argument_type)) {
+            rcc_error(expression->loc,
+                      "__builtin_complex arguments must be real arithmetic values");
+        } else if (type_is_floating(argument_type)) {
+            component_type = component_type
+                ? type_common(component_type, argument_type)
+                : argument_type;
+        }
+        ++count;
+    }
+    if (count != 2) {
+        rcc_error(expression->loc,
+                  "__builtin_complex expects exactly two arguments, got %d",
+                  count);
+    }
+    if (!component_type) component_type = type_double;
+    if (component_type->kind != TYPE_FLOAT &&
+        component_type->kind != TYPE_DOUBLE) {
+        component_type = type_double;
+    }
+    complex_type = type_complex(component_type);
+    if (!complex_type || count != 2) {
+        expression->type = complex_type ? complex_type : type_double;
+        return true;
+    }
+    expression->kind = EXPR_COMPOUND;
+    expression->compound_type = complex_type;
+    expression->compound_init = arguments;
+    expression->is_complex_constructor = true;
+    expression->type = complex_type;
+    return true;
+}
+
 static bool sema_fold_nonfinite_builtin(Expr* expression,
                                         const char* name) {
     Expr* function;
@@ -28035,6 +28085,7 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     function = expr->call_func;
     name = function->ident_name;
     if (sema_fold_nonfinite_builtin(expr, name)) return true;
+    if (sema_builtin_complex_call(expr, name)) return true;
     mmx_kind = sema_mmx_builtin_kind(name);
     if (mmx_kind != RCC_MMX_BUILTIN_NONE) {
         int expected_count = mmx_kind == RCC_MMX_BUILTIN_INIT_V2SI ? 2 :
@@ -29767,6 +29818,48 @@ static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     Expr* string_literal;
     if (!type || type->cxx_dependent || !initializer) return;
+    if (type_is_complex(type)) {
+        ExprList* item = initializer->compound_init;
+        if (initializer->kind != EXPR_COMPOUND) {
+            sema_expr(initializer);
+            if (!implicit_cast(initializer, type)) {
+                rcc_error(initializer->loc,
+                          "complex initializer requires an arithmetic value");
+            }
+            return;
+        }
+        initializer->type = type;
+        if (!item || item->designator_kind != INIT_DESIGNATOR_NONE ||
+            (item->next && !initializer->is_complex_constructor)) {
+            rcc_error(initializer->loc,
+                      "complex initializer requires one scalar value or a compiler complex constructor");
+            return;
+        }
+        if (initializer->is_complex_constructor &&
+            (!item->next || item->next->next ||
+             item->next->designator_kind != INIT_DESIGNATOR_NONE)) {
+            rcc_error(initializer->loc,
+                      "complex constructor requires exactly two values");
+            return;
+        }
+        for (; item; item = item->next) {
+            Type* item_type = sema_expr(item->expr);
+            if (!item_type || !type_is_arithmetic(item_type) ||
+                (initializer->is_complex_constructor &&
+                 type_is_complex(item_type))) {
+                rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                          "complex initializer element must be a real arithmetic value");
+                continue;
+            }
+            if (initializer->is_complex_constructor &&
+                !implicit_cast(item->expr,
+                               type->complex_component_type)) {
+                rcc_error(item->expr->loc,
+                          "complex constructor component conversion is invalid");
+            }
+        }
+        return;
+    }
     sema_validate_cxx_designated_initializer(type, initializer);
     /* In C++ a parenthesized constructor argument list is stored in the
      * same compound node as a braced aggregate initializer.  Brace elision

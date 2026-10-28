@@ -349,8 +349,6 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_RETURN: return RCC_X86_RETURN;
         case RCC_MIR_PREFETCH: return RCC_X86_PREFETCH;
         case RCC_MIR_UNREACHABLE: return RCC_X86_TRAP;
-        /* Signal fences are handled before this mapping and emit no opcode. */
-        case RCC_MIR_SIGNAL_FENCE: return RCC_X86_TRAP;
         case RCC_MIR_PHI: break;
     }
     return RCC_X86_TRAP;
@@ -411,8 +409,7 @@ static bool x86_select_instruction(
     size_t target;
     RccX86Instruction* machine;
     RccMirType type = instruction->type;
-    if (instruction->opcode == RCC_MIR_PHI ||
-        instruction->opcode == RCC_MIR_SIGNAL_FENCE) return true;
+    if (instruction->opcode == RCC_MIR_PHI) return true;
     if (instruction->definition != RCC_MIR_VREG_NONE) {
         destination = &allocation->locations[instruction->definition];
     }

@@ -99,8 +99,6 @@ typedef enum {
     RCC_IR_RETURN,
     RCC_IR_PREFETCH,
     RCC_IR_UNREACHABLE,
-    /* Compiler ordering boundary for asynchronous signal handlers. */
-    RCC_IR_SIGNAL_FENCE,
 } RccIrOpcode;
 
 typedef enum {
