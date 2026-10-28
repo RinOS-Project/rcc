@@ -29,12 +29,12 @@ struct DirectLessWinsRewriteTie {
 };
 
 struct ReverseSpaceshipLeft {};
-struct ReverseSpaceshipRight {};
-
-int operator<=>(const ReverseSpaceshipRight&,
-                const ReverseSpaceshipLeft&) {
-    return 1;
-}
+struct ReverseSpaceshipRight {
+    friend int operator<=>(const ReverseSpaceshipRight&,
+                           const ReverseSpaceshipLeft&) {
+        return 1;
+    }
+};
 
 struct ComparisonResult {
     int value;

@@ -1389,7 +1389,17 @@ static bool sema_cxx_adl_contains(const SemaCxxAdlCandidates* candidates,
                                   Decl* declaration) {
     if (!candidates || !declaration) return false;
     for (size_t index = 0; index < candidates->count; ++index) {
-        if (candidates->declarations[index] == declaration) return true;
+        Decl* existing = candidates->declarations[index];
+        if (existing == declaration ||
+            (existing && existing->link_name && declaration->link_name &&
+             strcmp(existing->link_name, declaration->link_name) == 0)) {
+            /* Ordinary lookup may have filtered hidden friends by creating
+             * an analysis-only copy of the visible overload set.  ADL then
+             * encounters the original namespace declaration; its ABI name
+             * identifies the same function entity despite the different
+             * Decl address. */
+            return true;
+        }
     }
     return false;
 }

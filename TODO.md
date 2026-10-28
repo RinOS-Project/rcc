@@ -11446,3 +11446,16 @@ remains a separate open item.
       including remaining built-in conversion candidates, templates, and
       hidden-friend/ADL corner cases; retain the broader C++20 overload
       conformance item as open.
+
+## RCC continuation (2026-10-28, hidden-friend ADL candidate identity)
+
+- [x] Deduplicate an ordinary-lookup overload-set copy against the original
+      namespace declaration when ADL merges the same function. Preserve
+      hidden-friend association filtering while avoiding duplicate overloads
+      that made unrelated C++20 spaceship expressions ambiguous. Cover a
+      reversed hidden-friend `operator<=>` alongside unrelated global
+      spaceship comparisons in `test-cxx-spaceship`; focused spaceship,
+      overload, operator-overload, and defaulted-equality tests pass. A GCC
+      C++20 `-pedantic-errors` runtime oracle confirms the reversed rewrite.
+- [ ] Continue auditing ADL candidate identity and hidden-friend lookup across
+      namespaces, inline namespaces, templates, and redeclarations.
