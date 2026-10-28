@@ -66,7 +66,14 @@ public:
     template <typename T>
     friend int operator<=>(const HiddenFriendTemplateSpaceship& left,
                            T right) {
-        return left.value - static_cast<int>(right) + 100;
+        (void)right;
+        return left.value + 100;
+    }
+
+    template <typename T>
+    friend int operator<=>(const HiddenFriendTemplateSpaceship& left,
+                           T* right) {
+        return left.value - *right;
     }
 
     friend int operator<=>(const HiddenFriendTemplateSpaceship& left,
@@ -107,6 +114,22 @@ struct Right {
         return 1;
     }
 };
+}
+
+struct OrdinaryOperatorTemplateOperand {
+    int value;
+};
+
+namespace ordinary_operator_template {
+template <typename T>
+int operator<=>(const OrdinaryOperatorTemplateOperand& left, T right) {
+    return left.value - static_cast<int>(right);
+}
+
+bool check() {
+    OrdinaryOperatorTemplateOperand value{8};
+    return value < 10;
+}
 }
 
 struct ComparisonResult {
@@ -154,6 +177,7 @@ int main() {
     TemplatedHiddenFriendSpaceship<long> templated_friend_long_left{7};
     TemplatedHiddenFriendSpaceship<long> templated_friend_long_right{4};
     HiddenFriendTemplateSpaceship hidden_friend_template{8};
+    int hidden_friend_template_pointer_value = 10;
     ReverseSpaceshipLeft reverse_left;
     ReverseSpaceshipRight reverse_right;
     spaceship_associated::Left inline_left;
@@ -184,6 +208,7 @@ int main() {
            !(templated_friend_long_left < templated_friend_long_right) &&
            (hidden_friend_template < 10) &&
            !(hidden_friend_template < 10L) &&
+           (hidden_friend_template < &hidden_friend_template_pointer_value) &&
            (reverse_left < reverse_right) &&
            (reverse_left <= reverse_right) &&
            !(reverse_left >= reverse_right) &&
@@ -192,6 +217,7 @@ int main() {
            (reverse_right >= reverse_left) &&
            (inline_left < inline_right) &&
            (named_left < named_right) &&
+           ordinary_operator_template::check() &&
            (class_result_left < class_result_right) &&
            spaceship_rewrite_checks(older, newer) ? 0 : 1;
 }

@@ -38364,9 +38364,10 @@ static void cxx_add_function_declaration_once(Decl* declaration) {
     ast_add_decl(active_ast, declaration);
 }
 
-int rcc_parser_cxx_materialize_adl_function_templates(
-    const char* name, ExprList* arguments, Decl** candidates,
-    int candidate_capacity, bool* constraint_unsupported) {
+int rcc_parser_cxx_materialize_operator_function_templates(
+    CxxNamespace* scope, const char* name, ExprList* arguments,
+    Decl** candidates, int candidate_capacity,
+    bool* constraint_unsupported) {
     CxxTemplate* templates[32] = { NULL };
     CxxFunctionTemplateMatch matches[32] = { 0 };
     CxxNamespace* saved_namespace = active_namespace;
@@ -38379,9 +38380,19 @@ int rcc_parser_cxx_materialize_adl_function_templates(
     if (!name || !arguments || !candidates || candidate_capacity <= 0) {
         return 0;
     }
+    active_namespace = scope ? scope : g_global_namespace;
+    template_count = find_function_template_candidates(
+        name, templates, (int)(sizeof(templates) / sizeof(templates[0])));
+    if (template_count > (int)(sizeof(templates) / sizeof(templates[0]))) {
+        rcc_error(arguments->expr ? arguments->expr->loc :
+                                    (SourceLoc){"<sema>", 0, 0},
+                  "too many ordinary function template candidates for '%s'",
+                  name);
+        template_count = (int)(sizeof(templates) / sizeof(templates[0]));
+    }
     template_count = cxx_function_template_candidates_for_adl(
         name, arguments, templates,
-        (int)(sizeof(templates) / sizeof(templates[0])), 0);
+        (int)(sizeof(templates) / sizeof(templates[0])), template_count);
     if (template_count > (int)(sizeof(templates) / sizeof(templates[0]))) {
         rcc_error(arguments->expr ? arguments->expr->loc :
                                     (SourceLoc){"<sema>", 0, 0},

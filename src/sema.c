@@ -49,8 +49,9 @@ extern int rcc_parser_cxx_materialize_member_function_templates(
     __attribute__((weak));
 extern int rcc_parser_cxx_materialize_constructor_templates(
     Type*, ExprList*, bool, TypeMethod**, int, bool*) __attribute__((weak));
-extern int rcc_parser_cxx_materialize_adl_function_templates(
-    const char*, ExprList*, Decl**, int, bool*) __attribute__((weak));
+extern int rcc_parser_cxx_materialize_operator_function_templates(
+    CxxNamespace*, const char*, ExprList*, Decl**, int, bool*)
+    __attribute__((weak));
 extern bool rcc_parser_cxx_has_constructor_template(
     Type*) __attribute__((weak));
 extern bool rcc_parser_cxx_normalize_constructor_body(
@@ -12676,11 +12677,12 @@ static Symbol* sema_cxx_operator_function(const char* name,
         }
     }
 #if defined(__GNUC__) || defined(__clang__)
-    if (arguments && rcc_parser_cxx_materialize_adl_function_templates) {
+    if (arguments &&
+        rcc_parser_cxx_materialize_operator_function_templates) {
         bool constraint_unsupported = false;
         int template_count =
-            rcc_parser_cxx_materialize_adl_function_templates(
-                name, arguments, template_candidates,
+            rcc_parser_cxx_materialize_operator_function_templates(
+                current_cxx_namespace, name, arguments, template_candidates,
                 (int)(sizeof(template_candidates) /
                       sizeof(template_candidates[0])),
                 &constraint_unsupported);
