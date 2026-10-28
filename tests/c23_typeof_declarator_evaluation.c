@@ -11,6 +11,18 @@ static int typeof_vla_typedef_capture(void) {
     bound = 5;
     Captured third;
     if (sizeof(third) != 2u * sizeof(int)) return 100;
+
+    int nested_bound = 2;
+    typedef typeof(int[nested_bound++]) Row;
+    if (nested_bound != 3) return 110 + nested_bound;
+    typedef typeof(Row[nested_bound++]) Matrix;
+    if (nested_bound != 4) return 120 + nested_bound;
+    Matrix matrix;
+    if (sizeof(matrix) != 3u * 2u * sizeof(int)) return 130;
+    nested_bound = 8;
+    Matrix another_matrix;
+    if (sizeof(another_matrix) != 3u * 2u * sizeof(int)) return 140;
+    if (nested_bound != 8) return 150;
     return 0;
 }
 
