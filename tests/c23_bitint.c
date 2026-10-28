@@ -9,6 +9,7 @@ typedef _BitInt(2) s2;
 typedef signed _BitInt(5) s5;
 typedef unsigned _BitInt(5) u5;
 typedef unsigned _BitInt(9) u9;
+typedef signed _BitInt(33) s33;
 typedef unsigned _BitInt(33) u33;
 typedef _BitInt(64) s64;
 typedef unsigned _BitInt(64) u64;
@@ -34,6 +35,8 @@ int main(void)
     u5 unsigned_max = 31;
     u5 unsigned_wrapped = (u5)31 + (u5)3;
     u5 unsigned_cast = (u5)35u;
+    u5 unsigned_shift = (u5)7 << 2;
+    u5 unsigned_shift_wrapped = (u5)31 << 1;
     u9 nine_bit_max = 511;
     u9 nine_bit_wrapped = (u9)511 + (u9)1;
     u33 above_uint = (u33)UINT_MAX + (u33)1;
@@ -53,6 +56,7 @@ int main(void)
         signed_sum != -4) return 2;
     if (global_unsigned_max != unsigned_max || unsigned_max != 31u ||
         unsigned_wrapped != 2u || unsigned_cast != 3u) return 3;
+    if (unsigned_shift != 28u || unsigned_shift_wrapped != 30u) return 9;
     if (nine_bit_max != 511u || nine_bit_wrapped != 0u) return 4;
     if ((unsigned long long)above_uint != 4294967296ULL) return 5;
     if ((long long)signed_literal != LLONG_MAX ||
@@ -61,5 +65,12 @@ int main(void)
         unsigned_wrapped64 != 0u) return 7;
     if (fields.signed_narrow != -16 || fields.unsigned_narrow != 31u ||
         fields.unsigned_wide != (((u33)1 << 32) | (u33)17)) return 8;
+    if (!_Generic((s5)1, s5: 1, default: 0) ||
+        !_Generic((u5)1, u5: 1, default: 0) ||
+        !_Generic((s5)1 + 1, int: 1, default: 0) ||
+        !_Generic((s33)1 + 1u, s33: 1, default: 0) ||
+        !_Generic((u33)1 + 1, u33: 1, default: 0) ||
+        !_Generic((u64)1 + 1ULL, unsigned long long: 1, default: 0))
+        return 10;
     return 0;
 }

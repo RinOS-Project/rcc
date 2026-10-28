@@ -31,9 +31,12 @@
   based on 9-bit types and a 33-bit field; execute sign/value preservation and
   boundary reads on the x86_64 host and validate both targets' RIN/RLL/DRV
   outputs through the `test-c23-bitint` gate.
+- [x] Verify `_Generic` exact-type selection for bit-precise types and usual
+  arithmetic conversions across narrower/equal/wider mixed ranks; exercise
+  defined unsigned narrow-width left shifts including modulo wraparound.
 - [ ] Audit remaining C23 bit-precise integer rules and contexts, especially
-  variadic arguments, `_Generic` and mixed-rank usual arithmetic conversions,
-  shift/overflow constraints, and `wb` constants in preprocessing.
+  variadic arguments, invalid/signed shift and overflow constraints, and `wb`
+  constants in preprocessing.
 
 ## RCC continuation (2026-10-29, C23 binary resource inclusion)
 
