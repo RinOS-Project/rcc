@@ -1125,7 +1125,7 @@ static PPExprValue pp_expr_primary(PPExprParser* parser) {
         {
             bool saw_unsigned = false;
             bool saw_bitint = false;
-            bool saw_long = false;
+            unsigned int long_count = 0u;
             while (*p == 'u' || *p == 'U' || *p == 'l' || *p == 'L' ||
                    *p == 'w' || *p == 'W' || *p == 'b' || *p == 'B') {
                 if (*p == 'u' || *p == 'U') {
@@ -1134,12 +1134,18 @@ static PPExprValue pp_expr_primary(PPExprParser* parser) {
                     is_unsigned = true;
                     ++p;
                 } else if (*p == 'l' || *p == 'L') {
-                    if (saw_long) parser->invalid = true;
-                    saw_long = true;
-                    ++p;
+                    char long_mark = *p++;
+                    if (long_count != 0u) parser->invalid = true;
+                    long_count = 1u;
+                    if (*p == long_mark) {
+                        ++p;
+                        long_count = 2u;
+                    }
                 } else if ((*p == 'w' || *p == 'W') &&
                            p[1] == (*p == 'w' ? 'b' : 'B')) {
-                    if (saw_bitint || saw_long) parser->invalid = true;
+                    if (saw_bitint || long_count != 0u) {
+                        parser->invalid = true;
+                    }
                     saw_bitint = true;
                     p += 2;
                 } else {

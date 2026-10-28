@@ -4,6 +4,10 @@
 #define SHIFT 2
 #define ADD(left, right) ((left) + (right))
 
+#if 18446744073709551615ULL != 18446744073709551615LLU
+#error "long long integer suffixes in #if must accept both standard orders"
+#endif
+
 #if !defined(MISSING) && defined(FLAG) && FLAG
 #else
 #error "defined or object-like macro evaluation failed"
