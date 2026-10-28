@@ -23,6 +23,7 @@ typedef struct CxxCleanupPlan CxxCleanupPlan;
 typedef struct CxxParsedTemplateArgument CxxParsedTemplateArgument;
 typedef struct CxxDependentFunctionTemplateCall
     CxxDependentFunctionTemplateCall;
+typedef struct TypeOffsetofDesignator TypeOffsetofDesignator;
 struct ExprList;
 struct Token;
 struct CxxClass;
@@ -45,6 +46,19 @@ struct CxxDependentFunctionTemplateCall {
     int* candidate_explicit_argument_counts;
     bool* candidate_explicit_arguments_valid;
     bool explicit_arguments_specified;
+};
+
+typedef enum {
+    TYPE_OFFSETOF_MEMBER,
+    TYPE_OFFSETOF_INDEX,
+} TypeOffsetofDesignatorKind;
+
+struct TypeOffsetofDesignator {
+    TypeOffsetofDesignatorKind kind;
+    const char* member_name;
+    int64_t index;
+    SourceLoc loc;
+    TypeOffsetofDesignator* next;
 };
 
 /* ═══════════════════════════════════════
@@ -562,6 +576,8 @@ typedef enum {
     EXPR_CXX_FOLD,      /* C++ unary fold over a type function-parameter pack */
     EXPR_CXX_REQUIRES,  /* bounded C++20 requires-expression */
     EXPR_CXX_TYPE_TRAIT, /* C++ type trait with deferred dependent operands */
+    EXPR_BUILTIN_TYPES_COMPAT, /* deferred __builtin_types_compatible_p */
+    EXPR_BUILTIN_OFFSETOF, /* deferred __builtin_offsetof */
     EXPR_VA_START,      /* __builtin_va_start(list, last) */
     EXPR_VA_END,        /* __builtin_va_end(list) */
     EXPR_VA_COPY,       /* __builtin_va_copy(destination, source) */
@@ -1027,6 +1043,18 @@ struct Expr {
             Type* cxx_type_trait_type;
             Type* cxx_type_trait_other_type;
             CxxTypeTraitArgument* cxx_type_trait_arguments;
+        };
+
+        /* EXPR_BUILTIN_TYPES_COMPAT */
+        struct {
+            Type* builtin_types_compatible_left;
+            Type* builtin_types_compatible_right;
+        };
+
+        /* EXPR_BUILTIN_OFFSETOF */
+        struct {
+            Type* builtin_offsetof_type;
+            TypeOffsetofDesignator* builtin_offsetof_designators;
         };
 
         /* EXPR_VA_START/END/COPY/ARG */

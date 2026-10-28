@@ -3219,6 +3219,11 @@ static bool expression_mentions_decl(const Expr* expression,
     switch (expression->kind) {
         case EXPR_CXX_TYPE_TRAIT:
             return false;
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
+            /* These deferred C23 type operands must be folded by sema before
+             * local-reference analysis; conservatively keep the declaration. */
+            return true;
         case EXPR_IDENT:
             return expression->ident_decl == declaration;
         case EXPR_POS:
@@ -3365,6 +3370,10 @@ static bool expression_modifies_decl(const Expr* expression,
     switch (expression->kind) {
         case EXPR_CXX_TYPE_TRAIT:
             return false;
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
+            /* Sema normally folds these before optimizer dataflow. */
+            return true;
         case EXPR_PREINC:
         case EXPR_PREDEC:
         case EXPR_POSTINC:
@@ -3639,6 +3648,10 @@ static bool expression_has_side_effect(const Expr* expression) {
         case EXPR_CXX_TYPEID:
         case EXPR_CXX_TYPE_TRAIT:
             return false;
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
+            /* Do not discard an expression that sema failed to fold. */
+            return true;
         case EXPR_IDENT:
             return expression->type && expression->type->is_volatile;
         case EXPR_PREINC:
@@ -5688,6 +5701,8 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
         case EXPR_CXX_THIS:
         case EXPR_CXX_TYPEID:
         case EXPR_CXX_TYPE_TRAIT:
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
             return;
         case EXPR_POS:
         case EXPR_NEG:
@@ -6201,6 +6216,9 @@ static void mark_address_escapes_expr(const Expr* expression,
             return;
         case EXPR_CXX_TYPE_TRAIT:
             return;
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
+            return;
         case EXPR_NOEXCEPT:
             /* Its operand is unevaluated and cannot make a local address
              * escape from the containing expression. */
@@ -6528,6 +6546,12 @@ static void mark_dead_store_reads(const Expr* expression,
         case EXPR_CXX_THIS:
             return;
         case EXPR_CXX_TYPE_TRAIT:
+            return;
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
+            for (local = locals; local; local = local->next) {
+                local->live = true;
+            }
             return;
         case EXPR_NOEXCEPT:
             /* The operand is unevaluated; it does not read local storage. */

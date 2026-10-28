@@ -30,10 +30,12 @@
 - [x] Capture independent bounds for multiple typedef declarators in one
   declaration and reuse them through nested array typedef aliases; verify
   i686/AMD64 execution and GCC 13.3 / Clang 18 runtime oracles.
-- [ ] Complete exact evaluation ordering across multiple declarators,
-  prototype-scope rules, and deferred type-name contexts such as
-  `__builtin_types_compatible_p` /
-  `__builtin_offsetof`. GCC 13.3 and Clang 18 agree on array/function
+- [x] Defer C23 `__builtin_types_compatible_p` and `__builtin_offsetof`
+  operands containing `typeof` until semantic type resolution; cover aggregate,
+  pointer and member-array compatibility plus nested member/index offsets with
+  i686/AMD64 objects, AMD64 execution, and a GCC `-std=c2x -Werror` oracle.
+- [ ] Complete exact evaluation ordering across multiple declarators and
+  prototype-scope rules. GCC 13.3 and Clang 18 agree on array/function
   parameter adjustment, but differ from RCC on the
   `typeof_unqual(const int[3])` write test; reconcile that behavior with N3220.
   Native i686 execution now passes for the covered typedef/runtime cases.

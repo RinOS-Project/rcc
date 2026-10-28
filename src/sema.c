@@ -23383,6 +23383,98 @@ static Type* sema_typeof_qualify_type(Type* type, bool is_const,
     return qualified;
 }
 
+static bool sema_builtin_types_compatible(Type* left, Type* right,
+                                          bool top_level) {
+    TypeParam* left_param;
+    TypeParam* right_param;
+
+    if (!left || !right || !type_is_compatible(left, right)) return false;
+    if (left->is_atomic != right->is_atomic) return false;
+    if (!top_level &&
+        (left->is_const != right->is_const ||
+         left->is_volatile != right->is_volatile ||
+         left->is_restrict != right->is_restrict)) {
+        return false;
+    }
+    if (left->kind == TYPE_PTR || left->kind == TYPE_ARRAY ||
+        left->kind == TYPE_VECTOR) {
+        return sema_builtin_types_compatible(left->base, right->base, false);
+    }
+    if (left->kind != TYPE_FUNC) return true;
+    if (!left->has_prototype || !right->has_prototype) return true;
+    if (!sema_builtin_types_compatible(left->ret_type, right->ret_type,
+                                       true)) {
+        return false;
+    }
+    left_param = left->params;
+    right_param = right->params;
+    while (left_param && right_param) {
+        if (!sema_builtin_types_compatible(left_param->type,
+                                           right_param->type, true)) {
+            return false;
+        }
+        left_param = left_param->next;
+        right_param = right_param->next;
+    }
+    return left_param == NULL && right_param == NULL;
+}
+
+static TypeField* sema_find_offsetof_field(Type* aggregate,
+                                           const char* name) {
+    for (TypeField* field = aggregate ? aggregate->fields : NULL;
+         field; field = field->next) {
+        if (field->name && name && strcmp(field->name, name) == 0) {
+            return field;
+        }
+    }
+    return NULL;
+}
+
+static int64_t sema_resolve_builtin_offsetof(Expr* expression) {
+    Type* current = sema_resolve_typeof_type(
+        expression->builtin_offsetof_type);
+    int64_t offset = 0;
+
+    if (!current || (current->kind != TYPE_STRUCT &&
+                     current->kind != TYPE_UNION)) {
+        rcc_error(expression->loc,
+                  "__builtin_offsetof requires an aggregate type");
+        current = type_int;
+    }
+    for (TypeOffsetofDesignator* designator =
+             expression->builtin_offsetof_designators;
+         designator; designator = designator->next) {
+        if (designator->kind == TYPE_OFFSETOF_MEMBER) {
+            TypeField* field = sema_find_offsetof_field(
+                current, designator->member_name);
+            if (!field) {
+                rcc_error(designator->loc,
+                          "unknown member '%s' in offsetof",
+                          designator->member_name
+                              ? designator->member_name : "");
+                current = type_int;
+                continue;
+            }
+            offset += field->offset;
+            if (field->is_bitfield) {
+                rcc_error(designator->loc,
+                          "cannot compute offsetof for a bit-field");
+            }
+            current = sema_resolve_typeof_type(field->type);
+        } else {
+            if (!current || current->kind != TYPE_ARRAY || !current->base) {
+                rcc_error(designator->loc,
+                          "offsetof subscript requires an array member");
+                current = type_int;
+                continue;
+            }
+            offset += designator->index * current->base->size;
+            current = current->base;
+        }
+    }
+    return offset;
+}
+
 static Type* sema_resolve_typeof_type_recursive(
     Type* type, const SemaTypeofVisit* visited) {
     SemaTypeofVisit current;
@@ -23655,6 +23747,23 @@ static Type* sema_expr(Expr* expr) {
     }
 
     switch (expr->kind) {
+        case EXPR_BUILTIN_TYPES_COMPAT:
+            expr->builtin_types_compatible_left = sema_resolve_typeof_type(
+                expr->builtin_types_compatible_left);
+            expr->builtin_types_compatible_right = sema_resolve_typeof_type(
+                expr->builtin_types_compatible_right);
+            expr->int_val = sema_builtin_types_compatible(
+                expr->builtin_types_compatible_left,
+                expr->builtin_types_compatible_right, true) ? 1 : 0;
+            expr->kind = EXPR_INT_LIT;
+            expr->type = type_int;
+            break;
+
+        case EXPR_BUILTIN_OFFSETOF:
+            expr->int_val = sema_resolve_builtin_offsetof(expr);
+            expr->kind = EXPR_INT_LIT;
+            break;
+
         case EXPR_CXX_TYPE_TRAIT:
             if (expr->cxx_type_trait_kind == CXX_TYPE_TRAIT_ASSIGNABLE &&
                 expr->cxx_type_trait_type &&

@@ -222,6 +222,8 @@ static bool driver_validate_expr(Expr* expression)
         case EXPR_IDENT:
         case EXPR_CXX_THIS:
         case EXPR_CXX_TYPE_TRAIT:
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
             return true;
         case EXPR_FLOAT_LIT:
             rcc_error(expression->loc,

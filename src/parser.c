@@ -1628,9 +1628,74 @@ void rcc_parser_validate_cxx_constructor_initializer(Type* type,
     }
 }
 
+static bool parser_type_has_deferred_typeof_recursive(
+    Type* type, Type** visited, unsigned* visited_count) {
+    if (!type) return false;
+    if (type->c_typeof_expression) return true;
+    for (unsigned i = 0u; i < *visited_count; ++i) {
+        if (visited[i] == type) return false;
+    }
+    if (*visited_count >= 128u) return true;
+    visited[(*visited_count)++] = type;
+
+    switch (type->kind) {
+        case TYPE_PTR:
+        case TYPE_ARRAY:
+        case TYPE_VECTOR:
+            return parser_type_has_deferred_typeof_recursive(
+                type->base, visited, visited_count);
+        case TYPE_FUNC:
+            if (parser_type_has_deferred_typeof_recursive(
+                    type->ret_type, visited, visited_count)) {
+                return true;
+            }
+            for (TypeParam* parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                if (parser_type_has_deferred_typeof_recursive(
+                        parameter->type, visited, visited_count)) {
+                    return true;
+                }
+            }
+            return false;
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+            for (TypeField* field = type->fields; field;
+                 field = field->next) {
+                if (parser_type_has_deferred_typeof_recursive(
+                        field->type, visited, visited_count)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
+static bool parser_type_has_deferred_typeof(Type* type) {
+    Type* visited[128];
+    unsigned visited_count = 0u;
+    return parser_type_has_deferred_typeof_recursive(
+        type, visited, &visited_count);
+}
+
+static bool parser_c23_deferred_type(Type* type) {
+    return !parser_cxx_mode && g_opts.c_standard >= 23 &&
+           parser_type_has_deferred_typeof(type);
+}
+
+static void parser_append_offsetof_designator(
+    TypeOffsetofDesignator*** tail, TypeOffsetofDesignator* designator) {
+    **tail = designator;
+    *tail = &designator->next;
+}
+
 static Expr* parse_builtin_offsetof(SourceLoc loc) {
     Type* current;
     int64_t offset = 0;
+    bool deferred_type;
+    TypeOffsetofDesignator* designators = NULL;
+    TypeOffsetofDesignator** designator_tail = &designators;
 
     advance(); /* __builtin_offsetof */
     expect(TOK_LPAREN, "(");
@@ -1641,32 +1706,61 @@ static Expr* parse_builtin_offsetof(SourceLoc loc) {
         current = parse_type_spec();
         current = parse_declarator(current, NULL, NULL);
     }
+    deferred_type = parser_c23_deferred_type(current);
     expect(TOK_COMMA, ",");
 
-    if (!current || (current->kind != TYPE_STRUCT &&
-                     current->kind != TYPE_UNION)) {
+    if (!deferred_type && (!current || (current->kind != TYPE_STRUCT &&
+                                       current->kind != TYPE_UNION))) {
         rcc_error(loc, "__builtin_offsetof requires an aggregate type");
     }
     while (!check(TOK_RPAREN) && !at_end()) {
         if (match(TOK_IDENT)) {
-            TypeField* field = parser_find_field(
-                current, previous()->value.str_val);
-            if (!field) {
-                rcc_error(previous()->loc, "unknown member '%s' in offsetof",
-                          previous()->value.str_val);
-                current = type_int;
+            Token* member = previous();
+            if (deferred_type) {
+                TypeOffsetofDesignator* designator = ast_arena_alloc(
+                    sizeof(*designator));
+                designator->kind = TYPE_OFFSETOF_MEMBER;
+                designator->member_name = member->value.str_val;
+                designator->loc = member->loc;
+                designator->next = NULL;
+                parser_append_offsetof_designator(&designator_tail,
+                                                   designator);
             } else {
-                offset += field->offset;
-                if (field->is_bitfield) {
-                    rcc_error(previous()->loc,
-                              "cannot compute offsetof for a bit-field");
+                TypeField* field = parser_find_field(
+                    current, member->value.str_val);
+                if (!field) {
+                    rcc_error(member->loc,
+                              "unknown member '%s' in offsetof",
+                              member->value.str_val);
+                    current = type_int;
+                } else {
+                    offset += field->offset;
+                    if (field->is_bitfield) {
+                        rcc_error(member->loc,
+                                  "cannot compute offsetof for a bit-field");
+                    }
+                    current = field->type;
                 }
-                current = field->type;
             }
         } else if (match(TOK_LBRACKET)) {
             Expr* index_expression = parse_assignment();
             int64_t index = 0;
-            if (!current || current->kind != TYPE_ARRAY) {
+            if (deferred_type) {
+                if (!eval_integer_constant(index_expression, &index) ||
+                    index < 0) {
+                    rcc_error(index_expression->loc,
+                              "offsetof subscript is not a non-negative integer constant");
+                } else {
+                    TypeOffsetofDesignator* designator = ast_arena_alloc(
+                        sizeof(*designator));
+                    designator->kind = TYPE_OFFSETOF_INDEX;
+                    designator->index = index;
+                    designator->loc = index_expression->loc;
+                    designator->next = NULL;
+                    parser_append_offsetof_designator(&designator_tail,
+                                                       designator);
+                }
+            } else if (!current || current->kind != TYPE_ARRAY) {
                 rcc_error(previous()->loc,
                           "offsetof subscript requires an array member");
             } else if (!eval_integer_constant(index_expression, &index) ||
@@ -1686,6 +1780,15 @@ static Expr* parse_builtin_offsetof(SourceLoc loc) {
     }
     expect(TOK_RPAREN, ")");
 
+    if (deferred_type) {
+        Expr* result = expr_int(0, loc);
+        result->kind = EXPR_BUILTIN_OFFSETOF;
+        result->builtin_offsetof_type = current;
+        result->builtin_offsetof_designators = designators;
+        result->type = g_opts.target_arch == ARCH_X64 ? type_ullong
+                                                       : type_uint;
+        return result;
+    }
     Expr* result = expr_int(offset, loc);
     result->type = g_opts.target_arch == ARCH_X64 ? type_ullong : type_uint;
     return result;
@@ -1750,6 +1853,15 @@ static Expr* parse_builtin_types_compatible(SourceLoc loc) {
         right = parse_declarator(right, NULL, NULL);
     }
     expect(TOK_RPAREN, ")");
+    if (parser_c23_deferred_type(left) ||
+        parser_c23_deferred_type(right)) {
+        result = expr_int(0, loc);
+        result->kind = EXPR_BUILTIN_TYPES_COMPAT;
+        result->builtin_types_compatible_left = left;
+        result->builtin_types_compatible_right = right;
+        result->type = type_int;
+        return result;
+    }
     result = expr_int(left && right &&
                           parser_builtin_types_compatible(left, right, true)
                           ? 1 : 0,

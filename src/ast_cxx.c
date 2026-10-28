@@ -8337,6 +8337,8 @@ static int template_parameter_pack_index_expression(CxxTemplate* tmpl,
         case EXPR_VA_END:
         case EXPR_VA_COPY:
         case EXPR_VA_ARG:
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
         case EXPR_INT_LIT:
         case EXPR_FLOAT_LIT:
         case EXPR_CHAR_LIT:

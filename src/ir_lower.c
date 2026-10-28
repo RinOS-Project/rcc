@@ -13547,6 +13547,8 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
     }
     switch (expression->kind) {
         case EXPR_INT_LIT:
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
             if (type_is_cxx_member_function_pointer(expression->type)) {
                 if (expression->int_val != 0) {
                     context->unsupported = true;

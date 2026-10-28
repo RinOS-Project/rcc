@@ -1195,6 +1195,12 @@ test-c23-typeof-type-name: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S -o $(TEST_OUT)/c23-typeof-type-name/x64.s tests/c23_typeof_type_name.c
 	$(CC) -o $(TEST_OUT)/c23-typeof-type-name/x64-host $(TEST_OUT)/c23-typeof-type-name/x64.s
 	$(TEST_OUT)/c23-typeof-type-name/x64-host
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/builtin-contexts-x86.ro tests/c23_typeof_builtin_contexts.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/builtin-contexts-x64.ro tests/c23_typeof_builtin_contexts.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S -o $(TEST_OUT)/c23-typeof-type-name/builtin-contexts.s tests/c23_typeof_builtin_contexts.c
+	$(CC) -o $(TEST_OUT)/c23-typeof-type-name/builtin-contexts-host $(TEST_OUT)/c23-typeof-type-name/builtin-contexts.s
+	$(TEST_OUT)/c23-typeof-type-name/builtin-contexts-host
+	gcc -std=c2x -Wall -Wextra -Werror -fsyntax-only tests/c23_typeof_builtin_contexts.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S -o $(TEST_OUT)/c23-typeof-type-name/parameter-adjustment.s tests/c23_typeof_parameter_adjustment.c
 	$(CC) -o $(TEST_OUT)/c23-typeof-type-name/parameter-adjustment-host $(TEST_OUT)/c23-typeof-type-name/parameter-adjustment.s
 	$(TEST_OUT)/c23-typeof-type-name/parameter-adjustment-host
