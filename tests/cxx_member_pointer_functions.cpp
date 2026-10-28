@@ -162,19 +162,25 @@ typedef int (MemberFunctionOwner::*MemberFunctionMethod)(int);
 MemberFunctionMethod global_member_function = &MemberFunctionOwner::add;
 int (MemberFunctionAdjustmentDerived::*global_adjusted_member_function)(int) =
     &MemberFunctionAdjustmentBase::add;
+#ifndef RINOS_HOST_TEST
 thread_local int
     (MemberFunctionAdjustmentDerived::*tls_adjusted_member_function)(int) =
         &MemberFunctionAdjustmentBase::add;
+#endif
 int (VirtualMemberFunctionBase::*global_virtual_member_function)(int) =
     &VirtualMemberFunctionBase::add;
+#ifndef RINOS_HOST_TEST
 thread_local int
     (VirtualMemberFunctionBase::*tls_virtual_member_function)(int) =
         &VirtualMemberFunctionBase::add;
+#endif
 int (VirtualMemberFunctionPathBase::*global_virtual_path_member_function)(int) =
     &VirtualMemberFunctionPathBase::add;
+#ifndef RINOS_HOST_TEST
 thread_local int
     (VirtualMemberFunctionPathBase::*tls_virtual_path_member_function)(int) =
         &VirtualMemberFunctionPathBase::add;
+#endif
 
 MemberFunctionMethod identity_member_function(MemberFunctionMethod method) {
     return method;
@@ -344,26 +350,32 @@ int main() {
     if ((virtual_object.*global_virtual_member_function)(7) != 137) {
         return 36;
     }
+#ifndef RINOS_HOST_TEST
     if ((virtual_object.*tls_virtual_member_function)(7) != 137) {
         return 37;
     }
+#endif
     virtual_path_object.value = 63;
     if ((virtual_path_object.*virtual_path_method)(4) != 67) return 32;
     if ((virtual_path_object.*global_virtual_path_member_function)(5) != 68) {
         return 38;
     }
+#ifndef RINOS_HOST_TEST
     if ((virtual_path_object.*tls_virtual_path_member_function)(6) != 69) {
         return 39;
     }
+#endif
     adjusted_object.prefix = 3;
     adjusted_object.value = 41;
     if ((adjusted_object.*derived_method)(1) != 42) return 21;
     if ((adjusted_object.*global_adjusted_member_function)(3) != 44) {
         return 34;
     }
+#ifndef RINOS_HOST_TEST
     if ((adjusted_object.*tls_adjusted_member_function)(4) != 45) {
         return 35;
     }
+#endif
     if ((adjusted_object.*derived_overload)(2) != 53) return 22;
     if ((adjusted_base.*round_trip_owner_method)(2) != 43) return 23;
     if (null_derived_method != nullptr) return 30;

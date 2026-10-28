@@ -11387,3 +11387,17 @@ remains a separate open item.
 - [x] Declare the Windows exception-runtime prerequisite for both dependent
       nested-alias execution tests; `test-cxx-class-template-dependent-nested-type`
       now completes on native Windows.
+
+## RCC continuation (2026-10-28, compute local-size shader builtins)
+
+- [x] Expose `local_size_x/y/z` as compute-stage builtins and verify their
+      RSH1 builtin IDs and declared `@workgroup(2, 3, 1)` dimensions from the
+      Aquamarine fixture. The check is part of `test-aqc` and therefore the
+      production test gate; native Windows shell redirection is covered.
+- [x] Use native absolute compiler paths for redirected Makefile test recipes
+      on Windows; run the C17, debug-info, AQC, verified floating-point, and
+      affected C++ conversion/member-pointer/operator-arrow/diagnostic suites.
+- [x] Keep the full member-function-pointer/TLS translation unit on the RinOS
+      `.ro` path for i686 and AMD64, while limiting the MinGW host-execution
+      adapter to the compatible non-TLS cases; verify `test-tls` and
+      `test-cxx-static-member-tls` for both target architectures.
