@@ -11407,9 +11407,9 @@ remains a separate open item.
 - [x] Compose i686 signed 64-bit inline-parameter values for frame-backed
       nested add/sub expressions from recursively computed low/high words,
       preserving low-word carry and borrow. Verify both `left + (right << 1)`
-      and `left - (right << 1)` over signed boundaries by interpreting the
-      emitted `DW_OP_piece` expression in both legacy and verified C++20
-      objects. Focused
+      and `left - (right << 1)`, plus nested constant multiplication in
+      `left + right * 2`, over signed boundaries by interpreting the emitted
+      `DW_OP_piece` expression in both legacy and verified C++20 objects. Focused
       `test-debug-info-inline-expression` and full `test-debug-info` pass.
 - [ ] Nested global/TLS expressions, volatile or atomic reads, more general
       computed division/remainder operands, and optimized multi-piece

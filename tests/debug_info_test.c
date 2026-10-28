@@ -10224,7 +10224,8 @@ static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
             assert(stack_size < sizeof(stack) / sizeof(stack[0]));
             stack[stack_size++] = (uint32_t)read_uleb(
                 data, expression_end, &offset);
-        } else if (opcode == 0x1cu || opcode == 0x1eu ||
+        } else if (opcode == 0x1au || opcode == 0x1cu ||
+                   opcode == 0x1eu ||
                    opcode == 0x21u || opcode == 0x22u ||
                    opcode == 0x24u || opcode == 0x25u ||
                    opcode == 0x27u || opcode == 0x2du) {
@@ -10235,6 +10236,7 @@ static uint64_t evaluate_inline_i686_u64_nested_frame_expression(
             right = stack[--stack_size];
             left = stack[--stack_size];
             switch (opcode) {
+                case 0x1au: value = left & right; break;
                 case 0x1cu: value = left - right; break;
                 case 0x1eu: value = left * right; break;
                 case 0x21u: value = left | right; break;
@@ -12202,7 +12204,9 @@ static void verify_inline_integer_expression_parameter(
     if (expected_operation == 0xf0u) {
         call_site_name = expected_constant == 1
             ? "debug_inline_nonconstant_signed_long_long_local_nested_sub_entry"
-            : "debug_inline_nonconstant_signed_long_long_local_nested_add_entry";
+            : expected_constant == 2
+                ? "debug_inline_nonconstant_signed_long_long_local_nested_mul_entry"
+                : "debug_inline_nonconstant_signed_long_long_local_nested_add_entry";
     }
     if (mixed_rank_comparison) {
         comparison_is_unsigned = architecture == ARCH_X86;
@@ -12351,6 +12355,7 @@ static void verify_inline_integer_expression_parameter(
             {UINT64_C(0x100000001), UINT64_C(0x20000000)}
         };
         bool is_subtract = expected_constant == 1;
+        bool is_multiply = expected_constant == 2;
         const InlineU64Pair* values = is_subtract ? sub_values : add_values;
         size_t value_count = is_subtract
             ? sizeof(sub_values) / sizeof(sub_values[0])
@@ -12362,6 +12367,7 @@ static void verify_inline_integer_expression_parameter(
         int64_t left_frame_offset;
         int64_t right_frame_offset;
         assert(architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
+               expected_constant >= 0 && expected_constant <= 2 &&
                divisor_source_name &&
                find_variable_location(
                    info, strings, locations, source_name, ARCH_X86,
@@ -12380,6 +12386,9 @@ static void verify_inline_integer_expression_parameter(
             assert(actual == (is_subtract
                 ? values[index].left - right_shifted
                 : values[index].left + right_shifted));
+            if (is_multiply) {
+                assert(right_shifted == values[index].right * 2u);
+            }
         }
         objfile_free(object);
         return;
@@ -17939,6 +17948,14 @@ int main(int argc, char** argv)
             argv[8], ARCH_X86,
             "debug_nonconstant_signed_long_long_parameter_inline",
             "left_value", false, 0xf0u, 8u, 1, "right_value", false);
+        verify_inline_integer_expression_parameter(
+            argv[6], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "left_value", false, 0xf0u, 8u, 2, "right_value", false);
+        verify_inline_integer_expression_parameter(
+            argv[8], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "left_value", false, 0xf0u, 8u, 2, "right_value", false);
         verify_inline_x64_global_integer_expression(
             argv[7], "debug_inline_nonconstant_signed_long_long_global_pair_add_entry",
             "debug_inline_nonconstant_signed_long_long_global_add_lhs",
