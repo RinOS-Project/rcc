@@ -1657,6 +1657,7 @@ static bool ir_pass_cse_candidate(const RccIrInstruction* instruction) {
         case RCC_IR_RETURN:
         case RCC_IR_PREFETCH:
         case RCC_IR_UNREACHABLE:
+        case RCC_IR_SIGNAL_FENCE:
             return false;
     }
     return false;
@@ -1962,6 +1963,10 @@ static void ir_pass_common_block(RccIrCseContext* context,
              * ordered with every observable load/store in this block. */
             context->block_load_count = 0u;
             ir_pass_clear_block_store_facts(context);
+        } else if (instruction->opcode == RCC_IR_SIGNAL_FENCE) {
+            /* A signal handler may observe or change memory at this point. */
+            context->block_load_count = 0u;
+            ir_pass_clear_block_store_facts(context);
         } else if (instruction->opcode == RCC_IR_STORE) {
             size_t retained = 0u;
             size_t load_index;
@@ -2178,6 +2183,7 @@ static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {
         case RCC_IR_RETURN:
         case RCC_IR_PREFETCH:
         case RCC_IR_UNREACHABLE:
+        case RCC_IR_SIGNAL_FENCE:
             return false;
     }
     return false;

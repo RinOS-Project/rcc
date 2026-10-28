@@ -10833,6 +10833,11 @@ static RccIrLowerValue lower_atomic_fence_call(
         expression->call_func->ident_name &&
         strcmp(expression->call_func->ident_name,
                "__sync_synchronize") == 0;
+    bool is_signal_fence = expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        strcmp(expression->call_func->ident_name,
+               "__atomic_signal_fence") == 0;
     RccIrType fence_type = rcc_ir_type_integer(32u);
     RccIrLowerValue order;
     RccIrLowerValue zero;
@@ -10852,6 +10857,18 @@ static RccIrLowerValue lower_atomic_fence_call(
         if (!order.valid || order.type.kind != RCC_IR_TYPE_INTEGER) {
             context->unsupported = true;
             return lower_invalid_value();
+        }
+    }
+
+    if (is_signal_fence) {
+        fence = lower_append(
+            context, RCC_IR_SIGNAL_FENCE, rcc_ir_type_void(),
+            NULL, 0u, NULL, 0u);
+        if (!fence) return lower_invalid_value();
+        {
+            RccIrLowerValue void_result = lower_invalid_value();
+            void_result.valid = true;
+            return void_result;
         }
     }
 

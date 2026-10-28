@@ -3591,11 +3591,17 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
         emit64_atomic_clear_width(mod, RAX, value_type);
         return true;
     }
+    if (strcmp(name, "__atomic_signal_fence") == 0) {
+        Expr* order = call64_argument(call, 0);
+        int64_t constant_order;
+        if (!expr_eval_integer_constant(order, &constant_order)) {
+            gen64_expr(mod, order);
+        }
+        return true;
+    }
     if (strcmp(name, "__atomic_thread_fence") == 0 ||
-        strcmp(name, "__atomic_signal_fence") == 0 ||
         strcmp(name, "__sync_synchronize") == 0) {
-        if (strcmp(name, "__atomic_thread_fence") == 0 ||
-            strcmp(name, "__atomic_signal_fence") == 0) {
+        if (strcmp(name, "__atomic_thread_fence") == 0) {
             gen64_expr(mod, call64_argument(call, 0));
         }
         emit_byte(mod, 0xF0);
