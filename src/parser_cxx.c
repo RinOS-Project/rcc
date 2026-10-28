@@ -7772,6 +7772,8 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
         source->method->decl->func_is_noreturn;
     method->decl->func_is_nodiscard =
         source->method->decl->func_is_nodiscard;
+    method->decl->func_nodiscard_message =
+        source->method->decl->func_nodiscard_message;
     method->decl->func_is_deprecated =
         source->method->decl->func_is_deprecated;
     method->decl->func_deprecated_message =
@@ -21554,6 +21556,8 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->decl->func_is_consteval = method->decl->func_is_consteval;
     copy->decl->func_is_noreturn = method->decl->func_is_noreturn;
     copy->decl->func_is_nodiscard = method->decl->func_is_nodiscard;
+    copy->decl->func_nodiscard_message =
+        method->decl->func_nodiscard_message;
     copy->decl->func_is_deprecated = method->decl->func_is_deprecated;
     copy->decl->func_deprecated_message =
         method->decl->func_deprecated_message;

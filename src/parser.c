@@ -1313,6 +1313,8 @@ bool expr_eval_integer_constant_u64(Expr* expr, uint64_t* value) {
 static bool pending_weak_attribute;
 static bool pending_naked_attribute;
 static bool pending_c_noreturn_attribute;
+static bool pending_c_nodiscard_attribute;
+static const char* pending_c_nodiscard_message;
 
 static bool take_weak_attribute(void) {
     bool result = pending_weak_attribute;
@@ -1330,6 +1332,23 @@ static bool take_c_noreturn_attribute(void) {
     bool result = pending_c_noreturn_attribute;
     pending_c_noreturn_attribute = false;
     return result;
+}
+
+static bool take_c_nodiscard_attribute(const char** message) {
+    bool result = pending_c_nodiscard_attribute;
+    if (message) *message = result ? pending_c_nodiscard_message : NULL;
+    pending_c_nodiscard_attribute = false;
+    pending_c_nodiscard_message = NULL;
+    return result;
+}
+
+static void parser_accumulate_c_nodiscard_attribute(
+    bool* present, const char** message) {
+    const char* parsed_message = NULL;
+    if (take_c_nodiscard_attribute(&parsed_message)) {
+        if (present) *present = true;
+        if (message && !*message) *message = parsed_message;
+    }
 }
 
 static bool parser_skip_c_attribute_arguments(SourceLoc loc) {
@@ -1377,8 +1396,11 @@ static void parser_skip_c_attribute_sequence(void) {
 
     while (!at_end()) {
         bool is_noreturn = false;
+        bool is_nodiscard = false;
         bool has_prefix = false;
         bool has_arguments = false;
+        bool valid_nodiscard_arguments = true;
+        const char* nodiscard_message = NULL;
         SourceLoc attribute_loc = peek()->loc;
 
         if (check(TOK_RBRACKET) && check_next(TOK_RBRACKET)) {
@@ -1394,6 +1416,7 @@ static void parser_skip_c_attribute_sequence(void) {
             is_noreturn = strcmp(name, "noreturn") == 0 ||
                           strcmp(name, "_Noreturn") == 0 ||
                           strcmp(name, "__noreturn__") == 0;
+            is_nodiscard = strcmp(name, "nodiscard") == 0;
             advance();
         } else if (match(TOK__NORETURN)) {
             /* Keywords used as attribute tokens are identifiers here. */
@@ -1415,7 +1438,20 @@ static void parser_skip_c_attribute_sequence(void) {
         }
         if (check(TOK_LPAREN)) {
             has_arguments = true;
-            (void)parser_skip_c_attribute_arguments(attribute_loc);
+            if (is_nodiscard && !has_prefix) {
+                advance();
+                if (check(TOK_STRING_LIT) && check_next(TOK_RPAREN)) {
+                    nodiscard_message = advance()->value.str_val;
+                    advance();
+                } else {
+                    rcc_error(attribute_loc,
+                              "C23 [[nodiscard]] argument must be a string literal");
+                    valid_nodiscard_arguments = false;
+                    (void)parser_skip_c_attribute_arguments(attribute_loc);
+                }
+            } else {
+                (void)parser_skip_c_attribute_arguments(attribute_loc);
+            }
         }
 
         if (is_noreturn && !has_prefix) {
@@ -1427,6 +1463,17 @@ static void parser_skip_c_attribute_sequence(void) {
                           "C23 [[noreturn]] does not accept arguments");
             } else {
                 pending_c_noreturn_attribute = true;
+            }
+        }
+        if (is_nodiscard && !has_prefix) {
+            if (g_opts.c_standard < 23) {
+                rcc_error(attribute_loc,
+                          "C23 [[nodiscard]] requires -std=c23");
+            } else if (valid_nodiscard_arguments) {
+                pending_c_nodiscard_attribute = true;
+                if (!pending_c_nodiscard_message) {
+                    pending_c_nodiscard_message = nodiscard_message;
+                }
             }
         }
 
@@ -4432,7 +4479,31 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
 typedef struct ParserAggregateAttributes {
     bool packed;
     int alignment;
+    bool nodiscard;
+    const char* nodiscard_message;
+    SourceLoc nodiscard_loc;
 } ParserAggregateAttributes;
+
+static void parser_parse_c_type_attributes(
+    ParserAggregateAttributes* attributes) {
+    if (!attributes || parser_cxx_mode) return;
+    while (check(TOK_LBRACKET) && check_next(TOK_LBRACKET)) {
+        SourceLoc loc = peek()->loc;
+        const char* message = NULL;
+        parser_skip_c_attribute_sequence();
+        if (take_c_noreturn_attribute()) {
+            rcc_error(loc,
+                      "C23 [[noreturn]] requires a function declaration");
+        }
+        if (take_c_nodiscard_attribute(&message)) {
+            attributes->nodiscard = true;
+            if (!attributes->nodiscard_message) {
+                attributes->nodiscard_message = message;
+            }
+            attributes->nodiscard_loc = loc;
+        }
+    }
+}
 
 static void parser_skip_attribute_arguments(void) {
     int depth = 1;
@@ -4453,6 +4524,7 @@ static void parser_skip_attribute_arguments(void) {
  * intentionally ignorable, as they are in skip_attributes(). */
 static void parser_parse_aggregate_attributes(
     ParserAggregateAttributes* attributes) {
+    parser_parse_c_type_attributes(attributes);
     while (match(TOK___ATTRIBUTE__)) {
         SourceLoc attribute_loc = previous()->loc;
         if (!match(TOK_LPAREN)) continue;
@@ -4508,6 +4580,7 @@ static void parser_parse_aggregate_attributes(
         expect(TOK_RPAREN, "')' after attribute list");
         expect(TOK_RPAREN, "')' after __attribute__");
     }
+    parser_parse_c_type_attributes(attributes);
 }
 
 static void parser_relayout_packed_aggregate(Type* aggregate) {
@@ -4565,7 +4638,7 @@ static void parser_relayout_packed_aggregate(Type* aggregate) {
 
 static void parser_apply_aggregate_attributes(
     Type* aggregate, const ParserAggregateAttributes* attributes,
-    SourceLoc attribute_loc) {
+    SourceLoc attribute_loc, bool is_definition) {
     if (attributes->packed) parser_relayout_packed_aggregate(aggregate);
     if (attributes->alignment > 0 && aggregate) {
         if (attributes->alignment > aggregate->align) {
@@ -4575,6 +4648,22 @@ static void parser_apply_aggregate_attributes(
         if (aggregate->is_complete) {
             aggregate->size = parser_align_up(aggregate->size,
                                               aggregate->align);
+        }
+    }
+    if (attributes->nodiscard) {
+        if (!is_definition || !aggregate ||
+            (aggregate->kind != TYPE_STRUCT &&
+             aggregate->kind != TYPE_UNION &&
+             aggregate->kind != TYPE_ENUM)) {
+            rcc_error(attributes->nodiscard_loc.filename
+                          ? attributes->nodiscard_loc : attribute_loc,
+                      "C23 [[nodiscard]] requires a structure, union, or enum definition");
+        } else {
+            aggregate->is_nodiscard = true;
+            if (!aggregate->nodiscard_message) {
+                aggregate->nodiscard_message =
+                    attributes->nodiscard_message;
+            }
         }
     }
     (void)attribute_loc;
@@ -4609,6 +4698,10 @@ static void parse_aggregate_body(Type* aggregate) {
         if (take_c_noreturn_attribute()) {
             rcc_error(peek()->loc,
                       "C23 [[noreturn]] requires a function declaration");
+        }
+        if (take_c_nodiscard_attribute(NULL)) {
+            rcc_error(peek()->loc,
+                      "C23 [[nodiscard]] requires a function or type definition");
         }
         field_base = parse_type_spec();
         if (!field_base) {
@@ -4763,9 +4856,10 @@ static Type* parser_atomic_type(Type* type, SourceLoc loc) {
 }
 
 static Type* parser_parse_aggregate_type_spec(TypeKind kind) {
-    ParserAggregateAttributes attributes = { false, 0 };
+    ParserAggregateAttributes attributes = { 0 };
     Token* tag = NULL;
     Type* aggregate = NULL;
+    bool is_definition = false;
     int saved_aggregate_pack_alignment = parser_aggregate_pack_alignment;
     SourceLoc attribute_loc = peek()->loc;
 
@@ -4787,6 +4881,7 @@ static Type* parser_parse_aggregate_type_spec(TypeKind kind) {
     }
 
     if (check(TOK_LBRACE)) {
+        is_definition = true;
         parser_aggregate_pack_alignment = attributes.packed ? 1 : 0;
         advance();
         parse_aggregate_body(aggregate);
@@ -4796,7 +4891,8 @@ static Type* parser_parse_aggregate_type_spec(TypeKind kind) {
     /* GNU permits a type attribute after the closing brace as well, e.g.
      * `struct T { ... } __attribute__((aligned(8))) T;`. */
     parser_parse_aggregate_attributes(&attributes);
-    parser_apply_aggregate_attributes(aggregate, &attributes, attribute_loc);
+    parser_apply_aggregate_attributes(
+        aggregate, &attributes, attribute_loc, is_definition);
     return aggregate;
 }
 
@@ -4834,8 +4930,6 @@ static Type* parse_type_spec(void) {
         } else if (match(TOK_SHORT)) {
             is_short = true;
         } else if (match(TOK__COMPLEX)) {
-            rcc_error(previous()->loc,
-                      "_Complex is not supported by the RinOS floating-point ABI");
             saw_complex = true;
         } else if (match(TOK__IMAGINARY)) {
             rcc_error(previous()->loc,
@@ -4893,7 +4987,7 @@ static Type* parse_type_spec(void) {
         /* A parenthesized _Atomic(type-name) already supplied the complete
          * type specifier.  Do not reinterpret the following declarator
          * identifier as a typedef-name lookup. */
-    } else if (saw_complex || saw_imaginary) {
+    } else if (saw_imaginary) {
         /* Consume the optional scalar component after the diagnostic so
          * parser recovery does not reinterpret it as a declarator. */
         if (match(TOK_FLOAT)) {
@@ -5001,16 +5095,21 @@ static Type* parse_type_spec(void) {
     } else if (match(TOK_UNION)) {
         t = parser_parse_aggregate_type_spec(TYPE_UNION);
     } else if (match(TOK_ENUM)) {
+        ParserAggregateAttributes attributes = { 0 };
         bool scoped = false;
         bool has_underlying_type = false;
+        bool is_definition = false;
         Token* tag = NULL;
         Type* underlying = NULL;
+        SourceLoc enum_loc = previous()->loc;
         if (parser_cxx_mode && (match(TOK_CLASS) || match(TOK_STRUCT))) {
             scoped = true;
         }
+        parser_parse_c_type_attributes(&attributes);
         if (check(TOK_IDENT)) {
             tag = advance();
         }
+        parser_parse_c_type_attributes(&attributes);
         if (parser_cxx_mode && match(TOK_COLON)) {
             has_underlying_type = true;
             underlying = parse_type_spec();
@@ -5046,8 +5145,12 @@ static Type* parse_type_spec(void) {
             t->is_unsigned = type_int->is_unsigned;
         }
         if (match(TOK_LBRACE)) {
+            is_definition = true;
             parse_enum_body(t, scoped, tag ? tag->value.str_val : NULL);
         }
+        parser_parse_c_type_attributes(&attributes);
+        parser_apply_aggregate_attributes(
+            t, &attributes, enum_loc, is_definition);
         if (parser_cxx_mode && tag) {
             parser_define_type(tag->value.str_val, t);
         }
@@ -5085,13 +5188,19 @@ static Type* parse_type_spec(void) {
         t = is_unsigned ? type_uint : type_int;
     }
 
-    /* Also diagnose the standard spellings where a floating qualifier follows
-     * the component type, such as `double _Complex`. */
+    /* C permits the complex qualifier before or after its floating component. */
     while (match(TOK__COMPLEX) || match(TOK__IMAGINARY)) {
-        rcc_error(previous()->loc,
-                  previous()->type == TOK__COMPLEX
-                      ? "_Complex is not supported by the RinOS floating-point ABI"
-                      : "_Imaginary is not supported by the RinOS floating-point ABI");
+        if (previous()->type == TOK__COMPLEX) {
+            if (saw_complex) {
+                rcc_error(previous()->loc,
+                          "duplicate _Complex type specifier");
+            }
+            saw_complex = true;
+        } else {
+            rcc_error(previous()->loc,
+                      "_Imaginary is not supported by the RinOS floating-point ABI");
+            saw_imaginary = true;
+        }
     }
 
     /* C17 permits signed and unsigned without an explicit int.  When the
@@ -5099,6 +5208,17 @@ static Type* parse_type_spec(void) {
      * typedef lookup branch above intentionally leaves t unset. */
     if (!t && saw_sign) {
         t = is_unsigned ? type_uint : type_int;
+    }
+
+    if (saw_complex) {
+        if (!t || (t->kind != TYPE_FLOAT && t->kind != TYPE_DOUBLE) ||
+            long_count != 0) {
+            rcc_error(spec_start->loc,
+                      "_Complex requires float, double, or long double");
+            t = type_complex(type_double);
+        } else {
+            t = type_complex(t);
+        }
     }
 
     /* Declaration specifiers permit qualifiers on either side of the type
@@ -5192,6 +5312,10 @@ static DeclList* parse_parameter_list(bool* variadic) {
         if (take_c_noreturn_attribute()) {
             rcc_error(previous()->loc,
                       "C23 [[noreturn]] requires a function declaration");
+        }
+        if (take_c_nodiscard_attribute(NULL)) {
+            rcc_error(previous()->loc,
+                      "C23 [[nodiscard]] requires a function or type definition");
         }
         if (parameter_type->kind == TYPE_ARRAY) {
             parameter_array_type = parameter_type;
@@ -5670,6 +5794,13 @@ static Type* parse_declarator(Type* base_type, const char** name,
     }
     if (parser_cxx_mode && match(TOK_ELLIPSIS)) {
         declarator_parameter_pack = true;
+    }
+
+    /* C23 permits an entity attribute after the declared identifier and
+     * before a function declarator suffix, e.g. `int f [[nodiscard]] (void)`. */
+    if (!parser_cxx_mode && check(TOK_LBRACKET) &&
+        check_next(TOK_LBRACKET)) {
+        parser_skip_c_attribute_sequence();
     }
 
     for (;;) {
@@ -6339,6 +6470,20 @@ static void parser_apply_cxx_declaration_attributes(
     }
 }
 
+static void parser_apply_c_nodiscard_attribute(
+    Decl* declaration, bool nodiscard, const char* message) {
+    if (!nodiscard) return;
+    if (declaration && declaration->kind == DECL_FUNC) {
+        declaration->func_is_nodiscard = true;
+        if (!declaration->func_nodiscard_message) {
+            declaration->func_nodiscard_message = message;
+        }
+        return;
+    }
+    rcc_error(declaration ? declaration->loc : peek()->loc,
+              "C23 [[nodiscard]] requires a function or type definition");
+}
+
 static void parser_apply_cxx_statement_attributes(
     Stmt* statement, bool nodiscard, bool deprecated,
     const char* deprecated_message) {
@@ -6407,12 +6552,16 @@ Stmt* parse_declaration(void) {
     bool is_consteval = false;
     bool is_constinit = false;
     bool is_noreturn = false;
+    bool is_nodiscard = false;
     bool is_noexcept = false;
     Expr* noexcept_expr = NULL;
     bool is_thread_local = false;
     bool is_weak = false;
     bool is_naked = false;
     bool declarator_is_noreturn = false;
+    bool declarator_is_nodiscard = false;
+    const char* nodiscard_message = NULL;
+    const char* declarator_nodiscard_message = NULL;
     bool cxx_is_nodiscard = false;
     bool cxx_is_deprecated = false;
     const char* cxx_deprecated_message = NULL;
@@ -6492,6 +6641,8 @@ Stmt* parse_declaration(void) {
 
     skip_attributes();
     is_noreturn = is_noreturn || take_c_noreturn_attribute();
+    parser_accumulate_c_nodiscard_attribute(
+        &is_nodiscard, &nodiscard_message);
     is_weak = is_weak || take_weak_attribute();
     is_naked = take_naked_attribute();
     if (parser_cxx_mode && match(TOK_CONSTEXPR)) is_constexpr = true;
@@ -6524,6 +6675,10 @@ Stmt* parse_declaration(void) {
         if (is_noreturn) {
             rcc_error(peek()->loc,
                       "C23 [[noreturn]] requires a function declaration");
+        }
+        if (is_nodiscard) {
+            rcc_error(peek()->loc,
+                      "C23 [[nodiscard]] requires a function or type definition");
         }
         if (friend_signature_context &&
             rcc_parser_cxx_end_function_signature_access) {
@@ -6570,6 +6725,8 @@ Stmt* parse_declaration(void) {
                    check_next(TOK_LBRACKET)) {
             skip_attributes();
             is_noreturn = is_noreturn || take_c_noreturn_attribute();
+            parser_accumulate_c_nodiscard_attribute(
+                &is_nodiscard, &nodiscard_message);
         }
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else break;
@@ -6640,13 +6797,22 @@ Stmt* parse_declaration(void) {
     }
     while (!parser_cxx_mode && check(TOK_LBRACKET) &&
            check_next(TOK_LBRACKET)) {
+        SourceLoc attribute_loc = peek()->loc;
         skip_attributes();
         is_noreturn = is_noreturn || take_c_noreturn_attribute();
+        if (take_c_nodiscard_attribute(NULL)) {
+            rcc_error(attribute_loc,
+                      "C23 [[nodiscard]] requires a function or type definition");
+        }
     }
 
     /* A standalone aggregate declaration has no declarator. Enum constants
      * were registered while parsing its body. */
     if (match(TOK_SEMICOLON)) {
+        if (is_nodiscard) {
+            rcc_error(loc,
+                      "C23 [[nodiscard]] requires a function or type definition");
+        }
         if (friend_signature_context &&
             rcc_parser_cxx_end_function_signature_access) {
             rcc_parser_cxx_end_function_signature_access(
@@ -6788,6 +6954,8 @@ Stmt* parse_declaration(void) {
     }
     skip_attributes();
     declarator_is_noreturn = take_c_noreturn_attribute();
+    parser_accumulate_c_nodiscard_attribute(
+        &declarator_is_nodiscard, &declarator_nodiscard_message);
     is_weak = is_weak || take_weak_attribute();
     is_naked = is_naked || take_naked_attribute();
     if (friend_signature_context) {
@@ -6824,6 +6992,10 @@ Stmt* parse_declaration(void) {
 
     if (is_typedef) {
         StmtList* declarations = NULL;
+        if (is_nodiscard || declarator_is_nodiscard) {
+            rcc_error(loc,
+                      "C23 [[nodiscard]] requires a function or type definition");
+        }
         if (is_noreturn || declarator_is_noreturn) {
             rcc_error(loc,
                       "C23 [[noreturn]] requires a function declaration");
@@ -6945,6 +7117,10 @@ Stmt* parse_declaration(void) {
             parser_apply_cxx_declaration_attributes(
                 declaration, cxx_is_nodiscard, cxx_is_deprecated,
                 cxx_deprecated_message);
+            parser_apply_c_nodiscard_attribute(
+                declaration, is_nodiscard || declarator_is_nodiscard,
+                declarator_nodiscard_message
+                    ? declarator_nodiscard_message : nodiscard_message);
             declaration->is_weak = is_weak;
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
             while (match(TOK_COMMA)) {
@@ -6952,6 +7128,8 @@ Stmt* parse_declaration(void) {
                 DeclList* next_parameters = NULL;
                 bool next_is_weak;
                 bool next_is_noreturn;
+                bool next_is_nodiscard = is_nodiscard;
+                const char* next_nodiscard_message = nodiscard_message;
                 if (friend_signature_context &&
                     rcc_parser_cxx_reset_function_signature_alias_uses) {
                     rcc_parser_cxx_reset_function_signature_alias_uses(
@@ -6961,12 +7139,16 @@ Stmt* parse_declaration(void) {
                 next_is_weak = take_weak_attribute();
                 next_is_noreturn =
                     is_noreturn || take_c_noreturn_attribute();
+                parser_accumulate_c_nodiscard_attribute(
+                    &next_is_nodiscard, &next_nodiscard_message);
                 Type* next_type = parse_declarator(
                     base_type, &next_name, &next_parameters);
                 next_type = parse_declarator_attributes(next_type);
                 skip_attributes();
                 next_is_noreturn =
                     next_is_noreturn || take_c_noreturn_attribute();
+                parser_accumulate_c_nodiscard_attribute(
+                    &next_is_nodiscard, &next_nodiscard_message);
                 const char* next_register_asm_name =
                     parser_parse_register_asm_name(storage, next_type, loc);
                 next_is_weak = next_is_weak || take_weak_attribute();
@@ -7006,6 +7188,9 @@ Stmt* parse_declaration(void) {
                     parser_apply_cxx_declaration_attributes(
                         next_declaration, cxx_is_nodiscard,
                         cxx_is_deprecated, cxx_deprecated_message);
+                    parser_apply_c_nodiscard_attribute(
+                        next_declaration, next_is_nodiscard,
+                        next_nodiscard_message);
                     next_declaration->is_weak = next_is_weak;
                     stmtlist_append(&declarations,
                                     stmt_decl(next_declaration, loc));
@@ -7021,6 +7206,9 @@ Stmt* parse_declaration(void) {
                     parser_apply_cxx_declaration_attributes(
                         next_declaration, cxx_is_nodiscard,
                         cxx_is_deprecated, cxx_deprecated_message);
+                    parser_apply_c_nodiscard_attribute(
+                        next_declaration, next_is_nodiscard,
+                        next_nodiscard_message);
                     next_declaration->is_weak = next_is_weak;
                     stmtlist_append(&declarations,
                                     stmt_decl(next_declaration, loc));
@@ -7044,6 +7232,10 @@ Stmt* parse_declaration(void) {
         parser_apply_cxx_declaration_attributes(
             declaration, cxx_is_nodiscard, cxx_is_deprecated,
             cxx_deprecated_message);
+        parser_apply_c_nodiscard_attribute(
+            declaration, is_nodiscard || declarator_is_nodiscard,
+            declarator_nodiscard_message
+                ? declarator_nodiscard_message : nodiscard_message);
         declaration->is_weak = is_weak;
         declaration->func_is_naked = is_naked;
         return stmt_decl(declaration, loc);
@@ -7062,6 +7254,10 @@ Stmt* parse_declaration(void) {
         parser_apply_cxx_declaration_attributes(
             declaration, cxx_is_nodiscard, cxx_is_deprecated,
             cxx_deprecated_message);
+        parser_apply_c_nodiscard_attribute(
+            declaration, is_nodiscard || declarator_is_nodiscard,
+            declarator_nodiscard_message
+                ? declarator_nodiscard_message : nodiscard_message);
         declaration->is_weak = is_weak;
         stmtlist_append(&declarations, stmt_decl(declaration, loc));
 
@@ -7070,15 +7266,21 @@ Stmt* parse_declaration(void) {
             DeclList* next_parameters = NULL;
             bool next_is_weak;
             bool next_is_noreturn;
+            bool next_is_nodiscard = is_nodiscard;
+            const char* next_nodiscard_message = nodiscard_message;
             skip_attributes();
             next_is_weak = take_weak_attribute();
             next_is_noreturn = is_noreturn || take_c_noreturn_attribute();
+            parser_accumulate_c_nodiscard_attribute(
+                &next_is_nodiscard, &next_nodiscard_message);
             Type* next_type = parse_declarator(
                 base_type, &next_name, &next_parameters);
             next_type = parse_declarator_attributes(next_type);
             skip_attributes();
             next_is_noreturn =
                 next_is_noreturn || take_c_noreturn_attribute();
+            parser_accumulate_c_nodiscard_attribute(
+                &next_is_nodiscard, &next_nodiscard_message);
             const char* next_register_asm_name =
                 parser_parse_register_asm_name(storage, next_type, loc);
             next_is_weak = next_is_weak || take_weak_attribute();
@@ -7100,6 +7302,9 @@ Stmt* parse_declaration(void) {
                 parser_apply_cxx_declaration_attributes(
                     next_declaration, cxx_is_nodiscard, cxx_is_deprecated,
                     cxx_deprecated_message);
+                parser_apply_c_nodiscard_attribute(
+                    next_declaration, next_is_nodiscard,
+                    next_nodiscard_message);
                 next_declaration->is_weak = next_is_weak;
                 stmtlist_append(&declarations,
                                 stmt_decl(next_declaration, loc));
@@ -7114,6 +7319,9 @@ Stmt* parse_declaration(void) {
             parser_apply_cxx_declaration_attributes(
                 declaration, cxx_is_nodiscard, cxx_is_deprecated,
                 cxx_deprecated_message);
+            parser_apply_c_nodiscard_attribute(
+                declaration, next_is_nodiscard,
+                next_nodiscard_message);
             declaration->is_weak = next_is_weak;
             stmtlist_append(&declarations, stmt_decl(declaration, loc));
         }
@@ -7142,6 +7350,8 @@ AST* rcc_parse(TokenList* tokens) {
     pending_weak_attribute = false;
     pending_naked_attribute = false;
     pending_c_noreturn_attribute = false;
+    pending_c_nodiscard_attribute = false;
+    pending_c_nodiscard_message = NULL;
     parser.cur = tokens->head;
     parser.prev = NULL;
     rcc_parser_reset_type_scopes();

@@ -894,6 +894,7 @@ static long pp_c_attribute_value(const Preprocessor* pp,
         strcmp(attribute, "__noreturn__") == 0) {
         return 202311L;
     }
+    if (strcmp(attribute, "nodiscard") == 0) return 202311L;
     return 0;
 }
 

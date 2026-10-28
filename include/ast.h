@@ -203,6 +203,10 @@ struct Type {
     TypeKind kind;
     int size;           /* Size in bytes */
     int align;          /* Alignment */
+    /* C99 complex values use a two-member aggregate for storage and ABI
+     * classification while retaining their arithmetic type identity. */
+    bool is_complex;
+    Type* complex_component_type;
     bool has_explicit_alignment;
     /* Deferred C++ alignas expression in a class-template field type. */
     Expr* cxx_dependent_alignment_expr;
@@ -221,6 +225,8 @@ struct Type {
     bool is_const;
     bool is_volatile;
     bool is_atomic;          /* C17 _Atomic-qualified scalar object type. */
+    bool is_nodiscard;       /* C23/C++ nodiscard return-type attribute. */
+    const char* nodiscard_message;
     bool is_restrict;
     bool is_reference;        /* C++ lvalue/rvalue reference ABI carrier. */
     bool is_rvalue_reference;
@@ -470,6 +476,7 @@ Type* type_vector(Type* base, int lanes, int vector_size);
 Type* type_func(Type* ret, TypeParam* params, bool variadic);
 Type* type_struct(const char* tag);
 Type* type_union(const char* tag);
+Type* type_complex(Type* component_type);
 Type* type_enum(const char* tag);
 Type* type_bitint(unsigned width, bool is_unsigned);
 Type* rcc_cxx_type_info_type(void);
@@ -478,6 +485,7 @@ Type* rcc_cxx_type_info_type(void);
 bool type_is_integer(Type* t);
 unsigned type_integer_width(const Type* type);
 bool type_is_floating(Type* t);
+bool type_is_complex(const Type* t);
 bool type_is_arithmetic(Type* t);
 bool type_is_scalar(Type* t);
 bool type_is_pointer(Type* t);
@@ -1521,6 +1529,7 @@ struct Decl {
             bool func_is_consteval;
             bool func_is_noreturn;
             bool func_is_nodiscard;
+            const char* func_nodiscard_message;
             bool func_is_deprecated; /* C++14 deprecated function declaration. */
             const char* func_deprecated_message;
             bool func_is_noexcept;

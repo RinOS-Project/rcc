@@ -26941,14 +26941,34 @@ static Decl* sema_nodiscard_call_decl(const Expr* expression) {
 
 static void sema_warn_discarded_nodiscard(const Expr* expression) {
     Decl* declaration = sema_nodiscard_call_decl(expression);
-    if (!declaration || !declaration->func_is_nodiscard ||
-        !declaration->type || declaration->type->kind != TYPE_FUNC ||
-        declaration->type->ret_type == type_void) {
+    Type* return_type = expression ? expression->type : NULL;
+    if (declaration && declaration->type &&
+        declaration->type->kind == TYPE_FUNC) {
+        return_type = declaration->type->ret_type;
+    }
+    const char* message = NULL;
+    bool nodiscard = false;
+    if (declaration && declaration->func_is_nodiscard) {
+        nodiscard = true;
+        message = declaration->func_nodiscard_message;
+    }
+    if (return_type && return_type != type_void &&
+        return_type->is_nodiscard) {
+        nodiscard = true;
+        if (!message) message = return_type->nodiscard_message;
+    }
+    if (!nodiscard || !return_type || return_type == type_void) {
         return;
     }
     rcc_warning(expression->loc,
-                "ignoring return value of nodiscard function '%s'",
-                declaration->name ? declaration->name : "<function>");
+                "ignoring return value of %s '%s'%s%s",
+                declaration && declaration->func_is_nodiscard
+                    ? "nodiscard function"
+                    : "function with nodiscard return type",
+                declaration && declaration->name
+                    ? declaration->name : "<function>",
+                message && *message ? ": " : "",
+                message && *message ? message : "");
 }
 
 bool rcc_sema_cxx_requires_satisfied(Expr* expression) {
@@ -31524,6 +31544,19 @@ static void sema_decl(Decl* decl) {
                     rcc_error(decl->loc,
                               "declaration of '%s' has a different exception specification",
                               decl->name);
+                }
+            }
+
+            /* C23 makes nodiscard an entity property after its first
+             * attributed declaration. Preserve it, and its diagnostic text,
+             * on later redeclarations that omit the attribute. This also
+             * matches C++'s redeclaration behavior. */
+            if (redeclaration_prior &&
+                redeclaration_prior->func_is_nodiscard) {
+                decl->func_is_nodiscard = true;
+                if (!decl->func_nodiscard_message) {
+                    decl->func_nodiscard_message =
+                        redeclaration_prior->func_nodiscard_message;
                 }
             }
 

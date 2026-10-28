@@ -13639,6 +13639,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_is_consteval = definition->func_is_consteval;
         instance->func_is_noreturn = definition->func_is_noreturn;
         instance->func_is_nodiscard = definition->func_is_nodiscard;
+        instance->func_nodiscard_message =
+            definition->func_nodiscard_message;
         instance->func_is_deprecated = definition->func_is_deprecated;
         instance->func_deprecated_message =
             definition->func_deprecated_message;

@@ -12,10 +12,19 @@
   malformed-argument diagnostics. Add the dual-target regression to
   `test-c23` and `test-ci`; C23 tests and focused C17/C++ compatibility tests
   pass.
+- [x] Implement C23 `[[nodiscard]]` on function declarations and struct/union/
+  enum definitions, including a string-literal message, direct discarded-call
+  diagnostics, type-return diagnostics, `(void)` suppression, and the C23
+  first-attributed-declaration redeclaration rule. Reject malformed arguments,
+  variables, incomplete type declarations, and C17 use. Verify dual-target
+  code generation, x64 execution, GCC C2x syntax/runtime behavior,
+  `__has_c_attribute`, GCC C2x syntax and execution, and existing C++20
+  nodiscard/constexpr regressions in `test-c23-nodiscard-attribute`,
+  `test-cxx-nodiscard`, and focused gates.
 - [ ] Implement and test the remaining standard C attributes and their
-  semantics (`deprecated`, `fallthrough`, `maybe_unused`, `nodiscard`,
-  `unsequenced`, and `reproducible`); accepting/ignoring unknown attributes is
-  not equivalent to implementing these attributes.
+  semantics (`deprecated`, `fallthrough`, `maybe_unused`, `unsequenced`, and
+  `reproducible`); accepting/ignoring unknown attributes is not equivalent to
+  implementing these attributes.
 
 ## RCC continuation (2026-10-29, C23 bit-precise integers)
 
