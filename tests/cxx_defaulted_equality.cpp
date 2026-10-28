@@ -48,6 +48,14 @@ struct EqualityValueFriend {
                            EqualityValueFriend) = default;
 };
 
+struct EqualityDirectNotEqual {
+    int value;
+    bool operator==(const EqualityDirectNotEqual&) const = default;
+    bool operator!=(const EqualityDirectNotEqual& other) const {
+        return value == other.value;
+    }
+};
+
 int main() {
     EqualityRecord first{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
     EqualityRecord same{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
@@ -66,6 +74,8 @@ int main() {
     EqualityValueFriend value_friend_first{47};
     EqualityValueFriend value_friend_same{47};
     EqualityValueFriend value_friend_different{48};
+    EqualityDirectNotEqual direct_not_equal_first{53};
+    EqualityDirectNotEqual direct_not_equal_same{53};
     if (hidden_first.values[1] != 43 ||
         hidden_array_different.values[1] != 44) return 17;
     virtual_first.virtual_base_value = 29;
@@ -89,13 +99,18 @@ int main() {
     if (first == different_base) return 4;
     if (first == different_leaf) return 5;
     if (first == different_array) return 6;
+    if (first != same) return 18;
+    if (!(first != different_array)) return 19;
     if (!(virtual_first == virtual_same)) return 7;
     if (virtual_first == virtual_base_different) return 8;
     if (virtual_first == virtual_member_different) return 9;
     if (!(hidden_first == hidden_same)) return 12;
     if (hidden_first == hidden_base_different) return 13;
     if (hidden_first == hidden_array_different) return 14;
+    if (hidden_first != hidden_same) return 20;
+    if (!(hidden_first != hidden_array_different)) return 21;
     if (!(value_friend_first == value_friend_same)) return 15;
     if (value_friend_first == value_friend_different) return 16;
+    if (!(direct_not_equal_first != direct_not_equal_same)) return 22;
     return 0;
 }

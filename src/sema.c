@@ -21119,6 +21119,35 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     exprlist_append(&arguments, expression->binary_lhs);
     exprlist_append(&arguments, expression->binary_rhs);
     function = sema_cxx_operator_function(name, arguments);
+    if (!function && expression->kind == EXPR_NE) {
+        function = sema_cxx_operator_function("operator==", arguments);
+        if (function) {
+            Expr* negated;
+            function_expression = expr_ident("operator==",
+                                             expression->loc);
+            call = expr_call(function_expression, arguments,
+                             expression->loc);
+            negated = expr_unary(EXPR_NOT, call, expression->loc);
+            *expression = *negated;
+            return true;
+        }
+        if (aggregate && (aggregate->kind == TYPE_STRUCT ||
+                          aggregate->kind == TYPE_UNION)) {
+            TypeMethod* equality_method = sema_find_function_method(
+                aggregate, "operator==");
+            if (equality_method && equality_method->function_decl) {
+                Expr* negated;
+                member = expr_member(expression->binary_lhs,
+                                     "operator==", expression->loc);
+                call = expr_call(member,
+                                 exprlist_new(expression->binary_rhs),
+                                 expression->loc);
+                negated = expr_unary(EXPR_NOT, call, expression->loc);
+                *expression = *negated;
+                return true;
+            }
+        }
+    }
     if (!function) return false;
     function_expression = expr_ident(name, expression->loc);
     call = expr_call(function_expression, arguments, expression->loc);
