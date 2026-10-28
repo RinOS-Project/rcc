@@ -34,10 +34,14 @@
   operands containing `typeof` until semantic type resolution; cover aggregate,
   pointer and member-array compatibility plus nested member/index offsets with
   i686/AMD64 objects, AMD64 execution, and a GCC `-std=c2x -Werror` oracle.
+- [x] Resolve the `typeof_unqual(const int[3])` oracle discrepancy: C23 N3220
+  6.7.3.6p5 and 6.7.4p10 require removing qualification from the array and its
+  element; GCC PR112841 confirms the GCC 13 behavior was fixed in GCC 15.
+  Retain the mutable-array runtime regression; older GCC/Clang results are not
+  the conformance oracle for this case.
 - [ ] Complete exact evaluation ordering across multiple declarators and
   prototype-scope rules. GCC 13.3 and Clang 18 agree on array/function
-  parameter adjustment, but differ from RCC on the
-  `typeof_unqual(const int[3])` write test; reconcile that behavior with N3220.
+  parameter adjustment.
   Native i686 execution now passes for the covered typedef/runtime cases.
 
 この一覧は「CLIが存在する」ことと「言語・ABIが完成している」ことを区別する。
