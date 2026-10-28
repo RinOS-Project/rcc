@@ -1009,6 +1009,22 @@ int choose_nontrailing_non_type_pack_order(
     return 273;
 }
 
+template<int Bias = 5, typename... Types>
+int choose_fixed_nontype_prefix_pack(Types...) {
+    return Bias * 10 + static_cast<int>(sizeof...(Types));
+}
+
+template<typename... Types>
+int choose_fixed_nontype_prefix_pack(Types...) {
+    return 900 + static_cast<int>(sizeof...(Types));
+}
+
+template<typename Type = int, int Bias = 3, typename... Types>
+int choose_defaulted_fixed_prefix_pack(Type, Types...) {
+    return static_cast<int>(sizeof(Type)) * 100 + Bias * 10 +
+           static_cast<int>(sizeof...(Types));
+}
+
 template<template<typename> class... Templates>
 int choose_nontrailing_template_template_pack_order(
     FunctionTemplateTemplatePackBox<
@@ -3249,6 +3265,12 @@ static int consume_conversion_value_virtual_cleanup_root(
 }
 
 int main(void) {
+    if (choose_fixed_nontype_prefix_pack<2>(1, 2) != 22) return 250;
+    if (choose_defaulted_fixed_prefix_pack<>(0, 'x') != 431) return 251;
+    if (choose_defaulted_fixed_prefix_pack<long>(0L, 'x') !=
+        static_cast<int>(sizeof(long)) * 100 + 31) return 252;
+    if (choose_defaulted_fixed_prefix_pack<long, 7, char>(0L, 'x') !=
+        static_cast<int>(sizeof(long)) * 100 + 71) return 253;
     if (choose_non_type_class_pack_partial_order(
             FunctionTemplateNonTypePackBox<>{}) != 182) return 201;
     if (choose_non_type_class_pack_partial_order(

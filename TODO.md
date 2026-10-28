@@ -11586,6 +11586,12 @@ remains a separate open item.
 - [ ] Audit fixed/defaulted parameters before packs and more complex explicit
       argument partitioning; preserve ambiguity and non-match behavior against
       GCC C++20.
+  - [x] Verify candidate-specific explicit arguments with a fixed non-type
+        parameter before a type pack, plus deduced/defaulted fixed type and
+        non-type parameters before the pack. Check the GCC C++20 runtime oracle
+        and RCC i686/AMD64 generation plus x64 execution through
+        `test-cxx-function-template-overloads`; broader partitioning remains
+        open.
 - [x] Keep `test-cxx-function-template-explicit-specialization` in
       `CXX_REGRESSION_TARGETS`; verify it is reached by `test-cxx` and the
       Linux production `test-ci` workflow, and that native-Windows `test-cxx`
