@@ -113,6 +113,14 @@ struct EqualityWorseDirectNotEqual {
     }
 };
 
+struct EqualityWorseMemberNotEqual {
+    int value;
+    operator int() const { return value; }
+    bool operator!=(int right) const { return value == right; }
+    friend bool operator==(const EqualityWorseMemberNotEqual&,
+                           const EqualityWorseMemberNotEqual&) = default;
+};
+
 int main() {
     EqualityRecord first{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
     EqualityRecord same{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
@@ -145,6 +153,8 @@ int main() {
     EqualityDirectFriendNotEqual direct_friend_not_equal_same{79};
     EqualityWorseDirectNotEqual worse_direct_not_equal_first{83};
     EqualityWorseDirectNotEqual worse_direct_not_equal_same{83};
+    EqualityWorseMemberNotEqual worse_member_not_equal_first{89};
+    EqualityWorseMemberNotEqual worse_member_not_equal_same{89};
     if (hidden_first.values[1] != 43 ||
         hidden_array_different.values[1] != 44) return 17;
     virtual_first.virtual_base_value = 29;
@@ -200,6 +210,9 @@ int main() {
     }
     if (worse_direct_not_equal_first != worse_direct_not_equal_same) {
         return 36;
+    }
+    if (worse_member_not_equal_first != worse_member_not_equal_same) {
+        return 37;
     }
     return 0;
 }
