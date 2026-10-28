@@ -9599,8 +9599,19 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                      * arguments, then align the actual call stack pointer.
                      * The saved pointer lets the normal cleanup restore RSP
                      * exactly even when the incoming frame was only 16-byte
-                     * aligned. */
+                     * aligned. Probe each intervening page before switching
+                     * RSP so hosted guarded stacks can grow safely for large
+                     * over-aligned argument areas. */
                     emit64_mov_reg_reg(mod, R11, RSP);
+                    if (reserve_bytes > 4096) {
+                        emit64_mov_reg_reg(mod, RAX, RSP);
+                        emit64_mov_reg_imm32(mod, RDX, 0u);
+                        for (int remaining = reserve_bytes;
+                             remaining > 4096; remaining -= 4096) {
+                            emit64_sub_reg_imm(mod, RAX, 4096);
+                            emit64_mov_mem_reg(mod, RAX, 0, RDX);
+                        }
+                    }
                     emit64_sub_reg_imm(mod, RSP, reserve_bytes);
                     emit64_mov_reg_reg(mod, RAX, RSP);
                     emit64_add_reg_imm(mod, RAX, stack_alignment - 1);

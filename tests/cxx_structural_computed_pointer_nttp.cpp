@@ -189,16 +189,21 @@ int main() {
     NestedComputedFunctionOwner<NestedComputedFunctionKey{
         &nested_computed_pointer_nonviable_template_target}>::Inner<int>
         nonviable_template_uses_ordinary;
-    return add_zero.result() == 47 &&
-        reverse_add_zero.result() == 47 &&
-        subtract_zero.result() == 47 && conditional.result() == 89 &&
-        cast.result() == 47 && null.is_null() && integer_null.is_null() &&
-        base_conversion.result() == 59 &&
-        void_conversion.is_object() &&
-        function.result() == 46 && noexcept_conversion.result() == 49 &&
-        overloaded.result() == 43 &&
-        overloaded_template.result() == 47 &&
-        mixed_template_wins.result() == 47 &&
-        mixed_non_template_wins.result() == 43 &&
-        nonviable_template_uses_ordinary.result() == 43 ? 0 : 1;
+    if (add_zero.result() != 47) return 1;
+    if (reverse_add_zero.result() != 47) return 2;
+    if (subtract_zero.result() != 47) return 3;
+    if (conditional.result() != 89) return 4;
+    if (cast.result() != 47) return 5;
+    if (!null.is_null()) return 6;
+    if (!integer_null.is_null()) return 7;
+    if (base_conversion.result() != 59) return 8;
+    if (!void_conversion.is_object()) return 9;
+    if (function.result() != 46) return 10;
+    if (noexcept_conversion.result() != 49) return 11;
+    if (overloaded.result() != 43) return 12;
+    if (overloaded_template.result() != 47) return 13;
+    if (mixed_template_wins.result() != 47) return 14;
+    if (mixed_non_template_wins.result() != 43) return 15;
+    if (nonviable_template_uses_ordinary.result() != 43) return 16;
+    return 0;
 }

@@ -63,9 +63,11 @@ constexpr volatile int DependentPointerBase::*
 constexpr int (DependentPointerBase::*
     dependent_pointer_constexpr_member_function)(int) const =
         &DependentPointerBase::add;
+#ifndef RCC_TEST_WINDOWS_HOST_ASSEMBLY
 thread_local int (DependentPointerBase::*
     dependent_pointer_tls_member_function)(int) const =
         &DependentPointerBase::add;
+#endif
 constexpr DependentPointerBase
     dependent_member_function_constexpr_object{17};
 constexpr DependentConstexprVirtualDerived
@@ -654,10 +656,12 @@ int main() {
          dependent_pointer_constexpr_member_function)(25) != 42) {
         return 15;
     }
+#ifndef RCC_TEST_WINDOWS_HOST_ASSEMBLY
     if ((member_function_pointer_object.*
          dependent_pointer_tls_member_function)(25) != 42) {
         return 16;
     }
+#endif
     if (select_dependent_pointer_constexpr_call(
             DependentPointerConstexprBox<
                 17, DependentPointerConstexprOwner, int>{}) != 301) {

@@ -10488,6 +10488,29 @@ static Expr* sema_constexpr_rebuild_object(
         }
         return expression;
     }
+    if (type->kind == TYPE_STRUCT && ast_cxx_is_aggregate(type)) {
+        int element_count = ast_cxx_aggregate_element_count(type);
+        for (int index = 0; index < element_count; ++index) {
+            Type* element_type = NULL;
+            int element_offset = 0;
+            Expr* item;
+            if (!ast_cxx_aggregate_element(type, index, &element_type,
+                                           &element_offset, NULL) ||
+                !element_type || element_type->size <= 0 ||
+                element_offset < 0 ||
+                (size_t)element_offset > (size_t)type->size ||
+                (size_t)element_type->size >
+                    (size_t)type->size - (size_t)element_offset) {
+                return NULL;
+            }
+            item = sema_constexpr_rebuild_object(
+                element_type, storage + (size_t)element_offset,
+                (size_t)type->size - (size_t)element_offset, loc);
+            if (!item) return NULL;
+            exprlist_append(&expression->compound_init, item);
+        }
+        return expression;
+    }
     for (TypeField* field = type->fields; field; field = field->next) {
         size_t offset;
         Expr* item;

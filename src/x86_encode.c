@@ -2354,17 +2354,17 @@ static bool x86_emit_gep(
     return !preserve_result || x86_emit_pop(encoder, result);
 }
 
-static bool x86_patch_rel32_to_here(
-    RccX86Encoder* encoder, uint32_t offset) {
+static bool x86_patch_rel32(
+    RccX86Encoder* encoder, uint32_t offset, uint32_t target) {
     int64_t delta;
     int32_t encoded;
-    if (offset > encoder->output.code_size ||
+    if (target > encoder->output.code_size ||
+        offset > encoder->output.code_size ||
         4u > encoder->output.code_size - offset) {
         return x86_encode_error(encoder,
                                 "x86 local branch fixup is invalid");
     }
-    delta = (int64_t)encoder->output.code_size -
-        ((int64_t)offset + 4);
+    delta = (int64_t)target - ((int64_t)offset + 4);
     if (delta < INT32_MIN || delta > INT32_MAX) {
         return x86_encode_error(
             encoder, "x86 local branch displacement overflows");
@@ -2375,6 +2375,16 @@ static bool x86_patch_rel32_to_here(
             (uint8_t)((uint32_t)encoded >> (byte * 8u));
     }
     return true;
+}
+
+static bool x86_patch_rel32_to_here(
+    RccX86Encoder* encoder, uint32_t offset) {
+    if (encoder->output.code_size > UINT32_MAX) {
+        return x86_encode_error(
+            encoder, "x86 local branch target exceeds 32 bits");
+    }
+    return x86_patch_rel32(
+        encoder, offset, (uint32_t)encoder->output.code_size);
 }
 
 static bool x86_emit_select(
@@ -2601,6 +2611,31 @@ static bool x86_emit_compare_zero(RccX86Encoder* encoder,
     return x86_emit_u8(encoder, 0u);
 }
 
+static bool x86_emit_stack_probe(RccX86Encoder* encoder, uint32_t bytes) {
+    RccX86HardwareGpr scratch =
+        encoder->function->target == RCC_X86_TARGET_X86_64
+            ? RCC_X86_GPR_R11 : RCC_X86_GPR_AX;
+    uint16_t pointer_size = encoder->function->pointer_size;
+    if (bytes <= 4096u) return true;
+    if (!x86_emit_move_register_register(
+            encoder, scratch, RCC_X86_GPR_SP, pointer_size)) return false;
+    for (uint32_t remaining = bytes; remaining > 4096u;
+         remaining -= 4096u) {
+        if (!x86_emit_prefix(
+                encoder, pointer_size, RCC_X86_GPR_BP, scratch, false) ||
+            !x86_emit_u8(encoder, 0x81u) ||
+            !x86_emit_u8(encoder, x86_modrm(3u, 5u, scratch)) ||
+            !x86_emit_u32(encoder, 4096u) ||
+            !x86_emit_prefix(
+                encoder, 1u, RCC_X86_GPR_AX, scratch, true) ||
+            !x86_emit_u8(encoder, 0xc6u) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                0u, RCC_X86_GPR_AX, scratch)) ||
+            !x86_emit_u8(encoder, 0u)) return false;
+    }
+    return true;
+}
+
 static bool x86_emit_prologue(RccX86Encoder* encoder) {
     const RccX86LegalFunction* function = encoder->function;
     static const RccX86HardwareGpr sysv_integer_arguments[6] = {
@@ -2614,7 +2649,8 @@ static bool x86_emit_prologue(RccX86Encoder* encoder) {
         !x86_emit_u8(encoder, x86_modrm(
             3u, RCC_X86_GPR_SP, RCC_X86_GPR_BP))) return false;
     if (function->stack_adjustment != 0u) {
-        if (!x86_emit_prefix(encoder, function->pointer_size,
+        if (!x86_emit_stack_probe(encoder, function->stack_adjustment) ||
+            !x86_emit_prefix(encoder, function->pointer_size,
                              RCC_X86_GPR_BP, RCC_X86_GPR_SP, false) ||
             !x86_emit_u8(encoder, 0x81u) ||
             !x86_emit_u8(encoder, x86_modrm(
@@ -2732,6 +2768,74 @@ static bool x86_emit_dynamic_outgoing_stack(
             encoder, "x86 dynamic SysV outgoing stack layout is invalid");
     }
     reserve = bytes + alignment - 1u;
+    if (reserve > 4096u) {
+        RccX86Value probe_address;
+        RccX86Value stack_limit;
+        uint32_t loop_start;
+        uint32_t done_branch;
+        uint32_t loop_branch;
+        if (encoder->output.code_size > UINT32_MAX ||
+            !x86_emit_push(encoder, RCC_X86_GPR_AX) ||
+            !x86_emit_move_register_register(
+                encoder, RCC_X86_GPR_R11, RCC_X86_GPR_SP, 8u) ||
+            !x86_emit_prefix(
+                encoder, 8u, RCC_X86_GPR_AX, RCC_X86_GPR_R11, false) ||
+            !x86_emit_u8(encoder, 0x83u) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                3u, 0u, RCC_X86_GPR_R11)) ||
+            !x86_emit_u8(encoder, 8u) ||
+            !x86_emit_move_register_register(
+                encoder, RCC_X86_GPR_AX, RCC_X86_GPR_R11, 8u) ||
+            !x86_emit_prefix(
+                encoder, 8u, RCC_X86_GPR_BP, RCC_X86_GPR_AX, false) ||
+            !x86_emit_u8(encoder, 0x81u) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                3u, 5u, RCC_X86_GPR_AX)) ||
+            !x86_emit_u32(encoder, reserve) ||
+            !x86_emit_prefix(
+                encoder, 8u, RCC_X86_GPR_AX, RCC_X86_GPR_AX, false) ||
+            !x86_emit_u8(encoder, 0x81u) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                3u, 4u, RCC_X86_GPR_AX)) ||
+            !x86_emit_u32(encoder, 0u - alignment)) {
+            return false;
+        }
+        memset(&probe_address, 0, sizeof(probe_address));
+        probe_address.kind = RCC_X86_VALUE_GPR;
+        probe_address.gpr = RCC_X86_GPR_R11;
+        probe_address.size = 8u;
+        probe_address.alignment = 8u;
+        memset(&stack_limit, 0, sizeof(stack_limit));
+        stack_limit.kind = RCC_X86_VALUE_GPR;
+        stack_limit.gpr = RCC_X86_GPR_AX;
+        stack_limit.size = 8u;
+        stack_limit.alignment = 8u;
+        loop_start = (uint32_t)encoder->output.code_size;
+        if (!x86_emit_prefix(
+                encoder, 8u, RCC_X86_GPR_BP, RCC_X86_GPR_R11, false) ||
+            !x86_emit_u8(encoder, 0x81u) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                3u, 5u, RCC_X86_GPR_R11)) ||
+            !x86_emit_u32(encoder, 4096u) ||
+            !x86_emit_compare_values(
+                encoder, probe_address, stack_limit, 8u) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0x86u)) return false;
+        done_branch = (uint32_t)encoder->output.code_size;
+        if (!x86_emit_u32(encoder, 0u) ||
+            !x86_emit_prefix(
+                encoder, 1u, RCC_X86_GPR_AX, RCC_X86_GPR_R11, true) ||
+            !x86_emit_u8(encoder, 0xc6u) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                0u, RCC_X86_GPR_AX, RCC_X86_GPR_R11)) ||
+            !x86_emit_u8(encoder, 0u) ||
+            !x86_emit_u8(encoder, 0xe9u)) return false;
+        loop_branch = (uint32_t)encoder->output.code_size;
+        if (!x86_emit_u32(encoder, 0u) ||
+            !x86_patch_rel32(encoder, loop_branch, loop_start) ||
+            !x86_patch_rel32_to_here(encoder, done_branch) ||
+            !x86_emit_pop(encoder, RCC_X86_GPR_AX)) return false;
+    }
     if (!x86_emit_stack_subtract(encoder, reserve) ||
         !x86_emit_rex(
             encoder, true, RCC_X86_GPR_SP, RCC_X86_GPR_SP, false) ||

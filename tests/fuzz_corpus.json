@@ -12,6 +12,16 @@
       "source": "tests/property_valid.c"
     },
     {
+      "id": "c17-control-flow",
+      "language": "C17",
+      "source": "tests/control_flow.c"
+    },
+    {
+      "id": "c17-atomics",
+      "language": "C17",
+      "source": "tests/atomic_language.c"
+    },
+    {
       "id": "cxx20-hello",
       "language": "C++20",
       "source": "tests/hello.cpp"
@@ -20,6 +30,26 @@
       "id": "cxx20-property",
       "language": "C++20",
       "source": "tests/property_valid.cpp"
+    },
+    {
+      "id": "cxx20-function-templates",
+      "language": "C++20",
+      "source": "tests/cxx_function_templates.cpp"
+    },
+    {
+      "id": "cxx20-non-type-templates",
+      "language": "C++20",
+      "source": "tests/cxx_non_type_templates.cpp"
+    },
+    {
+      "id": "cxx20-inline-aggregate",
+      "language": "C++20",
+      "source": "tests/cxx_inline_aggregate.cpp"
+    },
+    {
+      "id": "cxx20-lambda",
+      "language": "C++20",
+      "source": "tests/cxx_lambda.cpp"
     }
   ]
 }

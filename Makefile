@@ -3427,21 +3427,13 @@ test-cxx-constexpr-aggregate-posix: $(RCXX_TARGET) test-cxx-constexpr-constructo
 
 test-cxx-constexpr-constructor-reference-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid)
-	! $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/x86.ro \
-		tests/cxx_constexpr_constructor_reference_invalid.cpp \
-		>$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/rcc-x86.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/x86.ro tests/cxx_constexpr_constructor_reference_invalid.cpp,$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/rcc-x86.log)
 	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" \
 		$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/rcc-x86.log
-	! $(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/x64.ro \
-		tests/cxx_constexpr_constructor_reference_invalid.cpp \
-		>$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/rcc-x64.log 2>&1
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/x64.ro tests/cxx_constexpr_constructor_reference_invalid.cpp,$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/rcc-x64.log)
 	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" \
 		$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/rcc-x64.log
-	! $(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
-		tests/cxx_constexpr_constructor_reference_invalid.cpp \
-		>$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/gcc.log 2>&1
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_constexpr_constructor_reference_invalid.cpp,$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/gcc.log)
 	$(GREP) -F -q "not usable in a constant expression" \
 		$(TEST_OUT)/cxx-constexpr-constructor-reference-invalid/gcc.log
 	@echo "C++ constexpr constructor local reference rejection tests completed"
@@ -5330,7 +5322,13 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call)
-	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-pointer-constexpr-member-call,cxx_dependent_pointer_constexpr_member_call.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/rinos-x86.ro \
+		tests/cxx_dependent_pointer_constexpr_member_call.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/rinos-x64.ro \
+		tests/cxx_dependent_pointer_constexpr_member_call.cpp
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-pointer-constexpr-member-call,cxx_dependent_pointer_constexpr_member_call.cpp,-DRCC_TEST_WINDOWS_HOST_ASSEMBLY)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host.exe tests/cxx_dependent_pointer_constexpr_member_call.cpp
 	$(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host.exe
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
@@ -11508,7 +11506,7 @@ ifeq ($(OS),Windows_NT)
 	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -S first.c second.c"
 	if not exist $(TEST_OUT)\multiple-inputs\c\first.s exit /b 1
 	if not exist $(TEST_OUT)\multiple-inputs\c\second.s exit /b 1
-	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_SHELL_TARGET))' --target x86_64-unknown-rinos -E first.c second.c > combined.i"
+	$(POWERSHELL) -NoProfile -Command "Set-Location '$(abspath $(TEST_OUT)/multiple-inputs/c)'; & '$(abspath $(RCC_TARGET))' --target x86_64-unknown-rinos -E first.c second.c > combined.i"
 	$(GREP) -F -q "int main" $(TEST_OUT)/multiple-inputs/c/combined.i
 	$(GREP) -F -q "struct Pair" $(TEST_OUT)/multiple-inputs/c/combined.i
 	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath 'tests/cxx_function_templates.cpp' -Destination '$(TEST_OUT)/multiple-inputs/cxx/first.cpp' -Force"
@@ -14762,9 +14760,9 @@ test-cxx-inherited-constructor: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-array-cleanup)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-array-cleanup,cxx_inherited_constructor_array_cleanup.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-virtual)
-	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-virtual,cxx_inherited_constructor_virtual.cpp,cxx_language_core_host.c)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-virtual,cxx_inherited_constructor_virtual.cpp)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inherited-constructor-virtual-diamond)
-	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-virtual-diamond,cxx_inherited_constructor_virtual_diamond.cpp,cxx_language_core_host.c)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-inherited-constructor-virtual-diamond,cxx_inherited_constructor_virtual_diamond.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/access-x86.ro tests/cxx_inherited_constructor_invalid_access.cpp,$(TEST_OUT)/cxx-inherited-constructor/access-x86.log)
 	$(GREP) -F -q "using-base constructor requires a public direct base" $(TEST_OUT)/cxx-inherited-constructor/access-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/access-x64.ro tests/cxx_inherited_constructor_invalid_access.cpp,$(TEST_OUT)/cxx-inherited-constructor/access-x64.log)
