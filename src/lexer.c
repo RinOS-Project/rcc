@@ -80,6 +80,8 @@ static struct {
     {"static_assert", TOK_STATIC_ASSERT},
     {"_Generic", TOK_GENERIC},
     {"_Thread_local", TOK_THREAD_LOCAL},
+    {"typeof", TOK_TYPEOF},
+    {"typeof_unqual", TOK_TYPEOF_UNQUAL},
     /* GNU Extensions */
     {"asm", TOK_ASM},
     {"__asm", TOK_ASM},
@@ -426,6 +428,12 @@ static Token* lex_identifier(Lexer* lex) {
      * header macro, when present, is expanded before this lexer sees it. */
     if (!lexer_cxx_mode && type == TOK_STATIC_ASSERT &&
         g_opts.c_standard < 23 && strcmp(spelling, "static_assert") == 0) {
+        type = TOK_IDENT;
+    }
+    /* typeof and typeof_unqual are C23 keywords only.  Preserve both as
+     * identifiers in older C modes and all C++ modes. */
+    if ((type == TOK_TYPEOF || type == TOK_TYPEOF_UNQUAL) &&
+        (lexer_cxx_mode || g_opts.c_standard < 23)) {
         type = TOK_IDENT;
     }
     if ((type == TOK_CHAR16_T || type == TOK_CHAR32_T) &&

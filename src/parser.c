@@ -3207,6 +3207,8 @@ Expr* parse_expression(void) {
 static bool is_type_start(void) {
     if (parser_cxx_mode && rcc_parse_cxx_type_start &&
         rcc_parse_cxx_type_start()) return true;
+    if (!parser_cxx_mode && g_opts.c_standard >= 23 &&
+        (check(TOK_TYPEOF) || check(TOK_TYPEOF_UNQUAL))) return true;
     switch (peek()->type) {
         case TOK_DECLTYPE:
             return parser_cxx_mode;
@@ -4430,6 +4432,40 @@ static Type* parser_qualify_type(Type* type, bool is_const,
     return qualified;
 }
 
+static Type* parser_unqual_type(Type* type) {
+    Type* unqualified;
+    if (!type) return NULL;
+
+    if (type->kind == TYPE_ARRAY) {
+        Type* element = parser_unqual_type(type->base);
+        if (element == type->base && !type->is_const &&
+            !type->is_volatile && !type->is_atomic &&
+            !type->is_restrict) {
+            return type;
+        }
+        unqualified = ast_arena_alloc(sizeof(*unqualified));
+        *unqualified = *type;
+        unqualified->base = element;
+        unqualified->is_const = false;
+        unqualified->is_volatile = false;
+        unqualified->is_atomic = false;
+        unqualified->is_restrict = false;
+        return unqualified;
+    }
+
+    if (!type->is_const && !type->is_volatile && !type->is_atomic &&
+        !type->is_restrict) {
+        return type;
+    }
+    unqualified = ast_arena_alloc(sizeof(*unqualified));
+    *unqualified = *type;
+    unqualified->is_const = false;
+    unqualified->is_volatile = false;
+    unqualified->is_atomic = false;
+    unqualified->is_restrict = false;
+    return unqualified;
+}
+
 static Type* parser_atomic_type(Type* type, SourceLoc loc) {
     Type* atomic;
     if (!type || !type_is_scalar(type) || type->kind == TYPE_NULLPTR ||
@@ -4543,6 +4579,30 @@ static Type* parse_type_spec(void) {
             }
         } else {
             break;
+        }
+    }
+
+    if (!t && !parser_cxx_mode && g_opts.c_standard >= 23 &&
+        (check(TOK_TYPEOF) || check(TOK_TYPEOF_UNQUAL))) {
+        TokenType typeof_operator = advance()->type;
+        Type* operand_type;
+
+        expect(TOK_LPAREN, "'(' after typeof operator");
+        if (is_type_start()) {
+            operand_type = parse_type_spec();
+            operand_type = parse_declarator(operand_type, NULL, NULL);
+            expect(TOK_RPAREN, "')' after typeof type-name");
+            t = typeof_operator == TOK_TYPEOF_UNQUAL
+                ? parser_unqual_type(operand_type) : operand_type;
+        } else {
+            Expr* expression_operand = parse_expression();
+            Type* deferred = ast_arena_alloc(sizeof(*deferred));
+            *deferred = *type_int;
+            deferred->c_typeof_expression = expression_operand;
+            deferred->c_typeof_unqual_expression =
+                typeof_operator == TOK_TYPEOF_UNQUAL;
+            expect(TOK_RPAREN, "')' after typeof expression");
+            t = deferred;
         }
     }
 

@@ -43,6 +43,12 @@ static bool cxx_function_template_call_is_dependent(
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, bool explicit_arguments_specified,
     const CxxTemplate* context);
+static bool cxx_candidate_function_template_call_is_dependent(
+    ExprList* call_arguments,
+    CxxParsedTemplateArgument explicit_arguments[32][32],
+    const int explicit_argument_counts[32],
+    const bool explicit_arguments_valid[32], int candidate_count,
+    bool explicit_arguments_specified, const CxxTemplate* context);
 static bool cxx_dependent_decltype_calls_are_viable(
     Expr* expression, unsigned depth);
 static bool cxx_resolve_dependent_function_template_calls(
@@ -2226,9 +2232,17 @@ static void cxx_refresh_cached_class_template_member_definition(
 static bool cxx_explicit_class_template_member_function_specialization_starts(
     void);
 static bool cxx_explicit_member_function_template_specialization_starts(void);
+static bool cxx_explicit_function_template_specialization_starts(void);
 static bool cxx_parse_explicit_member_function_template_specialization(
     Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
     SourceLoc loc, CxxTemplate* specialization, int template_head_count);
+static bool cxx_parse_explicit_function_template_argument_list(
+    CxxTemplate* primary, CxxParsedTemplateArgument arguments[32],
+    int* argument_count, SourceLoc loc);
+
+static bool cxx_parse_explicit_function_template_specialization(
+    Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
+    SourceLoc loc, CxxTemplate* specialization);
 static TypeMethod* cxx_materialize_member_function_template(
     Type* aggregate, CxxMethod* method, Decl* instance, int this_adjustment);
 Stmt* rcc_parse_cxx_qualified_member_definition(
@@ -15589,8 +15603,9 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     if (!active_class && !parameter_outer_template &&
         tmpl->param_count == 0 &&
         !cxx_empty_template_head_starts_at(parser.cur) &&
-        (cxx_explicit_member_function_template_specialization_starts() ||
-         cxx_explicit_class_template_member_function_specialization_starts())) {
+        (cxx_explicit_class_template_member_function_specialization_starts() ||
+         (!cxx_explicit_function_template_specialization_starts() &&
+          cxx_explicit_member_function_template_specialization_starts()))) {
         bool is_inline = false;
         bool is_constexpr = false;
         bool is_consteval = false;
@@ -15763,6 +15778,45 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
      * consumed by class-template deduction and must not become a callable
      * namespace function. */
     if (rcc_parse_cxx_deduction_guide()) {
+        active_template = parameter_outer_template;
+        return tmpl;
+    }
+
+    if (!active_class && !parameter_outer_template &&
+        tmpl->param_count == 0 &&
+        cxx_explicit_function_template_specialization_starts()) {
+        bool is_inline = false;
+        bool is_constexpr = false;
+        bool is_consteval = false;
+        Type* return_type;
+        while (match(TOK_INLINE) || match(TOK_CONSTEXPR) ||
+               match(TOK_CONSTEVAL)) {
+            if (previous()->type == TOK_INLINE) is_inline = true;
+            else if (previous()->type == TOK_CONSTEXPR) {
+                is_constexpr = true;
+            } else {
+                is_constexpr = true;
+                is_consteval = true;
+            }
+        }
+        return_type = cxx_member_definition_return_type(
+            parse_cxx_type_spec());
+        tmpl->kind = TMPL_FUNCTION;
+        /* An explicit specialization is an entity of its primary function
+         * template, not another callable template candidate. */
+        tmpl->is_member_template_definition = true;
+        if (!cxx_parse_explicit_function_template_specialization(
+                return_type, is_inline, is_constexpr, is_consteval, loc,
+                tmpl)) {
+            rcc_error(loc,
+                      "explicit function-template specialization does not match a declared function template");
+            while (!at_end() && !check(TOK_SEMICOLON) &&
+                   !check(TOK_LBRACE) && !check(TOK_RBRACE)) {
+                advance();
+            }
+            if (match(TOK_LBRACE)) skip_balanced(TOK_LBRACE, TOK_RBRACE);
+            else match(TOK_SEMICOLON);
+        }
         active_template = parameter_outer_template;
         return tmpl;
     }
@@ -17990,6 +18044,60 @@ static bool cxx_explicit_member_function_template_specialization_starts(void) {
             }
         }
         if (starts) break;
+    }
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return starts;
+}
+
+static bool cxx_explicit_function_template_specialization_starts(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    Token* previous_previous = NULL;
+    Token* previous_token = NULL;
+    Token* token;
+    bool starts = false;
+
+    for (;;) {
+        cxx_template_lookahead_skip_attributes();
+        if (match(TOK_INLINE) || match(TOK_CONSTEXPR) ||
+            match(TOK_CONSTEVAL) || match(TOK_EXTERN)) {
+            continue;
+        }
+        break;
+    }
+    if (check(TOK_LBRACKET) && check_next(TOK_LBRACKET)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return false;
+    }
+    for (token = parser.cur; token && token->type != TOK_EOF;
+         previous_token = token, token = token->next) {
+        Token* after_template_id;
+        if (token->type == TOK_SEMICOLON || token->type == TOK_LBRACE ||
+            token->type == TOK_ASSIGN || token->type == TOK_RBRACE) {
+            break;
+        }
+        if (token->type != TOK_IDENT || !token->next ||
+            token->next->type != TOK_LT ||
+            (previous_token &&
+             (previous_token->type == TOK_LPAREN ||
+              previous_token->type == TOK_COMMA))) {
+            continue;
+        }
+        if (previous_token && previous_token->type == TOK_SCOPE &&
+            previous_previous &&
+            ((previous_previous->type == TOK_IDENT &&
+              find_class(previous_previous->value.str_val)) ||
+             previous_previous->type == TOK_GT ||
+             previous_previous->type == TOK_RSHIFT)) {
+            continue;
+        }
+        after_template_id = cxx_template_id_end(token->next);
+        if (after_template_id && after_template_id->type == TOK_LPAREN) {
+            starts = true;
+            break;
+        }
     }
     parser.cur = saved_cur;
     parser.prev = saved_prev;
@@ -25405,14 +25513,15 @@ static bool cxx_expression_is_dependent(
                        expression->cond_else, expression_template);
         case EXPR_CALL:
             if (expression->cxx_dependent_function_template_call) {
-                return cxx_function_template_call_is_dependent(
+                CxxDependentFunctionTemplateCall* deferred =
+                    expression->cxx_dependent_function_template_call;
+                return cxx_candidate_function_template_call_is_dependent(
                     expression->call_args,
-                    expression->cxx_dependent_function_template_call
-                        ->explicit_arguments,
-                    expression->cxx_dependent_function_template_call
-                        ->explicit_argument_count,
-                    expression->cxx_dependent_function_template_call
-                        ->explicit_arguments_specified,
+                    deferred->candidate_explicit_arguments,
+                    deferred->candidate_explicit_argument_counts,
+                    deferred->candidate_explicit_arguments_valid,
+                    deferred->candidate_count,
+                    deferred->explicit_arguments_specified,
                     expression_template);
             }
             if (cxx_type_pattern_contains_dependent_component(
@@ -38835,6 +38944,362 @@ static bool cxx_resolve_explicit_member_template_owner_suffix(
     }
 }
 
+static bool cxx_parse_explicit_function_template_argument_list(
+    CxxTemplate* primary, CxxParsedTemplateArgument arguments[32],
+    int* argument_count, SourceLoc loc) {
+    int pack_parameter_index;
+
+    if (!primary || !arguments || !argument_count || !match(TOK_LT)) {
+        return false;
+    }
+    *argument_count = 0;
+    pack_parameter_index =
+        cxx_parser_template_pack_parameter_index(primary);
+    if (!check(TOK_GT) && !check(TOK_RSHIFT)) {
+        do {
+            int parameter_index = pack_parameter_index >= 0 &&
+                    *argument_count >= pack_parameter_index
+                ? pack_parameter_index : *argument_count;
+            Token* argument_start = parser.cur;
+            TemplateParam* parameter;
+            CxxParsedTemplateArgument* argument;
+            if (*argument_count >= 32) {
+                rcc_error(loc,
+                          "explicit function-template argument limit exceeded");
+                while (!check(TOK_GT) && !check(TOK_RSHIFT) && !at_end()) {
+                    advance();
+                }
+                break;
+            }
+            if (parameter_index >= primary->param_count) {
+                rcc_error(loc,
+                          "too many explicit function-template arguments");
+                while (!check(TOK_COMMA) && !check(TOK_GT) &&
+                       !check(TOK_RSHIFT) && !at_end()) {
+                    advance();
+                }
+                if (check(TOK_COMMA)) continue;
+                break;
+            }
+            parameter = &primary->params[parameter_index];
+            argument = &arguments[(*argument_count)++];
+            if (parameter->kind == TPARAM_TYPE) {
+                argument->is_type = true;
+                argument->type = parse_cxx_template_type_argument();
+            } else if (parameter->kind == TPARAM_TEMPLATE) {
+                const char* argument_name = check(TOK_IDENT) ||
+                        check(TOK_SCOPE)
+                    ? parse_qualified_name() : NULL;
+                CxxTemplate* argument_template = argument_name
+                    ? find_template_template_argument(argument_name) : NULL;
+                if (!argument_template ||
+                    !template_template_signature_matches(
+                        parameter, argument_template)) {
+                    rcc_error(loc,
+                              "explicit function-template template argument does not match its parameter list");
+                } else {
+                    argument->is_type = true;
+                    argument->type = type_struct(argument_name);
+                    argument->type->cxx_template = argument_template;
+                }
+            } else {
+                rcc_parser_set_cxx_template_default_mode(true);
+                argument->value_expression = parse_assignment_expression();
+                rcc_parser_set_cxx_template_default_mode(false);
+                argument->value_valid = argument->value_expression &&
+                    expr_eval_integer_constant(argument->value_expression,
+                                               &argument->value);
+                if (!argument->value_valid) {
+                    rcc_error(argument->value_expression
+                                  ? argument->value_expression->loc : loc,
+                              "explicit function-template non-type argument must be an integer constant expression");
+                }
+            }
+            if (parser.cur == argument_start && !at_end() &&
+                !check(TOK_COMMA) && !check(TOK_GT) &&
+                !check(TOK_RSHIFT)) {
+                advance();
+            }
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_GT, "> after explicit function-template arguments");
+    return true;
+}
+
+static bool cxx_parse_explicit_function_template_specialization(
+    Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
+    SourceLoc loc, CxxTemplate* specialization) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    CxxNamespace* saved_namespace = active_namespace;
+    CxxTemplate* saved_template = active_template;
+    CxxTemplate* candidates[32] = { NULL };
+    CxxTemplate* selected_template = NULL;
+    Decl* selected_instance = NULL;
+    DeclList* parameters;
+    ExprList* signature_arguments = NULL;
+    CxxParsedTemplateArgument candidate_arguments[32][32] = { 0 };
+    int candidate_argument_counts[32] = { 0 };
+    bool candidate_arguments_valid[32] = { false };
+    const char* name;
+    bool is_variadic = false;
+    bool is_noexcept = false;
+    bool definition_noexcept = false;
+    bool first_explicit_declaration = false;
+    bool selected_was_instantiated = false;
+    bool ambiguous = false;
+    Expr* noexcept_expression = NULL;
+    int64_t noexcept_value = 0;
+    int candidate_count;
+    Token* argument_list_start;
+    Token* argument_list_start_prev;
+    Token* argument_list_end = NULL;
+    Token* argument_list_end_prev = NULL;
+    Stmt* body = NULL;
+    bool has_body;
+    const char* qualified_name;
+
+    qualified_name = parse_qualified_name();
+    if (!qualified_name || !*qualified_name) return false;
+    name = strrchr(qualified_name, ':');
+    name = name ? name + 1 : qualified_name;
+    active_namespace = saved_namespace ? saved_namespace : g_global_namespace;
+    candidate_count = find_function_template_candidates(
+        qualified_name, candidates,
+        (int)(sizeof(candidates) / sizeof(candidates[0])));
+    if (candidate_count > (int)(sizeof(candidates) / sizeof(candidates[0]))) {
+        rcc_error(loc,
+                  "too many function-template candidates for explicit specialization '%s'",
+                  name);
+        candidate_count = (int)(sizeof(candidates) / sizeof(candidates[0]));
+    }
+    argument_list_start = parser.cur;
+    argument_list_start_prev = parser.prev;
+    for (int index = 0; index < candidate_count; ++index) {
+        CxxTemplate* candidate = candidates[index];
+        CxxParsedTemplateArgument parsed_arguments[32] = { 0 };
+        int parsed_argument_count = 0;
+        int suppressed_before = g_suppressed_error_count;
+        bool suppress_before = g_suppress_errors;
+        bool parsed;
+        if (!candidate || candidate->kind != TMPL_FUNCTION ||
+            !candidate->func_def) {
+            continue;
+        }
+        parser.cur = argument_list_start;
+        parser.prev = argument_list_start_prev;
+        active_namespace = candidate->ns ? candidate->ns : g_global_namespace;
+        g_suppress_errors = true;
+        parsed = cxx_parse_explicit_function_template_argument_list(
+            candidate, parsed_arguments, &parsed_argument_count, loc);
+        g_suppress_errors = suppress_before;
+        if (parsed && g_suppressed_error_count == suppressed_before) {
+            memcpy(candidate_arguments[index], parsed_arguments,
+                   sizeof(parsed_arguments));
+            candidate_argument_counts[index] = parsed_argument_count;
+            candidate_arguments_valid[index] = true;
+            if (!argument_list_end) {
+                argument_list_end = parser.cur;
+                argument_list_end_prev = parser.prev;
+            }
+        }
+        parser.cur = argument_list_start;
+        parser.prev = argument_list_start_prev;
+    }
+    if (!argument_list_end) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        active_namespace = saved_namespace;
+        active_template = saved_template;
+        return false;
+    }
+    parser.cur = argument_list_end;
+    parser.prev = argument_list_end_prev;
+    active_namespace = saved_namespace;
+
+    expect(TOK_LPAREN, "( before explicit function-template parameters");
+    parameters = parse_cxx_parameter_declarations(&is_variadic);
+    expect(TOK_RPAREN, ") after explicit function-template parameters");
+    for (DeclList* parameter = parameters; parameter;
+         parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->param_default) {
+            rcc_error(parameter->decl->loc,
+                      "default arguments are not allowed in an explicit function-template specialization");
+        }
+    }
+    if (match(TOK_NOEXCEPT)) {
+        if (match(TOK_LPAREN)) {
+            noexcept_expression = parse_expression();
+            expect(TOK_RPAREN, ") after noexcept expression");
+        } else {
+            is_noexcept = true;
+        }
+    }
+    if (match(TOK_ARROW)) {
+        return_type = cxx_member_definition_return_type(parse_cxx_type_spec());
+    }
+    if (noexcept_expression) {
+        if (!expr_eval_integer_constant(noexcept_expression, &noexcept_value)) {
+            rcc_error(noexcept_expression->loc,
+                      "explicit specialization noexcept expression is not constant");
+        } else {
+            is_noexcept = noexcept_value != 0;
+        }
+    }
+    definition_noexcept = is_noexcept;
+
+    for (DeclList* parameter = parameters; parameter;
+         parameter = parameter->next) {
+        Expr* argument;
+        if (!parameter->decl || !parameter->decl->type) {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            active_namespace = saved_namespace;
+            active_template = saved_template;
+            return false;
+        }
+        argument = expr_int(0, parameter->decl->loc);
+        argument->type = parameter->decl->type;
+        exprlist_append(&signature_arguments, argument);
+    }
+
+    for (int index = 0; index < candidate_count; ++index) {
+        CxxTemplate* candidate = candidates[index];
+        CxxFunctionTemplateMatch match = { 0 };
+        bool constraint_invalid = false;
+        bool constraint_unsupported = false;
+        bool instantiated_noexcept;
+        int previous_instance_count;
+        bool signature_matches;
+        if (!candidate || candidate->kind != TMPL_FUNCTION ||
+            !candidate->func_def || !candidate_arguments_valid[index]) {
+            continue;
+        }
+        active_namespace = candidate->ns ? candidate->ns : g_global_namespace;
+        previous_instance_count = candidate->instance_count;
+        if (!prepare_cxx_function_template_match(
+                candidate, signature_arguments, candidate_arguments[index],
+                candidate_argument_counts[index], &match,
+                &constraint_invalid, &constraint_unsupported) ||
+            !match.instance ||
+            !match.instance->type ||
+            match.instance->type->kind != TYPE_FUNC) {
+            continue;
+        }
+        instantiated_noexcept = match.instance->func_is_noexcept;
+        if (match.instance->func_noexcept_expr &&
+            expr_eval_integer_constant(match.instance->func_noexcept_expr,
+                                       &noexcept_value)) {
+            instantiated_noexcept = noexcept_value != 0;
+        }
+        signature_matches =
+            type_is_compatible(match.instance->type->ret_type, return_type) &&
+            cxx_explicit_specialization_parameters_match(
+                match.instance->func_params, parameters, is_variadic,
+                match.instance->type->variadic) &&
+            instantiated_noexcept == definition_noexcept;
+        if (!signature_matches) continue;
+        if (selected_instance) {
+            ambiguous = true;
+            selected_template = NULL;
+            selected_instance = NULL;
+            break;
+        }
+        selected_template = candidate;
+        selected_instance = match.instance;
+        selected_was_instantiated =
+            candidate->instance_count == previous_instance_count &&
+            !match.instance->func_is_explicit_template_specialization;
+    }
+    if (!selected_template || !selected_instance || ambiguous) {
+        active_namespace = saved_namespace;
+        active_template = saved_template;
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return false;
+    }
+
+    has_body = check(TOK_LBRACE);
+    if (has_body) {
+        CxxNamespace* definition_namespace = selected_template->ns
+            ? selected_template->ns : g_global_namespace;
+        active_namespace = definition_namespace;
+        active_template = NULL;
+        match(TOK_LBRACE);
+        {
+            StmtList* statements = NULL;
+            void* enum_scope = rcc_parser_enum_scope_mark();
+            rcc_parser_cxx_begin_function_parameters(parameters);
+            rcc_parser_function_scope_push(name);
+            while (!check(TOK_RBRACE) && !at_end()) {
+                Token* start = parser.cur;
+                Stmt* statement = parse_cxx_statement();
+                if (statement) stmtlist_append(&statements, statement);
+                if (parser.cur == start && !at_end()) advance();
+            }
+            expect(TOK_RBRACE, "} after explicit function-template specialization");
+            rcc_parser_function_scope_pop();
+            rcc_parser_enum_scope_restore(enum_scope);
+            rcc_parser_cxx_end_function_parameters();
+            body = stmt_block(statements, loc);
+        }
+        active_template = saved_template;
+    } else {
+        expect(TOK_SEMICOLON,
+               "; after explicit function-template specialization");
+    }
+
+    first_explicit_declaration =
+        !selected_instance->func_is_explicit_template_specialization;
+    if (selected_was_instantiated) {
+        rcc_error(loc,
+                  "explicit function-template specialization for '%s' appears after instantiation",
+                  name);
+    } else {
+        if (first_explicit_declaration) {
+            selected_instance->func_body = NULL;
+            selected_instance->func_is_defined = false;
+            selected_instance->func_template_body_deferred = false;
+            selected_instance->func_is_inline = false;
+            selected_instance->func_is_constexpr = false;
+            selected_instance->func_is_consteval = false;
+            selected_instance->func_is_explicit_template_specialization = true;
+        } else if (selected_instance->func_is_constexpr != is_constexpr ||
+                   selected_instance->func_is_consteval != is_consteval) {
+            rcc_error(loc,
+                      "explicit function-template specialization redeclaration changes constexpr/consteval specifiers");
+        }
+        selected_instance->func_params = parameters;
+        selected_instance->func_is_inline =
+            selected_instance->func_is_inline || is_inline;
+        selected_instance->func_is_constexpr = is_constexpr;
+        selected_instance->func_is_consteval = is_consteval;
+        selected_instance->func_noexcept_expr = noexcept_expression;
+        if (has_body) {
+            if (selected_instance->func_is_defined) {
+                rcc_error(loc,
+                          "redefinition of explicit function-template specialization '%s'",
+                          name);
+            } else {
+                selected_instance->func_body = body;
+                selected_instance->func_is_defined = true;
+                selected_instance->func_template_body_deferred = false;
+            }
+        }
+        cxx_add_function_declaration_once(selected_instance);
+    }
+
+    if (specialization) {
+        specialization->name = ast_arena_strdup(name);
+        specialization->ns = selected_template->ns
+            ? selected_template->ns : g_global_namespace;
+        specialization->primary_template = selected_template;
+    }
+    active_namespace = saved_namespace;
+    active_template = saved_template;
+    return true;
+}
+
 static bool cxx_parse_explicit_member_function_template_specialization(
     Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
     SourceLoc loc, CxxTemplate* specialization, int template_head_count) {
@@ -39474,11 +39939,36 @@ static bool cxx_function_template_call_is_dependent(
     return false;
 }
 
+static bool cxx_candidate_function_template_call_is_dependent(
+    ExprList* call_arguments,
+    CxxParsedTemplateArgument explicit_arguments[32][32],
+    const int explicit_argument_counts[32],
+    const bool explicit_arguments_valid[32], int candidate_count,
+    bool explicit_arguments_specified, const CxxTemplate* context) {
+    if (!context) return false;
+    if (!explicit_arguments_specified) {
+        return cxx_function_template_call_is_dependent(
+            call_arguments, NULL, 0, false, context);
+    }
+    for (int candidate_index = 0; candidate_index < candidate_count;
+         ++candidate_index) {
+        if (explicit_arguments_valid[candidate_index] &&
+            cxx_function_template_call_is_dependent(
+                call_arguments, explicit_arguments[candidate_index],
+                explicit_argument_counts[candidate_index], true, context)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static Expr* cxx_defer_function_template_call(
     const char* name, SourceLoc loc, CxxTemplate** candidates,
     int candidate_count, ExprList* call_arguments,
-    const CxxParsedTemplateArgument* explicit_arguments,
-    int explicit_argument_count, bool explicit_arguments_specified) {
+    CxxParsedTemplateArgument explicit_arguments[32][32],
+    const int explicit_argument_counts[32],
+    const bool explicit_arguments_valid[32],
+    bool explicit_arguments_specified) {
     CxxDependentFunctionTemplateCall* deferred;
     Expr* function;
     Expr* call;
@@ -39493,15 +39983,27 @@ static Expr* cxx_defer_function_template_call(
     memcpy(deferred->candidates, candidates,
            sizeof(deferred->candidates[0]) * (size_t)candidate_count);
     deferred->candidate_count = candidate_count;
-    deferred->explicit_argument_count = explicit_argument_count;
     deferred->explicit_arguments_specified = explicit_arguments_specified;
-    if (explicit_arguments_specified && explicit_argument_count > 0) {
-        deferred->explicit_arguments = ast_arena_alloc(
-            sizeof(deferred->explicit_arguments[0]) *
-            (size_t)explicit_argument_count);
-        memcpy(deferred->explicit_arguments, explicit_arguments,
-               sizeof(deferred->explicit_arguments[0]) *
-                   (size_t)explicit_argument_count);
+    if (explicit_arguments_specified) {
+        deferred->candidate_explicit_arguments = ast_arena_alloc(
+            sizeof(deferred->candidate_explicit_arguments[0]) *
+            (size_t)candidate_count);
+        deferred->candidate_explicit_argument_counts = ast_arena_alloc(
+            sizeof(deferred->candidate_explicit_argument_counts[0]) *
+            (size_t)candidate_count);
+        deferred->candidate_explicit_arguments_valid = ast_arena_alloc(
+            sizeof(deferred->candidate_explicit_arguments_valid[0]) *
+            (size_t)candidate_count);
+        memcpy(deferred->candidate_explicit_arguments, explicit_arguments,
+               sizeof(explicit_arguments[0]) * (size_t)candidate_count);
+        memcpy(deferred->candidate_explicit_argument_counts,
+               explicit_argument_counts,
+               sizeof(deferred->candidate_explicit_argument_counts[0]) *
+                   (size_t)candidate_count);
+        memcpy(deferred->candidate_explicit_arguments_valid,
+               explicit_arguments_valid,
+               sizeof(deferred->candidate_explicit_arguments_valid[0]) *
+                   (size_t)candidate_count);
     }
     function = expr_ident(name, loc);
     call = expr_call(function, call_arguments, loc);
@@ -39527,12 +40029,21 @@ static bool cxx_resolve_dependent_function_template_call(Expr* expression) {
         return false;
     }
     if (cxx_function_template_call_is_dependent(
-            expression->call_args,
-            deferred->explicit_arguments,
-            deferred->explicit_argument_count,
-            deferred->explicit_arguments_specified,
+            expression->call_args, NULL, 0, false,
             expression->cxx_template_context)) {
         return false;
+    }
+    if (deferred->explicit_arguments_specified) {
+        for (int index = 0; index < deferred->candidate_count; ++index) {
+            if (deferred->candidate_explicit_arguments_valid[index] &&
+                cxx_function_template_call_is_dependent(
+                    expression->call_args,
+                    deferred->candidate_explicit_arguments[index],
+                    deferred->candidate_explicit_argument_counts[index],
+                    true, expression->cxx_template_context)) {
+                return false;
+            }
+        }
     }
     for (int index = 0; index < deferred->candidate_count; ++index) {
         CxxTemplate* candidate = deferred->candidates[index];
@@ -39542,7 +40053,8 @@ static bool cxx_resolve_dependent_function_template_call(Expr* expression) {
         if (!candidate || candidate->kind != TMPL_FUNCTION ||
             !candidate->func_def ||
             (deferred->explicit_arguments_specified &&
-             candidate->is_hidden_friend)) {
+             (candidate->is_hidden_friend ||
+              !deferred->candidate_explicit_arguments_valid[index]))) {
             continue;
         }
         active_namespace = candidate->ns
@@ -39550,8 +40062,12 @@ static bool cxx_resolve_dependent_function_template_call(Expr* expression) {
         if (prepare_cxx_function_template_match(
                 candidate, expression->call_args,
                 deferred->explicit_arguments_specified
-                    ? deferred->explicit_arguments : NULL,
-                deferred->explicit_argument_count, &match,
+                    ? deferred->candidate_explicit_arguments[index]
+                    : NULL,
+                deferred->explicit_arguments_specified
+                    ? deferred->candidate_explicit_argument_counts[index]
+                    : 0,
+                &match,
                 &constraint_invalid, &constraint_unsupported)) {
             if (match_count < (int)(sizeof(matches) / sizeof(matches[0]))) {
                 matches[match_count++] = match;
@@ -39589,6 +40105,10 @@ static bool cxx_resolve_dependent_function_template_call(Expr* expression) {
     expression->type = matches[selected].instance->type->ret_type;
     expression->cxx_dependent_function_template_call = NULL;
     return true;
+}
+
+bool rcc_parser_cxx_resolve_dependent_function_template_call(Expr* expression) {
+    return cxx_resolve_dependent_function_template_call(expression);
 }
 
 static bool cxx_member_template_this_adjustment(
@@ -40685,92 +41205,96 @@ Expr* rcc_parse_cxx_template_call(void) {
     if (candidate_count != 1 ||
         tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT ||
         tmpl->is_hidden_friend) {
-        CxxParsedTemplateArgument explicit_arguments[32];
-        int explicit_argument_count = 0;
+        CxxParsedTemplateArgument explicit_arguments[32][32] = { 0 };
+        int explicit_argument_counts[32] = { 0 };
+        bool explicit_arguments_valid[32] = { false };
+        bool explicit_arguments_parsed[32] = { false };
+        Token* explicit_argument_list_start = NULL;
+        Token* explicit_argument_list_start_prev = NULL;
+        CxxNamespace* namespace_before_explicit_arguments = active_namespace;
         ExprList* call_arguments = adl_call_arguments;
         Expr* function;
         bool explicit_template_arguments = check(TOK_LT);
-        int pack_parameter_index =
-            cxx_parser_template_pack_parameter_index(tmpl);
 
         if (explicit_template_arguments) {
-            expect(TOK_LT, "<");
-            if (!check(TOK_GT)) {
-                do {
-                    int parameter_index = pack_parameter_index >= 0 &&
-                                          explicit_argument_count >=
-                                              pack_parameter_index
-                        ? pack_parameter_index : explicit_argument_count;
-                    TemplateParam* parameter = parameter_index <
-                        tmpl->param_count ? &tmpl->params[parameter_index] : NULL;
-                    CxxParsedTemplateArgument* parsed;
-                    if (explicit_argument_count >=
-                        (int)(sizeof(explicit_arguments) /
-                              sizeof(explicit_arguments[0]))) {
-                        rcc_error(loc, "function template argument limit exceeded");
-                        while (!check(TOK_GT) && !at_end()) advance();
-                        break;
+            Token* argument_list_start = parser.cur;
+            Token* argument_list_start_prev = parser.prev;
+            Token* argument_list_end = NULL;
+            Token* argument_list_end_prev = NULL;
+            Token* fallback_end = NULL;
+            Token* fallback_end_prev = NULL;
+            CxxNamespace* namespace_before_arguments = active_namespace;
+            explicit_argument_list_start = argument_list_start;
+            explicit_argument_list_start_prev = argument_list_start_prev;
+            namespace_before_explicit_arguments = namespace_before_arguments;
+
+            for (int index = 0; index < candidate_count; ++index) {
+                CxxTemplate* candidate = candidate_templates[index];
+                CxxParsedTemplateArgument parsed_arguments[32] = { 0 };
+                int parsed_argument_count = 0;
+                int suppressed_before = g_suppressed_error_count;
+                bool suppress_before = g_suppress_errors;
+                bool parsed;
+                if (!candidate || candidate->kind != TMPL_FUNCTION ||
+                    !candidate->func_def) {
+                    continue;
+                }
+                explicit_arguments_parsed[index] = true;
+                parser.cur = argument_list_start;
+                parser.prev = argument_list_start_prev;
+                active_namespace = candidate->ns
+                    ? candidate->ns : namespace_before_arguments;
+                g_suppress_errors = true;
+                parsed = cxx_parse_explicit_function_template_argument_list(
+                    candidate, parsed_arguments, &parsed_argument_count, loc);
+                g_suppress_errors = suppress_before;
+                if (parsed) {
+                    if (!fallback_end) {
+                        fallback_end = parser.cur;
+                        fallback_end_prev = parser.prev;
                     }
-                    parsed = &explicit_arguments[explicit_argument_count++];
-                    memset(parsed, 0, sizeof(*parsed));
-                    if (parameter && parameter->kind == TPARAM_TYPE) {
-                        parsed->is_type = true;
-                        parsed->type = parse_cxx_template_type_argument();
-                    } else if (parameter &&
-                               parameter->kind == TPARAM_TEMPLATE) {
-                        const char* argument_name = check(TOK_IDENT) ||
-                                check(TOK_SCOPE)
-                            ? parse_qualified_name() : NULL;
-                        CxxTemplate* argument_template = argument_name
-                            ? find_template_template_argument(argument_name)
-                            : NULL;
-                        if (!argument_template ||
-                            !template_template_signature_matches(
-                                parameter, argument_template)) {
-                            rcc_error(loc,
-                                      "function template-template argument "
-                                      "does not match its parameter list");
-                        } else {
-                            Type* template_carrier =
-                                type_struct(argument_name);
-                            template_carrier->cxx_template =
-                                argument_template;
-                            parsed->is_type = true;
-                            parsed->type = template_carrier;
-                        }
-                    } else if (parameter && parameter->kind == TPARAM_NONTYPE) {
-                        Expr* value_expression;
-                        int64_t value;
-                        rcc_parser_set_cxx_template_default_mode(true);
-                        value_expression = parse_assignment_expression();
-                        rcc_parser_set_cxx_template_default_mode(false);
-                        if (!expr_eval_integer_constant(value_expression, &value)) {
-                            SourceLoc error_location;
-                            cxx_parser_expr_loc(&error_location,
-                                                value_expression, &loc);
-                            rcc_error(error_location,
-                                      "function template non-type argument must be "
-                                      "an integer constant expression");
-                        } else {
-                            parsed->value = value;
-                            parsed->value_valid = true;
-                        }
-                    } else {
-                        rcc_error(peek()->loc,
-                                  "too many function template arguments");
-                        while (!check(TOK_COMMA) && !check(TOK_GT) &&
-                               !at_end()) {
-                            advance();
+                    if (g_suppressed_error_count == suppressed_before) {
+                        memcpy(explicit_arguments[index], parsed_arguments,
+                               sizeof(parsed_arguments));
+                        explicit_argument_counts[index] =
+                            parsed_argument_count;
+                        explicit_arguments_valid[index] = true;
+                        if (!argument_list_end) {
+                            argument_list_end = parser.cur;
+                            argument_list_end_prev = parser.prev;
                         }
                     }
-                } while (match(TOK_COMMA));
+                }
             }
+
+            if (!argument_list_end) {
+                /* Preserve a useful diagnostic for a malformed or
+                 * non-matching explicit argument list using the first
+                 * declared candidate's parameter kinds. */
+                parser.cur = argument_list_start;
+                parser.prev = argument_list_start_prev;
+                active_namespace = tmpl->ns
+                    ? tmpl->ns : namespace_before_arguments;
+                if (cxx_parse_explicit_function_template_argument_list(
+                        tmpl, explicit_arguments[0],
+                        &explicit_argument_counts[0], loc)) {
+                    explicit_arguments_parsed[0] = true;
+                    fallback_end = parser.cur;
+                    fallback_end_prev = parser.prev;
+                }
+            }
+            argument_list_end = argument_list_end
+                ? argument_list_end : fallback_end;
+            argument_list_end_prev = argument_list_end_prev
+                ? argument_list_end_prev : fallback_end_prev;
+            parser.cur = argument_list_end;
+            parser.prev = argument_list_end_prev;
+            active_namespace = namespace_before_arguments;
         } else if (!adl_arguments_parsed && !check(TOK_LPAREN)) {
             parser.cur = saved_cur;
             parser.prev = saved_prev;
             return NULL;
         }
-        if (explicit_template_arguments) expect(TOK_GT, ">");
         if (!adl_arguments_parsed && !match(TOK_LPAREN)) {
             rcc_error(loc, "function template specialization must be called");
             return expr_int(0, loc);
@@ -40813,17 +41337,56 @@ Expr* rcc_parse_cxx_template_call(void) {
             }
         }
 
+        if (explicit_template_arguments &&
+            explicit_argument_list_start) {
+            Token* after_call_arguments = parser.cur;
+            Token* after_call_arguments_prev = parser.prev;
+            CxxNamespace* namespace_after_call_arguments = active_namespace;
+            for (int index = 0; index < candidate_count; ++index) {
+                CxxTemplate* candidate = candidate_templates[index];
+                CxxParsedTemplateArgument parsed_arguments[32] = { 0 };
+                int parsed_argument_count = 0;
+                int suppressed_before;
+                bool suppress_before;
+                bool parsed;
+                if (explicit_arguments_parsed[index] || !candidate ||
+                    candidate->kind != TMPL_FUNCTION ||
+                    !candidate->func_def) {
+                    continue;
+                }
+                parser.cur = explicit_argument_list_start;
+                parser.prev = explicit_argument_list_start_prev;
+                active_namespace = candidate->ns
+                    ? candidate->ns : namespace_before_explicit_arguments;
+                suppressed_before = g_suppressed_error_count;
+                suppress_before = g_suppress_errors;
+                g_suppress_errors = true;
+                parsed = cxx_parse_explicit_function_template_argument_list(
+                    candidate, parsed_arguments, &parsed_argument_count, loc);
+                g_suppress_errors = suppress_before;
+                explicit_arguments_parsed[index] = true;
+                if (parsed &&
+                    g_suppressed_error_count == suppressed_before) {
+                    memcpy(explicit_arguments[index], parsed_arguments,
+                           sizeof(parsed_arguments));
+                    explicit_argument_counts[index] = parsed_argument_count;
+                    explicit_arguments_valid[index] = true;
+                }
+            }
+            parser.cur = after_call_arguments;
+            parser.prev = after_call_arguments_prev;
+            active_namespace = namespace_after_call_arguments;
+        }
+
         if (active_template &&
-            cxx_function_template_call_is_dependent(
-                call_arguments,
-                explicit_template_arguments ? explicit_arguments : NULL,
-                explicit_argument_count, explicit_template_arguments,
-                active_template)) {
+            cxx_candidate_function_template_call_is_dependent(
+                call_arguments, explicit_arguments, explicit_argument_counts,
+                explicit_arguments_valid, candidate_count,
+                explicit_template_arguments, active_template)) {
             Expr* deferred = cxx_defer_function_template_call(
                 name, loc, candidate_templates, candidate_count,
-                call_arguments,
-                explicit_template_arguments ? explicit_arguments : NULL,
-                explicit_argument_count, explicit_template_arguments);
+                call_arguments, explicit_arguments, explicit_argument_counts,
+                explicit_arguments_valid, explicit_template_arguments);
             if (deferred) return deferred;
         }
 
@@ -40841,6 +41404,10 @@ Expr* rcc_parse_cxx_template_call(void) {
         CxxTemplate* substitution_failure_template = NULL;
         for (int index = 0; index < candidate_count; ++index) {
             CxxFunctionTemplateMatch candidate_match = { 0 };
+            if (explicit_template_arguments &&
+                !explicit_arguments_valid[index]) {
+                continue;
+            }
             if (qualified_call &&
                 candidate_templates[index]->is_hidden_friend) {
                 continue;
@@ -40855,8 +41422,11 @@ Expr* rcc_parse_cxx_template_call(void) {
             }
             if (prepare_cxx_function_template_match(
                     candidate_templates[index], call_arguments,
-                    explicit_template_arguments ? explicit_arguments : NULL,
-                    explicit_argument_count, &candidate_match,
+                    explicit_template_arguments
+                        ? explicit_arguments[index] : NULL,
+                    explicit_template_arguments
+                        ? explicit_argument_counts[index] : 0,
+                    &candidate_match,
                     &constraint_invalid, &constraint_unsupported)) {
                 matches[match_count++] = candidate_match;
             } else if (!substitution_failure_type &&

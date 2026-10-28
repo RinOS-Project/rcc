@@ -1,5 +1,43 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-10-28, C23 typeof type-name operands)
+
+- [x] Add C23-only `typeof` / `typeof_unqual` tokens and type-name parsing;
+  preserve the spellings as identifiers in C17 and C++.
+- [x] Preserve qualifiers in `typeof`; remove top-level and array-element
+  qualifiers plus atomic qualification in `typeof_unqual`, while retaining
+  pointee qualifiers. Add nested type-name, function-pointer, C17 identifier,
+  i686/AMD64 object, AMD64 execution, and const-write diagnostic coverage.
+- [x] Resolve ordinary expression operands without runtime evaluation; test
+  identifiers, arithmetic, pointer/function/array/string/call expressions,
+  and side effects that must remain unevaluated for non-VM operands.
+- [x] Restrict deferred typedef-type resolution to `DECL_TYPEDEF` so the
+  overlapping function-declaration union member is never misread as a type;
+  the full C17 suite, including atomic builtin regressions, passes.
+- [x] Reject dot and arrow expression operands that designate bit-field
+  members, and test array/function parameter adjustment through
+  `typeof(parameter)`. Resolve type operands in typedefs and `_Generic`
+  associations, with runtime coverage for both contexts.
+- [x] Evaluate VM expression operands in declarations and `sizeof` type-name
+  contexts; preserve original type identity and saved VLA extents across
+  `typeof` copies. Cover nested `typeof`, pointer and array VM operands, and
+  side effects in both expression and type-name VLA operands.
+- [x] Capture each block-scope VLA typedef bound when its declaration is
+  reached, and reuse that saved bound for declarations using the typedef.
+  Verify side-effect timing, subsequent changes to the bound variable, and
+  repeated execution of the typedef inside a loop on native i686/AMD64;
+  compare the same runtime fixture with GCC 13.3.
+- [x] Capture independent bounds for multiple typedef declarators in one
+  declaration and reuse them through nested array typedef aliases; verify
+  i686/AMD64 execution and GCC 13.3 / Clang 18 runtime oracles.
+- [ ] Complete exact evaluation ordering across multiple declarators,
+  prototype-scope rules, and deferred type-name contexts such as
+  `__builtin_types_compatible_p` /
+  `__builtin_offsetof`. GCC 13.3 and Clang 18 agree on array/function
+  parameter adjustment, but differ from RCC on the
+  `typeof_unqual(const int[3])` write test; reconcile that behavior with N3220.
+  Native i686 execution now passes for the covered typedef/runtime cases.
+
 この一覧は「CLIが存在する」ことと「言語・ABIが完成している」ことを区別する。
 未完項目が残る間はC17/C++20準拠やセルフホスト完了を宣言しない。
 
@@ -11493,6 +11531,62 @@ remains a separate open item.
       argument types in `test-cxx-spaceship`; x86/x64 compilation, x64 runtime,
       related overload/class-template regressions, and a GCC C++20
       `-pedantic-errors` runtime oracle pass.
+- [x] Merge equivalent ordinary function-template declarations with their
+      later definitions, including a template default added on the definition,
+      so calls see one specialization rather than duplicate candidates. Extend
+      redeclaration type identity to distinguish nested function-pointer
+      `noexcept` and member-function-pointer ref-qualifiers. Runtime, both-target
+      function-template compilation, overload/ref-qualifier regression, and
+      GCC C++20 `-pedantic-errors` checks pass.
 - [ ] Continue auditing ADL candidate identity and hidden-friend lookup across
       function-template redeclarations, specializations, and the remaining
       C++20 candidate-set and overload-conformance cases.
+- [x] Parse namespace-scope explicit specializations of free function
+      templates and attach each specialization to the selected primary by its
+      explicit template-id and declared function type. Cover qualified
+      namespace names, overload selection, non-type and defaulted template
+      arguments, a declaration followed by its definition, dependent
+      `noexcept` matching, target ABI symbol parity, and x64 runtime behavior.
+      Diagnose specialization after
+      instantiation, duplicate definitions, forbidden specialization default
+      arguments, and mismatched function signatures; RCC checks both targets
+      and GCC C++20 `-pedantic-errors` oracles pass.
+- [x] Parse explicit template arguments per candidate when overloaded free
+      function templates use different type and non-type parameter kinds.
+      Select the specialization by both that candidate-specific argument list
+      and the declared function type; verify GCC-matching symbols and runtime
+      results for explicit type and integral arguments on i686/AMD64.
+- [x] Parse explicit arguments per candidate for overloaded free-function
+      template calls whose candidates use different type and non-type
+      parameter kinds. Preserve those candidate-specific arguments through
+      dependent calls in enclosing function templates; test immediate and
+      dependent type/non-type specializations with i686/AMD64 output, x64
+      runtime, and GCC C++20 syntax/symbol comparisons.
+- [x] Match explicit arguments per candidate when an overload set combines a
+      pure type pack, a fixed non-type parameter followed by a type pack, and
+      a pure non-type pack. Verify both selected results at runtime, GCC/RCC
+      Itanium symbols, and a no-match pack-shape diagnostic on i686/AMD64.
+- [x] Match template-template and non-type explicit arguments per overload
+      candidate, including a dependent call preserved inside an enclosing
+      function template. Verify runtime selection and GCC/RCC Itanium symbol
+      parity on i686/AMD64.
+- [x] Match explicit arguments per candidate when one overload uses a
+      template-template parameter pack and another uses a type pack; cover
+      one- and two-template argument lists and a dependent call, with runtime
+      selection and GCC/RCC Itanium symbol parity on i686/AMD64.
+- [x] Handle an explicit argument list for a function template with two
+      consecutive type packs according to GCC's partition (all explicitly
+      supplied arguments bind to the first pack; the second remains empty).
+      Verify the competing type-pack/non-type-pack overloads, runtime result,
+      and GCC/RCC Itanium symbols on i686/AMD64.
+- [x] Preserve a trailing defaulted non-type argument after an explicitly
+      supplied type pack when selecting against a competing non-type-pack
+      overload; verify defaulted and non-type-pack manglings and runtime
+      selection against GCC C++20 on i686/AMD64.
+- [ ] Audit fixed/defaulted parameters before packs and more complex explicit
+      argument partitioning; preserve ambiguity and non-match behavior against
+      GCC C++20.
+- [x] Keep `test-cxx-function-template-explicit-specialization` in
+      `CXX_REGRESSION_TARGETS`; verify it is reached by `test-cxx` and the
+      Linux production `test-ci` workflow, and that native-Windows `test-cxx`
+      includes the same gate.

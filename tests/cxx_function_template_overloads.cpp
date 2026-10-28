@@ -26,6 +26,14 @@ using ConversionDataMemberBoolPointer =
 using ConversionFunctionMemberBoolPointer =
     bool (ConversionMemberPointerBoolOwner::*)() const;
 
+struct ConversionRefQualifiedMemberOwner {
+};
+
+using ConversionLvalueQualifiedMemberPointer =
+    void (ConversionRefQualifiedMemberOwner::*)() &;
+using ConversionRvalueQualifiedMemberPointer =
+    void (ConversionRefQualifiedMemberOwner::*)() &&;
+
 double cxx_integer_return_as_double(int value) { return value; }
 int cxx_free_variadic(int value, ...) { return value; }
 
@@ -2997,6 +3005,25 @@ template<typename T>
 int choose_member_function_pointer_noexcept(
     T, void (ConversionMemberPointerMiddle::*)()) {
     return 206;
+}
+
+template<typename T>
+int choose_ref_qualified_member_function_template(
+    T, ConversionLvalueQualifiedMemberPointer) {
+    return 261;
+}
+
+template<typename T>
+int choose_ref_qualified_member_function_template(
+    T, ConversionRvalueQualifiedMemberPointer) {
+    return 262;
+}
+
+int verify_ref_qualified_member_function_template() {
+    ConversionLvalueQualifiedMemberPointer lvalue = nullptr;
+    ConversionRvalueQualifiedMemberPointer rvalue = nullptr;
+    return choose_ref_qualified_member_function_template(0, lvalue) == 261 &&
+           choose_ref_qualified_member_function_template(0, rvalue) == 262;
 }
 
 int choose_member_function_pointer_noexcept_non_template(

@@ -1212,6 +1212,49 @@ static bool gen64_type_has_vla_any(const Type* type) {
     return type->kind == TYPE_PTR && gen64_type_has_vla_any(type->base);
 }
 
+/* typeof(expression) evaluates its operand when the resulting type is
+ * variably modified. Nested typeof operands are evaluated from the inner
+ * type outward, before the VLA extents that consume that type. */
+static void gen64_typeof_runtime_evaluations(Module* mod, Type* type) {
+    if (!type) return;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        gen64_typeof_runtime_evaluations(mod, type->base);
+    } else if (type->kind == TYPE_FUNC) {
+        gen64_typeof_runtime_evaluations(mod, type->ret_type);
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            gen64_typeof_runtime_evaluations(mod, parameter->type);
+        }
+    }
+    if (type->c_typeof_runtime_expression &&
+        !type->c_typeof_runtime_expression_emitted) {
+        gen64_expr(mod, type->c_typeof_runtime_expression);
+        type->c_typeof_runtime_expression_emitted = true;
+    }
+}
+
+static void gen64_vla_typedef_bound_evaluations(Module* mod, Type* type,
+                                                Decl* owner,
+                                                bool inherited_typeof) {
+    if (!type) return;
+    inherited_typeof = inherited_typeof ||
+                       type->c_typeof_operand_type != NULL;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        gen64_vla_typedef_bound_evaluations(mod, type->base,
+                                            owner, inherited_typeof);
+    }
+    if (type->kind == TYPE_ARRAY && type->array_bound &&
+        !inherited_typeof &&
+        type->array_bound->c_vla_typedef_owner == owner &&
+        type->array_bound->c_vla_saved_bound_offset < 0) {
+        gen64_expr(mod, type->array_bound);
+        emit64_mov_mem_reg(mod, RBP,
+                           type->array_bound->c_vla_saved_bound_offset, RAX);
+    }
+}
+
 static void gen64_vla_extent(Module* mod, Type* type) {
     if (!type || type->kind != TYPE_ARRAY) {
         emit64_mov_reg_imm32(mod, RAX, type && type->size > 0
@@ -1226,7 +1269,12 @@ static void gen64_vla_extent(Module* mod, Type* type) {
     }
     emit64_push_reg(mod, RAX);
     if (type->array_bound) {
-        gen64_expr(mod, type->array_bound);
+        if (type->array_bound->c_vla_saved_bound_offset < 0) {
+            emit64_mov_reg_mem(mod, RAX, RBP,
+                               type->array_bound->c_vla_saved_bound_offset);
+        } else {
+            gen64_expr(mod, type->array_bound);
+        }
     } else {
         emit64_mov_reg_imm32(mod, RAX, type->array_len > 0
             ? (uint32_t)type->array_len : 0u);
@@ -1263,12 +1311,39 @@ static int gen64_vla_extent_index(const Type* owner, const Type* target) {
     return -1;
 }
 
+static bool gen64_saved_vla_extent(Module* mod, Type* type,
+                                   Expr* expression);
+
 static Decl* gen64_vla_owner(Expr* expression) {
     while (expression) {
         if (expression->kind == EXPR_INDEX) {
             expression = expression->index_base;
-        } else if (expression->kind == EXPR_DEREF) {
+        } else if (expression->kind == EXPR_DEREF ||
+                   expression->kind == EXPR_ADDR ||
+                   expression->kind == EXPR_PREINC ||
+                   expression->kind == EXPR_PREDEC ||
+                   expression->kind == EXPR_POSTINC ||
+                   expression->kind == EXPR_POSTDEC) {
             expression = expression->unary_operand;
+        } else if (expression->kind == EXPR_CAST) {
+            expression = expression->cast_expr;
+        } else if (expression->kind == EXPR_COMMA) {
+            expression = expression->binary_rhs;
+        } else if (expression->kind == EXPR_ADD ||
+                   expression->kind == EXPR_SUB) {
+            Type* left_type = expression->binary_lhs
+                ? expression->binary_lhs->type : NULL;
+            Type* right_type = expression->binary_rhs
+                ? expression->binary_rhs->type : NULL;
+            if (left_type && (left_type->kind == TYPE_PTR ||
+                              left_type->kind == TYPE_ARRAY)) {
+                expression = expression->binary_lhs;
+            } else if (right_type && (right_type->kind == TYPE_PTR ||
+                                      right_type->kind == TYPE_ARRAY)) {
+                expression = expression->binary_rhs;
+            } else {
+                break;
+            }
         } else {
             break;
         }
@@ -1282,10 +1357,22 @@ static Decl* gen64_vla_owner(Expr* expression) {
     return NULL;
 }
 
-static void gen64_vla_extents(Module* mod, Type* type, Decl* declaration,
+static void gen64_vla_extents(Module* mod, Type* type, Type* source_type,
+                              Expr* source_expression, Decl* declaration,
                               int* slot_index) {
+    Type* source_base;
+    if (type && type->c_typeof_operand_type) {
+        source_type = type->c_typeof_operand_type;
+        source_expression = type->c_typeof_runtime_expression;
+    }
+    if (!source_type) source_type = type;
+    source_base = source_type &&
+        (source_type->kind == TYPE_PTR || source_type->kind == TYPE_ARRAY ||
+         source_type->kind == TYPE_VECTOR)
+        ? source_type->base : (type ? type->base : NULL);
     if (type && type->kind == TYPE_PTR) {
-        gen64_vla_extents(mod, type->base, declaration, slot_index);
+        gen64_vla_extents(mod, type->base, source_base, source_expression,
+                          declaration, slot_index);
         return;
     }
     if (!type || type->kind != TYPE_ARRAY) {
@@ -1294,21 +1381,30 @@ static void gen64_vla_extents(Module* mod, Type* type, Decl* declaration,
         return;
     }
     if (type->base && type->base->kind == TYPE_ARRAY) {
-        gen64_vla_extents(mod, type->base, declaration, slot_index);
+        gen64_vla_extents(mod, type->base, source_base, source_expression,
+                          declaration, slot_index);
     } else {
         emit64_mov_reg_imm32(mod, RAX, type->base && type->base->size > 0
             ? (uint32_t)type->base->size : 0u);
     }
-    emit64_push_reg(mod, RAX);
-    if (type->array_bound) {
-        gen64_expr(mod, type->array_bound);
-    } else {
-        emit64_mov_reg_imm32(mod, RAX, type->array_len > 0
-            ? (uint32_t)type->array_len : 0u);
+    if (!gen64_saved_vla_extent(mod, source_type, source_expression)) {
+        emit64_push_reg(mod, RAX);
+        if (type->array_bound) {
+            if (type->array_bound->c_vla_saved_bound_offset < 0) {
+                emit64_mov_reg_mem(
+                    mod, RAX, RBP,
+                    type->array_bound->c_vla_saved_bound_offset);
+            } else {
+                gen64_expr(mod, type->array_bound);
+            }
+        } else {
+            emit64_mov_reg_imm32(mod, RAX, type->array_len > 0
+                ? (uint32_t)type->array_len : 0u);
+        }
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_pop_reg(mod, RAX);
+        emit64_imul_reg_reg(mod, RAX, RCX);
     }
-    emit64_mov_reg_reg(mod, RCX, RAX);
-    emit64_pop_reg(mod, RAX);
-    emit64_imul_reg_reg(mod, RAX, RCX);
     if (declaration && declaration->var_vla_extent_count > 0 &&
         slot_index && *slot_index < declaration->var_vla_extent_count) {
         emit64_mov_mem_reg(mod, RBP,
@@ -1349,7 +1445,8 @@ static bool gen64_pointer_stride_is_dynamic(const Type* type) {
 
 static void gen64_vla_alloc(Module* mod, Decl* decl) {
     int slot_index = 0;
-    gen64_vla_extents(mod, decl->type, decl, &slot_index);
+    gen64_typeof_runtime_evaluations(mod, decl->type);
+    gen64_vla_extents(mod, decl->type, NULL, NULL, decl, &slot_index);
     emit64_sub_reg_reg(mod, RSP, RAX);
     emit64_mov_mem_reg(mod, RBP, decl->var_vla_size_offset, RAX);
     emit64_mov_reg_reg(mod, RAX, RSP);
@@ -1367,7 +1464,8 @@ static void gen64_vla_parameter_extents(Module* mod, Decl* decl) {
             !gen64_type_has_vla_any(value->param_array_type)) {
             continue;
         }
-        gen64_vla_extents(mod, value->param_array_type, value, &slot_index);
+        gen64_vla_extents(mod, value->param_array_type, NULL, NULL,
+                          value, &slot_index);
     }
 }
 
@@ -9966,8 +10064,18 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 expr->sizeof_type ? expr->sizeof_type
                     : (expr->unary_operand
                         ? expr->unary_operand->type : NULL));
+            if (expr->sizeof_type) {
+                gen64_typeof_runtime_evaluations(mod, measured_type);
+            }
             if (expr->sizeof_type && gen64_type_has_vla(measured_type)) {
-                gen64_vla_extent(mod, measured_type);
+                if (measured_type->c_typeof_operand_type &&
+                    measured_type->c_typeof_runtime_expression) {
+                    gen64_vla_extent_for_expr(
+                        mod, measured_type->c_typeof_operand_type,
+                        measured_type->c_typeof_runtime_expression);
+                } else {
+                    gen64_vla_extent(mod, measured_type);
+                }
             } else if (expr->unary_operand &&
                        expr->unary_operand->kind == EXPR_IDENT &&
                        expr->unary_operand->ident_decl &&
@@ -14055,6 +14163,12 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
+            if (d && d->kind == DECL_TYPEDEF) {
+                gen64_typeof_runtime_evaluations(mod, d->typedef_type);
+                gen64_vla_typedef_bound_evaluations(
+                    mod, d->typedef_type, d, false);
+                break;
+            }
             if (d->kind == DECL_VAR && d->var_is_static_local &&
                 d->var_reference_temporary_guard) {
                 if (!gen64_guarded_static_initializer(mod, d)) {
@@ -14070,7 +14184,9 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             if (d->kind == DECL_VAR && !d->var_is_vla &&
                 d->var_vla_extent_count > 0) {
                 int extent_slot = 0;
-                gen64_vla_extents(mod, d->type, d, &extent_slot);
+                gen64_typeof_runtime_evaluations(mod, d->type);
+                gen64_vla_extents(mod, d->type, NULL, NULL, d,
+                                  &extent_slot);
             }
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen64_vla_alloc(mod, d);

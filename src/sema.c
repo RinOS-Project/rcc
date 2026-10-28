@@ -20,6 +20,8 @@ extern bool rcc_parser_cxx_expression_is_dependent(
     const Expr*) __attribute__((weak));
 extern Type* rcc_parser_cxx_dependent_integer_expression_type(
     const Expr*) __attribute__((weak));
+extern bool rcc_parser_cxx_resolve_dependent_function_template_call(
+    Expr*) __attribute__((weak));
 #endif
 
 /* The C compiler intentionally omits the C++ AST object.  Keep the namespace
@@ -600,6 +602,7 @@ static bool sema_exception_body_has_unregistered_cleanup(const Stmt* stmt);
 static bool sema_exception_body_has_vla(const Stmt* stmt);
 static bool sema_exception_body_has_call(const Stmt* stmt);
 static Type* sema_expr(Expr* expr);
+static Type* sema_resolve_typeof_type(Type* type);
 
 static bool sema_cxx_expression_is_dependent(const Expr* expression) {
     return rcc_parser_is_cxx_mode() &&
@@ -894,6 +897,7 @@ static void sema_validate_static_integer_expression(Expr* expression);
 static bool sema_compiler_builtin_call(Expr* expr);
 static bool sema_atomic_builtin_call(Expr* expr);
 static void sema_vla_bounds(Type* type, SourceLoc loc);
+static bool sema_type_is_variably_modified(Type* type);
 static void sema_validate_array_parameter_type(Type* type, SourceLoc loc,
                                                bool is_parameter);
 static void sema_validate_restrict_type(Type* type, SourceLoc loc);
@@ -23313,6 +23317,158 @@ static bool sema_noexcept_expr(Expr* expression) {
     }
 }
 
+typedef struct SemaTypeofVisit {
+    Type* type;
+    const struct SemaTypeofVisit* parent;
+} SemaTypeofVisit;
+
+static Type* sema_typeof_unqual_type(Type* type) {
+    Type* unqualified;
+    if (!type) return NULL;
+    if (type->kind == TYPE_ARRAY) {
+        Type* element = sema_typeof_unqual_type(type->base);
+        if (element == type->base && !type->is_const &&
+            !type->is_volatile && !type->is_atomic &&
+            !type->is_restrict) return type;
+        unqualified = ast_arena_alloc(sizeof(*unqualified));
+        *unqualified = *type;
+        unqualified->base = element;
+        unqualified->is_const = false;
+        unqualified->is_volatile = false;
+        unqualified->is_atomic = false;
+        unqualified->is_restrict = false;
+        return unqualified;
+    }
+    if (!type->is_const && !type->is_volatile && !type->is_atomic &&
+        !type->is_restrict) return type;
+    unqualified = ast_arena_alloc(sizeof(*unqualified));
+    *unqualified = *type;
+    unqualified->is_const = false;
+    unqualified->is_volatile = false;
+    unqualified->is_atomic = false;
+    unqualified->is_restrict = false;
+    return unqualified;
+}
+
+static Type* sema_typeof_qualify_type(Type* type, bool is_const,
+                                     bool is_volatile, bool is_atomic,
+                                     bool is_restrict) {
+    Type* qualified;
+    if (!type || (!is_const && !is_volatile && !is_atomic &&
+                  !is_restrict)) return type;
+    if (type->kind == TYPE_ARRAY) {
+        Type* element = sema_typeof_qualify_type(
+            type->base, type->is_const || is_const,
+            type->is_volatile || is_volatile,
+            type->is_atomic || is_atomic,
+            type->is_restrict || is_restrict);
+        if (element == type->base && !type->is_const &&
+            !type->is_volatile && !type->is_atomic &&
+            !type->is_restrict) return type;
+        qualified = ast_arena_alloc(sizeof(*qualified));
+        *qualified = *type;
+        qualified->base = element;
+        qualified->is_const = false;
+        qualified->is_volatile = false;
+        qualified->is_atomic = false;
+        qualified->is_restrict = false;
+        return qualified;
+    }
+    qualified = ast_arena_alloc(sizeof(*qualified));
+    *qualified = *type;
+    qualified->is_const = qualified->is_const || is_const;
+    qualified->is_volatile = qualified->is_volatile || is_volatile;
+    qualified->is_atomic = qualified->is_atomic || is_atomic;
+    qualified->is_restrict = qualified->is_restrict || is_restrict;
+    return qualified;
+}
+
+static Type* sema_resolve_typeof_type_recursive(
+    Type* type, const SemaTypeofVisit* visited) {
+    SemaTypeofVisit current;
+    if (!type) return NULL;
+    for (const SemaTypeofVisit* item = visited; item; item = item->parent) {
+        if (item->type == type) return type;
+    }
+    current.type = type;
+    current.parent = visited;
+
+    if (type->c_typeof_expression) {
+        Expr* operand = type->c_typeof_expression;
+        Expr* runtime_expression = NULL;
+        Type* operand_type;
+        bool unqual = type->c_typeof_unqual_expression;
+        bool is_const = type->is_const;
+        bool is_volatile = type->is_volatile;
+        bool is_atomic = type->is_atomic;
+        bool is_restrict = type->is_restrict;
+        Type* inferred;
+
+        /* Resolve the stored operand through the ordinary semantic path. Its
+         * expression tree is retained for constraints and VLA processing,
+         * but is not emitted as a runtime evaluation here. */
+        type->c_typeof_expression = NULL;
+        inferred = sema_expr(operand);
+        if (!inferred) {
+            rcc_error(operand->loc,
+                      "cannot determine the type of C23 typeof operand");
+            inferred = type_int;
+        }
+        if ((operand->kind == EXPR_MEMBER ||
+             operand->kind == EXPR_PTR_MEMBER) &&
+            operand->member_field && operand->member_field->is_bitfield) {
+            rcc_error(operand->loc,
+                      "C23 typeof operators cannot be applied to a bit-field member");
+        }
+        inferred = sema_resolve_typeof_type_recursive(inferred, &current);
+        operand_type = inferred;
+        if (sema_type_is_variably_modified(inferred)) {
+            runtime_expression = operand;
+        }
+        if (unqual) inferred = sema_typeof_unqual_type(inferred);
+        inferred = sema_typeof_qualify_type(
+            inferred, is_const, is_volatile, is_atomic, is_restrict);
+        *type = *inferred;
+        type->c_typeof_runtime_expression = runtime_expression;
+        type->c_typeof_operand_type = operand_type;
+        type->c_typeof_runtime_expression_emitted = false;
+        return type;
+    }
+
+    switch (type->kind) {
+        case TYPE_PTR:
+        case TYPE_ARRAY:
+        case TYPE_VECTOR:
+            type->base = sema_resolve_typeof_type_recursive(
+                type->base, &current);
+            break;
+        case TYPE_FUNC:
+            type->ret_type = sema_resolve_typeof_type_recursive(
+                type->ret_type, &current);
+            for (TypeParam* parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                parameter->type = sema_resolve_typeof_type_recursive(
+                    parameter->type, &current);
+            }
+            break;
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+            for (TypeField* field = type->fields; field;
+                 field = field->next) {
+                field->type = sema_resolve_typeof_type_recursive(
+                    field->type, &current);
+            }
+            break;
+        default:
+            break;
+    }
+    return type;
+}
+
+static Type* sema_resolve_typeof_type(Type* type) {
+    return sema_resolve_typeof_type_recursive(type, NULL);
+}
+
 static Type* sema_expr(Expr* expr) {
     Expr* preanalyzed_binary_lhs = NULL;
     Type* preanalyzed_binary_lhs_type = NULL;
@@ -23338,6 +23494,20 @@ static Type* sema_expr(Expr* expr) {
         expr->cxx_virtual_base_pointer_offset;
     synthesized_virtual_base_source_class =
         expr->cxx_virtual_base_source_class;
+
+    if (expr->kind == EXPR_VA_ARG && expr->va_arg_type) {
+        expr->va_arg_type = sema_resolve_typeof_type(expr->va_arg_type);
+    }
+
+    if (expr->kind == EXPR_CAST && expr->cast_type) {
+        expr->cast_type = sema_resolve_typeof_type(expr->cast_type);
+    } else if (expr->kind == EXPR_COMPOUND && expr->compound_type) {
+        expr->compound_type = sema_resolve_typeof_type(
+            expr->compound_type);
+    } else if ((expr->kind == EXPR_SIZEOF ||
+                expr->kind == EXPR_ALIGNOF) && expr->sizeof_type) {
+        expr->sizeof_type = sema_resolve_typeof_type(expr->sizeof_type);
+    }
 
     if (rcc_parser_is_cxx_mode() &&
         expr->kind == EXPR_PTR_MEMBER && expr->member_base) {
@@ -24517,6 +24687,10 @@ static Type* sema_expr(Expr* expr) {
             for (GenericAssociation* association =
                      expr->generic_associations;
                  association; association = association->next) {
+                if (association->type) {
+                    association->type = sema_resolve_typeof_type(
+                        association->type);
+                }
                 sema_expr(association->expr);
                 if (!association->type) {
                     fallback = association;
@@ -25139,6 +25313,28 @@ static Type* sema_expr(Expr* expr) {
             int argument_index = 1;
             bool reported_too_many = false;
             bool arguments_analyzed = false;
+            if (expr->cxx_dependent_function_template_call) {
+                for (argument = expr->call_args; argument;
+                     argument = argument->next) {
+                    if (!sema_cxx_is_function_overload_set(
+                            argument->expr)) {
+                        sema_expr(argument->expr);
+                    }
+                }
+                arguments_analyzed = true;
+                bool resolved =
+                    rcc_parser_cxx_resolve_dependent_function_template_call &&
+                    rcc_parser_cxx_resolve_dependent_function_template_call(
+                        expr);
+                if (!resolved &&
+                    rcc_parser_cxx_expression_is_dependent &&
+                    rcc_parser_cxx_expression_is_dependent(expr)) {
+                    /* Keep a dependent overload call intact while analyzing
+                     * its primary template. Its candidates are selected after
+                     * the enclosing template arguments are substituted. */
+                    break;
+                }
+            }
             if (expr->cxx_concept_template) {
                 CxxTemplate* concept = expr->cxx_concept_template;
                 int64_t concept_value = 0;
@@ -30786,6 +30982,10 @@ static void sema_validate_stored_generic_lambda_decl(Decl* declaration) {
 
 static void sema_decl(Decl* decl) {
     if (!decl) return;
+    if (decl->type) decl->type = sema_resolve_typeof_type(decl->type);
+    if (decl->kind == DECL_TYPEDEF && decl->typedef_type) {
+        decl->typedef_type = sema_resolve_typeof_type(decl->typedef_type);
+    }
 
     switch (decl->kind) {
         case DECL_STATIC_ASSERT: {

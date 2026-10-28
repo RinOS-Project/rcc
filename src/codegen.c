@@ -4864,6 +4864,52 @@ static bool codegen_type_has_vla_any(const Type* type) {
     return type->kind == TYPE_PTR && codegen_type_has_vla_any(type->base);
 }
 
+/* typeof(expression) evaluates its operand when the resulting type is
+ * variably modified. Nested typeof operands are evaluated from the inner
+ * type outward, before the VLA extents that consume that type. */
+static void gen_typeof_runtime_evaluations(Module* mod, Type* type) {
+    if (!type) return;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        gen_typeof_runtime_evaluations(mod, type->base);
+    } else if (type->kind == TYPE_FUNC) {
+        gen_typeof_runtime_evaluations(mod, type->ret_type);
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            gen_typeof_runtime_evaluations(mod, parameter->type);
+        }
+    }
+    if (type->c_typeof_runtime_expression &&
+        !type->c_typeof_runtime_expression_emitted) {
+        gen_expr(mod, type->c_typeof_runtime_expression);
+        type->c_typeof_runtime_expression_emitted = true;
+    }
+}
+
+/* VLA bounds that belong to a block-scope typedef are captured when that
+ * typedef declaration is reached. Later declarations using the typedef must
+ * use the captured bound instead of evaluating the source expression again. */
+static void gen_vla_typedef_bound_evaluations(Module* mod, Type* type,
+                                              Decl* owner,
+                                              bool inherited_typeof) {
+    if (!type) return;
+    inherited_typeof = inherited_typeof ||
+                       type->c_typeof_operand_type != NULL;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        gen_vla_typedef_bound_evaluations(mod, type->base, owner,
+                                          inherited_typeof);
+    }
+    if (type->kind == TYPE_ARRAY && type->array_bound &&
+        !inherited_typeof &&
+        type->array_bound->c_vla_typedef_owner == owner &&
+        type->array_bound->c_vla_saved_bound_offset < 0) {
+        gen_expr(mod, type->array_bound);
+        emit_mov_mem_reg(mod, EBP,
+                         type->array_bound->c_vla_saved_bound_offset, EAX);
+    }
+}
+
 /* Leave the runtime byte extent of an array type in EAX.  VLA dimensions are
  * evaluated at the point where the expression is emitted; local declarations
  * save the resulting extent so later sizeof expressions observe the declared
@@ -4882,7 +4928,12 @@ static void gen_vla_extent(Module* mod, Type* type) {
     }
     emit_push_reg(mod, EAX);
     if (type->array_bound) {
-        gen_expr(mod, type->array_bound);
+        if (type->array_bound->c_vla_saved_bound_offset < 0) {
+            emit_mov_reg_mem(mod, EAX, EBP,
+                             type->array_bound->c_vla_saved_bound_offset);
+        } else {
+            gen_expr(mod, type->array_bound);
+        }
     } else {
         emit_mov_reg_imm(mod, EAX, type->array_len > 0
             ? (uint32_t)type->array_len : 0u);
@@ -4919,12 +4970,38 @@ static int codegen_vla_extent_index(const Type* owner, const Type* target) {
     return -1;
 }
 
+static bool gen_saved_vla_extent(Module* mod, Type* type, Expr* expression);
+
 static Decl* codegen_vla_owner(Expr* expression) {
     while (expression) {
         if (expression->kind == EXPR_INDEX) {
             expression = expression->index_base;
-        } else if (expression->kind == EXPR_DEREF) {
+        } else if (expression->kind == EXPR_DEREF ||
+                   expression->kind == EXPR_ADDR ||
+                   expression->kind == EXPR_PREINC ||
+                   expression->kind == EXPR_PREDEC ||
+                   expression->kind == EXPR_POSTINC ||
+                   expression->kind == EXPR_POSTDEC) {
             expression = expression->unary_operand;
+        } else if (expression->kind == EXPR_CAST) {
+            expression = expression->cast_expr;
+        } else if (expression->kind == EXPR_COMMA) {
+            expression = expression->binary_rhs;
+        } else if (expression->kind == EXPR_ADD ||
+                   expression->kind == EXPR_SUB) {
+            Type* left_type = expression->binary_lhs
+                ? expression->binary_lhs->type : NULL;
+            Type* right_type = expression->binary_rhs
+                ? expression->binary_rhs->type : NULL;
+            if (left_type && (left_type->kind == TYPE_PTR ||
+                              left_type->kind == TYPE_ARRAY)) {
+                expression = expression->binary_lhs;
+            } else if (right_type && (right_type->kind == TYPE_PTR ||
+                                      right_type->kind == TYPE_ARRAY)) {
+                expression = expression->binary_rhs;
+            } else {
+                break;
+            }
         } else {
             break;
         }
@@ -4938,10 +5015,22 @@ static Decl* codegen_vla_owner(Expr* expression) {
     return NULL;
 }
 
-static void gen_vla_extents(Module* mod, Type* type, Decl* declaration,
+static void gen_vla_extents(Module* mod, Type* type, Type* source_type,
+                            Expr* source_expression, Decl* declaration,
                             int* slot_index) {
+    Type* source_base;
+    if (type && type->c_typeof_operand_type) {
+        source_type = type->c_typeof_operand_type;
+        source_expression = type->c_typeof_runtime_expression;
+    }
+    if (!source_type) source_type = type;
+    source_base = source_type &&
+        (source_type->kind == TYPE_PTR || source_type->kind == TYPE_ARRAY ||
+         source_type->kind == TYPE_VECTOR)
+        ? source_type->base : (type ? type->base : NULL);
     if (type && type->kind == TYPE_PTR) {
-        gen_vla_extents(mod, type->base, declaration, slot_index);
+        gen_vla_extents(mod, type->base, source_base, source_expression,
+                        declaration, slot_index);
         return;
     }
     if (!type || type->kind != TYPE_ARRAY) {
@@ -4950,21 +5039,29 @@ static void gen_vla_extents(Module* mod, Type* type, Decl* declaration,
         return;
     }
     if (type->base && type->base->kind == TYPE_ARRAY) {
-        gen_vla_extents(mod, type->base, declaration, slot_index);
+        gen_vla_extents(mod, type->base, source_base, source_expression,
+                        declaration, slot_index);
     } else {
         emit_mov_reg_imm(mod, EAX, type->base && type->base->size > 0
             ? (uint32_t)type->base->size : 0u);
     }
-    emit_push_reg(mod, EAX);
-    if (type->array_bound) {
-        gen_expr(mod, type->array_bound);
-    } else {
-        emit_mov_reg_imm(mod, EAX, type->array_len > 0
-            ? (uint32_t)type->array_len : 0u);
+    if (!gen_saved_vla_extent(mod, source_type, source_expression)) {
+        emit_push_reg(mod, EAX);
+        if (type->array_bound) {
+            if (type->array_bound->c_vla_saved_bound_offset < 0) {
+                emit_mov_reg_mem(mod, EAX, EBP,
+                                 type->array_bound->c_vla_saved_bound_offset);
+            } else {
+                gen_expr(mod, type->array_bound);
+            }
+        } else {
+            emit_mov_reg_imm(mod, EAX, type->array_len > 0
+                ? (uint32_t)type->array_len : 0u);
+        }
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_pop_reg(mod, EAX);
+        emit_imul_reg_reg(mod, EAX, ECX);
     }
-    emit_mov_reg_reg(mod, ECX, EAX);
-    emit_pop_reg(mod, EAX);
-    emit_imul_reg_reg(mod, EAX, ECX);
     if (declaration && declaration->var_vla_extent_count > 0 &&
         slot_index && *slot_index < declaration->var_vla_extent_count) {
         emit_mov_mem_reg(mod, EBP,
@@ -5004,7 +5101,8 @@ static bool pointer_stride_is_dynamic(const Type* type) {
 
 static void gen_vla_alloc(Module* mod, Decl* decl) {
     int slot_index = 0;
-    gen_vla_extents(mod, decl->type, decl, &slot_index);
+    gen_typeof_runtime_evaluations(mod, decl->type);
+    gen_vla_extents(mod, decl->type, NULL, NULL, decl, &slot_index);
     emit_sub_reg_reg(mod, ESP, EAX);
     emit_mov_mem_reg(mod, EBP, decl->var_vla_size_offset, EAX);
     emit_mov_reg_reg(mod, EAX, ESP);
@@ -5045,7 +5143,8 @@ static void gen_vla_parameter_extents(Module* mod, Decl* decl) {
             !value->param_array_type) {
             continue;
         }
-        gen_vla_extents(mod, value->param_array_type, value, &slot_index);
+        gen_vla_extents(mod, value->param_array_type, NULL, NULL,
+                        value, &slot_index);
     }
 }
 
@@ -15200,8 +15299,18 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 expr->sizeof_type ? expr->sizeof_type
                     : (expr->unary_operand
                         ? expr->unary_operand->type : NULL));
+            if (expr->sizeof_type) {
+                gen_typeof_runtime_evaluations(mod, measured_type);
+            }
             if (expr->sizeof_type && codegen_type_has_vla(measured_type)) {
-                gen_vla_extent(mod, measured_type);
+                if (measured_type->c_typeof_operand_type &&
+                    measured_type->c_typeof_runtime_expression) {
+                    gen_vla_extent_for_expr(
+                        mod, measured_type->c_typeof_operand_type,
+                        measured_type->c_typeof_runtime_expression);
+                } else {
+                    gen_vla_extent(mod, measured_type);
+                }
             } else if (expr->unary_operand &&
                        expr->unary_operand->kind == EXPR_IDENT &&
                        expr->unary_operand->ident_decl &&
@@ -16693,6 +16802,37 @@ int codegen_required_local_bytes(Stmt* statement) {
     }
 }
 
+static void codegen_assign_vla_typedef_bound_slots(
+    Type* type, int* stack_bytes, int word_size, SourceLoc loc,
+    Decl* owner, bool inherited_typeof) {
+    int64_t aligned_bytes;
+    int64_t extent;
+    if (!type || !stack_bytes || *stack_bytes == INT_MAX) return;
+    inherited_typeof = inherited_typeof ||
+                       type->c_typeof_operand_type != NULL;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        codegen_assign_vla_typedef_bound_slots(
+            type->base, stack_bytes, word_size, loc, owner,
+            inherited_typeof);
+    }
+    if (type->kind != TYPE_ARRAY || !type->array_bound || inherited_typeof ||
+        type->array_bound->c_vla_saved_bound_offset < 0) {
+        return;
+    }
+    aligned_bytes = ((int64_t)*stack_bytes + word_size - 1) /
+                    word_size * word_size;
+    extent = aligned_bytes + word_size;
+    if (extent > INT_MAX) {
+        rcc_error(loc, "function stack frame exceeds compiler limits");
+        *stack_bytes = INT_MAX;
+        return;
+    }
+    type->array_bound->c_vla_saved_bound_offset = -(int)extent;
+    type->array_bound->c_vla_typedef_owner = owner;
+    *stack_bytes = (int)extent;
+}
+
 static void codegen_assign_local_vla_extent_stmt(Stmt* statement,
                                                  int* stack_bytes,
                                                  int word_size) {
@@ -16752,7 +16892,15 @@ static void codegen_assign_local_vla_extent_stmt(Stmt* statement,
             int dimensions;
             int64_t aligned_bytes;
             int64_t extent;
-            if (!declaration || declaration->kind != DECL_VAR ||
+            if (!declaration) break;
+            if (declaration->kind == DECL_TYPEDEF &&
+                codegen_type_has_vla_any(declaration->typedef_type)) {
+                codegen_assign_vla_typedef_bound_slots(
+                    declaration->typedef_type, stack_bytes, word_size,
+                    declaration->loc, declaration, false);
+                break;
+            }
+            if (declaration->kind != DECL_VAR ||
                 declaration->var_is_global || declaration->var_is_vla ||
                 declaration->var_vla_extent_count > 0 ||
                 !codegen_type_has_vla_any(declaration->type)) {
@@ -20348,6 +20496,12 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 
         case STMT_DECL: {
             Decl* d = stmt->decl;
+            if (d && d->kind == DECL_TYPEDEF) {
+                gen_typeof_runtime_evaluations(mod, d->typedef_type);
+                gen_vla_typedef_bound_evaluations(
+                    mod, d->typedef_type, d, false);
+                break;
+            }
             if (d->kind == DECL_VAR && d->var_is_static_local &&
                 d->var_reference_temporary_guard) {
                 if (!gen_guarded_static_initializer32(mod, d)) {
@@ -20363,7 +20517,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             if (d->kind == DECL_VAR && !d->var_is_vla &&
                 d->var_vla_extent_count > 0) {
                 int extent_slot = 0;
-                gen_vla_extents(mod, d->type, d, &extent_slot);
+                gen_typeof_runtime_evaluations(mod, d->type);
+                gen_vla_extents(mod, d->type, NULL, NULL, d, &extent_slot);
             }
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen_vla_alloc(mod, d);

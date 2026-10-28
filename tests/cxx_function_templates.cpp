@@ -5,6 +5,23 @@ template<typename T>
     return copy;
 }
 
+template<typename T, typename U>
+int ordinary_template_redeclaration(T value);
+
+template<typename Value, typename Result = int>
+int ordinary_template_redeclaration(Value value) {
+    Result converted = static_cast<Result>(value);
+    return static_cast<int>(converted);
+}
+
+int call_ordinary_template_redeclaration(int value) {
+    return ordinary_template_redeclaration(value);
+}
+
+int main() {
+    return call_ordinary_template_redeclaration(37) == 37 ? 0 : 1;
+}
+
 template<typename T, int Count = 1>
 T* address_of(T& value) noexcept {
     return &value;

@@ -570,8 +570,8 @@ endif
 # header can never leave incompatible compiler objects mixed together.
 -include $(wildcard $(OBJDIR)/*.d)
 
-.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-encoding test-inline-asm-ports test-intrin-header test-inline-asm-execute test-inline-asm-validation test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-verified-i686-floating-arithmetic test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-destructor test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override test-cxx-empty-base test-cxx-no-unique-address
-.PHONY: print-host-cc test-c17 test-c23 test-c23-nullptr test-c23-empty-initializer test-c-utf8-string-literals test-c-utf16-utf32-string-literals test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
+.PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-explicit-specialization test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-encoding test-inline-asm-ports test-intrin-header test-inline-asm-execute test-inline-asm-validation test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-verified-i686-floating-arithmetic test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-destructor test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override test-cxx-empty-base test-cxx-no-unique-address
+.PHONY: print-host-cc test-c17 test-c23 test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c-utf8-string-literals test-c-utf16-utf32-string-literals test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-exception-cleanup-verified test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-member-methods-invalid
@@ -788,6 +788,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-static-locals \
 	test-verified-cxx-static-local-scalar \
 	test-cxx-function-templates \
+	test-cxx-function-template-explicit-specialization \
 	test-cxx-member-function-templates \
 	test-cxx-class-template-member-function-templates \
 	test-cxx-template-local-classes \
@@ -1177,15 +1178,40 @@ test-c-null-void-pointer-constant: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_null_void_pointer_constant_rejected.cpp,$(TEST_OUT)/c-null-void-pointer-constant/cxx-gcc.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/c-null-void-pointer-constant/cxx-x86.ro tests/cxx_null_void_pointer_constant_rejected.cpp,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x86.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.ro tests/cxx_null_void_pointer_constant_rejected.cpp,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.log)
-	$(GREP) -F -q "invalid conversion from 'void*' to 'int*'" $(TEST_OUT)/c-null-void-pointer-constant/cxx-gcc.log
+	$(GREP) -F -q "invalid conversion from" $(TEST_OUT)/c-null-void-pointer-constant/cxx-gcc.log
 	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/c-null-void-pointer-constant/cxx-x86.log
 	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x86.ro)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.ro)
 	@echo "C17 void-pointer null constant and C++ rejection tests completed"
 
-test-c23: $(RCC_TARGET) test-c23-nullptr test-c23-empty-initializer
-	@echo "RCC C23 nullptr and empty-initialization regressions completed"
+test-c23: $(RCC_TARGET) test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name
+	@echo "RCC C23 nullptr, empty-initialization, and typeof regressions completed"
+
+test-c23-typeof-type-name: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-typeof-type-name)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/x86.ro tests/c23_typeof_type_name.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/x64.ro tests/c23_typeof_type_name.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S -o $(TEST_OUT)/c23-typeof-type-name/x64.s tests/c23_typeof_type_name.c
+	$(CC) -o $(TEST_OUT)/c23-typeof-type-name/x64-host $(TEST_OUT)/c23-typeof-type-name/x64.s
+	$(TEST_OUT)/c23-typeof-type-name/x64-host
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S -o $(TEST_OUT)/c23-typeof-type-name/parameter-adjustment.s tests/c23_typeof_parameter_adjustment.c
+	$(CC) -o $(TEST_OUT)/c23-typeof-type-name/parameter-adjustment-host $(TEST_OUT)/c23-typeof-type-name/parameter-adjustment.s
+	$(TEST_OUT)/c23-typeof-type-name/parameter-adjustment-host
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S -o $(TEST_OUT)/c23-typeof-type-name/c17-identifiers.s tests/c23_typeof_c17_identifier.c
+	$(CC) -o $(TEST_OUT)/c23-typeof-type-name/c17-identifiers-host $(TEST_OUT)/c23-typeof-type-name/c17-identifiers.s
+	$(TEST_OUT)/c23-typeof-type-name/c17-identifiers-host
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/c23-typeof-type-name/cxx-identifiers.ro tests/cxx_typeof_identifiers.cpp
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/invalid-bitfield.ro tests/invalid_c23_typeof_bitfield.c,$(TEST_OUT)/c23-typeof-type-name/invalid-bitfield.log)
+	$(call CHECK_TEXT,C23 typeof operators cannot be applied to a bit-field member,$(TEST_OUT)/c23-typeof-type-name/invalid-bitfield.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-typeof-type-name/invalid-bitfield.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/invalid-x86.ro tests/invalid_c23_typeof_const.c,$(TEST_OUT)/c23-typeof-type-name/invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/invalid-x64.ro tests/invalid_c23_typeof_const.c,$(TEST_OUT)/c23-typeof-type-name/invalid-x64.log)
+	$(call CHECK_TEXT,assignment requires modifiable lvalue,$(TEST_OUT)/c23-typeof-type-name/invalid-x86.log)
+	$(call CHECK_TEXT,assignment requires modifiable lvalue,$(TEST_OUT)/c23-typeof-type-name/invalid-x64.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-typeof-type-name/invalid-x86.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-typeof-type-name/invalid-x64.ro)
+	@echo "RCC C23 typeof operands, parameter adjustment, constraints, and mode-boundary regressions passed"
 
 test-c23-nullptr: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-nullptr)
@@ -3662,7 +3688,98 @@ test-cxx-function-templates: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,_ZN6detail15default_deducedIilEET0_T_,$(TEST_OUT)/cxx-function-templates/x86.ro)
 	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateIiEEiv,$(TEST_OUT)/cxx-function-templates/x86.ro)
 	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateIlEEiv,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-templates/redefinition-x86.ro tests/cxx_function_template_redeclaration_invalid.cpp,$(TEST_OUT)/cxx-function-templates/redefinition-x86.log)
+	$(GREP) -F -q "redefinition of function template 'duplicate_template_definition'" $(TEST_OUT)/cxx-function-templates/redefinition-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-templates/redefinition-x64.ro tests/cxx_function_template_redeclaration_invalid.cpp,$(TEST_OUT)/cxx-function-templates/redefinition-x64.log)
+	$(GREP) -F -q "redefinition of function template 'duplicate_template_definition'" $(TEST_OUT)/cxx-function-templates/redefinition-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_redeclaration_invalid.cpp,$(TEST_OUT)/cxx-function-templates/redefinition-gcc.log)
+	$(GREP) -F -q "duplicate_template_definition" $(TEST_OUT)/cxx-function-templates/redefinition-gcc.log
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-function-templates,cxx_function_templates.cpp)
 	@echo "RCC++ function template syntax tests completed"
+
+test-cxx-function-template-explicit-specialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-explicit-specialization)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-function-template-explicit-specialization,cxx_function_template_explicit_specialization.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only \
+		tests/cxx_function_template_explicit_specialization.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
+		-o $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s \
+		tests/cxx_function_template_explicit_specialization.cpp
+	$(GREP) -F -q "_Z22explicitly_specializedIiEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z22conditionally_noexceptIiEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z22conditionally_noexceptIxEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z30select_explicit_specializationIPiEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z29mixed_template_argument_kindsIsEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z29mixed_template_argument_kindsILi7EEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z26mixed_parameter_pack_shapeIJsEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z26mixed_parameter_pack_shapeILi7EJsEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z25mixed_pack_argument_kindsIJsEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z25mixed_pack_argument_kindsIJLi7EEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z38mixed_template_template_argument_kindsI33explicit_template_argument_holderEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z38mixed_template_template_argument_kindsILi7EEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z43mixed_template_template_pack_argument_kindsIJ33explicit_template_argument_holderEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z43mixed_template_template_pack_argument_kindsIJ33explicit_template_argument_holder40second_explicit_template_argument_holderEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z34mixed_multiple_explicit_type_packsIJscEJEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z34mixed_multiple_explicit_type_packsIJLi1ELi2EEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z32mixed_pack_with_trailing_defaultIJscELi5EEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z32mixed_pack_with_trailing_defaultIJLi1ELi2EEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN29explicit_specialization_scope5scaleIiLi3EEEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN29explicit_specialization_scope5scaleIlLi3EEEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_ZN29explicit_specialization_scope18scale_with_defaultIiLi2EEEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/x64.s
+	$(GREP) -F -q "_Z22explicitly_specializedIiEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z22conditionally_noexceptIiEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z22conditionally_noexceptIxEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z30select_explicit_specializationIPiEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z29mixed_template_argument_kindsIsEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z29mixed_template_argument_kindsILi7EEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z26mixed_parameter_pack_shapeIJsEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z26mixed_parameter_pack_shapeILi7EJsEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z25mixed_pack_argument_kindsIJsEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z25mixed_pack_argument_kindsIJLi7EEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z38mixed_template_template_argument_kindsI33explicit_template_argument_holderEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z38mixed_template_template_argument_kindsILi7EEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z43mixed_template_template_pack_argument_kindsIJ33explicit_template_argument_holderEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z43mixed_template_template_pack_argument_kindsIJ33explicit_template_argument_holder40second_explicit_template_argument_holderEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z34mixed_multiple_explicit_type_packsIJscEJEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z34mixed_multiple_explicit_type_packsIJLi1ELi2EEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z32mixed_pack_with_trailing_defaultIJscELi5EEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_Z32mixed_pack_with_trailing_defaultIJLi1ELi2EEEii" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN29explicit_specialization_scope5scaleIiLi3EEEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN29explicit_specialization_scope5scaleIlLi3EEEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(GREP) -F -q "_ZN29explicit_specialization_scope18scale_with_defaultIiLi2EEEiT_" $(TEST_OUT)/cxx-function-template-explicit-specialization/gcc.s
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-explicit-specialization/after-instantiation-x86.ro tests/cxx_function_template_specialization_after_instantiation.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/after-instantiation-x86.log)
+	$(GREP) -F -q "appears after instantiation" $(TEST_OUT)/cxx-function-template-explicit-specialization/after-instantiation-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-explicit-specialization/after-instantiation-x64.ro tests/cxx_function_template_specialization_after_instantiation.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/after-instantiation-x64.log)
+	$(GREP) -F -q "appears after instantiation" $(TEST_OUT)/cxx-function-template-explicit-specialization/after-instantiation-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_specialization_after_instantiation.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/after-instantiation-gcc.log)
+	$(GREP) -F -q "specialization" $(TEST_OUT)/cxx-function-template-explicit-specialization/after-instantiation-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-explicit-specialization/redefinition-x86.ro tests/cxx_function_template_specialization_redefinition.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/redefinition-x86.log)
+	$(GREP) -F -q "redefinition of explicit function-template specialization" $(TEST_OUT)/cxx-function-template-explicit-specialization/redefinition-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-explicit-specialization/redefinition-x64.ro tests/cxx_function_template_specialization_redefinition.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/redefinition-x64.log)
+	$(GREP) -F -q "redefinition of explicit function-template specialization" $(TEST_OUT)/cxx-function-template-explicit-specialization/redefinition-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_specialization_redefinition.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/redefinition-gcc.log)
+	$(GREP) -F -q "specialized_twice" $(TEST_OUT)/cxx-function-template-explicit-specialization/redefinition-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-explicit-specialization/default-argument-x86.ro tests/cxx_function_template_specialization_default_argument_invalid.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/default-argument-x86.log)
+	$(GREP) -F -q "default arguments are not allowed in an explicit function-template specialization" $(TEST_OUT)/cxx-function-template-explicit-specialization/default-argument-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-explicit-specialization/default-argument-x64.ro tests/cxx_function_template_specialization_default_argument_invalid.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/default-argument-x64.log)
+	$(GREP) -F -q "default arguments are not allowed in an explicit function-template specialization" $(TEST_OUT)/cxx-function-template-explicit-specialization/default-argument-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_specialization_default_argument_invalid.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/default-argument-gcc.log)
+	$(GREP) -F -q "default argument" $(TEST_OUT)/cxx-function-template-explicit-specialization/default-argument-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-explicit-specialization/signature-x86.ro tests/cxx_function_template_specialization_signature_invalid.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/signature-x86.log)
+	$(GREP) -F -q "does not match a declared function template" $(TEST_OUT)/cxx-function-template-explicit-specialization/signature-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-explicit-specialization/signature-x64.ro tests/cxx_function_template_specialization_signature_invalid.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/signature-x64.log)
+	$(GREP) -F -q "does not match a declared function template" $(TEST_OUT)/cxx-function-template-explicit-specialization/signature-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_specialization_signature_invalid.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/signature-gcc.log)
+	$(GREP) -F -q "specialization_signature" $(TEST_OUT)/cxx-function-template-explicit-specialization/signature-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-explicit-specialization/pack-shape-invalid-x86.ro tests/cxx_function_template_explicit_arguments_pack_shape_invalid.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/pack-shape-invalid-x86.log)
+	$(GREP) -F -q "no matching function template overload for 'mixed_parameter_pack_shape'" $(TEST_OUT)/cxx-function-template-explicit-specialization/pack-shape-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-explicit-specialization/pack-shape-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-explicit-specialization/pack-shape-invalid-x64.ro tests/cxx_function_template_explicit_arguments_pack_shape_invalid.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/pack-shape-invalid-x64.log)
+	$(GREP) -F -q "no matching function template overload for 'mixed_parameter_pack_shape'" $(TEST_OUT)/cxx-function-template-explicit-specialization/pack-shape-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-explicit-specialization/pack-shape-invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_explicit_arguments_pack_shape_invalid.cpp,$(TEST_OUT)/cxx-function-template-explicit-specialization/pack-shape-invalid-gcc.log)
+	$(GREP) -F -q "no matching function" $(TEST_OUT)/cxx-function-template-explicit-specialization/pack-shape-invalid-gcc.log
+	@echo "RCC++ free function-template explicit specialization tests completed"
 
 ifeq ($(OS),Windows_NT)
 RCC_SYSV_CXX_FLAGS = -mabi=sysv

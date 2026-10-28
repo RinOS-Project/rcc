@@ -65,6 +65,8 @@ typedef enum {
     TOK_STATIC_ASSERT,
     TOK_GENERIC,
     TOK_THREAD_LOCAL,
+    TOK_TYPEOF,
+    TOK_TYPEOF_UNQUAL,
 
     /* GNU Extensions */
     TOK_ASM,            /* asm, __asm, __asm__ */

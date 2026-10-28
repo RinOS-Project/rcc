@@ -41,8 +41,9 @@ struct CxxParsedTemplateArgument {
 struct CxxDependentFunctionTemplateCall {
     struct CxxTemplate** candidates;
     int candidate_count;
-    CxxParsedTemplateArgument* explicit_arguments;
-    int explicit_argument_count;
+    CxxParsedTemplateArgument (*candidate_explicit_arguments)[32];
+    int* candidate_explicit_argument_counts;
+    bool* candidate_explicit_arguments_valid;
     bool explicit_arguments_specified;
 };
 
@@ -220,6 +221,17 @@ struct Type {
      * specialization matching can recheck its calls after substitution. */
     Expr* cxx_dependent_decltype_expr;
     bool cxx_dependent_decltype_parenthesized;
+    /* C23 typeof expression operands are parsed before their value types are
+     * known and resolved by semantic analysis. */
+    Expr* c_typeof_expression;
+    bool c_typeof_unqual_expression;
+    /* A typeof expression whose resulting type is variably modified is
+     * evaluated at runtime at the declaration/sizeof use site. */
+    Expr* c_typeof_runtime_expression;
+    /* Original expression type preserves its runtime VLA-extent identity
+     * when typeof creates a qualified or otherwise copied Type node. */
+    Type* c_typeof_operand_type;
+    bool c_typeof_runtime_expression_emitted;
     /* C++ fixed-underlying-type enums retain the actual integer type so the
      * parser can validate every enumerator against its signedness and width. */
     bool enum_has_fixed_underlying;
@@ -764,6 +776,13 @@ struct Expr {
      * noexcept expression is evaluated. */
     bool cxx_noexcept_value_valid;
     bool cxx_noexcept_value;
+    /* Stack-frame slot holding a VLA bound captured by a block-scope
+     * typedef declaration. Negative offsets are relative to the frame
+     * pointer; zero means the bound is evaluated at its use site. */
+    int c_vla_saved_bound_offset;
+    /* The typedef declaration that owns evaluation of this captured bound.
+     * Later typedef aliases reuse the slot but must not reevaluate it. */
+    Decl* c_vla_typedef_owner;
     /* `typeid(expr)` on a glvalue of polymorphic class type resolves through
      * the most-derived vtable metadata at runtime. */
     bool cxx_typeid_dynamic;

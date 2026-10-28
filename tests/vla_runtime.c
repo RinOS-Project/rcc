@@ -12,6 +12,10 @@ int vla_snapshot(int rows, int cols);
 int vla_parameter_snapshot(int cols, int values[][cols]);
 int vla_sizeof_type(int count);
 int vla_typedef(int count);
+int vla_typedef_captures_bound(int count);
+int vla_typedef_reached_per_iteration(int count);
+int vla_typedef_alias_extents(int rows, int cols);
+int vla_typedef_multiple_declarators(void);
 int vla_parameter_qualifiers(int values[static const 3],
                              int other[volatile restrict 3]);
 
@@ -35,6 +39,10 @@ int main(void)
     if (vla_star_prototype(input[0]) != 4) return 20;
     if (vla_sizeof_type(7) != 28) return 21;
     if (vla_typedef(7) != 7) return 22;
+    if (vla_typedef_captures_bound(3) != 0) return 25;
+    if (vla_typedef_reached_per_iteration(1) != 0) return 26;
+    if (vla_typedef_alias_extents(2, 3) != 0) return 27;
+    if (vla_typedef_multiple_declarators() != 0) return 28;
     return 0;
 }
 
@@ -178,6 +186,67 @@ int vla_typedef(int count)
     values[0] = count;
     if (sizeof(values) != count * sizeof(int)) return -1;
     return values[0];
+}
+
+int vla_typedef_captures_bound(int count)
+{
+    int original = count;
+    typedef int Values[count++];
+    int after_typedef = count;
+    count += 3;
+    Values values;
+    return after_typedef == original + 1 &&
+                   sizeof(values) == (unsigned)(original * sizeof(int)) &&
+                   count == original + 4
+               ? 0 : -1;
+}
+
+int vla_typedef_reached_per_iteration(int count)
+{
+    int iterations = 0;
+    int total = 0;
+    while (iterations < 3) {
+        typedef int Values[count++];
+        Values values;
+        total += (int)(sizeof(values) / sizeof(int));
+        ++iterations;
+    }
+    return count == 4 && total == 6 ? 0 : -1;
+}
+
+int vla_typedef_alias_extents(int rows, int cols)
+{
+    int original_rows = rows;
+    int original_cols = cols;
+    typedef int Row[cols++];
+    typedef Row Matrix[rows++];
+    int after_typedefs = rows * 10 + cols;
+    rows = 8;
+    cols = 9;
+    Matrix matrix;
+    return after_typedefs == (original_rows + 1) * 10 + original_cols + 1 &&
+                   sizeof(matrix) ==
+                       (unsigned)(original_rows * original_cols * sizeof(int)) &&
+                   rows == 8 && cols == 9
+               ? 0 : -1;
+}
+
+int vla_typedef_multiple_declarators(void)
+{
+    int left = 2;
+    int right = 3;
+    typedef int Left[left++], Right[right++];
+    int after_left = left;
+    int after_right = right;
+    left = 11;
+    right = 12;
+    Left first;
+    Right second;
+    return after_left == 3 && after_right == 4 &&
+                   sizeof(first) == (unsigned)(2 * sizeof(int)) &&
+                   sizeof(second) == (unsigned)(3 * sizeof(int)) &&
+                   left == 11 && right == 12
+               ? 0 : -1;
 }
 
 int vla_parameter_qualifiers(int values[static const 3],

@@ -6931,6 +6931,8 @@ static bool cxx_template_redeclaration_type_matches(
         left->is_restrict != right->is_restrict ||
         left->is_reference != right->is_reference ||
         left->is_rvalue_reference != right->is_rvalue_reference ||
+        left->function_is_noexcept != right->function_is_noexcept ||
+        left->function_ref_qualifier != right->function_ref_qualifier ||
         left->is_unsigned != right->is_unsigned ||
         left->cxx_is_member_pointer != right->cxx_is_member_pointer ||
         left->cxx_dependent_underlying_type !=
@@ -7933,8 +7935,7 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
     }
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* existing = ns->templates[index];
-        if ((!existing->friend_access && !tmpl->friend_access) ||
-            !cxx_function_template_redeclaration_matches(existing, tmpl)) {
+        if (!cxx_function_template_redeclaration_matches(existing, tmpl)) {
             continue;
         }
         if (existing->is_hidden_friend && !tmpl->friend_access &&
@@ -12675,35 +12676,65 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                            sizeof(cloned_call->candidates[0]) *
                                (size_t)source_call->candidate_count);
                 }
-                cloned_call->explicit_arguments =
-                    source_call->explicit_argument_count > 0
-                        ? ast_arena_alloc(
-                              sizeof(cloned_call->explicit_arguments[0]) *
-                              (size_t)source_call->explicit_argument_count)
-                        : NULL;
-                for (int index = 0;
-                     cloned_call->explicit_arguments &&
-                     index < source_call->explicit_argument_count; ++index) {
-                    CxxParsedTemplateArgument* destination =
-                        &cloned_call->explicit_arguments[index];
-                    const CxxParsedTemplateArgument* source =
-                        &source_call->explicit_arguments[index];
-                    *destination = *source;
-                    destination->type = source->is_type
-                        ? template_substitute_type(
-                              tmpl, source->type, args, arg_count,
-                              value_args, value_present)
-                        : NULL;
-                    destination->value_expression = source->is_type
-                        ? NULL
-                        : template_clone_expr(
-                              tmpl, source->value_expression, args,
-                              arg_count, value_args, value_present);
-                    if (destination->value_expression &&
-                        expr_eval_integer_constant(
-                            destination->value_expression,
-                            &destination->value)) {
-                        destination->value_valid = true;
+                if (source_call->explicit_arguments_specified &&
+                    source_call->candidate_count > 0) {
+                    cloned_call->candidate_explicit_arguments =
+                        ast_arena_alloc(
+                            sizeof(cloned_call->candidate_explicit_arguments[0]) *
+                            (size_t)source_call->candidate_count);
+                    cloned_call->candidate_explicit_argument_counts =
+                        ast_arena_alloc(
+                            sizeof(cloned_call->candidate_explicit_argument_counts[0]) *
+                            (size_t)source_call->candidate_count);
+                    cloned_call->candidate_explicit_arguments_valid =
+                        ast_arena_alloc(
+                            sizeof(cloned_call->candidate_explicit_arguments_valid[0]) *
+                            (size_t)source_call->candidate_count);
+                    memcpy(cloned_call->candidate_explicit_arguments,
+                           source_call->candidate_explicit_arguments,
+                           sizeof(cloned_call->candidate_explicit_arguments[0]) *
+                               (size_t)source_call->candidate_count);
+                    memcpy(cloned_call->candidate_explicit_argument_counts,
+                           source_call->candidate_explicit_argument_counts,
+                           sizeof(cloned_call->candidate_explicit_argument_counts[0]) *
+                               (size_t)source_call->candidate_count);
+                    memcpy(cloned_call->candidate_explicit_arguments_valid,
+                           source_call->candidate_explicit_arguments_valid,
+                           sizeof(cloned_call->candidate_explicit_arguments_valid[0]) *
+                               (size_t)source_call->candidate_count);
+                    for (int candidate_index = 0;
+                         candidate_index < source_call->candidate_count;
+                         ++candidate_index) {
+                        int explicit_count =
+                            source_call->candidate_explicit_argument_counts[
+                                candidate_index];
+                        for (int argument_index = 0;
+                             argument_index < explicit_count;
+                             ++argument_index) {
+                            CxxParsedTemplateArgument* destination =
+                                &cloned_call->candidate_explicit_arguments[
+                                    candidate_index][argument_index];
+                            const CxxParsedTemplateArgument* source =
+                                &source_call->candidate_explicit_arguments[
+                                    candidate_index][argument_index];
+                            *destination = *source;
+                            destination->type = source->is_type
+                                ? template_substitute_type(
+                                      tmpl, source->type, args, arg_count,
+                                      value_args, value_present)
+                                : NULL;
+                            destination->value_expression = source->is_type
+                                ? NULL
+                                : template_clone_expr(
+                                      tmpl, source->value_expression, args,
+                                      arg_count, value_args, value_present);
+                            if (destination->value_expression &&
+                                expr_eval_integer_constant(
+                                    destination->value_expression,
+                                    &destination->value)) {
+                                destination->value_valid = true;
+                            }
+                        }
                     }
                 }
                 copy->cxx_dependent_function_template_call = cloned_call;
