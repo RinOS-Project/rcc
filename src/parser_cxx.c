@@ -10987,6 +10987,282 @@ static CxxConstructorInfo* constructor_info_for_method(CxxClass* cls,
     return NULL;
 }
 
+static Expr* cxx_defaulted_equality_local(Decl* declaration,
+                                          const char* fallback_name,
+                                          SourceLoc loc) {
+    Expr* expression = expr_ident(
+        declaration && declaration->name
+            ? declaration->name : fallback_name,
+        loc);
+    expression->ident_decl = declaration;
+    return expression;
+}
+
+static Type* cxx_defaulted_equality_qualified_type(
+    Type* pointee, bool is_const, bool is_volatile) {
+    Type* qualified_pointee;
+    if (!pointee) return NULL;
+    qualified_pointee = rcc_alloc(sizeof(*qualified_pointee));
+    *qualified_pointee = *pointee;
+    qualified_pointee->is_const = is_const;
+    qualified_pointee->is_volatile = is_volatile;
+    return qualified_pointee;
+}
+
+static Expr* cxx_defaulted_equality_base_object(
+    Expr* source_pointer, Type* base_type, int base_offset,
+    bool is_const, bool is_volatile, SourceLoc loc) {
+    Type* byte_type;
+    Type* base_pointee;
+    Type* byte_pointer_type;
+    Type* base_pointer_type;
+    Expr* byte_pointer;
+    Expr* adjusted_bytes;
+    Expr* base_pointer;
+    if (!source_pointer || !base_type || base_offset < 0) return NULL;
+    byte_type = cxx_defaulted_equality_qualified_type(
+        type_char, is_const, is_volatile);
+    base_pointee = cxx_defaulted_equality_qualified_type(
+        base_type, is_const, is_volatile);
+    if (!byte_type || !base_pointee) return NULL;
+    byte_pointer_type = type_ptr(byte_type);
+    base_pointer_type = type_ptr(base_pointee);
+    byte_pointer = expr_cast(byte_pointer_type, source_pointer, loc);
+    adjusted_bytes = base_offset == 0 ? byte_pointer :
+        expr_binary(EXPR_ADD, byte_pointer, expr_int(base_offset, loc), loc);
+    base_pointer = expr_cast(base_pointer_type, adjusted_bytes, loc);
+    return expr_unary(EXPR_DEREF, base_pointer, loc);
+}
+
+static bool cxx_defaulted_equality_append_comparison(
+    Expr* left, Expr* right, Type* type, StmtList** statements,
+    SourceLoc loc, unsigned* next_index, unsigned depth) {
+    if (!left || !right || !type || !statements || !next_index ||
+        depth > 64u) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        Decl* index;
+        Expr* condition;
+        Expr* initialize;
+        Expr* increment;
+        Expr* left_element;
+        Expr* right_element;
+        StmtList* body = NULL;
+        Stmt* loop;
+        char name[64];
+        if (!type->base || type->array_len < 0 || *next_index == UINT_MAX) {
+            return false;
+        }
+        (void)snprintf(name, sizeof(name),
+                       "__rcc_defaulted_equality_index_%u", *next_index);
+        ++*next_index;
+        index = decl_var(rcc_intern(name), type_int, NULL, loc);
+        initialize = expr_binary(
+            EXPR_ASSIGN,
+            cxx_defaulted_equality_local(index, name, loc),
+            expr_int(0, loc), loc);
+        condition = expr_binary(
+            EXPR_LT,
+            cxx_defaulted_equality_local(index, name, loc),
+            expr_int(type->array_len, loc), loc);
+        increment = expr_unary(
+            EXPR_PREINC,
+            cxx_defaulted_equality_local(index, name, loc), loc);
+        left_element = expr_index(
+            left, cxx_defaulted_equality_local(index, name, loc), loc);
+        right_element = expr_index(
+            right, cxx_defaulted_equality_local(index, name, loc), loc);
+        if (!cxx_defaulted_equality_append_comparison(
+                left_element, right_element, type->base, &body,
+                loc, next_index, depth + 1u)) {
+            return false;
+        }
+        stmtlist_append(statements, stmt_decl(index, loc));
+        loop = stmt_for(stmt_expr(initialize, loc), condition, increment,
+                        stmt_block(body, loc), loc);
+        stmtlist_append(statements, loop);
+        return true;
+    }
+
+    {
+        Expr* comparison = expr_binary(EXPR_EQ, left, right, loc);
+        Expr* failed = expr_unary(EXPR_NOT, comparison, loc);
+        Stmt* return_false = stmt_return(expr_int(0, loc), loc);
+        stmtlist_append(
+            statements,
+            stmt_if(failed, return_false, NULL, loc));
+    }
+    return true;
+}
+
+/* Synthesize the ordinary function body for C++20's defaulted member equality
+ * operator. Keeping it as a real body means base/member comparisons use normal
+ * overload resolution, this-pointer lowering, and the target ABI instead of
+ * comparing objects as bytes. */
+static void cxx_complete_defaulted_equality_methods(CxxClass* cls) {
+    struct CxxMember* member;
+    if (!cls || !cls->type) return;
+    for (member = cls->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        DeclList* parameter;
+        Type* parameter_type;
+        StmtList* statements = NULL;
+        unsigned next_index = 0u;
+        bool supported = true;
+        if (!method || !method->is_defaulted || method->member_template ||
+            !method->source_name ||
+            strcmp(method->source_name, "operator==") != 0 ||
+            !method->decl || method->decl->func_body ||
+            !method->decl->type ||
+            !type_is_compatible(method->decl->type->ret_type, type_bool)) {
+            continue;
+        }
+
+        /* C++20 explicitly deletes a defaulted equality operator for a union;
+         * there are no memberwise semantics for choosing an active member. */
+        if (cls->is_union) {
+            method->is_deleted = true;
+            continue;
+        }
+
+        parameter = method->decl->func_params;
+        if (!parameter || parameter->next || !parameter->decl ||
+            !(parameter_type = parameter->decl->type) ||
+            parameter_type->kind != TYPE_PTR ||
+            !parameter_type->is_reference ||
+            parameter_type->is_rvalue_reference || !parameter_type->base ||
+            !parameter_type->base->is_const ||
+            !type_is_compatible(parameter_type->base, cls->type)) {
+            continue;
+        }
+
+        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+            CxxClass* base = cls->bases[base_index].base;
+            Expr* left_base;
+            Expr* right_base;
+            if (!base || !base->type ||
+                !cxx_defaulted_equality_qualified_type(
+                    base->type, method->is_const, method->is_volatile) ||
+                !cxx_defaulted_equality_qualified_type(
+                    base->type, parameter_type->base->is_const,
+                    parameter_type->base->is_volatile)) {
+                supported = false;
+                break;
+            }
+            if (cls->bases[base_index].is_virtual) {
+                int virtual_base_index;
+                Type* left_base_reference_type = type_reference(
+                    cxx_defaulted_equality_qualified_type(
+                        base->type, method->is_const,
+                        method->is_volatile), false);
+                Type* right_base_reference_type = type_reference(
+                    cxx_defaulted_equality_qualified_type(
+                        base->type, parameter_type->base->is_const,
+                        parameter_type->base->is_volatile), false);
+                for (virtual_base_index = 0;
+                     virtual_base_index < cls->virtual_base_count;
+                     ++virtual_base_index) {
+                    if (cls->virtual_bases[virtual_base_index].base == base) {
+                        break;
+                    }
+                }
+                if (virtual_base_index >= cls->virtual_base_count ||
+                    cls->virtual_base_pointer_offset < 0) {
+                    supported = false;
+                    break;
+                }
+                left_base = expr_cast(
+                    left_base_reference_type,
+                    expr_unary(EXPR_DEREF,
+                               expr_ident("this", method->decl->loc),
+                               method->decl->loc),
+                    method->decl->loc);
+                left_base->cxx_cast_kind = CXX_CAST_STATIC;
+                left_base->cxx_synthesized_base_conversion = true;
+                right_base = expr_cast(
+                    right_base_reference_type,
+                    cxx_defaulted_equality_local(
+                        parameter->decl, "__rcc_defaulted_equality_rhs",
+                        method->decl->loc),
+                    method->decl->loc);
+                right_base->cxx_cast_kind = CXX_CAST_STATIC;
+                right_base->cxx_synthesized_base_conversion = true;
+                left_base->cxx_virtual_base_adjustment = true;
+                right_base->cxx_virtual_base_adjustment = true;
+                left_base->cxx_virtual_base_index = virtual_base_index;
+                right_base->cxx_virtual_base_index = virtual_base_index;
+                left_base->cxx_virtual_base_nested_adjustment = 0;
+                right_base->cxx_virtual_base_nested_adjustment = 0;
+                left_base->cxx_virtual_base_source_class = cls;
+                right_base->cxx_virtual_base_source_class = cls;
+                left_base->cxx_virtual_base_pointer_offset =
+                    cls->virtual_base_pointer_offset;
+                right_base->cxx_virtual_base_pointer_offset =
+                    cls->virtual_base_pointer_offset;
+            } else {
+                int base_offset = cls->base_offsets
+                    ? cls->base_offsets[base_index] : -1;
+                if (base_offset < 0) {
+                    supported = false;
+                    break;
+                }
+                left_base = cxx_defaulted_equality_base_object(
+                    expr_ident("this", method->decl->loc), base->type,
+                    base_offset, method->is_const, method->is_volatile,
+                    method->decl->loc);
+                right_base = cxx_defaulted_equality_base_object(
+                    cxx_defaulted_equality_local(
+                        parameter->decl, "__rcc_defaulted_equality_rhs",
+                        method->decl->loc),
+                    base->type, base_offset,
+                    parameter_type->base->is_const,
+                    parameter_type->base->is_volatile,
+                    method->decl->loc);
+                if (!left_base || !right_base) {
+                    supported = false;
+                    break;
+                }
+            }
+            if (!cxx_defaulted_equality_append_comparison(
+                    left_base, right_base, base->type, &statements,
+                    method->decl->loc, &next_index, 0u)) {
+                supported = false;
+                break;
+            }
+        }
+        if (!supported) continue;
+
+        for (TypeField* field = cls->type->fields;
+             field; field = field->next) {
+            Expr* left;
+            Expr* right;
+            if (!field->name || field->cxx_declaring_class != cls) continue;
+            left = expr_member(expr_ident("this", method->decl->loc),
+                               field->name, method->decl->loc);
+            left->kind = EXPR_PTR_MEMBER;
+            right = expr_member(
+                cxx_defaulted_equality_local(
+                    parameter->decl, "__rcc_defaulted_equality_rhs",
+                    method->decl->loc),
+                field->name, method->decl->loc);
+            if (!cxx_defaulted_equality_append_comparison(
+                    left, right, field->type, &statements,
+                    method->decl->loc, &next_index, 0u)) {
+                supported = false;
+                break;
+            }
+        }
+        if (!supported) continue;
+        stmtlist_append(&statements,
+                        stmt_return(expr_int(1, method->decl->loc),
+                                    method->decl->loc));
+        method->decl->func_body = stmt_block(statements, method->decl->loc);
+        method->decl->func_is_defined = true;
+        method->decl->func_is_inline = true;
+    }
+}
+
 /* Publish ordinary non-virtual member definitions and static member
  * definitions as real functions.  Ordinary members receive the implicit
  * object parameter; static members deliberately do not, and use the normal C
@@ -11020,7 +11296,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         if (!method || !method->decl || method->member_template ||
             (!method->decl->func_body && !method->is_pure_virtual) ||
             method->is_deleted ||
-            method->is_defaulted ||
+            (method->is_defaulted && !method->decl->func_body) ||
             class_has_method_declaration(cls, method->decl) ||
             (method->is_constructor &&
              (!constructor ||
@@ -11098,6 +11374,8 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         lowered->success_constant = 0;
         lowered->cxx_access = (unsigned char)member->access;
         lowered->is_explicit = method->is_explicit;
+        lowered->is_deleted = method->is_deleted;
+        lowered->is_defaulted = method->is_defaulted;
         lowered->ref_qualifier = method->ref_qualifier;
         lowered->this_owner = method->is_static ? NULL : cls->type;
         lowered->this_adjustment = 0;
@@ -12555,6 +12833,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     register_inline_class_move_assignment(cls);
     diagnose_unlowered_destructors(cls);
     register_class_static_fields(cls);
+    cxx_complete_defaulted_equality_methods(cls);
     register_ordinary_class_methods(cls);
     cxx_complete_pending_member_pointer_forms(cls);
 

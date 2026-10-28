@@ -22334,7 +22334,28 @@ static bool sema_noexcept_expr(Expr* expression) {
 static Type* sema_expr(Expr* expr) {
     Expr* preanalyzed_binary_lhs = NULL;
     Type* preanalyzed_binary_lhs_type = NULL;
+    bool synthesized_base_conversion;
+    bool synthesized_pointer_adjustment_valid;
+    int32_t synthesized_pointer_adjustment;
+    bool synthesized_virtual_base_adjustment;
+    int synthesized_virtual_base_index;
+    int synthesized_virtual_base_nested_adjustment;
+    int synthesized_virtual_base_pointer_offset;
+    CxxClass* synthesized_virtual_base_source_class;
     if (!expr) return NULL;
+    synthesized_base_conversion = expr->cxx_synthesized_base_conversion;
+    synthesized_pointer_adjustment_valid =
+        expr->cxx_pointer_adjustment_valid;
+    synthesized_pointer_adjustment = expr->cxx_pointer_adjustment;
+    synthesized_virtual_base_adjustment =
+        expr->cxx_virtual_base_adjustment;
+    synthesized_virtual_base_index = expr->cxx_virtual_base_index;
+    synthesized_virtual_base_nested_adjustment =
+        expr->cxx_virtual_base_nested_adjustment;
+    synthesized_virtual_base_pointer_offset =
+        expr->cxx_virtual_base_pointer_offset;
+    synthesized_virtual_base_source_class =
+        expr->cxx_virtual_base_source_class;
 
     if (rcc_parser_is_cxx_mode() &&
         expr->kind == EXPR_PTR_MEMBER && expr->member_base) {
@@ -23098,7 +23119,10 @@ static Type* sema_expr(Expr* expr) {
                                                expr->loc, false);
             sema_validate_restrict_type(expr->cast_type, expr->loc);
             expr->type = expr->cast_type;
-            expr->cxx_pointer_adjustment_valid = false;
+            if (!expr->cxx_synthesized_base_conversion) {
+                expr->cxx_pointer_adjustment_valid = false;
+                expr->cxx_pointer_adjustment = 0;
+            }
             expr->cxx_member_pointer_adjustment_valid = false;
             if (rcc_parser_is_cxx_mode() &&
                 expr->cxx_cast_kind == CXX_CAST_STATIC &&
@@ -23410,6 +23434,7 @@ static Type* sema_expr(Expr* expr) {
                 source->kind == TYPE_PTR &&
                 expr->cast_type->kind == TYPE_PTR &&
                 expr->cxx_cast_kind != CXX_CAST_CONST &&
+                !expr->cxx_synthesized_base_conversion &&
                 !type_is_compatible(source, expr->cast_type)) {
                 int adjustment;
                 if (sema_cxx_set_pointer_conversion(
@@ -23420,7 +23445,8 @@ static Type* sema_expr(Expr* expr) {
                     }
                 }
             }
-            if (rcc_parser_is_cxx_mode() &&
+            if (!expr->cxx_synthesized_base_conversion &&
+                rcc_parser_is_cxx_mode() &&
                 expr->cxx_cast_kind == CXX_CAST_STATIC && source &&
                 expr->cast_type && expr->cast_type->kind == TYPE_PTR &&
                 expr->cast_type->is_reference &&
@@ -25550,6 +25576,20 @@ static Type* sema_expr(Expr* expr) {
             break;
     }
 
+    if (synthesized_base_conversion && expr->kind == EXPR_CAST) {
+        expr->cxx_pointer_adjustment_valid =
+            synthesized_pointer_adjustment_valid;
+        expr->cxx_pointer_adjustment = synthesized_pointer_adjustment;
+        expr->cxx_virtual_base_adjustment =
+            synthesized_virtual_base_adjustment;
+        expr->cxx_virtual_base_index = synthesized_virtual_base_index;
+        expr->cxx_virtual_base_nested_adjustment =
+            synthesized_virtual_base_nested_adjustment;
+        expr->cxx_virtual_base_pointer_offset =
+            synthesized_virtual_base_pointer_offset;
+        expr->cxx_virtual_base_source_class =
+            synthesized_virtual_base_source_class;
+    }
     return expr->type;
 }
 

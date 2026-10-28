@@ -714,6 +714,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-template-template-parameters \
 	test-cxx-trailing-return-noexcept \
 	test-cxx-global-allocation-operators \
+	test-cxx-defaulted-equality \
 	test-cxx-class-typedef \
 	test-cxx-libcxx-type-traits-direct \
 	test-cxx-union-member-functions \
@@ -1934,6 +1935,22 @@ test-cxx: $(RCXX_TARGET) $(CXX_REGRESSION_TARGETS)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCXX_TARGET) --emit-unsigned-v3 -o $(TEST_OUT)/hello_cxx.rin tests/hello.cpp
 	@echo "RCC++ test completed"
+
+test-cxx-defaulted-equality: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-defaulted-equality)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-defaulted-equality,cxx_defaulted_equality.cpp)
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-defaulted-equality/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-defaulted-equality/x86 \
+		$(TEST_OUT)/cxx-defaulted-equality/start-x86.o \
+		$(TEST_OUT)/cxx-defaulted-equality/x86.o
+	$(TEST_OUT)/cxx-defaulted-equality/x86
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-defaulted-equality/gcc-host \
+		tests/cxx_defaulted_equality.cpp
+	$(TEST_OUT)/cxx-defaulted-equality/gcc-host
+	@echo "RCC++ defaulted equality compile-and-run tests completed"
 
 test-cxx20-unsupported-boundaries: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx20-unsupported-boundaries)

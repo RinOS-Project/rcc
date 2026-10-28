@@ -707,6 +707,10 @@ struct Expr {
      * pointer value. */
     bool cxx_pointer_adjustment_valid;
     int32_t cxx_pointer_adjustment;
+    /* Synthetic defaulted-comparison base casts carry an adjustment selected
+     * directly from the completed class layout, including for reference
+     * parameters whose implicit-reference type would otherwise hide it. */
+    bool cxx_synthesized_base_conversion;
     /* Converting a data-member pointer from a base owner to a derived owner
      * adds the base-subobject offset to the stored member displacement. */
     bool cxx_member_pointer_adjustment_valid;

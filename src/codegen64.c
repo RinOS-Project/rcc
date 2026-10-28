@@ -14299,6 +14299,96 @@ static bool gen64_shift_local_offsets(Stmt* statement, int shift) {
     }
 }
 
+static bool gen64_local_parameter_overlap_shift(
+    Stmt* statement, int64_t parameter_frame_size, int64_t* shift,
+    int* alignment) {
+    if (!statement || !shift || !alignment) return true;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (!gen64_local_parameter_overlap_shift(
+                        item->stmt, parameter_frame_size, shift, alignment)) {
+                    return false;
+                }
+            }
+            return true;
+        case STMT_IF:
+            return gen64_local_parameter_overlap_shift(
+                       statement->if_then, parameter_frame_size, shift,
+                       alignment) &&
+                   gen64_local_parameter_overlap_shift(
+                       statement->if_else, parameter_frame_size, shift,
+                       alignment);
+        case STMT_WHILE:
+        case STMT_DO:
+            return gen64_local_parameter_overlap_shift(
+                statement->while_body, parameter_frame_size, shift,
+                alignment);
+        case STMT_FOR:
+            return gen64_local_parameter_overlap_shift(
+                       statement->for_init, parameter_frame_size, shift,
+                       alignment) &&
+                   gen64_local_parameter_overlap_shift(
+                       statement->for_body, parameter_frame_size, shift,
+                       alignment);
+        case STMT_SWITCH:
+            return gen64_local_parameter_overlap_shift(
+                statement->switch_body, parameter_frame_size, shift,
+                alignment);
+        case STMT_CASE:
+            return gen64_local_parameter_overlap_shift(
+                statement->case_stmt, parameter_frame_size, shift,
+                alignment);
+        case STMT_DEFAULT:
+            return gen64_local_parameter_overlap_shift(
+                statement->default_stmt, parameter_frame_size, shift,
+                alignment);
+        case STMT_LABEL:
+            return gen64_local_parameter_overlap_shift(
+                statement->label_stmt, parameter_frame_size, shift,
+                alignment);
+        case STMT_TRY:
+            if (!gen64_local_parameter_overlap_shift(
+                    statement->try_body, parameter_frame_size, shift,
+                    alignment)) {
+                return false;
+            }
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (!gen64_local_parameter_overlap_shift(
+                        handler->body, parameter_frame_size, shift,
+                        alignment)) {
+                    return false;
+                }
+            }
+            return true;
+        case STMT_DECL: {
+            Decl* declaration = statement->decl;
+            int64_t occupied_end;
+            int local_alignment;
+            if (!declaration || declaration->kind != DECL_VAR ||
+                declaration->var_is_global || declaration->var_is_vla ||
+                declaration->var_offset >= 0 || !declaration->type ||
+                declaration->type->size <= 0) {
+                return true;
+            }
+            occupied_end = (int64_t)declaration->var_offset +
+                           declaration->type->size;
+            if (occupied_end + parameter_frame_size > *shift) {
+                *shift = occupied_end + parameter_frame_size;
+            }
+            local_alignment = declaration->type->has_explicit_alignment &&
+                              declaration->type->align > 4
+                ? declaration->type->align : 4;
+            if (local_alignment > *alignment) *alignment = local_alignment;
+            return true;
+        }
+        default:
+            return true;
+    }
+}
+
 static void gen64_function(Module* mod, Decl* decl) {
     static const int argument_registers[] = {RDI, RSI, RDX, RCX, R8, R9};
     int64_t original_parameter_size = 0;
@@ -14394,6 +14484,32 @@ static void gen64_function(Module* mod, Decl* decl) {
             decl->func_body,
             (int)(parameter_frame_size - original_parameter_size))) {
         return;
+    }
+    {
+        int64_t overlap_shift = 0;
+        int overlap_alignment = 4;
+        if (!gen64_local_parameter_overlap_shift(
+                decl->func_body, parameter_frame_size, &overlap_shift,
+                &overlap_alignment)) {
+            return;
+        }
+        if (overlap_shift > 0) {
+            if (overlap_alignment > 1) {
+                int64_t remainder = overlap_shift % overlap_alignment;
+                if (remainder != 0) {
+                    overlap_shift += overlap_alignment - remainder;
+                }
+            }
+            if (overlap_shift > INT_MAX) {
+                rcc_error(decl->loc,
+                          "function stack frame exceeds compiler limits");
+                return;
+            }
+            if (!gen64_shift_local_offsets(decl->func_body,
+                                           (int)overlap_shift)) {
+                return;
+            }
+        }
     }
     stack_size = codegen_required_local_bytes(decl->func_body);
     if (parameter_frame_size > stack_size) {
