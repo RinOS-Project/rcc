@@ -40,8 +40,15 @@
   RLL/DRV outputs through `test-c23-bitint`.
 - [x] Verify macro-expanded signed/unsigned 64-bit `wb` constants in C23
   `#if` evaluation against the corresponding standard `LL`/`ULL` constants.
+- [x] Evaluate typed integer shifts consistently in static-storage initializers
+  and C++20 constexpr expressions. Preserve unsigned 64-bit top-bit shifts,
+  accept representable signed shifts, and reject negative signed left operands,
+  signed overflow, and out-of-range counts; regress C23 `_BitInt(64)` static
+  assertions/initializers/case labels and C++ constexpr switch/compound shifts.
+  `test-c23-bitint` and `test-cxx-constexpr` pass for i686/AMD64 outputs and
+  AMD64 host execution.
 - [ ] Audit remaining C23 bit-precise integer rules and contexts, especially
-  invalid/signed shift and overflow constraints.
+  promotions, conversions, invalid expressions, and overflow contexts.
 
 ## RCC continuation (2026-10-29, C23 binary resource inclusion)
 

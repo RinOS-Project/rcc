@@ -1000,6 +1000,21 @@ static bool codegen_static_integer(Expr* expression, int64_t* value) {
     int64_t left;
     int64_t right;
     int64_t member_pointer_adjustment = 0;
+    bool has_member_pointer_adjustment = false;
+    for (Expr* cast = expression;
+         cast && cast->kind == EXPR_CAST; cast = cast->cast_expr) {
+        if (cast->cxx_member_pointer_adjustment_valid) {
+            has_member_pointer_adjustment = true;
+            break;
+        }
+    }
+    if (!has_member_pointer_adjustment && expression && value &&
+        expression->type &&
+        (type_is_integer(expression->type) ||
+         expression->type->kind == TYPE_ENUM) &&
+        expr_eval_integer_constant(expression, value)) {
+        return true;
+    }
     while (expression && expression->kind == EXPR_CAST) {
         if (expression->cxx_member_pointer_adjustment_valid) {
             int64_t adjustment =

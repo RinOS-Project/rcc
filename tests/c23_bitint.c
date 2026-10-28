@@ -26,6 +26,11 @@ typedef unsigned _BitInt(33) u33;
 typedef _BitInt(64) s64;
 typedef unsigned _BitInt(64) u64;
 
+_Static_assert((((u64)1 << 63) >> 63) == 1u,
+               "unsigned _BitInt(64) shifts must preserve the top bit");
+_Static_assert(((s64)1 << 62) == 4611686018427387904LL,
+               "representable signed _BitInt(64) left shift");
+
 struct bitint_fields {
     signed _BitInt(9) signed_narrow : 5;
     unsigned _BitInt(9) unsigned_narrow : 5;
@@ -54,6 +59,19 @@ static int check_bitint_varargs(int marker, ...)
 
 static s5 global_signed_min = -16;
 static u5 global_unsigned_max = 31;
+static u64 global_unsigned_high_bit = (u64)1 << 63;
+static u64 global_unsigned_high_bit_shifted = ((u64)1 << 63) >> 63;
+static s64 global_signed_high_bit = (s64)1 << 62;
+
+static int check_unsigned_bitint_shift_case(u64 value)
+{
+    switch (value) {
+    case (((u64)1 << 63) >> 63):
+        return 1;
+    default:
+        return 0;
+    }
+}
 
 int main(void)
 {
@@ -95,6 +113,11 @@ int main(void)
         (long long)signed_min64 != LLONG_MIN) return 6;
     if ((unsigned long long)unsigned_literal != ULLONG_MAX ||
         unsigned_wrapped64 != 0u) return 7;
+    if (global_unsigned_high_bit != ((u64)1 << 63)) return 12;
+    if (global_unsigned_high_bit_shifted != 1u) return 13;
+    if (global_signed_high_bit != ((s64)1 << 62)) return 15;
+    if (!check_unsigned_bitint_shift_case(global_unsigned_high_bit_shifted))
+        return 14;
     if (fields.signed_narrow != -16 || fields.unsigned_narrow != 31u ||
         fields.unsigned_wide != (((u33)1 << 32) | (u33)17)) return 8;
     if (!_Generic((s5)1, s5: 1, default: 0) ||

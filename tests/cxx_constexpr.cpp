@@ -101,6 +101,23 @@ constexpr bool unsigned_exceeds_signed_max(unsigned long long value) {
     return value > 9223372036854775807ULL;
 }
 
+constexpr unsigned long long unsigned_shift_switch(
+    unsigned long long value) {
+    switch (value) {
+        case (1ULL << 63):
+            return value >> 63;
+        default:
+            return 0ULL;
+    }
+}
+
+constexpr unsigned long long unsigned_shift_assignment(
+    unsigned long long value) {
+    value <<= 63;
+    value >>= 63;
+    return value;
+}
+
 constexpr int dynamic_value() {
     int* value = new int;
     *value = 41;
@@ -184,6 +201,10 @@ constexpr bool constexpr_ull_wrapped_sum_is_zero =
     constexpr_ull_wrapped_sum == 0ULL;
 constexpr bool constexpr_ull_shift_keeps_top_bit =
     (18446744073709551615ULL >> 63) == 1ULL;
+constexpr bool constexpr_ull_shift_switch =
+    unsigned_shift_switch(1ULL << 63) == 1ULL;
+constexpr bool constexpr_ull_shift_assignment =
+    unsigned_shift_assignment(1ULL) == 1ULL;
 constexpr bool constexpr_ull_conditional_preserves_unsigned =
     (true ? 18446744073709551615ULL : 0ULL) >
     9223372036854775807ULL;
@@ -208,6 +229,8 @@ static_assert(!constexpr_ull_max_less_than_one);
 static_assert(constexpr_ull_max_exceeds_signed_max);
 static_assert(constexpr_ull_wrapped_sum_is_zero);
 static_assert(constexpr_ull_shift_keeps_top_bit);
+static_assert(constexpr_ull_shift_switch);
+static_assert(constexpr_ull_shift_assignment);
 static_assert(constexpr_ull_conditional_preserves_unsigned);
 static_assert(constexpr_int_max == 2147483647);
 static_assert(constexpr_int_min == (-2147483647 - 1));
@@ -230,6 +253,8 @@ int main(void) {
                    constexpr_dynamic_template_aggregate == 42 &&
                    constexpr_ull_wrapped_sum_is_zero &&
                    constexpr_ull_shift_keeps_top_bit &&
+                   constexpr_ull_shift_switch &&
+                   constexpr_ull_shift_assignment &&
                    constexpr_ull_conditional_preserves_unsigned &&
                    constexpr_int_max == 2147483647 &&
                    constexpr_int_min == (-2147483647 - 1) &&

@@ -5013,6 +5013,60 @@ static bool sema_constexpr_signed_expression_overflows(Type* type,
            !sema_constexpr_signed_value_fits(type, value);
 }
 
+static bool sema_constexpr_shift_value(int expression_kind, int64_t left,
+                                       int64_t right, Type* type,
+                                       int64_t* result) {
+    unsigned width;
+    unsigned shift;
+    uint64_t mask;
+    uint64_t bits;
+
+    if (!result || !sema_constexpr_integer_type(type) || type->size <= 0 ||
+        (expression_kind != EXPR_LSHIFT &&
+         expression_kind != EXPR_RSHIFT)) {
+        return false;
+    }
+    width = type_integer_width(type);
+    if (width == 0u || width > 64u || right < 0 ||
+        (uint64_t)right >= width) {
+        return false;
+    }
+    shift = (unsigned)right;
+    mask = width == 64u ? UINT64_MAX
+                        : (UINT64_C(1) << width) - UINT64_C(1);
+    bits = (uint64_t)left & mask;
+
+    if (type->is_unsigned) {
+        if (expression_kind == EXPR_LSHIFT) {
+            bits = (bits << shift) & mask;
+        } else {
+            bits >>= shift;
+        }
+        *result = (int64_t)bits;
+        return true;
+    }
+
+    if (expression_kind == EXPR_RSHIFT) {
+        if (left < 0 && shift != 0u) {
+            bits = ((uint64_t)left >> shift) |
+                   (UINT64_MAX << (64u - shift));
+            *result = (int64_t)bits;
+        } else {
+            *result = left >> shift;
+        }
+        return sema_constexpr_signed_value_fits(type, *result);
+    }
+
+    if (left < 0 ||
+        (shift == 63u ? left != 0
+                      : left > (INT64_MAX >> shift))) {
+        return false;
+    }
+    bits = (uint64_t)left << shift;
+    *result = (int64_t)bits;
+    return sema_constexpr_signed_value_fits(type, *result);
+}
+
 static bool sema_constexpr_add(int64_t left, int64_t right, int64_t* result) {
 #if defined(__GNUC__) || defined(__clang__)
     return !__builtin_add_overflow(left, right, result);
@@ -5238,21 +5292,13 @@ static bool sema_eval_constexpr_expr(
                     case EXPR_OR_ASSIGN: assigned = left | right; break;
                     case EXPR_XOR_ASSIGN: assigned = left ^ right; break;
                     case EXPR_LSHIFT_ASSIGN:
-                        if (right < 0 || right >= 64 || left < 0 ||
-                            (right == 63 && left != 0) ||
-                            (right < 63 && left > (INT64_MAX >> right))) {
-                            return false;
-                        }
-                        if (operation_type && !operation_type->is_unsigned &&
-                            (left < 0 || right >=
-                                (int64_t)type_integer_width(operation_type))) {
-                            return false;
-                        }
-                        assigned = left << right;
-                        break;
                     case EXPR_RSHIFT_ASSIGN:
-                        if (right < 0 || right >= 64) return false;
-                        assigned = left >> right;
+                        if (!sema_constexpr_shift_value(
+                                expression->kind == EXPR_LSHIFT_ASSIGN
+                                    ? EXPR_LSHIFT : EXPR_RSHIFT,
+                                left, right, operation_type, &assigned)) {
+                            return false;
+                        }
                         break;
                     default:
                         return false;
@@ -5473,18 +5519,10 @@ static bool sema_eval_constexpr_expr(
                     *value = left ^ right;
                     return true;
                 case EXPR_LSHIFT:
-                    if (right < 0 || right >= 64 || left < 0 ||
-                        (right == 63 && left != 0) ||
-                        (right < 63 && left > (INT64_MAX >> right))) {
-                        return false;
-                    }
-                    *value = left << right;
-                    return !sema_constexpr_signed_expression_overflows(
-                        expression->type, *value);
                 case EXPR_RSHIFT:
-                    if (right < 0 || right >= 64) return false;
-                    *value = left >> right;
-                    return true;
+                    return sema_constexpr_shift_value(
+                        expression->kind, left, right, expression->type,
+                        value);
                 case EXPR_EQ:
                     *value = left == right;
                     return true;
@@ -9887,13 +9925,11 @@ static bool sema_constexpr_scalar_binary(
                 case EXPR_BITOR: output->integer_value = (int64_t)((left_bits | right_bits) & mask); return true;
                 case EXPR_BITXOR: output->integer_value = (int64_t)((left_bits ^ right_bits) & mask); return true;
                 case EXPR_LSHIFT:
-                    if (right_bits >= type_integer_width(result_type)) return false;
-                    output->integer_value = (int64_t)((left_bits << (unsigned)right_bits) & mask);
-                    return true;
                 case EXPR_RSHIFT:
-                    if (right_bits >= type_integer_width(result_type)) return false;
-                    output->integer_value = (int64_t)(left_bits >> (unsigned)right_bits);
-                    return true;
+                    return sema_constexpr_shift_value(
+                        expression_kind, converted_left.integer_value,
+                        converted_right.integer_value, result_type,
+                        &output->integer_value);
                 default: return false;
             }
         }
@@ -9962,27 +9998,11 @@ static bool sema_constexpr_scalar_binary(
                                     converted_right.integer_value;
             return true;
         case EXPR_LSHIFT:
-            if (sema_constexpr_integer_signed(&converted_right) < 0 ||
-                sema_constexpr_integer_signed(&converted_right) >=
-                    (int64_t)type_integer_width(result_type) ||
-                sema_constexpr_integer_signed(&converted_left) < 0 ||
-                (sema_constexpr_integer_signed(&converted_right) < 63 &&
-                 sema_constexpr_integer_signed(&converted_left) >
-                     (INT64_MAX >> sema_constexpr_integer_signed(&converted_right)))) {
-                return false;
-            }
-            output->integer_value = converted_left.integer_value <<
-                                    sema_constexpr_integer_signed(&converted_right);
-            if (!sema_constexpr_signed_value_fits(
-                    result_type, output->integer_value)) return false;
-            return true;
         case EXPR_RSHIFT:
-            if (sema_constexpr_integer_signed(&converted_right) < 0 ||
-                sema_constexpr_integer_signed(&converted_right) >=
-                    (int64_t)type_integer_width(result_type)) return false;
-            output->integer_value = converted_left.integer_value >>
-                                    sema_constexpr_integer_signed(&converted_right);
-            return true;
+            return sema_constexpr_shift_value(
+                expression_kind, converted_left.integer_value,
+                converted_right.integer_value, result_type,
+                &output->integer_value);
         default:
             return false;
     }
