@@ -21218,7 +21218,9 @@ static int sema_cxx_binary_operator_candidate_relation(
 
 static bool sema_cxx_collect_member_binary_operator_candidate(
     SemaCxxBinaryOperatorCandidate* candidate, Type* aggregate,
-    Expr* expression, const char* name, bool rewritten) {
+    Expr* expression, const char* name, bool rewritten,
+    TypeMethod* const* materialized_templates,
+    int materialized_template_count) {
     TypeMethod* best = NULL;
     int best_ranks[3] = { 0, 0, 0 };
     Type* best_targets[3] = { NULL, NULL, NULL };
@@ -21252,6 +21254,17 @@ static bool sema_cxx_collect_member_binary_operator_candidate(
             !method->name || strcmp(method->name, name) != 0 ||
             !function->type || function->type->kind != TYPE_FUNC) {
             continue;
+        }
+        if (materialized_templates &&
+            function->func_is_template_instance) {
+            bool materialized_for_expression = false;
+            for (int index = 0; index < materialized_template_count; ++index) {
+                if (materialized_templates[index] == method) {
+                    materialized_for_expression = true;
+                    break;
+                }
+            }
+            if (!materialized_for_expression) continue;
         }
         object_rank = cxx_member_object_conversion_rank(aggregate, method);
         ref_rank = cxx_member_ref_qualifier_rank(probe_call, method);
@@ -21375,13 +21388,13 @@ static bool sema_cxx_rewrite_class_equality_operator(
     exprlist_append(&arguments, expression->binary_rhs);
     if (sema_cxx_collect_member_binary_operator_candidate(
             &candidates[candidate_count], aggregate, expression, name,
-            false)) {
+            false, NULL, 0)) {
         ++candidate_count;
     }
     if (expression->kind == EXPR_NE &&
         sema_cxx_collect_member_binary_operator_candidate(
             &candidates[candidate_count], aggregate, expression,
-            "operator==", true)) {
+            "operator==", true, NULL, 0)) {
         ++candidate_count;
     }
     functions = sema_cxx_operator_function(name, arguments);
@@ -21465,8 +21478,8 @@ static bool sema_cxx_is_relational_operator(ExprKind kind) {
  * candidate set before the legacy direct-member fast path so conversion
  * quality, and the preference for non-rewritten candidates on a tie, are
  * applied consistently. */
-static bool sema_cxx_rewrite_class_relational_operator(Expr* expression,
-                                                       Type* left_type) {
+static bool sema_cxx_rewrite_class_relational_operator(
+    Expr* expression, Type* left_type, bool* candidates_considered) {
     SemaCxxBinaryOperatorCandidate candidates[5];
     int candidate_count = 0;
     int best_index = -1;
@@ -21478,7 +21491,13 @@ static bool sema_cxx_rewrite_class_relational_operator(Expr* expression,
     ExprList* reversed_arguments = NULL;
     Symbol* functions;
     const char* direct_name;
+    TypeMethod* direct_template_methods[32] = { NULL };
+    TypeMethod* spaceship_template_methods[32] = { NULL };
+    int direct_template_count = 0;
+    int spaceship_template_count = 0;
+    bool restrict_member_template_candidates = false;
 
+    if (candidates_considered) *candidates_considered = false;
     if (!expression || !left_type ||
         !sema_cxx_is_relational_operator(expression->kind)) {
         return false;
@@ -21496,17 +21515,53 @@ static bool sema_cxx_rewrite_class_relational_operator(Expr* expression,
           right_aggregate->kind != TYPE_UNION))) {
         return false;
     }
+    if (candidates_considered) *candidates_considered = true;
 
     direct_name = sema_cxx_binary_operator_name(expression->kind);
     if (!direct_name) return false;
     exprlist_append(&arguments, expression->binary_lhs);
     exprlist_append(&arguments, expression->binary_rhs);
+    if (left_aggregate && left_aggregate->cxx_class &&
+        rcc_parser_cxx_materialize_member_function_templates) {
+        bool constraint_unsupported = false;
+        restrict_member_template_candidates = true;
+        direct_template_count =
+            rcc_parser_cxx_materialize_member_function_templates(
+                left_aggregate, direct_name,
+                exprlist_new(expression->binary_rhs), NULL, 0, false,
+                direct_template_methods,
+                (int)(sizeof(direct_template_methods) /
+                      sizeof(direct_template_methods[0])),
+                &constraint_unsupported);
+        if (direct_template_count > 0 && !constraint_unsupported) {
+            sema_register_materialized_member_templates(left_aggregate);
+        } else if (constraint_unsupported || direct_template_count < 0) {
+            direct_template_count = 0;
+        }
+        constraint_unsupported = false;
+        spaceship_template_count =
+            rcc_parser_cxx_materialize_member_function_templates(
+                left_aggregate, "operator<=>",
+                exprlist_new(expression->binary_rhs), NULL, 0, false,
+                spaceship_template_methods,
+                (int)(sizeof(spaceship_template_methods) /
+                      sizeof(spaceship_template_methods[0])),
+                &constraint_unsupported);
+        if (spaceship_template_count > 0 && !constraint_unsupported) {
+            sema_register_materialized_member_templates(left_aggregate);
+        } else if (constraint_unsupported || spaceship_template_count < 0) {
+            spaceship_template_count = 0;
+        }
+    }
     if (left_aggregate &&
         (left_aggregate->kind == TYPE_STRUCT ||
          left_aggregate->kind == TYPE_UNION) &&
         sema_cxx_collect_member_binary_operator_candidate(
             &candidates[candidate_count], left_aggregate, expression,
-            direct_name, false)) {
+            direct_name, false,
+            restrict_member_template_candidates
+                ? direct_template_methods : NULL,
+            direct_template_count)) {
         ++candidate_count;
     }
     functions = sema_cxx_operator_function(direct_name, arguments);
@@ -21520,7 +21575,10 @@ static bool sema_cxx_rewrite_class_relational_operator(Expr* expression,
          left_aggregate->kind == TYPE_UNION) &&
         sema_cxx_collect_member_binary_operator_candidate(
             &candidates[candidate_count], left_aggregate, expression,
-            "operator<=>", true)) {
+            "operator<=>", true,
+            restrict_member_template_candidates
+                ? spaceship_template_methods : NULL,
+            spaceship_template_count)) {
         ++candidate_count;
     }
     functions = sema_cxx_operator_function("operator<=>", arguments);
@@ -21690,6 +21748,7 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     Expr* function_expression;
     Expr* member;
     Expr* call;
+    bool relational_candidates_considered = false;
     if (!expression || !left_type) return false;
     /* Reference expressions carry a pointer-shaped type in the front end.
      * Inspect the referred-to class for member/non-member operator lookup,
@@ -21697,10 +21756,12 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     aggregate = generic_selection_type(sema_cxx_object_type(left_type));
     name = sema_cxx_binary_operator_name(expression->kind);
     if (!name) return false;
-    if (sema_cxx_rewrite_class_relational_operator(expression, left_type)) {
+    if (sema_cxx_rewrite_class_relational_operator(
+            expression, left_type, &relational_candidates_considered)) {
         return true;
     }
-    method = sema_find_function_method(aggregate, name);
+    method = relational_candidates_considered
+        ? NULL : sema_find_function_method(aggregate, name);
     equality_method = expression->kind == EXPR_NE
         ? sema_find_function_method(aggregate, "operator==") : NULL;
     if ((expression->kind == EXPR_EQ || expression->kind == EXPR_NE) &&

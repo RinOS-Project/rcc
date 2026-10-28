@@ -28,6 +28,26 @@ struct DirectLessWinsRewriteTie {
     }
 };
 
+struct MemberTemplateSpaceship {
+    int value;
+    template <typename T>
+    int operator<=>(const T& other) const {
+        return value - other.value;
+    }
+};
+
+struct MemberTemplateDirectLessWinsTie {
+    int value;
+    template <typename T>
+    bool operator<(const T&) const {
+        return false;
+    }
+    template <typename T>
+    int operator<=>(const T& other) const {
+        return value - other.value;
+    }
+};
+
 struct ReverseSpaceshipLeft {};
 struct ReverseSpaceshipRight {
     friend int operator<=>(const ReverseSpaceshipRight&,
@@ -92,6 +112,10 @@ int main() {
     SpaceshipPreferredOverDirectLess equal_right{11};
     DirectLessWinsRewriteTie tie_left{1};
     DirectLessWinsRewriteTie tie_right{2};
+    MemberTemplateSpaceship member_template_left{2};
+    MemberTemplateSpaceship member_template_right{5};
+    MemberTemplateDirectLessWinsTie member_template_tie_left{1};
+    MemberTemplateDirectLessWinsTie member_template_tie_right{2};
     ReverseSpaceshipLeft reverse_left;
     ReverseSpaceshipRight reverse_right;
     spaceship_associated::Left inline_left;
@@ -116,6 +140,8 @@ int main() {
            ((&pointer_value <=> &pointer_value) == 0) &&
            !(equal_left < equal_right) &&
            !(tie_left < tie_right) &&
+           (member_template_left < member_template_right) &&
+           !(member_template_tie_left < member_template_tie_right) &&
            (reverse_left < reverse_right) &&
            (reverse_left <= reverse_right) &&
            !(reverse_left >= reverse_right) &&

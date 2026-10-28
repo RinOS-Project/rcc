@@ -8544,6 +8544,22 @@ test-cxx-spaceship-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-spaceship/invalid-x86.log
 	$(GREP) -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" \
 		$(TEST_OUT)/cxx-spaceship/invalid-x64.log
+	@if $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-spaceship/stale-template-x86.ro \
+		tests/cxx_member_template_stale_candidate_invalid.cpp \
+		>$(TEST_OUT)/cxx-spaceship/stale-template-x86.log 2>&1; then \
+		echo "stale constrained member template unexpectedly compiled"; exit 1; \
+	fi
+	$(GREP) -q "no matching member overload for 'operator<'" \
+		$(TEST_OUT)/cxx-spaceship/stale-template-x86.log
+	@if $(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-spaceship/stale-template-x64.ro \
+		tests/cxx_member_template_stale_candidate_invalid.cpp \
+		>$(TEST_OUT)/cxx-spaceship/stale-template-x64.log 2>&1; then \
+		echo "stale constrained member template unexpectedly compiled"; exit 1; \
+	fi
+	$(GREP) -q "no matching member overload for 'operator<'" \
+		$(TEST_OUT)/cxx-spaceship/stale-template-x64.log
 	@echo "C++20 user-defined spaceship operator tests completed"
 
 test-cxx-final-posix: $(RCXX_TARGET)
@@ -9132,6 +9148,10 @@ test-cxx-spaceship: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-spaceship/invalid-x64.ro tests/cxx_spaceship_invalid.cpp,$(TEST_OUT)/cxx-spaceship/invalid-x64.log)
 	$(GREP) -F -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" $(TEST_OUT)/cxx-spaceship/invalid-x64.log
 	$(GREP) -F -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" $(TEST_OUT)/cxx-spaceship/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-spaceship/stale-template-x86.ro tests/cxx_member_template_stale_candidate_invalid.cpp,$(TEST_OUT)/cxx-spaceship/stale-template-x86.log)
+	$(GREP) -F -q "no matching member overload for 'operator<'" $(TEST_OUT)/cxx-spaceship/stale-template-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-spaceship/stale-template-x64.ro tests/cxx_member_template_stale_candidate_invalid.cpp,$(TEST_OUT)/cxx-spaceship/stale-template-x64.log)
+	$(GREP) -F -q "no matching member overload for 'operator<'" $(TEST_OUT)/cxx-spaceship/stale-template-x64.log
 
 test-cxx-final: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-final)

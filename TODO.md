@@ -11442,10 +11442,17 @@ remains a separate open item.
       all four reversed relational spellings, and a class-valued comparison
       result; `test-cxx-spaceship` passes for i686/AMD64 generation and x64
       host execution. GCC C++20 `-pedantic-errors` agrees on a focused oracle.
+- [x] Materialize viable member-function templates for both the requested
+      relational spelling and `operator<=>` before candidate ranking. Cover a
+      spaceship-only member template and equal-rank direct-template preference
+      in `test-cxx-spaceship`. Restrict ranking to specializations materialized
+      for the current operands, and reject a stale specialization after a later
+      constraint mismatch. The focused target and overload/operator/
+      defaulted-equality regressions pass, and GCC C++20 agrees.
 - [ ] Complete the full standard candidate set and ranking interactions,
-      including remaining built-in conversion candidates, templates, and
-      hidden-friend/ADL corner cases; retain the broader C++20 overload
-      conformance item as open.
+      including remaining built-in conversion candidates, function-template
+      ordering, and hidden-friend/ADL corner cases; retain the broader C++20
+      overload conformance item as open.
 
 ## RCC continuation (2026-10-28, hidden-friend ADL candidate identity)
 
