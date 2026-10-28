@@ -17,6 +17,20 @@
   `unsequenced`, and `reproducible`); accepting/ignoring unknown attributes is
   not equivalent to implementing these attributes.
 
+## RCC continuation (2026-10-29, C23 bit-precise integers)
+
+- [x] Publish `BITINT_MAXWIDTH` as 64 and exercise signed/unsigned `_BitInt`
+  types at 1/2/5/9/33/64-bit widths, including minimum/maximum values,
+  conversion truncation, narrow unsigned wraparound, signed arithmetic,
+  `wb`/`uwb`/`WB`/`UWB` literals, and 64-bit literal boundaries.
+- [x] Add `test-c23-bitint` to `test-c23` and `test-ci`. Verify i686/AMD64
+  objects, x86_64 host execution, direct RIN plus RLD-linked RIN, and direct
+  RLL/DRV output using `rinvalidate`; verify width diagnostics and C17/C++20
+  mode rejection.
+- [ ] Audit remaining C23 bit-precise integer rules and contexts, especially
+  bit-fields, variadic arguments, `_Generic` and mixed-rank usual arithmetic
+  conversions, shift/overflow constraints, and `wb` constants in preprocessing.
+
 ## RCC continuation (2026-10-29, C23 binary resource inclusion)
 
 - [x] Implement C23-only `#embed` and `__has_embed` using the compiler's
