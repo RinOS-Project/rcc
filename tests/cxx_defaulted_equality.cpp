@@ -64,6 +64,13 @@ struct EqualityReversedFriend {
     }
 };
 
+struct EqualityNonviableNotEqual {
+    int value;
+    friend bool operator==(const EqualityNonviableNotEqual&,
+                           const EqualityNonviableNotEqual&) = default;
+    friend bool operator!=(const EqualityNonviableNotEqual&, int) = delete;
+};
+
 int main() {
     EqualityRecord first{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
     EqualityRecord same{{2}, {5}, 7, {11}, {{13, 17}, {19, 23}}};
@@ -85,6 +92,9 @@ int main() {
     EqualityDirectNotEqual direct_not_equal_first{53};
     EqualityDirectNotEqual direct_not_equal_same{53};
     EqualityReversedFriend reversed_friend{59};
+    EqualityNonviableNotEqual nonviable_not_equal_first{61};
+    EqualityNonviableNotEqual nonviable_not_equal_same{61};
+    EqualityNonviableNotEqual nonviable_not_equal_different{62};
     if (hidden_first.values[1] != 43 ||
         hidden_array_different.values[1] != 44) return 17;
     virtual_first.virtual_base_value = 29;
@@ -123,5 +133,9 @@ int main() {
     if (!(direct_not_equal_first != direct_not_equal_same)) return 22;
     if (reversed_friend != 59) return 23;
     if (!(reversed_friend != 60)) return 24;
+    if (nonviable_not_equal_first != nonviable_not_equal_same) return 25;
+    if (!(nonviable_not_equal_first != nonviable_not_equal_different)) {
+        return 26;
+    }
     return 0;
 }

@@ -1949,6 +1949,16 @@ test-cxx-defaulted-equality: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-defaulted-equality/union-invalid-x64.ro tests/cxx_defaulted_union_equality_invalid.cpp,$(TEST_OUT)/cxx-defaulted-equality/union-invalid-x64.log)
 	$(GREP) -F -q "use of deleted function" $(TEST_OUT)/cxx-defaulted-equality/union-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-defaulted-equality/union-invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_defaulted_union_inequality_invalid.cpp,$(TEST_OUT)/cxx-defaulted-equality/gcc-union-inequality-invalid.log)
+	$(GREP) -F -q "use of deleted function" $(TEST_OUT)/cxx-defaulted-equality/gcc-union-inequality-invalid.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-defaulted-equality/union-inequality-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-defaulted-equality/union-inequality-invalid-x86.ro tests/cxx_defaulted_union_inequality_invalid.cpp,$(TEST_OUT)/cxx-defaulted-equality/union-inequality-invalid-x86.log)
+	$(GREP) -F -q "use of deleted function" $(TEST_OUT)/cxx-defaulted-equality/union-inequality-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-defaulted-equality/union-inequality-invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-defaulted-equality/union-inequality-invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-defaulted-equality/union-inequality-invalid-x64.ro tests/cxx_defaulted_union_inequality_invalid.cpp,$(TEST_OUT)/cxx-defaulted-equality/union-inequality-invalid-x64.log)
+	$(GREP) -F -q "use of deleted function" $(TEST_OUT)/cxx-defaulted-equality/union-inequality-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-defaulted-equality/union-inequality-invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_deleted_hidden_friend_invalid.cpp,$(TEST_OUT)/cxx-defaulted-equality/gcc-hidden-friend-invalid.log)
 	$(GREP) -F -q "use of deleted function" $(TEST_OUT)/cxx-defaulted-equality/gcc-hidden-friend-invalid.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-defaulted-equality/hidden-friend-invalid-x86.ro)
