@@ -21145,12 +21145,14 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     exprlist_append(&arguments, expression->binary_lhs);
     exprlist_append(&arguments, expression->binary_rhs);
     function = sema_cxx_operator_function(name, arguments);
-    if (function && expression->kind == EXPR_NE &&
+    if (function && (expression->kind == EXPR_EQ ||
+                     expression->kind == EXPR_NE) &&
         !sema_cxx_operator_has_viable_nonmember_candidate(function,
                                                           arguments)) {
         function = NULL;
     }
-    if (!function && expression->kind == EXPR_NE) {
+    if (!function && (expression->kind == EXPR_EQ ||
+                      expression->kind == EXPR_NE)) {
         function = sema_cxx_operator_function("operator==", arguments);
         if (!sema_cxx_operator_has_viable_nonmember_candidate(function,
                                                               arguments)) {
@@ -21167,17 +21169,19 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
             }
         }
         if (function) {
-            Expr* negated;
+            Expr* rewritten;
             function_expression = expr_ident("operator==",
                                              expression->loc);
             call = expr_call(function_expression, arguments,
                              expression->loc);
-            negated = expr_unary(EXPR_NOT, call, expression->loc);
-            *expression = *negated;
+            rewritten = expression->kind == EXPR_NE
+                ? expr_unary(EXPR_NOT, call, expression->loc) : call;
+            *expression = *rewritten;
             return true;
         }
-        if (aggregate && (aggregate->kind == TYPE_STRUCT ||
-                          aggregate->kind == TYPE_UNION)) {
+        if (expression->kind == EXPR_NE && aggregate &&
+            (aggregate->kind == TYPE_STRUCT ||
+             aggregate->kind == TYPE_UNION)) {
             TypeMethod* equality_method = sema_find_function_method(
                 aggregate, "operator==");
             if (equality_method && equality_method->function_decl) {

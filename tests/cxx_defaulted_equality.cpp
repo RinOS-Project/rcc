@@ -133,6 +133,8 @@ int main() {
     if (!(direct_not_equal_first != direct_not_equal_same)) return 22;
     if (reversed_friend != 59) return 23;
     if (!(reversed_friend != 60)) return 24;
+    if (!(reversed_friend == 59)) return 27;
+    if (reversed_friend == 60) return 28;
     if (nonviable_not_equal_first != nonviable_not_equal_same) return 25;
     if (!(nonviable_not_equal_first != nonviable_not_equal_different)) {
         return 26;
