@@ -10,6 +10,11 @@ void typeof_vla_parameter_prototype(int count, typeof(int[count]) values);
 void typeof_vla_parameter_prototype(int limit,
                                    typeof(int[limit + 1]) values);
 
+void nested_typeof_vla_prototype(
+    int count, typeof(typeof(int[count])[count + 1]) values);
+void nested_typeof_vla_prototype(
+    int limit, typeof(typeof(int[limit + 2])[limit]) values);
+
 int main(void) {
     return 0;
 }

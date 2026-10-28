@@ -59,6 +59,9 @@
   typedef's captured extent while evaluating only the new outer bound; verify
   both typedef points and later object sizes with the same runtime/object
   matrix.
+- [x] Accept compatible prototype-scope redeclarations with nested
+  `typeof(type-name)` VLA bounds of different non-constant sizes; verify GCC
+  C2x syntax and RCC i686/x86_64 object generation.
 - [ ] Audit the remaining nested prototype-scope/typedef VM contexts and
   sequencing interactions. WG14 issue 1120 is open on full-expression
   boundaries for typeof/declarator size expressions, so do not treat one
