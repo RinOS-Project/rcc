@@ -273,6 +273,28 @@ int main(int argc, char** argv)
     static const uint8_t x64_gs_segment_load[] = {
         0x65u, 0x48u, 0x8bu, 0x04u, 0x25u, 0xf8u, 0xffu, 0xffu, 0xffu
     };
+    static const uint8_t x64_memory_input[] = {
+        0x45u, 0x8bu, 0x13u
+    };
+    static const uint8_t x64_memory_output[] = {
+        0x45u, 0x89u, 0x13u
+    };
+    static const uint8_t x64_memory_add[] = {
+        0x41u, 0x83u, 0x03u, 0x01u
+    };
+    static const uint8_t x64_memory_copy_source[] = {
+        0x41u, 0x8bu, 0x02u
+    };
+    static const uint8_t x64_memory_copy_destination[] = {
+        0x41u, 0x89u, 0x03u
+    };
+    static const uint8_t x64_fnstenv[] = {0x41u, 0xd9u, 0x33u};
+    static const uint8_t x64_fldenv[] = {0x41u, 0xd9u, 0x23u};
+    static const uint8_t x64_fnstcw[] = {0x41u, 0xd9u, 0x3bu};
+    static const uint8_t x64_fldcw[] = {0x41u, 0xd9u, 0x2bu};
+    static const uint8_t x64_fnstsw[] = {0x41u, 0xddu, 0x3bu};
+    static const uint8_t x64_stmxcsr[] = {0x41u, 0x0fu, 0xaeu, 0x1bu};
+    static const uint8_t x64_ldmxcsr[] = {0x41u, 0x0fu, 0xaeu, 0x13u};
     verify(argv[1], ARCH_X86, "asm_placeholder_move");
     verify(argv[2], ARCH_X64, "asm_placeholder_move");
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
@@ -395,6 +417,38 @@ int main(int argc, char** argv)
                    x64_fs_tls_load, sizeof(x64_fs_tls_load));
     verify_pattern(argv[2], ARCH_X64, "asm_x64_gs_segment_load",
                    x64_gs_segment_load, sizeof(x64_gs_segment_load));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_memory_input",
+                   x64_memory_input, sizeof(x64_memory_input));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_memory_output",
+                   x64_memory_output, sizeof(x64_memory_output));
+    verify_pattern(argv[3], ARCH_X64, "asm_cpp_x64_memory_input",
+                   x64_memory_input, sizeof(x64_memory_input));
+    verify_pattern(argv[3], ARCH_X64, "asm_cpp_x64_memory_output",
+                   x64_memory_output, sizeof(x64_memory_output));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_memory_read_write",
+                   x64_memory_add, sizeof(x64_memory_add));
+    verify_pattern_pair(argv[2], ARCH_X64, "asm_x64_memory_copy",
+                        x64_memory_copy_source, sizeof(x64_memory_copy_source),
+                        x64_memory_copy_destination,
+                        sizeof(x64_memory_copy_destination),
+                        x64_memory_copy_destination,
+                        sizeof(x64_memory_copy_destination),
+                        x64_memory_copy_source,
+                        sizeof(x64_memory_copy_source));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_fenv_memory_forms",
+                   x64_fnstenv, sizeof(x64_fnstenv));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_fenv_memory_forms",
+                   x64_fldenv, sizeof(x64_fldenv));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_fenv_memory_forms",
+                   x64_fnstcw, sizeof(x64_fnstcw));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_fenv_memory_forms",
+                   x64_fldcw, sizeof(x64_fldcw));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_fenv_memory_forms",
+                   x64_fnstsw, sizeof(x64_fnstsw));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_fenv_memory_forms",
+                   x64_stmxcsr, sizeof(x64_stmxcsr));
+    verify_pattern(argv[2], ARCH_X64, "asm_x64_fenv_memory_forms",
+                   x64_ldmxcsr, sizeof(x64_ldmxcsr));
     verify_generic_output(argv[1], ARCH_X86, "asm_general_output_move");
     verify_generic_output(argv[2], ARCH_X64, "asm_general_output_move");
     verify_generic(argv[3], ARCH_X64, "asm_cpp_general_input_move");

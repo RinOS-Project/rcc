@@ -124,4 +124,17 @@ extern "C" long long asm_cpp_x64_q_modifier(long long value)
     asm volatile("mov %q1, %q0" : "=a"(result) : "b"(value));
     return result;
 }
+
+extern "C" int asm_cpp_x64_memory_input(const int* source)
+{
+    int result;
+    asm volatile("movl %1, %k0" : "=r"(result) : "m"(*source));
+    return result;
+}
+
+extern "C" int asm_cpp_x64_memory_output(int* destination, int value)
+{
+    asm volatile("movl %k1, %0" : "=m"(*destination) : "r"(value));
+    return *destination;
+}
 #endif

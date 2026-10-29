@@ -389,4 +389,60 @@ long long asm_x64_q_modifier(long long value)
     __asm__ __volatile__("mov %q1, %q0" : "=a"(result) : "b"(value));
     return result;
 }
+
+int asm_x64_memory_input(const int* source)
+{
+    int result;
+    __asm__ __volatile__("movl %1, %k0"
+                         : "=r"(result)
+                         : "m"(*source));
+    return result;
+}
+
+int asm_x64_memory_output(int* destination, int value)
+{
+    __asm__ __volatile__("movl %k1, %0"
+                         : "=m"(*destination)
+                         : "r"(value));
+    return *destination;
+}
+
+int asm_x64_memory_read_write(int* value)
+{
+    __asm__ __volatile__("addl $1, %0" : "+m"(*value));
+    return *value;
+}
+
+int asm_x64_memory_direct_output(int value)
+{
+    int slot = 0;
+    __asm__ __volatile__("movl %k1, %0" : "=m"(slot) : "r"(value));
+    return slot;
+}
+
+int asm_x64_memory_copy(int* destination, const int* source)
+{
+    __asm__ __volatile__("movl %1, %%eax\n\tmovl %%eax, %0"
+                         : "=m"(*destination)
+                         : "m"(*source)
+                         : "rax", "memory");
+    return *destination;
+}
+
+struct asm_x64_x87_environment {
+    unsigned char bytes[32];
+};
+
+void asm_x64_fenv_memory_forms(struct asm_x64_x87_environment* environment,
+                               unsigned short* control,
+                               unsigned short* status, unsigned* mxcsr)
+{
+    __asm__ __volatile__("fnstenv %0" : "=m"(*environment) : : "memory");
+    __asm__ __volatile__("fldenv %0" : : "m"(*environment) : "memory");
+    __asm__ __volatile__("fnstcw %0" : "=m"(*control));
+    __asm__ __volatile__("fldcw %0" : : "m"(*control));
+    __asm__ __volatile__("fnstsw %0" : "=m"(*status));
+    __asm__ __volatile__("stmxcsr %0" : "=m"(*mxcsr));
+    __asm__ __volatile__("ldmxcsr %0" : : "m"(*mxcsr));
+}
 #endif

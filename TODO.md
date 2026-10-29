@@ -2766,8 +2766,15 @@
         and explicit diagnostics for register operands.
   - [x] Support bounded i686 input-only `m` operands for direct automatic frame
         variables and parameters; lower EBP-relative `movl` loads. Verify exact
-        instruction bytes, reject global/indirect operands and AMD64 use, and
-        include i686 execution in the POSIX inline-asm execution gate.
+        instruction bytes, reject global/indirect i686 operands, and include
+        i686 execution in the POSIX inline-asm execution gate.
+  - [x] Add AMD64 `m`, `=m`, and `+m` lowering for direct frame objects and
+        computed lvalue addresses, with address-register selection that avoids
+        operand assignments and clobbers. Extend memory/register `mov` widths,
+        `addl` immediate memory updates, and the x87 environment/control/status
+        plus MXCSR memory forms used by `fenv.h`. Verify exact AMD64 bytes,
+        execute indirect loads/stores/read-write and multiple-memory templates,
+        compile `fenv.h` in C17/C++20, and reject non-lvalue memory inputs.
   - [x] Exercise the bounded memory input through the C++20 frontend on i686;
         compile the i686 fixture and verify its exact EBP-relative `movl` bytes
         alongside the C and AMD64 C++ encoding gates.

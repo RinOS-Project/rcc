@@ -2663,9 +2663,9 @@ static bool sema_asm_constraint_supported(const char* constraint,
     if (!output && (sema_asm_immediate_name(name) ||
                     sema_asm_port_name(name))) return true;
     if (sema_asm_memory_name(name)) {
-        if (output || g_opts.target_arch != ARCH_X86) {
+        if (g_opts.target_arch == ARCH_X86 && output) {
             rcc_error(loc,
-                      "inline asm memory constraint 'm' is supported only for i686 inputs");
+                      "i686 inline asm memory constraints are input-only");
             return false;
         }
         return true;
@@ -2737,6 +2737,7 @@ static int sema_asm_fixed_register_id(const char* name) {
     if (strcmp(name, "{r8}") == 0) return 8;
     if (strcmp(name, "{r9}") == 0) return 9;
     if (strcmp(name, "{r10}") == 0 || strcmp(name, "r10") == 0) return 6;
+    if (strcmp(name, "{r11}") == 0 || strcmp(name, "r11") == 0) return 11;
     if (strcmp(name, "r8") == 0) return 8;
     if (strcmp(name, "r9") == 0) return 9;
     return -1;
@@ -2813,6 +2814,84 @@ static int sema_asm_operand_assigned_register_id(
     return sema_asm_operand_fixed_register_id(operand);
 }
 
+static bool sema_asm_memory_operand(const AsmOperand* operand) {
+    return operand && sema_asm_memory_name(
+        sema_asm_constraint_name(operand->constraint));
+}
+
+static bool sema_asm_memory_direct_frame_operand(const AsmOperand* operand) {
+    Decl* declaration;
+    Expr* expression = operand ? operand->expr : NULL;
+    if (!expression || expression->kind != EXPR_IDENT) return false;
+    declaration = expression->ident_decl;
+    return declaration &&
+        (declaration->kind == DECL_PARAM ||
+         (declaration->kind == DECL_VAR && !declaration->var_is_global &&
+          !declaration->var_is_static_local &&
+          !declaration->var_is_thread_local)) &&
+        !(declaration->type && declaration->type->is_reference) &&
+        !declaration->var_register_name;
+}
+
+static bool sema_asm_memory_register_available(
+    Stmt* stmt, const AsmOperand* current, int register_id) {
+    for (AsmOperand* operand = stmt->asm_outputs; operand;
+         operand = operand->next) {
+        if (operand != current &&
+            sema_asm_operand_assigned_register_id(operand) == register_id) {
+            return false;
+        }
+    }
+    for (AsmOperand* operand = stmt->asm_inputs; operand;
+         operand = operand->next) {
+        if (operand != current &&
+            sema_asm_operand_assigned_register_id(operand) == register_id) {
+            return false;
+        }
+    }
+    for (AsmClobber* clobber = stmt->asm_clobbers; clobber;
+         clobber = clobber->next) {
+        if (sema_asm_fixed_register_id(clobber->reg) == register_id) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sema_asm_assign_memory_address_registers(Stmt* stmt) {
+    /* The inline-asm backend has no register allocator around opaque
+     * templates. Materialize non-frame memory addresses in caller-saved GPRs
+     * that are not already assigned to an operand or listed as clobbered. */
+    static const int x64_address_registers[] = {
+        11, 6, 9, 8, 5, 4, 3, 2, 0
+    };
+    AsmOperand* groups[2] = {stmt->asm_outputs, stmt->asm_inputs};
+    if (g_opts.target_arch != ARCH_X64) return true;
+    for (size_t group = 0; group < 2u; ++group) {
+        for (AsmOperand* operand = groups[group]; operand;
+             operand = operand->next) {
+            if (!sema_asm_memory_operand(operand) ||
+                sema_asm_memory_direct_frame_operand(operand)) continue;
+            operand->assigned_gpr = -2;
+            for (size_t index = 0u;
+                 index < sizeof(x64_address_registers) /
+                             sizeof(x64_address_registers[0]); ++index) {
+                int candidate = x64_address_registers[index];
+                if (!sema_asm_memory_register_available(
+                        stmt, operand, candidate)) continue;
+                operand->assigned_gpr = candidate;
+                break;
+            }
+            if (operand->assigned_gpr < 0) {
+                rcc_error(stmt->loc,
+                          "no available register to address inline asm memory operand");
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static bool sema_asm_earlyclobber_register_available(
     const Stmt* stmt, const AsmOperand* operand, int register_id) {
     for (const AsmOperand* other = stmt->asm_outputs; other;
@@ -2881,6 +2960,11 @@ static void sema_asm_assign_registers(Stmt* stmt) {
         if (sema_asm_generic_gpr_operand(input)) {
             input->assigned_gpr = -1;
         }
+        if (sema_asm_memory_operand(input)) input->assigned_gpr = -1;
+    }
+    for (AsmOperand* output = stmt->asm_outputs; output;
+         output = output->next) {
+        if (sema_asm_memory_operand(output)) output->assigned_gpr = -1;
     }
     /* Early-clobber outputs cannot share a register with any input. */
     for (AsmOperand* output = stmt->asm_outputs; output;
@@ -2902,6 +2986,7 @@ static void sema_asm_assign_registers(Stmt* stmt) {
         if (!sema_asm_assign_generic_register(stmt, input, candidates,
                                                candidate_count)) return;
     }
+    (void)sema_asm_assign_memory_address_registers(stmt);
 }
 
 static void sema_asm_validate_conflicts(Stmt* stmt) {
@@ -3041,7 +3126,8 @@ static void sema_asm_stmt(Stmt* stmt) {
         } else if (!is_modifiable_lvalue(op->expr)) {
             rcc_error(op->expr->loc,
                       "inline asm output expression must be a modifiable lvalue");
-        } else if (!sema_asm_scalar_operand(op->expr->type)) {
+        } else if (!sema_asm_memory_operand(op) &&
+                   !sema_asm_scalar_operand(op->expr->type)) {
             rcc_error(op->expr->loc,
                       "inline asm output expression must have scalar integer or pointer type");
         }
@@ -3050,6 +3136,29 @@ static void sema_asm_stmt(Stmt* stmt) {
         (void)sema_asm_constraint_supported(op->constraint, false, stmt->loc);
         if (!op->expr) {
             rcc_error(stmt->loc, "inline asm input has no expression");
+        } else if (sema_asm_memory_operand(op)) {
+            if (g_opts.target_arch == ARCH_X86) {
+                Decl* declaration = op->expr->kind == EXPR_IDENT
+                    ? op->expr->ident_decl : NULL;
+                if (!sema_asm_scalar_operand(op->expr->type) ||
+                    !declaration ||
+                    (declaration->kind != DECL_PARAM &&
+                     (declaration->kind != DECL_VAR ||
+                      declaration->var_is_global ||
+                      declaration->var_is_static_local ||
+                      declaration->var_is_thread_local)) ||
+                    (declaration->type && declaration->type->is_reference)) {
+                    rcc_error(op->expr->loc,
+                              "i686 inline asm memory input requires a direct automatic frame variable");
+                }
+            } else if (!is_lvalue(op->expr)) {
+                rcc_error(op->expr->loc,
+                          "AMD64 inline asm memory input requires an lvalue expression");
+            } else if (!op->expr->type || op->expr->type->size <= 0 ||
+                       op->expr->type->kind == TYPE_FUNC) {
+                rcc_error(op->expr->loc,
+                          "AMD64 inline asm memory input requires a complete object type");
+            }
         } else if (!sema_asm_scalar_operand(op->expr->type)) {
             rcc_error(op->expr->loc,
                       "inline asm input expression must have scalar integer or pointer type");
@@ -3064,20 +3173,6 @@ static void sema_asm_stmt(Stmt* stmt) {
                    !sema_is_integer_type(op->expr->type)) {
             rcc_error(op->expr->loc,
                       "inline asm port input must have integer type");
-        } else if (sema_asm_memory_name(op->constraint)) {
-            Decl* declaration = op->expr->kind == EXPR_IDENT
-                ? op->expr->ident_decl : NULL;
-            if (g_opts.target_arch != ARCH_X86 ||
-                !declaration ||
-                (declaration->kind != DECL_PARAM &&
-                 (declaration->kind != DECL_VAR ||
-                  declaration->var_is_global ||
-                  declaration->var_is_static_local ||
-                  declaration->var_is_thread_local)) ||
-                (declaration->type && declaration->type->is_reference)) {
-                rcc_error(op->expr->loc,
-                          "i686 inline asm memory input requires a direct automatic frame variable");
-            }
         }
     }
     for (AsmClobber* clobber = stmt->asm_clobbers; clobber;

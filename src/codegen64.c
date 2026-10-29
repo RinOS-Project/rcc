@@ -12529,6 +12529,7 @@ static int codegen64_asm_operand_register(const AsmOperand* operand)
         case 6: return R10;
         case 8: return R8;
         case 9: return R9;
+        case 11: return R11;
         case -2: return -1;
         default:
             return codegen64_asm_register_for_operand(operand->constraint,
@@ -12550,6 +12551,7 @@ static const char* codegen64_asm_register_name(int reg)
         case R8: return "%r8";
         case R9: return "%r9";
         case R10: return "%r10";
+        case R11: return "%r11";
         default: return NULL;
     }
 }
@@ -12571,6 +12573,7 @@ static const char* codegen64_asm_register_name_width(int reg, char modifier)
             case R8: return "%r8b";
             case R9: return "%r9b";
             case R10: return "%r10b";
+            case R11: return "%r11b";
             default: return NULL;
         }
     }
@@ -12587,6 +12590,7 @@ static const char* codegen64_asm_register_name_width(int reg, char modifier)
             case R8: return "%r8w";
             case R9: return "%r9w";
             case R10: return "%r10w";
+            case R11: return "%r11w";
             default: return NULL;
         }
     }
@@ -12603,10 +12607,78 @@ static const char* codegen64_asm_register_name_width(int reg, char modifier)
             case R8: return "%r8d";
             case R9: return "%r9d";
             case R10: return "%r10d";
+            case R11: return "%r11d";
             default: return NULL;
         }
     }
     return NULL;
+}
+
+static bool codegen64_asm_memory_operand(const AsmOperand* operand) {
+    const char* name = operand
+        ? codegen64_asm_constraint_name(operand->constraint) : NULL;
+    return name && strcmp(name, "m") == 0;
+}
+
+static bool codegen64_asm_memory_frame_offset(const AsmOperand* operand,
+                                              int* offset_out) {
+    Decl* declaration;
+    Expr* expression = operand ? operand->expr : NULL;
+    if (!expression || expression->kind != EXPR_IDENT || !offset_out) {
+        return false;
+    }
+    declaration = expression->ident_decl;
+    if (!declaration ||
+        (declaration->kind != DECL_PARAM &&
+         (declaration->kind != DECL_VAR || declaration->var_is_global ||
+          declaration->var_is_static_local || declaration->var_is_thread_local)) ||
+        (declaration->type && declaration->type->is_reference) ||
+        declaration->var_register_name) {
+        return false;
+    }
+    *offset_out = declaration->var_offset;
+    return true;
+}
+
+static bool codegen64_asm_memory_needs_address_register(
+    const AsmOperand* operand) {
+    int offset;
+    return !codegen64_asm_memory_frame_offset(operand, &offset);
+}
+
+static char* codegen64_asm_memory_text(const AsmOperand* operand,
+                                      SourceLoc loc) {
+    char buffer[48];
+    int offset;
+    int written;
+    int address_register;
+    const char* register_name;
+    char* text;
+    if (codegen64_asm_memory_frame_offset(operand, &offset)) {
+        written = snprintf(buffer, sizeof(buffer), "%d(%%rbp)", offset);
+    } else {
+        address_register = codegen64_asm_operand_register(operand);
+        register_name = codegen64_asm_register_name(address_register);
+        if (!register_name) {
+            rcc_error(loc,
+                      "AMD64 inline asm memory operand has no address register");
+            return NULL;
+        }
+        written = snprintf(buffer, sizeof(buffer), "(%s)", register_name);
+    }
+    if (written < 0 || (size_t)written >= sizeof(buffer)) {
+        rcc_error(loc, "AMD64 inline asm memory operand is too large");
+        return NULL;
+    }
+    text = rcc_alloc((size_t)written + 1u);
+    memcpy(text, buffer, (size_t)written + 1u);
+    return text;
+}
+
+static void codegen64_asm_free_memory_texts(char** texts, int count) {
+    if (!texts) return;
+    for (int index = 0; index < count; ++index) rcc_free(texts[index]);
+    rcc_free(texts);
 }
 
 static bool codegen64_asm_parse_register_width(const char* text, size_t length,
@@ -12984,6 +13056,8 @@ static char* codegen64_asm_expand_template(const char* source,
                                             const int* registers,
                                             const int64_t* immediate_values,
                                             const bool* immediate_flags,
+                                            const char* const* memory_texts,
+                                            const bool* memory_flags,
                                             int operand_count, SourceLoc loc)
 {
     size_t source_length;
@@ -13041,6 +13115,25 @@ static char* codegen64_asm_expand_template(const char* source,
                           "AMD64 inline asm operand placeholder index is out of range");
                 rcc_free(expanded);
                 return NULL;
+            }
+            if (memory_flags && memory_flags[(size_t)index]) {
+                const char* memory_text = memory_texts
+                    ? memory_texts[(size_t)index] : NULL;
+                if (modifier) {
+                    rcc_error(loc,
+                              "inline asm register/immediate modifier requires a non-memory operand");
+                    rcc_free(expanded);
+                    return NULL;
+                }
+                if (!memory_text) {
+                    rcc_error(loc,
+                              "AMD64 inline asm memory operand has no address");
+                    rcc_free(expanded);
+                    return NULL;
+                }
+                while (*memory_text) expanded[write++] = *memory_text++;
+                read = digit;
+                continue;
             }
             if (immediate_flags && immediate_flags[(size_t)index]) {
                 char immediate[32];
@@ -13270,10 +13363,10 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
         codegen64_asm_parse_memory(text + destination_begin,
                                    destination_length, &destination,
                                    &displacement)) {
-        if (source_width != 8 ||
-            (mnemonic_width && mnemonic_width != source_width)) return false;
-        emit_rex(mod, true, source, 0, destination);
-        emit_byte(mod, 0x89);
+        if (mnemonic_width && mnemonic_width != source_width) return false;
+        if (source_width == 2) emit_byte(mod, 0x66);
+        emit_rex(mod, source_width == 8, source, 0, destination);
+        emit_byte(mod, source_width == 1 ? 0x88 : 0x89);
         codegen64_asm_emit_modrm_memory(mod, source, destination,
                                         displacement);
         return true;
@@ -13283,12 +13376,12 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
         codegen64_asm_parse_register_width(text + destination_begin,
                                             destination_length, &destination,
                                             &destination_width)) {
-        if (destination_width != 8 ||
-            (mnemonic_width && mnemonic_width != destination_width)) {
+        if (mnemonic_width && mnemonic_width != destination_width) {
             return false;
         }
-        emit_rex(mod, true, destination, 0, source);
-        emit_byte(mod, 0x8B);
+        if (destination_width == 2) emit_byte(mod, 0x66);
+        emit_rex(mod, destination_width == 8, destination, 0, source);
+        emit_byte(mod, destination_width == 1 ? 0x8A : 0x8B);
         codegen64_asm_emit_modrm_memory(mod, destination, source,
                                         displacement);
         return true;
@@ -13351,6 +13444,73 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
         emit_byte(mod, source_width == 1 ? 0x88 : 0x89);
         emit_byte(mod, modrm64(3, source, destination));
     }
+    return true;
+}
+
+static bool codegen64_asm_emit_addl_immediate(Module* mod, const char* text,
+                                              size_t length) {
+    size_t cursor = 5u;
+    size_t comma;
+    size_t immediate_length;
+    size_t destination_begin;
+    size_t destination_length;
+    uint64_t immediate;
+    int destination;
+    int destination_width;
+    int32_t displacement;
+    bool memory_destination;
+    int opcode;
+    if (length < cursor || memcmp(text, "addl ", cursor) != 0) return false;
+    while (cursor < length && (text[cursor] == ' ' || text[cursor] == '\t')) {
+        ++cursor;
+    }
+    comma = cursor;
+    while (comma < length && text[comma] != ',') ++comma;
+    if (comma == length) return false;
+    immediate_length = comma - cursor;
+    while (immediate_length > 0u &&
+           (text[cursor + immediate_length - 1u] == ' ' ||
+            text[cursor + immediate_length - 1u] == '\t')) {
+        --immediate_length;
+    }
+    destination_begin = comma + 1u;
+    while (destination_begin < length &&
+           (text[destination_begin] == ' ' || text[destination_begin] == '\t')) {
+        ++destination_begin;
+    }
+    destination_length = length - destination_begin;
+    while (destination_length > 0u &&
+           (text[destination_begin + destination_length - 1u] == ' ' ||
+            text[destination_begin + destination_length - 1u] == '\t')) {
+        --destination_length;
+    }
+    if (!codegen64_asm_parse_immediate_width(text + cursor, immediate_length,
+                                              4, &immediate)) return false;
+    memory_destination = codegen64_asm_parse_memory(
+        text + destination_begin, destination_length,
+        &destination, &displacement);
+    if (!memory_destination &&
+        (!codegen64_asm_parse_register_width(text + destination_begin,
+                                              destination_length,
+                                              &destination,
+                                              &destination_width) ||
+         destination_width != 4)) {
+        return false;
+    }
+    if ((int64_t)immediate >= INT8_MIN && (int64_t)immediate <= INT8_MAX) {
+        opcode = 0x83;
+    } else {
+        opcode = 0x81;
+    }
+    emit_rex(mod, false, 0, 0, destination);
+    emit_byte(mod, (uint8_t)opcode);
+    if (memory_destination) {
+        codegen64_asm_emit_modrm_memory(mod, 0, destination, displacement);
+    } else {
+        emit_byte(mod, modrm64(3, 0, destination));
+    }
+    if (opcode == 0x83) emit_byte(mod, (uint8_t)immediate);
+    else emit_dword(mod, (uint32_t)immediate);
     return true;
 }
 
@@ -13772,6 +13932,35 @@ static bool codegen64_asm_emit_io(Module* mod, const char* text,
     return true;
 }
 
+static bool codegen64_asm_emit_memory_group(Module* mod, const char* text,
+                                            size_t length,
+                                            const char* mnemonic,
+                                            uint8_t opcode_first,
+                                            int opcode_second,
+                                            int group_extension) {
+    size_t mnemonic_length = strlen(mnemonic);
+    size_t operand_begin = mnemonic_length;
+    int base;
+    int32_t displacement;
+    while (operand_begin < length &&
+           (text[operand_begin] == ' ' || text[operand_begin] == '\t')) {
+        ++operand_begin;
+    }
+    if (operand_begin == mnemonic_length || operand_begin == length ||
+        strncmp(text, mnemonic, mnemonic_length) != 0 ||
+        !codegen64_asm_parse_memory(text + operand_begin,
+                                    length - operand_begin,
+                                    &base, &displacement)) {
+        return false;
+    }
+    emit_rex(mod, false, 0, 0, base);
+    emit_byte(mod, opcode_first);
+    if (opcode_second >= 0) emit_byte(mod, (uint8_t)opcode_second);
+    codegen64_asm_emit_modrm_memory(mod, group_extension, base,
+                                    displacement);
+    return true;
+}
+
 static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
                                            size_t length, bool lock_prefix)
 {
@@ -13814,6 +14003,22 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
         return true;
     }
     if (repeat_prefix) return false;
+    if (codegen64_asm_emit_memory_group(mod, text, length, "fnstenv",
+                                        0xD9u, -1, 6) ||
+        codegen64_asm_emit_memory_group(mod, text, length, "fldenv",
+                                        0xD9u, -1, 4) ||
+        codegen64_asm_emit_memory_group(mod, text, length, "fnstcw",
+                                        0xD9u, -1, 7) ||
+        codegen64_asm_emit_memory_group(mod, text, length, "fldcw",
+                                        0xD9u, -1, 5) ||
+        codegen64_asm_emit_memory_group(mod, text, length, "fnstsw",
+                                        0xDDu, -1, 7) ||
+        codegen64_asm_emit_memory_group(mod, text, length, "stmxcsr",
+                                        0x0Fu, 0xAE, 3) ||
+        codegen64_asm_emit_memory_group(mod, text, length, "ldmxcsr",
+                                        0x0Fu, 0xAE, 2)) {
+        return true;
+    }
     if (codegen64_asm_emit_io(mod, text, length, "inb", 1, true) ||
         codegen64_asm_emit_io(mod, text, length, "inw", 2, true) ||
         codegen64_asm_emit_io(mod, text, length, "inl", 4, true) ||
@@ -13824,7 +14029,8 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
     }
     if (codegen64_asm_emit_mov(mod, text, length)) return true;
     if (codegen64_asm_emit_lea(mod, text, length)) return true;
-    if (codegen64_asm_emit_alu_immediate(mod, text, length) ||
+    if (codegen64_asm_emit_addl_immediate(mod, text, length) ||
+        codegen64_asm_emit_alu_immediate(mod, text, length) ||
         codegen64_asm_emit_fxsave(mod, text, length) ||
         codegen64_asm_emit_pushq(mod, text, length) ||
         codegen64_asm_emit_call(mod, text, length)) return true;
@@ -13966,13 +14172,19 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     } NumericAsmLabel;
     AsmOperand* operand;
     AsmOperand** inputs;
+    AsmOperand** memory_address_operands;
     int* registers;
     int* template_registers;
     int64_t* immediate_values;
     bool* immediate_flags;
+    bool* memory_flags;
+    char** template_memory_texts;
     int output_count = 0;
     int asm_input_count = 0;
     int input_count = 0;
+    int memory_operand_count = 0;
+    int memory_address_count = 0;
+    int memory_address_index = 0;
     int input_index = 0;
     int template_index = 0;
     int template_count;
@@ -13985,6 +14197,13 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
 
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
         ++output_count;
+        if (codegen64_asm_memory_operand(operand)) {
+            ++memory_operand_count;
+            if (codegen64_asm_memory_needs_address_register(operand)) {
+                ++memory_address_count;
+            }
+            continue;
+        }
         int reg = codegen64_asm_operand_register(operand);
         if (reg < 0) {
             rcc_error(stmt->loc,
@@ -13997,6 +14216,13 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
         ++asm_input_count;
+        if (codegen64_asm_memory_operand(operand)) {
+            ++memory_operand_count;
+            if (codegen64_asm_memory_needs_address_register(operand)) {
+                ++memory_address_count;
+            }
+            continue;
+        }
         int reg = codegen64_asm_operand_register(operand);
         if (reg != -2) ++input_count;
     }
@@ -14005,12 +14231,14 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     registers = input_count > 0
         ? rcc_alloc((size_t)input_count * sizeof(*registers)) : NULL;
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
-        if (operand->constraint[0] == '+') {
+        if (!codegen64_asm_memory_operand(operand) &&
+            operand->constraint[0] == '+') {
             inputs[input_index] = operand;
             registers[input_index++] = codegen64_asm_operand_register(operand);
         }
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
+        if (codegen64_asm_memory_operand(operand)) continue;
         int reg = codegen64_asm_operand_register(operand);
         if (reg < 0 && reg != -2) {
             rcc_error(stmt->loc,
@@ -14025,6 +14253,21 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         registers[input_index++] = reg;
         preserve_rbx = preserve_rbx || reg == RBX;
     }
+    memory_address_operands = memory_address_count > 0
+        ? rcc_alloc((size_t)memory_address_count *
+                    sizeof(*memory_address_operands)) : NULL;
+    for (operand = stmt->asm_outputs; operand; operand = operand->next) {
+        if (codegen64_asm_memory_operand(operand) &&
+            codegen64_asm_memory_needs_address_register(operand)) {
+            memory_address_operands[memory_address_index++] = operand;
+        }
+    }
+    for (operand = stmt->asm_inputs; operand; operand = operand->next) {
+        if (codegen64_asm_memory_operand(operand) &&
+            codegen64_asm_memory_needs_address_register(operand)) {
+            memory_address_operands[memory_address_index++] = operand;
+        }
+    }
     template_count = output_count + asm_input_count;
     template_registers = template_count > 0
         ? rcc_alloc((size_t)template_count * sizeof(*template_registers))
@@ -14035,12 +14278,38 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     immediate_flags = template_count > 0
         ? rcc_alloc((size_t)template_count * sizeof(*immediate_flags))
         : NULL;
+    memory_flags = template_count > 0
+        ? rcc_alloc((size_t)template_count * sizeof(*memory_flags)) : NULL;
+    template_memory_texts = template_count > 0
+        ? rcc_alloc((size_t)template_count * sizeof(*template_memory_texts))
+        : NULL;
+    for (int index = 0; index < template_count; ++index) {
+        memory_flags[index] = false;
+        template_memory_texts[index] = NULL;
+    }
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
         immediate_flags[template_index] = false;
-        template_registers[template_index++] =
-            codegen64_asm_operand_register(operand);
+        if (codegen64_asm_memory_operand(operand)) {
+            memory_flags[template_index] = true;
+            template_memory_texts[template_index] =
+                codegen64_asm_memory_text(operand, stmt->loc);
+            template_registers[template_index] = -1;
+        } else {
+            template_registers[template_index] =
+                codegen64_asm_operand_register(operand);
+        }
+        ++template_index;
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
+        if (codegen64_asm_memory_operand(operand)) {
+            immediate_flags[template_index] = false;
+            memory_flags[template_index] = true;
+            template_memory_texts[template_index] =
+                codegen64_asm_memory_text(operand, stmt->loc);
+            template_registers[template_index] = -1;
+            ++template_index;
+            continue;
+        }
         int reg = codegen64_asm_operand_register(operand);
         immediate_flags[template_index] = reg == -2;
         if (reg == -2 &&
@@ -14051,6 +14320,10 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
             rcc_free(immediate_flags);
             rcc_free(immediate_values);
             rcc_free(template_registers);
+            rcc_free(memory_flags);
+            codegen64_asm_free_memory_texts(template_memory_texts,
+                                             template_count);
+            rcc_free(memory_address_operands);
             rcc_free(inputs);
             rcc_free(registers);
             return;
@@ -14071,11 +14344,16 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         : codegen64_asm_expand_template(
               stmt->asm_template ? stmt->asm_template : "",
               template_registers, immediate_values, immediate_flags,
+              (const char* const*)template_memory_texts, memory_flags,
               template_count, stmt->loc);
     if (!expanded_template) {
         rcc_free(immediate_flags);
         rcc_free(immediate_values);
         rcc_free(template_registers);
+        rcc_free(memory_flags);
+        codegen64_asm_free_memory_texts(template_memory_texts,
+                                         template_count);
+        rcc_free(memory_address_operands);
         rcc_free(inputs);
         rcc_free(registers);
         return;
@@ -14085,6 +14363,15 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     for (int index = 0; index < input_count; ++index) {
         gen64_expr(mod, inputs[index]->expr);
         emit64_push_reg(mod, RAX);
+    }
+    for (int index = 0; index < memory_address_count; ++index) {
+        gen64_lvalue(mod, memory_address_operands[index]->expr);
+        emit64_push_reg(mod, RAX);
+    }
+    for (int index = memory_address_count - 1; index >= 0; --index) {
+        emit64_pop_reg(mod,
+                       codegen64_asm_operand_register(
+                           memory_address_operands[index]));
     }
     for (int index = input_count - 1; index >= 0; --index) {
         emit64_pop_reg(mod, registers[index]);
@@ -14190,6 +14477,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     }
 
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
+        if (codegen64_asm_memory_operand(operand)) continue;
         emit64_push_reg(mod, codegen64_asm_operand_register(operand));
         gen64_lvalue(mod, operand->expr);
         emit64_mov_reg_reg(mod, RCX, RAX);
@@ -14202,6 +14490,9 @@ asm_cleanup:
     rcc_free(immediate_flags);
     rcc_free(immediate_values);
     rcc_free(template_registers);
+    rcc_free(memory_flags);
+    codegen64_asm_free_memory_texts(template_memory_texts, template_count);
+    rcc_free(memory_address_operands);
     rcc_free(inputs);
     rcc_free(registers);
 }

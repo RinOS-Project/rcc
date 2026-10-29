@@ -21,6 +21,10 @@ typedef int (RCC_TEST_TARGET_ABI *binary_function)(int, int);
 typedef int (RCC_TEST_TARGET_ABI *unary_function)(int);
 #if defined(__x86_64__)
 typedef long long (RCC_TEST_TARGET_ABI *unary_i64_function)(long long);
+typedef int (RCC_TEST_TARGET_ABI *memory_input_function)(const int*);
+typedef int (RCC_TEST_TARGET_ABI *memory_output_function)(int*, int);
+typedef int (RCC_TEST_TARGET_ABI *memory_unary_function)(int*);
+typedef int (RCC_TEST_TARGET_ABI *memory_copy_function)(int*, const int*);
 #endif
 #if defined(__i386__)
 typedef int (RCC_TEST_TARGET_ABI *i686_sequence_function)(int*, int);
@@ -90,6 +94,11 @@ int main(int argc, char** argv)
     unary_i64_function immediate64;
     unary_i64_function gnu_register_r9;
     unary_i64_function gnu_register_r10;
+    memory_input_function memory_input_x64;
+    memory_output_function memory_output_x64;
+    memory_unary_function memory_read_write_x64;
+    unary_function memory_direct_output_x64;
+    memory_copy_function memory_copy_x64;
 #endif
     unary_function immediate8;
     unary_function immediate16;
@@ -176,6 +185,13 @@ int main(int argc, char** argv)
                   "asm_gnu_register_variable_r9");
     LOAD_FUNCTION(gnu_register_r10, object, mapping,
                   "asm_gnu_register_variable_r10");
+    LOAD_FUNCTION(memory_input_x64, object, mapping, "asm_x64_memory_input");
+    LOAD_FUNCTION(memory_output_x64, object, mapping, "asm_x64_memory_output");
+    LOAD_FUNCTION(memory_read_write_x64, object, mapping,
+                  "asm_x64_memory_read_write");
+    LOAD_FUNCTION(memory_direct_output_x64, object, mapping,
+                  "asm_x64_memory_direct_output");
+    LOAD_FUNCTION(memory_copy_x64, object, mapping, "asm_x64_memory_copy");
 #endif
     assert(roundtrip(37, 91) == 37);
     assert(basic_percent_register(43) == 43);
@@ -213,6 +229,19 @@ int main(int argc, char** argv)
            0x1122334455667788ULL);
     assert(gnu_register_r9(43) == 43);
     assert(gnu_register_r10(59) == 59);
+    {
+        int source = 149;
+        int destination = 0;
+        int copied = 211;
+        assert(memory_input_x64(&source) == source);
+        assert(memory_output_x64(&destination, 163) == 163 &&
+               destination == 163);
+        assert(memory_read_write_x64(&destination) == 164 &&
+               destination == 164);
+        assert(memory_direct_output_x64(179) == 179);
+        assert(memory_copy_x64(&destination, &copied) == copied &&
+               destination == copied);
+    }
 #endif
     LOAD_FUNCTION(read_write, object, mapping, "asm_callee_saved_clobber");
     assert(read_write(71) == 71);
