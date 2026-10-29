@@ -11954,3 +11954,15 @@ remains a separate open item.
   generation, and AMD64 execution; the adjacent partial-order ambiguity,
   unequal-pack, and constraint-diagnostic gates also pass. The full `test-cxx`
   suite passes on this Windows host.
+
+## RCC continuation (2026-10-29, member initializer scalar calls)
+
+- [x] Defer direct member-constructor selection when a member initializer
+      contains a bounded scalar function call whose declaration is not yet
+      bound. Semantic analysis resolves the call and constructor, allowing
+      potentially throwing calls to run while completed-base cleanup remains
+      registered. `test-verified-cxx-throwing-temporary` passes with 58
+      verified functions and zero fallback for i686/AMD64 at `-O0`/`-O2`;
+      generated-object and legacy-host execution pass. The GCC C++20 oracle
+      confirms ordinary and reference-bound initialization both unwind in
+      order and return `6721` when the helper throws.

@@ -7758,6 +7758,46 @@ static bool cxx_constructor_expression_is_lowerable(
     CxxConstructorInfo* constructor, Expr* expression, Type* target_type,
     bool* parameter_used, unsigned parameter_count);
 
+/* Member constructor arguments are parsed before ordinary function calls
+ * have complete types. Defer constructor selection for direct calls whose
+ * arguments are already known to be bounded parameter expressions; semantic
+ * analysis resolves the call and the destination constructor later. */
+static bool cxx_constructor_member_arguments_need_sema(
+    CxxConstructorInfo* constructor, ExprList* arguments) {
+    bool has_unresolved_call = false;
+    if (!constructor || !arguments) return false;
+    for (ExprList* argument = arguments; argument;
+         argument = argument->next) {
+        Expr* expression = argument->expr;
+        if (!expression || argument->cxx_temporary_owner ||
+            argument->cxx_temporary_cleanups ||
+            argument->designator_kind != INIT_DESIGNATOR_NONE) {
+            return false;
+        }
+        if (expression->kind == EXPR_CALL &&
+            !expression->call_is_new && !expression->call_is_delete &&
+            expression->call_func &&
+            expression->call_func->kind == EXPR_IDENT &&
+            expression->call_func->ident_name &&
+            (!expression->call_func->ident_decl || !expression->type)) {
+            has_unresolved_call = true;
+            for (ExprList* call_argument = expression->call_args;
+                 call_argument; call_argument = call_argument->next) {
+                if (call_argument->cxx_temporary_owner ||
+                    call_argument->cxx_temporary_cleanups ||
+                    !cxx_constructor_expression_is_lowerable(
+                        constructor, call_argument->expr, NULL, NULL, 0u)) {
+                    return false;
+                }
+            }
+        } else if (!cxx_constructor_expression_is_lowerable(
+                       constructor, expression, NULL, NULL, 0u)) {
+            return false;
+        }
+    }
+    return has_unresolved_call;
+}
+
 /* Resolve the bounded direct-member form used by typed SSA: one unique,
  * accessible constructor with exact arity and scalar-convertible arguments.
  * Ambiguous or richer overload resolution remains with the general backend. */
@@ -8609,7 +8649,9 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                        !ast_cxx_is_aggregate(field->type)) {
                 item->constructor = cxx_find_typed_member_constructor(
                     constructor, field->type->cxx_class, item->arguments);
-                if (!item->constructor) {
+                if (!item->constructor &&
+                    !cxx_constructor_member_arguments_need_sema(
+                        constructor, item->arguments)) {
                     valid = false;
                     break;
                 }

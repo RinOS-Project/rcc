@@ -233,6 +233,13 @@ int main(void) {
                 result);
         return 33;
     }
+    result = verified_cxx_single_throwing_base_constructor(11);
+    if (result != 6721) {
+        fprintf(stderr,
+                "throwing member initializer argument did not unwind both completed bases: %d, expected 6721\n",
+                result);
+        return 35;
+    }
     result = verified_cxx_reference_bound_throwing_base_constructor(1);
     if (result != 6201) {
         fprintf(stderr,
@@ -267,6 +274,13 @@ int main(void) {
                 "reference-bound throwing base argument did not unwind the completed first base: %d, expected 6701\n",
                 result);
         return 34;
+    }
+    result = verified_cxx_reference_bound_throwing_base_constructor(11);
+    if (result != 6721) {
+        fprintf(stderr,
+                "reference-bound throwing member initializer argument did not unwind both completed bases: %d, expected 6721\n",
+                result);
+        return 36;
     }
     cleanup_order = 0;
     result = verified_cxx_reference_bound_partial_aggregate_cleanup(

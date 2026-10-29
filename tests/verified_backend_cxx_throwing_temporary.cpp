@@ -280,6 +280,11 @@ static int verified_throwing_base_initializer_value(int value) {
     return value;
 }
 
+static int verified_throwing_member_initializer_value(int value) {
+    if (verified_multiple_base_member_initializer_mode == 11) throw 67;
+    return value;
+}
+
 static int verified_multiple_base_member_initializer_value() {
     if (verified_multiple_base_member_initializer_mode == 7) throw 67;
     return 13;
@@ -316,7 +321,8 @@ struct VerifiedMultipleThrowingBaseDerived :
           VerifiedSecondPotentiallyThrowingBase(
               cleanup_order,
               verified_throwing_base_initializer_value(second)),
-          member(cleanup_order, member_initial),
+          member(cleanup_order,
+                 verified_throwing_member_initializer_value(member_initial)),
           tail(7) {
         switch (body_mode) {
         case 0:

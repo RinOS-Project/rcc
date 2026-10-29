@@ -5021,6 +5021,7 @@ static void verify_cxx_throwing_temporary_object(
         assert(integer_argument(8) == 7121);
         assert(integer_argument(9) == 6821);
         assert(integer_argument(10) == 6701);
+        assert(integer_argument(11) == 6721);
         address = symbol_address(
             memory, reference_bound_throwing_base_constructor_symbol);
         memcpy(&integer_argument, &address, sizeof(integer_argument));
@@ -5029,6 +5030,7 @@ static void verify_cxx_throwing_temporary_object(
         assert(integer_argument(2) == 6821);
         assert(integer_argument(0) == 90321);
         assert(integer_argument(10) == 6701);
+        assert(integer_argument(11) == 6721);
         address = symbol_address(memory, throwing_cleanup_callback_symbol);
         memcpy(&cleanup_order_argument, &address,
                sizeof(cleanup_order_argument));
