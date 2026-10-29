@@ -34746,13 +34746,36 @@ static bool cxx_member_template_argument_after_open_starts_value(void) {
     return result;
 }
 
+static bool cxx_grow_parsed_template_arguments(
+    CxxParsedTemplateArgument** arguments, int* capacity, SourceLoc loc) {
+    int new_capacity;
+    if (!arguments || !capacity) return false;
+    if (*capacity > INT_MAX / 2) {
+        rcc_error(loc, "too many explicit member-template arguments");
+        return false;
+    }
+    new_capacity = *capacity ? *capacity * 2 : 8;
+    if ((size_t)new_capacity > SIZE_MAX / sizeof(**arguments)) {
+        rcc_error(loc, "too many explicit member-template arguments");
+        return false;
+    }
+    *arguments = ast_arena_grow(
+        *arguments, sizeof(**arguments) * (size_t)*capacity,
+        sizeof(**arguments) * (size_t)new_capacity);
+    memset(*arguments + *capacity, 0,
+           sizeof(**arguments) * (size_t)(new_capacity - *capacity));
+    *capacity = new_capacity;
+    return true;
+}
+
 bool rcc_parse_cxx_member_template_arguments(Expr* member) {
     Type* owner_type = cxx_member_template_object_type(member);
     CxxClass* cls = owner_type ? owner_type->cxx_class : NULL;
     CxxTemplate* member_template = cxx_find_member_function_template(
         cls, member ? member->member_name : NULL);
-    CxxParsedTemplateArgument parsed[32] = { 0 };
+    CxxParsedTemplateArgument* parsed = NULL;
     int argument_count = 0;
+    int argument_capacity = 0;
     if (!member || !check(TOK_LT) ||
         !cxx_member_template_call_angle_follows() ||
         (!member_template &&
@@ -34767,10 +34790,9 @@ bool rcc_parse_cxx_member_template_arguments(Expr* member) {
     if (!check(TOK_GT) && !check(TOK_RSHIFT)) {
         do {
             CxxParsedTemplateArgument* argument;
-            if (argument_count >=
-                (int)(sizeof(parsed) / sizeof(parsed[0]))) {
-                rcc_error(peek()->loc,
-                          "member template argument limit exceeded");
+            if (argument_count == argument_capacity &&
+                !cxx_grow_parsed_template_arguments(
+                    &parsed, &argument_capacity, peek()->loc)) {
                 while (!check(TOK_GT) && !check(TOK_RSHIFT) && !at_end()) {
                     advance();
                 }
@@ -40656,11 +40678,13 @@ static bool cxx_parse_explicit_member_function_template_specialization(
     CxxTemplate* owner_template = NULL;
     Type* owner_type = NULL;
     int nested_owner_template_count = 0;
-    CxxMethod* source_methods[32] = { NULL };
+    CxxMethod** source_methods = NULL;
     CxxTemplate* first_template = NULL;
     int source_count = 0;
-    CxxParsedTemplateArgument explicit_arguments[32] = { 0 };
+    int source_capacity = 0;
+    CxxParsedTemplateArgument* explicit_arguments = NULL;
     int explicit_argument_count = 0;
+    int explicit_argument_capacity = 0;
     int pack_parameter_index = -1;
     DeclList* parameters;
     ExprList* signature_arguments = NULL;
@@ -40850,12 +40874,19 @@ static bool cxx_parse_explicit_member_function_template_specialization(
             strcmp(method->source_name, member_name) != 0) {
             continue;
         }
-        if (source_count == (int)(sizeof(source_methods) /
-                                  sizeof(source_methods[0]))) {
-            rcc_error(loc,
-                      "too many member function-template overloads for '%s'",
-                      member_name);
-            break;
+        ++source_capacity;
+    }
+    if (source_capacity > 0) {
+        source_methods = ast_arena_alloc(
+            sizeof(*source_methods) * (size_t)source_capacity);
+    }
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        if (!method || !method->member_template || !method->decl ||
+            !method->source_name ||
+            strcmp(method->source_name, member_name) != 0) {
+            continue;
         }
         source_methods[source_count++] = method;
         if (!first_template) first_template = method->member_template;
@@ -40878,11 +40909,10 @@ static bool cxx_parse_explicit_member_function_template_specialization(
                     ? pack_parameter_index : explicit_argument_count;
                 TemplateParam* parameter;
                 CxxParsedTemplateArgument* argument;
-                if (explicit_argument_count >=
-                    (int)(sizeof(explicit_arguments) /
-                          sizeof(explicit_arguments[0]))) {
-                    rcc_error(
-                        loc, "explicit member-template argument limit exceeded");
+                if (explicit_argument_count == explicit_argument_capacity &&
+                    !cxx_grow_parsed_template_arguments(
+                        &explicit_arguments, &explicit_argument_capacity,
+                        loc)) {
                     while (!check(TOK_GT) && !check(TOK_RSHIFT) &&
                            !at_end()) {
                         advance();
