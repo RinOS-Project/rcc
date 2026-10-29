@@ -7762,8 +7762,50 @@ static bool cxx_constructor_member_call_argument_is_bounded(
     CxxConstructorInfo* constructor, Expr* expression) {
     if (!expression) return false;
     if (expression->kind != EXPR_CALL) {
-        return cxx_constructor_expression_is_lowerable(
-            constructor, expression, NULL, NULL, 0u);
+        switch (expression->kind) {
+            case EXPR_POS:
+            case EXPR_NEG:
+            case EXPR_NOT:
+            case EXPR_BITNOT:
+                return cxx_constructor_member_call_argument_is_bounded(
+                    constructor, expression->unary_operand);
+            case EXPR_ADD:
+            case EXPR_SUB:
+            case EXPR_MUL:
+            case EXPR_DIV:
+            case EXPR_MOD:
+            case EXPR_BITAND:
+            case EXPR_BITOR:
+            case EXPR_BITXOR:
+            case EXPR_LSHIFT:
+            case EXPR_RSHIFT:
+            case EXPR_EQ:
+            case EXPR_NE:
+            case EXPR_LT:
+            case EXPR_GT:
+            case EXPR_LE:
+            case EXPR_GE:
+            case EXPR_AND:
+            case EXPR_OR:
+                return cxx_constructor_member_call_argument_is_bounded(
+                           constructor, expression->binary_lhs) &&
+                    cxx_constructor_member_call_argument_is_bounded(
+                        constructor, expression->binary_rhs);
+            case EXPR_COND:
+                return cxx_constructor_member_call_argument_is_bounded(
+                           constructor, expression->cond_test) &&
+                    cxx_constructor_member_call_argument_is_bounded(
+                        constructor, expression->cond_then) &&
+                    cxx_constructor_member_call_argument_is_bounded(
+                        constructor, expression->cond_else);
+            case EXPR_CAST:
+                return cxx_constructor_scalar_type(expression->cast_type) &&
+                    cxx_constructor_member_call_argument_is_bounded(
+                        constructor, expression->cast_expr);
+            default:
+                return cxx_constructor_expression_is_lowerable(
+                    constructor, expression, NULL, NULL, 0u);
+        }
     }
     if (expression->call_is_new || expression->call_is_delete ||
         (expression->type &&
@@ -7796,9 +7838,9 @@ static bool cxx_constructor_member_call_argument_is_bounded(
 
 /* Member constructor arguments are parsed before ordinary function calls
  * have complete types. Defer constructor selection for direct scalar calls
- * with bounded arguments, including nested direct calls; semantic analysis
- * resolves the call and destination constructor later. The typed lowerer
- * separately requires nested calls to be non-throwing. */
+ * with bounded argument expressions, including nested direct calls; semantic
+ * analysis resolves the call and destination constructor later. The typed
+ * lowerer separately requires nested calls to be non-throwing. */
 static bool cxx_constructor_member_arguments_need_sema(
     CxxConstructorInfo* constructor, ExprList* arguments) {
     bool has_unresolved_call = false;

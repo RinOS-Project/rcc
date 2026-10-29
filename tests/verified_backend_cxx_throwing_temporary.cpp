@@ -283,7 +283,7 @@ static int verified_throwing_base_initializer_value(int value) {
 static int verified_noexcept_member_initializer_argument_value(
     int value) noexcept {
     return verified_multiple_base_member_initializer_mode == 12
-        ? value + 100 : value;
+        ? value + 99 : value - 1;
 }
 
 static int verified_throwing_member_initializer_value(int value) {
@@ -337,7 +337,7 @@ struct VerifiedMultipleThrowingBaseDerived :
           member(cleanup_order,
                  verified_throwing_member_initializer_value(
                      verified_noexcept_member_initializer_argument_value(
-                         member_initial))),
+                         member_initial) + 1)),
           tail(7) {
         switch (body_mode) {
         case 0:
