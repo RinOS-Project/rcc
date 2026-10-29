@@ -22,6 +22,12 @@ extern Type* rcc_parser_cxx_dependent_integer_expression_type(
     const Expr*) __attribute__((weak));
 extern bool rcc_parser_cxx_resolve_dependent_function_template_call(
     Expr*) __attribute__((weak));
+#elif defined(RCC_BOOTSTRAP)
+/* The bootstrap gate compiles and links the complete C++ frontend, while
+ * RinCompiler intentionally does not define GCC's weak-symbol feature macro
+ * for RinOS targets. Keep this integration strong in that full build. */
+extern bool rcc_parser_cxx_resolve_dependent_function_template_call(
+    Expr*);
 #endif
 
 /* The C compiler intentionally omits the C++ AST object.  Keep the namespace
@@ -3914,6 +3920,37 @@ static bool sema_pointee_qualification_preserved(const Type* source,
         source, target, false, false);
 }
 
+/* C treats an array object's qualification as the qualification of its
+ * element type for pointer conversions. A void pointer has no matching type
+ * shape to recurse through, so compare the effective object qualifiers while
+ * following array layers only. Do not follow a pointer element: qualifiers
+ * on the object pointed to by an array element do not qualify the array. */
+static bool sema_void_pointer_qualification_preserved(
+    const Type* source, const Type* target) {
+    bool source_const = false;
+    bool source_volatile = false;
+    bool target_const = false;
+    bool target_volatile = false;
+    if (!source || !target) return false;
+    while (source && source->kind == TYPE_ARRAY) {
+        source_const = source_const || source->is_const;
+        source_volatile = source_volatile || source->is_volatile;
+        source = source->base;
+    }
+    while (target && target->kind == TYPE_ARRAY) {
+        target_const = target_const || target->is_const;
+        target_volatile = target_volatile || target->is_volatile;
+        target = target->base;
+    }
+    if (!source || !target) return false;
+    source_const = source_const || source->is_const;
+    source_volatile = source_volatile || source->is_volatile;
+    target_const = target_const || target->is_const;
+    target_volatile = target_volatile || target->is_volatile;
+    return (!source_const || target_const) &&
+           (!source_volatile || target_volatile);
+}
+
 static bool sema_is_null_pointer_constant(const Expr* expression) {
     int64_t value;
     if (!expression || expression->cxx_member_pointer_form ||
@@ -4499,13 +4536,17 @@ reference_binding_validated:
             target->base->kind != TYPE_VOID) {
             return NULL;
         }
+        if ((e->type->base && e->type->base->kind == TYPE_VOID) ||
+            (target->base && target->base->kind == TYPE_VOID)) {
+            if (!sema_void_pointer_qualification_preserved(
+                    e->type->base, target->base)) {
+                return NULL;
+            }
+            return target;
+        }
         if (!sema_pointee_qualification_preserved(
                 e->type->base, target->base)) {
             return NULL;
-        }
-        if ((e->type->base && e->type->base->kind == TYPE_VOID) ||
-            (target->base && target->base->kind == TYPE_VOID)) {
-            return target;
         }
         if (type_is_compatible(e->type->base, target->base)) {
             return target;
@@ -23776,6 +23817,7 @@ static Type* sema_resolve_typeof_type_recursive(
     for (const SemaTypeofVisit* item = visited; item; item = item->parent) {
         if (item->type == type) return type;
     }
+    if (type->c_typeof_resolution_cached) return type;
     current.type = type;
     current.parent = visited;
 
@@ -23817,6 +23859,7 @@ static Type* sema_resolve_typeof_type_recursive(
         *type = *inferred;
         type->c_typeof_runtime_expression = runtime_expression;
         type->c_typeof_operand_type = operand_type;
+        type->c_typeof_resolution_cached = true;
         return type;
     }
 
@@ -23847,6 +23890,7 @@ static Type* sema_resolve_typeof_type_recursive(
         default:
             break;
     }
+    type->c_typeof_resolution_cached = true;
     return type;
 }
 

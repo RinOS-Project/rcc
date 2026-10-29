@@ -5421,6 +5421,7 @@ static Type* parse_type_spec(void) {
             Type* deferred = ast_arena_alloc(sizeof(*deferred));
             *deferred = *type_int;
             deferred->c_typeof_expression = expression_operand;
+            deferred->c_typeof_resolution_cached = false;
             deferred->c_typeof_unqual_expression =
                 typeof_operator == TOK_TYPEOF_UNQUAL;
             expect(TOK_RPAREN, "')' after typeof expression");

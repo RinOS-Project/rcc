@@ -8,7 +8,7 @@ BOOTSTRAP="$ROOT/build/bootstrap"
 WIN_ROOT=$(wslpath -m "$ROOT")
 WIN_BOOTSTRAP="$WIN_ROOT/build/bootstrap"
 cd -- "$ROOT"
-INCLUDES=(-nostdinc -Ibootstrap/include -Iinclude -I../../RinOS-SDK/include)
+INCLUDES=(-nostdinc -DRCC_BOOTSTRAP -Ibootstrap/include -Iinclude -I../../RinOS-SDK/include)
 
 CORE_SOURCES=(
     src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c

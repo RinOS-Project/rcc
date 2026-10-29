@@ -441,7 +441,7 @@ define AGGREGATE_X86_ABI_TEST
 endef
 endif
 
-BOOTSTRAP_INCLUDES = -nostdinc -Ibootstrap/include -Iinclude -I$(RINOS_SDK_ROOT)/include
+BOOTSTRAP_INCLUDES = -nostdinc -DRCC_BOOTSTRAP -Ibootstrap/include -Iinclude -I$(RINOS_SDK_ROOT)/include
 BOOTSTRAP_CORE_SRCS = src/ast.c src/symtab.c src/lexer.c src/sema.c src/parser.c \
                       src/ir.c src/ir_pass.c src/mir.c src/mir_alloc.c \
                       src/mir_phi.c src/x86_abi.c src/x86_select.c \

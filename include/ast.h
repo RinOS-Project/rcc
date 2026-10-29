@@ -261,6 +261,9 @@ struct Type {
     /* C23 typeof expression operands are parsed before their value types are
      * known and resolved by semantic analysis. */
     Expr* c_typeof_expression;
+    /* The recursive C typeof resolver visits shared type graphs from many
+     * declarations. Keep completed nodes memoized to avoid rescanning them. */
+    bool c_typeof_resolution_cached;
     bool c_typeof_unqual_expression;
     /* A typeof expression whose resulting type is variably modified is
      * evaluated at runtime at the declaration/sizeof use site. */
