@@ -407,6 +407,7 @@ struct CxxTemplate {
 
     /* Explicit class-template specializations owned by this primary. */
     CxxTemplate* primary_template;
+    bool is_variable_template_specialization;
     CxxTemplate** specializations;
     int specialization_count;
     Type** specialization_args;
@@ -457,6 +458,13 @@ struct CxxTemplate {
      * substitution expand each pack from its own slice. */
     int* pending_pack_offsets;
     int* pending_pack_counts;
+    /* A specialization's emitted symbol is identified by the primary
+     * variable-template-id. The parser supplies those concrete arguments
+     * transiently while cloning a selected specialization. */
+    CxxTemplate* pending_variable_template_primary;
+    Type** pending_variable_template_args;
+    int64_t* pending_variable_template_values;
+    bool* pending_variable_template_value_present;
     /* Candidate matching substitutes signatures before overload selection;
      * member-function bodies are cloned only for the selected candidate. */
     bool defer_function_body_clone;
@@ -538,6 +546,11 @@ Type* rcc_parser_cxx_instantiate_dependent_class_template(
 /* Name mangling */
 char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls);
 char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls);
+char* cxx_mangle_variable_template_specialization(
+    Decl* variable, CxxNamespace* ns, CxxTemplate* primary, Type** type_args,
+    const int64_t* value_args, const bool* value_present, int pack_index,
+    Type** pack_args, const int64_t* pack_values,
+    const bool* pack_value_present, int pack_count);
 char* cxx_mangle_type(Type* type);
 
 /* Class operations (core API) */

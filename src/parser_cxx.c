@@ -5701,6 +5701,279 @@ static void add_cxx_declaration(AST* ast, Stmt* statement,
                                 bool c_language_linkage,
                                 CxxNamespace* ns);
 
+static CxxTemplate* find_variable_template(const char* qualified_name);
+static Type* parse_cxx_concept_template_argument(
+    const TemplateParam* parameter);
+
+/* A variable-template specialization has a template-id in its declarator,
+ * before the initializer boundary.  Keep this lookahead structural so a
+ * template-id inside the declared type is not mistaken for the variable. */
+static bool cxx_variable_template_specialization_starts(void) {
+    Token* candidate;
+    for (candidate = parser.cur; candidate; candidate = candidate->next) {
+        Token* token;
+        int angle_depth = 0;
+        if (candidate->type != TOK_IDENT || !candidate->next ||
+            candidate->next->type != TOK_LT) {
+            if (candidate->type == TOK_ASSIGN ||
+                candidate->type == TOK_SEMICOLON) {
+                return false;
+            }
+            continue;
+        }
+        for (token = candidate->next; token; token = token->next) {
+            if (token->type == TOK_LT) {
+                ++angle_depth;
+            } else if (token->type == TOK_GT) {
+                if (--angle_depth == 0) {
+                    token = token->next;
+                    if (token && (token->type == TOK_ASSIGN ||
+                                  token->type == TOK_LBRACE)) {
+                        return true;
+                    }
+                    break;
+                }
+            } else if (token->type == TOK_RSHIFT) {
+                angle_depth -= 2;
+                if (angle_depth <= 0) {
+                    token = token->next;
+                    if (token && (token->type == TOK_ASSIGN ||
+                                  token->type == TOK_LBRACE)) {
+                        return true;
+                    }
+                    break;
+                }
+            } else if (token->type == TOK_SEMICOLON) {
+                break;
+            }
+        }
+    }
+    return false;
+}
+
+static bool cxx_parse_variable_template_specialization(CxxTemplate* tmpl,
+                                                        SourceLoc loc) {
+    bool is_inline = false;
+    bool is_constexpr = false;
+    bool is_constinit = false;
+    bool is_thread_local = false;
+    Type* variable_type;
+    const char* variable_name = NULL;
+    CxxTemplate* primary;
+    Type** arguments = NULL;
+    Expr** value_arguments = NULL;
+    int argument_count = 0;
+    int argument_capacity = 0;
+    int pack_index = -1;
+
+    if (!rcc_parser_cxx_standard_at_least(14)) {
+        rcc_error(loc, "variable templates require C++14 or newer");
+    }
+    while (match(TOK_INLINE) || match(TOK_CONSTEXPR) ||
+           match(TOK_CONSTINIT) || match(TOK_THREAD_LOCAL)) {
+        switch (previous()->type) {
+            case TOK_INLINE: is_inline = true; break;
+            case TOK_CONSTEXPR: is_constexpr = true; break;
+            case TOK_CONSTINIT: is_constinit = true; break;
+            case TOK_THREAD_LOCAL: is_thread_local = true; break;
+            default: break;
+        }
+    }
+    variable_type = parse_cxx_type_spec();
+    variable_type = rcc_parser_parse_cxx_declarator(
+        variable_type, &variable_name, NULL);
+    if (!variable_name || !match(TOK_LT)) {
+        rcc_error(loc,
+                  "variable-template specialization requires a variable template-id");
+        return false;
+    }
+    primary = find_variable_template(variable_name);
+    if (!primary) {
+        rcc_error(loc,
+                  "variable-template specialization has no matching primary template");
+    }
+    if (primary) {
+        for (int index = 0; index < primary->param_count; ++index) {
+            if (primary->params[index].is_pack) {
+                if (pack_index >= 0 || index != primary->param_count - 1) {
+                    rcc_error(loc,
+                              "variable-template packs in specializations must be trailing");
+                }
+                pack_index = index;
+            }
+        }
+    }
+    if (!check(TOK_GT)) {
+        do {
+            int parameter_index = argument_count;
+            TemplateParam* parameter;
+            if (!primary) {
+                rcc_error(peek()->loc,
+                          "variable-template specialization has no primary template");
+                while (!check(TOK_GT) && !at_end()) advance();
+                break;
+            }
+            if (argument_count == argument_capacity) {
+                int new_capacity = argument_capacity == 0
+                    ? 4 : argument_capacity * 2;
+                if (new_capacity < argument_capacity ||
+                    new_capacity > INT_MAX / 2) {
+                    rcc_error(loc,
+                              "variable-template specialization has too many arguments");
+                    while (!check(TOK_GT) && !at_end()) advance();
+                    break;
+                }
+                arguments = ast_arena_grow(
+                    arguments, sizeof(*arguments) *
+                                   (size_t)argument_capacity,
+                    sizeof(*arguments) * (size_t)new_capacity);
+                value_arguments = ast_arena_grow(
+                    value_arguments, sizeof(*value_arguments) *
+                                         (size_t)argument_capacity,
+                    sizeof(*value_arguments) * (size_t)new_capacity);
+                memset(arguments + argument_capacity, 0,
+                       sizeof(*arguments) *
+                           (size_t)(new_capacity - argument_capacity));
+                memset(value_arguments + argument_capacity, 0,
+                       sizeof(*value_arguments) *
+                           (size_t)(new_capacity - argument_capacity));
+                argument_capacity = new_capacity;
+            }
+            if (pack_index >= 0 && parameter_index >= pack_index) {
+                parameter_index = pack_index;
+            }
+            if (parameter_index >= primary->param_count) {
+                rcc_error(peek()->loc,
+                          "too many variable-template specialization arguments");
+                while (!check(TOK_COMMA) && !check(TOK_GT) && !at_end()) {
+                    advance();
+                }
+                if (!match(TOK_COMMA)) break;
+                continue;
+            }
+            parameter = &primary->params[parameter_index];
+            if (parameter->kind == TPARAM_TYPE) {
+                arguments[argument_count] = parse_cxx_template_type_argument();
+            } else if (parameter->kind == TPARAM_TEMPLATE) {
+                arguments[argument_count] =
+                    parse_cxx_concept_template_argument(parameter);
+            } else {
+                rcc_parser_set_cxx_template_default_mode(true);
+                value_arguments[argument_count] = parse_assignment_expression();
+                rcc_parser_set_cxx_template_default_mode(false);
+            }
+            ++argument_count;
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_GT, "> after variable-template specialization arguments");
+    if (primary && (pack_index >= 0
+                        ? argument_count < pack_index
+                        : argument_count != primary->param_count)) {
+        rcc_error(loc,
+                  "variable-template specialization has the wrong number of arguments");
+    }
+    if (!match(TOK_ASSIGN) && !check(TOK_LBRACE)) {
+        rcc_error(peek()->loc,
+                  "variable-template specialization requires an initializer");
+    }
+    Expr* initializer = rcc_parser_parse_initializer();
+    expect(TOK_SEMICOLON, "; after variable-template specialization");
+
+    tmpl->kind = TMPL_VARIABLE;
+    tmpl->is_variable_template_specialization = true;
+    tmpl->name = ast_arena_strdup(variable_name);
+    tmpl->ns = active_namespace ? active_namespace : g_global_namespace;
+    tmpl->var_def = decl_var(rcc_intern(variable_name), variable_type,
+                             initializer, loc);
+    tmpl->var_def->var_is_inline = is_inline;
+    tmpl->var_def->var_is_constexpr = is_constexpr;
+    tmpl->var_def->var_is_constinit = is_constinit;
+    tmpl->var_def->var_is_thread_local = is_thread_local;
+    tmpl->primary_template = primary;
+    tmpl->specialization_arg_count = argument_count;
+    if (argument_count > 0) {
+        tmpl->specialization_args = ast_arena_alloc(
+            sizeof(*tmpl->specialization_args) * (size_t)argument_count);
+        tmpl->specialization_value_args = ast_arena_alloc(
+            sizeof(*tmpl->specialization_value_args) * (size_t)argument_count);
+        memcpy(tmpl->specialization_args, arguments,
+               sizeof(*tmpl->specialization_args) * (size_t)argument_count);
+        memcpy(tmpl->specialization_value_args, value_arguments,
+               sizeof(*tmpl->specialization_value_args) *
+                   (size_t)argument_count);
+    }
+    if (primary && tmpl->param_count == 0) {
+        size_t abi_argument_slots = (size_t)(primary->param_count > 0
+                                                 ? primary->param_count : 1);
+        Type** abi_arguments = ast_arena_alloc(
+            sizeof(*abi_arguments) * abi_argument_slots);
+        int64_t* abi_values = ast_arena_alloc(
+            sizeof(*abi_values) * abi_argument_slots);
+        bool* abi_value_present = ast_arena_alloc(
+            sizeof(*abi_value_present) * abi_argument_slots);
+        Type** abi_pack_arguments = NULL;
+        int64_t* abi_pack_values = NULL;
+        bool* abi_pack_value_present = NULL;
+        int abi_pack_count = pack_index >= 0
+            ? argument_count - pack_index : 0;
+        memset(abi_arguments, 0, sizeof(*abi_arguments) * abi_argument_slots);
+        memset(abi_values, 0, sizeof(*abi_values) * abi_argument_slots);
+        memset(abi_value_present, 0,
+               sizeof(*abi_value_present) * abi_argument_slots);
+        for (int index = 0; index < argument_count; ++index) {
+            int parameter_index = pack_index >= 0 && index >= pack_index
+                ? pack_index : index;
+            TemplateParam* parameter = &primary->params[parameter_index];
+            if (pack_index >= 0 && index >= pack_index) {
+                int pack_argument_index = index - pack_index;
+                if (parameter->kind == TPARAM_NONTYPE) {
+                    abi_pack_values = abi_pack_values
+                        ? abi_pack_values
+                        : ast_arena_alloc(sizeof(*abi_pack_values) *
+                                          (size_t)abi_pack_count);
+                    abi_pack_value_present = abi_pack_value_present
+                        ? abi_pack_value_present
+                        : ast_arena_alloc(sizeof(*abi_pack_value_present) *
+                                          (size_t)abi_pack_count);
+                    abi_pack_value_present[pack_argument_index] =
+                        value_arguments[index] && expr_eval_integer_constant(
+                            value_arguments[index],
+                            &abi_pack_values[pack_argument_index]);
+                } else {
+                    if (!abi_pack_arguments) {
+                        abi_pack_arguments = ast_arena_alloc(
+                            sizeof(*abi_pack_arguments) *
+                            (size_t)abi_pack_count);
+                    }
+                    abi_pack_arguments[pack_argument_index] = arguments[index];
+                }
+            } else if (parameter->kind == TPARAM_NONTYPE) {
+                abi_value_present[index] = value_arguments[index] &&
+                    expr_eval_integer_constant(value_arguments[index],
+                                               &abi_values[index]);
+            } else {
+                abi_arguments[index] = arguments[index];
+            }
+        }
+        tmpl->var_def->link_name = rcc_intern(
+            cxx_mangle_variable_template_specialization(
+                tmpl->var_def, tmpl->ns, primary, abi_arguments, abi_values,
+                abi_value_present, pack_index, abi_pack_arguments,
+                abi_pack_values, abi_pack_value_present, abi_pack_count));
+        if (active_ast) ast_add_decl(active_ast, tmpl->var_def);
+    }
+    if (primary) {
+        primary->specializations = ast_arena_grow(
+            primary->specializations,
+            sizeof(*primary->specializations) *
+                (size_t)primary->specialization_count,
+            sizeof(*primary->specializations) *
+                (size_t)(primary->specialization_count + 1));
+        primary->specializations[primary->specialization_count++] = tmpl;
+    }
+    return true;
+}
+
 static bool cxx_template_variable_starts(void) {
     Token* token = parser.cur;
     int parentheses = 0;
@@ -13801,7 +14074,9 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
         } else if (match(TOK_TEMPLATE)) {
             CxxTemplate* tmpl = parse_cxx_template(ACCESS_PUBLIC);
             if (tmpl && !tmpl->member_method &&
-                !tmpl->is_member_template_definition) {
+                !tmpl->is_member_template_definition &&
+                !tmpl->primary_template &&
+                !tmpl->is_variable_template_specialization) {
                 cxx_namespace_add_template(ns, tmpl);
             }
         } else if (check(TOK_INLINE) && check_next(TOK_NAMESPACE)) {
@@ -15614,6 +15889,13 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
             tmpl->constraint_context =
                 cxx_template_snapshot_parameter_scope(tmpl);
         }
+    }
+
+    if (!active_class && !parameter_outer_template &&
+        cxx_variable_template_specialization_starts()) {
+        (void)cxx_parse_variable_template_specialization(tmpl, loc);
+        active_template = parameter_outer_template;
+        return tmpl;
     }
 
     /* An explicit specialization of a member function template is a
@@ -41859,6 +42141,164 @@ static bool template_has_unsupported_versioned_shape(CxxTemplate* tmpl) {
     return has_member_assignment;
 }
 
+static CxxTemplate* cxx_select_variable_template_specialization(
+    CxxTemplate* primary, Type** primary_arguments,
+    const int64_t* primary_values, const bool* primary_value_present,
+    int argument_count, int pack_index, Type** pack_arguments,
+    const int64_t* pack_values, const bool* pack_value_present,
+    int pack_count, Type** selected_arguments,
+    int64_t* selected_values, bool* selected_value_present) {
+    CxxTemplate* selected = primary;
+    int selected_specificity = -1;
+    bool ambiguous = false;
+
+    if (!primary || argument_count < 0) {
+        return primary;
+    }
+    size_t actual_slots = (size_t)(argument_count > 0 ? argument_count : 1);
+    Type** actual_arguments = ast_arena_alloc(
+        sizeof(*actual_arguments) * actual_slots);
+    int64_t* actual_values = ast_arena_alloc(
+        sizeof(*actual_values) * actual_slots);
+    bool* actual_value_present = ast_arena_alloc(
+        sizeof(*actual_value_present) * actual_slots);
+    memset(actual_arguments, 0, sizeof(*actual_arguments) * actual_slots);
+    memset(actual_values, 0, sizeof(*actual_values) * actual_slots);
+    memset(actual_value_present, 0,
+           sizeof(*actual_value_present) * actual_slots);
+    for (int index = 0; index < argument_count; ++index) {
+        int parameter_index = pack_index >= 0 && index >= pack_index
+            ? pack_index : index;
+        if (parameter_index >= primary->param_count) return primary;
+        TemplateParam* parameter = &primary->params[parameter_index];
+        if (pack_index >= 0 && index >= pack_index) {
+            int pack_argument_index = index - pack_index;
+            if (pack_argument_index >= pack_count) return primary;
+            if (parameter->kind == TPARAM_NONTYPE) {
+                actual_values[index] = pack_values[pack_argument_index];
+                actual_value_present[index] =
+                    pack_value_present[pack_argument_index];
+            } else {
+                actual_arguments[index] = pack_arguments[pack_argument_index];
+            }
+        } else if (parameter->kind == TPARAM_NONTYPE) {
+            actual_values[index] = primary_values[index];
+            actual_value_present[index] = primary_value_present[index];
+        } else {
+            actual_arguments[index] = primary_arguments[index];
+        }
+    }
+
+    for (int specialization_index = 0;
+         specialization_index < primary->specialization_count;
+         ++specialization_index) {
+        CxxTemplate* specialization =
+            primary->specializations[specialization_index];
+        size_t candidate_slots = (size_t)(specialization &&
+                specialization->param_count > 0
+            ? specialization->param_count : 1);
+        Type** candidate_arguments = ast_arena_alloc(
+            sizeof(*candidate_arguments) * candidate_slots);
+        int64_t* candidate_values = ast_arena_alloc(
+            sizeof(*candidate_values) * candidate_slots);
+        bool* candidate_value_present = ast_arena_alloc(
+            sizeof(*candidate_value_present) * candidate_slots);
+        int specificity = 0;
+        bool matches = specialization && specialization->kind == TMPL_VARIABLE &&
+            specialization->var_def &&
+            specialization->specialization_arg_count == argument_count;
+        bool full_specialization = matches && specialization->param_count == 0;
+        if (!matches) continue;
+        memset(candidate_arguments, 0,
+               sizeof(*candidate_arguments) * candidate_slots);
+        memset(candidate_values, 0,
+               sizeof(*candidate_values) * candidate_slots);
+        memset(candidate_value_present, 0,
+               sizeof(*candidate_value_present) * candidate_slots);
+        if (full_specialization) specificity = 1000000;
+
+        for (int index = 0; matches && index < argument_count; ++index) {
+            int parameter_index = pack_index >= 0 && index >= pack_index
+                ? pack_index : index;
+            TemplateParam* parameter = &primary->params[parameter_index];
+            if (parameter->kind == TPARAM_NONTYPE) {
+                Expr* pattern = specialization->specialization_value_args
+                    ? specialization->specialization_value_args[index] : NULL;
+                if (!pattern || !actual_value_present[index]) {
+                    matches = false;
+                } else if (full_specialization) {
+                    int64_t expected;
+                    matches = cxx_template_non_type_constant_value(
+                                  pattern, &expected) &&
+                        expected == actual_values[index];
+                } else {
+                    matches = deduce_class_specialization_value(
+                        specialization, pattern, NULL, actual_values[index],
+                        candidate_values, candidate_value_present,
+                        &specificity);
+                }
+            } else {
+                Type* pattern = specialization->specialization_args
+                    ? specialization->specialization_args[index] : NULL;
+                Type* actual = actual_arguments[index];
+                if (!pattern || !actual) {
+                    matches = false;
+                } else if (parameter->kind == TPARAM_TEMPLATE) {
+                    if (full_specialization) {
+                        matches = pattern->cxx_template &&
+                            pattern->cxx_template == actual->cxx_template;
+                    } else if (pattern->cxx_dependent &&
+                               pattern->cxx_template_param_index >= 0 &&
+                               pattern->cxx_template_param_index <
+                                   specialization->param_count &&
+                               specialization->params[
+                                   pattern->cxx_template_param_index].kind ==
+                                   TPARAM_TEMPLATE && actual->cxx_template) {
+                        int template_parameter_index =
+                            pattern->cxx_template_param_index;
+                        matches = rcc_parser_cxx_template_template_argument_matches(
+                            &specialization->params[template_parameter_index],
+                            actual->cxx_template);
+                        if (matches) {
+                            candidate_arguments[template_parameter_index] =
+                                actual;
+                            ++specificity;
+                        }
+                    } else {
+                        matches = type_is_same_template_argument(pattern, actual);
+                    }
+                } else if (full_specialization) {
+                    matches = cxx_class_specialization_type_equal(
+                        pattern, actual);
+                } else {
+                    matches = deduce_class_specialization_type(
+                        specialization, pattern, actual,
+                        candidate_arguments, &specificity, NULL);
+                }
+            }
+        }
+        if (!matches) continue;
+        if (specificity > selected_specificity) {
+            selected = specialization;
+            selected_specificity = specificity;
+            ambiguous = false;
+            memcpy(selected_arguments, candidate_arguments,
+                   sizeof(*selected_arguments) *
+                       (size_t)specialization->param_count);
+            memcpy(selected_values, candidate_values,
+                   sizeof(*selected_values) *
+                       (size_t)specialization->param_count);
+            memcpy(selected_value_present, candidate_value_present,
+                   sizeof(*selected_value_present) *
+                       (size_t)specialization->param_count);
+        } else if (specificity == selected_specificity) {
+            ambiguous = true;
+        }
+    }
+    if (ambiguous) return NULL;
+    return selected;
+}
+
 Expr* rcc_parse_cxx_template_call(void) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
@@ -41886,79 +42326,322 @@ Expr* rcc_parse_cxx_template_call(void) {
     if (candidate_count <= 0) {
         CxxTemplate* variable_template = find_variable_template(name);
         if (variable_template && check(TOK_LT)) {
-            Type* arguments[32] = { NULL };
-            int64_t values[32] = { 0 };
-            bool value_present[32] = { false };
+            Type** arguments;
+            int64_t* values;
+            bool* value_present;
+            Type** pack_arguments = NULL;
+            int64_t* pack_values = NULL;
+            bool* pack_value_present = NULL;
+            Expr** pack_value_expressions = NULL;
+            int* pack_offsets = NULL;
+            int* pack_counts = NULL;
+            Type** saved_pack_arguments = NULL;
+            int64_t* saved_pack_values = NULL;
+            bool* saved_pack_value_present = NULL;
+            Expr** saved_pack_value_expressions = NULL;
+            bool* saved_pack_expansions = NULL;
+            int saved_pack_count = -1;
+            int* saved_pack_offsets = NULL;
+            int* saved_pack_counts = NULL;
+            CxxTemplate* selected_template = NULL;
+            Type** selected_arguments = NULL;
+            int64_t* selected_values = NULL;
+            bool* selected_value_present = NULL;
+            CxxTemplate* saved_variable_primary = NULL;
+            Type** saved_variable_arguments = NULL;
+            int64_t* saved_variable_values = NULL;
+            bool* saved_variable_value_present = NULL;
             int argument_count = 0;
+            int pack_parameter_index = -1;
+            int pack_count = 0;
+            int pack_capacity = 0;
             Decl* instance;
 
-            if (variable_template->param_count >
-                    (int)(sizeof(arguments) / sizeof(arguments[0]))) {
-                rcc_error(loc,
-                          "variable template argument limit exceeded");
-                parser.cur = saved_cur;
-                parser.prev = saved_prev;
-                return NULL;
-            }
+            arguments = ast_arena_alloc(
+                sizeof(*arguments) *
+                (size_t)(variable_template->param_count > 0
+                             ? variable_template->param_count : 1));
+            values = ast_arena_alloc(
+                sizeof(*values) *
+                (size_t)(variable_template->param_count > 0
+                             ? variable_template->param_count : 1));
+            value_present = ast_arena_alloc(
+                sizeof(*value_present) *
+                (size_t)(variable_template->param_count > 0
+                             ? variable_template->param_count : 1));
+            memset(arguments, 0, sizeof(*arguments) *
+                                     (size_t)(variable_template->param_count > 0
+                                                  ? variable_template->param_count : 1));
+            memset(values, 0, sizeof(*values) *
+                                 (size_t)(variable_template->param_count > 0
+                                              ? variable_template->param_count : 1));
+            memset(value_present, 0, sizeof(*value_present) *
+                                       (size_t)(variable_template->param_count > 0
+                                                    ? variable_template->param_count : 1));
             for (int index = 0; index < variable_template->param_count;
                  ++index) {
                 if (variable_template->params[index].is_pack) {
-                    rcc_error(loc,
-                              "RCC++ variable template parameter packs are not supported");
-                    parser.cur = saved_cur;
-                    parser.prev = saved_prev;
-                    return NULL;
+                    if (index != variable_template->param_count - 1 ||
+                        pack_parameter_index >= 0) {
+                        rcc_error(loc,
+                                  "variable template parameter packs must be last");
+                        return expr_int(0, loc);
+                    }
+                    pack_parameter_index = index;
                 }
             }
             expect(TOK_LT, "<");
             if (!check(TOK_GT)) {
                 do {
-                    TemplateParam* parameter = argument_count <
-                        variable_template->param_count
-                        ? &variable_template->params[argument_count] : NULL;
-                    if (!parameter) {
+                    int parameter_index = argument_count;
+                    TemplateParam* parameter;
+                    Type* type_argument = NULL;
+                    int64_t value_argument = 0;
+                    bool value_is_present = false;
+                    Expr* value_expression = NULL;
+
+                    if (pack_parameter_index >= 0 &&
+                        parameter_index >= pack_parameter_index) {
+                        parameter_index = pack_parameter_index;
+                    }
+                    if (parameter_index >= variable_template->param_count) {
                         rcc_error(peek()->loc,
                                   "too many variable template arguments");
                         while (!check(TOK_GT) && !at_end()) advance();
                         break;
                     }
+                    parameter = &variable_template->params[parameter_index];
                     if (parameter->kind == TPARAM_TYPE) {
-                        arguments[argument_count] =
-                            parse_cxx_template_type_argument();
-                        if (!arguments[argument_count]) {
+                        type_argument = parse_cxx_template_type_argument();
+                        if (!type_argument) {
                             rcc_error(peek()->loc,
                                       "variable template type argument is invalid");
                         }
+                    } else if (parameter->kind == TPARAM_TEMPLATE) {
+                        type_argument = parse_cxx_concept_template_argument(
+                            parameter);
                     } else if (parameter->kind == TPARAM_NONTYPE) {
-                        Expr* value_expression;
                         rcc_parser_set_cxx_template_default_mode(true);
                         value_expression = parse_assignment_expression();
                         rcc_parser_set_cxx_template_default_mode(false);
                         if (!expr_eval_integer_constant(value_expression,
-                                                        &values[argument_count])) {
+                                                        &value_argument)) {
                             rcc_error(value_expression ? value_expression->loc : loc,
                                       "variable template argument must be an integer constant expression");
                         } else {
-                            value_present[argument_count] = true;
+                            value_is_present = true;
                         }
                     } else {
                         rcc_error(peek()->loc,
-                                  "RCC++ variable templates do not support template-template parameters");
+                                  "unsupported variable template parameter kind");
                         while (!check(TOK_COMMA) && !check(TOK_GT) &&
                                !at_end()) advance();
+                    }
+                    if (parameter->is_pack) {
+                        if (pack_count == pack_capacity) {
+                            int new_capacity = pack_capacity == 0
+                                ? 4 : pack_capacity * 2;
+                            if (new_capacity < pack_capacity ||
+                                new_capacity > INT_MAX / 2) {
+                                rcc_error(loc,
+                                          "variable template argument pack is too large");
+                                return expr_int(0, loc);
+                            }
+                            if (parameter->kind != TPARAM_NONTYPE) {
+                                pack_arguments = ast_arena_grow(
+                                    pack_arguments,
+                                    sizeof(*pack_arguments) *
+                                        (size_t)pack_capacity,
+                                    sizeof(*pack_arguments) *
+                                        (size_t)new_capacity);
+                                memset(pack_arguments + pack_capacity, 0,
+                                       sizeof(*pack_arguments) *
+                                           (size_t)(new_capacity - pack_capacity));
+                            } else {
+                                pack_values = ast_arena_grow(
+                                    pack_values,
+                                    sizeof(*pack_values) *
+                                        (size_t)pack_capacity,
+                                    sizeof(*pack_values) *
+                                        (size_t)new_capacity);
+                                pack_value_present = ast_arena_grow(
+                                    pack_value_present,
+                                    sizeof(*pack_value_present) *
+                                        (size_t)pack_capacity,
+                                    sizeof(*pack_value_present) *
+                                        (size_t)new_capacity);
+                                pack_value_expressions = ast_arena_grow(
+                                    pack_value_expressions,
+                                    sizeof(*pack_value_expressions) *
+                                        (size_t)pack_capacity,
+                                    sizeof(*pack_value_expressions) *
+                                        (size_t)new_capacity);
+                                memset(pack_values + pack_capacity, 0,
+                                       sizeof(*pack_values) *
+                                           (size_t)(new_capacity - pack_capacity));
+                                memset(pack_value_present + pack_capacity, 0,
+                                       sizeof(*pack_value_present) *
+                                           (size_t)(new_capacity - pack_capacity));
+                                memset(pack_value_expressions + pack_capacity, 0,
+                                       sizeof(*pack_value_expressions) *
+                                           (size_t)(new_capacity - pack_capacity));
+                            }
+                            pack_capacity = new_capacity;
+                        }
+                        if (parameter->kind == TPARAM_NONTYPE) {
+                            pack_values[pack_count] = value_argument;
+                            pack_value_present[pack_count] = value_is_present;
+                            pack_value_expressions[pack_count] = value_expression;
+                        } else {
+                            pack_arguments[pack_count] = type_argument;
+                        }
+                        ++pack_count;
+                    } else if (parameter->kind == TPARAM_NONTYPE) {
+                        values[parameter_index] = value_argument;
+                        value_present[parameter_index] = value_is_present;
+                    } else {
+                        arguments[parameter_index] = type_argument;
+                    }
+                    if (argument_count == INT_MAX) {
+                        rcc_error(loc,
+                                  "variable template has too many arguments");
+                        return expr_int(0, loc);
                     }
                     ++argument_count;
                 } while (match(TOK_COMMA));
             }
             expect(TOK_GT, ">");
-            if (argument_count != variable_template->param_count) {
+            if ((pack_parameter_index < 0 &&
+                 argument_count != variable_template->param_count) ||
+                (pack_parameter_index >= 0 &&
+                 argument_count < pack_parameter_index)) {
                 rcc_error(loc,
                           "variable template specialization requires all template arguments");
                 return expr_int(0, loc);
             }
-            instance = (Decl*)cxx_template_instantiate_with_values(
+            if (pack_parameter_index >= 0) {
+                pack_offsets = ast_arena_alloc(
+                    sizeof(*pack_offsets) *
+                    (size_t)(variable_template->param_count > 0
+                                 ? variable_template->param_count : 1));
+                pack_counts = ast_arena_alloc(
+                    sizeof(*pack_counts) *
+                    (size_t)(variable_template->param_count > 0
+                                 ? variable_template->param_count : 1));
+                for (int index = 0; index < variable_template->param_count;
+                     ++index) {
+                    pack_offsets[index] = 0;
+                    pack_counts[index] = -1;
+                }
+                pack_counts[pack_parameter_index] = pack_count;
+                saved_pack_arguments = variable_template->pending_pack_args;
+                saved_pack_values = variable_template->pending_pack_values;
+                saved_pack_value_present =
+                    variable_template->pending_pack_value_present;
+                saved_pack_value_expressions =
+                    variable_template->pending_pack_value_expressions;
+                saved_pack_expansions =
+                    variable_template->pending_pack_expansions;
+                saved_pack_count = variable_template->pending_pack_count;
+                saved_pack_offsets = variable_template->pending_pack_offsets;
+                saved_pack_counts = variable_template->pending_pack_counts;
+                variable_template->pending_pack_args = pack_arguments;
+                variable_template->pending_pack_values = pack_values;
+                variable_template->pending_pack_value_present =
+                    pack_value_present;
+                variable_template->pending_pack_value_expressions =
+                    pack_value_expressions;
+                variable_template->pending_pack_expansions = NULL;
+                variable_template->pending_pack_count = pack_count;
+                variable_template->pending_pack_offsets = pack_offsets;
+                variable_template->pending_pack_counts = pack_counts;
+            }
+            {
+                int selected_count = variable_template->param_count;
+                for (int index = 0;
+                     index < variable_template->specialization_count; ++index) {
+                    CxxTemplate* specialization =
+                        variable_template->specializations[index];
+                    if (specialization &&
+                        specialization->param_count > selected_count) {
+                        selected_count = specialization->param_count;
+                    }
+                }
+                size_t selected_slots =
+                    (size_t)(selected_count > 0 ? selected_count : 1);
+                selected_arguments = ast_arena_alloc(
+                    sizeof(*selected_arguments) * selected_slots);
+                selected_values = ast_arena_alloc(
+                    sizeof(*selected_values) * selected_slots);
+                selected_value_present = ast_arena_alloc(
+                    sizeof(*selected_value_present) * selected_slots);
+                memset(selected_arguments, 0,
+                       sizeof(*selected_arguments) * selected_slots);
+                memset(selected_values, 0,
+                       sizeof(*selected_values) * selected_slots);
+                memset(selected_value_present, 0,
+                       sizeof(*selected_value_present) * selected_slots);
+            }
+            selected_template = cxx_select_variable_template_specialization(
                 variable_template, arguments, values, value_present,
-                argument_count);
+                argument_count, pack_parameter_index, pack_arguments,
+                pack_values, pack_value_present, pack_count,
+                selected_arguments, selected_values,
+                selected_value_present);
+            if (!selected_template) {
+                rcc_error(loc,
+                          "variable-template specialization is ambiguous");
+                instance = NULL;
+            } else if (selected_template != variable_template &&
+                       selected_template->param_count == 0) {
+                instance = selected_template->var_def;
+            } else if (selected_template != variable_template) {
+                saved_variable_primary =
+                    selected_template->pending_variable_template_primary;
+                saved_variable_arguments =
+                    selected_template->pending_variable_template_args;
+                saved_variable_values =
+                    selected_template->pending_variable_template_values;
+                saved_variable_value_present = selected_template->
+                    pending_variable_template_value_present;
+                selected_template->pending_variable_template_primary =
+                    variable_template;
+                selected_template->pending_variable_template_args =
+                    arguments;
+                selected_template->pending_variable_template_values =
+                    values;
+                selected_template->pending_variable_template_value_present =
+                    value_present;
+                instance = (Decl*)cxx_template_instantiate_with_values(
+                    selected_template, selected_arguments, selected_values,
+                    selected_value_present,
+                    selected_template->param_count);
+                selected_template->pending_variable_template_primary =
+                    saved_variable_primary;
+                selected_template->pending_variable_template_args =
+                    saved_variable_arguments;
+                selected_template->pending_variable_template_values =
+                    saved_variable_values;
+                selected_template->pending_variable_template_value_present =
+                    saved_variable_value_present;
+            } else {
+                instance = (Decl*)cxx_template_instantiate_with_values(
+                    variable_template, arguments, values, value_present,
+                    variable_template->param_count);
+            }
+            if (pack_parameter_index >= 0) {
+                variable_template->pending_pack_args = saved_pack_arguments;
+                variable_template->pending_pack_values = saved_pack_values;
+                variable_template->pending_pack_value_present =
+                    saved_pack_value_present;
+                variable_template->pending_pack_value_expressions =
+                    saved_pack_value_expressions;
+                variable_template->pending_pack_expansions =
+                    saved_pack_expansions;
+                variable_template->pending_pack_count = saved_pack_count;
+                variable_template->pending_pack_offsets = saved_pack_offsets;
+                variable_template->pending_pack_counts = saved_pack_counts;
+            }
             if (!instance || instance->kind != DECL_VAR) {
                 rcc_error(loc, "could not instantiate variable template '%s'",
                           name);
@@ -46196,7 +46879,9 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             if (g_global_namespace && tmpl &&
                 tmpl->kind != TMPL_DEDUCTION_GUIDE &&
                 !tmpl->member_method &&
-                !tmpl->is_member_template_definition) {
+                !tmpl->is_member_template_definition &&
+                !tmpl->is_variable_template_specialization &&
+                !tmpl->primary_template) {
                 cxx_namespace_add_template(g_global_namespace, tmpl);
             }
         } else if (rcc_parse_cxx_deduction_guide()) {

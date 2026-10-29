@@ -4042,54 +4042,142 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
     static char buf[CXX_MANGLE_BUFFER_SIZE];
     char* base;
     size_t pos;
+    CxxMangleContext argument_context = { 0 };
+    CxxNamespace* mangling_namespace = ns == g_global_namespace ? NULL : ns;
 
     if (!variable || !tmpl) return NULL;
+    argument_context.class_type_index_base =
+        cxx_mangle_free_template_substitution_base(mangling_namespace);
     base = cxx_mangle_name(variable->name, ns, NULL);
     if (!base || strlen(base) + 2u >= sizeof(buf)) {
         rcc_fatal("C++ variable template name is too long");
     }
     strcpy(buf, base);
     pos = strlen(buf);
+    if (ns && ns != g_global_namespace && pos > 0u && buf[pos - 1u] == 'E') {
+        /* The template arguments belong before the enclosing-name terminator. */
+        --pos;
+    }
     buf[pos++] = 'I';
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
+        int pack_length = template_pending_pack_length(tmpl, index);
+        int pack_offset = template_pending_pack_offset(tmpl, index);
         if (parameter->is_pack) {
-            rcc_fatal("C++ variable template parameter packs are unsupported");
+            if (pack_length < 0 || pos + 2u >= sizeof(buf)) {
+                rcc_fatal("C++ variable template parameter pack arguments are missing");
+            }
+            buf[pos++] = 'J';
+            for (int pack_index = 0; pack_index < pack_length; ++pack_index) {
+                if (parameter->kind == TPARAM_TYPE) {
+                    Type* pack_argument = tmpl->pending_pack_args
+                        ? tmpl->pending_pack_args[pack_offset + pack_index]
+                        : NULL;
+                    size_t old_pos = pos;
+                    if (!pack_argument) {
+                        rcc_fatal("C++ variable template type pack argument is missing");
+                    }
+                    cxx_mangle_type_append_context(
+                        buf, &pos, pack_argument, &argument_context);
+                    if (old_pos == pos || pos >= sizeof(buf) - 32u) {
+                        rcc_fatal("C++ variable template name is too long");
+                    }
+                } else if (parameter->kind == TPARAM_TEMPLATE) {
+                    Type* pack_argument = tmpl->pending_pack_args
+                        ? tmpl->pending_pack_args[pack_offset + pack_index]
+                        : NULL;
+                    size_t old_pos = pos;
+                    if (!pack_argument || !pack_argument->cxx_template) {
+                        rcc_fatal("C++ variable template template pack argument is missing");
+                    }
+                    mangle_template_argument_name_context(
+                        buf, &pos, pack_argument, &argument_context);
+                    if (old_pos == pos || pos >= sizeof(buf) - 32u) {
+                        rcc_fatal("C++ variable template name is too long");
+                    }
+                } else if (parameter->kind == TPARAM_NONTYPE) {
+                    int written;
+                    if (!tmpl->pending_pack_value_present ||
+                        !tmpl->pending_pack_value_present[
+                            pack_offset + pack_index] ||
+                        !tmpl->pending_pack_values || pos + 2u >= sizeof(buf)) {
+                        rcc_fatal("C++ variable template non-type pack value is missing");
+                    }
+                    buf[pos++] = 'L';
+                    cxx_mangle_type_append_context(
+                        buf, &pos,
+                        cxx_mangle_template_value_type(
+                            tmpl, parameter, type_args, tmpl->param_count,
+                            index),
+                        &argument_context);
+                    if (tmpl->pending_pack_values[
+                            pack_offset + pack_index] < 0) {
+                        uint64_t magnitude = (uint64_t)(
+                            -(tmpl->pending_pack_values[
+                                  pack_offset + pack_index] + 1)) + 1u;
+                        written = snprintf(
+                            buf + pos, sizeof(buf) - pos, "n%lluE",
+                            (unsigned long long)magnitude);
+                    } else {
+                        written = snprintf(
+                            buf + pos, sizeof(buf) - pos, "%lldE",
+                            (long long)tmpl->pending_pack_values[
+                                pack_offset + pack_index]);
+                    }
+                    if (written < 0 ||
+                        (size_t)written >= sizeof(buf) - pos) {
+                        rcc_fatal("C++ variable template non-type pack value is too long");
+                    }
+                    pos += (size_t)written;
+                } else {
+                    rcc_fatal("unsupported C++ variable template parameter kind");
+                }
+            }
+            if (pos + 1u >= sizeof(buf)) {
+                rcc_fatal("C++ variable template name is too long");
+            }
+            buf[pos++] = 'E';
+            continue;
         }
         if (parameter->kind == TPARAM_TYPE) {
             if (!type_args || !type_args[index]) {
                 rcc_fatal("C++ variable template type argument is missing");
             }
-            char* type_mangled = cxx_mangle_type(type_args[index]);
-            size_t type_length = strlen(type_mangled);
-            if (pos + type_length >= sizeof(buf) - 2u) {
-                rcc_fatal("C++ variable template name is too long");
+            cxx_mangle_type_append_context(
+                buf, &pos, type_args[index], &argument_context);
+        } else if (parameter->kind == TPARAM_TEMPLATE) {
+            if (!type_args || !type_args[index] ||
+                !type_args[index]->cxx_template) {
+                rcc_fatal("C++ variable template template argument is missing");
             }
-            memcpy(buf + pos, type_mangled, type_length);
-            pos += type_length;
+            mangle_template_argument_name_context(
+                buf, &pos, type_args[index], &argument_context);
         } else if (parameter->kind == TPARAM_NONTYPE) {
-            char* type_mangled;
-            size_t type_length;
+            int written;
             if (!value_args || !value_present || !value_present[index]) {
                 rcc_fatal("C++ variable template value argument is missing");
             }
-            type_mangled = cxx_mangle_type(parameter->type);
-            type_length = strlen(type_mangled);
-            if (pos + type_length + 32u >= sizeof(buf)) {
+            if (pos + 34u >= sizeof(buf)) {
                 rcc_fatal("C++ variable template name is too long");
             }
             buf[pos++] = 'L';
-            memcpy(buf + pos, type_mangled, type_length);
-            pos += type_length;
+            cxx_mangle_type_append_context(
+                buf, &pos,
+                cxx_mangle_template_value_type(
+                    tmpl, parameter, type_args, tmpl->param_count, index),
+                &argument_context);
             if (value_args[index] < 0) {
                 uint64_t magnitude = (uint64_t)(-(value_args[index] + 1)) + 1u;
-                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
-                                        "n%lluE",
-                                        (unsigned long long)magnitude);
+                written = snprintf(buf + pos, sizeof(buf) - pos,
+                                   "n%lluE", (unsigned long long)magnitude);
             } else {
-                pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
-                                        "%lldE", (long long)value_args[index]);
+                written = snprintf(buf + pos, sizeof(buf) - pos,
+                                   "%lldE", (long long)value_args[index]);
             }
+            if (written < 0 || (size_t)written >= sizeof(buf) - pos) {
+                rcc_fatal("C++ variable template name is too long");
+            }
+            pos += (size_t)written;
         } else {
             rcc_fatal("unsupported C++ variable template parameter");
         }
@@ -4098,8 +4186,68 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
         rcc_fatal("C++ variable template name is too long");
     }
     buf[pos++] = 'E';
+    if (ns && ns != g_global_namespace) {
+        if (pos + 1u >= sizeof(buf)) {
+            rcc_fatal("C++ variable template name is too long");
+        }
+        buf[pos++] = 'E';
+    }
     buf[pos] = '\0';
     return buf;
+}
+
+char* cxx_mangle_variable_template_specialization(
+    Decl* variable, CxxNamespace* ns, CxxTemplate* primary, Type** type_args,
+    const int64_t* value_args, const bool* value_present, int pack_index,
+    Type** pack_args, const int64_t* pack_values,
+    const bool* pack_value_present, int pack_count) {
+    Type** saved_pack_args;
+    int64_t* saved_pack_values;
+    bool* saved_pack_value_present;
+    int saved_pack_count;
+    int* saved_pack_offsets;
+    int* saved_pack_counts;
+    int* offsets = NULL;
+    int* counts = NULL;
+    char* mangled;
+    if (!primary || pack_count < 0 ||
+        (pack_index >= 0 && pack_index >= primary->param_count)) {
+        return NULL;
+    }
+    if (primary->param_count > 0) {
+        offsets = ast_arena_alloc(sizeof(*offsets) *
+                                  (size_t)primary->param_count);
+        counts = ast_arena_alloc(sizeof(*counts) *
+                                 (size_t)primary->param_count);
+    }
+    for (int index = 0; index < primary->param_count; ++index) {
+        offsets[index] = 0;
+        counts[index] = -1;
+    }
+    saved_pack_args = primary->pending_pack_args;
+    saved_pack_values = primary->pending_pack_values;
+    saved_pack_value_present = primary->pending_pack_value_present;
+    saved_pack_count = primary->pending_pack_count;
+    saved_pack_offsets = primary->pending_pack_offsets;
+    saved_pack_counts = primary->pending_pack_counts;
+    if (pack_index >= 0) {
+        counts[pack_index] = pack_count;
+        primary->pending_pack_args = pack_args;
+        primary->pending_pack_values = (int64_t*)pack_values;
+        primary->pending_pack_value_present = (bool*)pack_value_present;
+        primary->pending_pack_count = pack_count;
+        primary->pending_pack_offsets = offsets;
+        primary->pending_pack_counts = counts;
+    }
+    mangled = cxx_mangle_variable_template(
+        variable, ns, primary, type_args, value_args, value_present);
+    primary->pending_pack_args = saved_pack_args;
+    primary->pending_pack_values = saved_pack_values;
+    primary->pending_pack_value_present = saved_pack_value_present;
+    primary->pending_pack_count = saved_pack_count;
+    primary->pending_pack_offsets = saved_pack_offsets;
+    primary->pending_pack_counts = saved_pack_counts;
+    return mangled ? ast_arena_strdup(mangled) : NULL;
 }
 
 /* ═══════════════════════════════════════
@@ -8065,6 +8213,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->local_class_pattern = NULL;
     tmpl->local_class_instance = NULL;
     tmpl->primary_template = NULL;
+    tmpl->is_variable_template_specialization = false;
     tmpl->specializations = NULL;
     tmpl->specialization_count = 0;
     tmpl->specialization_args = NULL;
@@ -8080,6 +8229,10 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->pending_pack_value_present = NULL;
     tmpl->pending_pack_value_expressions = NULL;
     tmpl->pending_pack_count = -1;
+    tmpl->pending_variable_template_primary = NULL;
+    tmpl->pending_variable_template_args = NULL;
+    tmpl->pending_variable_template_values = NULL;
+    tmpl->pending_variable_template_value_present = NULL;
     tmpl->active_pack_parameters = NULL;
     tmpl->active_pack_expansion = false;
     tmpl->active_pack_expansion_index = 0;
@@ -13856,9 +14009,26 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                       "variable template type substitution failed");
             return NULL;
         }
-        written = snprintf(generated_name, sizeof(generated_name),
-                           "__rcc_variable_template_%d_%s",
-                           tmpl->instance_count, definition->name);
+        if (tmpl->primary_template) {
+            int specialization_index = 0;
+            for (int index = 0;
+                 index < tmpl->primary_template->specialization_count;
+                 ++index) {
+                if (tmpl->primary_template->specializations[index] == tmpl) {
+                    specialization_index = index + 1;
+                    break;
+                }
+            }
+            written = snprintf(
+                generated_name, sizeof(generated_name),
+                "__rcc_variable_template_spec_%d_%d_%s",
+                specialization_index, tmpl->instance_count,
+                definition->name);
+        } else {
+            written = snprintf(generated_name, sizeof(generated_name),
+                               "__rcc_variable_template_%d_%s",
+                               tmpl->instance_count, definition->name);
+        }
         if (written < 0 || (size_t)written >= sizeof(generated_name)) {
             rcc_error(definition->loc,
                       "variable template specialization name exceeds compiler limits");
@@ -13874,8 +14044,18 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->var_is_inline = definition->var_is_inline;
         instance->var_is_deprecated = definition->var_is_deprecated;
         instance->var_deprecated_message = definition->var_deprecated_message;
-        instance->link_name = rcc_intern(cxx_mangle_variable_template(
-            definition, tmpl->ns, tmpl, args, value_args, value_present));
+        if (tmpl->pending_variable_template_primary) {
+            instance->link_name = rcc_intern(cxx_mangle_variable_template(
+                definition, tmpl->ns,
+                tmpl->pending_variable_template_primary,
+                tmpl->pending_variable_template_args,
+                tmpl->pending_variable_template_values,
+                tmpl->pending_variable_template_value_present));
+        } else {
+            instance->link_name = rcc_intern(cxx_mangle_variable_template(
+                definition, tmpl->ns, tmpl, args, value_args,
+                value_present));
+        }
 
         tmpl->instances = ast_arena_grow(
             tmpl->instances,
@@ -13892,7 +14072,20 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         tmpl->instances[tmpl->instance_count].pack_value_present = NULL;
         tmpl->instances[tmpl->instance_count].pack_offsets = NULL;
         tmpl->instances[tmpl->instance_count].pack_counts = NULL;
-        tmpl->instances[tmpl->instance_count].pack_count = 0;
+        tmpl->instances[tmpl->instance_count].pack_count =
+            tmpl->pending_pack_count >= 0 ? tmpl->pending_pack_count : 0;
+        if (tmpl->pending_pack_counts) {
+            tmpl->instances[tmpl->instance_count].pack_offsets =
+                ast_arena_alloc(sizeof(int) * (size_t)tmpl->param_count);
+            tmpl->instances[tmpl->instance_count].pack_counts =
+                ast_arena_alloc(sizeof(int) * (size_t)tmpl->param_count);
+            memcpy(tmpl->instances[tmpl->instance_count].pack_offsets,
+                   tmpl->pending_pack_offsets,
+                   sizeof(int) * (size_t)tmpl->param_count);
+            memcpy(tmpl->instances[tmpl->instance_count].pack_counts,
+                   tmpl->pending_pack_counts,
+                   sizeof(int) * (size_t)tmpl->param_count);
+        }
         tmpl->instances[tmpl->instance_count].arg_count = arg_count;
         tmpl->instances[tmpl->instance_count].owner_class = NULL;
         if (arg_count > 0) {
@@ -13904,6 +14097,41 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                    value_args, sizeof(int64_t) * (size_t)arg_count);
             memcpy(tmpl->instances[tmpl->instance_count].value_present,
                    value_present, sizeof(bool) * (size_t)arg_count);
+        }
+        if (tmpl->pending_pack_count > 0) {
+            bool has_type_pack = false;
+            bool has_value_pack = false;
+            for (int parameter_index = 0;
+                 parameter_index < tmpl->param_count; ++parameter_index) {
+                if (!tmpl->params[parameter_index].is_pack) continue;
+                if (tmpl->params[parameter_index].kind == TPARAM_NONTYPE) {
+                    has_value_pack = true;
+                } else {
+                    has_type_pack = true;
+                }
+            }
+            if (has_type_pack) {
+                tmpl->instances[tmpl->instance_count].pack_args =
+                    ast_arena_alloc(sizeof(Type*) *
+                                    (size_t)tmpl->pending_pack_count);
+                memcpy(tmpl->instances[tmpl->instance_count].pack_args,
+                       tmpl->pending_pack_args,
+                       sizeof(Type*) * (size_t)tmpl->pending_pack_count);
+            }
+            if (has_value_pack) {
+                tmpl->instances[tmpl->instance_count].pack_values =
+                    ast_arena_alloc(sizeof(int64_t) *
+                                    (size_t)tmpl->pending_pack_count);
+                tmpl->instances[tmpl->instance_count].pack_value_present =
+                    ast_arena_alloc(sizeof(bool) *
+                                    (size_t)tmpl->pending_pack_count);
+                memcpy(tmpl->instances[tmpl->instance_count].pack_values,
+                       tmpl->pending_pack_values,
+                       sizeof(int64_t) * (size_t)tmpl->pending_pack_count);
+                memcpy(tmpl->instances[tmpl->instance_count].pack_value_present,
+                       tmpl->pending_pack_value_present,
+                       sizeof(bool) * (size_t)tmpl->pending_pack_count);
+            }
         }
         tmpl->instances[tmpl->instance_count].instantiated = instance;
         ++tmpl->instance_count;
