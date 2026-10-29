@@ -11858,10 +11858,11 @@ remains a separate open item.
 - [x] Emit inline parameter values for signed and unsigned i686 64-bit variable
       division and remainder over volatile global and block-scope static
       operand pairs, including static TLS. Allow volatile reads only from
-      address-backed storage; atomic and volatile automatic operands remain
-      unsupported. Verify scoped/global/TLS relocations and signed/unsigned
-      boundary results in legacy and verified objects through
-      `test-debug-info-inline-expression`.
+      address-backed storage. Atomic global/static sources and escaped
+      automatic atomic pairs use their stable storage locations; volatile
+      automatic operands remain unsupported. Verify scoped/global/TLS
+      relocations and signed/unsigned boundary results in legacy and verified
+      objects through `test-debug-info-inline-expression`.
 - [x] Extend i686 inline division/remainder DWARF values to constant divisors
       over volatile global and TLS sources. Cover signed `-7` and unsigned `7`
       for both operations, verify relocation types/counts and full-width
