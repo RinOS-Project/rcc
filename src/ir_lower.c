@@ -134,6 +134,13 @@ typedef struct RccIrLowerVlaAllocation {
     struct RccIrLowerVlaAllocation* allocated_next;
 } RccIrLowerVlaAllocation;
 
+typedef struct RccIrLowerVlaBoundCapture {
+    const Expr* expression;
+    RccIrValue address;
+    bool typedef_capture;
+    struct RccIrLowerVlaBoundCapture* next;
+} RccIrLowerVlaBoundCapture;
+
 typedef struct RccIrLowerScratchAllocation {
     struct RccIrLowerScratchAllocation* next;
 } RccIrLowerScratchAllocation;
@@ -150,6 +157,7 @@ typedef struct {
     RccIrLowerScopeCleanup* allocated_scope_cleanups;
     RccIrLowerVlaAllocation* vla_allocations;
     RccIrLowerVlaAllocation* allocated_vla_allocations;
+    RccIrLowerVlaBoundCapture* vla_bound_captures;
     RccIrLowerScratchAllocation* allocated_scratch;
     RccIrLowerLabel* labels;
     RccIrLowerSwitch* current_switch;
@@ -178,6 +186,7 @@ typedef struct {
     const Expr* aggregate_paren_initializer;
     int aggregate_return_kind;
     bool allow_nontrivial_temporary_conditional;
+    bool capture_typeof_vla_bounds;
     bool terminated;
     bool unsupported;
 } RccIrLowerContext;
@@ -200,6 +209,14 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression);
 static RccIrLowerValue lower_expression_impl(
     RccIrLowerContext* context, const Expr* expression);
+static bool lower_typeof_runtime_evaluations(
+    RccIrLowerContext* context, Type* type);
+static bool lower_evaluate_vla_type_bounds(
+    RccIrLowerContext* context, const Type* type,
+    bool capture_runtime_bounds);
+static RccIrLowerValue lower_supported_vla_byte_size(
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerVlaAllocation* allocation);
 static RccIrLowerValue lower_cxx_new_expression(
     RccIrLowerContext* context, const Expr* expression);
 static RccIrLowerValue lower_cxx_delete_expression(
@@ -1114,6 +1131,15 @@ static void lower_release_vla_allocations(
         lower_release_vla_dimensions(allocation->dimensions);
         rcc_free(allocation);
         allocation = next;
+    }
+}
+
+static void lower_release_vla_bound_captures(
+    RccIrLowerVlaBoundCapture* capture) {
+    while (capture) {
+        RccIrLowerVlaBoundCapture* next = capture->next;
+        rcc_free(capture);
+        capture = next;
     }
 }
 
@@ -14984,6 +15010,13 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
         case EXPR_POSTDEC:
             return lower_increment(context, expression);
         case EXPR_CAST:
+            if (expression->type &&
+                lower_type_has_vla_any(expression->type) &&
+                !lower_evaluate_vla_type_bounds(
+                    context, expression->type,
+                    context->capture_typeof_vla_bounds)) {
+                return lower_invalid_value();
+            }
             if (type_is_cxx_member_function_pointer(expression->type)) {
                 RccIrLowerValue source;
                 int64_t integer_value;
@@ -15265,6 +15298,54 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             return lower_call(context, expression);
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
+            if (expression->kind == EXPR_SIZEOF) {
+                Type* measured_type = type_remove_reference(
+                    expression->sizeof_type
+                        ? expression->sizeof_type
+                        : (expression->unary_operand
+                               ? expression->unary_operand->type : NULL));
+                if (measured_type &&
+                    lower_type_has_vla_any(measured_type)) {
+                    RccIrLowerValue size_value = lower_invalid_value();
+                    RccIrType size_type = rcc_ir_type_integer(
+                        (uint16_t)(g_opts.target_arch == ARCH_X64
+                            ? 64u : 32u));
+                    if (expression->sizeof_type &&
+                        !lower_typeof_runtime_evaluations(
+                            context, measured_type)) {
+                        return lower_invalid_value();
+                    }
+                    if (measured_type->kind == TYPE_ARRAY &&
+                        !expression->sizeof_type &&
+                        expression->unary_operand) {
+                        const Decl* owner = lower_vla_owner(
+                            expression->unary_operand);
+                        (void)lower_vla_saved_byte_extent(
+                            context, owner, measured_type, &size_value);
+                    }
+                    if (!size_value.valid &&
+                        measured_type->kind == TYPE_ARRAY) {
+                        RccIrLowerVlaAllocation temporary_allocation;
+                        memset(&temporary_allocation, 0,
+                               sizeof(temporary_allocation));
+                        size_value = lower_supported_vla_byte_size(
+                            context, measured_type, &temporary_allocation);
+                        lower_release_vla_dimensions(
+                            temporary_allocation.dimensions);
+                    } else if (!size_value.valid &&
+                               measured_type->size > 0) {
+                        size_value = lower_integer_constant(
+                            context, size_type, true,
+                            (uint64_t)measured_type->size);
+                    }
+                    if (!size_value.valid) {
+                        context->unsupported = true;
+                        return lower_invalid_value();
+                    }
+                    return lower_cast(
+                        context, size_value, expression->type);
+                }
+            }
             if (!expr_eval_integer_constant((Expr*)expression, &constant) ||
                 !lower_type(expression->type, &type)) {
                 context->unsupported = true;
@@ -22686,6 +22767,226 @@ static bool lower_supported_vla_pointer_declaration(
         !declaration->var_cleanup && !declaration->var_cleanups;
 }
 
+static RccIrLowerVlaBoundCapture* lower_find_vla_bound_capture(
+    RccIrLowerContext* context, const Expr* expression) {
+    for (RccIrLowerVlaBoundCapture* capture =
+             context ? context->vla_bound_captures : NULL;
+         capture; capture = capture->next) {
+        if (capture->expression == expression) return capture;
+    }
+    return NULL;
+}
+
+static RccIrLowerValue lower_load_vla_bound_capture(
+    RccIrLowerContext* context, RccIrLowerVlaBoundCapture* capture) {
+    RccIrType size_type = rcc_ir_type_integer(
+        (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
+    RccIrInstruction* load;
+    if (!context || !capture || capture->address == RCC_IR_VALUE_NONE) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    load = lower_append(context, RCC_IR_LOAD, size_type,
+                        &capture->address, 1u, NULL, 0u);
+    return load ? lower_value(load->result, size_type, true)
+                : lower_invalid_value();
+}
+
+static bool lower_store_vla_bound_capture(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerValue value, bool typedef_capture) {
+    RccIrLowerVlaBoundCapture* capture;
+    RccIrInstruction* allocation;
+    RccIrType size_type = rcc_ir_type_integer(
+        (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
+    unsigned size_bytes = size_type.bit_width / 8u;
+    if (!context || !expression || !value.valid ||
+        !rcc_ir_type_equal(value.type, size_type)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    capture = lower_find_vla_bound_capture(context, expression);
+    if (!capture) {
+        allocation = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!allocation) return false;
+        rcc_ir_set_immediate(allocation, size_bytes);
+        allocation->alignment = size_bytes;
+        capture = rcc_alloc(sizeof(*capture));
+        capture->expression = expression;
+        capture->address = allocation->result;
+        capture->typedef_capture = typedef_capture;
+        capture->next = context->vla_bound_captures;
+        context->vla_bound_captures = capture;
+    } else if (typedef_capture) {
+        capture->typedef_capture = true;
+    }
+    return lower_store_address(
+        context,
+        lower_value(capture->address, rcc_ir_type_pointer(0u), true),
+        value);
+}
+
+static RccIrLowerValue lower_evaluate_vla_bound(
+    RccIrLowerContext* context, const Expr* expression,
+    bool capture_if_shared, bool typedef_capture) {
+    Type* size_ast_type = g_opts.target_arch == ARCH_X64
+        ? type_ulong : type_uint;
+    RccIrLowerVlaBoundCapture* capture;
+    RccIrLowerValue value;
+    if (!context || !expression) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    capture = lower_find_vla_bound_capture(context, expression);
+    if (capture) return lower_load_vla_bound_capture(context, capture);
+    value = lower_expression(context, expression);
+    value = lower_cast(context, value, size_ast_type);
+    if (!value.valid) return lower_invalid_value();
+    if (typedef_capture || capture_if_shared ||
+        expression->c_vla_shared_typeof_bound) {
+        if (!lower_store_vla_bound_capture(
+                context, expression, value, typedef_capture)) {
+            return lower_invalid_value();
+        }
+    }
+    return value;
+}
+
+static bool lower_capture_typedef_vla_bounds(
+    RccIrLowerContext* context, Type* type, bool inherited_typeof) {
+    inherited_typeof = inherited_typeof ||
+                       (type && type->c_typeof_operand_type != NULL);
+    if (!type) return true;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        if (!lower_capture_typedef_vla_bounds(
+                context, type->base, inherited_typeof)) {
+            return false;
+        }
+    } else if (type->kind == TYPE_FUNC) {
+        if (!lower_capture_typedef_vla_bounds(
+                context, type->ret_type, inherited_typeof)) {
+            return false;
+        }
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (!lower_capture_typedef_vla_bounds(
+                    context, parameter->type, inherited_typeof)) {
+                return false;
+            }
+        }
+    }
+    if (!inherited_typeof && type->kind == TYPE_ARRAY && type->array_bound) {
+        RccIrLowerValue bound = lower_evaluate_vla_bound(
+            context, type->array_bound, false, true);
+        if (!bound.valid) return false;
+    }
+    return true;
+}
+
+static bool lower_evaluate_vla_type_bounds_impl(
+    RccIrLowerContext* context, const Type* type,
+    bool inherited_typeof, bool capture_runtime_bounds) {
+    RccIrLowerVlaBoundCapture* capture;
+    RccIrLowerValue value;
+    inherited_typeof = inherited_typeof ||
+                       (type && type->c_typeof_operand_type != NULL);
+    if (!type) return true;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        if (!lower_evaluate_vla_type_bounds_impl(
+                context, type->base, inherited_typeof,
+                capture_runtime_bounds)) {
+            return false;
+        }
+    } else if (type->kind == TYPE_FUNC) {
+        if (!lower_evaluate_vla_type_bounds_impl(
+                context, type->ret_type, inherited_typeof,
+                capture_runtime_bounds)) {
+            return false;
+        }
+        for (const TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (!lower_evaluate_vla_type_bounds_impl(
+                    context, parameter->type, inherited_typeof,
+                    capture_runtime_bounds)) {
+                return false;
+            }
+        }
+    }
+    if (inherited_typeof || type->kind != TYPE_ARRAY || !type->array_bound) {
+        return true;
+    }
+    capture = lower_find_vla_bound_capture(
+        context, type->array_bound);
+    if (capture && capture->typedef_capture) {
+        value = lower_load_vla_bound_capture(context, capture);
+        return value.valid;
+    }
+    if (capture_runtime_bounds) {
+        Type* size_ast_type = g_opts.target_arch == ARCH_X64
+            ? type_ulong : type_uint;
+        value = lower_expression(context, type->array_bound);
+        value = lower_cast(context, value, size_ast_type);
+        if (!value.valid ||
+            !lower_store_vla_bound_capture(
+                context, type->array_bound, value, false)) {
+            return false;
+        }
+        return true;
+    }
+    value = lower_evaluate_vla_bound(
+        context, type->array_bound,
+        type->array_bound->c_vla_shared_typeof_bound,
+        false);
+    return value.valid;
+}
+
+static bool lower_evaluate_vla_type_bounds(
+    RccIrLowerContext* context, const Type* type,
+    bool capture_runtime_bounds) {
+    return lower_evaluate_vla_type_bounds_impl(
+        context, type, false, capture_runtime_bounds);
+}
+
+static bool lower_typeof_runtime_evaluations(
+    RccIrLowerContext* context, Type* type) {
+    if (!context || !type) return context != NULL;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        if (!lower_typeof_runtime_evaluations(context, type->base)) {
+            return false;
+        }
+    } else if (type->kind == TYPE_FUNC) {
+        if (!lower_typeof_runtime_evaluations(context, type->ret_type)) {
+            return false;
+        }
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (!lower_typeof_runtime_evaluations(
+                    context, parameter->type)) {
+                return false;
+            }
+        }
+    }
+    if (type->c_typeof_runtime_expression &&
+        !type->c_typeof_runtime_expression
+             ->c_typeof_runtime_evaluation_emitted) {
+        bool was_capturing = context->capture_typeof_vla_bounds;
+        RccIrLowerValue result;
+        type->c_typeof_runtime_expression
+            ->c_typeof_runtime_evaluation_emitted = true;
+        context->capture_typeof_vla_bounds = true;
+        result = lower_expression(
+            context, type->c_typeof_runtime_expression);
+        context->capture_typeof_vla_bounds = was_capturing;
+        if (!result.valid) return false;
+    }
+    return !context->unsupported;
+}
+
 static RccIrLowerValue lower_supported_vla_byte_size(
     RccIrLowerContext* context, const Type* type,
     RccIrLowerVlaAllocation* allocation) {
@@ -22710,8 +23011,9 @@ static RccIrLowerValue lower_supported_vla_byte_size(
             context, size_type, true, (uint64_t)type->base->size);
     }
     if (type->array_bound) {
-        bound = lower_expression(context, type->array_bound);
-        bound = lower_cast(context, bound, x64 ? type_ulong : type_uint);
+        bound = lower_evaluate_vla_bound(
+            context, type->array_bound,
+            type->array_bound->c_vla_shared_typeof_bound, false);
     } else {
         bound = lower_integer_constant(
             context, size_type, true, (uint64_t)type->array_len);
@@ -22966,7 +23268,16 @@ static bool lower_declaration(RccIrLowerContext* context,
      * them out of the value-local path instead of treating them as an
      * unsupported object and sending a malformed function to the verified
      * backend. */
+    if (declaration->kind == DECL_TYPEDEF) {
+        return lower_typeof_runtime_evaluations(
+                   context, declaration->typedef_type) &&
+            lower_capture_typedef_vla_bounds(
+                context, declaration->typedef_type, false);
+    }
     if (declaration->kind != DECL_VAR) return true;
+    if (!lower_typeof_runtime_evaluations(context, declaration->type)) {
+        return false;
+    }
     if (declaration->var_is_static_local) {
         if (lower_static_local_dynamic_scalar_supported(declaration) &&
             !is_aggregate) {
@@ -24599,6 +24910,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         lower_release_scratch(context.allocated_scratch);
         lower_release_scope_cleanups(context.allocated_scope_cleanups);
         lower_release_vla_allocations(context.allocated_vla_allocations);
+        lower_release_vla_bound_captures(context.vla_bound_captures);
         lower_release_locals(context.locals);
         lower_release_labels(context.labels);
         rcc_ir_module_destroy(module);
@@ -24613,6 +24925,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
             lower_release_scratch(context.allocated_scratch);
             lower_release_scope_cleanups(context.allocated_scope_cleanups);
             lower_release_vla_allocations(context.allocated_vla_allocations);
+            lower_release_vla_bound_captures(context.vla_bound_captures);
             lower_release_locals(context.locals);
             lower_release_labels(context.labels);
             rcc_ir_module_destroy(module);
@@ -24627,6 +24940,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
             lower_release_scratch(context.allocated_scratch);
             lower_release_scope_cleanups(context.allocated_scope_cleanups);
             lower_release_vla_allocations(context.allocated_vla_allocations);
+            lower_release_vla_bound_captures(context.vla_bound_captures);
             lower_release_locals(context.locals);
             lower_release_labels(context.labels);
             rcc_ir_module_destroy(module);
@@ -24637,6 +24951,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     lower_release_scratch(context.allocated_scratch);
     lower_release_scope_cleanups(context.allocated_scope_cleanups);
     lower_release_vla_allocations(context.allocated_vla_allocations);
+    lower_release_vla_bound_captures(context.vla_bound_captures);
     lower_release_locals(context.locals);
     lower_release_labels(context.labels);
     context.labels = NULL;

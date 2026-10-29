@@ -1726,6 +1726,34 @@ test-c23-typeof-type-name: $(RCC_TARGET)
 	gcc -std=c2x -Wall -Wextra -Werror -Wno-vla-parameter -fsyntax-only tests/c23_typeof_prototype_scope.c
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-x86.ro tests/c23_typeof_declarator_evaluation.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -c -o $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-x64.ro tests/c23_typeof_declarator_evaluation.c
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -fverified-backend -v -c \
+		-o $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x86.ro \
+		tests/c23_typeof_declarator_evaluation.c \
+		>$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x86.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+		$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x86.log,0)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -fverified-backend -v -c \
+		-o $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x64.ro \
+		tests/c23_typeof_declarator_evaluation.c \
+		>$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x64.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+		$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x64.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x64-run \
+		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x64-run \
+		--entry $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x64.ro
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-i686-asm \
+		tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-i686-asm \
+		$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x86.ro \
+		$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x86.s
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x86-run,$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -S -o $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation.s tests/c23_typeof_declarator_evaluation.c
 	$(CC) -o $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-rcc-host $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation.s
 	$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-rcc-host

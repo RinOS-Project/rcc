@@ -495,6 +495,21 @@ static uint64_t mir_alloc_class_mask(
     return policy->allocatable_gpr_mask;
 }
 
+static uint64_t mir_alloc_type_mask(
+    const RccMirRegisterPolicy* policy, RccMirRegisterClass register_class,
+    RccMirType type) {
+    uint64_t mask = mir_alloc_class_mask(policy, register_class);
+    /* In 32-bit mode SETcc can write only AL/CL/DL/BL.  The encoder's
+     * register indices for SI/DI do not name byte registers, so keep narrow
+     * integer results in the four byte-addressable GPRs. */
+    if (register_class == RCC_MIR_REGCLASS_GPR &&
+        policy->pointer_size == 4u &&
+        type.kind == RCC_MIR_TYPE_INTEGER && type.bit_width <= 8u) {
+        mask &= UINT64_C(0x0f);
+    }
+    return mask;
+}
+
 static uint64_t mir_alloc_caller_saved_mask(
     const RccMirRegisterPolicy* policy, RccMirRegisterClass register_class) {
     if (register_class == RCC_MIR_REGCLASS_FPR) {
@@ -576,7 +591,8 @@ static bool mir_alloc_linear_scan(
         RccMirVReg current = order[index].reg;
         RccMirLiveInterval interval = allocation->intervals[current];
         RccMirRegisterClass register_class = interval.register_class;
-        uint64_t allowed = mir_alloc_class_mask(policy, register_class);
+        uint64_t allowed = mir_alloc_type_mask(
+            policy, register_class, function->register_types[current]);
         uint64_t used = 0u;
         size_t active_index = 0u;
         size_t spill_candidate = SIZE_MAX;
@@ -730,8 +746,8 @@ static bool mir_alloc_graph_color(
 
     for (reg = 0u; reg < function->register_count; ++reg) {
         RccMirLiveInterval interval = allocation->intervals[reg];
-        uint64_t allowed = mir_alloc_class_mask(
-            policy, interval.register_class);
+        uint64_t allowed = mir_alloc_type_mask(
+            policy, interval.register_class, function->register_types[reg]);
         allocation->locations[reg].kind = RCC_MIR_LOCATION_SPILL;
         allocation->locations[reg].register_class = interval.register_class;
         allocation->locations[reg].physical_register = UINT16_MAX;
@@ -908,8 +924,8 @@ bool rcc_mir_verify_allocation(
     for (left = 0u; left < allocation->register_count; ++left) {
         RccMirLiveInterval interval = allocation->intervals[left];
         RccMirLocation location = allocation->locations[left];
-        uint64_t class_mask = mir_alloc_class_mask(
-            policy, interval.register_class);
+        uint64_t allowed_mask = mir_alloc_type_mask(
+            policy, interval.register_class, function->register_types[left]);
         if (interval.start > interval.end ||
             location.register_class != interval.register_class) {
             return mir_alloc_error(error, error_size,
@@ -922,7 +938,7 @@ bool rcc_mir_verify_allocation(
                                        "MIR physical register is invalid");
             }
             bit = UINT64_C(1) << location.physical_register;
-            if ((class_mask & bit) == 0u ||
+            if ((allowed_mask & bit) == 0u ||
                 (interval.forbidden_physical_mask & bit) != 0u ||
                 (interval.crosses_call &&
                  (mir_alloc_caller_saved_mask(
@@ -1122,7 +1138,6 @@ bool rcc_mir_graph_color_allocate(
         goto cleanup;
     }
     result = true;
-
 cleanup:
     rcc_free(block_starts);
     rcc_free(block_ends);

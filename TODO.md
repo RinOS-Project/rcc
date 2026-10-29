@@ -1772,11 +1772,11 @@
       cleanupを伴うscope退出gotoも対応済み。追加runtime-bound次元などのVLA形式と
       ここで未実装のthrowing/partial-construction cleanup形式は引き続きsubset外。
 - [ ] aggregate/vector/exceptionを含む全frontendのtyped SSA lowering
-  - [ ] Lower C23 variably modified `typeof` expressions and VLA typedef capture
-        into typed SSA. `rcc --target x86_64-unknown-rinos -std=c23
-        -fverified-backend -v -c tests/c23_typeof_declarator_evaluation.c`
-        currently reports `typeof_vla_typedef_capture` outside the subset;
-        require zero fallback and runtime coverage on both target widths.
+  - [x] Lower C23 variably modified `typeof` expressions, VLA typedef-bound
+        capture, cast type-name bounds, and dynamic `sizeof(VLA)` into typed
+        SSA. `test-c23-typeof-type-name` requires five verified functions and
+        zero fallback on i686/AMD64, then executes both objects; the fixture
+        covers single-evaluation and shared typedef bounds.
   - [x] `switch`の`case`ラベルを`while`/`do`/`for`本体内から収集し、通常のswitch
         dispatchとloop backedgeを保ったverified SSA CFGへlowerする。i686/AMD64
         `-O2` emissionとx86_64通常／最適化後実行を回帰検証
