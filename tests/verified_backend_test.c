@@ -4742,6 +4742,7 @@ static void verify_cxx_throwing_temporary_object(
     ObjSymbol* converted_virtual_base_lifetime_symbol;
     ObjSymbol* throwing_initializer_symbol;
     ObjSymbol* reference_bound_partial_aggregate_symbol;
+    ObjSymbol* throwing_cleanup_callback_symbol;
     ObjSymbol* throwing_constructor_symbol;
     ObjSymbol* throwing_base_constructor_symbol;
     ObjSymbol* temporary_cleanup_symbol;
@@ -4767,6 +4768,8 @@ static void verify_cxx_throwing_temporary_object(
         object, "verified_cxx_throwing_initializer_cleanup");
     reference_bound_partial_aggregate_symbol = objfile_find_symbol(
         object, "verified_cxx_reference_bound_partial_aggregate_cleanup");
+    throwing_cleanup_callback_symbol = objfile_find_symbol(
+        object, "verified_cxx_throwing_cleanup_callback");
     throwing_constructor_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_constructor_reference_cleanup");
     throwing_base_constructor_symbol = objfile_find_symbol(
@@ -4805,6 +4808,9 @@ static void verify_cxx_throwing_temporary_object(
            reference_bound_partial_aggregate_symbol != NULL &&
            reference_bound_partial_aggregate_symbol->binding == BIND_CODE &&
            reference_bound_partial_aggregate_symbol->section == 0 &&
+           throwing_cleanup_callback_symbol != NULL &&
+           throwing_cleanup_callback_symbol->binding == BIND_CODE &&
+           throwing_cleanup_callback_symbol->section == 0 &&
            throwing_constructor_symbol != NULL &&
            throwing_constructor_symbol->binding == BIND_CODE &&
            throwing_constructor_symbol->section == 0 &&
@@ -5006,6 +5012,17 @@ static void verify_cxx_throwing_temporary_object(
         assert(integer_argument(7) == 7021);
         assert(integer_argument(8) == 7121);
         assert(integer_argument(9) == 6821);
+        address = symbol_address(memory, throwing_cleanup_callback_symbol);
+        memcpy(&cleanup_order_argument, &address,
+               sizeof(cleanup_order_argument));
+        cleanup_order = 0;
+        result = cleanup_order_argument(&cleanup_order);
+        if (result != 889 || cleanup_order != 9) {
+            fprintf(stderr,
+                    "verified throwing destructor callback returned %d/order %d, expected 889/order 9\n",
+                    result, cleanup_order);
+        }
+        assert(result == 889 && cleanup_order == 9);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

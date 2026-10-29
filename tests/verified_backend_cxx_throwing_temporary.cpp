@@ -234,6 +234,15 @@ struct VerifiedReferenceBoundPartialAggregate {
     VerifiedPotentiallyThrowingBase pending;
 };
 
+struct VerifiedPotentiallyThrowingCleanupCallback {
+    int* cleanup_order;
+
+    ~VerifiedPotentiallyThrowingCleanupCallback() noexcept(false) {
+        *cleanup_order = *cleanup_order * 10 + 9;
+        throw 88;
+    }
+};
+
 struct VerifiedSecondPotentiallyThrowingBase {
     int* cleanup_order;
     int second_value;
@@ -730,6 +739,19 @@ extern "C" int verified_cxx_reference_bound_partial_aggregate_cleanup(
         return exception * 10 + *cleanup_order;
     }
     return result * 100 + *cleanup_order;
+}
+
+extern "C" int verified_cxx_throwing_cleanup_callback(int* cleanup_order) {
+    *cleanup_order = 0;
+    try {
+        {
+            VerifiedPotentiallyThrowingCleanupCallback object{cleanup_order};
+            (void)object;
+        }
+    } catch (int exception) {
+        return exception * 10 + *cleanup_order;
+    }
+    return -1;
 }
 
 extern "C" int verified_cxx_throwing_constructor_reference_cleanup(

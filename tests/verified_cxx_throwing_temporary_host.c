@@ -24,6 +24,8 @@ extern int verified_cxx_throwing_initializer_cleanup(int should_throw)
     RINOS_TEST_ABI;
 extern int verified_cxx_reference_bound_partial_aggregate_cleanup(
     int* cleanup_order, int should_throw) RINOS_TEST_ABI;
+extern int verified_cxx_throwing_cleanup_callback(int* cleanup_order)
+    RINOS_TEST_ABI;
 extern int verified_cxx_throwing_constructor_reference_cleanup(
     int should_throw) RINOS_TEST_ABI;
 extern int verified_cxx_single_throwing_base_constructor(int should_throw)
@@ -239,6 +241,14 @@ int main(void) {
                 "reference-bound partial aggregate completion returned %d/order %d, expected 1318/order 18\n",
                 result, cleanup_order);
         return 27;
+    }
+    cleanup_order = 0;
+    result = verified_cxx_throwing_cleanup_callback(&cleanup_order);
+    if (result != 889 || cleanup_order != 9) {
+        fprintf(stderr,
+                "throwing destructor callback returned %d/order %d, expected 889/order 9\n",
+                result, cleanup_order);
+        return 28;
     }
     return rcc_test_main();
 }

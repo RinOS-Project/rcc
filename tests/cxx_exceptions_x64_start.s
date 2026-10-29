@@ -40,7 +40,7 @@ rin_cpp_exception_object_storage:
 rin_cpp_exception_cleanup_used:
     .quad 0
 rin_cpp_exception_cleanup_storage:
-    .space 1536
+    .space 4096
 .align 8
 rin_exception_test_heap:
     .space 128
@@ -102,7 +102,7 @@ rin_cpp_exception_register_cleanup:
     mov %rax, %r10
     add $24, %r10
     jc 5f
-    cmp $1536, %r10
+    cmp $4096, %r10
     jae 5f
     lea rin_cpp_exception_cleanup_storage(%rip), %r10
     add %rax, %r10

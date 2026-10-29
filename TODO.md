@@ -1886,6 +1886,11 @@
           destruction-order regression passes with 52 functions and zero
           fallback on i686/AMD64 at `-O0`/`-O2`, plus generated AMD64 and
           legacy-host execution in `test-verified-cxx-throwing-temporary`.
+    - [x] Verify a normal scope-exit cleanup whose `noexcept(false)` destructor
+          throws into the surrounding handler exactly once. The
+          `test-verified-cxx-throwing-temporary` gate emits 54 functions with
+          zero fallback on i686/AMD64 at `-O0`/`-O2`; generated AMD64 and
+          legacy-host execution both observe result `889` and cleanup order `9`.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering
