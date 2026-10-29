@@ -714,6 +714,7 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-class-template-member-function-explicit-specialization
 .PHONY: test-cxx-nested-class-template-member-function-explicit-specialization
 .PHONY: test-tls-runtime-posix
+.PHONY: test-floating-math-builtins
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -14059,13 +14060,15 @@ test-initializer-mixed: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/initializer-mixed/x64.ro \
 		tests/initializer_mixed.c
-	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -DRCC_TEST_VERIFIED \
+		-fverified-backend -v -c \
 		-o $(TEST_OUT)/initializer-mixed/verified-x86.ro \
 		tests/initializer_mixed.c \
 		>$(TEST_OUT)/initializer-mixed/verified-x86.log
 	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
 		$(TEST_OUT)/initializer-mixed/verified-x86.log
-	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -DRCC_TEST_VERIFIED \
+		-fverified-backend -v -c \
 		-o $(TEST_OUT)/initializer-mixed/verified-x64.ro \
 		tests/initializer_mixed.c \
 		>$(TEST_OUT)/initializer-mixed/verified-x64.log
@@ -17441,7 +17444,7 @@ test-noreturn: $(RCC_TARGET)
 		$(TEST_OUT)/noreturn/invalid-x64.log
 	@echo "Dual-architecture C17 _Noreturn tests completed"
 
-test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
+test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins
 	$(call MKDIR_P,$(TEST_OUT)/compiler-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/compiler-builtins/c-x86.s tests/compiler_builtins.c
@@ -17588,6 +17591,78 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q "__builtin_add_overflow operands and result must have the same integer width and signedness" \
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	@echo "C/C++ compiler builtin intrinsic tests completed"
+
+test-floating-math-builtins: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/floating-math-builtins)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+		-I../../libs/libc -c \
+		-o $(TEST_OUT)/floating-math-builtins/c-x86.ro \
+		tests/compiler_float_math_builtins.c
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+		-I../../libs/libc -S \
+		-o $(TEST_OUT)/floating-math-builtins/c-x86.s \
+		tests/compiler_float_math_builtins.c
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/floating-math-builtins/c-x86 \
+		$(TEST_OUT)/floating-math-builtins/c-x86.s
+	$(TEST_OUT)/floating-math-builtins/c-x86
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/floating-math-builtins/cxx-x86.ro \
+		tests/compiler_float_math_builtins.cpp
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/floating-math-builtins/cxx-x86.s \
+		tests/compiler_float_math_builtins.cpp
+	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
+		-o $(TEST_OUT)/floating-math-builtins/cxx-x86 \
+		$(TEST_OUT)/floating-math-builtins/cxx-x86.s
+	$(TEST_OUT)/floating-math-builtins/cxx-x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-I../../libs/libc -S \
+		-o $(TEST_OUT)/floating-math-builtins/c-x64.s \
+		tests/compiler_float_math_builtins.c
+	$(CC) -no-pie -o $(TEST_OUT)/floating-math-builtins/c-x64 \
+		$(TEST_OUT)/floating-math-builtins/c-x64.s
+	$(TEST_OUT)/floating-math-builtins/c-x64
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/floating-math-builtins/cxx-x64.s \
+		tests/compiler_float_math_builtins.cpp
+	$(CC) -no-pie -o $(TEST_OUT)/floating-math-builtins/cxx-x64 \
+		$(TEST_OUT)/floating-math-builtins/cxx-x64.s
+	$(TEST_OUT)/floating-math-builtins/cxx-x64
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -DRCC_TEST_VERIFIED \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/floating-math-builtins/c-verified-x86.ro \
+		tests/compiler_float_math_builtins_verified.c \
+		>$(TEST_OUT)/floating-math-builtins/c-verified-x86.log 2>&1
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/floating-math-builtins/c-verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/floating-math-builtins/c-verified-x86.log,0)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -DRCC_TEST_VERIFIED \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/floating-math-builtins/c-verified-x64.ro \
+		tests/compiler_float_math_builtins.c \
+		>$(TEST_OUT)/floating-math-builtins/c-verified-x64.log 2>&1
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/floating-math-builtins/c-verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/floating-math-builtins/c-verified-x64.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/floating-math-builtins/cxx-verified-x64.ro \
+		tests/compiler_float_math_builtins.cpp \
+		>$(TEST_OUT)/floating-math-builtins/cxx-verified-x64.log 2>&1
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/floating-math-builtins/cxx-verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/floating-math-builtins/cxx-verified-x64.log,0)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/floating-math-builtins/invalid.ro tests/invalid_float_math_builtins.c,$(TEST_OUT)/floating-math-builtins/invalid.log)
+	$(GREP) -F -q '__builtin_isnan argument must have floating type' \
+		$(TEST_OUT)/floating-math-builtins/invalid.log
+	$(GREP) -F -q '__builtin_copysign expects 2 arguments, got 1' \
+		$(TEST_OUT)/floating-math-builtins/invalid.log
+	$(GREP) -F -q '__builtin_fpclassify class values must have integer type' \
+		$(TEST_OUT)/floating-math-builtins/invalid.log
+	$(GREP) -F -q '__builtin_fpclassify value must have floating type' \
+		$(TEST_OUT)/floating-math-builtins/invalid.log
+	@echo "C/C++ floating math builtins pass legacy runtime and typed IR lowering"
 
 ifeq ($(OS),Windows_NT)
 test-cxx-const-cast: $(RCXX_TARGET)

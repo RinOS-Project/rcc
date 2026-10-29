@@ -741,6 +741,282 @@ static void emit64_mov_gpr_from_xmm(Module* mod, int gpr, int xmm,
     emit_byte(mod, modrm64(3, xmm, gpr));
 }
 
+static Expr* call64_argument(Expr* call, int index);
+static void gen64_expr(Module* mod, Expr* expr);
+static void emit64_label(Module* mod, int label);
+static void emit64_jmp_label(Module* mod, int label);
+static void emit64_jcc_label(Module* mod, int cc, int label);
+
+static int gen64_float_math_builtin_kind(const char* name) {
+    if (!name) return 0;
+    if (strcmp(name, "__builtin_fpclassify") == 0) return 12;
+    if (strcmp(name, "__builtin_isnan") == 0) return 1;
+    if (strcmp(name, "__builtin_isinf") == 0) return 2;
+    if (strcmp(name, "__builtin_isfinite") == 0) return 3;
+    if (strcmp(name, "__builtin_isnormal") == 0) return 4;
+    if (strcmp(name, "__builtin_signbit") == 0) return 5;
+    if (strcmp(name, "__builtin_copysign") == 0 ||
+        strcmp(name, "__builtin_copysignf") == 0 ||
+        strcmp(name, "__builtin_copysignl") == 0) return 6;
+    if (strcmp(name, "__builtin_floor") == 0 ||
+        strcmp(name, "__builtin_floorf") == 0 ||
+        strcmp(name, "__builtin_floorl") == 0) return 7;
+    if (strcmp(name, "__builtin_ceil") == 0 ||
+        strcmp(name, "__builtin_ceilf") == 0 ||
+        strcmp(name, "__builtin_ceill") == 0) return 8;
+    if (strcmp(name, "__builtin_round") == 0 ||
+        strcmp(name, "__builtin_roundf") == 0 ||
+        strcmp(name, "__builtin_roundl") == 0) return 9;
+    if (strcmp(name, "__builtin_trunc") == 0 ||
+        strcmp(name, "__builtin_truncf") == 0 ||
+        strcmp(name, "__builtin_truncl") == 0) return 10;
+    if (strcmp(name, "__builtin_rint") == 0 ||
+        strcmp(name, "__builtin_rintf") == 0 ||
+        strcmp(name, "__builtin_rintl") == 0) return 11;
+    return 0;
+}
+
+static bool gen64_float_math_builtin(Module* mod, Expr* expr) {
+    Expr* first;
+    Expr* second;
+    const char* name;
+    int kind;
+    int width;
+    if (!expr || expr->kind != EXPR_CALL || !expr->call_func ||
+        expr->call_func->kind != EXPR_IDENT ||
+        !expr->call_func->ident_name) return false;
+    name = expr->call_func->ident_name;
+    kind = gen64_float_math_builtin_kind(name);
+    if (!kind) return false;
+    first = call64_argument(expr, 0);
+    second = call64_argument(expr, 1);
+    width = first && first->type && first->type->size == 4 ? 4 : 8;
+
+    if (kind == 12) {
+        int64_t class_value[5] = {0, 0, 0, 0, 0};
+        int index;
+        int special = new_label64();
+        int nan = new_label64();
+        int zero = new_label64();
+        int subnormal = new_label64();
+        int done = new_label64();
+        Expr* floating = call64_argument(expr, 5);
+        for (index = 0; index < 5; ++index) {
+            if (!expr_eval_integer_constant(
+                    call64_argument(expr, index), &class_value[index])) {
+                rcc_error(expr->loc,
+                          "__builtin_fpclassify class values must be integer constants");
+                class_value[index] = 0;
+            }
+        }
+        width = floating && floating->type && floating->type->size == 4
+            ? 4 : 8;
+        gen64_expr(mod, floating);
+        if (width == 4) {
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_shr_reg_imm32(mod, RCX, 23);
+            emit64_and_reg_imm32(mod, RCX, 0xffu);
+            emit64_cmp_reg_imm(mod, RCX, 0xff);
+            emit64_jcc_label(mod, CC64_E, special);
+            emit64_cmp_reg_imm(mod, RCX, 0);
+            emit64_jcc_label(mod, CC64_E, zero);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)class_value[2]);
+            emit64_jmp_label(mod, done);
+            emit64_label(mod, special);
+            emit64_mov_reg_reg(mod, RDX, RAX);
+            emit64_and_reg_imm32(mod, RDX, UINT32_C(0x007fffff));
+            emit64_test_reg_reg(mod, RDX, RDX);
+            emit64_jcc_label(mod, CC64_NE, nan);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)class_value[1]);
+            emit64_jmp_label(mod, done);
+            emit64_label(mod, nan);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)class_value[0]);
+            emit64_jmp_label(mod, done);
+            emit64_label(mod, zero);
+            emit64_mov_reg_reg(mod, RDX, RAX);
+            emit64_and_reg_imm32(mod, RDX, UINT32_C(0x007fffff));
+            emit64_test_reg_reg(mod, RDX, RDX);
+            emit64_jcc_label(mod, CC64_NE, subnormal);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)class_value[4]);
+            emit64_jmp_label(mod, done);
+            emit64_label(mod, subnormal);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)class_value[3]);
+            emit64_label(mod, done);
+        } else {
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_shr_reg_imm(mod, RCX, 52);
+            emit64_and_reg_imm32(mod, RCX, 0x7ffu);
+            emit64_cmp_reg_imm(mod, RCX, 0x7ff);
+            emit64_jcc_label(mod, CC64_E, special);
+            emit64_cmp_reg_imm(mod, RCX, 0);
+            emit64_jcc_label(mod, CC64_E, zero);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)class_value[2]);
+            emit64_jmp_label(mod, done);
+            emit64_label(mod, special);
+            emit64_mov_reg_reg(mod, RDX, RAX);
+            emit64_mov_reg_imm64(
+                mod, R8, UINT64_C(0x000fffffffffffff));
+            emit64_and_reg_reg(mod, RDX, R8);
+            emit64_test_reg_reg(mod, RDX, RDX);
+            emit64_jcc_label(mod, CC64_NE, nan);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)class_value[1]);
+            emit64_jmp_label(mod, done);
+            emit64_label(mod, nan);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)class_value[0]);
+            emit64_jmp_label(mod, done);
+            emit64_label(mod, zero);
+            emit64_mov_reg_reg(mod, RDX, RAX);
+            emit64_mov_reg_imm64(
+                mod, R8, UINT64_C(0x000fffffffffffff));
+            emit64_and_reg_reg(mod, RDX, R8);
+            emit64_test_reg_reg(mod, RDX, RDX);
+            emit64_jcc_label(mod, CC64_NE, subnormal);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)class_value[4]);
+            emit64_jmp_label(mod, done);
+            emit64_label(mod, subnormal);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)class_value[3]);
+            emit64_label(mod, done);
+        }
+        return true;
+    }
+
+    if (kind >= 1 && kind <= 5) {
+        uint32_t exponent;
+        gen64_expr(mod, first);
+        if (width == 4) {
+            if (kind == 5) {
+                emit64_shr_reg_imm32(mod, RAX, 31);
+                return true;
+            }
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_shr_reg_imm32(mod, RCX, 23);
+            emit64_and_reg_imm32(mod, RCX, 0xffu);
+            exponent = 0xffu;
+        } else {
+            if (kind == 5) {
+                emit64_shr_reg_imm(mod, RAX, 63);
+                return true;
+            }
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_shr_reg_imm(mod, RCX, 52);
+            emit64_and_reg_imm32(mod, RCX, 0x7ffu);
+            exponent = 0x7ffu;
+        }
+        if (kind == 3) {
+            emit64_cmp_reg_imm(mod, RCX, (int32_t)exponent);
+            emit64_setcc(mod, CC64_NE, RAX);
+            emit64_movzx_r64_r8(mod, RAX, RAX);
+        } else if (kind == 4) {
+            emit64_cmp_reg_imm(mod, RCX, 0);
+            emit64_setcc(mod, CC64_NE, RAX);
+            emit64_movzx_r64_r8(mod, RAX, RAX);
+            emit64_cmp_reg_imm(mod, RCX, (int32_t)exponent);
+            emit64_setcc(mod, CC64_NE, RDX);
+            emit64_movzx_r64_r8(mod, RDX, RDX);
+            emit64_and_reg_reg(mod, RAX, RDX);
+        } else {
+            int not_special = new_label64();
+            int done = new_label64();
+            emit64_cmp_reg_imm(mod, RCX, (int32_t)exponent);
+            emit64_jcc_label(mod, CC64_NE, not_special);
+            if (width == 4) {
+                emit64_mov_reg_reg(mod, RDX, RAX);
+                emit64_and_reg_imm32(mod, RDX, UINT32_C(0x007fffff));
+            } else {
+                emit64_mov_reg_reg(mod, RDX, RAX);
+                emit64_mov_reg_imm64(
+                    mod, R8, UINT64_C(0x000fffffffffffff));
+                emit64_and_reg_reg(mod, RDX, R8);
+            }
+            emit64_test_reg_reg(mod, RDX, RDX);
+            emit64_setcc(mod, kind == 1 ? CC64_NE : CC64_E, RAX);
+            emit64_movzx_r64_r8(mod, RAX, RAX);
+            emit64_jmp_label(mod, done);
+            emit64_label(mod, not_special);
+            emit64_mov_reg_imm32(mod, RAX, 0u);
+            emit64_label(mod, done);
+        }
+        return true;
+    }
+
+    if (kind == 6) {
+        gen64_expr(mod, first);
+        emit64_sub_reg_imm(mod, RSP, 8);
+        emit64_store_memory_operand_width(mod, RAX, RSP, 0, width);
+        gen64_expr(mod, second);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_shr_reg_imm(mod, RCX, width == 4 ? 31 : 63);
+        emit64_and_reg_imm32(mod, RCX, 1u);
+        emit64_shl_reg_imm(mod, RCX, width == 4 ? 31 : 63);
+        emit64_memory_operand_width(mod, RAX, RSP, 0, width);
+        if (width == 4) {
+            emit64_and_reg_imm32(mod, RAX, UINT32_C(0x7fffffff));
+        } else {
+            emit64_mov_reg_imm64(
+                mod, RDX, UINT64_C(0x7fffffffffffffff));
+            emit64_and_reg_reg(mod, RAX, RDX);
+        }
+        emit64_or_reg_reg(mod, RAX, RCX);
+        emit64_add_reg_imm(mod, RSP, 8);
+        return true;
+    }
+
+    /* Use x87 FRNDINT so the operation is independent of SSE4.1. Keep the
+     * input/output in a private stack slot and restore the caller's control
+     * word on every normal path. */
+    gen64_expr(mod, first);
+    emit64_sub_reg_imm(mod, RSP, 24);
+    emit64_store_memory_operand_width(mod, RAX, RSP, 8, width);
+    emit64_mov_reg_imm64(mod, RDX, 0u);
+    emit64_mov_mem_reg(mod, RSP, 0, RDX);
+    emit_byte(mod, 0xD9); emit64_memory_operand(mod, 7, RSP, 0); /* FNSTCW */
+    emit64_memory_operand_width(mod, RAX, RSP, 0, 2);
+    emit_byte(mod, 0x66); emit_byte(mod, 0x25);
+    emit_byte(mod, 0xff); emit_byte(mod, 0xf3); /* AND AX, 0xf3ff */
+    emit_byte(mod, 0x66); emit_byte(mod, 0x0d);
+    {
+        uint16_t rounding = (uint16_t)(kind == 7 ? 0x0400 :
+            kind == 8 ? 0x0800 : 0x0c00);
+        emit_byte(mod, (uint8_t)rounding);
+        emit_byte(mod, (uint8_t)(rounding >> 8));
+    }
+    emit64_store_memory_operand_width(mod, RAX, RSP, 2, 2);
+    if (kind != 11) {
+        emit_byte(mod, 0xD9);
+        emit64_memory_operand(mod, 5, RSP, 2); /* FLDCW */
+    }
+    if (kind == 9) {
+        if (width == 4) emit64_mov_reg_imm32(mod, RAX, 0x3f000000u);
+        else emit64_mov_reg_imm64(mod, RAX, UINT64_C(0x3fe0000000000000));
+        emit64_store_memory_operand_width(mod, RAX, RSP, 16, width);
+    }
+    emit_byte(mod, width == 4 ? 0xD9 : 0xDD);
+    emit64_memory_operand(mod, 0, RSP, 8); /* FLD input */
+    if (kind == 9) {
+        emit_byte(mod, 0xD9); emit_byte(mod, 0xE1); /* FABS */
+        emit_byte(mod, width == 4 ? 0xD8 : 0xDC);
+        emit64_memory_operand(mod, 0, RSP, 16); /* FADD 0.5 */
+    }
+    emit_byte(mod, 0xD9); emit_byte(mod, 0xFC); /* FRNDINT */
+    if (kind == 9) {
+        emit64_memory_operand_width(mod, RCX, RSP, 8, width);
+        emit64_shr_reg_imm(mod, RCX, width == 4 ? 31 : 63);
+        emit64_test_reg_reg(mod, RCX, RCX);
+        {
+            int positive = new_label64();
+            emit64_jcc_label(mod, CC64_E, positive);
+            emit_byte(mod, 0xD9); emit_byte(mod, 0xE0); /* FCHS */
+            emit64_label(mod, positive);
+        }
+    }
+    emit_byte(mod, width == 4 ? 0xD9 : 0xDD);
+    emit64_memory_operand(mod, 3, RSP, 8); /* FSTP output */
+    emit_byte(mod, 0xD9); emit64_memory_operand(mod, 5, RSP, 0); /* FLDCW */
+    emit64_memory_operand_width(mod, RAX, RSP, 8, width);
+    emit64_add_reg_imm(mod, RSP, 24);
+    return true;
+}
+
 static void emit64_mov_xmm_from_memory(Module* mod, int xmm, int base,
                                        int32_t disp, int width) {
     emit_byte(mod, width == 4 ? 0xF3 : 0xF2);
@@ -3124,6 +3400,7 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
         return false;
     }
     function = expr->call_func;
+    if (gen64_float_math_builtin(mod, expr)) return true;
     if (strcmp(function->ident_name, "__builtin_choose_expr") == 0) {
         int64_t condition = 0;
         Expr* condition_expression = call64_argument(expr, 0);
@@ -8337,10 +8614,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             } else if (gen64_is_floating(expr->type)) {
                 int width = gen64_float_width(expr->type);
                 gen64_expr(mod, expr->unary_operand);
-                emit64_mov_xmm_from_gpr(mod, 1, RAX, width);
-                emit64_sse_xor(mod, 0, 0, width);
-                emit64_sse_binary(mod, 0x5C, 0, 1, width);
-                emit64_mov_gpr_from_xmm(mod, RAX, 0, width);
+                emit64_mov_reg_imm64(
+                    mod, RDX, width == 4
+                        ? UINT64_C(0x80000000)
+                        : UINT64_C(0x8000000000000000));
+                emit64_xor_reg_reg(mod, RAX, RDX);
             } else {
                 gen64_expr(mod, expr->unary_operand);
                 emit64_neg_reg(mod, RAX);

@@ -12271,6 +12271,471 @@ static RccIrLowerValue lower_sync_lock_release_call(
     }
 }
 
+static RccIrLowerValue lower_float_builtin_op(
+    RccIrLowerContext* context, RccIrOpcode opcode, RccIrType type,
+    const RccIrValue* operands, size_t operand_count) {
+    RccIrInstruction* instruction = lower_append(
+        context, opcode, type, operands, operand_count, NULL, 0u);
+    return instruction
+        ? lower_value(instruction->result, type, true)
+        : lower_invalid_value();
+}
+
+static RccIrLowerValue lower_float_builtin_constant(
+    RccIrLowerContext* context, RccIrType type, uint64_t value) {
+    return lower_integer_constant(context, type, true, value);
+}
+
+static RccIrLowerValue lower_float_builtin_binary(
+    RccIrLowerContext* context, RccIrOpcode opcode, RccIrType type,
+    RccIrLowerValue left, RccIrLowerValue right) {
+    RccIrValue operands[2];
+    if (!left.valid || !right.valid) return lower_invalid_value();
+    operands[0] = left.value;
+    operands[1] = right.value;
+    return lower_float_builtin_op(
+        context, opcode, type, operands, 2u);
+}
+
+static RccIrLowerValue lower_float_builtin_select(
+    RccIrLowerContext* context, RccIrType type,
+    RccIrLowerValue condition, RccIrLowerValue when_true,
+    RccIrLowerValue when_false) {
+    RccIrValue operands[3];
+    if (!condition.valid || !when_true.valid || !when_false.valid) {
+        return lower_invalid_value();
+    }
+    operands[0] = condition.value;
+    operands[1] = when_true.value;
+    operands[2] = when_false.value;
+    return lower_float_builtin_op(
+        context, RCC_IR_SELECT, type, operands, 3u);
+}
+
+static RccIrLowerValue lower_float_builtin_compare(
+    RccIrLowerContext* context, RccIrIntPredicate predicate,
+    RccIrType integer_type, RccIrLowerValue left,
+    RccIrLowerValue right) {
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    (void)integer_type;
+    if (!left.valid || !right.valid) return lower_invalid_value();
+    operands[0] = left.value;
+    operands[1] = right.value;
+    instruction = lower_append(
+        context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+        operands, 2u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    rcc_ir_set_predicate(instruction, predicate);
+    return lower_value(instruction->result,
+                       rcc_ir_type_integer(1u), true);
+}
+
+static RccIrLowerValue lower_float_builtin_bitcast(
+    RccIrLowerContext* context, RccIrLowerValue source,
+    RccIrType destination_type) {
+    if (!source.valid) return lower_invalid_value();
+    return lower_float_builtin_op(
+        context, RCC_IR_BITCAST, destination_type, &source.value, 1u);
+}
+
+static bool lower_float_math_builtin_call(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerValue* result) {
+    const char* name;
+    const Expr* function;
+    const Expr* first_expression;
+    const Expr* second_expression;
+    const Expr* floating_expression;
+    int kind = 0;
+    RccIrType float_type;
+    RccIrType integer_type;
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrLowerValue input;
+    RccIrLowerValue raw;
+    RccIrLowerValue zero;
+    RccIrLowerValue one;
+    RccIrLowerValue exponent;
+    RccIrLowerValue sign;
+    RccIrLowerValue absolute;
+    uint16_t width;
+    unsigned mantissa_bits;
+    unsigned exponent_bits;
+    unsigned bias;
+    uint64_t sign_mask;
+    uint64_t fraction_mask;
+    uint64_t exponent_value_mask;
+
+    if (!context || !expression || expression->kind != EXPR_CALL ||
+        !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        !expression->call_func->ident_name) return false;
+    function = expression->call_func;
+    name = function->ident_name;
+    if (strcmp(name, "__builtin_isnan") == 0) kind = 1;
+    else if (strcmp(name, "__builtin_isinf") == 0) kind = 2;
+    else if (strcmp(name, "__builtin_isfinite") == 0) kind = 3;
+    else if (strcmp(name, "__builtin_isnormal") == 0) kind = 4;
+    else if (strcmp(name, "__builtin_signbit") == 0) kind = 5;
+    else if (strcmp(name, "__builtin_copysign") == 0 ||
+             strcmp(name, "__builtin_copysignf") == 0 ||
+             strcmp(name, "__builtin_copysignl") == 0) kind = 6;
+    else if (strcmp(name, "__builtin_floor") == 0 ||
+             strcmp(name, "__builtin_floorf") == 0 ||
+             strcmp(name, "__builtin_floorl") == 0) kind = 7;
+    else if (strcmp(name, "__builtin_ceil") == 0 ||
+             strcmp(name, "__builtin_ceilf") == 0 ||
+             strcmp(name, "__builtin_ceill") == 0) kind = 8;
+    else if (strcmp(name, "__builtin_round") == 0 ||
+             strcmp(name, "__builtin_roundf") == 0 ||
+             strcmp(name, "__builtin_roundl") == 0) kind = 9;
+    else if (strcmp(name, "__builtin_trunc") == 0 ||
+             strcmp(name, "__builtin_truncf") == 0 ||
+             strcmp(name, "__builtin_truncl") == 0) kind = 10;
+    else if (strcmp(name, "__builtin_rint") == 0 ||
+             strcmp(name, "__builtin_rintf") == 0 ||
+             strcmp(name, "__builtin_rintl") == 0) kind = 11;
+    else if (strcmp(name, "__builtin_fpclassify") == 0) kind = 12;
+    else return false;
+
+    first_expression = expression->call_args
+        ? expression->call_args->expr : NULL;
+    second_expression = expression->call_args &&
+            expression->call_args->next
+        ? expression->call_args->next->expr : NULL;
+    floating_expression = kind == 12
+        ? (expression->call_args && expression->call_args->next &&
+           expression->call_args->next->next &&
+           expression->call_args->next->next->next &&
+           expression->call_args->next->next->next->next &&
+           expression->call_args->next->next->next->next->next
+            ? expression->call_args->next->next->next->next->next->expr
+            : NULL)
+        : first_expression;
+    if (!floating_expression || !floating_expression->type ||
+        (floating_expression->type->kind != TYPE_FLOAT &&
+         floating_expression->type->kind != TYPE_DOUBLE) ||
+        !lower_type(floating_expression->type, &float_type) ||
+        float_type.kind != RCC_IR_TYPE_FLOAT ||
+        (float_type.bit_width != 32u && float_type.bit_width != 64u)) {
+        context->unsupported = true;
+        return true;
+    }
+    width = float_type.bit_width;
+    /* i686 MIR has no native 64-bit integer value. Reinterpreting a double
+     * as an integer here would create an invalid single-register result;
+     * leave this operation to the working x87 lowering until the IR can
+     * represent a two-word bitcast. */
+    if (g_opts.target_arch == ARCH_X86 && width == 64u) {
+        context->unsupported = true;
+        return true;
+    }
+    integer_type = rcc_ir_type_integer(width);
+    mantissa_bits = width == 32u ? 23u : 52u;
+    exponent_bits = width == 32u ? 8u : 11u;
+    bias = width == 32u ? 127u : 1023u;
+    sign_mask = width == 32u
+        ? UINT64_C(0x80000000) : UINT64_C(0x8000000000000000);
+    fraction_mask = width == 32u
+        ? UINT64_C(0x007fffff) : UINT64_C(0x000fffffffffffff);
+    exponent_value_mask = (UINT64_C(1) << exponent_bits) - 1u;
+
+    input = lower_expression(context, (Expr*)floating_expression);
+    if (!input.valid) return true;
+    raw = lower_float_builtin_bitcast(context, input, integer_type);
+    if (!raw.valid) return true;
+    zero = lower_float_builtin_constant(context, integer_type, 0u);
+    one = lower_float_builtin_constant(context, integer_type, 1u);
+    if (!zero.valid || !one.valid) return true;
+    sign = lower_float_builtin_binary(
+        context, RCC_IR_AND, integer_type, raw,
+        lower_float_builtin_constant(context, integer_type, sign_mask));
+    absolute = lower_float_builtin_binary(
+        context, RCC_IR_AND, integer_type, raw,
+        lower_float_builtin_constant(context, integer_type, ~sign_mask));
+    {
+        RccIrLowerValue exponent_field = lower_float_builtin_binary(
+            context, RCC_IR_LSHR, integer_type, raw,
+            lower_float_builtin_constant(
+                context, integer_type, mantissa_bits));
+        exponent = lower_float_builtin_binary(
+            context, RCC_IR_AND, integer_type, exponent_field,
+            lower_float_builtin_constant(
+                context, integer_type, exponent_value_mask));
+    }
+    if (!sign.valid || !absolute.valid || !exponent.valid) return true;
+
+    if (kind >= 1 && kind <= 5) {
+        RccIrLowerValue predicate;
+        RccIrLowerValue exponent_max = lower_float_builtin_constant(
+            context, integer_type, exponent_value_mask);
+        RccIrLowerValue fraction = lower_float_builtin_binary(
+            context, RCC_IR_AND, integer_type, raw,
+            lower_float_builtin_constant(
+                context, integer_type, fraction_mask));
+        if (!exponent_max.valid || !fraction.valid) return true;
+        if (kind == 5) {
+            predicate = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_NE, integer_type, sign, zero);
+        } else if (kind == 3) {
+            predicate = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_NE, integer_type,
+                exponent, exponent_max);
+        } else if (kind == 4) {
+            RccIrLowerValue exponent_nonzero = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_NE, integer_type, exponent, zero);
+            RccIrLowerValue not_special = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_NE, integer_type,
+                exponent, exponent_max);
+            predicate = lower_float_builtin_binary(
+                context, RCC_IR_AND, i1,
+                exponent_nonzero, not_special);
+        } else {
+            RccIrLowerValue special = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_EQ, integer_type,
+                exponent, exponent_max);
+            RccIrLowerValue has_fraction = lower_float_builtin_compare(
+                context, kind == 1 ? RCC_IR_ICMP_NE : RCC_IR_ICMP_EQ,
+                integer_type, fraction, zero);
+            predicate = lower_float_builtin_binary(
+                context, RCC_IR_AND, i1, special, has_fraction);
+        }
+        *result = lower_float_builtin_op(
+            context, RCC_IR_ZEXT, i32, &predicate.value, 1u);
+        return true;
+    }
+
+    if (kind == 6) {
+        RccIrLowerValue other;
+        RccIrLowerValue magnitude;
+        RccIrLowerValue other_sign;
+        RccIrLowerValue combined;
+        if (!second_expression) {
+            context->unsupported = true;
+            return true;
+        }
+        other = lower_expression(context, (Expr*)second_expression);
+        if (!other.valid) return true;
+        other = lower_float_builtin_bitcast(
+            context, other, integer_type);
+        magnitude = lower_float_builtin_binary(
+            context, RCC_IR_AND, integer_type, raw,
+            lower_float_builtin_constant(
+                context, integer_type, ~sign_mask));
+        other_sign = lower_float_builtin_binary(
+            context, RCC_IR_AND, integer_type, other,
+            lower_float_builtin_constant(
+                context, integer_type, sign_mask));
+        combined = lower_float_builtin_binary(
+            context, RCC_IR_OR, integer_type, magnitude, other_sign);
+        *result = lower_float_builtin_bitcast(
+            context, combined, float_type);
+        return true;
+    }
+
+    if (kind == 11) {
+        /* rint follows the dynamic floating-point environment. Its legacy
+         * x87 lowering is exact; keep it on that backend until the typed IR
+         * carries a rounding-mode-sensitive operation. */
+        context->unsupported = true;
+        return true;
+    }
+
+    if (kind == 12) {
+        const ExprList* class_argument = expression->call_args;
+        RccIrLowerValue classes[5];
+        RccIrLowerValue exponent_max = lower_float_builtin_constant(
+            context, integer_type, exponent_value_mask);
+        RccIrLowerValue fraction = lower_float_builtin_binary(
+            context, RCC_IR_AND, integer_type, raw,
+            lower_float_builtin_constant(
+                context, integer_type, fraction_mask));
+        RccIrLowerValue special;
+        RccIrLowerValue exponent_zero;
+        RccIrLowerValue fraction_zero;
+        RccIrLowerValue inf_condition;
+        RccIrLowerValue normal_condition;
+        RccIrLowerValue zero_condition;
+        RccIrLowerValue subnormal_condition;
+        RccIrLowerValue selected;
+        int index;
+        for (index = 0; index < 5; ++index) {
+            int64_t class_value = 0;
+            if (!class_argument ||
+                !expr_eval_integer_constant(
+                    class_argument->expr, &class_value)) {
+                context->unsupported = true;
+                return true;
+            }
+            classes[index] = lower_float_builtin_constant(
+                context, i32, (uint32_t)class_value);
+            class_argument = class_argument->next;
+        }
+        special = lower_float_builtin_compare(
+            context, RCC_IR_ICMP_EQ, integer_type,
+            exponent, exponent_max);
+        exponent_zero = lower_float_builtin_compare(
+            context, RCC_IR_ICMP_EQ, integer_type, exponent, zero);
+        fraction_zero = lower_float_builtin_compare(
+            context, RCC_IR_ICMP_EQ, integer_type, fraction, zero);
+        inf_condition = lower_float_builtin_binary(
+            context, RCC_IR_AND, i1, special, fraction_zero);
+        normal_condition = lower_float_builtin_binary(
+            context, RCC_IR_AND, i1,
+            lower_float_builtin_compare(
+                context, RCC_IR_ICMP_NE, integer_type, exponent, zero),
+            lower_float_builtin_compare(
+                context, RCC_IR_ICMP_NE, integer_type,
+                exponent, exponent_max));
+        zero_condition = lower_float_builtin_binary(
+            context, RCC_IR_AND, i1, exponent_zero, fraction_zero);
+        subnormal_condition = lower_float_builtin_binary(
+            context, RCC_IR_AND, i1, exponent_zero,
+            lower_float_builtin_compare(
+                context, RCC_IR_ICMP_NE, integer_type, fraction, zero));
+        selected = lower_value(classes[0].value, i32, true);
+        selected = lower_float_builtin_select(
+            context, i32, inf_condition, classes[1], selected);
+        selected = lower_float_builtin_select(
+            context, i32, normal_condition, classes[2], selected);
+        selected = lower_float_builtin_select(
+            context, i32, subnormal_condition, classes[3], selected);
+        selected = lower_float_builtin_select(
+            context, i32, zero_condition, classes[4], selected);
+        *result = selected;
+        return true;
+    }
+
+    /* floor, ceil, round-away, and trunc all operate directly on the
+     * significand, avoiding integer-conversion overflow and preserving NaNs. */
+    {
+        RccIrLowerValue bias_value = lower_float_builtin_constant(
+            context, integer_type, bias);
+        RccIrLowerValue limit_value = lower_float_builtin_constant(
+            context, integer_type, bias + mantissa_bits);
+        RccIrLowerValue exponent_lt_bias;
+        RccIrLowerValue exponent_ge_bias;
+        RccIrLowerValue exponent_lt_limit;
+        RccIrLowerValue exponent_ge_limit;
+        RccIrLowerValue active_fraction;
+        RccIrLowerValue fraction_shift;
+        RccIrLowerValue safe_fraction_shift;
+        RccIrLowerValue unit;
+        RccIrLowerValue mask;
+        RccIrLowerValue remainder;
+        RccIrLowerValue truncated;
+        RccIrLowerValue remainder_nonzero;
+        RccIrLowerValue should_adjust;
+        RccIrLowerValue adjusted;
+        RccIrLowerValue adjusted_sum;
+        RccIrLowerValue mid_or_large;
+        RccIrLowerValue one_bits = lower_float_builtin_constant(
+            context, integer_type, (uint64_t)bias << mantissa_bits);
+        RccIrLowerValue small_adjust;
+        RccIrLowerValue small_result;
+        RccIrLowerValue absolute_result;
+        RccIrLowerValue final_bits;
+        RccIrLowerValue zero_exp = lower_float_builtin_constant(
+            context, integer_type, 0u);
+        RccIrLowerValue all_one = lower_float_builtin_constant(
+            context, integer_type, 1u);
+
+        if (!bias_value.valid || !limit_value.valid || !one_bits.valid ||
+            !zero_exp.valid || !all_one.valid) return true;
+        exponent_lt_bias = lower_float_builtin_compare(
+            context, RCC_IR_ICMP_ULT, integer_type, exponent, bias_value);
+        exponent_ge_bias = lower_float_builtin_compare(
+            context, RCC_IR_ICMP_UGE, integer_type, exponent, bias_value);
+        exponent_lt_limit = lower_float_builtin_compare(
+            context, RCC_IR_ICMP_ULT, integer_type, exponent, limit_value);
+        exponent_ge_limit = lower_float_builtin_compare(
+            context, RCC_IR_ICMP_UGE, integer_type, exponent, limit_value);
+        active_fraction = lower_float_builtin_binary(
+            context, RCC_IR_AND, i1, exponent_ge_bias, exponent_lt_limit);
+        fraction_shift = lower_float_builtin_binary(
+            context, RCC_IR_SUB, integer_type,
+            lower_float_builtin_constant(
+                context, integer_type, bias + mantissa_bits), exponent);
+        safe_fraction_shift = lower_float_builtin_select(
+            context, integer_type, active_fraction, fraction_shift, zero);
+        unit = lower_float_builtin_binary(
+            context, RCC_IR_SHL, integer_type, one, safe_fraction_shift);
+        mask = lower_float_builtin_binary(
+            context, RCC_IR_SUB, integer_type, unit, one);
+        remainder = lower_float_builtin_binary(
+            context, RCC_IR_AND, integer_type, absolute, mask);
+        truncated = lower_float_builtin_binary(
+            context, RCC_IR_SUB, integer_type, absolute, remainder);
+        remainder_nonzero = lower_float_builtin_compare(
+            context, RCC_IR_ICMP_NE, integer_type, remainder, zero);
+
+        if (kind == 7 || kind == 8) {
+            RccIrLowerValue sign_nonzero = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_NE, integer_type, sign, zero);
+            RccIrLowerValue sign_zero = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_EQ, integer_type, sign, zero);
+            should_adjust = lower_float_builtin_binary(
+                context, RCC_IR_AND, i1, remainder_nonzero,
+                kind == 7 ? sign_nonzero : sign_zero);
+        } else if (kind == 9) {
+            RccIrLowerValue half_shift_raw = lower_float_builtin_binary(
+                context, RCC_IR_SUB, integer_type,
+                safe_fraction_shift, one);
+            RccIrLowerValue half_shift = lower_float_builtin_select(
+                context, integer_type, active_fraction,
+                half_shift_raw, zero);
+            RccIrLowerValue half_unit = lower_float_builtin_binary(
+                context, RCC_IR_SHL, integer_type, one, half_shift);
+            RccIrLowerValue greater_half = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_UGE, integer_type,
+                remainder, half_unit);
+            should_adjust = lower_float_builtin_binary(
+                context, RCC_IR_AND, i1, active_fraction, greater_half);
+        } else {
+            should_adjust = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_EQ, integer_type, zero, all_one);
+        }
+        adjusted_sum = lower_float_builtin_binary(
+            context, RCC_IR_ADD, integer_type, truncated, unit);
+        adjusted = lower_float_builtin_select(
+            context, integer_type, should_adjust, adjusted_sum, truncated);
+        mid_or_large = lower_float_builtin_select(
+            context, integer_type, exponent_ge_limit, absolute, adjusted);
+
+        if (kind == 7 || kind == 8) {
+            RccIrLowerValue nonzero = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_NE, integer_type, absolute, zero);
+            RccIrLowerValue negative = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_NE, integer_type, sign, zero);
+            RccIrLowerValue positive = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_EQ, integer_type, sign, zero);
+            small_adjust = lower_float_builtin_binary(
+                context, RCC_IR_AND, i1, nonzero,
+                kind == 7 ? negative : positive);
+        } else if (kind == 9) {
+            RccIrLowerValue half_exponent = lower_float_builtin_constant(
+                context, integer_type, bias - 1u);
+            small_adjust = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_UGE, integer_type,
+                exponent, half_exponent);
+        } else {
+            small_adjust = lower_float_builtin_compare(
+                context, RCC_IR_ICMP_EQ, integer_type, zero, all_one);
+        }
+        small_result = lower_float_builtin_select(
+            context, integer_type, small_adjust, one_bits, zero);
+        absolute_result = lower_float_builtin_select(
+            context, integer_type, exponent_lt_bias,
+            small_result, mid_or_large);
+        final_bits = lower_float_builtin_binary(
+            context, RCC_IR_OR, integer_type, absolute_result, sign);
+        *result = lower_float_builtin_bitcast(
+            context, final_bits, float_type);
+        return true;
+    }
+}
+
 static RccIrLowerValue lower_call(RccIrLowerContext* context,
                                   const Expr* expression) {
     const Decl* callee = NULL;
@@ -12309,6 +12774,13 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         (!expression->cxx_call_is_noexcept ||
          lower_call_has_throwing_argument_after_temporary(expression));
     RccIrInstruction* call;
+    {
+        RccIrLowerValue builtin_value = lower_invalid_value();
+        if (lower_float_math_builtin_call(
+                context, expression, &builtin_value)) {
+            return builtin_value;
+        }
+    }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
         expression->call_func->ident_name &&

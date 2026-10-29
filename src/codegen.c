@@ -13100,6 +13100,288 @@ static bool gen_compiler_overflow_builtin32(Module* mod, Expr* expr) {
     return true;
 }
 
+static int gen_float_math_builtin_kind(const char* name) {
+    if (!name) return 0;
+    if (strcmp(name, "__builtin_fpclassify") == 0) return 12;
+    if (strcmp(name, "__builtin_isnan") == 0) return 1;
+    if (strcmp(name, "__builtin_isinf") == 0) return 2;
+    if (strcmp(name, "__builtin_isfinite") == 0) return 3;
+    if (strcmp(name, "__builtin_isnormal") == 0) return 4;
+    if (strcmp(name, "__builtin_signbit") == 0) return 5;
+    if (strcmp(name, "__builtin_copysign") == 0 ||
+        strcmp(name, "__builtin_copysignf") == 0 ||
+        strcmp(name, "__builtin_copysignl") == 0) return 6;
+    if (strcmp(name, "__builtin_floor") == 0 ||
+        strcmp(name, "__builtin_floorf") == 0 ||
+        strcmp(name, "__builtin_floorl") == 0) return 7;
+    if (strcmp(name, "__builtin_ceil") == 0 ||
+        strcmp(name, "__builtin_ceilf") == 0 ||
+        strcmp(name, "__builtin_ceill") == 0) return 8;
+    if (strcmp(name, "__builtin_round") == 0 ||
+        strcmp(name, "__builtin_roundf") == 0 ||
+        strcmp(name, "__builtin_roundl") == 0) return 9;
+    if (strcmp(name, "__builtin_trunc") == 0 ||
+        strcmp(name, "__builtin_truncf") == 0 ||
+        strcmp(name, "__builtin_truncl") == 0) return 10;
+    if (strcmp(name, "__builtin_rint") == 0 ||
+        strcmp(name, "__builtin_rintf") == 0 ||
+        strcmp(name, "__builtin_rintl") == 0) return 11;
+    return 0;
+}
+
+static bool gen_float_math_builtin32(Module* mod, Expr* expr) {
+    Expr* first;
+    Expr* second;
+    const char* name;
+    int kind;
+    int width;
+    if (!expr || expr->kind != EXPR_CALL || !expr->call_func ||
+        expr->call_func->kind != EXPR_IDENT ||
+        !expr->call_func->ident_name) return false;
+    name = expr->call_func->ident_name;
+    kind = gen_float_math_builtin_kind(name);
+    if (!kind) return false;
+    first = call_argument(expr, 0);
+    second = call_argument(expr, 1);
+    width = first && first->type && first->type->size == 4 ? 4 : 8;
+
+    if (kind == 12) {
+        int64_t class_value[5] = {0, 0, 0, 0, 0};
+        int index;
+        int nan_label = new_label();
+        int inf_label = new_label();
+        int subnormal_label = new_label();
+        int zero_label = new_label();
+        int done_label = new_label();
+        Expr* floating = call_argument(expr, 5);
+        for (index = 0; index < 5; ++index) {
+            if (!expr_eval_integer_constant(
+                    call_argument(expr, index), &class_value[index])) {
+                rcc_error(expr->loc,
+                          "__builtin_fpclassify class values must be integer constants");
+                class_value[index] = 0;
+            }
+        }
+        width = floating && floating->type && floating->type->size == 4
+            ? 4 : 8;
+        if (width == 4) {
+            gen_expr(mod, floating);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_shr_reg_imm(mod, ECX, 23);
+            emit_and_reg_imm(mod, ECX, 0xffu);
+            emit_cmp_reg_imm(mod, ECX, 0xff);
+            emit_jcc_label(mod, CC_E, inf_label);
+            emit_cmp_reg_imm(mod, ECX, 0);
+            emit_jcc_label(mod, CC_E, zero_label);
+            emit_mov_reg_imm(mod, EAX, (uint32_t)class_value[2]);
+            emit_jmp_label(mod, done_label);
+            emit_label(mod, inf_label);
+            emit_test_reg_imm(mod, EAX, UINT32_C(0x007fffff));
+            emit_jcc_label(mod, CC_NE, nan_label);
+            emit_mov_reg_imm(mod, EAX, (uint32_t)class_value[1]);
+            emit_jmp_label(mod, done_label);
+            emit_label(mod, nan_label);
+            emit_mov_reg_imm(mod, EAX, (uint32_t)class_value[0]);
+            emit_jmp_label(mod, done_label);
+            emit_label(mod, zero_label);
+            emit_test_reg_imm(mod, EAX, UINT32_C(0x007fffff));
+            emit_jcc_label(mod, CC_NE, subnormal_label);
+            emit_mov_reg_imm(mod, EAX, (uint32_t)class_value[4]);
+            emit_jmp_label(mod, done_label);
+            emit_label(mod, subnormal_label);
+            emit_mov_reg_imm(mod, EAX, (uint32_t)class_value[3]);
+            emit_label(mod, done_label);
+        } else {
+            /* Floating expressions already return their raw scalar bits in
+             * EDX:EAX on i686; the integer conversion helper would zero the
+             * high word because the source type is floating-point. */
+            gen_expr(mod, floating);
+            emit_mov_reg_reg(mod, ECX, EDX);
+            emit_shr_reg_imm(mod, ECX, 20);
+            emit_and_reg_imm(mod, ECX, 0x7ffu);
+            emit_cmp_reg_imm(mod, ECX, 0x7ff);
+            emit_jcc_label(mod, CC_E, inf_label);
+            emit_cmp_reg_imm(mod, ECX, 0);
+            emit_jcc_label(mod, CC_E, zero_label);
+            emit_mov_reg_imm(mod, EAX, (uint32_t)class_value[2]);
+            emit_jmp_label(mod, done_label);
+            emit_label(mod, inf_label);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_and_reg_imm(mod, EDX, UINT32_C(0x000fffff));
+            emit_or_reg_reg(mod, ECX, EDX);
+            emit_test_reg_reg(mod, ECX, ECX);
+            emit_jcc_label(mod, CC_NE, nan_label);
+            emit_mov_reg_imm(mod, EAX, (uint32_t)class_value[1]);
+            emit_jmp_label(mod, done_label);
+            emit_label(mod, nan_label);
+            emit_mov_reg_imm(mod, EAX, (uint32_t)class_value[0]);
+            emit_jmp_label(mod, done_label);
+            emit_label(mod, zero_label);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_and_reg_imm(mod, EDX, UINT32_C(0x000fffff));
+            emit_or_reg_reg(mod, ECX, EDX);
+            emit_test_reg_reg(mod, ECX, ECX);
+            emit_jcc_label(mod, CC_NE, subnormal_label);
+            emit_mov_reg_imm(mod, EAX, (uint32_t)class_value[4]);
+            emit_jmp_label(mod, done_label);
+            emit_label(mod, subnormal_label);
+            emit_mov_reg_imm(mod, EAX, (uint32_t)class_value[3]);
+            emit_label(mod, done_label);
+        }
+        return true;
+    }
+
+    if (kind == 1 || kind == 2 || kind == 3 || kind == 4 || kind == 5) {
+        uint32_t exponent;
+        if (width == 4) {
+            gen_expr(mod, first);
+            if (kind == 5) {
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_and_reg_imm(mod, ECX, UINT32_C(0x80000000));
+                emit_cmp_reg_imm(mod, ECX, 0);
+                emit_setcc(mod, CC_NE, EAX);
+                emit_byte(mod, 0x0F); emit_byte(mod, 0xB6);
+                emit_byte(mod, modrm(3, EAX, EAX));
+                return true;
+            }
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_shr_reg_imm(mod, ECX, 23);
+            emit_and_reg_imm(mod, ECX, 0xffu);
+            exponent = 0xffu;
+        } else {
+            gen_expr(mod, first);
+            if (kind == 5) {
+                emit_mov_reg_reg(mod, ECX, EDX);
+                emit_and_reg_imm(mod, ECX, UINT32_C(0x80000000));
+                emit_cmp_reg_imm(mod, ECX, 0);
+                emit_setcc(mod, CC_NE, EAX);
+                emit_byte(mod, 0x0F); emit_byte(mod, 0xB6);
+                emit_byte(mod, modrm(3, EAX, EAX));
+                return true;
+            }
+            emit_mov_reg_reg(mod, ECX, EDX);
+            emit_shr_reg_imm(mod, ECX, 20);
+            emit_and_reg_imm(mod, ECX, 0x7ffu);
+            exponent = 0x7ffu;
+        }
+        if (kind == 3) {
+            emit_cmp_reg_imm(mod, ECX, (int32_t)exponent);
+            emit_setcc(mod, CC_NE, EAX);
+        } else if (kind == 4) {
+            emit_mov_reg_reg(mod, EAX, ECX);
+            emit_cmp_reg_imm(mod, ECX, 0);
+            emit_setcc(mod, CC_NE, EAX);
+            emit_cmp_reg_imm(mod, ECX, (int32_t)exponent);
+            emit_setcc(mod, CC_NE, ECX);
+            emit_and_reg_reg(mod, EAX, ECX);
+        } else {
+            int done = new_label();
+            int not_special = new_label();
+            emit_cmp_reg_imm(mod, ECX, (int32_t)exponent);
+            emit_jcc_label(mod, CC_NE, not_special);
+            if (width == 4) {
+                emit_test_reg_imm(mod, EAX, UINT32_C(0x007fffff));
+            } else {
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_and_reg_imm(mod, EDX, UINT32_C(0x000fffff));
+                emit_or_reg_reg(mod, ECX, EDX);
+                emit_test_reg_reg(mod, ECX, ECX);
+            }
+            emit_setcc(mod, kind == 1 ? CC_NE : CC_E, EAX);
+            emit_byte(mod, 0x0F); emit_byte(mod, 0xB6);
+            emit_byte(mod, modrm(3, EAX, EAX));
+            emit_jmp_label(mod, done);
+            emit_label(mod, not_special);
+            emit_mov_reg_imm(mod, EAX, 0u);
+            emit_label(mod, done);
+        }
+        return true;
+    }
+
+    if (kind == 6) {
+        if (width == 4) {
+            gen_expr(mod, first);
+            emit_sub_reg_imm(mod, ESP, 4);
+            emit_mov_mem_reg(mod, ESP, 0, EAX);
+            gen_expr(mod, second);
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_and_reg_imm(mod, ECX, UINT32_C(0x80000000));
+            emit_mov_reg_mem(mod, EAX, ESP, 0);
+            emit_and_reg_imm(mod, EAX, UINT32_C(0x7fffffff));
+            emit_or_reg_reg(mod, EAX, ECX);
+            emit_add_reg_imm(mod, ESP, 4);
+        } else {
+            gen_expr(mod, first);
+            emit_sub_reg_imm(mod, ESP, 8);
+            emit_mov_mem_reg(mod, ESP, 0, EAX);
+            emit_mov_mem_reg(mod, ESP, 4, EDX);
+            gen_expr(mod, second);
+            emit_mov_reg_reg(mod, ECX, EDX);
+            emit_and_reg_imm(mod, ECX, UINT32_C(0x80000000));
+            emit_mov_reg_mem(mod, EAX, ESP, 0);
+            emit_mov_reg_mem(mod, EDX, ESP, 4);
+            emit_and_reg_imm(mod, EDX, UINT32_C(0x7fffffff));
+            emit_or_reg_reg(mod, EDX, ECX);
+            emit_add_reg_imm(mod, ESP, 8);
+        }
+        return true;
+    }
+
+    /* FRNDINT follows the x87 control-word rounding mode. Save that word,
+     * install the builtin's specified direction, then restore it verbatim. */
+    gen_expr(mod, first);
+    emit_sub_reg_imm(mod, ESP, 20);
+    emit_x87_memory(mod, 0xD9, 7, ESP, 0); /* FNSTCW */
+    if (width == 4) emit_mov_mem_reg(mod, ESP, 4, EAX);
+    else {
+        emit_mov_mem_reg(mod, ESP, 4, EAX);
+        emit_mov_mem_reg(mod, ESP, 8, EDX);
+    }
+    if (kind != 11) {
+        emit_load_typed32(mod, EAX, ESP, 0, type_ushort);
+        emit_and_reg_imm(mod, EAX, UINT32_C(0x0000f3ff));
+        emit_byte(mod, 0x81);
+        emit_byte(mod, modrm(3, 1, EAX));
+        emit_dword(mod, kind == 7 ? UINT32_C(0x0400) :
+            kind == 8 ? UINT32_C(0x0800) : UINT32_C(0x0c00));
+        emit_store_typed32(mod, ESP, 2, EAX, type_ushort);
+        emit_x87_memory(mod, 0xD9, 5, ESP, 2); /* FLDCW */
+    }
+    if (kind == 9) {
+        if (width == 4) {
+            emit_mov_reg_imm(mod, EAX, UINT32_C(0x3f000000));
+            emit_mov_mem_reg(mod, ESP, 12, EAX);
+        } else {
+            emit_mov_reg_imm(mod, EAX, UINT32_C(0x00000000));
+            emit_mov_reg_imm(mod, EDX, UINT32_C(0x3fe00000));
+            emit_mov_mem_reg(mod, ESP, 12, EAX);
+            emit_mov_mem_reg(mod, ESP, 16, EDX);
+        }
+    }
+    emit_x87_load_memory(mod, width, ESP, 4);
+    if (kind == 9) {
+        emit_byte(mod, 0xD9); emit_byte(mod, 0xE1); /* FABS */
+        emit_x87_memory(mod, width == 4 ? 0xD8 : 0xDC, 0, ESP, 12);
+    }
+    emit_byte(mod, 0xD9); emit_byte(mod, 0xFC); /* FRNDINT */
+    if (kind == 9) {
+        emit_mov_reg_mem(mod, ECX, ESP, width == 4 ? 4 : 8);
+        emit_test_reg_imm(mod, ECX, UINT32_C(0x80000000));
+        {
+            int positive = new_label();
+            emit_jcc_label(mod, CC_NS, positive);
+            emit_byte(mod, 0xD9); emit_byte(mod, 0xE0); /* FCHS */
+            emit_label(mod, positive);
+        }
+    }
+    emit_x87_store_pop_memory(mod, width, ESP, 4);
+    emit_x87_memory(mod, 0xD9, 5, ESP, 0); /* Restore caller's control word. */
+    emit_mov_reg_mem(mod, EAX, ESP, 4);
+    if (width == 8) emit_mov_reg_mem(mod, EDX, ESP, 8);
+    emit_add_reg_imm(mod, ESP, 20);
+    return true;
+}
+
 static bool gen_compiler_builtin(Module* mod, Expr* expr) {
     Expr* function;
     Expr* argument;
@@ -13113,6 +13395,7 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         return false;
     }
     function = expr->call_func;
+    if (gen_float_math_builtin32(mod, expr)) return true;
     if (strcmp(function->ident_name, "__builtin_choose_expr") == 0) {
         int64_t condition = 0;
         Expr* condition_expression = call_argument(expr, 0);

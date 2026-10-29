@@ -1,5 +1,25 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-10-30, floating math builtins)
+
+- [x] Validate argument counts and types for floating classification,
+  `__builtin_fpclassify`, `copysign`, and the `floor`/`ceil`/`round`/`trunc`/
+  `rint` families. Implement i686 and AMD64 legacy lowering for binary32,
+  binary64, and RinOS binary64 `long double`. Runtime-test C and C++ generated
+  code on both hosts, check all four dynamic rounding modes for AMD64 `rint`/
+  `rintl`, preserve negative zero, and diagnose invalid argument forms through
+  `test-floating-math-builtins`.
+- [x] Lower classification, sign-copy, and fixed-direction rounding builtins
+  into typed SSA for AMD64 binary32/binary64 and i686 binary32; the focused
+  verified-backend checks report zero legacy fallback. i686 floating
+  classification's 64-bit raw representation now uses the actual EDX:EAX
+  result pair in legacy code generation.
+- [ ] Extend i686 typed SSA/MIR to represent binary64 bit reinterpretation as
+  a two-word value, then lower its classification/sign/rounding builtins with
+  zero fallback. Add typed-IR support for dynamic-rounding `rint` after the
+  floating environment operation is represented explicitly. Existing i686
+  legacy output handles these calls correctly.
+
 ## RCC continuation (2026-10-29, command-line include search order)
 
 - [x] Search command-line `-I` paths before executable-relative and bootstrap
@@ -2768,6 +2788,12 @@
         variables and parameters; lower EBP-relative `movl` loads. Verify exact
         instruction bytes, reject global/indirect i686 operands, and include
         i686 execution in the POSIX inline-asm execution gate.
+  - [ ] Add i686 inline-asm `=m`/`+m` outputs and indirect `m` operands with
+        address-register selection and correct output lvalue handling. The
+        current input-only restriction prevents RinOS `fenv.h` from compiling
+        for i686: `fnstenv`/`fldenv`, control-word, status-word, and MXCSR
+        memory operands are rejected. Cover C17/C++20 header compilation,
+        exact encodings, and runtime fenv behavior before checking this item.
   - [x] Add AMD64 `m`, `=m`, and `+m` lowering for direct frame objects and
         computed lvalue addresses, with address-register selection that avoids
         operand assignments and clobbers. Extend memory/register `mov` widths,

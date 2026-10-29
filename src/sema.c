@@ -28641,6 +28641,43 @@ bool rcc_sema_fold_nonfinite_builtin(Expr* expression) {
         expression, expression->call_func->ident_name);
 }
 
+static bool sema_float_classification_builtin(const char* name) {
+    return name &&
+        (strcmp(name, "__builtin_isnan") == 0 ||
+         strcmp(name, "__builtin_isinf") == 0 ||
+         strcmp(name, "__builtin_isfinite") == 0 ||
+         strcmp(name, "__builtin_isnormal") == 0 ||
+         strcmp(name, "__builtin_signbit") == 0);
+}
+
+static Type* sema_float_unary_builtin_type(const char* name) {
+    if (!name) return NULL;
+    if (strcmp(name, "__builtin_floorf") == 0 ||
+        strcmp(name, "__builtin_ceilf") == 0 ||
+        strcmp(name, "__builtin_roundf") == 0 ||
+        strcmp(name, "__builtin_truncf") == 0) return type_float;
+    if (strcmp(name, "__builtin_floorl") == 0 ||
+        strcmp(name, "__builtin_ceill") == 0 ||
+        strcmp(name, "__builtin_roundl") == 0 ||
+        strcmp(name, "__builtin_truncl") == 0) return type_long_double;
+    if (strcmp(name, "__builtin_floor") == 0 ||
+        strcmp(name, "__builtin_ceil") == 0 ||
+        strcmp(name, "__builtin_round") == 0 ||
+        strcmp(name, "__builtin_trunc") == 0) return type_double;
+    if (strcmp(name, "__builtin_rintf") == 0) return type_float;
+    if (strcmp(name, "__builtin_rintl") == 0) return type_long_double;
+    if (strcmp(name, "__builtin_rint") == 0) return type_double;
+    return NULL;
+}
+
+static Type* sema_float_copysign_builtin_type(const char* name) {
+    if (!name) return NULL;
+    if (strcmp(name, "__builtin_copysignf") == 0) return type_float;
+    if (strcmp(name, "__builtin_copysignl") == 0) return type_long_double;
+    if (strcmp(name, "__builtin_copysign") == 0) return type_double;
+    return NULL;
+}
+
 static bool sema_compiler_builtin_call(Expr* expr) {
     Expr* function;
     Expr* first;
@@ -28662,6 +28699,99 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     name = function->ident_name;
     if (sema_fold_nonfinite_builtin(expr, name)) return true;
     if (sema_builtin_complex_call(expr, name)) return true;
+    {
+        bool classification = sema_float_classification_builtin(name);
+        bool fpclassify = strcmp(name, "__builtin_fpclassify") == 0;
+        bool copysign = sema_float_copysign_builtin_type(name) != NULL;
+        Type* builtin_type = copysign
+            ? sema_float_copysign_builtin_type(name)
+            : sema_float_unary_builtin_type(name);
+        if (fpclassify) {
+            int count = 0;
+            for (argument = expr->call_args; argument;
+                 argument = argument->next, ++count) {
+                int64_t ignored;
+                sema_expr(argument->expr);
+                if (count < 5) {
+                    if (!argument->expr->type ||
+                        !sema_is_integer_type(argument->expr->type)) {
+                        rcc_error(argument->expr->loc,
+                                  "__builtin_fpclassify class values must have integer type");
+                    } else if (!expr_eval_integer_constant(
+                                   argument->expr, &ignored)) {
+                        rcc_error(argument->expr->loc,
+                                  "__builtin_fpclassify class values must be integer constants");
+                    }
+                } else if (!argument->expr->type ||
+                           (argument->expr->type->kind != TYPE_FLOAT &&
+                            argument->expr->type->kind != TYPE_DOUBLE)) {
+                    rcc_error(argument->expr->loc,
+                              "__builtin_fpclassify value must have floating type");
+                }
+            }
+            if (count != 6) {
+                rcc_error(expr->loc,
+                          "__builtin_fpclassify expects 6 arguments, got %d",
+                          count);
+            }
+            function->type = type_ptr(type_int);
+            expr->type = type_int;
+            return true;
+        }
+        if (classification || copysign || builtin_type) {
+            int expected_count = copysign ? 2 : 1;
+            Type* first_type;
+            for (argument = expr->call_args; argument;
+                 argument = argument->next) {
+                sema_expr(argument->expr);
+                ++argument_count;
+            }
+            if (argument_count != expected_count) {
+                rcc_error(expr->loc, "%s expects %d argument%s, got %d",
+                          name, expected_count,
+                          expected_count == 1 ? "" : "s", argument_count);
+            }
+            first = expr->call_args ? expr->call_args->expr : NULL;
+            second = expr->call_args && expr->call_args->next
+                ? expr->call_args->next->expr : NULL;
+            first_type = first ? first->type : NULL;
+            if (classification) {
+                if (!first_type ||
+                    (first_type->kind != TYPE_FLOAT &&
+                     first_type->kind != TYPE_DOUBLE)) {
+                    rcc_error(expr->loc,
+                              "%s argument must have floating type", name);
+                }
+                function->type = type_ptr(type_int);
+                expr->type = type_int;
+                return true;
+            }
+            if (!first_type ||
+                (first_type->kind != TYPE_FLOAT &&
+                 first_type->kind != TYPE_DOUBLE)) {
+                rcc_error(expr->loc,
+                          "%s argument must have floating type", name);
+            } else if (!implicit_cast(first, builtin_type)) {
+                rcc_error(first->loc,
+                          "%s argument cannot be converted to its floating type",
+                          name);
+            }
+            if (copysign && (!second || !second->type ||
+                (second->type->kind != TYPE_FLOAT &&
+                 second->type->kind != TYPE_DOUBLE))) {
+                rcc_error(expr->loc,
+                          "%s second argument must have floating type", name);
+            } else if (copysign &&
+                       !implicit_cast(second, builtin_type)) {
+                rcc_error(second->loc,
+                          "%s second argument cannot be converted to its floating type",
+                          name);
+            }
+            function->type = type_ptr(builtin_type);
+            expr->type = builtin_type;
+            return true;
+        }
+    }
     mmx_kind = sema_mmx_builtin_kind(name);
     if (mmx_kind != RCC_MMX_BUILTIN_NONE) {
         int expected_count = mmx_kind == RCC_MMX_BUILTIN_INIT_V2SI ? 2 :
