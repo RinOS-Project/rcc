@@ -472,6 +472,20 @@ long long debug_inline_nonconstant_signed_long_long_atomic_runtime_remainder_ent
         debug_inline_nonconstant_signed_long_long_atomic_divisor);
 }
 
+long long debug_inline_nonconstant_signed_long_long_atomic_constant_divide_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_dividend / 7ll);
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_constant_remainder_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_dividend % 7ll);
+}
+
 int debug_inline_nonconstant_integer_entry(int value)
 {
     int debug_inline_nonconstant_integer_source = value;
