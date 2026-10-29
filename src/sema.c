@@ -900,6 +900,7 @@ static const char* sema_cxx_typeinfo_symbol(Type* type, SourceLoc loc) {
 }
 
 static void sema_validate_static_integer_expression(Expr* expression);
+static bool sema_static_integer_signed_overflow(const Expr* expression);
 static bool sema_compiler_builtin_call(Expr* expr);
 static bool sema_atomic_builtin_call(Expr* expr);
 static void sema_vla_bounds(Type* type, SourceLoc loc);
@@ -4733,6 +4734,11 @@ static bool sema_cxx_has_unresolved_dependent_base(CxxClass* cls, int depth) {
 static void sema_validate_static_integer_expression(Expr* expression) {
     int64_t value;
     if (!expression) return;
+    if (!rcc_parser_is_cxx_mode() &&
+        sema_static_integer_signed_overflow(expression)) {
+        rcc_error(expression->loc,
+                  "static integer initializer contains signed overflow");
+    }
     switch (expression->kind) {
         case EXPR_COMPOUND:
             for (ExprList* item = expression->compound_init; item;
@@ -5347,6 +5353,64 @@ static bool sema_constexpr_mul(int64_t left, int64_t right, int64_t* result) {
     *result = left * right;
     return true;
 #endif
+}
+
+static bool sema_static_integer_signed_overflow(const Expr* expression) {
+    int64_t left;
+    int64_t right;
+    int64_t result;
+    int64_t minimum;
+
+    if (!expression || !expression->type ||
+        expression->type->is_unsigned ||
+        !sema_constexpr_integer_type(expression->type)) {
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+            if (!expr_eval_integer_constant(expression->binary_lhs, &left) ||
+                !expr_eval_integer_constant(expression->binary_rhs, &right)) {
+                return false;
+            }
+            if (expression->kind == EXPR_ADD) {
+                return !sema_constexpr_add(left, right, &result) ||
+                    !sema_constexpr_signed_value_fits(
+                        expression->type, result);
+            }
+            if (expression->kind == EXPR_SUB) {
+                return !sema_constexpr_sub(left, right, &result) ||
+                    !sema_constexpr_signed_value_fits(
+                        expression->type, result);
+            }
+            return !sema_constexpr_mul(left, right, &result) ||
+                !sema_constexpr_signed_value_fits(expression->type, result);
+        case EXPR_NEG:
+            return expr_eval_integer_constant(expression->unary_operand,
+                                               &left) &&
+                sema_constexpr_signed_range(expression->type, &minimum,
+                                             NULL) &&
+                left == minimum;
+        case EXPR_DIV:
+        case EXPR_MOD:
+            return expr_eval_integer_constant(expression->binary_lhs,
+                                               &left) &&
+                expr_eval_integer_constant(expression->binary_rhs,
+                                           &right) &&
+                sema_constexpr_signed_range(expression->type, &minimum,
+                                             NULL) &&
+                left == minimum && right == -1;
+        case EXPR_LSHIFT:
+            return expr_eval_integer_constant(expression->binary_lhs,
+                                               &left) &&
+                expr_eval_integer_constant(expression->binary_rhs,
+                                           &right) &&
+                !sema_constexpr_shift_value(
+                    EXPR_LSHIFT, left, right, expression->type, &result);
+        default:
+            return false;
+    }
 }
 
 static int sema_constexpr_binding_index(

@@ -1049,6 +1049,72 @@ static IntegerConstantValue integer_constant_convert(
     return value;
 }
 
+static bool parser_integer_constant_signed_range(Type* type,
+                                                 int64_t* minimum,
+                                                 int64_t* maximum) {
+    unsigned width;
+    uint64_t sign_bit;
+    if (!type || type->is_unsigned || !type_is_integer(type) ||
+        (!minimum && !maximum)) {
+        return false;
+    }
+    width = type_integer_width(type);
+    if (width == 0u || width > 64u) return false;
+    if (width == 64u) {
+        if (minimum) *minimum = INT64_MIN;
+        if (maximum) *maximum = INT64_MAX;
+        return true;
+    }
+    sign_bit = UINT64_C(1) << (width - 1u);
+    if (minimum) *minimum = -(int64_t)sign_bit;
+    if (maximum) *maximum = (int64_t)(sign_bit - 1u);
+    return true;
+}
+
+static bool parser_integer_constant_signed_fits(Type* type, int64_t value) {
+    int64_t minimum;
+    int64_t maximum;
+    return parser_integer_constant_signed_range(type, &minimum, &maximum) &&
+           value >= minimum && value <= maximum;
+}
+
+static bool parser_integer_constant_add(int64_t left, int64_t right,
+                                        int64_t* result) {
+#if defined(__GNUC__) || defined(__clang__)
+    return !__builtin_add_overflow(left, right, result);
+#else
+    if ((right > 0 && left > INT64_MAX - right) ||
+        (right < 0 && left < INT64_MIN - right)) return false;
+    *result = left + right;
+    return true;
+#endif
+}
+
+static bool parser_integer_constant_sub(int64_t left, int64_t right,
+                                        int64_t* result) {
+#if defined(__GNUC__) || defined(__clang__)
+    return !__builtin_sub_overflow(left, right, result);
+#else
+    if ((right < 0 && left > INT64_MAX + right) ||
+        (right > 0 && left < INT64_MIN + right)) return false;
+    *result = left - right;
+    return true;
+#endif
+}
+
+static bool parser_integer_constant_mul(int64_t left, int64_t right,
+                                        int64_t* result) {
+    if (left > 0) {
+        if ((right > 0 && left > INT64_MAX / right) ||
+            (right < 0 && right < INT64_MIN / left)) return false;
+    } else if (left < 0) {
+        if ((right > 0 && left < INT64_MIN / right) ||
+            (right < 0 && left < INT64_MAX / right)) return false;
+    }
+    *result = left * right;
+    return true;
+}
+
 static bool eval_integer_constant_typed(Expr* expr,
                                         IntegerConstantValue* value) {
     IntegerConstantValue left;
@@ -1143,6 +1209,14 @@ static bool eval_integer_constant_typed(Expr* expr,
             }
             if (common->kind < TYPE_INT) common = type_int;
             left = integer_constant_convert(left, common);
+            if (expr->kind == EXPR_NEG && !common->is_unsigned) {
+                int64_t minimum;
+                if (!parser_integer_constant_signed_range(
+                        common, &minimum, NULL) ||
+                    integer_constant_signed(left) == minimum) {
+                    return false;
+                }
+            }
             value->bits = expr->kind == EXPR_POS ? left.bits
                 : expr->kind == EXPR_NEG ? 0u - left.bits : ~left.bits;
             value->bits &= integer_type_mask(common);
@@ -1287,6 +1361,17 @@ static bool eval_integer_constant_typed(Expr* expr,
         width = type_integer_width(common);
         if (count >= width) return false;
         if (expr->kind == EXPR_LSHIFT) {
+            if (!parser_cxx_mode && !common->is_unsigned) {
+                int64_t maximum;
+                int64_t signed_left = integer_constant_signed(left);
+                if (signed_left < 0 ||
+                    !parser_integer_constant_signed_range(
+                        common, NULL, &maximum) ||
+                    (count != 0u &&
+                     signed_left > (maximum >> (unsigned)count))) {
+                    return false;
+                }
+            }
             value->bits = (left.bits << (unsigned)count) &
                           integer_type_mask(common);
         } else if (common->is_unsigned) {
@@ -1342,6 +1427,26 @@ static bool eval_integer_constant_typed(Expr* expr,
     }
 
     value->type = common;
+    if (!common->is_unsigned &&
+        (expr->kind == EXPR_ADD || expr->kind == EXPR_SUB ||
+         expr->kind == EXPR_MUL)) {
+        int64_t signed_left = integer_constant_signed(left);
+        int64_t signed_right = integer_constant_signed(right);
+        int64_t result;
+        bool valid = expr->kind == EXPR_ADD
+            ? parser_integer_constant_add(signed_left, signed_right,
+                                          &result)
+            : expr->kind == EXPR_SUB
+                ? parser_integer_constant_sub(signed_left, signed_right,
+                                              &result)
+                : parser_integer_constant_mul(signed_left, signed_right,
+                                              &result);
+        if (!valid || !parser_integer_constant_signed_fits(common, result)) {
+            return false;
+        }
+        value->bits = (uint64_t)result & integer_type_mask(common);
+        return true;
+    }
     switch (expr->kind) {
         case EXPR_ADD: value->bits = left.bits + right.bits; break;
         case EXPR_SUB: value->bits = left.bits - right.bits; break;

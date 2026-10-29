@@ -1274,8 +1274,26 @@ test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q '_BitInt width must be between 1 and 64 (signed widths start at 2)' $(TEST_OUT)/c23-bitint/nonconstant-width.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/nonconstant-width.ro)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/signed-overflow-ice.ro tests/invalid_c23_bitint_signed_overflow_ice.c,$(TEST_OUT)/c23-bitint/signed-overflow-ice.log)
-	$(call CHECK_COUNT,static assertion is not an integer constant expression,$(TEST_OUT)/c23-bitint/signed-overflow-ice.log,2)
+	$(call CHECK_COUNT,static assertion is not an integer constant expression,$(TEST_OUT)/c23-bitint/signed-overflow-ice.log,8)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/signed-overflow-ice.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/overflow-array-bound.ro tests/invalid_c23_bitint_overflow_array_bound.c,$(TEST_OUT)/c23-bitint/overflow-array-bound.log)
+	$(GREP) -F -q 'variable-length array is only valid at block scope' $(TEST_OUT)/c23-bitint/overflow-array-bound.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/overflow-array-bound.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/overflow-enum.ro tests/invalid_c23_bitint_overflow_enum.c,$(TEST_OUT)/c23-bitint/overflow-enum.log)
+	$(GREP) -F -q 'enumerator value is not an integer constant expression' $(TEST_OUT)/c23-bitint/overflow-enum.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/overflow-enum.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/overflow-bitfield.ro tests/invalid_c23_bitint_overflow_bitfield.c,$(TEST_OUT)/c23-bitint/overflow-bitfield.log)
+	$(GREP) -F -q 'bit-field width must be an integer constant' $(TEST_OUT)/c23-bitint/overflow-bitfield.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/overflow-bitfield.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/overflow-case.ro tests/invalid_c23_bitint_overflow_case.c,$(TEST_OUT)/c23-bitint/overflow-case.log)
+	$(GREP) -F -q 'case label must be an integer constant expression' $(TEST_OUT)/c23-bitint/overflow-case.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/overflow-case.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/overflow-static-init.ro tests/invalid_c23_bitint_static_initializer_overflow.c,$(TEST_OUT)/c23-bitint/overflow-static-init.log)
+	$(call CHECK_COUNT,static integer initializer contains signed overflow,$(TEST_OUT)/c23-bitint/overflow-static-init.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/overflow-static-init.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/overflow-shift-ice.ro tests/invalid_c23_bitint_shift_ice_context.c,$(TEST_OUT)/c23-bitint/overflow-shift-ice.log)
+	$(call CHECK_COUNT,enumerator value is not an integer constant expression,$(TEST_OUT)/c23-bitint/overflow-shift-ice.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/overflow-shift-ice.ro)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/duplicate-cases.ro tests/invalid_c23_bitint_duplicate_cases.c,$(TEST_OUT)/c23-bitint/duplicate-cases.log)
 	$(GREP) -F -q 'duplicate case value after conversion to switch type' $(TEST_OUT)/c23-bitint/duplicate-cases.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/duplicate-cases.ro)
@@ -1291,7 +1309,7 @@ test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/c23-bitint/cxx.ro tests/invalid_cxx_bitint.cpp,$(TEST_OUT)/c23-bitint/cxx.log)
 	$(GREP) -F -q '_BitInt requires C23 mode' $(TEST_OUT)/c23-bitint/cxx.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/cxx.ro)
-	@echo "C23 _BitInt storage, arithmetic, literal, ABI-format, and mode-boundary tests passed"
+	@echo "C23 _BitInt storage, arithmetic overflow, ICE-context, literal, ABI-format, and mode-boundary tests passed"
 
 test-c23-bitint-promotions: $(RCC_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-bitint-promotions)
