@@ -1,4 +1,5 @@
-template<typename... Types> concept PackedConcept = true;
+template<typename T, typename... Types, typename U>
+concept NonTrailingPackConcept = true;
 
 int main() {
     return 0;

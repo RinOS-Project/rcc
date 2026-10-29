@@ -6314,10 +6314,8 @@ static bool cxx_is_std_library_concept(const CxxTemplate* concept,
     return std_namespace != NULL && concept->ns == std_namespace;
 }
 
-/* Named concepts currently share the fixed-arity evaluator used by ordinary
- * template parameters.  A missing suffix is still standard C++ when every
- * omitted parameter has a supported default; the evaluator materializes that
- * suffix before checking the concept expression. */
+/* A missing suffix is valid when every omitted fixed parameter has a
+ * supported default. A trailing parameter pack may always be empty. */
 static bool cxx_concept_missing_arguments_have_defaults(
     const CxxTemplate* concept, int first_missing) {
     if (!concept || first_missing < 0 ||
@@ -6326,7 +6324,11 @@ static bool cxx_concept_missing_arguments_have_defaults(
     }
     for (int index = first_missing; index < concept->param_count; ++index) {
         const TemplateParam* parameter = &concept->params[index];
-        if (parameter->is_pack || !parameter->has_default) return false;
+        if (parameter->is_pack) {
+            if (index != concept->param_count - 1) return false;
+            continue;
+        }
+        if (!parameter->has_default) return false;
         if (parameter->kind == TPARAM_TYPE) {
             if (!parameter->default_type) return false;
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -6411,7 +6413,7 @@ static Type* parse_cxx_requires_return_constraint(
             const char* name = parse_qualified_name();
             CxxTemplate* concept = find_concept(name);
             if (concept) {
-                if (concept->param_count < 1 || concept->param_count > 32 ||
+                if (concept->param_count < 1 ||
                     concept->params[0].kind != TPARAM_TYPE ||
                     concept->params[0].is_pack ||
                     !cxx_concept_missing_arguments_have_defaults(
@@ -6456,10 +6458,10 @@ static Type* parse_cxx_requires_return_constraint(
         CxxTemplate* concept = find_concept(constraint_name);
         ExprList* explicit_arguments = NULL;
         int explicit_count = 0;
-        int expected_count;
+        int pack_parameter_index = -1;
+        int fixed_parameter_count;
 
         if (!concept || !concept->is_concept || concept->param_count < 1 ||
-            concept->param_count > 32 ||
             concept->params[0].kind != TPARAM_TYPE ||
             concept->params[0].is_pack) {
             rcc_error(peek()->loc,
@@ -6469,11 +6471,21 @@ static Type* parse_cxx_requires_return_constraint(
             return NULL;
         }
         expect(TOK_LT, "< after requires-expression return concept");
-        expected_count = concept->param_count - 1;
+        fixed_parameter_count = concept->param_count - 1;
+        if (concept->param_count > 1 &&
+            concept->params[concept->param_count - 1].is_pack) {
+            pack_parameter_index = concept->param_count - 1;
+            --fixed_parameter_count;
+        }
         while (!check(TOK_GT) && !at_end()) {
             TemplateParam* parameter;
             Expr* argument;
-            if (explicit_count >= expected_count) {
+            int parameter_index = explicit_count + 1;
+            if (parameter_index > fixed_parameter_count &&
+                pack_parameter_index >= 0) {
+                parameter_index = pack_parameter_index;
+            }
+            if (parameter_index >= concept->param_count) {
                 rcc_error(peek()->loc,
                           "too many explicit arguments for requires-expression "
                           "return concept '%s'",
@@ -6488,14 +6500,13 @@ static Type* parse_cxx_requires_return_constraint(
                     break;
                 }
             }
-            parameter = &concept->params[explicit_count + 1];
-            if (parameter->is_pack ||
-                (parameter->kind != TPARAM_TYPE &&
+            parameter = &concept->params[parameter_index];
+            if ((parameter->kind != TPARAM_TYPE &&
                  parameter->kind != TPARAM_NONTYPE &&
                  parameter->kind != TPARAM_TEMPLATE)) {
                 rcc_error(peek()->loc,
                           "requires-expression return concepts support only "
-                          "non-pack type, non-type, and template-template "
+                          "type, non-type, and template-template "
                           "parameters");
                 while (!check(TOK_GT) && !at_end()) advance();
                 break;
@@ -6530,7 +6541,7 @@ static Type* parse_cxx_requires_return_constraint(
             ++explicit_count;
         }
         expect(TOK_GT, "> after requires-expression return concept");
-        if (explicit_count < expected_count &&
+        if (explicit_count < fixed_parameter_count &&
             !cxx_concept_missing_arguments_have_defaults(
                 concept, explicit_count + 1)) {
             rcc_error(previous()->loc,
@@ -13990,7 +14001,6 @@ static DeclList* parse_cxx_parameter_declarations(bool* is_variadic) {
                               "constrained abbreviated function parameter "
                               "requires a known named concept");
                 } else if (concept->param_count < 1 ||
-                           concept->param_count > 32 ||
                            concept->params[0].kind != TPARAM_TYPE ||
                            concept->params[0].is_pack ||
                            !cxx_concept_missing_arguments_have_defaults(
@@ -14986,7 +14996,6 @@ static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
                               "constrained template-template parameter "
                               "requires a known named concept");
                 } else if (concept->param_count < 1 ||
-                           concept->param_count > 32 ||
                            concept->params[0].kind != TPARAM_TYPE ||
                            concept->params[0].is_pack ||
                            !cxx_concept_missing_arguments_have_defaults(
@@ -15430,7 +15439,6 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                               "constrained type template parameter requires a "
                               "known named concept");
                 } else if (concept->param_count < 1 ||
-                           concept->param_count > 32 ||
                            concept->params[0].kind != TPARAM_TYPE ||
                            concept->params[0].is_pack ||
                            !cxx_concept_missing_arguments_have_defaults(
@@ -15557,9 +15565,9 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                 rcc_error(loc,
                           "RCC++ named concepts require named parameters");
             }
-            if (parameter->is_pack) {
+            if (parameter->is_pack && index != tmpl->param_count - 1) {
                 rcc_error(loc,
-                          "RCC++ named concepts do not support parameter packs");
+                          "RCC++ named concept parameter packs must be last");
             }
             if (parameter->has_default &&
                 ((parameter->kind == TPARAM_TYPE &&
@@ -17199,6 +17207,7 @@ Expr* rcc_parse_cxx_concept_expression(void) {
     CxxTemplate* concept;
     ExprList* arguments = NULL;
     int argument_count = 0;
+    int pack_parameter_index = -1;
 
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
     name = parse_qualified_name();
@@ -17208,6 +17217,10 @@ Expr* rcc_parse_cxx_concept_expression(void) {
         parser.prev = saved_prev;
         return NULL;
     }
+    if (concept->param_count > 0 &&
+        concept->params[concept->param_count - 1].is_pack) {
+        pack_parameter_index = concept->param_count - 1;
+    }
     if (!match(TOK_LT)) {
         rcc_error(loc, "named concept '%s' requires template arguments", name);
         return expr_int(0, loc);
@@ -17215,14 +17228,18 @@ Expr* rcc_parse_cxx_concept_expression(void) {
     if (!check(TOK_GT)) {
         do {
             Expr* argument;
-            if (argument_count >= 32) {
+            int parameter_index = argument_count;
+            if (parameter_index >= concept->param_count &&
+                pack_parameter_index >= 0) {
+                parameter_index = pack_parameter_index;
+            }
+            if (parameter_index >= concept->param_count) {
                 rcc_error(peek()->loc,
-                          "named concept argument limit exceeded");
+                          "too many arguments for named concept '%s'", name);
                 while (!check(TOK_GT) && !at_end()) advance();
                 break;
             }
-            if (argument_count < concept->param_count &&
-                concept->params[argument_count].kind == TPARAM_TYPE) {
+            if (concept->params[parameter_index].kind == TPARAM_TYPE) {
                 Type* argument_type = parse_cxx_type_spec();
                 if (!argument_type) {
                     rcc_error(peek()->loc,
@@ -17233,16 +17250,20 @@ Expr* rcc_parse_cxx_concept_expression(void) {
                     argument_type, NULL, NULL);
                 argument = expr_int(0, loc);
                 argument->type = argument_type;
-            } else if (argument_count < concept->param_count &&
-                       concept->params[argument_count].kind ==
+            } else if (concept->params[parameter_index].kind ==
                            TPARAM_TEMPLATE) {
                 argument = expr_int(0, loc);
                 argument->type = parse_cxx_concept_template_argument(
-                    &concept->params[argument_count]);
+                    &concept->params[parameter_index]);
             } else {
                 rcc_parser_set_cxx_template_default_mode(true);
                 argument = parse_assignment_expression();
                 rcc_parser_set_cxx_template_default_mode(false);
+            }
+            if (argument_count == INT_MAX) {
+                rcc_error(peek()->loc,
+                          "named concept has too many arguments");
+                break;
             }
             exprlist_append(&arguments, argument);
             ++argument_count;
@@ -30671,15 +30692,145 @@ static bool eval_template_integer_expression(Expr* expression,
     }
     if (expression->kind == EXPR_CALL && expression->cxx_concept_template) {
         CxxTemplate* concept = expression->cxx_concept_template;
-        Type* concept_types[32] = { NULL };
-        int64_t concept_values[32] = { 0 };
-        bool concept_value_present[32] = { false };
+        Type** concept_types;
+        int64_t* concept_values;
+        bool* concept_value_present;
+        Type** pack_arguments = NULL;
+        int64_t* pack_values = NULL;
+        bool* pack_value_present = NULL;
+        Expr** pack_value_expressions = NULL;
+        bool* pack_expansions = NULL;
+        int* pack_offsets = NULL;
+        int* pack_counts = NULL;
+        Type** saved_pack_arguments = NULL;
+        int64_t* saved_pack_values = NULL;
+        bool* saved_pack_value_present = NULL;
+        Expr** saved_pack_value_expressions = NULL;
+        bool* saved_pack_expansions = NULL;
+        int* saved_pack_offsets = NULL;
+        int* saved_pack_counts = NULL;
+        int saved_pack_count = -1;
         ExprList* argument = expression->call_args;
+        int pack_parameter_index = -1;
+        int pack_argument_count = 0;
         if (!concept->is_concept || concept->param_count < 0 ||
-            concept->param_count > 32 ||
             !concept->constraint) return false;
+        concept_types = ast_arena_alloc(
+            sizeof(*concept_types) * (size_t)(concept->param_count > 0
+                                                  ? concept->param_count : 1));
+        concept_values = ast_arena_alloc(
+            sizeof(*concept_values) * (size_t)(concept->param_count > 0
+                                                   ? concept->param_count : 1));
+        concept_value_present = ast_arena_alloc(
+            sizeof(*concept_value_present) *
+            (size_t)(concept->param_count > 0 ? concept->param_count : 1));
+        memset(concept_types, 0,
+               sizeof(*concept_types) * (size_t)(concept->param_count > 0
+                                                     ? concept->param_count : 1));
+        memset(concept_values, 0,
+               sizeof(*concept_values) * (size_t)(concept->param_count > 0
+                                                      ? concept->param_count : 1));
+        memset(concept_value_present, 0,
+               sizeof(*concept_value_present) *
+               (size_t)(concept->param_count > 0 ? concept->param_count : 1));
+        for (int index = 0; index < concept->param_count; ++index) {
+            if (concept->params[index].is_pack) {
+                if (index != concept->param_count - 1 ||
+                    pack_parameter_index >= 0) {
+                    return false;
+                }
+                pack_parameter_index = index;
+            }
+        }
         for (int index = 0; index < concept->param_count; ++index) {
             TemplateParam* parameter = &concept->params[index];
+            if (parameter->is_pack) {
+                for (ExprList* pack_argument = argument; pack_argument;
+                     pack_argument = pack_argument->next) {
+                    if (!pack_argument->expr ||
+                        pack_argument_count == INT_MAX) {
+                        return false;
+                    }
+                    ++pack_argument_count;
+                }
+                pack_arguments = ast_arena_alloc(
+                    sizeof(*pack_arguments) *
+                    (size_t)(pack_argument_count > 0 ? pack_argument_count : 1));
+                pack_expansions = ast_arena_alloc(
+                    sizeof(*pack_expansions) *
+                    (size_t)(pack_argument_count > 0 ? pack_argument_count : 1));
+                memset(pack_arguments, 0,
+                       sizeof(*pack_arguments) *
+                       (size_t)(pack_argument_count > 0
+                                    ? pack_argument_count : 1));
+                memset(pack_expansions, 0,
+                       sizeof(*pack_expansions) *
+                       (size_t)(pack_argument_count > 0
+                                    ? pack_argument_count : 1));
+                if (parameter->kind == TPARAM_NONTYPE) {
+                    pack_values = ast_arena_alloc(
+                        sizeof(*pack_values) *
+                        (size_t)(pack_argument_count > 0
+                                     ? pack_argument_count : 1));
+                    pack_value_present = ast_arena_alloc(
+                        sizeof(*pack_value_present) *
+                        (size_t)(pack_argument_count > 0
+                                     ? pack_argument_count : 1));
+                    pack_value_expressions = ast_arena_alloc(
+                        sizeof(*pack_value_expressions) *
+                        (size_t)(pack_argument_count > 0
+                                     ? pack_argument_count : 1));
+                    memset(pack_values, 0,
+                           sizeof(*pack_values) *
+                           (size_t)(pack_argument_count > 0
+                                        ? pack_argument_count : 1));
+                    memset(pack_value_present, 0,
+                           sizeof(*pack_value_present) *
+                           (size_t)(pack_argument_count > 0
+                                        ? pack_argument_count : 1));
+                    memset(pack_value_expressions, 0,
+                           sizeof(*pack_value_expressions) *
+                           (size_t)(pack_argument_count > 0
+                                        ? pack_argument_count : 1));
+                }
+                int pack_index = 0;
+                while (argument) {
+                    Expr* pack_value = argument->expr;
+                    if (parameter->kind == TPARAM_TYPE ||
+                        parameter->kind == TPARAM_TEMPLATE) {
+                        Type* type_argument = pack_value->type;
+                        if (!type_argument ||
+                            (parameter->kind == TPARAM_TEMPLATE &&
+                             !type_argument->cxx_template &&
+                             !type_argument->cxx_dependent)) {
+                            return false;
+                        }
+                        pack_arguments[pack_index] = type_argument;
+                        if (pack_index == 0) {
+                            concept_types[index] = type_argument;
+                        }
+                    } else if (parameter->kind == TPARAM_NONTYPE) {
+                        if (!eval_template_integer_expression(
+                                pack_value, tmpl, values, value_present,
+                                &pack_values[pack_index])) {
+                            return false;
+                        }
+                        pack_value_present[pack_index] = true;
+                        pack_value_expressions[pack_index] = pack_value;
+                    } else {
+                        return false;
+                    }
+                    ++pack_index;
+                    argument = argument->next;
+                }
+                if (parameter->kind == TPARAM_NONTYPE) {
+                    concept_types[index] = substitute_template_type(
+                        concept, parameter->type, concept_types,
+                        concept->param_count, concept_values,
+                        concept_value_present);
+                }
+                break;
+            }
             if (argument) {
                 if (!argument->expr) return false;
                 if (parameter->kind == TPARAM_TYPE) {
@@ -30736,7 +30887,8 @@ static bool eval_template_integer_expression(Expr* expression,
             } else {
                 return false;
             }
-            if ((parameter->kind == TPARAM_TYPE ||
+            if (!parameter->is_pack &&
+                (parameter->kind == TPARAM_TYPE ||
                  parameter->kind == TPARAM_TEMPLATE ||
                  parameter->kind == TPARAM_NONTYPE) &&
                 !concept_types[index]) {
@@ -30746,25 +30898,76 @@ static bool eval_template_integer_expression(Expr* expression,
         if (argument || !concept->constraint) {
             return false;
         }
+        if (pack_parameter_index >= 0) {
+            pack_offsets = ast_arena_alloc(
+                sizeof(*pack_offsets) *
+                (size_t)(concept->param_count > 0 ? concept->param_count : 1));
+            pack_counts = ast_arena_alloc(
+                sizeof(*pack_counts) *
+                (size_t)(concept->param_count > 0 ? concept->param_count : 1));
+            for (int index = 0; index < concept->param_count; ++index) {
+                pack_offsets[index] = 0;
+                pack_counts[index] = -1;
+            }
+            pack_counts[pack_parameter_index] = pack_argument_count;
+            saved_pack_arguments = concept->pending_pack_args;
+            saved_pack_values = concept->pending_pack_values;
+            saved_pack_value_present = concept->pending_pack_value_present;
+            saved_pack_value_expressions =
+                concept->pending_pack_value_expressions;
+            saved_pack_expansions = concept->pending_pack_expansions;
+            saved_pack_offsets = concept->pending_pack_offsets;
+            saved_pack_counts = concept->pending_pack_counts;
+            saved_pack_count = concept->pending_pack_count;
+            concept->pending_pack_args = pack_arguments;
+            concept->pending_pack_values = pack_values;
+            concept->pending_pack_value_present = pack_value_present;
+            concept->pending_pack_value_expressions = pack_value_expressions;
+            concept->pending_pack_expansions = pack_expansions;
+            concept->pending_pack_offsets = pack_offsets;
+            concept->pending_pack_counts = pack_counts;
+            concept->pending_pack_count = pack_argument_count;
+        }
         if (concept->constraint->kind == EXPR_CXX_REQUIRES) {
             Expr* instantiated = cxx_template_clone_expr_with_values(
                 concept, concept->constraint, concept_types,
                 concept->param_count, concept_values,
                 concept_value_present);
-            if (!instantiated ||
-                !rcc_sema_cxx_requires_satisfied(instantiated)) {
-                *result = 0;
-                return true;
+            bool satisfied = instantiated &&
+                rcc_sema_cxx_requires_satisfied(instantiated);
+            if (pack_parameter_index >= 0) {
+                concept->pending_pack_args = saved_pack_arguments;
+                concept->pending_pack_values = saved_pack_values;
+                concept->pending_pack_value_present =
+                    saved_pack_value_present;
+                concept->pending_pack_value_expressions =
+                    saved_pack_value_expressions;
+                concept->pending_pack_expansions = saved_pack_expansions;
+                concept->pending_pack_offsets = saved_pack_offsets;
+                concept->pending_pack_counts = saved_pack_counts;
+                concept->pending_pack_count = saved_pack_count;
             }
-            *result = 1;
+            *result = satisfied ? 1 : 0;
             return true;
         }
         Expr* instantiated = cxx_template_clone_expr_with_values(
             concept, concept->constraint, concept_types,
             concept->param_count, concept_values, concept_value_present);
-        if (!instantiated || !eval_template_integer_expression(
-                instantiated, concept, concept_values,
-                concept_value_present, result)) {
+        bool evaluated = instantiated && eval_template_integer_expression(
+            instantiated, concept, concept_values, concept_value_present,
+            result);
+        if (pack_parameter_index >= 0) {
+            concept->pending_pack_args = saved_pack_arguments;
+            concept->pending_pack_values = saved_pack_values;
+            concept->pending_pack_value_present = saved_pack_value_present;
+            concept->pending_pack_value_expressions =
+                saved_pack_value_expressions;
+            concept->pending_pack_expansions = saved_pack_expansions;
+            concept->pending_pack_offsets = saved_pack_offsets;
+            concept->pending_pack_counts = saved_pack_counts;
+            concept->pending_pack_count = saved_pack_count;
+        }
+        if (!evaluated) {
             return false;
         }
         *result = *result != 0;
@@ -31164,7 +31367,7 @@ bool rcc_parser_cxx_type_constraint_satisfied(
     SourceLoc loc = {0};
 
     if (!concept || !concept->is_concept || !expression_type ||
-        concept->param_count < 1 || concept->param_count > 32 ||
+        concept->param_count < 1 ||
         concept->params[0].kind != TPARAM_TYPE ||
         concept->params[0].is_pack) {
         return false;
@@ -34541,16 +34744,33 @@ static CxxConstraintNode* cxx_constraint_expand(
 
     if (source->kind == EXPR_CALL && source->cxx_concept_template) {
         CxxTemplate* concept = source->cxx_concept_template;
-        Type* arguments[32] = { NULL };
-        Expr* symbolic_arguments[32] = { NULL };
-        int64_t values[32] = { 0 };
-        bool value_present[32] = { false };
+        Type** arguments;
+        Expr** symbolic_arguments;
+        int64_t* values;
+        bool* value_present;
+        Type** pack_arguments = NULL;
+        int64_t* pack_values = NULL;
+        bool* pack_value_present = NULL;
+        Expr** pack_value_expressions = NULL;
+        bool* pack_expansions = NULL;
+        int* pack_offsets = NULL;
+        int* pack_counts = NULL;
+        Type** saved_pack_arguments = NULL;
+        int64_t* saved_pack_values = NULL;
+        bool* saved_pack_value_present = NULL;
+        Expr** saved_pack_value_expressions = NULL;
+        bool* saved_pack_expansions = NULL;
+        int* saved_pack_offsets = NULL;
+        int* saved_pack_counts = NULL;
+        int saved_pack_count = -1;
         ExprList* argument = mapped->call_args;
         Expr* instantiated;
         CxxConstraintExpansionFrame frame;
+        int pack_parameter_index = -1;
+        int pack_argument_count = 0;
         if (mapped->kind != EXPR_CALL ||
             mapped->cxx_concept_template != concept ||
-            concept->param_count < 0 || concept->param_count > 32 ||
+            concept->param_count < 0 ||
             !concept->constraint) {
             return NULL;
         }
@@ -34558,8 +34778,129 @@ static CxxConstraintNode* cxx_constraint_expand(
              active; active = active->parent) {
             if (active->concept_template == concept) return NULL;
         }
+        arguments = ast_arena_alloc(
+            sizeof(*arguments) *
+            (size_t)(concept->param_count > 0 ? concept->param_count : 1));
+        symbolic_arguments = ast_arena_alloc(
+            sizeof(*symbolic_arguments) *
+            (size_t)(concept->param_count > 0 ? concept->param_count : 1));
+        values = ast_arena_alloc(
+            sizeof(*values) *
+            (size_t)(concept->param_count > 0 ? concept->param_count : 1));
+        value_present = ast_arena_alloc(
+            sizeof(*value_present) *
+            (size_t)(concept->param_count > 0 ? concept->param_count : 1));
+        memset(arguments, 0, sizeof(*arguments) *
+                                  (size_t)(concept->param_count > 0
+                                               ? concept->param_count : 1));
+        memset(symbolic_arguments, 0, sizeof(*symbolic_arguments) *
+                                         (size_t)(concept->param_count > 0
+                                                      ? concept->param_count : 1));
+        memset(values, 0, sizeof(*values) *
+                              (size_t)(concept->param_count > 0
+                                           ? concept->param_count : 1));
+        memset(value_present, 0, sizeof(*value_present) *
+                                    (size_t)(concept->param_count > 0
+                                                 ? concept->param_count : 1));
+        for (int index = 0; index < concept->param_count; ++index) {
+            if (concept->params[index].is_pack) {
+                if (index != concept->param_count - 1 ||
+                    pack_parameter_index >= 0) {
+                    return NULL;
+                }
+                pack_parameter_index = index;
+            }
+        }
         for (int index = 0; index < concept->param_count; ++index) {
             TemplateParam* parameter = &concept->params[index];
+            if (parameter->is_pack) {
+                ExprList* current;
+                for (current = argument; current; current = current->next) {
+                    if (!current->expr || pack_argument_count == INT_MAX) {
+                        return NULL;
+                    }
+                    ++pack_argument_count;
+                }
+                pack_arguments = ast_arena_alloc(
+                    sizeof(*pack_arguments) *
+                    (size_t)(pack_argument_count > 0
+                                 ? pack_argument_count : 1));
+                pack_expansions = ast_arena_alloc(
+                    sizeof(*pack_expansions) *
+                    (size_t)(pack_argument_count > 0
+                                 ? pack_argument_count : 1));
+                memset(pack_arguments, 0, sizeof(*pack_arguments) *
+                                                (size_t)(pack_argument_count > 0
+                                                             ? pack_argument_count : 1));
+                memset(pack_expansions, 0, sizeof(*pack_expansions) *
+                                                (size_t)(pack_argument_count > 0
+                                                             ? pack_argument_count : 1));
+                if (parameter->kind == TPARAM_NONTYPE) {
+                    pack_values = ast_arena_alloc(
+                        sizeof(*pack_values) *
+                        (size_t)(pack_argument_count > 0
+                                     ? pack_argument_count : 1));
+                    pack_value_present = ast_arena_alloc(
+                        sizeof(*pack_value_present) *
+                        (size_t)(pack_argument_count > 0
+                                     ? pack_argument_count : 1));
+                    pack_value_expressions = ast_arena_alloc(
+                        sizeof(*pack_value_expressions) *
+                        (size_t)(pack_argument_count > 0
+                                     ? pack_argument_count : 1));
+                    memset(pack_values, 0, sizeof(*pack_values) *
+                                                  (size_t)(pack_argument_count > 0
+                                                               ? pack_argument_count : 1));
+                    memset(pack_value_present, 0,
+                           sizeof(*pack_value_present) *
+                               (size_t)(pack_argument_count > 0
+                                            ? pack_argument_count : 1));
+                    memset(pack_value_expressions, 0,
+                           sizeof(*pack_value_expressions) *
+                               (size_t)(pack_argument_count > 0
+                                            ? pack_argument_count : 1));
+                }
+                int pack_index = 0;
+                while (argument) {
+                    if (parameter->kind == TPARAM_TYPE ||
+                        parameter->kind == TPARAM_TEMPLATE) {
+                        Type* pack_type = argument->expr->type;
+                        if (!pack_type ||
+                            (parameter->kind == TPARAM_TEMPLATE &&
+                             !pack_type->cxx_template &&
+                             !pack_type->cxx_dependent)) {
+                            return NULL;
+                        }
+                        pack_arguments[pack_index] = pack_type;
+                        if (pack_index == 0) {
+                            arguments[index] = pack_type;
+                            symbolic_arguments[index] = expr_int(
+                                0, argument->expr->loc);
+                            symbolic_arguments[index]->type = pack_type;
+                        }
+                    } else if (parameter->kind == TPARAM_NONTYPE) {
+                        pack_value_expressions[pack_index] = argument->expr;
+                        if (eval_template_integer_expression(
+                                argument->expr, parameter_context, NULL, NULL,
+                                &pack_values[pack_index])) {
+                            pack_value_present[pack_index] = true;
+                        }
+                        if (pack_index == 0) {
+                            symbolic_arguments[index] = argument->expr;
+                        }
+                    } else {
+                        return NULL;
+                    }
+                    ++pack_index;
+                    argument = argument->next;
+                }
+                if (parameter->kind == TPARAM_NONTYPE) {
+                    arguments[index] = substitute_template_type(
+                        concept, parameter->type, arguments,
+                        concept->param_count, values, value_present);
+                }
+                break;
+            }
             if (argument) {
                 if (!argument->expr) return NULL;
                 if (parameter->kind == TPARAM_TYPE) {
@@ -34624,7 +34965,8 @@ static CxxConstraintNode* cxx_constraint_expand(
             } else {
                 return NULL;
             }
-            if ((parameter->kind == TPARAM_TYPE ||
+            if (!parameter->is_pack &&
+                (parameter->kind == TPARAM_TYPE ||
                  parameter->kind == TPARAM_TEMPLATE ||
                  parameter->kind == TPARAM_NONTYPE) &&
                 !arguments[index]) {
@@ -34632,9 +34974,52 @@ static CxxConstraintNode* cxx_constraint_expand(
             }
         }
         if (argument) return NULL;
+        if (pack_parameter_index >= 0) {
+            pack_offsets = ast_arena_alloc(
+                sizeof(*pack_offsets) *
+                (size_t)(concept->param_count > 0
+                             ? concept->param_count : 1));
+            pack_counts = ast_arena_alloc(
+                sizeof(*pack_counts) *
+                (size_t)(concept->param_count > 0
+                             ? concept->param_count : 1));
+            for (int index = 0; index < concept->param_count; ++index) {
+                pack_offsets[index] = 0;
+                pack_counts[index] = -1;
+            }
+            pack_counts[pack_parameter_index] = pack_argument_count;
+            saved_pack_arguments = concept->pending_pack_args;
+            saved_pack_values = concept->pending_pack_values;
+            saved_pack_value_present = concept->pending_pack_value_present;
+            saved_pack_value_expressions =
+                concept->pending_pack_value_expressions;
+            saved_pack_expansions = concept->pending_pack_expansions;
+            saved_pack_offsets = concept->pending_pack_offsets;
+            saved_pack_counts = concept->pending_pack_counts;
+            saved_pack_count = concept->pending_pack_count;
+            concept->pending_pack_args = pack_arguments;
+            concept->pending_pack_values = pack_values;
+            concept->pending_pack_value_present = pack_value_present;
+            concept->pending_pack_value_expressions = pack_value_expressions;
+            concept->pending_pack_expansions = pack_expansions;
+            concept->pending_pack_offsets = pack_offsets;
+            concept->pending_pack_counts = pack_counts;
+            concept->pending_pack_count = pack_argument_count;
+        }
         instantiated = cxx_template_clone_expr_with_values(
             concept, concept->constraint, arguments, concept->param_count,
             values, value_present);
+        if (pack_parameter_index >= 0) {
+            concept->pending_pack_args = saved_pack_arguments;
+            concept->pending_pack_values = saved_pack_values;
+            concept->pending_pack_value_present = saved_pack_value_present;
+            concept->pending_pack_value_expressions =
+                saved_pack_value_expressions;
+            concept->pending_pack_expansions = saved_pack_expansions;
+            concept->pending_pack_offsets = saved_pack_offsets;
+            concept->pending_pack_counts = saved_pack_counts;
+            concept->pending_pack_count = saved_pack_count;
+        }
         if (!instantiated) return NULL;
         instantiated = cxx_constraint_substitute_nontype_expression(
             instantiated, concept, symbolic_arguments, NULL);
