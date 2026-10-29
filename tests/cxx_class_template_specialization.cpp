@@ -395,6 +395,32 @@ static_assert(sizeof(typename NestedOrderSameType<
                   NestedTemplateOrder<UnequalExpansionBox<int*>, char*>::selected,
                   NestedOrderInnerPointer>::result) == sizeof(char));
 
+struct NonTypePackGeneral {};
+struct NonTypePackZeroHead {};
+
+template<typename T, int First, int... Rest>
+struct NonTypePackOrder {};
+
+template<typename T, int Head, int... Tail>
+struct NonTypePackOrder<T*, Head, Tail...> {
+    using selected = NonTypePackGeneral;
+};
+
+template<typename T, int... Tail>
+struct NonTypePackOrder<T*, 0, Tail...> {
+    using selected = NonTypePackZeroHead;
+};
+
+static_assert(sizeof(typename NestedOrderSameType<
+                  NonTypePackOrder<int*, 0>::selected,
+                  NonTypePackZeroHead>::result) == sizeof(char));
+static_assert(sizeof(typename NestedOrderSameType<
+                  NonTypePackOrder<int*, 0, 1>::selected,
+                  NonTypePackZeroHead>::result) == sizeof(char));
+static_assert(sizeof(typename NestedOrderSameType<
+                  NonTypePackOrder<int*, 0, 1, 2>::selected,
+                  NonTypePackZeroHead>::result) == sizeof(char));
+
 int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};

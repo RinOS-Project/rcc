@@ -11869,3 +11869,13 @@ remains a separate open item.
       `test-debug-info-inline-expression`.
 - [ ] Extend computed division/remainder expressions to broader operand trees
       and atomic sources; expand optimized multi-piece location tracking.
+
+## RCC continuation (2026-10-29, non-type packs in class partial specializations)
+
+- [x] Parse non-type pack expansions in class-template partial-specialization
+  arguments, deduce each expanded value, and preserve the flattened primary
+  template identity for empty, single-element, and multi-element tails.
+  `test-cxx-class-template-specialization` passes GCC C++20, i686/AMD64 code
+  generation, and AMD64 execution; the adjacent partial-order ambiguity,
+  unequal-pack, and constraint-diagnostic gates also pass. The full `test-cxx`
+  suite passes on this Windows host.

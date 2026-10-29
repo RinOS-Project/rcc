@@ -16317,6 +16317,26 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                     value_arguments[argument_count] =
                         parse_assignment_expression();
                     rcc_parser_set_cxx_template_default_mode(false);
+                    if (match(TOK_ELLIPSIS)) {
+                        if (tmpl->param_count == 0 ||
+                            primary_pack_index < 0 ||
+                            primary->params[primary_pack_index].kind !=
+                                TPARAM_NONTYPE ||
+                            !cxx_parser_template_pack_parameter_in_scopes(
+                                active_template, NULL,
+                                value_arguments[argument_count],
+                                TPARAM_NONTYPE)) {
+                            rcc_error(loc,
+                                      "class-template partial-specialization "
+                                      "non-type pack expansion must name a "
+                                      "non-type parameter pack and match a "
+                                      "variadic primary template");
+                        } else {
+                            specialization_pack_expansions[argument_count] =
+                                true;
+                            has_specialization_pack_expansion = true;
+                        }
+                    }
                 } else if (primary && parameter_index < primary->param_count &&
                            primary->params[parameter_index].kind ==
                                TPARAM_TEMPLATE) {
@@ -23143,44 +23163,165 @@ static Type* instantiate_class_template_for_owner(
         Type* identity_arguments[32] = { NULL };
         int64_t identity_values[32] = { 0 };
         bool identity_present[32] = { false };
-        for (int identity_index = 0;
-             identity_index < tmpl->primary_template->param_count;
-             ++identity_index) {
-            TemplateParam* parameter =
-                &tmpl->primary_template->params[identity_index];
-            if (parameter->kind == TPARAM_TYPE) {
-                identity_arguments[identity_index] = substitute_template_type(
-                    tmpl, tmpl->specialization_args[identity_index],
-                    arguments, argument_count, value_args, value_present);
-            } else if (parameter->kind == TPARAM_TEMPLATE) {
-                identity_arguments[identity_index] = substitute_template_type(
-                    tmpl, tmpl->specialization_args[identity_index],
-                    arguments, argument_count, value_args, value_present);
-            } else if (parameter->kind == TPARAM_NONTYPE &&
-                       tmpl->specialization_value_args &&
-                       tmpl->specialization_value_args[identity_index]) {
-                if (eval_template_integer_expression(
-                        tmpl->specialization_value_args[identity_index],
-                        tmpl,
-                        value_args, value_present,
-                        &identity_values[identity_index])) {
-                    identity_present[identity_index] = true;
-                } else if (cxx_expr_is_nullptr_constant(
-                               tmpl->specialization_value_args[
-                                   identity_index])) {
-                    identity_values[identity_index] = 0;
-                    identity_present[identity_index] = true;
-                } else {
+        bool identity_valid = true;
+        int identity_argument_count = tmpl->primary_template->param_count;
+        int expansion_index = -1;
+        int expansion_count = 0;
+        int specialization_pack_index = cxx_class_pack_index(tmpl);
+        int primary_pack_index = cxx_class_pack_index(tmpl->primary_template);
+        for (int pattern_index = 0;
+             tmpl->specialization_arg_pack_expansions &&
+             pattern_index < tmpl->specialization_arg_count;
+             ++pattern_index) {
+            if (!tmpl->specialization_arg_pack_expansions[pattern_index]) {
+                continue;
+            }
+            if (expansion_index >= 0) {
+                rcc_error(loc,
+                          "class-template identity has multiple pack "
+                          "expansions");
+                identity_valid = false;
+                expansion_index = -2;
+                break;
+            }
+            expansion_index = pattern_index;
+        }
+        if (expansion_index >= 0) {
+            if (specialization_pack_index < 0 ||
+                specialization_pack_index != tmpl->param_count - 1 ||
+                primary_pack_index < 0 ||
+                argument_count < specialization_pack_index) {
+                rcc_error(loc,
+                          "class-template identity pack expansion does not "
+                          "match its trailing template parameter pack");
+                identity_valid = false;
+                expansion_index = -2;
+            } else {
+                expansion_count = argument_count - specialization_pack_index;
+                identity_argument_count =
+                    tmpl->specialization_arg_count - 1 + expansion_count;
+                if (identity_argument_count > 32) {
                     rcc_error(loc,
-                              "class template specialization value is not "
-                              "an integer constant expression");
+                              "class-template identity argument limit "
+                              "exceeded");
+                    identity_valid = false;
+                    expansion_index = -2;
                 }
             }
         }
-        cxx_set_template_identity(
-            instance, tmpl->primary_template, identity_arguments,
-            identity_values, identity_present,
-            tmpl->primary_template->param_count);
+        if (expansion_index >= 0) {
+            int expanded_argument = 0;
+            for (int identity_index = 0;
+                 identity_index < identity_argument_count;
+                 ++identity_index) {
+                int pattern_index;
+                bool is_expanded;
+                int primary_parameter_index = primary_pack_index >= 0 &&
+                        identity_index >= primary_pack_index
+                    ? primary_pack_index : identity_index;
+                if (identity_index < expansion_index) {
+                    pattern_index = identity_index;
+                } else if (identity_index <
+                           expansion_index + expansion_count) {
+                    pattern_index = expansion_index;
+                } else {
+                    pattern_index = identity_index - expansion_count + 1;
+                }
+                is_expanded = pattern_index == expansion_index;
+                TemplateParam* parameter =
+                    &tmpl->primary_template->params[
+                        primary_parameter_index];
+                if (is_expanded) {
+                    int source_index = specialization_pack_index +
+                        expanded_argument++;
+                    if (source_index >= argument_count) {
+                        rcc_error(loc,
+                                  "class-template identity pack value is "
+                                  "missing");
+                        identity_valid = false;
+                        break;
+                    }
+                    identity_arguments[identity_index] =
+                        arguments ? arguments[source_index] : NULL;
+                    if (parameter->kind == TPARAM_NONTYPE && value_args &&
+                        value_present && value_present[source_index]) {
+                        identity_values[identity_index] =
+                            value_args[source_index];
+                        identity_present[identity_index] = true;
+                    }
+                    continue;
+                }
+                if (parameter->kind == TPARAM_TYPE ||
+                    parameter->kind == TPARAM_TEMPLATE) {
+                    Type* pattern = tmpl->specialization_args
+                        ? tmpl->specialization_args[pattern_index] : NULL;
+                    identity_arguments[identity_index] =
+                        substitute_template_type(
+                            tmpl, pattern, arguments, argument_count,
+                            value_args, value_present);
+                } else if (parameter->kind == TPARAM_NONTYPE &&
+                           tmpl->specialization_value_args &&
+                           tmpl->specialization_value_args[pattern_index]) {
+                    Expr* value_pattern =
+                        tmpl->specialization_value_args[pattern_index];
+                    if (eval_template_integer_expression(
+                            value_pattern, tmpl, value_args, value_present,
+                            &identity_values[identity_index])) {
+                        identity_present[identity_index] = true;
+                    } else if (cxx_expr_is_nullptr_constant(value_pattern)) {
+                        identity_values[identity_index] = 0;
+                        identity_present[identity_index] = true;
+                    } else {
+                        rcc_error(loc,
+                                  "class template specialization value is "
+                                  "not an integer constant expression");
+                        identity_valid = false;
+                    }
+                }
+            }
+        } else if (expansion_index == -1) {
+            for (int identity_index = 0;
+                 identity_index < tmpl->primary_template->param_count;
+                 ++identity_index) {
+                TemplateParam* parameter =
+                    &tmpl->primary_template->params[identity_index];
+                if (parameter->kind == TPARAM_TYPE) {
+                    identity_arguments[identity_index] = substitute_template_type(
+                        tmpl, tmpl->specialization_args[identity_index],
+                        arguments, argument_count, value_args, value_present);
+                } else if (parameter->kind == TPARAM_TEMPLATE) {
+                    identity_arguments[identity_index] = substitute_template_type(
+                        tmpl, tmpl->specialization_args[identity_index],
+                        arguments, argument_count, value_args, value_present);
+                } else if (parameter->kind == TPARAM_NONTYPE &&
+                           tmpl->specialization_value_args &&
+                           tmpl->specialization_value_args[identity_index]) {
+                    if (eval_template_integer_expression(
+                            tmpl->specialization_value_args[identity_index],
+                            tmpl,
+                            value_args, value_present,
+                            &identity_values[identity_index])) {
+                        identity_present[identity_index] = true;
+                    } else if (cxx_expr_is_nullptr_constant(
+                                   tmpl->specialization_value_args[
+                                       identity_index])) {
+                        identity_values[identity_index] = 0;
+                        identity_present[identity_index] = true;
+                    } else {
+                        rcc_error(loc,
+                                  "class template specialization value is not "
+                                  "an integer constant expression");
+                        identity_valid = false;
+                    }
+                }
+            }
+        }
+        if (identity_valid) {
+            cxx_set_template_identity(
+                instance, tmpl->primary_template, identity_arguments,
+                identity_values, identity_present,
+                identity_argument_count);
+        }
     } else {
         cxx_set_template_identity(instance, tmpl, arguments, value_args,
                                   value_present, argument_count);
@@ -25129,6 +25270,52 @@ static bool cxx_deduce_class_specialization_expanded_type(
     return true;
 }
 
+static bool cxx_deduce_class_specialization_expanded_value(
+    CxxTemplate* specialization, Expr* pattern, const Type* actual_type,
+    int64_t actual_value, int64_t* candidate_values,
+    bool* candidate_value_present, int* candidate_pack_count,
+    int* specificity) {
+    int64_t element_values[32] = { 0 };
+    bool element_value_present[32] = { false };
+    int element_specificity = 0;
+    int pack_index = cxx_class_pack_index(specialization);
+    if (!specialization || !pattern || !candidate_values ||
+        !candidate_value_present || !candidate_pack_count || pack_index < 0 ||
+        pack_index != specialization->param_count - 1 ||
+        specialization->params[pack_index].kind != TPARAM_NONTYPE ||
+        !specialization->params[pack_index].is_pack) {
+        return false;
+    }
+    for (int index = 0; index < pack_index; ++index) {
+        if (candidate_value_present[index]) {
+            element_values[index] = candidate_values[index];
+            element_value_present[index] = true;
+        }
+    }
+    if (!deduce_class_specialization_value(
+            specialization, pattern, actual_type, actual_value,
+            element_values, element_value_present, &element_specificity) ||
+        !element_value_present[pack_index] ||
+        pack_index + *candidate_pack_count >= 32) {
+        return false;
+    }
+    for (int index = 0; index < pack_index; ++index) {
+        if (!element_value_present[index]) continue;
+        if (candidate_value_present[index] &&
+            candidate_values[index] != element_values[index]) {
+            return false;
+        }
+        candidate_values[index] = element_values[index];
+        candidate_value_present[index] = true;
+    }
+    int pack_argument_index = pack_index + *candidate_pack_count;
+    candidate_values[pack_argument_index] = element_values[pack_index];
+    candidate_value_present[pack_argument_index] = true;
+    ++*candidate_pack_count;
+    if (specificity) *specificity += element_specificity;
+    return true;
+}
+
 static bool cxx_partial_owner_expression_equal(
     const Expr* left, const Expr* right, unsigned depth) {
     if (left == right) return true;
@@ -26422,18 +26609,32 @@ static Type* cxx_instantiate_dependent_class_template(
                     ? 100000
                     : cxx_class_specialization_value_rank(
                           specialization, value_pattern);
-                matches = value_pattern && value_present[argument_index] &&
-                    (full_specialization
-                         ? cxx_template_non_type_constant_value(
-                               value_pattern,
-                               &candidate_values[argument_index]) &&
-                               candidate_values[argument_index] ==
-                                   values[argument_index]
-                         : deduce_class_specialization_value(
-                               specialization, value_pattern,
-                               arguments[argument_index],
-                               values[argument_index], candidate_values,
-                               candidate_value_present, &specificity));
+                if (full_specialization) {
+                    matches = value_pattern &&
+                        value_present[argument_index] &&
+                        cxx_template_non_type_constant_value(
+                            value_pattern,
+                            &candidate_values[argument_index]) &&
+                        candidate_values[argument_index] ==
+                            values[argument_index];
+                } else if (is_pack_expansion) {
+                    matches = value_pattern &&
+                        value_present[argument_index] &&
+                        cxx_deduce_class_specialization_expanded_value(
+                            specialization, value_pattern,
+                            arguments[argument_index],
+                            values[argument_index], candidate_values,
+                            candidate_value_present, &candidate_pack_count,
+                            &specificity);
+                } else {
+                    matches = value_pattern &&
+                        value_present[argument_index] &&
+                        deduce_class_specialization_value(
+                            specialization, value_pattern,
+                            arguments[argument_index], values[argument_index],
+                            candidate_values, candidate_value_present,
+                            &specificity);
+                }
                 if (full_specialization && matches) {
                     candidate_value_present[argument_index] = true;
                 }
@@ -26535,8 +26736,7 @@ static Type* cxx_instantiate_dependent_class_template(
                  ++parameter_index) {
                 if (expansion_index >= 0 &&
                     parameter_index == specialization_pack_index &&
-                    specialization->params[parameter_index].kind ==
-                        TPARAM_TYPE) {
+                    specialization->params[parameter_index].is_pack) {
                     continue;
                 }
                 if (function_type_pack &&
@@ -27109,15 +27309,25 @@ static Type* parse_class_template_specialization_with_owner_type(
                             ? specialization->specialization_value_args[
                                 pattern_index]
                             : NULL);
-                matches = specialization->specialization_value_args &&
-                    specialization->specialization_value_args[pattern_index] &&
-                    deduce_class_specialization_value(
-                        specialization,
-                        specialization->specialization_value_args[
-                            pattern_index],
-                        arguments[argument_index], values[argument_index],
-                        specialization_values,
-                        specialization_value_present, &specificity);
+                Expr* value_pattern = specialization->specialization_value_args
+                    ? specialization->specialization_value_args[pattern_index]
+                    : NULL;
+                if (is_pack_expansion) {
+                    matches = value_pattern &&
+                        cxx_deduce_class_specialization_expanded_value(
+                            specialization, value_pattern,
+                            arguments[argument_index], values[argument_index],
+                            specialization_values,
+                            specialization_value_present,
+                            &candidate_pack_count, &specificity);
+                } else {
+                    matches = value_pattern &&
+                        deduce_class_specialization_value(
+                            specialization, value_pattern,
+                            arguments[argument_index], values[argument_index],
+                            specialization_values,
+                            specialization_value_present, &specificity);
+                }
             } else if (tmpl->params[parameter_index].kind == TPARAM_TEMPLATE) {
                 Type* template_pattern = specialization->specialization_args
                     ? specialization->specialization_args[pattern_index]
@@ -27234,8 +27444,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                  ++parameter_index) {
                 if (expansion_index >= 0 &&
                     parameter_index == specialization_pack_index &&
-                    specialization->params[parameter_index].kind ==
-                        TPARAM_TYPE) {
+                    specialization->params[parameter_index].is_pack) {
                     continue;
                 }
                 if (function_type_pack &&
