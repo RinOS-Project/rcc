@@ -11371,13 +11371,13 @@ test-cxx-friend-function-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.ro \
 		tests/cxx_friend_template_compound_return_invalid.cpp \
 		>$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.log 2>&1
-	$(GREP) -F -q "ambiguous function template overload for 'compound_return_mismatch_friend'" \
+	$(GREP) -F -q "member 'value' is not accessible" \
 		$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.log
 	! $(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.ro \
 		tests/cxx_friend_template_compound_return_invalid.cpp \
 		>$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.log 2>&1
-	$(GREP) -F -q "ambiguous function template overload for 'compound_return_mismatch_friend'" \
+	$(GREP) -F -q "member 'value' is not accessible" \
 		$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.log
 	! $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-friend-function/default-friend-invalid-x86.ro \
@@ -17592,6 +17592,12 @@ test-compiler-builtins: $(RCC_TARGET) $(RCXX_TARGET) test-floating-math-builtins
 		$(TEST_OUT)/compiler-builtins/invalid-x64.log
 	@echo "C/C++ compiler builtin intrinsic tests completed"
 
+ifeq ($(OS),Windows_NT)
+FLOATING_MATH_X86_LINK = $(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main'
+else
+FLOATING_MATH_X86_LINK = $(CC) -m32 -no-pie
+endif
+
 test-floating-math-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/floating-math-builtins)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
@@ -17602,8 +17608,7 @@ test-floating-math-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 		-I../../libs/libc -S \
 		-o $(TEST_OUT)/floating-math-builtins/c-x86.s \
 		tests/compiler_float_math_builtins.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/floating-math-builtins/c-x86 \
+	$(FLOATING_MATH_X86_LINK) -o $(TEST_OUT)/floating-math-builtins/c-x86 \
 		$(TEST_OUT)/floating-math-builtins/c-x86.s
 	$(TEST_OUT)/floating-math-builtins/c-x86
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
@@ -17612,8 +17617,7 @@ test-floating-math-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/floating-math-builtins/cxx-x86.s \
 		tests/compiler_float_math_builtins.cpp
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/floating-math-builtins/cxx-x86 \
+	$(FLOATING_MATH_X86_LINK) -o $(TEST_OUT)/floating-math-builtins/cxx-x86 \
 		$(TEST_OUT)/floating-math-builtins/cxx-x86.s
 	$(TEST_OUT)/floating-math-builtins/cxx-x86
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
