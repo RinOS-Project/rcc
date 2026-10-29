@@ -45,14 +45,30 @@ _Static_assert(RCC_HAS_TYPE(
                "standard int represents every unsigned bit-precise 7-bit value");
 _Static_assert(RCC_HAS_TYPE((u7)1 + (u9)1, u9),
                "mixed bit-precise arithmetic uses the higher rank");
+_Static_assert(RCC_HAS_TYPE(1 ? (u7)1 : (u9)1, u9),
+               "conditional expression uses the higher bit-precise rank");
+_Static_assert(RCC_HAS_TYPE(1 ? (s7)1 : (u7)1, u7),
+               "conditional expression uses unsigned for equal ranks");
+_Static_assert(RCC_HAS_TYPE(1 ? (u7)1 : 0, int),
+               "conditional expression applies usual conversions with int");
 _Static_assert(RCC_HAS_TYPE((u7)127 + (u7)1, u7) &&
                    (u7)127 + (u7)1 == 0,
                "unsigned bit-precise arithmetic wraps at its value width");
 _Static_assert((s7)63 + (s7)-63 == 0,
                "representable signed bit-precise arithmetic remains valid");
 
+static int bitint_switch_value(u7 value) {
+    switch (value) {
+        case 127: return 1;
+        case 0: return 2;
+        default: return 3;
+    }
+}
+
 int main(void) {
     struct bitint_promotion_fields fields = {0};
+    u7 incremented = 127;
+    u7 previous;
     fields.unsigned_narrow = 3;
     fields.signed_narrow = -1;
     fields.unsigned_wide = ((u33)1 << 32) | (u33)17;
@@ -69,6 +85,15 @@ int main(void) {
     }
     if (fields.unsigned_wide != (((u33)1 << 32) | (u33)17)) {
         return 3;
+    }
+    previous = incremented++;
+    if (previous != 127 || incremented != 0) return 4;
+    incremented = 127;
+    incremented += (u7)1;
+    if (incremented != 0) return 5;
+    if (bitint_switch_value((u7)127) != 1 ||
+        bitint_switch_value((u7)0) != 2) {
+        return 6;
     }
     return 0;
 }
