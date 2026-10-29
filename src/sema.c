@@ -32203,7 +32203,10 @@ static void sema_decl(Decl* decl) {
                      decl->type->ret_type->kind == TYPE_UNION ||
                      decl->type->ret_type->kind == TYPE_VECTOR ||
                      type_is_cxx_member_function_pointer(
-                         decl->type->ret_type))) {
+                         decl->type->ret_type)) &&
+                    !(type_is_complex(decl->type->ret_type) &&
+                      decl->type->ret_type->complex_component_type->kind ==
+                          TYPE_FLOAT)) {
                     param_offset += 4; /* Hidden aggregate-result pointer. */
                 }
                 if (decl->func_this_param) {

@@ -597,6 +597,7 @@ endif
 .PHONY: test-verified-cxx-throwing-temporary
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-complex
+.PHONY: test-complex-legacy
 .PHONY: test-long-double
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
@@ -1022,6 +1023,7 @@ C17_REGRESSION_TARGETS += test-c11-threads-sdk
 C17_REGRESSION_TARGETS += test-ucontext-sdk
 C17_REGRESSION_TARGETS += test-c-null-void-pointer-constant
 C17_REGRESSION_TARGETS += test-complex
+C17_REGRESSION_TARGETS += test-complex-legacy
 C17_REGRESSION_TARGETS += test-long-double test-preprocessor-standard-macros
 C17_REGRESSION_TARGETS += test-tool-relative-includes
 
@@ -17252,6 +17254,28 @@ test-complex: $(RCC_TARGET)
 	$(TEST_OUT)/complex/run-complex$(EXE_SUFFIX) \
 		$(TEST_OUT)/complex/complex-x64-o2.ro \
 		$(TEST_OUT)/complex/complex-x86.ro
+
+test-complex-legacy: test-complex $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/complex)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -S -v \
+		-o $(TEST_OUT)/complex/legacy-x86.s \
+		tests/c_complex_legacy_abi.c \
+		>$(TEST_OUT)/complex/legacy-x86.log
+	$(GREP) -F -q 'Code generation (x86-32)' \
+		$(TEST_OUT)/complex/legacy-x86.log
+	$(CC) -m32 -c $(TEST_OUT)/complex/legacy-x86.s \
+		-o $(TEST_OUT)/complex/legacy-x86.o
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -S -v \
+		-o $(TEST_OUT)/complex/legacy-x64.s \
+		tests/c_complex_legacy_abi.c \
+		>$(TEST_OUT)/complex/legacy-x64.log
+	$(GREP) -F -q 'Code generation (x86-64)' \
+		$(TEST_OUT)/complex/legacy-x64.log
+	$(CC) $(CFLAGS) -Werror -o $(TEST_OUT)/complex/run-legacy$(EXE_SUFFIX) \
+		tests/c_complex_legacy_abi_test.c \
+		$(TEST_OUT)/complex/legacy-x64.s \
+		$(TEST_OUT)/complex/complex_runtime.o -lm
+	$(TEST_OUT)/complex/run-legacy$(EXE_SUFFIX)
 
 test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/long-double)
