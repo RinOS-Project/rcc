@@ -328,6 +328,8 @@ static bool lower_copy_volatile_aggregate_storage(
     bool destination_volatile, bool source_volatile);
 static bool lower_volatile_local_aggregate_supported(
     const Decl* declaration);
+static bool lower_static_volatile_aggregate_supported(
+    const Decl* declaration);
 
 static const Decl* lower_direct_aggregate_declaration(
     const Expr* expression) {
@@ -2618,6 +2620,27 @@ static bool lower_static_local_dynamic_scalar_supported(
          type_is_floating((Type*)type) || type->kind == TYPE_PTR);
 }
 
+static bool lower_static_volatile_aggregate_supported(
+    const Decl* declaration) {
+    Type unqualified_type;
+    const Type* type = declaration ? declaration->type : NULL;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        !declaration->var_is_static_local || declaration->var_is_thread_local ||
+        g_opts.cxx_mode || declaration->var_dynamic_initializer ||
+        declaration->var_reference_temporary_guard ||
+        declaration->var_reference_temporary_owner ||
+        declaration->var_cleanup || declaration->var_cleanups ||
+        declaration->storage != STORAGE_STATIC || !type ||
+        !type->is_volatile || type->is_atomic || type->is_reference ||
+        type->cxx_class || type->cleanup_function || type->cleanup_field ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
+        return false;
+    }
+    unqualified_type = *type;
+    unqualified_type.is_volatile = false;
+    return lower_storage_type_supported_internal(&unqualified_type, 0u);
+}
+
 static RccIrLowerValue lower_lvalue_address_impl(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerLocal* local;
@@ -2661,6 +2684,7 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 declaration->type->cleanup_function ||
                 (declaration->var_is_static_local &&
                  !lower_static_local_dynamic_scalar_supported(declaration) &&
+                 !lower_static_volatile_aggregate_supported(declaration) &&
                  (declaration->var_dynamic_initializer ||
                   declaration->var_reference_temporary_guard ||
                   declaration->var_reference_temporary_owner ||
@@ -24729,6 +24753,9 @@ static bool lower_declaration(RccIrLowerContext* context,
         return false;
     }
     if (declaration->var_is_static_local) {
+        if (lower_static_volatile_aggregate_supported(declaration)) {
+            return true;
+        }
         if (lower_static_local_dynamic_scalar_supported(declaration) &&
             !is_aggregate) {
             return lower_static_local_scalar_initializer(

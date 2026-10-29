@@ -155,14 +155,14 @@ int main(int argc, char** argv)
         assert(data->size <= SIZE_MAX - data_offset);
         used_size = data_offset + (size_t)data->size;
     }
-    if (bss && bss->size != 0u) {
+    if (bss && bss->memory_size != 0u) {
         size_t alignment = bss->align ? bss->align : 1u;
         if (alignment < page_size) alignment = page_size;
         size_t mask = alignment - 1u;
         assert((alignment & mask) == 0u && used_size <= SIZE_MAX - mask);
         bss_offset = (used_size + mask) & ~mask;
-        assert(bss->size <= SIZE_MAX - bss_offset);
-        used_size = bss_offset + (size_t)bss->size;
+        assert(bss->memory_size <= SIZE_MAX - bss_offset);
+        used_size = bss_offset + (size_t)bss->memory_size;
     }
     assert(used_size <= SIZE_MAX - page_size + 1u);
     mapping_size = (used_size + page_size - 1u) & ~(page_size - 1u);

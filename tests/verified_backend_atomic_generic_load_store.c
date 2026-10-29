@@ -185,6 +185,27 @@ __attribute__((noinline)) int local_volatile_aggregate_copy(void)
         volatile_union.value == plain_union.value ? 0 : 1;
 }
 
+__attribute__((noinline)) int static_volatile_aggregate_copy(void)
+{
+    static volatile word_aggregate initialized_structure = {0x10293847u};
+    static volatile word_union_aggregate zero_initialized_union;
+    word_aggregate structure_source = {0x50617283u};
+    word_union_aggregate union_source = {0x94a5b6c7u};
+
+    if (initialized_structure.value != 0x10293847u ||
+        zero_initialized_union.value != 0u) return 1;
+    initialized_structure = structure_source;
+    zero_initialized_union = union_source;
+    if (initialized_structure.value != structure_source.value ||
+        zero_initialized_union.value != union_source.value) return 1;
+    structure_source.value = 0xa7c5e319u;
+    union_source.value = 0x13579bdfu;
+    initialized_structure = structure_source;
+    zero_initialized_union = union_source;
+    return initialized_structure.value == structure_source.value &&
+        zero_initialized_union.value == union_source.value ? 0 : 1;
+}
+
 int main(void)
 {
     int pointees[2] = {0, 0};
@@ -242,6 +263,7 @@ int main(void)
         local_volatile_union_atomic() == 0 &&
         local_volatile_aggregate_initialized() == 0 &&
         local_volatile_aggregate_copy() == 0 &&
+        static_volatile_aggregate_copy() == 0 &&
 #if defined(__x86_64__)
         wide_aggregate_atomic_suite() == 0 &&
 #endif
