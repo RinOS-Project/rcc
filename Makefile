@@ -634,7 +634,9 @@ test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
 .PHONY: test-cxx-default-destructor
 .PHONY: test-cxx-pure-virtual
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
-test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
+test-cxx-adl-multiple-namespaces test-cxx-adl-function-pointer-signatures \
+test-cxx-adl-function-pointer-signatures-posix \
+test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl \
 	test-cxx-template-two-phase-ordinary test-cxx-template-parameter-pack \
 	test-cxx-class-type-pack
@@ -905,6 +907,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-if-constexpr \
 	test-cxx-if-constexpr-template \
 	test-cxx-adl-multiple-namespaces \
+	test-cxx-adl-function-pointer-signatures \
 	test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace \
 	test-cxx-template-two-phase-adl \
@@ -12482,6 +12485,24 @@ test-cxx-adl-multiple-namespaces: $(RCXX_TARGET)
 else
 test-cxx-adl-multiple-namespaces: test-cxx-adl-multiple-namespaces-posix
 endif
+
+ifeq ($(OS),Windows_NT)
+test-cxx-adl-function-pointer-signatures: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-function-pointer-signatures)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-adl-function-pointer-signatures/gcc-host.exe tests/cxx_adl_function_pointer_signatures.cpp
+	$(TEST_OUT)/cxx-adl-function-pointer-signatures/gcc-host.exe
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-adl-function-pointer-signatures,cxx_adl_function_pointer_signatures.cpp)
+	@echo "C++ function-pointer-signature ADL tests completed"
+else
+test-cxx-adl-function-pointer-signatures: test-cxx-adl-function-pointer-signatures-posix
+endif
+
+test-cxx-adl-function-pointer-signatures-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-function-pointer-signatures)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-adl-function-pointer-signatures/gcc-host tests/cxx_adl_function_pointer_signatures.cpp
+	$(TEST_OUT)/cxx-adl-function-pointer-signatures/gcc-host
+	$(call CXX_POSIX_ENTRY_TEST,cxx-adl-function-pointer-signatures,cxx_adl_function_pointer_signatures.cpp)
+	@echo "C++ function-pointer-signature ADL tests completed"
 
 test-cxx-adl-multiple-namespaces-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-multiple-namespaces)

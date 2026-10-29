@@ -1464,6 +1464,16 @@ static void sema_cxx_adl_append_type(SemaCxxAdlTypes* types, Type* type) {
         type = type->base;
         if (!type) return;
     }
+    if (type->kind == TYPE_FUNC) {
+        /* A function type contributes the associated entities of its return
+         * and parameter types; this also covers nested function pointers. */
+        sema_cxx_adl_append_type(types, type->ret_type);
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            sema_cxx_adl_append_type(types, parameter->type);
+        }
+        return;
+    }
     if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
         type->kind != TYPE_ENUM) {
         return;
