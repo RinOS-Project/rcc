@@ -1883,21 +1883,21 @@
           plan; register each completed direct member during initialization,
           unregister those actions when the complete object is ready, and let
           the complete plan own normal cleanup. The throwing-member and normal
-          destruction-order regression passes with 54 functions and zero
+          destruction-order regression passes with 55 functions and zero
           fallback on i686/AMD64 at `-O0`/`-O2`, plus generated AMD64 and
           legacy-host execution in `test-verified-cxx-throwing-temporary`.
     - [x] Extend bounded reference-bound partial construction to flat,
           non-virtual direct bases with non-throwing aggregate initialization.
-          Put the destructor-bearing base behind a non-empty trivial base to
-          verify a nonzero byte offset. Register each completed base while
-          later direct members initialize; a later throwing member unwinds the
-          base once, while success hands cleanup to the complete-object plan. The
-          `test-verified-cxx-throwing-temporary` gate remains at 54 functions
+          Place two destructor-bearing bases behind a non-empty trivial base
+          and verify their nonzero offsets, reverse-order unwind on a later
+          throwing member, and handoff to the complete-object cleanup plan on
+          success. The
+          `test-verified-cxx-throwing-temporary` gate remains at 55 functions
           with zero fallback for i686/AMD64 at `-O0`/`-O2`, and generated
           AMD64 objects plus the legacy host verify failure and normal order.
     - [x] Verify a normal scope-exit cleanup whose `noexcept(false)` destructor
           throws into the surrounding handler exactly once. The
-          `test-verified-cxx-throwing-temporary` gate emits 54 functions with
+          `test-verified-cxx-throwing-temporary` gate emits 55 functions with
           zero fallback on i686/AMD64 at `-O0`/`-O2`; generated AMD64 and
           legacy-host execution both observe result `889` and cleanup order `9`.
 - [x] target-independent MIR

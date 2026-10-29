@@ -4961,20 +4961,20 @@ static void verify_cxx_throwing_temporary_object(
                sizeof(partial_aggregate_arguments));
         cleanup_order = 0;
         result = partial_aggregate_arguments(&cleanup_order, 1);
-        if (result != 618 || cleanup_order != 8) {
+        if (result != 708 || cleanup_order != 98) {
             fprintf(stderr,
-                    "verified reference-bound partial aggregate throw returned %d/order %d, expected 618/order 8\n",
+                    "verified reference-bound partial aggregate throw returned %d/order %d, expected 708/order 98\n",
                     result, cleanup_order);
         }
-        assert(result == 618 && cleanup_order == 8);
+        assert(result == 708 && cleanup_order == 98);
         cleanup_order = 0;
         result = partial_aggregate_arguments(&cleanup_order, 0);
-        if (result != 518 || cleanup_order != 18) {
+        if (result != 698 || cleanup_order != 198) {
             fprintf(stderr,
-                    "verified reference-bound partial aggregate completion returned %d/order %d, expected 518/order 18\n",
+                    "verified reference-bound partial aggregate completion returned %d/order %d, expected 698/order 198\n",
                     result, cleanup_order);
         }
-        assert(result == 518 && cleanup_order == 18);
+        assert(result == 698 && cleanup_order == 198);
         address = symbol_address(memory, throwing_constructor_symbol);
         memcpy(&constructor_argument, &address,
                sizeof(constructor_argument));

@@ -233,8 +233,18 @@ struct VerifiedReferenceBoundPartialPrefix {
     int prefix_value;
 };
 
+struct VerifiedReferenceBoundPartialSecondBase {
+    int* cleanup_order;
+    int cleanup_id;
+
+    ~VerifiedReferenceBoundPartialSecondBase() noexcept {
+        *cleanup_order = *cleanup_order * 10 + cleanup_id;
+    }
+};
+
 struct VerifiedReferenceBoundPartialAggregate :
-        VerifiedReferenceBoundPartialPrefix, VerifiedThrowingTemporary {
+        VerifiedReferenceBoundPartialPrefix, VerifiedThrowingTemporary,
+        VerifiedReferenceBoundPartialSecondBase {
     VerifiedPotentiallyThrowingBase pending;
 };
 
@@ -736,6 +746,7 @@ extern "C" int verified_cxx_reference_bound_partial_aggregate_cleanup(
                 VerifiedReferenceBoundPartialAggregate{
                     {3},
                     {cleanup_order, 8, {9}},
+                    {cleanup_order, 9},
                     VerifiedPotentiallyThrowingBase(
                         cleanup_order, should_throw ? -1 : 5)};
             result = value.pending.first_value;
