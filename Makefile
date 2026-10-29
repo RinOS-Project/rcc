@@ -1190,8 +1190,8 @@ test-c-null-void-pointer-constant: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.ro)
 	@echo "C17 void-pointer null constant and C++ rejection tests completed"
 
-.PHONY: test-c23-bitint test-c23-bitint-float-conversion test-c23-embed
-test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes
+.PHONY: test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-embed
+test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes
 	@echo "RCC C23 _BitInt, nullptr, empty-initialization, typeof, attributes, and binary-resource regressions completed"
 
 test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
@@ -1253,6 +1253,9 @@ test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/nonconstant-width.ro tests/invalid_c23_bitint_nonconstant.c,$(TEST_OUT)/c23-bitint/nonconstant-width.log)
 	$(GREP) -F -q '_BitInt width must be between 1 and 64 (signed widths start at 2)' $(TEST_OUT)/c23-bitint/nonconstant-width.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/nonconstant-width.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/signed-overflow-ice.ro tests/invalid_c23_bitint_signed_overflow_ice.c,$(TEST_OUT)/c23-bitint/signed-overflow-ice.log)
+	$(call CHECK_COUNT,static assertion is not an integer constant expression,$(TEST_OUT)/c23-bitint/signed-overflow-ice.log,2)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/signed-overflow-ice.ro)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c23-bitint/c17.ro tests/invalid_c17_bitint.c,$(TEST_OUT)/c23-bitint/c17.log)
 	$(GREP) -F -q '_BitInt requires C23 mode' $(TEST_OUT)/c23-bitint/c17.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/c17.ro)
@@ -1263,6 +1266,68 @@ test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q '_BitInt requires C23 mode' $(TEST_OUT)/c23-bitint/cxx.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/cxx.ro)
 	@echo "C23 _BitInt storage, arithmetic, literal, ABI-format, and mode-boundary tests passed"
+
+test-c23-bitint-promotions: $(RCC_TARGET) $(RLD_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-bitint-promotions)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint-promotions/x86.ro \
+		tests/c23_bitint_promotions.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint-promotions/x64.ro \
+		tests/c23_bitint_promotions.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -S -o $(TEST_OUT)/c23-bitint-promotions/x64.s \
+		tests/c23_bitint_promotions.c
+	$(CC) -o $(TEST_OUT)/c23-bitint-promotions/x64-host \
+		$(TEST_OUT)/c23-bitint-promotions/x64.s
+	$(TEST_OUT)/c23-bitint-promotions/x64-host
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include --emit-unsigned-v3 \
+		-o $(TEST_OUT)/c23-bitint-promotions/x86.rin \
+		tests/c23_bitint_promotions.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include --emit-unsigned-v3 \
+		-o $(TEST_OUT)/c23-bitint-promotions/x64.rin \
+		tests/c23_bitint_promotions.c
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/c23-bitint-promotions/linked-x86.rin \
+		$(TEST_OUT)/c23-bitint-promotions/x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-o $(TEST_OUT)/c23-bitint-promotions/linked-x64.rin \
+		$(TEST_OUT)/c23-bitint-promotions/x64.ro
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -shared --emit-unsigned-v3 \
+		-o $(TEST_OUT)/c23-bitint-promotions/x86.rll \
+		tests/c23_bitint_promotions.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -shared --emit-unsigned-v3 \
+		-o $(TEST_OUT)/c23-bitint-promotions/x64.rll \
+		tests/c23_bitint_promotions.c
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/c23-bitint-promotions/x86.drv \
+		tests/c23_bitint_promotions.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -driver --emit-unsigned-v3 \
+		-o $(TEST_OUT)/c23-bitint-promotions/x64.drv \
+		tests/c23_bitint_promotions.c
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/c23-bitint-promotions/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/c23-bitint-promotions/x64.rin
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/c23-bitint-promotions/linked-x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/c23-bitint-promotions/linked-x64.rin
+	$(RINVALIDATE) --kind library --arch x86 --allow-unsigned \
+		$(TEST_OUT)/c23-bitint-promotions/x86.rll
+	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/c23-bitint-promotions/x64.rll
+	$(RINVALIDATE) --kind driver --arch x86 --allow-unsigned \
+		$(TEST_OUT)/c23-bitint-promotions/x86.drv
+	$(RINVALIDATE) --kind driver --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/c23-bitint-promotions/x64.drv
+	@echo "C23 bit-precise bit-field promotions and signed overflow ICE diagnostics passed"
 
 test-c23-bitint-float-conversion: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-bitint-float-conversion)
@@ -1617,7 +1682,7 @@ test-c23-vla-declarator-order: $(RCC_TARGET)
 	$(TEST_OUT)/c23-vla-declarator-order/rcc-host
 	gcc -std=c2x -Wall -Wextra -Werror -o $(TEST_OUT)/c23-vla-declarator-order/gcc-host tests/c23_vla_declarator_order.c
 	$(TEST_OUT)/c23-vla-declarator-order/gcc-host
-	@echo "RCC C23 left-to-right VLA declarator and saved typedef-bound regressions passed"
+	@echo "RCC C23 VLA declarator evaluation and saved typedef-bound regressions passed"
 
 test-c23-typeof-type-name: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-typeof-type-name)

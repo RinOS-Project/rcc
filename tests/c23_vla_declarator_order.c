@@ -7,12 +7,14 @@ int main(void) {
         return 1;
     }
 
-    typedef int First[bound++], Second[bound++];
-    if (bound != 5) return 2;
+    int first_typedef_bound = 3;
+    int second_typedef_bound = 4;
+    typedef int First[first_typedef_bound++], Second[second_typedef_bound++];
+    if (first_typedef_bound != 4 || second_typedef_bound != 5) return 2;
     First first_typedef;
     Second second_typedef;
     if (sizeof(first_typedef) != 3u * sizeof(int) ||
-        sizeof(second_typedef) != 4u * sizeof(int) || bound != 5) {
+        sizeof(second_typedef) != 4u * sizeof(int) || bound != 3) {
         return 3;
     }
     return 0;

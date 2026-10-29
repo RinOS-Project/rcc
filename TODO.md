@@ -114,6 +114,12 @@
   conversion fixture successfully as an independent oracle.
 - [ ] Audit remaining C23 bit-precise integer rules and contexts, especially
   promotions, conversions, invalid expressions, and overflow contexts.
+  - [x] Preserve the declared `_BitInt` type for narrow bit-precise bit-fields
+    through unary `+`, unary `-`, `~`, and shifts, following C23 6.3.1.1. The
+    N3220 wording differs from Clang 18's AST promotion result for this case,
+    so Clang 18 is not used as the conformance oracle. Verify exact types,
+    AMD64 runtime behavior, i686/AMD64 RIN/RLL/DRV generation and validation,
+    plus rejection of signed `_BitInt` addition/division overflow in ICEs.
 
 ## RCC continuation (2026-10-29, C23 binary resource inclusion)
 
@@ -201,6 +207,9 @@
 - [ ] Audit the remaining sequencing cases. WG14 issue 1120 is open on
   full-expression boundaries for typeof/declarator size expressions, so do
   not treat one compiler's ordering as a general conformance oracle.
+  - [x] Make the same-declaration VLA typedef regression use independent
+    counters, checking each bound is captured once without asserting the
+    relative evaluation order of distinct size expressions.
   Native i686 execution now passes for the covered typedef/runtime cases.
 
 この一覧は「CLIが存在する」ことと「言語・ABIが完成している」ことを区別する。
