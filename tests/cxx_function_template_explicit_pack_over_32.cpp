@@ -23,6 +23,10 @@ template<class... Types>
 ExplicitAndDeducedPackTypeList<Types...> explicit_then_deduced_pack(
     Types...);
 
+template<class... Types>
+ExplicitAndDeducedPackTypeList<Types...> fixed_argument_then_deduced_pack(
+    int, Types...);
+
 template<class Actual, class Expected>
 struct ExplicitAndDeducedPackSameType {
     static constexpr bool value = false;
@@ -39,6 +43,13 @@ static_assert(ExplicitAndDeducedPackSameType<
                   ExplicitAndDeducedPackResult,
                   ExplicitAndDeducedPackTypeList<int, short, double>>::value,
               "deduction must extend an explicitly specified parameter pack");
+
+using FixedArgumentAndDeducedPackResult = decltype(
+    fixed_argument_then_deduced_pack<int, short>(0, 1L, 2, 3.0));
+static_assert(ExplicitAndDeducedPackSameType<
+                  FixedArgumentAndDeducedPackResult,
+                  ExplicitAndDeducedPackTypeList<int, short, double>>::value,
+              "deduction must preserve the fixed argument before the pack");
 
 using StandardExplicitAndDeducedPackResult = decltype(
     explicit_then_deduced_pack<int*, float*>(0, 0, 0));
