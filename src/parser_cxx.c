@@ -39638,11 +39638,35 @@ static bool prepare_cxx_function_template_match_impl(
                     continue;
                 }
                 if (pack_index < 0) return false;
-                if (match->pack_counts[pack_index] == 0) {
-                    match->pack_offsets[pack_index] = match->pack_count;
-                    bool value_pack = pack_index >= 0 &&
+                {
+                    int explicit_pack_count =
+                        match->pack_counts[pack_index];
+                    int pack_offset = match->pack_offsets[pack_index];
+                    int pack_element_count = explicit_pack_count;
+                    bool value_pack =
                         tmpl->params[pack_index].kind == TPARAM_NONTYPE;
-                    int function_pack_count = 0;
+                    int function_pack_count = explicit_pack_count;
+                    if (explicit_pack_count == 0) {
+                        match->pack_offsets[pack_index] = match->pack_count;
+                        pack_offset = match->pack_count;
+                    } else {
+                        if (pack_offset < 0 ||
+                            pack_offset > match->pack_count ||
+                            explicit_pack_count >
+                                match->pack_count - pack_offset) {
+                            return false;
+                        }
+                        /* Explicit template arguments initialize the first
+                         * elements of a function parameter pack.  Those call
+                         * arguments are checked against the completed
+                         * specialization later; deduction starts after them. */
+                        for (int explicit_index = 0;
+                             explicit_index < explicit_pack_count;
+                             ++explicit_index) {
+                            if (!argument) return false;
+                            argument = argument->next;
+                        }
+                    }
                     for (ExprList* remaining = argument; remaining;
                          remaining = remaining->next) {
                         ++function_pack_count;
@@ -39722,18 +39746,53 @@ static bool prepare_cxx_function_template_match_impl(
                                 match->value_present[template_index] = true;
                             }
                         }
+                        if (match->pack_count >= match->pack_capacity) {
+                            return false;
+                        }
+                        int insertion_index = pack_offset +
+                            pack_element_count;
+                        if (insertion_index < 0 ||
+                            insertion_index > match->pack_count) {
+                            return false;
+                        }
+                        if (insertion_index < match->pack_count) {
+                            size_t elements_to_move = (size_t)(
+                                match->pack_count - insertion_index);
+                            memmove(match->pack_arguments + insertion_index + 1,
+                                    match->pack_arguments + insertion_index,
+                                    sizeof(match->pack_arguments[0]) *
+                                        elements_to_move);
+                            memmove(match->pack_values + insertion_index + 1,
+                                    match->pack_values + insertion_index,
+                                    sizeof(match->pack_values[0]) *
+                                        elements_to_move);
+                            memmove(match->pack_value_present +
+                                        insertion_index + 1,
+                                    match->pack_value_present + insertion_index,
+                                    sizeof(match->pack_value_present[0]) *
+                                        elements_to_move);
+                            for (int other_pack = 0;
+                                 other_pack < tmpl->param_count; ++other_pack) {
+                                if (other_pack != pack_index &&
+                                    match->pack_counts[other_pack] > 0 &&
+                                    match->pack_offsets[other_pack] >=
+                                        insertion_index) {
+                                    ++match->pack_offsets[other_pack];
+                                }
+                            }
+                        }
                         if (value_pack) {
-                            match->pack_values[match->pack_count] =
+                            match->pack_values[insertion_index] =
                                 element_values[pack_index];
-                            match->pack_value_present[match->pack_count] =
+                            match->pack_value_present[insertion_index] =
                                 true;
-                            ++match->pack_counts[pack_index];
-                            ++match->pack_count;
                         } else {
-                            ++match->pack_counts[pack_index];
-                            match->pack_arguments[match->pack_count++] =
+                            match->pack_arguments[insertion_index] =
                                 element_arguments[pack_index];
                         }
+                        ++match->pack_counts[pack_index];
+                        ++pack_element_count;
+                        ++match->pack_count;
                         specificity += element_specificity;
                         argument = argument->next;
                     }

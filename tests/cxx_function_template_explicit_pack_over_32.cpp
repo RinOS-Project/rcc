@@ -16,6 +16,37 @@ int count_deferred_explicit_pack(T value) {
             value, value, value, value, value, value);
 }
 
+template<class... Types>
+struct ExplicitAndDeducedPackTypeList {};
+
+template<class... Types>
+ExplicitAndDeducedPackTypeList<Types...> explicit_then_deduced_pack(
+    Types...);
+
+template<class Actual, class Expected>
+struct ExplicitAndDeducedPackSameType {
+    static constexpr bool value = false;
+};
+
+template<class Type>
+struct ExplicitAndDeducedPackSameType<Type, Type> {
+    static constexpr bool value = true;
+};
+
+using ExplicitAndDeducedPackResult = decltype(
+    explicit_then_deduced_pack<int, short>(1L, 2, 3.0));
+static_assert(ExplicitAndDeducedPackSameType<
+                  ExplicitAndDeducedPackResult,
+                  ExplicitAndDeducedPackTypeList<int, short, double>>::value,
+              "deduction must extend an explicitly specified parameter pack");
+
+using StandardExplicitAndDeducedPackResult = decltype(
+    explicit_then_deduced_pack<int*, float*>(0, 0, 0));
+static_assert(ExplicitAndDeducedPackSameType<
+                  StandardExplicitAndDeducedPackResult,
+                  ExplicitAndDeducedPackTypeList<int*, float*, int>>::value,
+              "deduction must append to the explicitly specified pack");
+
 int main() {
     return count_explicit_pack<
                int, int, int, int, int, int, int, int, int, int, int,
