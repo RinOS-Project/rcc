@@ -280,8 +280,21 @@ static int verified_throwing_base_initializer_value(int value) {
     return value;
 }
 
+static int verified_noexcept_member_initializer_argument_value(
+    int value) noexcept {
+    return verified_multiple_base_member_initializer_mode == 12
+        ? value + 100 : value;
+}
+
 static int verified_throwing_member_initializer_value(int value) {
-    if (verified_multiple_base_member_initializer_mode == 11) throw 67;
+    if (verified_multiple_base_member_initializer_mode == 11 ||
+        verified_multiple_base_member_initializer_mode == 12) {
+        if (verified_multiple_base_member_initializer_mode == 12 &&
+            value != 103) {
+            throw 68;
+        }
+        throw 67;
+    }
     return value;
 }
 
@@ -322,7 +335,9 @@ struct VerifiedMultipleThrowingBaseDerived :
               cleanup_order,
               verified_throwing_base_initializer_value(second)),
           member(cleanup_order,
-                 verified_throwing_member_initializer_value(member_initial)),
+                 verified_throwing_member_initializer_value(
+                     verified_noexcept_member_initializer_argument_value(
+                         member_initial))),
           tail(7) {
         switch (body_mode) {
         case 0:

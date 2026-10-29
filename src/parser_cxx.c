@@ -7758,10 +7758,47 @@ static bool cxx_constructor_expression_is_lowerable(
     CxxConstructorInfo* constructor, Expr* expression, Type* target_type,
     bool* parameter_used, unsigned parameter_count);
 
+static bool cxx_constructor_member_call_argument_is_bounded(
+    CxxConstructorInfo* constructor, Expr* expression) {
+    if (!expression) return false;
+    if (expression->kind != EXPR_CALL) {
+        return cxx_constructor_expression_is_lowerable(
+            constructor, expression, NULL, NULL, 0u);
+    }
+    if (expression->call_is_new || expression->call_is_delete ||
+        (expression->type &&
+         !cxx_constructor_scalar_type(expression->type)) ||
+        !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        !expression->call_func->ident_name) {
+        return false;
+    }
+    if (expression->call_func->ident_decl) {
+        Decl* callee = expression->call_func->ident_decl;
+        if (callee->kind != DECL_FUNC || !callee->type ||
+            callee->type->kind != TYPE_FUNC || !callee->type->ret_type ||
+            !cxx_constructor_scalar_type(callee->type->ret_type)) {
+            return false;
+        }
+    }
+    for (ExprList* argument = expression->call_args; argument;
+         argument = argument->next) {
+        if (!argument->expr || argument->cxx_temporary_owner ||
+            argument->cxx_temporary_cleanups ||
+            argument->designator_kind != INIT_DESIGNATOR_NONE ||
+            !cxx_constructor_member_call_argument_is_bounded(
+                constructor, argument->expr)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* Member constructor arguments are parsed before ordinary function calls
- * have complete types. Defer constructor selection for direct calls whose
- * arguments are already known to be bounded parameter expressions; semantic
- * analysis resolves the call and the destination constructor later. */
+ * have complete types. Defer constructor selection for direct scalar calls
+ * with bounded arguments, including nested direct calls; semantic analysis
+ * resolves the call and destination constructor later. The typed lowerer
+ * separately requires nested calls to be non-throwing. */
 static bool cxx_constructor_member_arguments_need_sema(
     CxxConstructorInfo* constructor, ExprList* arguments) {
     bool has_unresolved_call = false;
@@ -7785,8 +7822,10 @@ static bool cxx_constructor_member_arguments_need_sema(
                  call_argument; call_argument = call_argument->next) {
                 if (call_argument->cxx_temporary_owner ||
                     call_argument->cxx_temporary_cleanups ||
-                    !cxx_constructor_expression_is_lowerable(
-                        constructor, call_argument->expr, NULL, NULL, 0u)) {
+                    call_argument->designator_kind !=
+                        INIT_DESIGNATOR_NONE ||
+                    !cxx_constructor_member_call_argument_is_bounded(
+                        constructor, call_argument->expr)) {
                     return false;
                 }
             }

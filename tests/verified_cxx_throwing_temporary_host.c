@@ -240,6 +240,13 @@ int main(void) {
                 result);
         return 35;
     }
+    result = verified_cxx_single_throwing_base_constructor(12);
+    if (result != 6721) {
+        fprintf(stderr,
+                "nested noexcept member initializer argument did not unwind both completed bases: %d, expected 6721\n",
+                result);
+        return 37;
+    }
     result = verified_cxx_reference_bound_throwing_base_constructor(1);
     if (result != 6201) {
         fprintf(stderr,
@@ -281,6 +288,13 @@ int main(void) {
                 "reference-bound throwing member initializer argument did not unwind both completed bases: %d, expected 6721\n",
                 result);
         return 36;
+    }
+    result = verified_cxx_reference_bound_throwing_base_constructor(12);
+    if (result != 6721) {
+        fprintf(stderr,
+                "reference-bound nested noexcept member initializer argument did not unwind both completed bases: %d, expected 6721\n",
+                result);
+        return 38;
     }
     cleanup_order = 0;
     result = verified_cxx_reference_bound_partial_aggregate_cleanup(

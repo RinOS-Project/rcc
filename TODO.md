@@ -11966,3 +11966,14 @@ remains a separate open item.
       generated-object and legacy-host execution pass. The GCC C++20 oracle
       confirms ordinary and reference-bound initialization both unwind in
       order and return `6721` when the helper throws.
+
+## RCC continuation (2026-10-29, nested member initializer calls)
+
+- [x] Defer member-constructor selection for direct scalar calls with bounded
+      nested direct-call arguments and no temporary cleanup. Keep nested
+      argument calls subject to the typed lowerer's `noexcept` validation,
+      while the outer call may throw and unwind completed bases. The focused
+      gate passes with 59 verified functions and zero fallback for i686/AMD64
+      at `-O0`/`-O2`, including generated-object and legacy-host execution.
+      GCC C++20 confirms ordinary and reference-bound construction both
+      produce `6721` after the nested argument result is consumed.
