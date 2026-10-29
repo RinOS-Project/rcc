@@ -1,5 +1,3 @@
-int inline_asm_memory_global;
-
 void invalid_constraint(int value)
 {
     int result;
@@ -34,16 +32,6 @@ void invalid_type(double value)
 void invalid_immediate(int value)
 {
     __asm__ __volatile__("int %0" : : "i"(value));
-}
-
-void invalid_memory_global(void)
-{
-    __asm__ __volatile__("movl %0, %%eax" : : "m"(inline_asm_memory_global));
-}
-
-void invalid_memory_indirect(int* pointer)
-{
-    __asm__ __volatile__("movl %0, %%eax" : : "m"(*pointer));
 }
 
 void invalid_duplicate_output(int left, int right)

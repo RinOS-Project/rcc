@@ -219,6 +219,35 @@ int asm_base_memory_move(int* source)
     return result;
 }
 
+int asm_i686_indirect_memory_input(const int* source)
+{
+    int result;
+    __asm__ __volatile__("movl %1, %0" : "=a"(result) : "m"(*source));
+    return result;
+}
+
+void asm_i686_indirect_memory_output(int* destination, int value)
+{
+    __asm__ __volatile__("movl %1, %0"
+                         : "=m"(*destination)
+                         : "a"(value));
+}
+
+int asm_i686_indirect_memory_read_write(int* value)
+{
+    __asm__ __volatile__("addl $1, %0" : "+m"(*value));
+    return *value;
+}
+
+int asm_i686_indirect_memory_copy(int* destination, const int* source)
+{
+    __asm__ __volatile__("movl %1, %%eax\n\tmovl %%eax, %0"
+                         : "=m"(*destination)
+                         : "m"(*source)
+                         : "eax", "memory");
+    return *destination;
+}
+
 void asm_base_memory_store(int* destination, int value)
 {
     __asm__ __volatile__("mov %1, (%0)" : : "b"(destination), "a"(value));
@@ -337,6 +366,23 @@ void asm_i686_rep_stosl(unsigned* destination, unsigned value,
                          : "+D"(destination), "+c"(count)
                          : "a"(value)
                          : "memory", "cc");
+}
+
+struct asm_i686_x87_environment {
+    unsigned char bytes[32];
+};
+
+void asm_i686_fenv_memory_forms(struct asm_i686_x87_environment* environment,
+                                unsigned short* control,
+                                unsigned short* status, unsigned* mxcsr)
+{
+    __asm__ __volatile__("fnstenv %0" : "=m"(*environment) : : "memory");
+    __asm__ __volatile__("fldenv %0" : : "m"(*environment) : "memory");
+    __asm__ __volatile__("fnstcw %0" : "=m"(*control));
+    __asm__ __volatile__("fldcw %0" : : "m"(*control));
+    __asm__ __volatile__("fnstsw %0" : "=m"(*status));
+    __asm__ __volatile__("stmxcsr %0" : "=m"(*mxcsr));
+    __asm__ __volatile__("ldmxcsr %0" : : "m"(*mxcsr));
 }
 #endif
 

@@ -2663,11 +2663,6 @@ static bool sema_asm_constraint_supported(const char* constraint,
     if (!output && (sema_asm_immediate_name(name) ||
                     sema_asm_port_name(name))) return true;
     if (sema_asm_memory_name(name)) {
-        if (g_opts.target_arch == ARCH_X86 && output) {
-            rcc_error(loc,
-                      "i686 inline asm memory constraints are input-only");
-            return false;
-        }
         return true;
     }
     if (output && sema_asm_port_name(name)) {
@@ -2865,8 +2860,19 @@ static bool sema_asm_assign_memory_address_registers(Stmt* stmt) {
     static const int x64_address_registers[] = {
         11, 6, 9, 8, 5, 4, 3, 2, 0
     };
+    static const int x86_address_registers[] = {2, 3, 0};
+    const int* address_registers;
+    size_t address_register_count;
     AsmOperand* groups[2] = {stmt->asm_outputs, stmt->asm_inputs};
-    if (g_opts.target_arch != ARCH_X64) return true;
+    if (g_opts.target_arch == ARCH_X64) {
+        address_registers = x64_address_registers;
+        address_register_count = sizeof(x64_address_registers) /
+            sizeof(x64_address_registers[0]);
+    } else {
+        address_registers = x86_address_registers;
+        address_register_count = sizeof(x86_address_registers) /
+            sizeof(x86_address_registers[0]);
+    }
     for (size_t group = 0; group < 2u; ++group) {
         for (AsmOperand* operand = groups[group]; operand;
              operand = operand->next) {
@@ -2874,9 +2880,8 @@ static bool sema_asm_assign_memory_address_registers(Stmt* stmt) {
                 sema_asm_memory_direct_frame_operand(operand)) continue;
             operand->assigned_gpr = -2;
             for (size_t index = 0u;
-                 index < sizeof(x64_address_registers) /
-                             sizeof(x64_address_registers[0]); ++index) {
-                int candidate = x64_address_registers[index];
+                 index < address_register_count; ++index) {
+                int candidate = address_registers[index];
                 if (!sema_asm_memory_register_available(
                         stmt, operand, candidate)) continue;
                 operand->assigned_gpr = candidate;
@@ -3126,6 +3131,11 @@ static void sema_asm_stmt(Stmt* stmt) {
         } else if (!is_modifiable_lvalue(op->expr)) {
             rcc_error(op->expr->loc,
                       "inline asm output expression must be a modifiable lvalue");
+        } else if (sema_asm_memory_operand(op) &&
+                   (!op->expr->type || op->expr->type->size <= 0 ||
+                    op->expr->type->kind == TYPE_FUNC)) {
+            rcc_error(op->expr->loc,
+                      "inline asm memory output requires a complete object type");
         } else if (!sema_asm_memory_operand(op) &&
                    !sema_asm_scalar_operand(op->expr->type)) {
             rcc_error(op->expr->loc,
@@ -3137,27 +3147,15 @@ static void sema_asm_stmt(Stmt* stmt) {
         if (!op->expr) {
             rcc_error(stmt->loc, "inline asm input has no expression");
         } else if (sema_asm_memory_operand(op)) {
-            if (g_opts.target_arch == ARCH_X86) {
-                Decl* declaration = op->expr->kind == EXPR_IDENT
-                    ? op->expr->ident_decl : NULL;
-                if (!sema_asm_scalar_operand(op->expr->type) ||
-                    !declaration ||
-                    (declaration->kind != DECL_PARAM &&
-                     (declaration->kind != DECL_VAR ||
-                      declaration->var_is_global ||
-                      declaration->var_is_static_local ||
-                      declaration->var_is_thread_local)) ||
-                    (declaration->type && declaration->type->is_reference)) {
-                    rcc_error(op->expr->loc,
-                              "i686 inline asm memory input requires a direct automatic frame variable");
-                }
-            } else if (!is_lvalue(op->expr)) {
+            if (!is_lvalue(op->expr)) {
                 rcc_error(op->expr->loc,
-                          "AMD64 inline asm memory input requires an lvalue expression");
+                          "%s inline asm memory input requires an lvalue expression",
+                          g_opts.target_arch == ARCH_X86 ? "i686" : "AMD64");
             } else if (!op->expr->type || op->expr->type->size <= 0 ||
                        op->expr->type->kind == TYPE_FUNC) {
                 rcc_error(op->expr->loc,
-                          "AMD64 inline asm memory input requires a complete object type");
+                          "%s inline asm memory input requires a complete object type",
+                          g_opts.target_arch == ARCH_X86 ? "i686" : "AMD64");
             }
         } else if (!sema_asm_scalar_operand(op->expr->type)) {
             rcc_error(op->expr->loc,

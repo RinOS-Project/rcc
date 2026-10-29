@@ -207,6 +207,24 @@ int main(int argc, char** argv)
         0xb8u, 0x78u, 0x56u, 0x34u, 0x12u
     };
     static const uint8_t i686_memory_input[] = {0x8bu, 0x45u, 0x08u};
+    static const uint8_t i686_indirect_memory_input[] = {0x8bu, 0x01u};
+    static const uint8_t i686_indirect_memory_output[] = {0x89u, 0x01u};
+    static const uint8_t i686_indirect_memory_read_write[] = {
+        0x81u, 0x01u, 0x01u, 0x00u, 0x00u, 0x00u
+    };
+    static const uint8_t i686_indirect_memory_copy_source[] = {
+        0x8bu, 0x02u
+    };
+    static const uint8_t i686_indirect_memory_copy_destination[] = {
+        0x89u, 0x01u
+    };
+    static const uint8_t i686_fnstenv[] = {0xd9u, 0x31u};
+    static const uint8_t i686_fldenv[] = {0xd9u, 0x21u};
+    static const uint8_t i686_fnstcw[] = {0xd9u, 0x39u};
+    static const uint8_t i686_fldcw[] = {0xd9u, 0x29u};
+    static const uint8_t i686_fnstsw[] = {0xddu, 0x39u};
+    static const uint8_t i686_stmxcsr[] = {0x0fu, 0xaeu, 0x19u};
+    static const uint8_t i686_ldmxcsr[] = {0x0fu, 0xaeu, 0x11u};
     static const uint8_t i686_base_memory_load[] = {0x8bu, 0x08u};
     static const uint8_t i686_base_memory_store[] = {0x89u, 0x03u};
     static const uint8_t i686_base_memory_lea[] = {0x8du, 0x41u, 0x04u};
@@ -303,6 +321,39 @@ int main(int argc, char** argv)
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
     verify_pattern(argv[1], ARCH_X86, "asm_memory_input_move",
                    i686_memory_input, sizeof(i686_memory_input));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_indirect_memory_input",
+                   i686_indirect_memory_input,
+                   sizeof(i686_indirect_memory_input));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_indirect_memory_output",
+                   i686_indirect_memory_output,
+                   sizeof(i686_indirect_memory_output));
+    verify_pattern(argv[1], ARCH_X86,
+                   "asm_i686_indirect_memory_read_write",
+                   i686_indirect_memory_read_write,
+                   sizeof(i686_indirect_memory_read_write));
+    verify_pattern_pair(argv[1], ARCH_X86, "asm_i686_indirect_memory_copy",
+                        i686_indirect_memory_copy_source,
+                        sizeof(i686_indirect_memory_copy_source),
+                        i686_indirect_memory_copy_destination,
+                        sizeof(i686_indirect_memory_copy_destination),
+                        i686_indirect_memory_copy_destination,
+                        sizeof(i686_indirect_memory_copy_destination),
+                        i686_indirect_memory_copy_source,
+                        sizeof(i686_indirect_memory_copy_source));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_fenv_memory_forms",
+                   i686_fnstenv, sizeof(i686_fnstenv));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_fenv_memory_forms",
+                   i686_fldenv, sizeof(i686_fldenv));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_fenv_memory_forms",
+                   i686_fnstcw, sizeof(i686_fnstcw));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_fenv_memory_forms",
+                   i686_fldcw, sizeof(i686_fldcw));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_fenv_memory_forms",
+                   i686_fnstsw, sizeof(i686_fnstsw));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_fenv_memory_forms",
+                   i686_stmxcsr, sizeof(i686_stmxcsr));
+    verify_pattern(argv[1], ARCH_X86, "asm_i686_fenv_memory_forms",
+                   i686_ldmxcsr, sizeof(i686_ldmxcsr));
     verify_pattern(argv[1], ARCH_X86, "asm_base_memory_move",
                    i686_base_memory_load, sizeof(i686_base_memory_load));
     verify_pattern(argv[1], ARCH_X86, "asm_base_memory_store",

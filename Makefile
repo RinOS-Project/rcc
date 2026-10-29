@@ -18246,8 +18246,6 @@ test-inline-asm-validation: $(RCC_TARGET)
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "immediate input must be an integer constant expression" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	$(GREP) -q "i686 inline asm memory input requires a direct automatic frame variable" \
-		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "%qN register modifier requires AMD64 target" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/x64.ro tests/invalid_inline_asm_constraints.c,$(TEST_OUT)/inline-asm-validation/x64.log)
@@ -18273,6 +18271,10 @@ test-inline-asm-validation: $(RCC_TARGET)
 	$(GREP) -q "AMD64 inline asm memory input requires an lvalue expression" \
 		$(TEST_OUT)/inline-asm-validation/memory-rvalue.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/inline-asm-validation/memory-rvalue.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/memory-rvalue-x86.ro tests/invalid_inline_asm_memory_rvalue.c,$(TEST_OUT)/inline-asm-validation/memory-rvalue-x86.log)
+	$(GREP) -q "i686 inline asm memory input requires an lvalue expression" \
+		$(TEST_OUT)/inline-asm-validation/memory-rvalue-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/inline-asm-validation/memory-rvalue-x86.ro)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/amd64-i686-address.ro tests/invalid_inline_asm_addressing.c,$(TEST_OUT)/inline-asm-validation/amd64-i686-address.log)
 	$(GREP) -q "unsupported AMD64 inline asm instruction" \
 		$(TEST_OUT)/inline-asm-validation/amd64-i686-address.log
@@ -18296,13 +18298,27 @@ test-inline-asm-validation: $(RCC_TARGET)
 
 test-fenv-header: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/fenv-header)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc -c \
+		-o $(TEST_OUT)/fenv-header/c-x86.ro tests/fenv_header_compile.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -c \
 		-o $(TEST_OUT)/fenv-header/c-x64.ro tests/fenv_header_compile.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-I$(RINOS_ROOT)/public-base/libs/libc -c \
+		-o $(TEST_OUT)/fenv-header/cxx-x86.ro tests/fenv_header_compile.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -c \
 		-o $(TEST_OUT)/fenv-header/cxx-x64.ro tests/fenv_header_compile.cpp
-	@echo "RinOS fenv.h AMD64 C17/C++20 compilation tests completed"
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc -S \
+		-o $(TEST_OUT)/fenv-header/runtime-x86.s tests/fenv_header_runtime.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/fenv-header/runtime-x86,$(TEST_OUT)/fenv-header/runtime-x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc -S \
+		-o $(TEST_OUT)/fenv-header/runtime-x64.s tests/fenv_header_runtime.c
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/fenv-header/runtime-x64,$(TEST_OUT)/fenv-header/runtime-x64.s)
+	@echo "RinOS math.h/fenv.h C17/C++20 compile and runtime tests completed"
 
 ifeq ($(OS),Windows_NT)
 test-varargs: $(RCC_TARGET)

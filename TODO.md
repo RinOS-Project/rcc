@@ -2788,12 +2788,13 @@
         variables and parameters; lower EBP-relative `movl` loads. Verify exact
         instruction bytes, reject global/indirect i686 operands, and include
         i686 execution in the POSIX inline-asm execution gate.
-  - [ ] Add i686 inline-asm `=m`/`+m` outputs and indirect `m` operands with
-        address-register selection and correct output lvalue handling. The
-        current input-only restriction prevents RinOS `fenv.h` from compiling
-        for i686: `fnstenv`/`fldenv`, control-word, status-word, and MXCSR
-        memory operands are rejected. Cover C17/C++20 header compilation,
-        exact encodings, and runtime fenv behavior before checking this item.
+  - [x] Add i686 inline-asm `=m`/`+m` outputs and indirect `m` operands with
+        conflict-free address-register selection and correct output lvalue
+        handling. Verify exact i686 encodings for indirect loads/stores,
+        read-write memory, multiple memory operands, and x87/MXCSR environment
+        forms; compile the `math.h`/`fenv.h` include path in C17/C++20 on both
+        targets; and execute fenv plus indirect memory read/write tests on
+        i686 and AMD64.
   - [x] Add AMD64 `m`, `=m`, and `+m` lowering for direct frame objects and
         computed lvalue addresses, with address-register selection that avoids
         operand assignments and clobbers. Extend memory/register `mov` widths,

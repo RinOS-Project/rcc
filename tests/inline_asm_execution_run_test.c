@@ -28,6 +28,11 @@ typedef int (RCC_TEST_TARGET_ABI *memory_copy_function)(int*, const int*);
 #endif
 #if defined(__i386__)
 typedef int (RCC_TEST_TARGET_ABI *i686_sequence_function)(int*, int);
+typedef int (RCC_TEST_TARGET_ABI *i686_memory_input_function)(const int*);
+typedef void (RCC_TEST_TARGET_ABI *i686_memory_output_function)(int*, int);
+typedef int (RCC_TEST_TARGET_ABI *i686_memory_unary_function)(int*);
+typedef int (RCC_TEST_TARGET_ABI *i686_memory_copy_function)(int*,
+                                                            const int*);
 typedef void (RCC_TEST_TARGET_ABI *i686_rep_copy_function)(
     unsigned*, const unsigned*, unsigned);
 typedef void (RCC_TEST_TARGET_ABI *i686_rep_fill_function)(
@@ -82,6 +87,10 @@ int main(int argc, char** argv)
     unary_function read_write;
 #if defined(__i386__)
     unary_function memory_input;
+    i686_memory_input_function indirect_memory_input;
+    i686_memory_output_function indirect_memory_output;
+    i686_memory_unary_function indirect_memory_read_write;
+    i686_memory_copy_function indirect_memory_copy;
     i686_sequence_function i686_sequence;
     i686_rep_copy_function i686_rep_copy;
     i686_rep_fill_function i686_rep_fill;
@@ -170,6 +179,14 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(read_write, object, mapping, "asm_read_write_accumulator");
 #if defined(__i386__)
     LOAD_FUNCTION(memory_input, object, mapping, "asm_memory_input_move");
+    LOAD_FUNCTION(indirect_memory_input, object, mapping,
+                  "asm_i686_indirect_memory_input");
+    LOAD_FUNCTION(indirect_memory_output, object, mapping,
+                  "asm_i686_indirect_memory_output");
+    LOAD_FUNCTION(indirect_memory_read_write, object, mapping,
+                  "asm_i686_indirect_memory_read_write");
+    LOAD_FUNCTION(indirect_memory_copy, object, mapping,
+                  "asm_i686_indirect_memory_copy");
     LOAD_FUNCTION(i686_sequence, object, mapping,
                   "asm_i686_memory_branch_sequence");
     LOAD_FUNCTION(i686_indirect_tail, object, mapping,
@@ -205,6 +222,18 @@ int main(int argc, char** argv)
     assert(gnu_register_variable(89) == 89);
 #if defined(__i386__)
     assert(memory_input(59) == 59);
+    {
+        int source = 149;
+        int destination = 0;
+        int copied = 211;
+        assert(indirect_memory_input(&source) == source);
+        indirect_memory_output(&destination, 163);
+        assert(destination == 163);
+        assert(indirect_memory_read_write(&destination) == 164 &&
+               destination == 164);
+        assert(indirect_memory_copy(&destination, &copied) == copied &&
+               destination == copied);
+    }
     assert(i686_sequence(&i686_slot, 0) == 7 && i686_slot == 0);
     assert(i686_sequence(&i686_slot, 41) == 9 && i686_slot == 41);
     i686_indirect_tail(i686_indirect_target);

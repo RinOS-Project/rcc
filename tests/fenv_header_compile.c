@@ -1,4 +1,4 @@
-#include <fenv.h>
+#include <math.h>
 
 int fenv_header_compile_probe(unsigned int rounding, unsigned int exceptions)
 {

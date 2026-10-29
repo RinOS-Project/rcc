@@ -1,4 +1,4 @@
-#include <fenv.h>
+#include <math.h>
 
 extern "C" int fenv_header_compile_cpp_probe(unsigned int rounding,
                                               unsigned int exceptions)

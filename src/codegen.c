@@ -16110,9 +16110,15 @@ static bool asm_memory_frame_offset(const AsmOperand* operand,
          (declaration->kind != DECL_VAR ||
           declaration->var_is_global || declaration->var_is_static_local ||
           declaration->var_is_thread_local)) ||
-        (declaration->type && declaration->type->is_reference)) return false;
+        (declaration->type && declaration->type->is_reference) ||
+        declaration->var_register_name) return false;
     *offset_out = declaration->var_offset;
     return true;
+}
+
+static bool asm_memory_constraint(const AsmOperand* operand) {
+    return operand && strcmp(asm_constraint_name(operand->constraint),
+                             "m") == 0;
 }
 
 static bool asm_parse_immediate8(const char* text, uint8_t* value) {
@@ -16242,6 +16248,23 @@ static void asm_emit_x86_memory_modrm(Module* mod, int reg_field, int base,
     else if (mode == 2) emit_dword(mod, (uint32_t)displacement);
 }
 
+static bool asm_emit_x86_memory_group(Module* mod, const char* operand1,
+                                      const char* operand2,
+                                      uint8_t opcode_first,
+                                      int opcode_second,
+                                      int group_extension) {
+    int base;
+    int32_t displacement;
+    if (!operand1 || operand2 ||
+        !asm_parse_x86_memory(operand1, &base, &displacement)) {
+        return false;
+    }
+    emit_byte(mod, opcode_first);
+    if (opcode_second >= 0) emit_byte(mod, (uint8_t)opcode_second);
+    asm_emit_x86_memory_modrm(mod, group_extension, base, displacement);
+    return true;
+}
+
 static const char* asm_register_name(int reg) {
     switch (reg) {
         case EAX: return "%eax";
@@ -16334,6 +16357,7 @@ static int asm_format_immediate(char* buffer, size_t capacity,
 
 static char* asm_expand_template(const char* source, const int* registers,
                                   const int* memory_offsets,
+                                  const int* memory_address_registers,
                                   const int64_t* immediate_values,
                                   const bool* immediate_flags,
                                   int operand_count, SourceLoc loc) {
@@ -16393,18 +16417,35 @@ static char* asm_expand_template(const char* source, const int* registers,
                 rcc_free(expanded);
                 return NULL;
             }
-            if (memory_offsets &&
-                memory_offsets[(size_t)index] != INT_MIN) {
+            if ((memory_offsets &&
+                 memory_offsets[(size_t)index] != INT_MIN) ||
+                (memory_address_registers &&
+                 memory_address_registers[(size_t)index] >= 0)) {
                 char memory[32];
                 int written;
+                const char* register_name = NULL;
                 if (modifier) {
                     rcc_error(loc,
                               "i686 inline asm memory operands do not accept register-width modifiers");
                     rcc_free(expanded);
                     return NULL;
                 }
-                written = snprintf(memory, sizeof(memory), "%d(%%ebp)",
-                                   memory_offsets[(size_t)index]);
+                if (memory_offsets &&
+                    memory_offsets[(size_t)index] != INT_MIN) {
+                    written = snprintf(memory, sizeof(memory), "%d(%%ebp)",
+                                       memory_offsets[(size_t)index]);
+                } else {
+                    register_name = asm_register_name_width(
+                        memory_address_registers[(size_t)index], 0);
+                    if (!register_name) {
+                        rcc_error(loc,
+                                  "i686 inline asm memory operand has no address register");
+                        rcc_free(expanded);
+                        return NULL;
+                    }
+                    written = snprintf(memory, sizeof(memory), "(%s)",
+                                       register_name);
+                }
                 if (written < 0 || (size_t)written >= sizeof(memory)) {
                     rcc_error(loc,
                               "i686 inline asm frame-relative memory operand is too large");
@@ -16508,6 +16549,23 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
     else if (strcmp(mnemonic, "orl") == 0) mnemonic = "or";
     else if (strcmp(mnemonic, "xorl") == 0) mnemonic = "xor";
     else if (strcmp(mnemonic, "testl") == 0) mnemonic = "test";
+
+    if ((strcmp(mnemonic, "fnstenv") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xD9u, -1, 6)) ||
+        (strcmp(mnemonic, "fldenv") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xD9u, -1, 4)) ||
+        (strcmp(mnemonic, "fnstcw") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xD9u, -1, 7)) ||
+        (strcmp(mnemonic, "fldcw") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xD9u, -1, 5)) ||
+        (strcmp(mnemonic, "fnstsw") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0xDDu, -1, 7)) ||
+        (strcmp(mnemonic, "stmxcsr") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0x0Fu, 0xAE, 3)) ||
+        (strcmp(mnemonic, "ldmxcsr") == 0 &&
+         asm_emit_x86_memory_group(mod, op1, op2, 0x0Fu, 0xAE, 2))) {
+        return true;
+    }
 
     if (strcmp(mnemonic, "inb") == 0 || strcmp(mnemonic, "inw") == 0 ||
         strcmp(mnemonic, "inl") == 0) {
@@ -17064,6 +17122,8 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     AsmOperand* outputs = stmt->asm_outputs;
     AsmOperand* inputs = stmt->asm_inputs;
     AsmClobber* clobbers = stmt->asm_clobbers;
+    AsmOperand** memory_address_operands = NULL;
+    int memory_address_count = 0;
 
     /* Count operands for %0, %1, etc. references */
     int output_count = 0;
@@ -17082,6 +17142,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     OperandInfo* operands = NULL;
     int* operand_registers = NULL;
     int* memory_offsets = NULL;
+    int* memory_address_registers = NULL;
     int64_t* immediate_values = NULL;
     bool* immediate_flags = NULL;
     if (total_operands > 0) {
@@ -17106,6 +17167,10 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
                                       sizeof(*operand_registers));
         memory_offsets = rcc_alloc((size_t)total_operands *
                                    sizeof(*memory_offsets));
+        memory_address_registers = rcc_alloc(
+            (size_t)total_operands * sizeof(*memory_address_registers));
+        memory_address_operands = rcc_alloc(
+            (size_t)total_operands * sizeof(*memory_address_operands));
         immediate_values = rcc_alloc((size_t)total_operands *
                                      sizeof(*immediate_values));
         immediate_flags = rcc_alloc((size_t)total_operands *
@@ -17113,21 +17178,33 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         for (int index = 0; index < total_operands; ++index) {
             operand_registers[index] = operands[index].reg;
             memory_offsets[index] = INT_MIN;
+            memory_address_registers[index] = -1;
             immediate_flags[index] = false;
             if (strcmp(asm_constraint_name(
                           operands[index].op->constraint), "m") == 0) {
-                if (!asm_memory_frame_offset(operands[index].op,
-                                             &memory_offsets[index])) {
-                    rcc_error(operands[index].op->expr->loc,
-                              "i686 inline asm memory input has no direct frame address");
-                    rcc_free(immediate_flags);
-                    rcc_free(immediate_values);
-                    rcc_free(memory_offsets);
-                    rcc_free(operand_registers);
-                    rcc_free(operands);
-                    return;
+                if (asm_memory_frame_offset(operands[index].op,
+                                            &memory_offsets[index])) {
+                    operands[index].stack_offset =
+                        memory_offsets[index];
+                } else {
+                    int address_register = asm_operand_register(
+                        operands[index].op);
+                    if (address_register < 0) {
+                        rcc_error(operands[index].op->expr->loc,
+                                  "i686 inline asm memory operand has no address register");
+                        rcc_free(immediate_flags);
+                        rcc_free(immediate_values);
+                        rcc_free(memory_address_operands);
+                        rcc_free(memory_address_registers);
+                        rcc_free(memory_offsets);
+                        rcc_free(operand_registers);
+                        rcc_free(operands);
+                        return;
+                    }
+                    memory_address_registers[index] = address_register;
+                    memory_address_operands[memory_address_count++] =
+                        operands[index].op;
                 }
-                operands[index].stack_offset = memory_offsets[index];
             }
             if (operands[index].reg == -3) {
                 if (!expr_eval_integer_constant(operands[index].op->expr,
@@ -17136,6 +17213,8 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
                               "inline asm immediate input must be an integer constant expression");
                     rcc_free(immediate_flags);
                     rcc_free(immediate_values);
+                    rcc_free(memory_address_operands);
+                    rcc_free(memory_address_registers);
                     rcc_free(memory_offsets);
                     rcc_free(operand_registers);
                     rcc_free(operands);
@@ -17183,24 +17262,35 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
      * silently overwrite the syscall number. */
     for (int i = 0; i < output_count; i++) {
         if (operands[i].op->constraint[0] == '+' &&
+            !asm_memory_constraint(operands[i].op) &&
             operands[i].reg >= 0 && operands[i].op->expr) {
             gen_expr(mod, operands[i].op->expr);
             emit_push_reg(mod, EAX);
         }
     }
     for (int i = output_count; i < total_operands; i++) {
-        if (operands[i].reg >= 0 && operands[i].op->expr) {
+        if (!asm_memory_constraint(operands[i].op) &&
+            operands[i].reg >= 0 && operands[i].op->expr) {
             gen_expr(mod, operands[i].op->expr);
             emit_push_reg(mod, EAX);
         }
     }
+    for (int i = 0; i < memory_address_count; ++i) {
+        gen_lvalue(mod, memory_address_operands[i]->expr);
+        emit_push_reg(mod, EAX);
+    }
+    for (int i = memory_address_count - 1; i >= 0; --i) {
+        emit_pop_reg(mod, asm_operand_register(memory_address_operands[i]));
+    }
     for (int i = total_operands - 1; i >= output_count; i--) {
-        if (operands[i].reg >= 0 && operands[i].op->expr) {
+        if (!asm_memory_constraint(operands[i].op) &&
+            operands[i].reg >= 0 && operands[i].op->expr) {
             emit_pop_reg(mod, operands[i].reg);
         }
     }
     for (int i = output_count - 1; i >= 0; i--) {
         if (operands[i].op->constraint[0] == '+' &&
+            !asm_memory_constraint(operands[i].op) &&
             operands[i].reg >= 0 && operands[i].op->expr) {
             emit_pop_reg(mod, operands[i].reg);
         }
@@ -17212,6 +17302,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     char* tmpl_copy = stmt->asm_basic
         ? rcc_strdup(tmpl ? tmpl : "")
         : asm_expand_template(tmpl, operand_registers, memory_offsets,
+                              memory_address_registers,
                               immediate_values, immediate_flags,
                               total_operands, stmt->loc);
     if (!tmpl_copy) {
@@ -17219,6 +17310,8 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         if (preserve_esi) emit_pop_reg(mod, ESI);
         if (preserve_ebx) emit_pop_reg(mod, EBX);
         if (operand_registers) rcc_free(operand_registers);
+        if (memory_address_registers) rcc_free(memory_address_registers);
+        if (memory_address_operands) rcc_free(memory_address_operands);
         if (memory_offsets) rcc_free(memory_offsets);
         if (immediate_values) rcc_free(immediate_values);
         if (immediate_flags) rcc_free(immediate_flags);
@@ -17366,7 +17459,8 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
 
     /* Store outputs from registers to lvalues */
     for (int i = 0; i < output_count; i++) {
-        if (operands[i].reg >= 0 && operands[i].op->expr) {
+        if (!asm_memory_constraint(operands[i].op) &&
+            operands[i].reg >= 0 && operands[i].op->expr) {
             /* Get lvalue address */
             emit_push_reg(mod, operands[i].reg);  /* Save the result */
             gen_lvalue(mod, operands[i].op->expr);
@@ -17383,6 +17477,8 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
 
     if (operands) {
         if (operand_registers) rcc_free(operand_registers);
+        if (memory_address_registers) rcc_free(memory_address_registers);
+        if (memory_address_operands) rcc_free(memory_address_operands);
         if (memory_offsets) rcc_free(memory_offsets);
         if (immediate_values) rcc_free(immediate_values);
         if (immediate_flags) rcc_free(immediate_flags);
