@@ -133,6 +133,12 @@
   - [x] Verify conditional common types, unsigned wraparound through
     postincrement and compound assignment, switch control types, and duplicate
     `case` values after conversion to a narrow unsigned `_BitInt` type.
+  - [x] Cover usual arithmetic conversion rank/range boundaries against
+    `long long`: unsigned `_BitInt(63)` converts to signed `long long` because
+    its full range is representable, while signedness and equal-width
+    `_BitInt(64)` cases select `unsigned long long` or `long long` as required.
+    Verify result types at compile time and values at runtime through the
+    i686/AMD64 RIN/RLL/DRV and `rinvalidate` regression gate.
 
 ## RCC continuation (2026-10-29, C23 binary resource inclusion)
 
