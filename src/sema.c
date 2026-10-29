@@ -22645,7 +22645,13 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
         }
     }
     if (!function) return false;
-    function_expression = expr_ident(name, expression->loc);
+    if (function->decl && !function->decl->func_overload_next &&
+        function->decl->func_is_template_instance) {
+        function_expression = sema_cxx_selected_operator_function(
+            name, function->decl, expression->loc);
+    } else {
+        function_expression = expr_ident(name, expression->loc);
+    }
     call = expr_call(function_expression, arguments, expression->loc);
     *expression = *call;
     return true;
