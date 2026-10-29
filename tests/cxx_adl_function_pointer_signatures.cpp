@@ -33,9 +33,31 @@ int probe(int (**callback)(derived)) {
 }
 }
 
+namespace member_pointer_association {
+struct owner;
+
+struct value {
+    int data;
+
+    friend int probe(value (owner::*callback)(int) const);
+};
+
+struct owner {
+    value transform(int input) const {
+        return value{input + 18};
+    }
+};
+
+int probe(value (owner::*callback)(int) const) {
+    owner object;
+    return (object.*callback)(5).data == 23 ? 0 : 1;
+}
+}
+
 int main() {
     int (*consume_function)(parameter_association::derived) =
         &parameter_association::consume;
     return probe(&return_association::produce) +
-           probe(&consume_function);
+           probe(&consume_function) +
+           probe(&member_pointer_association::owner::transform);
 }

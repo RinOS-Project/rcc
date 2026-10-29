@@ -11843,10 +11843,12 @@ remains a separate open item.
       C++20 candidate-set and overload-conformance cases.
 - [x] In call-expression ADL, recursively collect associated classes from a
       function-pointer type's return and parameter types, including nested
-      pointer layers and base classes. Regress hidden friends found only from
-      a callback return type or a callback parameter's derived class; strict
-      GCC C++20 and RCC i686/AMD64 generation plus AMD64 runtime pass in the
-      dedicated target and adjacent ADL/friend/two-phase/spaceship gates.
+      pointer layers, member-function-pointer owners/signatures, and base
+      classes. Regress hidden friends found only from callback return types,
+      member-function-pointer return types, or a callback parameter's derived
+      class; strict GCC C++20 and RCC i686/AMD64 generation plus AMD64 runtime
+      pass in the dedicated target and adjacent ADL/friend/two-phase/spaceship
+      gates.
 - [x] Include built-in arithmetic candidates in C++20 relational and equality
       resolution for class operands with implicit conversion functions. Rank
       them together with direct and rewritten candidates, then materialize the
