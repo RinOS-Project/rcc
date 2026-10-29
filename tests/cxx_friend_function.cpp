@@ -50,6 +50,11 @@ struct Payload {
     }
 };
 
+template<class Callable>
+int namespace_function_type_adl(Callable) {
+    return 72;
+}
+
 void callback(Payload* payload) {
     (void)payload;
 }
@@ -406,6 +411,7 @@ int main() {
            find_in_associated_namespace(nested_argument) == 42 &&
            find_in_inline_namespace(parent_argument) == 53 &&
            find_in_enclosing_namespace(inline_argument) == 64 &&
+           namespace_function_type_adl(&function_type_adl::callback) == 72 &&
            hidden_function_type_friend(&function_type_adl::callback) == 71 &&
            hidden_function_return_type_friend(
                &function_return_type_adl::callback) == 73 &&
