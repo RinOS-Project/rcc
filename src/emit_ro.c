@@ -10600,8 +10600,6 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         (dividend->type->is_volatile &&
          !(dividend->var_is_global || dividend->var_is_static_local)) ||
         dividend->type->is_reference ||
-        (dividend->type->is_atomic &&
-         !(dividend->var_is_global || dividend->var_is_static_local)) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             dividend->type, parameter_type, 0u) ||
         ((dividend->var_is_global || dividend->var_is_static_local)
@@ -11095,8 +11093,6 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
         (dividend->type->is_volatile && !dividend_is_address_backed) ||
         (divisor->type->is_volatile && !divisor_is_address_backed) ||
         dividend->type->is_reference || divisor->type->is_reference ||
-        (dividend->type->is_atomic && !dividend_is_address_backed) ||
-        (divisor->type->is_atomic && !divisor_is_address_backed) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             dividend->type, parameter_type, 0u) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(

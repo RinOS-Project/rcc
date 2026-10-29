@@ -11886,6 +11886,11 @@ remains a separate open item.
         full-width signed results, source relocations, and expression values
         for both direct and unary-negated atomic dividends, in normal and
         verified objects with the complete inline-expression verifier.
+  - [x] Extend i686 signed 64-bit variable-divisor division/remainder DWARF
+        values to escaped automatic atomic operand pairs. Read each operand
+        from its frame location, emit no global relocations, and verify both
+        operations across the signed operand matrix in normal and verified
+        objects with the complete inline-expression verifier.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 

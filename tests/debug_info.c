@@ -20,6 +20,8 @@ _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_dividend =
     -0x7123456789abcdefll;
 _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_divisor =
     -0x100000001ll;
+_Atomic long long* debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape;
+_Atomic long long* debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape;
 long long* debug_inline_nonconstant_signed_long_long_runtime_local_escape;
 static int debug_file_static;
 const int debug_const_data = 4;
@@ -470,6 +472,38 @@ long long debug_inline_nonconstant_signed_long_long_atomic_runtime_remainder_ent
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_atomic_dividend %
         debug_inline_nonconstant_signed_long_long_atomic_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_local_pair_divide_entry(
+    long long dividend, long long divisor)
+{
+    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_dividend =
+        dividend;
+    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_divisor =
+        divisor;
+    debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_dividend;
+    debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_local_dividend /
+        debug_inline_nonconstant_signed_long_long_atomic_local_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_local_pair_remainder_entry(
+    long long dividend, long long divisor)
+{
+    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_dividend =
+        dividend;
+    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_divisor =
+        divisor;
+    debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_dividend;
+    debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_local_dividend %
+        debug_inline_nonconstant_signed_long_long_atomic_local_divisor);
 }
 
 long long debug_inline_nonconstant_signed_long_long_atomic_constant_divide_entry(
