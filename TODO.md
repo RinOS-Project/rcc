@@ -12055,7 +12055,18 @@ remains a separate open item.
       plus aggregate load/store/exchange. `test-verified-atomic-fetch-add`
       passes i686/AMD64 compilation at `-O0`/`-O2` with zero fallback, AMD64
       object execution, and GCC C17 oracles; scalar, pointer, and floating
-      atomic regressions in the same target also pass.
+      atomic regressions in the same target also pass. The host runner maps
+      initialized `.data` and zero-filled `.bss` targets for local relocations
+      while keeping generated text executable and writable data separate.
+- [x] Lower automatic volatile C struct/union locals without an initializer
+      when accesses are member-wise; this includes the generic aggregate
+      atomic builtins. The aggregate fixture verifies both targets at `-O0`/
+      `-O2` and executes AMD64 objects.
 - [ ] Extend typed-SSA aggregate atomics to wider or under-aligned objects,
       non-trivial C++ objects, and the full `std::atomic<T>` API/concurrency
-      model. Local aggregate declarations remain a separate typed-SSA gap.
+      model. Volatile aggregate initialization and whole-object copies remain
+      separate typed-SSA gaps.
+- [x] Update the LICM local-load regression for the valid case where a
+      hoisted load is folded to its dominating stored value and the dead load
+      instruction is removed. `test-ir` passes both x86 and x64 IR/MIR and
+      native encoder execution checks.

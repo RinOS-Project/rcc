@@ -24048,6 +24048,25 @@ static bool lower_supported_vla_pointer_declaration(
         !declaration->var_cleanup && !declaration->var_cleanups;
 }
 
+static bool lower_volatile_local_aggregate_supported(
+    const Decl* declaration) {
+    Type unqualified_type;
+    const Type* type = declaration ? declaration->type : NULL;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        declaration->var_is_global || declaration->var_is_static_local ||
+        declaration->var_is_thread_local || declaration->var_is_vla ||
+        declaration->var_init || declaration->var_cleanup ||
+        declaration->var_cleanups || !type || !type->is_volatile ||
+        type->is_atomic || type->is_reference || type->cxx_class ||
+        type->cleanup_function || type->cleanup_field ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
+        return false;
+    }
+    unqualified_type = *type;
+    unqualified_type.is_volatile = false;
+    return lower_storage_type_supported_internal(&unqualified_type, 0u);
+}
+
 static RccIrLowerVlaBoundCapture* lower_find_vla_bound_capture(
     RccIrLowerContext* context, const Expr* expression) {
     for (RccIrLowerVlaBoundCapture* capture =
@@ -24539,6 +24558,8 @@ static bool lower_declaration(RccIrLowerContext* context,
         lower_supported_vla_declaration(declaration);
     bool is_supported_vla_pointer = declaration &&
         lower_supported_vla_pointer_declaration(declaration);
+    bool is_supported_volatile_local_aggregate = declaration &&
+        lower_volatile_local_aggregate_supported(declaration);
     bool wide_scalar = declaration->type &&
         lower_i686_wide_scalar_type(declaration->type);
     bool wide_ssa = wide_scalar && !declaration->type->is_volatile &&
@@ -24591,14 +24612,17 @@ static bool lower_declaration(RccIrLowerContext* context,
         (is_aggregate
              ? ((!is_supported_vla && declaration->type->size <= 0) ||
                 declaration->type->is_reference ||
-                (declaration->type->is_volatile && !is_supported_vla) ||
+                (declaration->type->is_volatile && !is_supported_vla &&
+                 !is_supported_volatile_local_aggregate) ||
                 (declaration->type->cleanup_function &&
                  !lower_cxx_destructor_cleanup_hook_supported(
                      declaration->type)) ||
                 (is_struct &&
-                 !lower_struct_type_supported(declaration->type)) ||
+                 !lower_struct_type_supported(declaration->type) &&
+                 !is_supported_volatile_local_aggregate) ||
                 (is_union &&
-                 !lower_union_type_supported(declaration->type)) ||
+                 !lower_union_type_supported(declaration->type) &&
+                 !is_supported_volatile_local_aggregate) ||
                 (is_member_function_pointer &&
                  !lower_storage_type_supported_internal(
                      declaration->type, 0u)))

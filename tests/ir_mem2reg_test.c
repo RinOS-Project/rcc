@@ -2319,9 +2319,14 @@ static void verify_loop_invariant_initialized_local_load(void)
             function, 2u, &stats, error, sizeof(error)));
         assert(error[0] == '\0');
         assert(stats.hoisted_instructions == (should_hoist ? 1u : 0u));
-        assert(load->block == (should_hoist
-                                   ? function->first_block
-                                   : function->first_block->next->next));
+        if (should_hoist) {
+            /* Simplification may fold the hoisted load to its dominating
+             * store value and detach the now-dead instruction. */
+            assert(load->block == NULL ||
+                   load->block == function->first_block);
+        } else {
+            assert(load->block == function->first_block->next->next);
+        }
         assert(rcc_ir_verify_function(function, error, sizeof(error)));
         rcc_ir_module_destroy(module);
     }

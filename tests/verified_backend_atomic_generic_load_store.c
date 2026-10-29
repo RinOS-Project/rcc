@@ -47,6 +47,74 @@ DEFINE_AGGREGATE_ATOMIC_SUITE(wide, unsigned long long,
                               0x5061728394a5b6c7ULL)
 #endif
 
+typedef union { unsigned int value; } word_union_aggregate;
+
+__attribute__((noinline)) int local_volatile_aggregate_atomic(void)
+{
+    volatile word_aggregate object;
+    word_aggregate source = {0x50617283u};
+    word_aggregate result = {0u};
+    word_aggregate previous = {0u};
+    word_aggregate expected = {0xdeadbeefu};
+    word_aggregate desired = {0x13579bdfu};
+    int failed;
+    int succeeded;
+
+    object.value = 0x10293847u;
+    __atomic_store(&object, &source, __ATOMIC_RELEASE);
+    __atomic_load(&object, &result, __ATOMIC_ACQUIRE);
+    if (object.value != source.value || result.value != source.value) {
+        return 1;
+    }
+    object.value = 0x10293847u;
+    __atomic_exchange(&object, &source, &previous, __ATOMIC_ACQ_REL);
+    if (object.value != source.value || previous.value != 0x10293847u) {
+        return 1;
+    }
+    object.value = 0x94a5b6c7u;
+    failed = __atomic_compare_exchange(
+        &object, &expected, &desired, 0, __ATOMIC_ACQ_REL,
+        __ATOMIC_ACQUIRE);
+    succeeded = __atomic_compare_exchange(
+        &object, &expected, &desired, 0, __ATOMIC_ACQ_REL,
+        __ATOMIC_ACQUIRE);
+    return !failed && succeeded && expected.value == 0x94a5b6c7u &&
+        object.value == desired.value ? 0 : 1;
+}
+
+__attribute__((noinline)) int local_volatile_union_atomic(void)
+{
+    volatile word_union_aggregate object;
+    word_union_aggregate source = {0x50617283u};
+    word_union_aggregate result = {0u};
+    word_union_aggregate previous = {0u};
+    word_union_aggregate expected = {0xdeadbeefu};
+    word_union_aggregate desired = {0x13579bdfu};
+    int failed;
+    int succeeded;
+
+    object.value = 0x10293847u;
+    __atomic_store(&object, &source, __ATOMIC_RELEASE);
+    __atomic_load(&object, &result, __ATOMIC_ACQUIRE);
+    if (object.value != source.value || result.value != source.value) {
+        return 1;
+    }
+    object.value = 0x10293847u;
+    __atomic_exchange(&object, &source, &previous, __ATOMIC_ACQ_REL);
+    if (object.value != source.value || previous.value != 0x10293847u) {
+        return 1;
+    }
+    object.value = 0x94a5b6c7u;
+    failed = __atomic_compare_exchange(
+        &object, &expected, &desired, 0, __ATOMIC_ACQ_REL,
+        __ATOMIC_ACQUIRE);
+    succeeded = __atomic_compare_exchange(
+        &object, &expected, &desired, 0, __ATOMIC_ACQ_REL,
+        __ATOMIC_ACQUIRE);
+    return !failed && succeeded && expected.value == 0x94a5b6c7u &&
+        object.value == desired.value ? 0 : 1;
+}
+
 int main(void)
 {
     int pointees[2] = {0, 0};
@@ -100,6 +168,8 @@ int main(void)
         byte_aggregate_atomic_suite() == 0 &&
         half_aggregate_atomic_suite() == 0 &&
         word_aggregate_atomic_suite() == 0 &&
+        local_volatile_aggregate_atomic() == 0 &&
+        local_volatile_union_atomic() == 0 &&
 #if defined(__x86_64__)
         wide_aggregate_atomic_suite() == 0 &&
 #endif
