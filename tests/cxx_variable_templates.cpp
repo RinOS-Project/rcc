@@ -31,6 +31,17 @@ struct VariableTemplateBox {
 };
 
 template<typename T>
+struct VariableTemplateClassSpecializationGuard {
+    T value;
+};
+
+template<>
+struct VariableTemplateClassSpecializationGuard<int> {
+    int value;
+    int specialized;
+};
+
+template<typename T>
 int specialized_pointer = 1;
 
 template<typename T>
@@ -46,6 +57,8 @@ template<>
 int specialized_template_template<VariableTemplateBox> = 2;
 
 int main(void) {
+    VariableTemplateClassSpecializationGuard<int> class_specialization{};
+    if (class_specialization.specialized != 0) return 18;
     if (doubled<21> != 42) return 1;
     if (type_size<int> != 4) return 2;
     if (mutable_value<4> != 4) return 3;

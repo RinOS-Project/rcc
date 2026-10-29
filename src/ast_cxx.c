@@ -11204,6 +11204,24 @@ static Expr* template_clone_pack_fold(
             }
         }
     }
+    /* A template-template pack used as `Templates<T>` is represented by a
+     * dependent class type whose pack identity lives in the type metadata,
+     * not in an expression identifier.  Use the same structural lookup as
+     * pack expansion and sizeof...(pack) instead of relying only on names. */
+    if (tmpl && expression && expression->cxx_fold_pattern &&
+        pattern_pack_matches == 0) {
+        int structural_pack_index = template_parameter_pack_index_expression(
+            tmpl, expression->cxx_fold_pattern);
+        if (structural_pack_index >= 0 &&
+            structural_pack_index < tmpl->param_count) {
+            TemplateParam* parameter = &tmpl->params[structural_pack_index];
+            if (parameter->is_pack && parameter->name &&
+                (!pack_name || strcmp(pack_name, parameter->name) == 0)) {
+                pack_name = parameter->name;
+                ++pattern_pack_matches;
+            }
+        }
+    }
     if (!tmpl || !expression || !pack_name ||
         (expression->cxx_fold_pattern && pattern_pack_matches != 1)) {
         rcc_error(expression ? expression->loc : (SourceLoc){"<template>", 0, 0},

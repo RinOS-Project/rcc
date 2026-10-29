@@ -207,25 +207,25 @@ int read_missing(T) {
 }
 
 template<typename T>
-requires ReturnTypeSizeMatches<T, int>
+requires HasSizeMatchingInt<T>
 int named_type_pack_constraint(T) {
     return 1;
 }
 
 template<typename T>
-requires (!ReturnTypeSizeMatches<T, int>)
+requires (!HasSizeMatchingInt<T>)
 int named_type_pack_constraint(T) {
     return 0;
 }
 
 template<typename T>
-requires ReturnTypeMatchesAnySize<T, 4>
+requires HasSizeMatchingAnyExpectedSize<T>
 int named_non_type_pack_constraint(T) {
     return 1;
 }
 
 template<typename T>
-requires (!ReturnTypeMatchesAnySize<T, 4>)
+requires (!HasSizeMatchingAnyExpectedSize<T>)
 int named_non_type_pack_constraint(T) {
     return 0;
 }

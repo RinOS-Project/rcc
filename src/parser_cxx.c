@@ -5710,9 +5710,19 @@ static Type* parse_cxx_concept_template_argument(
  * template-id inside the declared type is not mistaken for the variable. */
 static bool cxx_variable_template_specialization_starts(void) {
     Token* candidate;
+    Token* declaration = parser.cur;
+    if (declaration && (declaration->type == TOK_TEMPLATE ||
+                        declaration->type == TOK_CLASS ||
+                        declaration->type == TOK_STRUCT ||
+                        declaration->type == TOK_UNION)) {
+        return false;
+    }
     for (candidate = parser.cur; candidate; candidate = candidate->next) {
         Token* token;
         int angle_depth = 0;
+        if (candidate->type == TOK_LBRACE) {
+            return false;
+        }
         if (candidate->type != TOK_IDENT || !candidate->next ||
             candidate->next->type != TOK_LT) {
             if (candidate->type == TOK_ASSIGN ||
