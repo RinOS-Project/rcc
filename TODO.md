@@ -6559,6 +6559,10 @@ remains a separate open item.
       and AMD64 execution.
 - [ ] Constraint ordering across non-equivalent patterns, crossed constraints,
       and non-type/template-template pack patterns remain open.
+- [x] Preserve ambiguity between a repeated non-type pattern `X<N, N>` and a
+      split parameter/fixed-value pattern `X<M, 5>` when both match `X<5, 5>`.
+      GCC C++20 and RCC++ i686/AMD64 diagnose the ambiguity, and RCC emits no
+      object file.
 
 ## RCC continuation (2026-10-17, function constraint-order parameter guards)
 

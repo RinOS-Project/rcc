@@ -24997,6 +24997,100 @@ static int cxx_class_specialization_zero_tail_pack_relation(
     return left_is_expanded ? -1 : 1;
 }
 
+static int cxx_class_specialization_value_parameter_index(
+    const CxxTemplate* specialization, const Expr* pattern) {
+    if (!specialization || !pattern || pattern->kind != EXPR_IDENT ||
+        !pattern->ident_name) {
+        return -1;
+    }
+    for (int index = 0; index < specialization->param_count; ++index) {
+        const TemplateParam* parameter = &specialization->params[index];
+        if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+            strcmp(parameter->name, pattern->ident_name) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+/* A repeated non-type parameter relates two argument positions. A competing
+ * fixed-value pattern constrains one of those positions independently, so
+ * neither pattern is more specialized merely because the fixed expression
+ * receives a larger per-position rank. For example, `X<N, N>` and `X<N, 5>`
+ * are incomparable when both match `X<5, 5>`. */
+static bool cxx_class_specialization_value_patterns_incomparable(
+    CxxTemplate* primary, CxxTemplate* left, CxxTemplate* right,
+    int argument_count) {
+    int left_indices[32] = { 0 };
+    int right_indices[32] = { 0 };
+    int left_expansion = -1;
+    int right_expansion = -1;
+    if (!primary || !left || !right || left == right ||
+        left->param_count == 0 || right->param_count == 0 ||
+        cxx_class_pack_index(primary) >= 0 || argument_count < 2 ||
+        argument_count > 32 ||
+        !cxx_class_specialization_pattern_layout(
+            left, argument_count, left_indices, &left_expansion, NULL) ||
+        !cxx_class_specialization_pattern_layout(
+            right, argument_count, right_indices, &right_expansion, NULL) ||
+        left_expansion >= 0 || right_expansion >= 0) {
+        return false;
+    }
+    for (int first = 0; first < argument_count; ++first) {
+        if (first >= primary->param_count ||
+            primary->params[first].kind != TPARAM_NONTYPE) {
+            continue;
+        }
+        for (int second = first + 1; second < argument_count; ++second) {
+            if (second >= primary->param_count ||
+                primary->params[second].kind != TPARAM_NONTYPE) {
+                continue;
+            }
+            Expr* left_first = left->specialization_value_args
+                ? left->specialization_value_args[left_indices[first]] : NULL;
+            Expr* left_second = left->specialization_value_args
+                ? left->specialization_value_args[left_indices[second]] : NULL;
+            Expr* right_first = right->specialization_value_args
+                ? right->specialization_value_args[right_indices[first]] : NULL;
+            Expr* right_second = right->specialization_value_args
+                ? right->specialization_value_args[right_indices[second]]
+                : NULL;
+            int left_first_parameter =
+                cxx_class_specialization_value_parameter_index(left,
+                                                               left_first);
+            int left_second_parameter =
+                cxx_class_specialization_value_parameter_index(left,
+                                                               left_second);
+            int right_first_parameter =
+                cxx_class_specialization_value_parameter_index(right,
+                                                               right_first);
+            int right_second_parameter =
+                cxx_class_specialization_value_parameter_index(right,
+                                                               right_second);
+            int64_t fixed_value;
+            bool left_repeats = left_first_parameter >= 0 &&
+                left_first_parameter == left_second_parameter;
+            bool right_repeats = right_first_parameter >= 0 &&
+                right_first_parameter == right_second_parameter;
+            bool right_splits_with_fixed =
+                (right_first_parameter >= 0 && right_second &&
+                 expr_eval_integer_constant(right_second, &fixed_value)) ||
+                (right_second_parameter >= 0 && right_first &&
+                 expr_eval_integer_constant(right_first, &fixed_value));
+            bool left_splits_with_fixed =
+                (left_first_parameter >= 0 && left_second &&
+                 expr_eval_integer_constant(left_second, &fixed_value)) ||
+                (left_second_parameter >= 0 && left_first &&
+                 expr_eval_integer_constant(left_first, &fixed_value));
+            if ((left_repeats && right_splits_with_fixed) ||
+                (right_repeats && left_splits_with_fixed)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static bool cxx_deduce_class_specialization_expanded_type(
     CxxTemplate* specialization, Type* pattern, Type* actual,
     Type** candidate_arguments, int* candidate_pack_count,
@@ -26495,7 +26589,15 @@ static Type* cxx_instantiate_dependent_class_template(
             bool selected_dominates = selected &&
                 cxx_class_specialization_rank_dominates(
                     selected_ranks, candidate_ranks, argument_count);
-            if (selected && !candidate_dominates && !selected_dominates) {
+            bool value_patterns_incomparable = selected &&
+                cxx_class_specialization_value_patterns_incomparable(
+                    tmpl, specialization, selected, argument_count);
+            if (value_patterns_incomparable) {
+                candidate_dominates = false;
+                selected_dominates = false;
+            }
+            if (selected && !value_patterns_incomparable &&
+                !candidate_dominates && !selected_dominates) {
                 int zero_pack_relation =
                     cxx_class_specialization_zero_tail_pack_relation(
                         tmpl, specialization, selected, argument_count);
@@ -27201,7 +27303,15 @@ static Type* parse_class_template_specialization_with_owner_type(
                     cxx_class_specialization_rank_dominates(
                         selected_ranks, specialization_ranks,
                         argument_count);
-                if (selected && !current_dominates && !selected_dominates) {
+                bool value_patterns_incomparable = selected &&
+                    cxx_class_specialization_value_patterns_incomparable(
+                        tmpl, specialization, selected, argument_count);
+                if (value_patterns_incomparable) {
+                    current_dominates = false;
+                    selected_dominates = false;
+                }
+                if (selected && !value_patterns_incomparable &&
+                    !current_dominates && !selected_dominates) {
                     int zero_pack_relation =
                         cxx_class_specialization_zero_tail_pack_relation(
                             tmpl, specialization, selected, argument_count);
