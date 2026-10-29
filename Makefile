@@ -1023,6 +1023,7 @@ C17_REGRESSION_TARGETS += test-ucontext-sdk
 C17_REGRESSION_TARGETS += test-c-null-void-pointer-constant
 C17_REGRESSION_TARGETS += test-complex
 C17_REGRESSION_TARGETS += test-long-double test-preprocessor-standard-macros
+C17_REGRESSION_TARGETS += test-tool-relative-includes
 
 # `-g` currently emits a relocatable DWARF line table.  Keep this gate in the
 # C17 aggregate so the option cannot silently regress to a no-op.
@@ -16484,6 +16485,20 @@ endif
 
 test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/tool-relative/cwd)
+	$(RCC_TARGET) --target i686-unknown-rinos -Itests/myinc -c \
+		-o $(TEST_OUT)/tool-relative/include-order-c-x86.ro \
+		tests/include_path_priority.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -Itests/myinc -c \
+		-o $(TEST_OUT)/tool-relative/include-order-c-x64.ro \
+		tests/include_path_priority.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-Itests/myinc -c \
+		-o $(TEST_OUT)/tool-relative/include-order-cxx-x86.ro \
+		tests/include_path_priority.c
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-Itests/myinc -c \
+		-o $(TEST_OUT)/tool-relative/include-order-cxx-x64.ro \
+		tests/include_path_priority.c
 	cd $(TEST_OUT)/tool-relative/cwd && \
 		$(abspath $(RCC_TARGET)) --target i686-unknown-rinos -c \
 		-o c-x86.ro $(abspath tests/tool_relative_include.c)
@@ -16494,8 +16509,23 @@ test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/tool-relative/install/bin)
 	$(call MKDIR_P,$(TEST_OUT)/tool-relative/install/include)
 	$(call MKDIR_P,$(TEST_OUT)/tool-relative/install/cwd)
+ifeq ($(OS),Windows_NT)
+	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath '$(RCC_TARGET)' -Destination '$(TEST_OUT)/tool-relative/install/bin/'"
+	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath '$(RCXX_TARGET)' -Destination '$(TEST_OUT)/tool-relative/install/bin/'"
+	$(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath 'include/rcc' -Destination '$(TEST_OUT)/tool-relative/install/include/' -Recurse -Force"
+else
 	cp $(RCC_TARGET) $(RCXX_TARGET) $(TEST_OUT)/tool-relative/install/bin/
 	cp -R include/rcc $(TEST_OUT)/tool-relative/install/include/
+endif
+ifeq ($(OS),Windows_NT)
+	cd $(TEST_OUT)/tool-relative/install/cwd && \
+		..\bin\rcc.exe --target x86_64-unknown-rinos -c \
+		-o installed-c-x64.ro $(abspath tests/tool_relative_include.c)
+	cd $(TEST_OUT)/tool-relative/install/cwd && \
+		..\bin\rcc++.exe --target i686-unknown-rinos -std=c++20 -c \
+		-o installed-cxx-x86.ro \
+		$(abspath tests/tool_relative_include.cpp)
+else
 	cd $(TEST_OUT)/tool-relative/install/cwd && \
 		../bin/rcc --target x86_64-unknown-rinos -c \
 		-o installed-c-x64.ro $(abspath tests/tool_relative_include.c)
@@ -16503,6 +16533,7 @@ test-tool-relative-includes: $(RCC_TARGET) $(RCXX_TARGET)
 		../bin/rcc++ --target i686-unknown-rinos -std=c++20 -c \
 		-o installed-cxx-x86.ro \
 		$(abspath tests/tool_relative_include.cpp)
+endif
 	@echo "RCC/RCC++ executable-relative include tests completed"
 
 test-preprocessor-continuation: $(RCC_TARGET)

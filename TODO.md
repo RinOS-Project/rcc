@@ -1,5 +1,13 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-10-29, command-line include search order)
+
+- [x] Search command-line `-I` paths before executable-relative and bootstrap
+  headers in both C and C++ drivers. A `limits.h` override fixture compiles in
+  C17/C++20 for i686 and AMD64; `test-tool-relative-includes` passes, including
+  compiler invocation from a different working directory and an installed
+  compiler layout, and is part of `test-c17`/`test-ci`.
+
 ## RCC continuation (2026-10-29, C23 noreturn attribute)
 
 - [x] Parse C23 `[[noreturn]]` in C declaration attribute sequences, retain

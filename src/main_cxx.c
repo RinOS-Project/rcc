@@ -469,6 +469,12 @@ static int compile_current_input(char** argv) {
     pp_define(pp, "__has_cpp_attribute", "1");
 
     /* Add standard include paths (unless -nostdinc). */
+    /* User include directories take precedence over compiler/system headers,
+       matching the documented -I search order. */
+    for (int i = 0; i < g_opts.include_count; ++i) {
+        pp_add_include_path(pp, g_opts.include_paths[i]);
+    }
+
     if (!g_opts.nostdinc) {
         char tool_include[RCC_MAX_PATH];
         char tool_bootstrap_include[RCC_MAX_PATH];
@@ -492,10 +498,6 @@ static int compile_current_input(char** argv) {
         }
         pp_add_include_path(pp, "/rinos/include");
     }
-    for (int i = 0; i < g_opts.include_count; ++i) {
-        pp_add_include_path(pp, g_opts.include_paths[i]);
-    }
-
     /* C++ predefined macros */
     pp_define(pp, "__cplusplus",
               g_cxx_standard >= 20 ? "202002L" :

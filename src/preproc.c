@@ -763,6 +763,9 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
                           size_t* content_size) {
     char path[RCC_MAX_PATH];
     int include_path_start = 0;
+    int include_path_match = -1;
+    size_t include_path_match_length = 0u;
+    bool include_path_match_is_dot = false;
 
     if (!resolved || resolved_size == 0u) {
         rcc_fatal("preprocessor include path has no output buffer");
@@ -778,10 +781,28 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
 
     if (include_next && current_file) {
         for (int i = 0; i < pp->include_path_count; ++i) {
-            if (include_path_contains_file(pp->include_paths[i],
-                                           current_file)) {
-                include_path_start = i + 1;
+            const char* include_path = pp->include_paths[i];
+            bool is_dot = strcmp(include_path, ".") == 0;
+            size_t path_length = is_dot ? 0u : strlen(include_path);
+            if (!include_path_contains_file(include_path, current_file)) {
+                continue;
             }
+            /* A relative current_file also lies beneath ".". Treat that
+             * entry only as a fallback; otherwise use the most specific
+             * matching directory so an earlier -I wrapper can include_next
+             * into the following user directory. Keep the first duplicate
+             * directory, which is the one normal lookup searched first. */
+            if (include_path_match < 0 ||
+                (include_path_match_is_dot && !is_dot) ||
+                (!is_dot && !include_path_match_is_dot &&
+                 path_length > include_path_match_length)) {
+                include_path_match = i;
+                include_path_match_length = path_length;
+                include_path_match_is_dot = is_dot;
+            }
+        }
+        if (include_path_match >= 0) {
+            include_path_start = include_path_match + 1;
         }
     }
 

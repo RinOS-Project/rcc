@@ -508,6 +508,12 @@ static int compile_current_input(char** argv) {
     }
     Preprocessor* pp = pp_new();
 
+    /* User include directories take precedence over compiler/system headers,
+       matching the documented -I search order. */
+    for (int i = 0; i < g_opts.include_count; i++) {
+        pp_add_include_path(pp, g_opts.include_paths[i]);
+    }
+
     /* Add standard include paths (unless -nostdinc) */
     if (!g_opts.nostdinc) {
         char tool_include[RCC_MAX_PATH];
@@ -531,11 +537,6 @@ static int compile_current_input(char** argv) {
             pp_add_include_path(pp, installed_include);
         }
         pp_add_include_path(pp, "/rinos/include");
-    }
-
-    /* Add command-line include paths */
-    for (int i = 0; i < g_opts.include_count; i++) {
-        pp_add_include_path(pp, g_opts.include_paths[i]);
     }
 
     /* C17 requires this implementation-defined environment indicator.  RCC
