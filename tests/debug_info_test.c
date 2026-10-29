@@ -9058,16 +9058,14 @@ static void verify_inline_i686_u64_constant_division_expression(
 static uint64_t verify_inline_global_storage(
     ObjectFile* object, const char* name, uint8_t width);
 
-static void verify_inline_i686_global_u64_constant_division_expression(
+static void verify_inline_i686_global_u64_constant_division_expression_for_inline(
     const char* path, const char* call_site_name, const char* source_name,
-    uint64_t divisor, bool remainder) {
+    const char* inline_name, uint64_t divisor, bool remainder) {
     static const uint64_t values[] = {
         0u, 1u, 2u, 3u, 4u, UINT32_MAX, UINT64_C(0x100000000),
         UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000000),
         UINT64_MAX, UINT64_C(0xfedcba9876543217)
     };
-    const char* inline_name =
-        "debug_nonconstant_unsigned_long_long_parameter_inline";
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -9081,7 +9079,8 @@ static void verify_inline_i686_global_u64_constant_division_expression(
     size_t expected_relocations;
 
     assert(path != NULL && call_site_name != NULL && source_name != NULL &&
-           divisor != 0u && object != NULL && object->arch == ARCH_X86);
+           inline_name != NULL && divisor != 0u && object != NULL &&
+           object->arch == ARCH_X86);
     global_value =
         strcmp(source_name,
                "debug_inline_nonconstant_unsigned_long_long_global_add_source")
@@ -9185,6 +9184,15 @@ static void verify_inline_i686_global_u64_constant_division_expression(
         assert(actual == expected);
     }
     objfile_free(object);
+}
+
+static void verify_inline_i686_global_u64_constant_division_expression(
+    const char* path, const char* call_site_name, const char* source_name,
+    uint64_t divisor, bool remainder) {
+    verify_inline_i686_global_u64_constant_division_expression_for_inline(
+        path, call_site_name, source_name,
+        "debug_nonconstant_unsigned_long_long_parameter_inline",
+        divisor, remainder);
 }
 
 static void verify_inline_i686_u64_variable_division_expression(
@@ -17934,6 +17942,30 @@ int main(int argc, char** argv)
         verify_inline_integer_expression_cases(argv[3], ARCH_X64);
         verify_inline_integer_expression_cases(argv[4], ARCH_X86);
         verify_inline_integer_expression_cases(argv[5], ARCH_X64);
+        verify_inline_i686_global_u64_constant_division_expression_for_inline(
+            argv[2],
+            "debug_inline_nonconstant_unsigned_long_long_atomic_divide_entry",
+            "debug_inline_nonconstant_unsigned_long_long_atomic_dividend",
+            "debug_nonconstant_unsigned_long_long_high_divide_inline",
+            7u, false);
+        verify_inline_i686_global_u64_constant_division_expression_for_inline(
+            argv[4],
+            "debug_inline_nonconstant_unsigned_long_long_atomic_divide_entry",
+            "debug_inline_nonconstant_unsigned_long_long_atomic_dividend",
+            "debug_nonconstant_unsigned_long_long_high_divide_inline",
+            7u, false);
+        verify_inline_i686_global_u64_constant_division_expression_for_inline(
+            argv[2],
+            "debug_inline_nonconstant_unsigned_long_long_atomic_remainder_entry",
+            "debug_inline_nonconstant_unsigned_long_long_atomic_dividend",
+            "debug_nonconstant_unsigned_long_long_high_remainder_inline",
+            7u, true);
+        verify_inline_i686_global_u64_constant_division_expression_for_inline(
+            argv[4],
+            "debug_inline_nonconstant_unsigned_long_long_atomic_remainder_entry",
+            "debug_inline_nonconstant_unsigned_long_long_atomic_dividend",
+            "debug_nonconstant_unsigned_long_long_high_remainder_inline",
+            7u, true);
         for (size_t path_index = 0u;
              path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
              ++path_index) {

@@ -4150,6 +4150,21 @@ static bool debug_inline_parameter_storage_type_equal_ignoring_top_cv(
         &left_unqualified, &right_unqualified, depth);
 }
 
+static bool debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+    const Type* left, const Type* right, unsigned int depth) {
+    Type left_unqualified;
+    Type right_unqualified;
+    if (!left || !right) return false;
+    left_unqualified = *left;
+    right_unqualified = *right;
+    left_unqualified.is_const = right_unqualified.is_const;
+    left_unqualified.is_volatile = right_unqualified.is_volatile;
+    left_unqualified.is_atomic = false;
+    right_unqualified.is_atomic = false;
+    return debug_inline_parameter_storage_type_equal(
+        &left_unqualified, &right_unqualified, depth);
+}
+
 static bool debug_inline_parameter_expression_is_read_only(
     const Expr* expression, const Decl* callee) {
     if (!expression || !callee) return false;
@@ -8660,6 +8675,7 @@ typedef struct DebugInlineI686ExpressionRelocations {
     size_t* count;
     bool allow_tls;
     bool allow_volatile;
+    bool allow_atomic;
 } DebugInlineI686ExpressionRelocations;
 
 static bool debug_inline_parameter_i686_append_global_integer(
@@ -8715,7 +8731,8 @@ static bool debug_inline_parameter_i686_append_storage_u32_impl(
             !source->type ||
             (source->type->is_volatile && !allow_volatile) ||
             source->type->is_reference ||
-            source->type->is_atomic || !relocations ||
+            (source->type->is_atomic &&
+             (!relocations || !relocations->allow_atomic)) || !relocations ||
             !relocations->offsets || !relocations->symbols ||
             !relocations->count ||
             *relocations->count >= relocations->capacity) {
@@ -10546,6 +10563,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         tls_relocations = *relocations;
         tls_relocations.allow_tls = true;
         tls_relocations.allow_volatile = true;
+        tls_relocations.allow_atomic = true;
         relocations = &tls_relocations;
     }
     if (!mod || !parameter_type || !source_expression || !expression ||
@@ -10560,11 +10578,11 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         !debug_inline_integer_literal_bits(
             source_expression->binary_rhs, &divisor, 0u) ||
         divisor == 0u ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             source_expression->type, parameter_type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             source_expression->binary_lhs->type, parameter_type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             source_expression->binary_rhs->type, parameter_type, 0u)) {
         return false;
     }
@@ -10582,8 +10600,9 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         (dividend->type->is_volatile &&
          !(dividend->var_is_global || dividend->var_is_static_local)) ||
         dividend->type->is_reference ||
-        dividend->type->is_atomic ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        (dividend->type->is_atomic &&
+         !(dividend->var_is_global || dividend->var_is_static_local)) ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             dividend->type, parameter_type, 0u) ||
         ((dividend->var_is_global || dividend->var_is_static_local)
              ? (dividend->kind != DECL_VAR || !dividend_symbol ||
@@ -10662,7 +10681,8 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
                 sizeof(chunk_relocation_offsets[0]),
             &chunk_relocation_count,
             relocations && relocations->allow_tls,
-            relocations && relocations->allow_volatile
+            relocations && relocations->allow_volatile,
+            relocations && relocations->allow_atomic
         };
         unsigned int bit_offset =
             (chunk_count - 1u - chunk_index) * chunk_width;
@@ -10957,9 +10977,9 @@ static bool debug_inline_parameter_i686_signed_division_operand(
     for (;;) {
         if (expression->kind == EXPR_CAST) {
             if (!expression->cast_expr ||
-                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
                     expression->type, parameter_type, 0u) ||
-                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
                     expression->cast_expr->type, expression->type, 0u)) {
                 return false;
             }
@@ -10968,9 +10988,9 @@ static bool debug_inline_parameter_i686_signed_division_operand(
         }
         if (expression->kind == EXPR_POS) {
             if (!expression->unary_operand ||
-                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
                     expression->type, parameter_type, 0u) ||
-                !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
                     expression->unary_operand->type, expression->type, 0u)) {
                 return false;
             }
@@ -10979,9 +10999,9 @@ static bool debug_inline_parameter_i686_signed_division_operand(
         }
         if (expression->kind != EXPR_NEG) break;
         if (!is_signed || !expression->unary_operand ||
-            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
                 expression->type, parameter_type, 0u) ||
-            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
                 expression->unary_operand->type, expression->type, 0u)) {
             return false;
         }
@@ -11035,15 +11055,15 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
         !debug_inline_parameter_i686_signed_division_operand(
             divisor_expression, parameter_type, is_signed,
             &divisor_value_expression, &negate_divisor) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             source_expression->type, parameter_type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             dividend_expression->type, parameter_type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             dividend_value_expression->type, parameter_type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             divisor_expression->type, parameter_type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             divisor_value_expression->type, parameter_type, 0u)) {
         return false;
     }
@@ -11075,9 +11095,9 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
         (divisor->type->is_volatile && !divisor_is_address_backed) ||
         dividend->type->is_reference || divisor->type->is_reference ||
         dividend->type->is_atomic || divisor->type->is_atomic ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             dividend->type, parameter_type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             divisor->type, parameter_type, 0u) ||
         (dividend_is_address_backed &&
          (!dividend_symbol ||
@@ -14895,6 +14915,7 @@ static void debug_emit_inline_parameter_instances(
             sizeof(integer_value_relocation_offsets) /
                 sizeof(integer_value_relocation_offsets[0]),
             &integer_value_relocation_count,
+            false,
             false,
             false
         };

@@ -11869,6 +11869,10 @@ remains a separate open item.
       `test-debug-info-inline-expression`.
 - [ ] Extend computed division/remainder expressions to broader operand trees
       and atomic sources; expand optimized multi-piece location tracking.
+  - [x] Extend i686 unsigned 64-bit constant-divisor division/remainder DWARF
+        values to address-backed atomic global sources. Verify divisor 7,
+        full-width values, and source relocations in legacy and verified
+        objects through `test-debug-info-inline-expression`.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
