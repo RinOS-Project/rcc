@@ -12416,9 +12416,14 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                     }
                     Decl* p = decl_param(pname, ptype, param_idx++, peek()->loc);
                     p->param_is_pack = parameter_pack;
+                    bool class_template_pack_expansion = active_template &&
+                        active_template->kind == TMPL_CLASS &&
+                        cxx_parser_template_pack_parameter_in_scopes(
+                            active_template, ptype, NULL, TPARAM_TYPE);
                     if (parameter_pack &&
                         (!active_template ||
-                         active_template->kind != TMPL_FUNCTION)) {
+                         (active_template->kind != TMPL_FUNCTION &&
+                          !class_template_pack_expansion))) {
                         rcc_error(p->loc,
                                   "function parameter packs require a function template");
                     }
@@ -14488,10 +14493,15 @@ static DeclList* parse_cxx_parameter_declarations(bool* is_variadic) {
         }
         parameter = decl_param(name, type, param_idx++, peek()->loc);
         parameter->param_is_pack = parameter_pack;
+        bool class_template_pack_expansion = active_template &&
+            active_template->kind == TMPL_CLASS &&
+            cxx_parser_template_pack_parameter_in_scopes(
+                active_template, type, NULL, TPARAM_TYPE);
         if (parameter_pack &&
             (!active_template ||
              (active_template->kind != TMPL_FUNCTION &&
-              !active_template->is_local_class_template))) {
+              !active_template->is_local_class_template &&
+              !class_template_pack_expansion))) {
             rcc_error(parameter->loc,
                       "function parameter packs require a function template");
         }
@@ -21979,13 +21989,13 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                  tmpl->pending_pack_args)) {
                 for (int pack_value = 0;
                      pack_value < tmpl->pending_pack_count; ++pack_value) {
-                    Type* expanded_arguments[32] = { NULL };
+                    Type** expanded_arguments = cxx_allocate_zeroed_array(
+                        sizeof(*expanded_arguments),
+                        argument_count > 0 ? (size_t)argument_count : 1u);
                     TypeParam* copy = ast_arena_alloc(sizeof(*copy));
-                    if (argument_count >
-                        (int)(sizeof(expanded_arguments) /
-                              sizeof(expanded_arguments[0]))) {
+                    if (!expanded_arguments) {
                         rcc_error((SourceLoc){"<template>", 0, 0},
-                                  "function type parameter pack exceeds compiler limits");
+                                  "function type parameter substitution is too large");
                         return NULL;
                     }
                     if (argument_count > 0) {
@@ -22091,17 +22101,23 @@ static DeclList* substitute_template_decl_parameters(
             }
             for (int pack_value = 0;
                  pack_value < tmpl->pending_pack_count; ++pack_value) {
-                Type* expanded_arguments[32] = { NULL };
-                int64_t expanded_values[32] = { 0 };
-                bool expanded_value_present[32] = { false };
+                Type** expanded_arguments = cxx_allocate_zeroed_array(
+                    sizeof(*expanded_arguments),
+                    argument_count > 0 ? (size_t)argument_count : 1u);
+                int64_t* expanded_values = cxx_allocate_zeroed_array(
+                    sizeof(*expanded_values),
+                    argument_count > 0 ? (size_t)argument_count : 1u);
+                bool* expanded_value_present = cxx_allocate_zeroed_array(
+                    sizeof(*expanded_value_present),
+                    argument_count > 0 ? (size_t)argument_count : 1u);
                 Type* expanded_type;
                 Decl* copy;
                 char generated_name[64];
                 int written;
-                if (argument_count > (int)(sizeof(expanded_arguments) /
-                                           sizeof(expanded_arguments[0]))) {
+                if (!expanded_arguments || !expanded_values ||
+                    !expanded_value_present) {
                     rcc_error(parameter->loc,
-                              "local member parameter pack exceeds compiler limits");
+                              "local member parameter substitution is too large");
                     break;
                 }
                 memcpy(expanded_arguments, arguments,
@@ -23408,8 +23424,7 @@ static Type* instantiate_class_template_for_owner(
         (tmpl->is_local_class_template &&
          argument_count != tmpl->param_count) ||
         (pack_index < 0 && argument_count != tmpl->param_count) ||
-        (pack_index >= 0 &&
-         (argument_count < pack_index || argument_count > 32))) {
+        (pack_index >= 0 && argument_count < pack_index)) {
         rcc_error(loc, "class template argument count mismatch");
         return type_struct(tmpl && tmpl->name ? tmpl->name : "template");
     }

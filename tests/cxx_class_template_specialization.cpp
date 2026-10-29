@@ -103,6 +103,20 @@ static_assert(WidePartial<
     char, char, char, char, char, char, char, char,
     char, char, char, char, char, char, char, char, int>::selected == 3);
 
+template<typename... Types>
+struct WideClassPack {
+    int count_parameters(Types... values) {
+        (static_cast<void>(values), ...);
+        return 33;
+    }
+};
+
+using WideClassPack33 = WideClassPack<
+    int, int, int, int, int, int, int, int,
+    int, int, int, int, int, int, int, int,
+    int, int, int, int, int, int, int, int,
+    int, int, int, int, int, int, int, int, int>;
+
 template<typename T>
 class Qualified {
 public:
@@ -489,6 +503,7 @@ int main() {
     Qualified<const int*> qualified_const_pointer;
     ExactQualified<int> exact_unqualified;
     ExactQualified<const int> exact_const;
+    WideClassPack33 wide_class_pack;
     Number<3> ordinary_number;
     Number<7> specialized_number;
     Pair<int, 3> ordinary_pair;
@@ -535,7 +550,11 @@ int main() {
                    mixed_pack_double == 2 && mixed_pack_triple == 2 &&
                    ordered_mixed_pack_pointer == 2 &&
                    constrained_ordered_pack == 2 &&
-                   structural_before_constraint_pack == 2
+                   structural_before_constraint_pack == 2 &&
+                   wide_class_pack.count_parameters(
+                       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+                       12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                       23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33) == 33
                ? 0
                : 1;
 }
