@@ -6521,6 +6521,13 @@ remains a separate open item.
 - [ ] Crossed constraints, unequal expansion structure, and non-type or
       template-template pack partial-ordering cases remain open.
 
+- [x] Add crossed class-template partial-specialization patterns constrained
+      by independent named concepts. Verify each singly satisfied constraint
+      selects its matching specialization, and that satisfying both leaves the
+      structurally incomparable patterns ambiguous. GCC C++20 plus RCC++
+      i686/AMD64 ambiguity diagnostics are part of the class-specialization
+      regression gates.
+
 ## RCC continuation (2026-10-17, constrained class-pack partial ordering)
 
 - [x] For equivalent class partial-specialization patterns, use associated

@@ -306,6 +306,33 @@ static_assert(StructuralBeforeConstraintPack<int*, char>::kind == 2);
 static_assert(sizeof(typename DependentStructuralBeforeConstraintPackUse<
                   int*, char>::type) == sizeof(long));
 
+template<typename T>
+concept HasFirstTag = requires { typename T::first_tag; };
+
+template<typename T>
+concept HasSecondTag = requires { typename T::second_tag; };
+
+template<typename First, typename Second>
+struct CrossedConstraintPack {
+    static constexpr int kind = 0;
+};
+
+template<typename T, typename U> requires HasFirstTag<T>
+struct CrossedConstraintPack<T*, U> {
+    static constexpr int kind = 1;
+};
+
+template<typename T, typename U> requires HasSecondTag<U>
+struct CrossedConstraintPack<T, U*> {
+    static constexpr int kind = 2;
+};
+
+struct FirstTagOnly { using first_tag = int; };
+struct SecondTagOnly { using second_tag = int; };
+
+static_assert(CrossedConstraintPack<FirstTagOnly*, FirstTagOnly*>::kind == 1);
+static_assert(CrossedConstraintPack<SecondTagOnly*, SecondTagOnly*>::kind == 2);
+
 int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};

@@ -7754,6 +7754,7 @@ test-cxx-class-template-methods: $(RCXX_TARGET) test-cxx-class-template-conversi
 
 test-cxx-class-template-specialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization)
+	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_specialization.cpp
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-specialization,cxx_class_template_specialization.cpp)
 
 test-cxx-dependent-dmi-call-argument: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
@@ -8084,6 +8085,14 @@ test-cxx-class-template-specialization-partial-order-invalid-posix: $(RCXX_TARGE
 	fi
 	$(GREP) -q "ambiguous class template partial specialization" \
 		$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_specialization_crossed_constraints.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x86.ro tests/cxx_class_template_specialization_crossed_constraints.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x86.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x64.ro tests/cxx_class_template_specialization_crossed_constraints.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x64.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x64.ro)
 	@echo "RCC++ incomparable partial-specialization diagnostic completed"
 
 test-cxx-class-template-specialization-constraint-invalid-posix: $(RCXX_TARGET)
@@ -8121,6 +8130,14 @@ test-cxx-class-template-specialization-partial-order-invalid: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.ro tests/cxx_class_template_specialization_partial_order_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.log)
 	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_specialization_crossed_constraints.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x86.ro tests/cxx_class_template_specialization_crossed_constraints.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x86.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x64.ro tests/cxx_class_template_specialization_crossed_constraints.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x64.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/crossed-x64.ro)
 	@echo "RCC++ incomparable partial-specialization diagnostic completed"
 
 test-cxx-class-template-specialization-constraint-invalid: $(RCXX_TARGET)
