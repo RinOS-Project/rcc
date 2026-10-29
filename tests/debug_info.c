@@ -16,6 +16,10 @@ long long debug_inline_nonconstant_signed_long_long_runtime_global_dividend =
     -0x7123456789abcdefll;
 long long debug_inline_nonconstant_signed_long_long_runtime_global_divisor =
     -0x100000001ll;
+_Atomic long long debug_inline_nonconstant_signed_long_long_atomic_dividend =
+    -0x7123456789abcdefll;
+_Atomic long long debug_inline_nonconstant_signed_long_long_atomic_divisor =
+    -0x100000001ll;
 long long* debug_inline_nonconstant_signed_long_long_runtime_local_escape;
 static int debug_file_static;
 const int debug_const_data = 4;
@@ -450,6 +454,22 @@ int debug_inline_nonconstant_unsigned_long_long_atomic_runtime_remainder_entry(
     return (int)debug_nonconstant_unsigned_long_long_high_remainder_inline(
         debug_inline_nonconstant_unsigned_long_long_atomic_dividend %
         debug_inline_nonconstant_unsigned_long_long_atomic_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_runtime_divide_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_dividend /
+        debug_inline_nonconstant_signed_long_long_atomic_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_runtime_remainder_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_dividend %
+        debug_inline_nonconstant_signed_long_long_atomic_divisor);
 }
 
 int debug_inline_nonconstant_integer_entry(int value)

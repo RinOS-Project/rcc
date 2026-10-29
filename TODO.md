@@ -11877,6 +11877,10 @@ remains a separate open item.
         values to atomic global dividend and divisor operands. Verify both
         operations, both relocations, and the full operand matrix in legacy and
         verified objects through `test-debug-info-inline-expression`.
+  - [x] Extend i686 signed 64-bit variable-divisor division/remainder DWARF
+        values to atomic global dividend and divisor operands. Verify signed
+        results, both relocations, and the full operand matrix in legacy and
+        verified objects through `test-debug-info-inline-expression`.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 
