@@ -11977,3 +11977,11 @@ remains a separate open item.
       for i686/AMD64 at `-O0`/`-O2`, including generated-object and legacy-host execution.
       GCC C++20 confirms ordinary and reference-bound construction both
       produce `6721` after the nested argument result is consumed.
+- [x] Extend the bounded nested-call path to `noexcept` function-pointer
+      callees and derive the call's exception property from its function type.
+      Scope internal-linkage function relocations in verified global data so a
+      static function pointer resolves to the emitted translation-unit-local
+      definition. The focused gate passes with 61 verified functions and zero
+      fallback for i686/AMD64 at `-O0`/`-O2`; verified-object execution checks
+      both ordinary and reference-bound partial-construction unwind order
+      (`7021`), and the legacy-host runtime passes.

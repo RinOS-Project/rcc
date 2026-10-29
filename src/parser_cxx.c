@@ -7817,9 +7817,17 @@ static bool cxx_constructor_member_call_argument_is_bounded(
     }
     if (expression->call_func->ident_decl) {
         Decl* callee = expression->call_func->ident_decl;
-        if (callee->kind != DECL_FUNC || !callee->type ||
-            callee->type->kind != TYPE_FUNC || !callee->type->ret_type ||
-            !cxx_constructor_scalar_type(callee->type->ret_type)) {
+        Type* function_type = NULL;
+        if (callee->kind == DECL_FUNC && callee->type &&
+            callee->type->kind == TYPE_FUNC) {
+            function_type = callee->type;
+        } else if (callee->kind == DECL_VAR && callee->type &&
+                   callee->type->kind == TYPE_PTR && callee->type->base &&
+                   callee->type->base->kind == TYPE_FUNC) {
+            function_type = callee->type->base;
+        }
+        if (!function_type || !function_type->ret_type ||
+            !cxx_constructor_scalar_type(function_type->ret_type)) {
             return false;
         }
     }
@@ -7837,10 +7845,10 @@ static bool cxx_constructor_member_call_argument_is_bounded(
 }
 
 /* Member constructor arguments are parsed before ordinary function calls
- * have complete types. Defer constructor selection for direct scalar calls
- * with bounded argument expressions, including nested direct calls; semantic
- * analysis resolves the call and destination constructor later. The typed
- * lowerer separately requires nested calls to be non-throwing. */
+ * have complete types. Defer constructor selection for bounded scalar calls,
+ * including nested direct and function-pointer calls; semantic analysis
+ * resolves the call and destination constructor later. The typed lowerer
+ * separately requires nested calls to be non-throwing. */
 static bool cxx_constructor_member_arguments_need_sema(
     CxxConstructorInfo* constructor, ExprList* arguments) {
     bool has_unresolved_call = false;

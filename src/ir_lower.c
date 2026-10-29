@@ -19217,13 +19217,38 @@ static bool lower_cxx_constructor_initializer_expression_supported(
             return expr_eval_integer_constant(
                 (Expr*)expression, &ignored_constant);
         }
-        case EXPR_CALL:
+        case EXPR_CALL: {
+            const Expr* callee_expression = expression->call_func;
+            const Decl* callee_declaration = callee_expression &&
+                    callee_expression->kind == EXPR_IDENT
+                ? callee_expression->ident_decl : NULL;
+            const Type* function_type = NULL;
+            if (callee_declaration &&
+                callee_declaration->kind == DECL_FUNC &&
+                callee_declaration->type &&
+                callee_declaration->type->kind == TYPE_FUNC) {
+                function_type = callee_declaration->type;
+            } else if (callee_declaration &&
+                       callee_declaration->kind == DECL_VAR &&
+                       callee_declaration->type &&
+                       callee_declaration->type->kind == TYPE_PTR &&
+                       callee_declaration->type->base &&
+                       callee_declaration->type->base->kind == TYPE_FUNC) {
+                function_type = callee_declaration->type->base;
+            } else if (callee_expression && callee_expression->type &&
+                       callee_expression->type->kind == TYPE_FUNC) {
+                function_type = callee_expression->type;
+            } else if (callee_expression && callee_expression->type &&
+                       callee_expression->type->kind == TYPE_PTR &&
+                       callee_expression->type->base &&
+                       callee_expression->type->base->kind == TYPE_FUNC) {
+                function_type = callee_expression->type->base;
+            }
             if (expression->call_is_new || expression->call_is_delete ||
                 !expression->type || !type_is_scalar(expression->type) ||
-                !expression->call_func ||
-                expression->call_func->kind != EXPR_IDENT ||
-                !expression->call_func->ident_decl ||
-                expression->call_func->ident_decl->kind != DECL_FUNC) {
+                !function_type || !function_type->ret_type ||
+                !type_is_compatible(
+                    function_type->ret_type, expression->type)) {
                 return false;
             }
             for (const ExprList* argument = expression->call_args;
@@ -19236,6 +19261,7 @@ static bool lower_cxx_constructor_initializer_expression_supported(
                 }
             }
             return true;
+        }
         default:
             return false;
     }

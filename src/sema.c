@@ -26756,8 +26756,10 @@ static Type* sema_expr(Expr* expr) {
                     expr, "function", call_declaration->name,
                     call_declaration->func_deprecated_message);
             }
-            expr->cxx_call_is_noexcept = call_declaration &&
-                                         call_declaration->func_is_noexcept;
+            expr->cxx_call_is_noexcept = call_declaration
+                ? call_declaration->func_is_noexcept
+                : (ft && ft->kind == TYPE_FUNC &&
+                   ft->function_is_noexcept);
 
             parameter = ft->params;
             argument = expr->call_args;

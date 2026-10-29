@@ -282,9 +282,13 @@ static int verified_throwing_base_initializer_value(int value) {
 
 static int verified_noexcept_member_initializer_argument_value(
     int value) noexcept {
-    return verified_multiple_base_member_initializer_mode == 12
+    return verified_multiple_base_member_initializer_mode == 12 ||
+            verified_multiple_base_member_initializer_mode == 13
         ? value + 99 : value - 1;
 }
+
+static int (*verified_noexcept_member_initializer_indirect)(int) noexcept =
+    &verified_noexcept_member_initializer_argument_value;
 
 static int verified_throwing_member_initializer_value(int value) {
     if (verified_multiple_base_member_initializer_mode == 11 ||
@@ -293,6 +297,14 @@ static int verified_throwing_member_initializer_value(int value) {
             value != 103) {
             throw 68;
         }
+        throw 67;
+    }
+    return value;
+}
+
+static int verified_throwing_indirect_member_initializer_value(int value) {
+    if (verified_multiple_base_member_initializer_mode == 13) {
+        if (value != 103) throw 68;
         throw 67;
     }
     return value;
@@ -319,11 +331,19 @@ struct VerifiedPotentiallyThrowingMember {
     }
 };
 
+struct VerifiedIndirectInitializerMember {
+    int member_value;
+
+    explicit VerifiedIndirectInitializerMember(int initial) noexcept
+        : member_value(initial) {}
+};
+
 struct VerifiedMultipleThrowingBaseDerived :
         VerifiedPotentiallyThrowingBase,
         VerifiedSecondPotentiallyThrowingBase {
     int tail;
     VerifiedPotentiallyThrowingMember member;
+    VerifiedIndirectInitializerMember indirect_member;
     int default_member_value =
         verified_multiple_base_member_initializer_value();
 
@@ -338,6 +358,10 @@ struct VerifiedMultipleThrowingBaseDerived :
                  verified_throwing_member_initializer_value(
                      verified_noexcept_member_initializer_argument_value(
                          member_initial) + 1)),
+          indirect_member(
+              verified_throwing_indirect_member_initializer_value(
+                  verified_noexcept_member_initializer_indirect(
+                      member_initial) + 1)),
           tail(7) {
         switch (body_mode) {
         case 0:

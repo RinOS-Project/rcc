@@ -406,6 +406,63 @@ static void verified_scope_static_relocations(
     }
 }
 
+/* Global-data relocations are converted to object symbols before verified
+ * function bodies are emitted. Give references to internal-linkage
+ * definitions the same translation-unit scope as their later definitions so
+ * the function emitter can resolve a forward reference instead of leaving an
+ * external symbol with the source-level link name. */
+static void verified_scope_static_object_relocations(
+    const AST* ast, const char* translation_unit, ObjectFile* object) {
+    ObjSymbol** symbol_link;
+    if (!ast || !translation_unit || !object) return;
+    symbol_link = &object->symbols;
+    while (*symbol_link) {
+        ObjSymbol* symbol = *symbol_link;
+        const Decl* definition;
+        char* scoped_name;
+        ObjSymbol* matching = NULL;
+        const char* original_name;
+        if (symbol->section >= 0 || symbol->type != SYM_UNDEF ||
+            !(definition = verified_static_definition(ast, symbol->name))) {
+            symbol_link = &symbol->next;
+            continue;
+        }
+        (void)definition;
+        original_name = symbol->name;
+        scoped_name = verified_scoped_symbol(
+            translation_unit, original_name);
+        for (ObjSymbol* candidate = object->symbols; candidate;
+             candidate = candidate->next) {
+            if (candidate != symbol &&
+                strcmp(candidate->name, scoped_name) == 0) {
+                matching = candidate;
+                break;
+            }
+        }
+        for (ObjSection* section = object->sections; section;
+             section = section->next) {
+            for (ObjReloc* relocation = section->relocs; relocation;
+                 relocation = relocation->next) {
+                if (strcmp(relocation->symbol_name, original_name) == 0) {
+                    rcc_free((void*)relocation->symbol_name);
+                    relocation->symbol_name = rcc_strdup(scoped_name);
+                }
+            }
+        }
+        if (matching) {
+            *symbol_link = symbol->next;
+            rcc_free((void*)symbol->name);
+            rcc_free(symbol);
+            --object->symbol_count;
+            rcc_free(scoped_name);
+        } else {
+            rcc_free((void*)symbol->name);
+            symbol->name = scoped_name;
+            symbol_link = &symbol->next;
+        }
+    }
+}
+
 static ModuleSymbol* verified_debug_symbol(Module* module, const char* name) {
     if (!module || !name) return NULL;
     for (int index = 0; index < module->symbol_count; ++index) {
@@ -1235,6 +1292,8 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
             "failed to emit verified global data");
     }
+    verified_scope_static_object_relocations(
+        ast, translation_unit, object);
     for (item = ast->decls; item; item = item->next) {
         const Decl* declaration = item->decl;
         RccIrModule* module = NULL;
