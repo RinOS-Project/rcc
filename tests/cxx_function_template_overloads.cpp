@@ -2239,6 +2239,16 @@ int choose_reference_binding(const T&&) {
 }
 
 template<typename T>
+int choose_forwarding_reference_order(T&&) {
+    return 53;
+}
+
+template<typename T>
+int choose_forwarding_reference_order(T&) {
+    return 54;
+}
+
+template<typename T>
 int choose_reference_cv_category(T&) {
     return 171;
 }
@@ -4277,6 +4287,11 @@ int main(void) {
                    choose_cv_qualification(pointer) == 30 &&
                    choose_reference_binding(value) == 51 &&
                    choose_reference_binding(0) == 52 &&
+                   choose_forwarding_reference_order(value) == 54 &&
+                   choose_forwarding_reference_order(1) == 53 &&
+                   choose_forwarding_reference_order(const_value) == 54 &&
+                   choose_forwarding_reference_order(
+                       static_cast<const int&&>(const_value)) == 53 &&
                    choose_reference_cv_category(value) == 171 &&
                    choose_reference_cv_category(const_value) == 172 &&
                    choose_reference_qualification(value) == 231 &&
