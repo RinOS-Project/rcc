@@ -1872,7 +1872,7 @@
         `test-verified-cxx-throwing-temporary`.
   - [ ] Throwing initializer evaluation before a cleanup owner is fully
         constructed, constructor-driven partial construction/unwind
-        outside the verified direct class-member path for automatic
+        outside the verified direct class-member/base path for automatic
         reference-bound prvalues,
         potentially throwing cleanup callbacks, VLA forms outside the currently
         verified subset (and VLA interaction with throwing cleanup), and other
@@ -1883,9 +1883,17 @@
           plan; register each completed direct member during initialization,
           unregister those actions when the complete object is ready, and let
           the complete plan own normal cleanup. The throwing-member and normal
-          destruction-order regression passes with 52 functions and zero
+          destruction-order regression passes with 54 functions and zero
           fallback on i686/AMD64 at `-O0`/`-O2`, plus generated AMD64 and
           legacy-host execution in `test-verified-cxx-throwing-temporary`.
+    - [x] Extend bounded reference-bound partial construction to flat,
+          non-virtual direct bases with non-throwing aggregate initialization.
+          Register each completed base while later direct members initialize;
+          a later throwing member unwinds the base once, while success hands
+          cleanup to the complete-object plan. The
+          `test-verified-cxx-throwing-temporary` gate remains at 54 functions
+          with zero fallback for i686/AMD64 at `-O0`/`-O2`, and generated
+          AMD64 objects plus the legacy host verify failure and normal order.
     - [x] Verify a normal scope-exit cleanup whose `noexcept(false)` destructor
           throws into the surrounding handler exactly once. The
           `test-verified-cxx-throwing-temporary` gate emits 54 functions with
