@@ -297,6 +297,10 @@ static bool lower_wide_switch_body_edge_safe(const Stmt* statement);
 static bool lower_struct_type_supported(const Type* type);
 static bool lower_storage_type_supported_internal(
     const Type* type, unsigned depth);
+static bool lower_storage_type_supported_ignoring_volatile_internal(
+    const Type* type, unsigned depth);
+static bool lower_type_has_volatile_subobject(
+    const Type* type, unsigned depth);
 static bool lower_reference_owner_partial_init_supported(
     const Type* type, const Expr* initializer);
 static bool lower_cxx_destructor_cleanup_hook_supported(const Type* type);
@@ -326,6 +330,16 @@ static bool lower_copy_volatile_aggregate_storage(
     RccIrLowerContext* context, RccIrLowerValue destination,
     RccIrLowerValue source, const Type* type,
     bool destination_volatile, bool source_volatile);
+static bool lower_copy_aggregate_with_volatile_fields(
+    RccIrLowerContext* context, RccIrValue destination,
+    RccIrValue source, const Type* type,
+    bool destination_volatile, bool source_volatile, unsigned depth);
+static RccIrLowerValue lower_load_bitfield_value(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    const TypeField* field);
+static bool lower_store_bitfield_value(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    const TypeField* field, RccIrLowerValue value);
 static bool lower_volatile_local_aggregate_supported(
     const Decl* declaration);
 static bool lower_static_volatile_aggregate_supported(
@@ -2631,14 +2645,16 @@ static bool lower_static_volatile_aggregate_supported(
         declaration->var_reference_temporary_owner ||
         declaration->var_cleanup || declaration->var_cleanups ||
         declaration->storage != STORAGE_STATIC || !type ||
-        !type->is_volatile || type->is_atomic || type->is_reference ||
+        !lower_type_has_volatile_subobject(type, 0u) ||
+        type->is_atomic || type->is_reference ||
         type->cxx_class || type->cleanup_function || type->cleanup_field ||
         (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
         return false;
     }
     unqualified_type = *type;
     unqualified_type.is_volatile = false;
-    return lower_storage_type_supported_internal(&unqualified_type, 0u);
+    return lower_storage_type_supported_ignoring_volatile_internal(
+        &unqualified_type, 0u);
 }
 
 static RccIrLowerValue lower_lvalue_address_impl(
@@ -3066,6 +3082,13 @@ static RccIrLowerValue lower_typeinfo_before(
 static RccIrLowerValue lower_load_lvalue(RccIrLowerContext* context,
                                          const Expr* expression) {
     RccIrLowerValue address = lower_lvalue_address(context, expression);
+    const TypeField* field = expression &&
+            (expression->kind == EXPR_MEMBER ||
+             expression->kind == EXPR_PTR_MEMBER)
+        ? expression->member_field : NULL;
+    if (field && field->is_bitfield) {
+        return lower_load_bitfield_value(context, address, field);
+    }
     return lower_load_address(context, address,
                               expression ? expression->type : NULL);
 }
@@ -3160,6 +3183,158 @@ static bool lower_store_address(RccIrLowerContext* context,
             store, address.atomic_access);
         return true;
     }
+}
+
+static bool lower_bitfield_storage_layout(
+    const TypeField* field, RccIrType* storage_type,
+    uint32_t* storage_width, uint64_t* field_mask,
+    uint64_t* clear_mask) {
+    uint64_t storage_mask;
+    if (!field || !field->is_bitfield || !field->type ||
+        field->bit_width == 0u || field->type->size <= 0 ||
+        field->type->size > 8 || !storage_type || !storage_width ||
+        !field_mask || !clear_mask ||
+        !lower_type(field->type, storage_type) ||
+        storage_type->kind != RCC_IR_TYPE_INTEGER) {
+        return false;
+    }
+    *storage_width = (uint32_t)field->type->size * 8u;
+    if (*storage_width == 0u || *storage_width > 64u ||
+        storage_type->bit_width != *storage_width ||
+        field->bit_width > *storage_width ||
+        field->bit_offset > *storage_width - field->bit_width) {
+        return false;
+    }
+    *field_mask = field->bit_width == 64u
+        ? UINT64_MAX : (UINT64_C(1) << field->bit_width) - 1u;
+    storage_mask = *storage_width == 64u
+        ? UINT64_MAX : (UINT64_C(1) << *storage_width) - 1u;
+    *clear_mask = storage_mask ^ (*field_mask << field->bit_offset);
+    return true;
+}
+
+static RccIrLowerValue lower_load_bitfield_value(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    const TypeField* field) {
+    RccIrType storage_type;
+    uint32_t storage_width;
+    uint64_t field_mask;
+    uint64_t clear_mask;
+    RccIrLowerValue value;
+    RccIrLowerValue mask;
+    RccIrLowerValue shift;
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    if (!lower_bitfield_storage_layout(
+            field, &storage_type, &storage_width,
+            &field_mask, &clear_mask)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    (void)clear_mask;
+    value = lower_load_address(context, address, field->type);
+    shift = lower_integer_constant(
+        context, storage_type, true, field->bit_offset);
+    if (!value.valid || !shift.valid) {
+        return lower_invalid_value();
+    }
+    if (field->bit_offset != 0u) {
+        operands[0] = value.value;
+        operands[1] = shift.value;
+        instruction = lower_append(
+            context, RCC_IR_LSHR, storage_type, operands, 2u, NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        value = lower_value(instruction->result, storage_type, true);
+    }
+    mask = lower_integer_constant(context, storage_type, true, field_mask);
+    if (!mask.valid) return lower_invalid_value();
+    operands[0] = value.value;
+    operands[1] = mask.value;
+    instruction = lower_append(
+        context, RCC_IR_AND, storage_type, operands, 2u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    value = lower_value(instruction->result, storage_type, true);
+    if (!field->type->is_unsigned && field->bit_width < storage_width) {
+        uint32_t sign_shift = storage_width - field->bit_width;
+        shift = lower_integer_constant(
+            context, storage_type, true, sign_shift);
+        if (!shift.valid) return lower_invalid_value();
+        operands[0] = value.value;
+        operands[1] = shift.value;
+        instruction = lower_append(
+            context, RCC_IR_SHL, storage_type, operands, 2u, NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        value = lower_value(instruction->result, storage_type, true);
+        operands[0] = value.value;
+        operands[1] = shift.value;
+        instruction = lower_append(
+            context, RCC_IR_ASHR, storage_type, operands, 2u, NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        value = lower_value(instruction->result, storage_type, false);
+    }
+    value.is_unsigned = field->type->is_unsigned;
+    return value;
+}
+
+static bool lower_store_bitfield_value(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    const TypeField* field, RccIrLowerValue value) {
+    RccIrType storage_type;
+    uint32_t storage_width;
+    uint64_t field_mask;
+    uint64_t clear_mask;
+    RccIrLowerValue current;
+    RccIrLowerValue mask;
+    RccIrLowerValue clear;
+    RccIrLowerValue shift;
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    if (!lower_bitfield_storage_layout(
+            field, &storage_type, &storage_width,
+            &field_mask, &clear_mask)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    (void)storage_width;
+    if (!address.valid || !value.valid) return false;
+    value = lower_cast(context, value, field->type);
+    current = lower_load_address(context, address, field->type);
+    mask = lower_integer_constant(context, storage_type, true, field_mask);
+    clear = lower_integer_constant(context, storage_type, true, clear_mask);
+    shift = lower_integer_constant(
+        context, storage_type, true, field->bit_offset);
+    if (!value.valid || !current.valid || !mask.valid || !clear.valid ||
+        !shift.valid) {
+        return false;
+    }
+    operands[0] = value.value;
+    operands[1] = mask.value;
+    instruction = lower_append(
+        context, RCC_IR_AND, storage_type, operands, 2u, NULL, 0u);
+    if (!instruction) return false;
+    value = lower_value(instruction->result, storage_type, true);
+    if (field->bit_offset != 0u) {
+        operands[0] = value.value;
+        operands[1] = shift.value;
+        instruction = lower_append(
+            context, RCC_IR_SHL, storage_type, operands, 2u, NULL, 0u);
+        if (!instruction) return false;
+        value = lower_value(instruction->result, storage_type, true);
+    }
+    operands[0] = current.value;
+    operands[1] = clear.value;
+    instruction = lower_append(
+        context, RCC_IR_AND, storage_type, operands, 2u, NULL, 0u);
+    if (!instruction) return false;
+    current = lower_value(instruction->result, storage_type, true);
+    operands[0] = current.value;
+    operands[1] = value.value;
+    instruction = lower_append(
+        context, RCC_IR_OR, storage_type, operands, 2u, NULL, 0u);
+    if (!instruction) return false;
+    return lower_store_address(
+        context, address,
+        lower_value(instruction->result, storage_type, true));
 }
 
 static RccIrType lower_member_function_pointer_word_type(void) {
@@ -3352,6 +3527,13 @@ static bool lower_store_lvalue(RccIrLowerContext* context,
                                const Expr* expression,
                                RccIrLowerValue value) {
     RccIrLowerValue address = lower_lvalue_address(context, expression);
+    const TypeField* field = expression &&
+            (expression->kind == EXPR_MEMBER ||
+             expression->kind == EXPR_PTR_MEMBER)
+        ? expression->member_field : NULL;
+    if (field && field->is_bitfield) {
+        return lower_store_bitfield_value(context, address, field, value);
+    }
     return lower_store_address(context, address, value);
 }
 
@@ -7689,7 +7871,11 @@ static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
             destination.volatile_access;
         source_volatile = source_volatile || value.volatile_access;
         if (destination_volatile_local || source_volatile_local ||
-            destination_volatile || source_volatile) {
+            destination_volatile || source_volatile ||
+            (!g_opts.cxx_mode &&
+             lower_type_has_volatile_subobject(lhs_type, 0u)) ||
+            (!g_opts.cxx_mode &&
+             lower_type_has_volatile_subobject(rhs_type, 0u))) {
             if (!lower_copy_volatile_aggregate_storage(
                     context, destination, value, lhs_type,
                     destination_volatile, source_volatile)) {
@@ -8060,8 +8246,15 @@ static RccIrLowerValue lower_compound_assignment(
             expression->binary_lhs->type->is_unsigned);
     }
     address = lower_lvalue_address(context, expression->binary_lhs);
-    left = lower_load_address(context, address,
-                              expression->binary_lhs->type);
+    {
+        const Expr* lhs = expression->binary_lhs;
+        const TypeField* field = lhs &&
+                (lhs->kind == EXPR_MEMBER || lhs->kind == EXPR_PTR_MEMBER)
+            ? lhs->member_field : NULL;
+        left = field && field->is_bitfield
+            ? lower_load_bitfield_value(context, address, field)
+            : lower_load_address(context, address, lhs->type);
+    }
     right = lower_expression(context, expression->binary_rhs);
     if (!address.valid || !left.valid || !right.valid) {
         return lower_invalid_value();
@@ -8112,8 +8305,16 @@ static RccIrLowerValue lower_compound_assignment(
     result = lower_value(operation->result, ir_operation_type,
                          operation_type->is_unsigned);
     result = lower_cast(context, result, expression->binary_lhs->type);
-    if (!result.valid || !lower_store_address(context, address, result)) {
-        return lower_invalid_value();
+    {
+        const Expr* lhs = expression->binary_lhs;
+        const TypeField* field = lhs &&
+                (lhs->kind == EXPR_MEMBER || lhs->kind == EXPR_PTR_MEMBER)
+            ? lhs->member_field : NULL;
+        if (!result.valid || !(field && field->is_bitfield
+                ? lower_store_bitfield_value(context, address, field, result)
+                : lower_store_address(context, address, result))) {
+            return lower_invalid_value();
+        }
     }
     return result;
 }
@@ -8160,6 +8361,11 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
     RccIrValue operands[2];
     RccIrInstruction* operation;
     RccIrLowerValue new_value;
+    const Expr* operand = expression ? expression->unary_operand : NULL;
+    const TypeField* bitfield = operand &&
+            (operand->kind == EXPR_MEMBER ||
+             operand->kind == EXPR_PTR_MEMBER)
+        ? operand->member_field : NULL;
     bool increment = expression->kind == EXPR_PREINC ||
         expression->kind == EXPR_POSTINC;
     bool postfix = expression->kind == EXPR_POSTINC ||
@@ -8264,8 +8470,10 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
             expression->unary_operand->type->is_unsigned);
     }
     address = lower_lvalue_address(context, expression->unary_operand);
-    old_value = lower_load_address(context, address,
-                                   expression->unary_operand->type);
+    old_value = bitfield && bitfield->is_bitfield
+        ? lower_load_bitfield_value(context, address, bitfield)
+        : lower_load_address(context, address,
+                             expression->unary_operand->type);
     if (!address.valid || !old_value.valid) return lower_invalid_value();
     if (expression->unary_operand->type->kind == TYPE_PTR) {
         RccIrType pointer_index_type;
@@ -8312,7 +8520,10 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
     if (!operation) return lower_invalid_value();
     new_value = lower_value(operation->result, old_value.type,
                             old_value.is_unsigned);
-    if (!lower_store_address(context, address, new_value)) {
+    if (!(bitfield && bitfield->is_bitfield
+            ? lower_store_bitfield_value(
+                  context, address, bitfield, new_value)
+            : lower_store_address(context, address, new_value))) {
         return lower_invalid_value();
     }
     if (postfix) return old_value;
@@ -18575,6 +18786,12 @@ static bool lower_copy_array_storage(
         context->unsupported = true;
         return false;
     }
+    if (!g_opts.cxx_mode &&
+        lower_type_has_volatile_subobject(array_type, 0u)) {
+        return lower_copy_aggregate_with_volatile_fields(
+            context, destination, source, array_type,
+            array_type->is_volatile, array_type->is_volatile, 0u);
+    }
     element_type = array_type->base;
     for (int index = 0; index < array_type->array_len; ++index) {
         RccIrLowerValue destination_element = lower_array_element_address(
@@ -18673,6 +18890,164 @@ static bool lower_copy_scalar_storage(
             context, source_address, type);
         return value.valid && lower_store_address(
             context, destination_address, value);
+    }
+}
+
+static bool lower_copy_aggregate_with_volatile_fields(
+    RccIrLowerContext* context, RccIrValue destination,
+    RccIrValue source, const Type* type,
+    bool destination_volatile, bool source_volatile, unsigned depth) {
+    if (!context || !type) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (depth >= 32u || type->size <= 0 || type->size > 65536) {
+        context->unsupported = true;
+        return false;
+    }
+    destination_volatile = destination_volatile || type->is_volatile;
+    source_volatile = source_volatile || type->is_volatile;
+    if (type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len <= 0 ||
+            type->array_len > 4096) {
+            context->unsupported = true;
+            return false;
+        }
+        for (int index = 0; index < type->array_len; ++index) {
+            RccIrLowerValue destination_element = lower_array_element_address(
+                context, destination, type->base, (uint64_t)index);
+            RccIrLowerValue source_element = lower_array_element_address(
+                context, source, type->base, (uint64_t)index);
+            if (!destination_element.valid || !source_element.valid ||
+                !lower_copy_aggregate_with_volatile_fields(
+                    context, destination_element.value,
+                    source_element.value, type->base,
+                    destination_volatile, source_volatile, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (type->kind == TYPE_STRUCT) {
+        const TypeField* field;
+        for (field = type->fields; field; field = field->next) {
+            if (field->is_bitfield) {
+                const TypeField* other;
+                bool prior_storage_unit = false;
+                bool volatile_storage_unit = false;
+                for (other = type->fields; other && other != field;
+                     other = other->next) {
+                    if (other->is_bitfield && other->offset == field->offset &&
+                        other->type && field->type &&
+                        other->type->size == field->type->size) {
+                        prior_storage_unit = true;
+                        break;
+                    }
+                }
+                if (prior_storage_unit) continue;
+                for (other = type->fields; other; other = other->next) {
+                    if (other->is_bitfield && other->offset == field->offset &&
+                        other->type && field->type &&
+                        other->type->size == field->type->size &&
+                        other->type->is_volatile) {
+                        volatile_storage_unit = true;
+                        break;
+                    }
+                }
+                {
+                    RccIrLowerValue destination_base = lower_value(
+                        destination, rcc_ir_type_pointer(0u), true);
+                    RccIrLowerValue source_base = lower_value(
+                        source, rcc_ir_type_pointer(0u), true);
+                    RccIrLowerValue destination_field =
+                        lower_byte_offset_address(
+                            context, destination_base,
+                            (uint64_t)field->offset);
+                    RccIrLowerValue source_field = lower_byte_offset_address(
+                        context, source_base, (uint64_t)field->offset);
+                    if (!destination_field.valid || !source_field.valid ||
+                        !lower_copy_aggregate_with_volatile_fields(
+                            context, destination_field.value,
+                            source_field.value, field->type,
+                            destination_volatile || volatile_storage_unit,
+                            source_volatile || volatile_storage_unit,
+                            depth + 1u)) {
+                        return false;
+                    }
+                }
+                continue;
+            }
+            RccIrLowerValue destination_base = lower_value(
+                destination, rcc_ir_type_pointer(0u), true);
+            RccIrLowerValue source_base = lower_value(
+                source, rcc_ir_type_pointer(0u), true);
+            RccIrLowerValue destination_field = lower_byte_offset_address(
+                context, destination_base, (uint64_t)field->offset);
+            RccIrLowerValue source_field = lower_byte_offset_address(
+                context, source_base, (uint64_t)field->offset);
+            if (!destination_field.valid || !source_field.valid ||
+                !lower_copy_aggregate_with_volatile_fields(
+                    context, destination_field.value, source_field.value,
+                    field->type, destination_volatile, source_volatile,
+                    depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (type->kind == TYPE_UNION) {
+        bool destination_bytes_volatile = destination_volatile ||
+            lower_type_has_volatile_subobject(type, 0u);
+        bool source_bytes_volatile = source_volatile ||
+            lower_type_has_volatile_subobject(type, 0u);
+        for (int offset = 0; offset < type->size; ++offset) {
+            RccIrLowerValue destination_base = lower_value(
+                destination, rcc_ir_type_pointer(0u), true);
+            RccIrLowerValue source_base = lower_value(
+                source, rcc_ir_type_pointer(0u), true);
+            RccIrLowerValue destination_byte = lower_byte_offset_address(
+                context, destination_base, (uint64_t)offset);
+            RccIrLowerValue source_byte = lower_byte_offset_address(
+                context, source_base, (uint64_t)offset);
+            RccIrLowerValue value;
+            destination_byte.volatile_access = destination_bytes_volatile;
+            source_byte.volatile_access = source_bytes_volatile;
+            value = lower_load_address(context, source_byte, type_uchar);
+            if (!destination_byte.valid || !source_byte.valid ||
+                !value.valid || !lower_store_address(
+                    context, destination_byte, value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (type_is_cxx_member_function_pointer(type)) {
+        if (destination_volatile || source_volatile) {
+            context->unsupported = true;
+            return false;
+        }
+        return lower_copy_member_function_pointer_storage(
+            context, destination, source, type);
+    }
+    {
+        RccIrLowerValue destination_address = lower_value(
+            destination, rcc_ir_type_pointer(0u), true);
+        RccIrLowerValue source_address = lower_value(
+            source, rcc_ir_type_pointer(0u), true);
+        destination_address.volatile_access = destination_volatile;
+        source_address.volatile_access = source_volatile;
+        if (lower_i686_wide_scalar_type(type)) {
+            RccIrLowerWideValue value;
+            return lower_wide_scalar_load(
+                       context, source_address, type->is_unsigned, &value) &&
+                lower_wide_scalar_store(context, destination_address, value);
+        }
+        {
+            RccIrLowerValue value = lower_load_address(
+                context, source_address, (Type*)type);
+            return value.valid && lower_store_address(
+                context, destination_address, value);
+        }
     }
 }
 
@@ -18847,6 +19222,70 @@ static bool lower_storage_type_supported_internal(
     if (lower_i686_wide_scalar_type(type)) return true;
     return lower_type(type, &ir_type) &&
         ir_type.kind != RCC_IR_TYPE_VOID;
+}
+
+static bool lower_storage_type_supported_ignoring_volatile_internal(
+    const Type* type, unsigned depth) {
+    Type unqualified_type;
+    const TypeField* field;
+    if (!type || depth >= 32u || type->size <= 0 ||
+        type->size > 65536 || type->is_reference ||
+        (type->cleanup_function &&
+         !lower_cxx_destructor_cleanup_hook_supported(type))) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->array_len > 0 && type->array_len <= 4096 &&
+            type->base &&
+            lower_storage_type_supported_ignoring_volatile_internal(
+                type->base, depth + 1u);
+    }
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        if (!type->is_complete) return false;
+        for (field = type->fields; field; field = field->next) {
+            if (!field->type || field->offset < 0 ||
+                field->offset > type->size ||
+                field->type->size > type->size - field->offset) {
+                return false;
+            }
+            if (field->type->is_reference) {
+                int pointer_size =
+                    g_opts.target_arch == ARCH_X64 ? 8 : 4;
+                if (field->type->kind != TYPE_PTR ||
+                    field->type->size != pointer_size ||
+                    field->type->cxx_is_member_pointer) {
+                    return false;
+                }
+                continue;
+            }
+            if (!lower_storage_type_supported_ignoring_volatile_internal(
+                    field->type, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    unqualified_type = *type;
+    unqualified_type.is_volatile = false;
+    return lower_storage_type_supported_internal(&unqualified_type, depth);
+}
+
+static bool lower_type_has_volatile_subobject(
+    const Type* type, unsigned depth) {
+    const TypeField* field;
+    if (!type || depth >= 32u) return false;
+    if (type->is_volatile) return true;
+    if (type->kind == TYPE_ARRAY) {
+        return type->base &&
+            lower_type_has_volatile_subobject(type->base, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return false;
+    for (field = type->fields; field; field = field->next) {
+        if (lower_type_has_volatile_subobject(field->type, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool lower_abi_is_aggregate(const Type* type) {
@@ -19560,12 +19999,20 @@ static bool lower_array_initializer(
 
 static bool lower_struct_type_supported(const Type* type) {
     return type && type->kind == TYPE_STRUCT &&
-        lower_storage_type_supported_internal(type, 0u);
+        (lower_storage_type_supported_internal(type, 0u) ||
+         (!g_opts.cxx_mode &&
+          lower_type_has_volatile_subobject(type, 0u) &&
+          lower_storage_type_supported_ignoring_volatile_internal(
+              type, 0u)));
 }
 
 static bool lower_union_type_supported(const Type* type) {
     return type && type->kind == TYPE_UNION &&
-        lower_storage_type_supported_internal(type, 0u);
+        (lower_storage_type_supported_internal(type, 0u) ||
+         (!g_opts.cxx_mode &&
+          lower_type_has_volatile_subobject(type, 0u) &&
+          lower_storage_type_supported_ignoring_volatile_internal(
+              type, 0u)));
 }
 
 static bool lower_copy_union_storage(
@@ -19574,6 +20021,12 @@ static bool lower_copy_union_storage(
     if (!lower_union_type_supported(type)) {
         context->unsupported = true;
         return false;
+    }
+    if (!g_opts.cxx_mode &&
+        lower_type_has_volatile_subobject(type, 0u)) {
+        return lower_copy_aggregate_with_volatile_fields(
+            context, destination, source, type,
+            type->is_volatile, type->is_volatile, 0u);
     }
     for (int offset = 0; offset < type->size; ++offset) {
         RccIrLowerValue destination_base = lower_value(
@@ -19600,6 +20053,12 @@ static bool lower_copy_struct_storage(
     if (!lower_struct_type_supported(type)) {
         context->unsupported = true;
         return false;
+    }
+    if (!g_opts.cxx_mode &&
+        lower_type_has_volatile_subobject(type, 0u)) {
+        return lower_copy_aggregate_with_volatile_fields(
+            context, destination, source, type,
+            type->is_volatile, type->is_volatile, 0u);
     }
     for (field = type->fields; field; field = field->next) {
         RccIrLowerValue destination_base = lower_value(
@@ -19655,7 +20114,6 @@ static bool lower_copy_volatile_aggregate_storage(
     RccIrLowerContext* context, RccIrLowerValue destination,
     RccIrLowerValue source, const Type* type,
     bool destination_volatile, bool source_volatile) {
-    Type unqualified_type;
     if (!context || !destination.valid || !source.valid ||
         destination.type.kind != RCC_IR_TYPE_POINTER ||
         source.type.kind != RCC_IR_TYPE_POINTER || !type ||
@@ -19663,11 +20121,16 @@ static bool lower_copy_volatile_aggregate_storage(
         if (context) context->unsupported = true;
         return false;
     }
-    unqualified_type = *type;
-    unqualified_type.is_volatile = false;
-    if (!lower_storage_type_supported_internal(&unqualified_type, 0u)) {
+    if (!lower_storage_type_supported_ignoring_volatile_internal(type, 0u)) {
         context->unsupported = true;
         return false;
+    }
+    if (!g_opts.cxx_mode && !destination_volatile && !source_volatile &&
+        !type->is_volatile &&
+        lower_type_has_volatile_subobject(type, 0u)) {
+        return lower_copy_aggregate_with_volatile_fields(
+            context, destination.value, source.value, type,
+            false, false, 0u);
     }
     destination_volatile = destination_volatile || type->is_volatile;
     source_volatile = source_volatile || type->is_volatile;
@@ -22961,6 +23424,95 @@ static bool lower_reference_owner_partial_init_supported(
     return !field && !item;
 }
 
+static bool lower_initialize_bitfield_storage(
+    RccIrLowerContext* context, RccIrValue base,
+    const TypeField* field, const Expr* initializer) {
+    RccIrType storage_type;
+    RccIrLowerValue base_address;
+    RccIrLowerValue address;
+    RccIrLowerValue value;
+    RccIrLowerValue current;
+    RccIrLowerValue field_mask_value;
+    RccIrLowerValue clear_mask_value;
+    RccIrLowerValue shift_value;
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    uint32_t storage_width;
+    uint64_t field_mask;
+    uint64_t storage_mask;
+    uint64_t shifted_field_mask;
+    const Expr* expression;
+
+    if (!context || !field || !field->type || !field->is_bitfield ||
+        !initializer || field->bit_width == 0u ||
+        !lower_type(field->type, &storage_type) ||
+        storage_type.kind != RCC_IR_TYPE_INTEGER ||
+        field->type->size > 8) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    storage_width = (uint32_t)field->type->size * 8u;
+    if (storage_width == 0u || storage_width > 64u ||
+        field->bit_width > storage_width ||
+        field->bit_offset > storage_width - field->bit_width) {
+        context->unsupported = true;
+        return false;
+    }
+    field_mask = field->bit_width == 64u
+        ? UINT64_MAX : (UINT64_C(1) << field->bit_width) - 1u;
+    storage_mask = storage_width == 64u
+        ? UINT64_MAX : (UINT64_C(1) << storage_width) - 1u;
+    shifted_field_mask = field_mask << field->bit_offset;
+    expression = lower_scalar_initializer_expression(initializer);
+    if (!expression) {
+        context->unsupported = true;
+        return false;
+    }
+    value = lower_expression(context, expression);
+    value = lower_cast(context, value, field->type);
+    base_address = lower_value(base, rcc_ir_type_pointer(0u), true);
+    address = lower_byte_offset_address(
+        context, base_address, (uint64_t)field->offset);
+    field_mask_value = lower_integer_constant(
+        context, storage_type, true, field_mask);
+    clear_mask_value = lower_integer_constant(
+        context, storage_type, true, storage_mask ^ shifted_field_mask);
+    shift_value = lower_integer_constant(
+        context, storage_type, true, field->bit_offset);
+    current = lower_load_address(context, address, field->type);
+    if (!value.valid || !address.valid || !field_mask_value.valid ||
+        !clear_mask_value.valid || !shift_value.valid || !current.valid) {
+        return false;
+    }
+
+    operands[0] = value.value;
+    operands[1] = field_mask_value.value;
+    instruction = lower_append(
+        context, RCC_IR_AND, storage_type, operands, 2u, NULL, 0u);
+    if (!instruction) return false;
+    value = lower_value(instruction->result, storage_type, true);
+    operands[0] = value.value;
+    operands[1] = shift_value.value;
+    instruction = lower_append(
+        context, RCC_IR_SHL, storage_type, operands, 2u, NULL, 0u);
+    if (!instruction) return false;
+    value = lower_value(instruction->result, storage_type, true);
+
+    operands[0] = current.value;
+    operands[1] = clear_mask_value.value;
+    instruction = lower_append(
+        context, RCC_IR_AND, storage_type, operands, 2u, NULL, 0u);
+    if (!instruction) return false;
+    current = lower_value(instruction->result, storage_type, true);
+    operands[0] = current.value;
+    operands[1] = value.value;
+    instruction = lower_append(
+        context, RCC_IR_OR, storage_type, operands, 2u, NULL, 0u);
+    if (!instruction) return false;
+    value = lower_value(instruction->result, storage_type, true);
+    return lower_store_address(context, address, value);
+}
+
 static bool lower_initialize_struct_field(
     RccIrLowerContext* context, RccIrValue base,
     const TypeField* field, const ExprList* initializer_item,
@@ -22975,6 +23527,10 @@ static bool lower_initialize_struct_field(
         return false;
     }
     base_value = lower_value(base, rcc_ir_type_pointer(0u), true);
+    if (field->is_bitfield) {
+        return lower_initialize_bitfield_storage(
+            context, base, field, initializer);
+    }
     address = lower_byte_offset_address(
         context, base_value, (uint64_t)field->offset);
     if (!address.valid) return false;
@@ -24175,7 +24731,8 @@ static bool lower_volatile_local_aggregate_supported(
         declaration->var_is_global || declaration->var_is_static_local ||
         declaration->var_is_thread_local || declaration->var_is_vla ||
         declaration->var_cleanup || declaration->var_cleanups || !type ||
-        !type->is_volatile ||
+        !lower_type_has_volatile_subobject(type, 0u) ||
+        (!type->is_volatile && g_opts.cxx_mode) ||
         type->is_atomic || type->is_reference || type->cxx_class ||
         type->cleanup_function || type->cleanup_field ||
         (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
@@ -24183,7 +24740,8 @@ static bool lower_volatile_local_aggregate_supported(
     }
     unqualified_type = *type;
     unqualified_type.is_volatile = false;
-    return lower_storage_type_supported_internal(&unqualified_type, 0u);
+    return lower_storage_type_supported_ignoring_volatile_internal(
+        &unqualified_type, 0u);
 }
 
 static bool lower_initialize_volatile_local_aggregate(

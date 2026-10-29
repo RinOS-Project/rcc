@@ -12072,12 +12072,18 @@ remains a separate open item.
       union copies, plus bit-field object representations.
 - [x] Lower block-scope static volatile C struct/union objects with static
       `.data` and zero-initialized `.bss` storage, including whole-object
-      assignments and member reads/writes. Runtime coverage confirms their
-      initial and updated values.
+      assignments and member reads/writes. Also cover nested volatile member
+      structs/unions in initialized `.data` and zero-initialized `.bss` locals.
+      Runtime coverage confirms their initial and updated values.
+- [x] Lower automatic C struct/union aggregates containing nested volatile
+      members. Preserve volatile field accesses while copying ordinary fields,
+      and cover initializers, direct member/subaggregate access, and
+      pointer-based whole-object copies. The aggregate gate passes i686/AMD64
+      at `-O0`/`-O2` with zero fallback, AMD64 object execution, and GCC C17
+      comparison; `test-verified-volatile` and `test-ir` pass.
 - [ ] Extend typed-SSA aggregate atomics to wider or under-aligned objects,
       non-trivial C++ objects, and the full `std::atomic<T>` API/concurrency
-      model. Volatile aggregate TLS setup and nested volatile member aggregates
-      remain separate typed-SSA gaps.
+      model. Volatile aggregate TLS setup remains a separate typed-SSA gap.
 - [x] Update the LICM local-load regression for the valid case where a
       hoisted load is folded to its dominating stored value and the dead load
       instruction is removed. `test-ir` passes both x86 and x64 IR/MIR and

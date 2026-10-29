@@ -52,6 +52,27 @@ typedef struct {
     unsigned int low : 3;
     unsigned int high : 5;
 } bitfield_aggregate;
+typedef struct {
+    volatile unsigned int status;
+    unsigned int payload;
+} nested_volatile_member_aggregate;
+typedef struct {
+    nested_volatile_member_aggregate nested;
+    unsigned int sequence;
+} nested_volatile_container;
+typedef union {
+    volatile unsigned int status;
+    unsigned int raw;
+} nested_volatile_member_union;
+typedef struct {
+    volatile unsigned int control : 3;
+    unsigned int count : 5;
+    unsigned int payload;
+} nested_volatile_bitfield_aggregate;
+typedef struct {
+    volatile signed int value : 4;
+    unsigned int sibling : 4;
+} nested_volatile_signed_bitfield_aggregate;
 
 __attribute__((noinline)) int local_volatile_aggregate_atomic(void)
 {
@@ -145,6 +166,29 @@ __attribute__((noinline)) int local_volatile_aggregate_copy(void)
     word_union_aggregate* plain_union_pointer = &plain_union;
     volatile bitfield_aggregate volatile_bits;
     bitfield_aggregate plain_bits = {5u, 19u};
+    nested_volatile_container nested_source = {
+        {0x10293847u, 0x50617283u}, 0x94a5b6c7u
+    };
+    nested_volatile_container nested_destination = {{0u, 0u}, 0u};
+    nested_volatile_member_union nested_union_source = {
+        .status = 0x13579bdfu
+    };
+    nested_volatile_member_union nested_union_destination = {.raw = 0u};
+    nested_volatile_bitfield_aggregate nested_bits_source = {
+        5u, 19u, 0x2468ace1u
+    };
+    nested_volatile_bitfield_aggregate nested_bits_destination = {
+        0u, 0u, 0u
+    };
+    nested_volatile_signed_bitfield_aggregate signed_bits_source = {
+        -3, 10u
+    };
+    nested_volatile_signed_bitfield_aggregate signed_bits_destination = {
+        0, 0u
+    };
+    nested_volatile_container* nested_source_pointer = &nested_source;
+    nested_volatile_container* nested_destination_pointer =
+        &nested_destination;
     volatile unsigned char* volatile_bits_bytes =
         (volatile unsigned char*)&volatile_bits;
     unsigned char* plain_bits_bytes = (unsigned char*)&plain_bits;
@@ -181,6 +225,44 @@ __attribute__((noinline)) int local_volatile_aggregate_copy(void)
             return 1;
         }
     }
+    nested_destination = nested_source;
+    if (nested_destination.nested.status != 0x10293847u ||
+        nested_destination.nested.payload != 0x50617283u ||
+        nested_destination.sequence != 0x94a5b6c7u) return 1;
+    nested_source.nested.status = 0xa7c5e319u;
+    nested_destination.nested = nested_source.nested;
+    if (nested_destination.nested.status != 0xa7c5e319u ||
+        nested_destination.nested.payload != 0x50617283u) return 1;
+    nested_source.nested.status = 0x13579bdfu;
+    *nested_destination_pointer = *nested_source_pointer;
+    if (nested_destination.nested.status != 0x13579bdfu ||
+        nested_destination.nested.payload != 0x50617283u ||
+        nested_destination.sequence != 0x94a5b6c7u) return 1;
+    nested_union_destination = nested_union_source;
+    if (nested_union_destination.status != 0x13579bdfu) return 1;
+    nested_bits_destination = nested_bits_source;
+    if (nested_bits_destination.control != 5u ||
+        nested_bits_destination.count != 19u ||
+        nested_bits_destination.payload != 0x2468ace1u) return 1;
+    nested_bits_destination.control = 3u;
+    if (nested_bits_destination.control != 3u ||
+        nested_bits_destination.count != 19u) return 1;
+    nested_bits_destination.count = 7u;
+    nested_bits_destination.count += 2u;
+    if (nested_bits_destination.control != 3u ||
+        nested_bits_destination.count != 9u) return 1;
+    if (nested_bits_destination.control++ != 3u ||
+        nested_bits_destination.control != 4u ||
+        nested_bits_destination.count != 9u) return 1;
+    signed_bits_destination = signed_bits_source;
+    if (signed_bits_source.value != -3 ||
+        signed_bits_source.sibling != 10u ||
+        signed_bits_destination.value != -3 ||
+        signed_bits_destination.sibling != 10u) return 1;
+    signed_bits_destination.value = -1;
+    signed_bits_destination.value += 3;
+    if (signed_bits_destination.value != 2 ||
+        signed_bits_destination.sibling != 10u) return 1;
     return volatile_structure.value == plain_structure.value &&
         volatile_union.value == plain_union.value ? 0 : 1;
 }
@@ -189,21 +271,57 @@ __attribute__((noinline)) int static_volatile_aggregate_copy(void)
 {
     static volatile word_aggregate initialized_structure = {0x10293847u};
     static volatile word_union_aggregate zero_initialized_union;
+    static nested_volatile_container initialized_nested = {
+        {0x13579bdfu, 0x2468ace1u}, 0x10293847u
+    };
+    static nested_volatile_container zero_nested;
+    static nested_volatile_member_union initialized_nested_union = {
+        .status = 0x50617283u
+    };
+    static nested_volatile_member_union zero_nested_union;
     word_aggregate structure_source = {0x50617283u};
     word_union_aggregate union_source = {0x94a5b6c7u};
+    nested_volatile_container nested_source = {
+        {0xa7c5e319u, 0x13579bdfu}, 0x2468ace1u
+    };
+    nested_volatile_member_union nested_union_source = {
+        .status = 0x94a5b6c7u
+    };
 
     if (initialized_structure.value != 0x10293847u ||
-        zero_initialized_union.value != 0u) return 1;
+        zero_initialized_union.value != 0u ||
+        initialized_nested.nested.status != 0x13579bdfu ||
+        initialized_nested.nested.payload != 0x2468ace1u ||
+        initialized_nested.sequence != 0x10293847u ||
+        zero_nested.nested.status != 0u ||
+        initialized_nested_union.status != 0x50617283u ||
+        zero_nested_union.status != 0u) return 1;
     initialized_structure = structure_source;
     zero_initialized_union = union_source;
+    initialized_nested = nested_source;
+    zero_nested = nested_source;
+    initialized_nested_union = nested_union_source;
+    zero_nested_union = nested_union_source;
     if (initialized_structure.value != structure_source.value ||
-        zero_initialized_union.value != union_source.value) return 1;
+        zero_initialized_union.value != union_source.value ||
+        initialized_nested.nested.status != nested_source.nested.status ||
+        initialized_nested.nested.payload != nested_source.nested.payload ||
+        initialized_nested.sequence != nested_source.sequence ||
+        zero_nested.nested.status != nested_source.nested.status ||
+        zero_nested.nested.payload != nested_source.nested.payload ||
+        zero_nested.sequence != nested_source.sequence ||
+        initialized_nested_union.status != nested_union_source.status ||
+        zero_nested_union.status != nested_union_source.status) return 1;
     structure_source.value = 0xa7c5e319u;
     union_source.value = 0x13579bdfu;
     initialized_structure = structure_source;
     zero_initialized_union = union_source;
     return initialized_structure.value == structure_source.value &&
-        zero_initialized_union.value == union_source.value ? 0 : 1;
+        zero_initialized_union.value == union_source.value &&
+        initialized_nested.nested.status == nested_source.nested.status &&
+        zero_nested.sequence == nested_source.sequence &&
+        initialized_nested_union.status == nested_union_source.status &&
+        zero_nested_union.status == nested_union_source.status ? 0 : 1;
 }
 
 int main(void)
