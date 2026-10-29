@@ -95,6 +95,7 @@ int main(int argc, char** argv)
     unary_i64_function gnu_register_r9;
     unary_i64_function gnu_register_r10;
     memory_input_function memory_input_x64;
+    memory_input_function memory_input_r11_clobber_x64;
     memory_output_function memory_output_x64;
     memory_unary_function memory_read_write_x64;
     unary_function memory_direct_output_x64;
@@ -186,6 +187,8 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(gnu_register_r10, object, mapping,
                   "asm_gnu_register_variable_r10");
     LOAD_FUNCTION(memory_input_x64, object, mapping, "asm_x64_memory_input");
+    LOAD_FUNCTION(memory_input_r11_clobber_x64, object, mapping,
+                  "asm_x64_memory_input_clobber_r11");
     LOAD_FUNCTION(memory_output_x64, object, mapping, "asm_x64_memory_output");
     LOAD_FUNCTION(memory_read_write_x64, object, mapping,
                   "asm_x64_memory_read_write");
@@ -234,6 +237,7 @@ int main(int argc, char** argv)
         int destination = 0;
         int copied = 211;
         assert(memory_input_x64(&source) == source);
+        assert(memory_input_r11_clobber_x64(&source) == source);
         assert(memory_output_x64(&destination, 163) == 163 &&
                destination == 163);
         assert(memory_read_write_x64(&destination) == 164 &&

@@ -276,6 +276,9 @@ int main(int argc, char** argv)
     static const uint8_t x64_memory_input[] = {
         0x45u, 0x8bu, 0x13u
     };
+    static const uint8_t x64_memory_input_avoids_clobber[] = {
+        0x45u, 0x8bu, 0x11u
+    };
     static const uint8_t x64_memory_output[] = {
         0x45u, 0x89u, 0x13u
     };
@@ -419,6 +422,10 @@ int main(int argc, char** argv)
                    x64_gs_segment_load, sizeof(x64_gs_segment_load));
     verify_pattern(argv[2], ARCH_X64, "asm_x64_memory_input",
                    x64_memory_input, sizeof(x64_memory_input));
+    verify_pattern(argv[2], ARCH_X64,
+                   "asm_x64_memory_input_clobber_r11",
+                   x64_memory_input_avoids_clobber,
+                   sizeof(x64_memory_input_avoids_clobber));
     verify_pattern(argv[2], ARCH_X64, "asm_x64_memory_output",
                    x64_memory_output, sizeof(x64_memory_output));
     verify_pattern(argv[3], ARCH_X64, "asm_cpp_x64_memory_input",

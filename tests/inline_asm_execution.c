@@ -399,6 +399,16 @@ int asm_x64_memory_input(const int* source)
     return result;
 }
 
+int asm_x64_memory_input_clobber_r11(const int* source)
+{
+    int result;
+    __asm__ __volatile__("movl %1, %k0"
+                         : "=r"(result)
+                         : "m"(*source)
+                         : "r11");
+    return result;
+}
+
 int asm_x64_memory_output(int* destination, int value)
 {
     __asm__ __volatile__("movl %k1, %0"
