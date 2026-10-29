@@ -20608,6 +20608,15 @@ static bool cxx_type_contains_unresolved_template_component(Type* type,
     return false;
 }
 
+static void* cxx_allocate_zeroed_array(size_t element_size, size_t count);
+static void* cxx_grow_zeroed_array(void* previous, size_t element_size,
+                                   size_t previous_count,
+                                   size_t new_count);
+static bool cxx_grow_dependent_class_argument_state(
+    size_t required_count, size_t* capacity, Type*** arguments,
+    int64_t** values, bool** value_present, Expr*** value_expressions,
+    bool** pack_expansions);
+
 static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                       Type** arguments, int argument_count,
                                       const int64_t* value_args,
@@ -21084,14 +21093,27 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         Type* nested_owner_type = NULL;
         CxxClass* nested_owner_class = NULL;
         CxxTemplate* nested_class_template = type->cxx_template;
-        Type* nested_arguments[32] = { NULL };
-        int64_t nested_values[32] = { 0 };
-        bool nested_value_present[32] = { false };
-        Expr* nested_value_expressions[32] = { NULL };
-        bool nested_pack_expansions[32] = { false };
+        size_t nested_capacity = type->cxx_template_arg_count > 0
+            ? (size_t)type->cxx_template_arg_count : 1u;
+        Type** nested_arguments = cxx_allocate_zeroed_array(
+            sizeof(*nested_arguments), nested_capacity);
+        int64_t* nested_values = cxx_allocate_zeroed_array(
+            sizeof(*nested_values), nested_capacity);
+        bool* nested_value_present = cxx_allocate_zeroed_array(
+            sizeof(*nested_value_present), nested_capacity);
+        Expr** nested_value_expressions = cxx_allocate_zeroed_array(
+            sizeof(*nested_value_expressions), nested_capacity);
+        bool* nested_pack_expansions = cxx_allocate_zeroed_array(
+            sizeof(*nested_pack_expansions), nested_capacity);
         int pack_index;
         int nested_count = 0;
         bool still_dependent = false;
+        if (!nested_arguments || !nested_values || !nested_value_present ||
+            !nested_value_expressions || !nested_pack_expansions) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "dependent class template argument state is too large");
+            return NULL;
+        }
         if (type->cxx_dependent_class_template_owner) {
             CxxNestedClassTemplate* nested_entry;
             CxxClass* access_context;
@@ -21137,14 +21159,18 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             }
         }
         pack_index = cxx_class_pack_index(nested_class_template);
-        if (type->cxx_template_arg_count >
-            (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
-            rcc_error((SourceLoc){"<template>", 0, 0},
-                      "dependent class template argument limit exceeded");
-            return NULL;
-        }
         for (int nested_index = 0;
              nested_index < type->cxx_template_arg_count; ++nested_index) {
+            if (nested_count == INT_MAX ||
+                !cxx_grow_dependent_class_argument_state(
+                    (size_t)nested_count + 1u, &nested_capacity,
+                    &nested_arguments, &nested_values,
+                    &nested_value_present, &nested_value_expressions,
+                    &nested_pack_expansions)) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "dependent class template argument state is too large");
+                return NULL;
+            }
             int parameter_index = pack_index >= 0 &&
                     nested_index >= pack_index
                 ? pack_index : nested_index;
@@ -21281,14 +21307,6 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 }
                 if (local_expansion_count < 0 &&
                     (has_local_pack_source || !expands_enclosing_pack)) {
-                    if (nested_count >=
-                        (int)(sizeof(nested_arguments) /
-                              sizeof(nested_arguments[0]))) {
-                        rcc_error((SourceLoc){"<template>", 0, 0},
-                                  "dependent class template argument limit "
-                                  "exceeded");
-                        return NULL;
-                    }
                     nested_arguments[nested_count] = substitute_template_type(
                         tmpl, pattern_argument, arguments, argument_count,
                         value_args, value_present);
@@ -21368,18 +21386,26 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                      pack_value < expansion_count; ++pack_value) {
                     int pending_pack_index = has_local_pack_source
                         ? local_expansion_offset + pack_value : pack_value;
-                    Type* expanded_arguments[32] = { NULL };
-                    int64_t expanded_values[32] = { 0 };
-                    bool expanded_value_present[32] = { false };
-                    if (nested_count >=
-                        (int)(sizeof(nested_arguments) /
-                              sizeof(nested_arguments[0])) ||
-                        argument_count >
-                            (int)(sizeof(expanded_arguments) /
-                                  sizeof(expanded_arguments[0]))) {
+                    size_t expanded_capacity = argument_count > 0
+                        ? (size_t)argument_count : 1u;
+                    Type** expanded_arguments = cxx_allocate_zeroed_array(
+                        sizeof(*expanded_arguments), expanded_capacity);
+                    int64_t* expanded_values = cxx_allocate_zeroed_array(
+                        sizeof(*expanded_values), expanded_capacity);
+                    bool* expanded_value_present =
+                        cxx_allocate_zeroed_array(
+                            sizeof(*expanded_value_present),
+                            expanded_capacity);
+                    if (nested_count == INT_MAX ||
+                        !cxx_grow_dependent_class_argument_state(
+                            (size_t)nested_count + 1u, &nested_capacity,
+                            &nested_arguments, &nested_values,
+                            &nested_value_present, &nested_value_expressions,
+                            &nested_pack_expansions) ||
+                        !expanded_arguments || !expanded_values ||
+                        !expanded_value_present) {
                         rcc_error((SourceLoc){"<template>", 0, 0},
-                                  "expanded class template argument limit "
-                                  "exceeded");
+                                  "expanded class template argument state is too large");
                         return NULL;
                     }
                     if (arguments && argument_count > 0) {
@@ -21517,13 +21543,6 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 }
                 continue;
             }
-            if (nested_count >=
-                (int)(sizeof(nested_arguments) /
-                      sizeof(nested_arguments[0]))) {
-                rcc_error((SourceLoc){"<template>", 0, 0},
-                          "dependent class template argument limit exceeded");
-                return NULL;
-            }
             if (parameter && parameter->kind == TPARAM_NONTYPE) {
                 Expr* value_expression = type->cxx_template_value_args
                     ? type->cxx_template_value_args[nested_index] : NULL;
@@ -21647,12 +21666,24 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         const TemplateParam* template_parameter =
             cxx_template_template_parameter_at(
                 tmpl, type->cxx_template_param_index);
-        Type* nested_arguments[32] = { NULL };
-        int64_t nested_values[32] = { 0 };
-        bool nested_value_present[32] = { false };
-        Expr* nested_value_expressions[32] = { NULL };
+        size_t nested_capacity = type->cxx_template_arg_count > 0
+            ? (size_t)type->cxx_template_arg_count : 1u;
+        Type** nested_arguments = cxx_allocate_zeroed_array(
+            sizeof(*nested_arguments), nested_capacity);
+        int64_t* nested_values = cxx_allocate_zeroed_array(
+            sizeof(*nested_values), nested_capacity);
+        bool* nested_value_present = cxx_allocate_zeroed_array(
+            sizeof(*nested_value_present), nested_capacity);
+        Expr** nested_value_expressions = cxx_allocate_zeroed_array(
+            sizeof(*nested_value_expressions), nested_capacity);
         bool still_dependent = false;
         Type* instantiated;
+        if (!nested_arguments || !nested_values || !nested_value_present ||
+            !nested_value_expressions) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "template-template argument state is too large");
+            return NULL;
+        }
         if (type->cxx_template_param_index >= argument_count || !arguments)
             return type;
         template_argument = arguments[type->cxx_template_param_index];
@@ -21679,13 +21710,6 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                       "template-template argument at parameter index %d "
                       "does not match its enclosing signature",
                       type->cxx_template_param_index);
-            return NULL;
-        }
-        if (type->cxx_template_arg_count >
-            (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
-            rcc_error((SourceLoc){"<template>", 0, 0},
-                      "template-template argument list exceeds the supported "
-                      "limit");
             return NULL;
         }
         for (int nested_index = 0;
@@ -27479,25 +27503,141 @@ Type* rcc_parser_cxx_instantiate_dependent_class_template(
         argument_count, loc);
 }
 
+static void* cxx_allocate_zeroed_array(size_t element_size, size_t count) {
+    void* allocation;
+    if (element_size == 0u || count == 0u ||
+        count > SIZE_MAX / element_size) {
+        return NULL;
+    }
+    allocation = ast_arena_alloc(element_size * count);
+    memset(allocation, 0, element_size * count);
+    return allocation;
+}
+
+static void* cxx_grow_zeroed_array(void* previous, size_t element_size,
+                                   size_t previous_count,
+                                   size_t new_count) {
+    void* allocation = cxx_allocate_zeroed_array(element_size, new_count);
+    size_t copy_count = previous_count < new_count
+        ? previous_count : new_count;
+    if (allocation && previous && copy_count > 0u) {
+        memcpy(allocation, previous, element_size * copy_count);
+    }
+    return allocation;
+}
+
+static bool cxx_grow_dependent_class_argument_state(
+    size_t required_count, size_t* capacity, Type*** arguments,
+    int64_t** values, bool** value_present, Expr*** value_expressions,
+    bool** pack_expansions) {
+    size_t new_capacity;
+    Type** grown_arguments;
+    int64_t* grown_values;
+    bool* grown_value_present;
+    Expr** grown_value_expressions;
+    bool* grown_pack_expansions;
+    if (!capacity || !arguments || !values || !value_present ||
+        !value_expressions || !pack_expansions) {
+        return false;
+    }
+    if (required_count <= *capacity) return true;
+    new_capacity = *capacity > 0u ? *capacity : 1u;
+    while (new_capacity < required_count) {
+        if (new_capacity > SIZE_MAX / 2u) {
+            new_capacity = required_count;
+            break;
+        }
+        new_capacity *= 2u;
+    }
+    grown_arguments = cxx_grow_zeroed_array(
+        *arguments, sizeof(**arguments), *capacity, new_capacity);
+    grown_values = cxx_grow_zeroed_array(
+        *values, sizeof(**values), *capacity, new_capacity);
+    grown_value_present = cxx_grow_zeroed_array(
+        *value_present, sizeof(**value_present), *capacity, new_capacity);
+    grown_value_expressions = cxx_grow_zeroed_array(
+        *value_expressions, sizeof(**value_expressions), *capacity,
+        new_capacity);
+    grown_pack_expansions = cxx_grow_zeroed_array(
+        *pack_expansions, sizeof(**pack_expansions), *capacity, new_capacity);
+    if (!grown_arguments || !grown_values || !grown_value_present ||
+        !grown_value_expressions || !grown_pack_expansions) {
+        return false;
+    }
+    *arguments = grown_arguments;
+    *values = grown_values;
+    *value_present = grown_value_present;
+    *value_expressions = grown_value_expressions;
+    *pack_expansions = grown_pack_expansions;
+    *capacity = new_capacity;
+    return true;
+}
+
 static Type* parse_class_template_specialization_with_owner_type(
     CxxTemplate* tmpl, CxxClass* owner_class, Type* owner_type,
     SourceLoc loc) {
-    Type* arguments[32] = { NULL };
-    int64_t values[32] = { 0 };
-    bool value_present[32] = { false };
-    bool pack_expansions[32] = { false };
-    Expr* value_expressions[32] = { NULL };
+    size_t argument_capacity = tmpl->param_count > 0
+        ? (size_t)tmpl->param_count : 1u;
+    Type** arguments = cxx_allocate_zeroed_array(
+        sizeof(*arguments), argument_capacity);
+    int64_t* values = cxx_allocate_zeroed_array(
+        sizeof(*values), argument_capacity);
+    bool* value_present = cxx_allocate_zeroed_array(
+        sizeof(*value_present), argument_capacity);
+    bool* pack_expansions = cxx_allocate_zeroed_array(
+        sizeof(*pack_expansions), argument_capacity);
+    Expr** value_expressions = cxx_allocate_zeroed_array(
+        sizeof(*value_expressions), argument_capacity);
     int argument_count = 0;
     int pack_index = cxx_class_pack_index(tmpl);
     bool has_pack_expansion = false;
     bool invalid_template_argument = false;
+    if (!arguments || !values || !value_present || !pack_expansions ||
+        !value_expressions) {
+        rcc_error(loc, "class template argument storage is too large");
+        return type_int;
+    }
     expect(TOK_LT, "<");
     if (!check(TOK_GT)) {
         do {
-            if (argument_count == (int)(sizeof(arguments) /
-                                        sizeof(arguments[0]))) {
-                rcc_error(loc, "class template argument limit exceeded");
-                break;
+            if ((size_t)argument_count == argument_capacity) {
+                size_t new_capacity = argument_capacity <=
+                        (size_t)INT_MAX / 2u
+                    ? argument_capacity * 2u
+                    : (size_t)INT_MAX;
+                if (new_capacity <= argument_capacity) {
+                    rcc_error(loc,
+                              "class template argument count exceeds compiler capacity");
+                    return type_int;
+                }
+                Type** grown_arguments = cxx_grow_zeroed_array(
+                    arguments, sizeof(*arguments), argument_capacity,
+                    new_capacity);
+                int64_t* grown_values = cxx_grow_zeroed_array(
+                    values, sizeof(*values), argument_capacity,
+                    new_capacity);
+                bool* grown_value_present = cxx_grow_zeroed_array(
+                    value_present, sizeof(*value_present), argument_capacity,
+                    new_capacity);
+                bool* grown_pack_expansions = cxx_grow_zeroed_array(
+                    pack_expansions, sizeof(*pack_expansions),
+                    argument_capacity, new_capacity);
+                Expr** grown_value_expressions = cxx_grow_zeroed_array(
+                    value_expressions, sizeof(*value_expressions),
+                    argument_capacity, new_capacity);
+                if (!grown_arguments || !grown_values ||
+                    !grown_value_present || !grown_pack_expansions ||
+                    !grown_value_expressions) {
+                    rcc_error(loc,
+                              "class template argument storage is too large");
+                    return type_int;
+                }
+                arguments = grown_arguments;
+                values = grown_values;
+                value_present = grown_value_present;
+                pack_expansions = grown_pack_expansions;
+                value_expressions = grown_value_expressions;
+                argument_capacity = new_capacity;
             }
             if (argument_count >= tmpl->param_count && pack_index < 0) {
                 rcc_error(peek()->loc, "too many class template arguments");
@@ -27849,12 +27989,39 @@ static Type* parse_class_template_specialization_with_owner_type(
             tmpl, arguments, values, value_present, loc, true, NULL)) {
         return type_int;
     }
+    size_t candidate_capacity = argument_capacity;
+    if (candidate_capacity < (size_t)tmpl->param_count) {
+        candidate_capacity = (size_t)tmpl->param_count;
+    }
+    for (int index = 0; index < tmpl->specialization_count; ++index) {
+        CxxTemplate* specialization = tmpl->specializations[index];
+        if (!specialization) continue;
+        if (specialization->param_count > 0 &&
+            candidate_capacity < (size_t)specialization->param_count) {
+            candidate_capacity = (size_t)specialization->param_count;
+        }
+        if (specialization->specialization_arg_count > 0 &&
+            candidate_capacity <
+                (size_t)specialization->specialization_arg_count) {
+            candidate_capacity =
+                (size_t)specialization->specialization_arg_count;
+        }
+    }
     CxxTemplate* selected = NULL;
-    Type* selected_arguments[32] = { NULL };
-    int64_t selected_values[32] = { 0 };
-    bool selected_value_present[32] = { false };
-    int selected_ranks[32] = { 0 };
+    Type** selected_arguments = cxx_allocate_zeroed_array(
+        sizeof(*selected_arguments), candidate_capacity);
+    int64_t* selected_values = cxx_allocate_zeroed_array(
+        sizeof(*selected_values), candidate_capacity);
+    bool* selected_value_present = cxx_allocate_zeroed_array(
+        sizeof(*selected_value_present), candidate_capacity);
+    int* selected_ranks = cxx_allocate_zeroed_array(
+        sizeof(*selected_ranks), candidate_capacity);
     int selected_argument_count = 0;
+    if (!selected_arguments || !selected_values ||
+        !selected_value_present || !selected_ranks) {
+        rcc_error(loc, "class template deduction state is too large");
+        return NULL;
+    }
     for (int index = 0; index < tmpl->specialization_count; ++index) {
         CxxTemplate* specialization = tmpl->specializations[index];
         int owner_matches;
@@ -27866,7 +28033,24 @@ static Type* parse_class_template_specialization_with_owner_type(
             specialization->enclosing_class != owner_class) {
             continue;
         }
-        int pattern_indices[32] = { 0 };
+        int* pattern_indices = cxx_allocate_zeroed_array(
+            sizeof(*pattern_indices), candidate_capacity);
+        Type** specialization_arguments = cxx_allocate_zeroed_array(
+            sizeof(*specialization_arguments), candidate_capacity);
+        int64_t* specialization_values = cxx_allocate_zeroed_array(
+            sizeof(*specialization_values), candidate_capacity);
+        bool* specialization_value_present = cxx_allocate_zeroed_array(
+            sizeof(*specialization_value_present), candidate_capacity);
+        bool* specialization_template_present = cxx_allocate_zeroed_array(
+            sizeof(*specialization_template_present), candidate_capacity);
+        int* specialization_ranks = cxx_allocate_zeroed_array(
+            sizeof(*specialization_ranks), candidate_capacity);
+        if (!pattern_indices || !specialization_arguments ||
+            !specialization_values || !specialization_value_present ||
+            !specialization_template_present || !specialization_ranks) {
+            rcc_error(loc, "class template deduction state is too large");
+            return NULL;
+        }
         int expansion_index = -1;
         int expansion_count = 0;
         int candidate_pack_count = 0;
@@ -27875,11 +28059,6 @@ static Type* parse_class_template_specialization_with_owner_type(
             cxx_class_specialization_pattern_layout(
                 specialization, argument_count, pattern_indices,
                 &expansion_index, &expansion_count);
-        Type* specialization_arguments[32] = { NULL };
-        int64_t specialization_values[32] = { 0 };
-        bool specialization_value_present[32] = { false };
-        bool specialization_template_present[32] = { false };
-        int specialization_ranks[32] = { 0 };
         int specificity = specialization && specialization->param_count == 0
             ? 100000 : 0;
         if (matches && specialization->param_count > 0) {
@@ -27942,10 +28121,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                 specialization_ranks[argument_index] =
                     specialization->param_count == 0 ? 100000 :
                     cxx_class_specialization_type_rank(template_pattern);
-                matches = specialization->param_count <=
-                        (int)(sizeof(specialization_arguments) /
-                              sizeof(specialization_arguments[0])) &&
-                    cxx_partial_owner_template_argument_matches(
+                matches = cxx_partial_owner_template_argument_matches(
                         tmpl, parameter_index, specialization, template_pattern,
                         arguments[argument_index], specialization_arguments,
                         specialization_template_present, &specificity);
@@ -27955,9 +28131,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                     cxx_class_specialization_type_equal(
                         specialization->specialization_args[pattern_index],
                         arguments[argument_index]);
-            } else if (specialization->param_count <=
-                       (int)(sizeof(specialization_arguments) /
-                             sizeof(specialization_arguments[0]))) {
+            } else {
                 Type* pattern = specialization->specialization_args
                     ? specialization->specialization_args[pattern_index]
                     : NULL;
@@ -28014,8 +28188,6 @@ static Type* parse_class_template_specialization_with_owner_type(
                         arguments[argument_index], specialization_values,
                         specialization_value_present, false, &specificity);
                 }
-            } else {
-                matches = false;
             }
         }
         for (int argument_index = 0;
@@ -28152,13 +28324,14 @@ static Type* parse_class_template_specialization_with_owner_type(
                 if (!selected || current_dominates) {
                     selected = specialization;
                     memcpy(selected_ranks, specialization_ranks,
-                           sizeof(selected_ranks));
+                           sizeof(*selected_ranks) * candidate_capacity);
                     memcpy(selected_arguments, specialization_arguments,
-                           sizeof(selected_arguments));
+                           sizeof(*selected_arguments) * candidate_capacity);
                     memcpy(selected_values, specialization_values,
-                           sizeof(selected_values));
+                           sizeof(*selected_values) * candidate_capacity);
                     memcpy(selected_value_present, specialization_value_present,
-                           sizeof(selected_value_present));
+                           sizeof(*selected_value_present) *
+                               candidate_capacity);
                     selected_argument_count = candidate_argument_count;
                 } else if (!selected_dominates) {
                     rcc_error(loc,
@@ -28174,8 +28347,17 @@ static Type* parse_class_template_specialization_with_owner_type(
         cxx_warn_deprecated_class_template(selected, loc);
         if (selected->param_count == 0) {
             CxxClass* specialized = selected->templated_class;
-            int64_t identity_values[32] = { 0 };
-            bool identity_present[32] = { false };
+            size_t identity_capacity = argument_count > 0
+                ? (size_t)argument_count : 1u;
+            int64_t* identity_values = cxx_allocate_zeroed_array(
+                sizeof(*identity_values), identity_capacity);
+            bool* identity_present = cxx_allocate_zeroed_array(
+                sizeof(*identity_present), identity_capacity);
+            if (!identity_values || !identity_present) {
+                rcc_error(loc,
+                          "class template specialization identity is too large");
+                return NULL;
+            }
             for (int argument_index = 0; argument_index < argument_count;
                  ++argument_index) {
                 int parameter_index = pack_index >= 0 &&
@@ -29981,6 +30163,28 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
         NULL, NULL, NULL);
 }
 
+static bool cxx_allocate_template_deduction_state(
+    int parameter_count, Type*** arguments, int64_t** values,
+    bool** value_present) {
+    size_t count;
+    if (parameter_count < 0 || !arguments || !values || !value_present) {
+        return false;
+    }
+    count = parameter_count > 0 ? (size_t)parameter_count : 1u;
+    if (count > SIZE_MAX / sizeof(**arguments) ||
+        count > SIZE_MAX / sizeof(**values) ||
+        count > SIZE_MAX / sizeof(**value_present)) {
+        return false;
+    }
+    *arguments = ast_arena_alloc(sizeof(**arguments) * count);
+    *values = ast_arena_alloc(sizeof(**values) * count);
+    *value_present = ast_arena_alloc(sizeof(**value_present) * count);
+    memset(*arguments, 0, sizeof(**arguments) * count);
+    memset(*values, 0, sizeof(**values) * count);
+    memset(*value_present, 0, sizeof(**value_present) * count);
+    return true;
+}
+
 static TypeMethod* cxx_find_materialized_conversion_template(
     Type* aggregate, Decl* declaration) {
     for (TypeMethod* method = aggregate ? aggregate->methods : NULL;
@@ -29994,9 +30198,9 @@ static TypeMethod* cxx_materialize_conversion_template(
     Type* aggregate, CxxMethod* method, Type* target) {
     CxxTemplate* tmpl = method ? method->member_template : NULL;
     Type* deduction_target = target;
-    Type* arguments[32] = { NULL };
-    int64_t values[32] = { 0 };
-    bool value_present[32] = { false };
+    Type** arguments = NULL;
+    int64_t* values = NULL;
+    bool* value_present = NULL;
     bool unsupported_constraint = false;
     int specificity = 0;
     Decl* instance;
@@ -30008,7 +30212,9 @@ static TypeMethod* cxx_materialize_conversion_template(
     TypeMethod** tail;
 
     if (!aggregate || !method || !tmpl || !tmpl->func_def || !target ||
-        tmpl->param_count < 0 || tmpl->param_count > 32) {
+        tmpl->param_count < 0 ||
+        !cxx_allocate_template_deduction_state(
+            tmpl->param_count, &arguments, &values, &value_present)) {
         return NULL;
     }
     if (deduction_target->is_reference) {
@@ -30226,9 +30432,9 @@ static Type* deduce_class_template_from_aggregate(
     CxxClass* definition = tmpl ? tmpl->templated_class : NULL;
     TypeParam* field;
     ExprList* argument;
-    Type* template_arguments[32] = { NULL };
-    int64_t template_values[32] = { 0 };
-    bool template_value_present[32] = { false };
+    Type** template_arguments = NULL;
+    int64_t* template_values = NULL;
+    bool* template_value_present = NULL;
     int field_count = 0;
     int argument_count = cxx_constructor_argument_count(arguments);
     int specificity = 0;
@@ -30246,7 +30452,7 @@ static Type* deduce_class_template_from_aggregate(
             field->cxx_access != ACCESS_PUBLIC || !field->type) {
             return NULL;
         }
-        if (field_count == 32) {
+        if (field_count == INT_MAX) {
             rcc_error(loc, "aggregate class template has too many fields");
             return NULL;
         }
@@ -30259,10 +30465,12 @@ static Type* deduce_class_template_from_aggregate(
                   "braced initialization before C++20");
         return NULL;
     }
-    if (tmpl->param_count <= 0 || tmpl->param_count > 32) {
+    if (tmpl->param_count <= 0 ||
+        !cxx_allocate_template_deduction_state(
+            tmpl->param_count, &template_arguments, &template_values,
+            &template_value_present)) {
         rcc_error(loc,
-                  "aggregate class template argument deduction exceeds "
-                  "compiler limits");
+                  "aggregate class template argument deduction cannot allocate template argument state");
         return NULL;
     }
     if (argument_count != field_count) {
@@ -30362,9 +30570,9 @@ static Type* deduce_class_template_from_guides(
     for (CxxDeductionGuide* guide = tmpl ? tmpl->deduction_guides : NULL;
          guide; guide = guide->next) {
         CxxTemplate* owner = guide->template_owner;
-        Type* template_arguments[32] = { NULL };
-        int64_t template_values[32] = { 0 };
-        bool template_value_present[32] = { false };
+        Type** template_arguments = NULL;
+        int64_t* template_values = NULL;
+        bool* template_value_present = NULL;
         DeclList* parameter = guide->parameters;
         ExprList* argument = arguments;
         int specificity = 0;
@@ -30372,8 +30580,15 @@ static Type* deduce_class_template_from_guides(
         int worst = 0;
         bool viable = true;
 
-        if (owner && (owner->param_count <= 0 || owner->param_count > 32)) {
-            rcc_error(loc, "deduction guide template parameter limit exceeded");
+        if (owner && owner->param_count <= 0) {
+            rcc_error(loc, "deduction guide has no template parameters");
+            continue;
+        }
+        if (owner && !cxx_allocate_template_deduction_state(
+                         owner->param_count, &template_arguments,
+                         &template_values, &template_value_present)) {
+            rcc_error(loc,
+                      "deduction guide cannot allocate template argument state");
             continue;
         }
         if (owner) {
@@ -30495,9 +30710,9 @@ static Type* deduce_class_template_from_guides(
  * and packs remain explicit diagnostics instead of guessed types. */
 static Type* deduce_class_template_from_constructor(
     CxxTemplate* tmpl, ExprList* arguments, SourceLoc loc, bool brace_form) {
-    Type* best_arguments[32] = { NULL };
-    int64_t best_values[32] = { 0 };
-    bool best_value_present[32] = { false };
+    Type** best_arguments = NULL;
+    int64_t* best_values = NULL;
+    bool* best_value_present = NULL;
     int best_total = INT_MAX;
     int best_worst = INT_MAX;
     int best_specificity = -1;
@@ -30506,10 +30721,11 @@ static Type* deduce_class_template_from_constructor(
     bool aggregate_candidate = false;
 
     if (!tmpl || tmpl->kind != TMPL_CLASS || tmpl->param_count <= 0 ||
-        tmpl->param_count > (int)(sizeof(best_arguments) /
-                                  sizeof(best_arguments[0]))) {
+        !cxx_allocate_template_deduction_state(
+            tmpl->param_count, &best_arguments, &best_values,
+            &best_value_present)) {
         rcc_error(loc, "class template argument deduction exceeds compiler "
-                       "limits");
+                       "capacity");
         return NULL;
     }
     if (tmpl->deduction_guides) {
@@ -30533,9 +30749,9 @@ static Type* deduce_class_template_from_constructor(
 
     for (CxxConstructorInfo* constructor = tmpl->templated_class->constructors;
          constructor; constructor = constructor->next) {
-        Type* candidate_arguments[32] = { NULL };
-        int64_t candidate_values[32] = { 0 };
-        bool candidate_value_present[32] = { false };
+        Type** candidate_arguments = NULL;
+        int64_t* candidate_values = NULL;
+        bool* candidate_value_present = NULL;
         TypeParam* parameter = constructor->parameters;
         DeclList* declaration = constructor->method && constructor->method->decl
             ? constructor->method->decl->func_params : NULL;
@@ -30544,6 +30760,14 @@ static Type* deduce_class_template_from_constructor(
         int total = 0;
         int worst = 0;
         bool viable = true;
+
+        if (!cxx_allocate_template_deduction_state(
+                tmpl->param_count, &candidate_arguments, &candidate_values,
+                &candidate_value_present)) {
+            rcc_error(loc,
+                      "constructor deduction cannot allocate template argument state");
+            return NULL;
+        }
 
         if (constructor->access != ACCESS_PUBLIC || constructor->is_deleted ||
             constructor->is_defaulted ||
@@ -30615,10 +30839,11 @@ static Type* deduce_class_template_from_constructor(
             (total == best_total && worst == best_worst &&
              specificity > best_specificity)) {
             memcpy(best_arguments, candidate_arguments,
-                   sizeof(best_arguments));
-            memcpy(best_values, candidate_values, sizeof(best_values));
+                   sizeof(*best_arguments) * (size_t)tmpl->param_count);
+            memcpy(best_values, candidate_values,
+                   sizeof(*best_values) * (size_t)tmpl->param_count);
             memcpy(best_value_present, candidate_value_present,
-                   sizeof(best_value_present));
+                   sizeof(*best_value_present) * (size_t)tmpl->param_count);
             best_total = total;
             best_worst = worst;
             best_specificity = specificity;
