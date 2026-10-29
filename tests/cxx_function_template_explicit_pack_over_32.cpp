@@ -51,9 +51,19 @@ template<int Value>
 struct ExplicitAndDeducedValuePackTag {};
 
 template<int... Values>
-int explicit_then_deduced_value_pack(ExplicitAndDeducedValuePackTag<Values>...) {
+int explicit_then_deduced_value_pack(
+    ExplicitAndDeducedValuePackTag<Values>...) {
     return static_cast<int>(sizeof...(Values)) * 100 +
            (0 + ... + Values);
+}
+
+template<int... Values, int Tail>
+int explicit_value_pack_with_deduced_suffix(
+    ExplicitAndDeducedValuePackTag<Values>...,
+    ExplicitAndDeducedValuePackTag<Tail> tail) {
+    (void)tail;
+    return static_cast<int>(sizeof...(Values)) * 100 +
+           (0 + ... + Values) * 10 + Tail;
 }
 
 int main() {
@@ -72,7 +82,11 @@ int main() {
                    explicit_then_deduced_value_pack<1, 2>(
                        ExplicitAndDeducedValuePackTag<1>{},
                        ExplicitAndDeducedValuePackTag<2>{},
-                       ExplicitAndDeducedValuePackTag<3>{}) == 306
+                       ExplicitAndDeducedValuePackTag<3>{}) == 306 &&
+                   explicit_value_pack_with_deduced_suffix<1, 2>(
+                          ExplicitAndDeducedValuePackTag<1>{},
+                          ExplicitAndDeducedValuePackTag<2>{},
+                          ExplicitAndDeducedValuePackTag<3>{}) == 233
                ? 0
                : 1;
 }
