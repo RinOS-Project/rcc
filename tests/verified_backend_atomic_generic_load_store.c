@@ -115,6 +115,18 @@ __attribute__((noinline)) int local_volatile_union_atomic(void)
         object.value == desired.value ? 0 : 1;
 }
 
+__attribute__((noinline)) int local_volatile_aggregate_initialized(void)
+{
+    unsigned int seed = 0x10293847u;
+    volatile word_aggregate structure = {seed};
+    volatile word_union_aggregate union_object = {
+        .value = seed + 1u
+    };
+
+    return structure.value == seed && union_object.value == seed + 1u
+        ? 0 : 1;
+}
+
 int main(void)
 {
     int pointees[2] = {0, 0};
@@ -170,6 +182,7 @@ int main(void)
         word_aggregate_atomic_suite() == 0 &&
         local_volatile_aggregate_atomic() == 0 &&
         local_volatile_union_atomic() == 0 &&
+        local_volatile_aggregate_initialized() == 0 &&
 #if defined(__x86_64__)
         wide_aggregate_atomic_suite() == 0 &&
 #endif

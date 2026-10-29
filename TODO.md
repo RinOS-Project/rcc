@@ -12062,10 +12062,14 @@ remains a separate open item.
       when accesses are member-wise; this includes the generic aggregate
       atomic builtins. The aggregate fixture verifies both targets at `-O0`/
       `-O2` and executes AMD64 objects.
+- [x] Lower initialized automatic volatile C struct/union locals by building
+      the initializer in temporary storage and performing volatile byte
+      stores into the declared object. The generic aggregate fixture checks
+      runtime values for initialized struct and designated-union cases.
 - [ ] Extend typed-SSA aggregate atomics to wider or under-aligned objects,
       non-trivial C++ objects, and the full `std::atomic<T>` API/concurrency
-      model. Volatile aggregate initialization and whole-object copies remain
-      separate typed-SSA gaps.
+      model. Volatile whole-object assignment/copy remains a separate
+      typed-SSA gap.
 - [x] Update the LICM local-load regression for the valid case where a
       hoisted load is folded to its dominating stored value and the dead load
       instruction is removed. `test-ir` passes both x86 and x64 IR/MIR and

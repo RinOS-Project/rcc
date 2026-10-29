@@ -24055,8 +24055,8 @@ static bool lower_volatile_local_aggregate_supported(
     if (!declaration || declaration->kind != DECL_VAR ||
         declaration->var_is_global || declaration->var_is_static_local ||
         declaration->var_is_thread_local || declaration->var_is_vla ||
-        declaration->var_init || declaration->var_cleanup ||
-        declaration->var_cleanups || !type || !type->is_volatile ||
+        declaration->var_cleanup || declaration->var_cleanups || !type ||
+        !type->is_volatile ||
         type->is_atomic || type->is_reference || type->cxx_class ||
         type->cleanup_function || type->cleanup_field ||
         (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
@@ -24065,6 +24065,59 @@ static bool lower_volatile_local_aggregate_supported(
     unqualified_type = *type;
     unqualified_type.is_volatile = false;
     return lower_storage_type_supported_internal(&unqualified_type, 0u);
+}
+
+static bool lower_initialize_volatile_local_aggregate(
+    RccIrLowerContext* context, RccIrValue destination,
+    const Type* type, const Expr* initializer) {
+    Type unqualified_type;
+    RccIrInstruction* temporary;
+    RccIrLowerValue source_base;
+    RccIrLowerValue destination_base;
+    if (!context || destination == RCC_IR_VALUE_NONE || !type ||
+        !initializer ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        type->size <= 0 || type->align <= 0) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    unqualified_type = *type;
+    unqualified_type.is_volatile = false;
+    temporary = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!temporary) return false;
+    rcc_ir_set_immediate(temporary, (uint64_t)type->size);
+    temporary->alignment = (uint32_t)type->align;
+    if (type->kind == TYPE_STRUCT) {
+        if (!lower_initialize_struct_storage(
+                context, temporary->result, &unqualified_type,
+                initializer)) return false;
+    } else if (!lower_initialize_union_storage(
+                   context, temporary->result, &unqualified_type,
+                   initializer)) {
+        return false;
+    }
+    source_base = lower_value(
+        temporary->result, rcc_ir_type_pointer(0u), true);
+    destination_base = lower_value(
+        destination, rcc_ir_type_pointer(0u), true);
+    for (int offset = 0; offset < type->size; ++offset) {
+        RccIrLowerValue source_address = lower_byte_offset_address(
+            context, source_base, (uint64_t)offset);
+        RccIrLowerValue destination_address = lower_byte_offset_address(
+            context, destination_base, (uint64_t)offset);
+        RccIrLowerValue value = lower_load_address(
+            context, source_address, type_uchar);
+        destination_address.volatile_access = true;
+        if (!source_address.valid || !destination_address.valid ||
+            !value.valid ||
+            !lower_store_address(context, destination_address, value)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    return true;
 }
 
 static RccIrLowerVlaBoundCapture* lower_find_vla_bound_capture(
@@ -24701,6 +24754,11 @@ static bool lower_declaration(RccIrLowerContext* context,
     if (!lower_add_local(context, declaration, allocation->result, type)) {
         context->unsupported = true;
         return false;
+    }
+    if (is_supported_volatile_local_aggregate && declaration->var_init) {
+        return lower_initialize_volatile_local_aggregate(
+            context, allocation->result, declaration->type,
+            declaration->var_init);
     }
     if (is_array && declaration->var_init) {
         if (!lower_array_initializer(
