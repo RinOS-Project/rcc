@@ -12066,10 +12066,14 @@ remains a separate open item.
       the initializer in temporary storage and performing volatile byte
       stores into the declared object. The generic aggregate fixture checks
       runtime values for initialized struct and designated-union cases.
+- [x] Copy whole automatic volatile C struct/union objects between volatile
+      and ordinary locals using volatile object-representation accesses; the
+      fixture checks both directions for struct, union, and bit-field object
+      representations.
 - [ ] Extend typed-SSA aggregate atomics to wider or under-aligned objects,
       non-trivial C++ objects, and the full `std::atomic<T>` API/concurrency
-      model. Volatile whole-object assignment/copy remains a separate
-      typed-SSA gap.
+      model. Volatile aggregate copies through pointers, non-automatic
+      objects, or nested volatile members remain separate typed-SSA gaps.
 - [x] Update the LICM local-load regression for the valid case where a
       hoisted load is folded to its dominating stored value and the dead load
       instruction is removed. `test-ir` passes both x86 and x64 IR/MIR and

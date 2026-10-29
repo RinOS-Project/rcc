@@ -322,6 +322,21 @@ static bool lower_copy_union_storage(
 static bool lower_copy_abi_aggregate_storage(
     RccIrLowerContext* context, RccIrValue destination,
     RccIrValue source, const Type* type);
+static bool lower_copy_volatile_aggregate_storage(
+    RccIrLowerContext* context, RccIrLowerValue destination,
+    RccIrLowerValue source, const Type* type,
+    bool destination_volatile, bool source_volatile);
+static bool lower_volatile_local_aggregate_supported(
+    const Decl* declaration);
+
+static const Decl* lower_direct_aggregate_declaration(
+    const Expr* expression) {
+    while (expression && expression->kind == EXPR_CAST) {
+        expression = expression->cast_expr;
+    }
+    return expression && expression->kind == EXPR_IDENT
+        ? expression->ident_decl : NULL;
+}
 static bool lower_zero_union_storage(
     RccIrLowerContext* context, RccIrValue base,
     const Type* type);
@@ -7616,10 +7631,26 @@ static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
     }
     if (lhs_type && lower_abi_is_aggregate(lhs_type)) {
         RccIrLowerValue destination;
+        Type* rhs_type = expression->binary_rhs
+            ? expression->binary_rhs->type : NULL;
+        const Decl* destination_declaration =
+            lower_direct_aggregate_declaration(expression->binary_lhs);
+        const Decl* source_declaration =
+            lower_direct_aggregate_declaration(expression->binary_rhs);
+        bool destination_volatile_local =
+            lower_volatile_local_aggregate_supported(
+                destination_declaration);
+        bool source_volatile_local =
+            lower_volatile_local_aggregate_supported(source_declaration);
+        bool destination_volatile = destination_volatile_local
+            ? destination_declaration->type->is_volatile
+            : lhs_type->is_volatile;
+        bool source_volatile = source_volatile_local
+            ? source_declaration->type->is_volatile
+            : (rhs_type && rhs_type->is_volatile);
         if (!expression->binary_rhs || !expression->binary_rhs->type ||
-            !lower_abi_is_aggregate(expression->binary_rhs->type) ||
-            !type_is_compatible(lhs_type,
-                                expression->binary_rhs->type)) {
+            !lower_abi_is_aggregate(rhs_type) ||
+            !type_is_compatible(lhs_type, rhs_type)) {
             context->unsupported = true;
             return lower_invalid_value();
         }
@@ -7629,6 +7660,14 @@ static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
         if (!destination.valid || !value.valid ||
             value.type.kind != RCC_IR_TYPE_POINTER) {
             return lower_invalid_value();
+        }
+        if (destination_volatile_local || source_volatile_local) {
+            if (!lower_copy_volatile_aggregate_storage(
+                    context, destination, value, lhs_type,
+                    destination_volatile, source_volatile)) {
+                return lower_invalid_value();
+            }
+            return destination;
         }
         if (!lower_copy_abi_aggregate_storage(
                 context, destination.value, value.value,
@@ -19582,6 +19621,58 @@ static bool lower_copy_abi_aggregate_storage(
     }
     if (context) context->unsupported = true;
     return false;
+}
+
+static bool lower_copy_volatile_aggregate_storage(
+    RccIrLowerContext* context, RccIrLowerValue destination,
+    RccIrLowerValue source, const Type* type,
+    bool destination_volatile, bool source_volatile) {
+    Type unqualified_type;
+    if (!context || !destination.valid || !source.valid ||
+        destination.type.kind != RCC_IR_TYPE_POINTER ||
+        source.type.kind != RCC_IR_TYPE_POINTER || !type ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    unqualified_type = *type;
+    unqualified_type.is_volatile = false;
+    if (!lower_storage_type_supported_internal(&unqualified_type, 0u)) {
+        context->unsupported = true;
+        return false;
+    }
+    destination_volatile = destination_volatile || type->is_volatile;
+    source_volatile = source_volatile || type->is_volatile;
+    for (int offset = 0; offset < type->size;) {
+        int remaining = type->size - offset;
+        const Type* chunk_type = type_uchar;
+        if (g_opts.target_arch == ARCH_X64 && type->align >= 8 &&
+            remaining >= 8 && offset % 8 == 0) {
+            chunk_type = type_ulong;
+        } else if (type->align >= 4 && remaining >= 4 &&
+                   offset % 4 == 0) {
+            chunk_type = type_uint;
+        } else if (type->align >= 2 && remaining >= 2 &&
+                   offset % 2 == 0) {
+            chunk_type = type_ushort;
+        }
+        RccIrLowerValue destination_address = lower_byte_offset_address(
+            context, destination, (uint64_t)offset);
+        RccIrLowerValue source_address = lower_byte_offset_address(
+            context, source, (uint64_t)offset);
+        RccIrLowerValue value;
+        destination_address.volatile_access = destination_volatile;
+        source_address.volatile_access = source_volatile;
+        value = lower_load_address(
+            context, source_address, (Type*)chunk_type);
+        if (!destination_address.valid || !source_address.valid ||
+            !value.valid ||
+            !lower_store_address(context, destination_address, value)) {
+            return false;
+        }
+        offset += chunk_type->size;
+    }
+    return true;
 }
 
 static const TypeField* lower_struct_field(

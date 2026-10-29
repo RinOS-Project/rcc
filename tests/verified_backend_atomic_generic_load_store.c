@@ -48,6 +48,10 @@ DEFINE_AGGREGATE_ATOMIC_SUITE(wide, unsigned long long,
 #endif
 
 typedef union { unsigned int value; } word_union_aggregate;
+typedef struct {
+    unsigned int low : 3;
+    unsigned int high : 5;
+} bitfield_aggregate;
 
 __attribute__((noinline)) int local_volatile_aggregate_atomic(void)
 {
@@ -127,6 +131,42 @@ __attribute__((noinline)) int local_volatile_aggregate_initialized(void)
         ? 0 : 1;
 }
 
+__attribute__((noinline)) int local_volatile_aggregate_copy(void)
+{
+    volatile word_aggregate volatile_structure = {0u};
+    word_aggregate plain_structure = {0x10293847u};
+    volatile word_union_aggregate volatile_union = {.value = 0u};
+    word_union_aggregate plain_union = {.value = 0x50617283u};
+    volatile bitfield_aggregate volatile_bits;
+    bitfield_aggregate plain_bits = {5u, 19u};
+    volatile unsigned char* volatile_bits_bytes =
+        (volatile unsigned char*)&volatile_bits;
+    unsigned char* plain_bits_bytes = (unsigned char*)&plain_bits;
+
+    volatile_structure = plain_structure;
+    plain_union = volatile_union;
+    if (volatile_structure.value != plain_structure.value ||
+        plain_union.value != 0u) return 1;
+    plain_structure.value = 0x94a5b6c7u;
+    plain_union.value = 0xa7c5e319u;
+    volatile_structure = plain_structure;
+    volatile_union = plain_union;
+    volatile_bits = plain_bits;
+    for (unsigned int offset = 0u; offset < sizeof(plain_bits); ++offset) {
+        if (volatile_bits_bytes[offset] != plain_bits_bytes[offset]) {
+            return 1;
+        }
+    }
+    plain_bits = volatile_bits;
+    for (unsigned int offset = 0u; offset < sizeof(plain_bits); ++offset) {
+        if (plain_bits_bytes[offset] != volatile_bits_bytes[offset]) {
+            return 1;
+        }
+    }
+    return volatile_structure.value == plain_structure.value &&
+        volatile_union.value == plain_union.value ? 0 : 1;
+}
+
 int main(void)
 {
     int pointees[2] = {0, 0};
@@ -183,6 +223,7 @@ int main(void)
         local_volatile_aggregate_atomic() == 0 &&
         local_volatile_union_atomic() == 0 &&
         local_volatile_aggregate_initialized() == 0 &&
+        local_volatile_aggregate_copy() == 0 &&
 #if defined(__x86_64__)
         wide_aggregate_atomic_suite() == 0 &&
 #endif
