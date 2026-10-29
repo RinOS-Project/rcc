@@ -224,6 +224,18 @@ $(1)
 endef
 endif
 
+ifeq ($(OS),Windows_NT)
+define RUN_COMPILER_BUILTINS_X64
+$(CC) -nostdlib -no-pie '-Wl,--entry,main' -o $(1) $(2)
+$(1)
+endef
+else
+define RUN_COMPILER_BUILTINS_X64
+$(CC) -no-pie -o $(1) $(2)
+$(1)
+endef
+endif
+
 CXX_HOST_EXCEPTION_RUNTIME = $(TEST_OUT)/cxx-host-exception-runtime-x64.o
 CXX_STATIC_REFERENCE_GUARD_RUNTIME = \
 	$(TEST_OUT)/cxx-static-reference-guard-runtime-x64.o
@@ -17193,6 +17205,22 @@ test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/long_double_abi.c >$(TEST_OUT)/long-double/verified-cxx-x64.log
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/long-double/verified-cxx-x64.log
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/long-double/runtime-c-x86.s \
+		tests/long_double_runtime.c
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/long-double/runtime-c-x64.s \
+		tests/long_double_runtime.c
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/long-double/runtime-cxx-x86.s \
+		tests/long_double_runtime.c
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/long-double/runtime-cxx-x64.s \
+		tests/long_double_runtime.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double/runtime-c-x86.exe,$(TEST_OUT)/long-double/runtime-c-x86.s)
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/long-double/runtime-c-x64$(EXE_SUFFIX),$(TEST_OUT)/long-double/runtime-c-x64.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double/runtime-cxx-x86.exe,$(TEST_OUT)/long-double/runtime-cxx-x86.s)
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/long-double/runtime-cxx-x64$(EXE_SUFFIX),$(TEST_OUT)/long-double/runtime-cxx-x64.s)
 
 test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/language-boundaries)

@@ -6125,8 +6125,13 @@ remains a separate open item.
       both AMD64 programs through the complete WSL nested-class gate.
 - [x] Rebuild the MinGW compiler, assemble its i686 output, and execute both
       RCC-generated and GCC-generated AMD64 programs natively on Windows.
-- [ ] Non-finite values, `long double`, extended precision/rounding cases,
-      and broader floating constant-expression conversions remain open.
+- [ ] Non-finite values, extended precision/rounding cases beyond the current
+      RinOS binary64 `long double` ABI, and broader floating constant-expression
+      conversions remain open.
+  - [x] Execute long-double call/return, variadic retrieval, and binary64
+        tie-to-even constant rounding with the legacy backend for C17 and C++20
+        on i686 and AMD64. Verified-backend C17/C++20 objects compile for both
+        targets; verified runtime execution remains open.
 
 ## RCC continuation (2026-10-16, non-final class-template-id pack expansions)
 
