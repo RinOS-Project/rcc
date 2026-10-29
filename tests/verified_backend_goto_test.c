@@ -3,6 +3,7 @@
 #include "objfile.h"
 
 #include <assert.h>
+#include <fenv.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,6 +24,9 @@ typedef int RINOS_ABI (*EntryFunction)(void);
 typedef long long RINOS_ABI (*WideLoopFunction)(unsigned int, long long);
 typedef long long RINOS_ABI (*WideRestartFunction)(
     unsigned int, unsigned int, unsigned int, long long);
+typedef float RINOS_ABI (*FloatUnaryFunction)(float);
+typedef double RINOS_ABI (*DoubleUnaryFunction)(double);
+typedef void RINOS_ABI (*DiscardDoubleFunction)(double);
 
 static int object_section_index(const ObjectFile* object,
                                 const ObjSection* wanted)
@@ -39,6 +43,7 @@ static int object_section_index(const ObjectFile* object,
 int main(int argc, char** argv)
 {
     int entry_only;
+    int rint_only;
     ObjectFile* object;
     ObjSection* text;
     ObjSection* rodata;
@@ -47,6 +52,10 @@ int main(int argc, char** argv)
     ObjSymbol* wide_loop_symbol = NULL;
     ObjSymbol* nested_wide_loop_symbol = NULL;
     ObjSymbol* nested_wide_restart_symbol = NULL;
+    ObjSymbol* rintf_symbol = NULL;
+    ObjSymbol* rint_symbol = NULL;
+    ObjSymbol* rintl_symbol = NULL;
+    ObjSymbol* rint_discard_symbol = NULL;
     size_t page_size;
     size_t mapping_size;
     size_t rodata_offset = 0u;
@@ -57,6 +66,10 @@ int main(int argc, char** argv)
     WideLoopFunction wide_loop;
     WideLoopFunction nested_wide_loop;
     WideRestartFunction nested_wide_restart;
+    FloatUnaryFunction rintf_function;
+    DoubleUnaryFunction rint_function;
+    DoubleUnaryFunction rintl_function;
+    DiscardDoubleFunction rint_discard_function;
 #ifdef _WIN32
     SYSTEM_INFO system_info;
     DWORD previous;
@@ -65,16 +78,31 @@ int main(int argc, char** argv)
 #endif
 
     entry_only = argc == 3 && strcmp(argv[1], "--entry") == 0;
-    assert(argc == 2 || entry_only);
-    object = objfile_read(entry_only ? argv[2] : argv[1]);
+    rint_only = argc == 3 && strcmp(argv[1], "--rint") == 0;
+    assert(argc == 2 || entry_only || rint_only);
+    object = objfile_read((entry_only || rint_only) ? argv[2] : argv[1]);
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     rodata = objfile_get_section(object, ".rodata");
     rodata_index = object_section_index(object, rodata);
-    entry_symbol = objfile_find_symbol(object, "main");
+    entry_symbol = rint_only ? NULL : objfile_find_symbol(object, "main");
     assert(text != NULL && text->data != NULL && text->size != 0u &&
-           entry_symbol != NULL && entry_symbol->section == 0);
-    if (!entry_only) {
+           (rint_only ||
+            (entry_symbol != NULL && entry_symbol->section == 0)));
+    if (rint_only) {
+        rintf_symbol = objfile_find_symbol(object, "verified_rintf");
+        rint_symbol = objfile_find_symbol(object, "verified_rint");
+        rintl_symbol = objfile_find_symbol(
+            object, "verified_rintl_as_double");
+        rint_discard_symbol = objfile_find_symbol(
+            object, "verified_rint_discard");
+        assert(rintf_symbol != NULL && rintf_symbol->section == 0 &&
+               rint_symbol != NULL && rint_symbol->section == 0 &&
+               rintl_symbol != NULL && rintl_symbol->section == 0 &&
+               rint_discard_symbol != NULL &&
+               rint_discard_symbol->section == 0);
+    }
+    if (!entry_only && !rint_only) {
         wide_loop_symbol = objfile_find_symbol(
             object, "verified_goto_wide_inside_loop");
         nested_wide_loop_symbol = objfile_find_symbol(
@@ -157,9 +185,11 @@ int main(int argc, char** argv)
 #else
     assert(mprotect(memory, mapping_size, PROT_READ | PROT_EXEC) == 0);
 #endif
-    entry_address = (uint8_t*)memory + entry_symbol->value;
-    memcpy(&entry, &entry_address, sizeof(entry));
-    assert(entry() == 0);
+    if (!rint_only) {
+        entry_address = (uint8_t*)memory + entry_symbol->value;
+        memcpy(&entry, &entry_address, sizeof(entry));
+        assert(entry() == 0);
+    }
     if (entry_only) {
 #ifdef _WIN32
         assert(VirtualFree(memory, 0, MEM_RELEASE));
@@ -168,6 +198,55 @@ int main(int argc, char** argv)
 #endif
         objfile_free(object);
         puts("RCC object entry execution passed");
+        return 0;
+    }
+    if (rint_only) {
+        static const int modes[] = {
+            FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO
+        };
+        static const float positive_f[] = {2.0f, 2.0f, 3.0f, 2.0f};
+        static const float negative_f[] = {-2.0f, -3.0f, -2.0f, -2.0f};
+        static const double positive[] = {2.0, 2.0, 3.0, 2.0};
+        static const double negative[] = {-2.0, -3.0, -2.0, -2.0};
+        int original_mode = fegetround();
+        assert(original_mode != -1);
+        entry_address = (uint8_t*)memory + rintf_symbol->value;
+        memcpy(&rintf_function, &entry_address, sizeof(rintf_function));
+        entry_address = (uint8_t*)memory + rint_symbol->value;
+        memcpy(&rint_function, &entry_address, sizeof(rint_function));
+        entry_address = (uint8_t*)memory + rintl_symbol->value;
+        memcpy(&rintl_function, &entry_address, sizeof(rintl_function));
+        entry_address = (uint8_t*)memory + rint_discard_symbol->value;
+        memcpy(&rint_discard_function, &entry_address,
+               sizeof(rint_discard_function));
+        for (size_t index = 0u;
+             index < sizeof(modes) / sizeof(modes[0]); ++index) {
+            assert(fesetround(modes[index]) == 0);
+            assert(rintf_function(2.5f) == positive_f[index]);
+            assert(rintf_function(-2.5f) == negative_f[index]);
+            assert(rint_function(2.5) == positive[index]);
+            assert(rint_function(-2.5) == negative[index]);
+            assert(rintl_function(2.5) == positive[index]);
+            assert(rintl_function(-2.5) == negative[index]);
+        }
+        assert(fesetround(FE_TONEAREST) == 0);
+        {
+            uint64_t bits;
+            double negative_zero = rint_function(-0.25);
+            memcpy(&bits, &negative_zero, sizeof(bits));
+            assert(bits == UINT64_C(0x8000000000000000));
+        }
+        assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+        rint_discard_function(1.25);
+        assert((fetestexcept(FE_INEXACT) & FE_INEXACT) != 0);
+        assert(fesetround(original_mode) == 0);
+#ifdef _WIN32
+        assert(VirtualFree(memory, 0, MEM_RELEASE));
+#else
+        assert(munmap(memory, mapping_size) == 0);
+#endif
+        objfile_free(object);
+        puts("Verified backend dynamic rint execution passed");
         return 0;
     }
     entry_address = (uint8_t*)memory + wide_loop_symbol->value;

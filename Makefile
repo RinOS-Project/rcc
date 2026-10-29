@@ -17661,6 +17661,61 @@ test-floating-math-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend:' \
 		$(TEST_OUT)/floating-math-builtins/cxx-verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/floating-math-builtins/cxx-verified-x64.log,0)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/floating-math-builtins/rint-verified-x64.ro \
+		tests/verified_backend_rint.c \
+		>$(TEST_OUT)/floating-math-builtins/rint-verified-x64.log 2>&1
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/floating-math-builtins/rint-verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/floating-math-builtins/rint-verified-x64.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/floating-math-builtins/run-verified-rint \
+		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c -lm
+	$(TEST_OUT)/floating-math-builtins/run-verified-rint --rint \
+		$(TEST_OUT)/floating-math-builtins/rint-verified-x64.ro
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/floating-math-builtins/rint-verified-x64-o2.ro \
+		tests/verified_backend_rint.c \
+		>$(TEST_OUT)/floating-math-builtins/rint-verified-x64-o2.log 2>&1
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/floating-math-builtins/rint-verified-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/floating-math-builtins/rint-verified-x64-o2.log,0)
+	$(TEST_OUT)/floating-math-builtins/run-verified-rint --rint \
+		$(TEST_OUT)/floating-math-builtins/rint-verified-x64-o2.ro
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/floating-math-builtins/rint-verified-x86.ro \
+		tests/verified_backend_rint.c \
+		>$(TEST_OUT)/floating-math-builtins/rint-verified-x86.log 2>&1
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/floating-math-builtins/rint-verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/floating-math-builtins/rint-verified-x86.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/floating-math-builtins/verified-i686-asm \
+		tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/floating-math-builtins/verified-i686-asm \
+		$(TEST_OUT)/floating-math-builtins/rint-verified-x86.ro \
+		$(TEST_OUT)/floating-math-builtins/rint-verified-x86.s
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/floating-math-builtins/rint-i686-harness.s \
+		tests/verified_backend_rint_i686_harness.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/floating-math-builtins/run-verified-rint-i686,$(TEST_OUT)/floating-math-builtins/rint-verified-x86.s $(TEST_OUT)/floating-math-builtins/rint-i686-harness.s)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/floating-math-builtins/rint-verified-x86-o2.ro \
+		tests/verified_backend_rint.c \
+		>$(TEST_OUT)/floating-math-builtins/rint-verified-x86-o2.log 2>&1
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/floating-math-builtins/rint-verified-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/floating-math-builtins/rint-verified-x86-o2.log,0)
+	$(TEST_OUT)/floating-math-builtins/verified-i686-asm \
+		$(TEST_OUT)/floating-math-builtins/rint-verified-x86-o2.ro \
+		$(TEST_OUT)/floating-math-builtins/rint-verified-x86-o2.s
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/floating-math-builtins/run-verified-rint-i686-o2,$(TEST_OUT)/floating-math-builtins/rint-verified-x86-o2.s $(TEST_OUT)/floating-math-builtins/rint-i686-harness.s)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/floating-math-builtins/invalid.ro tests/invalid_float_math_builtins.c,$(TEST_OUT)/floating-math-builtins/invalid.log)
 	$(GREP) -F -q '__builtin_isnan argument must have floating type' \
 		$(TEST_OUT)/floating-math-builtins/invalid.log

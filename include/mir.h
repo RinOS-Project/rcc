@@ -47,6 +47,7 @@ typedef enum {
     RCC_MIR_FCMP,
     RCC_MIR_SITOFP,
     RCC_MIR_FPTOSI,
+    RCC_MIR_FRINT,
     RCC_MIR_FPTRUNC,
     RCC_MIR_ICMP,
     RCC_MIR_TRUNC,

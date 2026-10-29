@@ -317,6 +317,7 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_FCMP: return RCC_X86_COMPARE_SET;
         case RCC_MIR_SITOFP: return RCC_X86_SITOFP;
         case RCC_MIR_FPTOSI: return RCC_X86_FPTOSI;
+        case RCC_MIR_FRINT: return RCC_X86_FRINT;
         case RCC_MIR_FPTRUNC: return RCC_X86_FLOAT_TRUNCATE;
         case RCC_MIR_ICMP: return RCC_X86_COMPARE_SET;
         case RCC_MIR_TRUNC: return RCC_X86_TRUNCATE;
@@ -606,7 +607,7 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
                 instruction->target_count == 0u;
         case RCC_X86_TRUNCATE: case RCC_X86_ZERO_EXTEND:
         case RCC_X86_SIGN_EXTEND: case RCC_X86_FLOAT_EXTEND:
-        case RCC_X86_SITOFP: case RCC_X86_FPTOSI:
+        case RCC_X86_SITOFP: case RCC_X86_FPTOSI: case RCC_X86_FRINT:
         case RCC_X86_FLOAT_TRUNCATE:
         case RCC_X86_REINTERPRET:
         case RCC_X86_LOAD:
@@ -810,6 +811,7 @@ bool rcc_x86_verify_function(
                  instruction->opcode != RCC_X86_COPY &&
                  instruction->opcode != RCC_X86_FLOAT_EXTEND &&
                  instruction->opcode != RCC_X86_SITOFP &&
+                 instruction->opcode != RCC_X86_FRINT &&
                  instruction->opcode != RCC_X86_FLOAT_TRUNCATE &&
                  instruction->opcode != RCC_X86_REINTERPRET &&
                  instruction->opcode != RCC_X86_SELECT &&
@@ -874,6 +876,15 @@ bool rcc_x86_verify_function(
                       RCC_MIR_TYPE_FLOAT ||
                   (instruction->operand_types[0].bit_width != 32u &&
                    instruction->operand_types[0].bit_width != 64u))) ||
+                (instruction->opcode == RCC_X86_FRINT &&
+                 ((function->target != RCC_X86_TARGET_I686 &&
+                   function->target != RCC_X86_TARGET_X86_64) ||
+                  instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
+                  (instruction->type.bit_width != 32u &&
+                   instruction->type.bit_width != 64u) ||
+                  instruction->operand_count != 1u ||
+                  !rcc_mir_type_equal(
+                      instruction->operand_types[0], instruction->type))) ||
                 (instruction->opcode == RCC_X86_FLOAT_TRUNCATE &&
                  ((function->target != RCC_X86_TARGET_I686 &&
                    function->target != RCC_X86_TARGET_X86_64) ||
@@ -939,6 +950,7 @@ bool rcc_x86_verify_function(
                      instruction->opcode != RCC_X86_COPY &&
                      instruction->opcode != RCC_X86_FLOAT_EXTEND &&
                      instruction->opcode != RCC_X86_FPTOSI &&
+                     instruction->opcode != RCC_X86_FRINT &&
                      instruction->opcode != RCC_X86_FLOAT_TRUNCATE &&
                      instruction->opcode != RCC_X86_REINTERPRET &&
                      instruction->opcode != RCC_X86_SELECT &&

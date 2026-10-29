@@ -433,6 +433,7 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_FCMP: return "fcmp";
         case RCC_IR_SITOFP: return "sitofp";
         case RCC_IR_FPTOSI: return "fptosi";
+        case RCC_IR_FRINT: return "frint";
         case RCC_IR_FPTRUNC: return "fptrunc";
         case RCC_IR_ICMP: return "icmp";
         case RCC_IR_TRUNC: return "trunc";
@@ -650,6 +651,19 @@ static bool ir_verify_instruction_types(
                 return ir_verify_error(
                     verifier,
                     "fptosi requires a scalar float and signed 32/64-bit integer");
+            }
+            return true;
+        case RCC_IR_FRINT:
+            if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
+                !ir_value_type(verifier, instruction->operands[0], &first)) {
+                return false;
+            }
+            if (first.kind != RCC_IR_TYPE_FLOAT ||
+                (first.bit_width != 32u && first.bit_width != 64u) ||
+                !rcc_ir_type_equal(first, instruction->type)) {
+                return ir_verify_error(
+                    verifier,
+                    "frint requires a matching scalar float operand and result");
             }
             return true;
         case RCC_IR_FPTRUNC:

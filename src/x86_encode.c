@@ -400,6 +400,28 @@ static bool x86_emit_scalar_xmm_memory(
     return x86_emit_memory_modrm(encoder, xmm_register, displacement);
 }
 
+static bool x86_emit_scalar_xmm_stack_memory(
+    RccX86Encoder* encoder, unsigned xmm_register, uint16_t size,
+    bool to_xmm) {
+    uint8_t prefix = size == 4u ? 0xf3u : 0xf2u;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        xmm_register >= 16u || (size != 4u && size != 8u) ||
+        !x86_emit_u8(encoder, prefix) ||
+        !x86_emit_rex(
+            encoder, false, (RccX86HardwareGpr)xmm_register,
+            RCC_X86_GPR_SP, false) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, to_xmm ? 0x10u : 0x11u) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            2u, xmm_register, RCC_X86_GPR_SP)) ||
+        !x86_emit_u8(encoder, 0x24u) ||
+        !x86_emit_u32(encoder, 0u)) {
+        return x86_encode_error(
+            encoder, "x86 scalar XMM stack move is invalid");
+    }
+    return true;
+}
+
 static bool x86_emit_scalar_xmm_indirect(
     RccX86Encoder* encoder, unsigned xmm_register,
     RccX86HardwareGpr address, uint16_t size, bool to_xmm) {
@@ -466,7 +488,8 @@ static bool x86_emit_x87_memory(
     RccX86Value memory) {
     int32_t displacement;
     uint8_t opcode = width == 4u ? 0xd9u : 0xddu;
-    if (encoder->function->target != RCC_X86_TARGET_I686 ||
+    if ((encoder->function->target != RCC_X86_TARGET_I686 &&
+         encoder->function->target != RCC_X86_TARGET_X86_64) ||
         (width != 4u && width != 8u) || extension > 7u ||
         !x86_i686_memory_value(memory) ||
         !x86_value_displacement(encoder, memory, &displacement) ||
@@ -474,7 +497,7 @@ static bool x86_emit_x87_memory(
         !x86_emit_u8(encoder, x86_modrm(
             2u, extension, RCC_X86_GPR_BP))) {
         return x86_encode_error(
-            encoder, "i686 x87 memory operand is invalid");
+            encoder, "x87 memory operand is invalid");
     }
     return x86_emit_u32(encoder, (uint32_t)displacement);
 }
@@ -500,14 +523,15 @@ static bool x86_emit_x87_integer_memory(
 static bool x86_emit_x87_stack_memory(
     RccX86Encoder* encoder, uint8_t opcode, unsigned extension,
     uint32_t displacement) {
-    if (encoder->function->target != RCC_X86_TARGET_I686 ||
+    if ((encoder->function->target != RCC_X86_TARGET_I686 &&
+         encoder->function->target != RCC_X86_TARGET_X86_64) ||
         extension > 7u || displacement > INT32_MAX ||
         !x86_emit_u8(encoder, opcode) ||
         !x86_emit_u8(encoder, x86_modrm(
             2u, extension, RCC_X86_GPR_SP)) ||
         !x86_emit_u8(encoder, 0x24u)) {
         return x86_encode_error(
-            encoder, "i686 x87 stack memory operand is invalid");
+            encoder, "x87 stack memory operand is invalid");
     }
     return x86_emit_u32(encoder, displacement);
 }
@@ -3197,6 +3221,70 @@ static bool x86_emit_float_to_integer(
     return true;
 }
 
+static bool x86_emit_float_round_integral(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    RccX86Value source = instruction->operands[0];
+    uint16_t size = (uint16_t)(instruction->type.bit_width / 8u);
+    bool destination_register = destination.kind == RCC_X86_VALUE_FPR;
+    bool source_register = source.kind == RCC_X86_VALUE_FPR;
+
+    if (instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
+        (size != 4u && size != 8u) ||
+        instruction->operand_types[0].kind != RCC_MIR_TYPE_FLOAT ||
+        instruction->operand_types[0].bit_width !=
+            instruction->type.bit_width) {
+        return x86_encode_error(
+            encoder, "x86 floating integral-round operands are invalid");
+    }
+
+    if (encoder->function->target == RCC_X86_TARGET_I686) {
+        if (source_register || destination_register ||
+            !x86_i686_memory_value(source) ||
+            !x86_i686_memory_value(destination)) {
+            return x86_encode_error(
+                encoder, "i686 floating integral-round locations are invalid");
+        }
+        return x86_emit_x87_memory(encoder, size, 0u, source) &&
+            x86_emit_u8(encoder, 0xd9u) &&
+            x86_emit_u8(encoder, 0xfcu) && /* FRNDINT uses current x87 CW. */
+            x86_emit_x87_memory(encoder, size, 3u, destination);
+    }
+
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        (!source_register && !x86_i686_memory_value(source)) ||
+        (!destination_register &&
+         !x86_i686_memory_value(destination))) {
+        return x86_encode_error(
+            encoder, "x86-64 floating integral-round locations are invalid");
+    }
+
+    /* The x87 register stack is transient in this backend. Keep an 8-byte
+     * bridge below RSP for XMM operands/results; frame references use RBP and
+     * remain stable while this temporary is live. */
+    if (!x86_emit_stack_subtract(encoder, 8u)) return false;
+    if (source_register) {
+        if (!x86_emit_scalar_xmm_stack_memory(
+                encoder, source.fpr, size, false) ||
+            !x86_emit_x87_stack_memory(
+                encoder, size == 4u ? 0xd9u : 0xddu, 0u, 0u)) return false;
+    } else if (!x86_emit_x87_memory(encoder, size, 0u, source)) {
+        return false;
+    }
+    if (!x86_emit_u8(encoder, 0xd9u) ||
+        !x86_emit_u8(encoder, 0xfcu)) return false;
+    if (destination_register) {
+        if (!x86_emit_x87_stack_memory(
+                encoder, size == 4u ? 0xd9u : 0xddu, 3u, 0u) ||
+            !x86_emit_scalar_xmm_stack_memory(
+                encoder, destination.fpr, size, true)) return false;
+    } else if (!x86_emit_x87_memory(encoder, size, 3u, destination)) {
+        return false;
+    }
+    return x86_emit_stack_add(encoder, 8u);
+}
+
 static bool x86_emit_epilogue(RccX86Encoder* encoder,
                               uint16_t stack_pop) {
     const RccX86LegalFunction* function = encoder->function;
@@ -3327,6 +3415,8 @@ static bool x86_emit_instruction(
             return x86_emit_integer_to_float(encoder, instruction);
         case RCC_X86_FPTOSI:
             return x86_emit_float_to_integer(encoder, instruction);
+        case RCC_X86_FRINT:
+            return x86_emit_float_round_integral(encoder, instruction);
         case RCC_X86_STACK_ADDRESS:
             return x86_emit_stack_address(encoder, instruction);
         case RCC_X86_STACK_SAVE:

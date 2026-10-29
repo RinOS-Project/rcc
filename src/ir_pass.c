@@ -1652,6 +1652,7 @@ static bool ir_pass_cse_candidate(const RccIrInstruction* instruction) {
         case RCC_IR_ATOMIC_COMPARE_EXCHANGE:
         case RCC_IR_CALL:
         case RCC_IR_CAPTURE_RETURN_PAIR:
+        case RCC_IR_FRINT:
         case RCC_IR_BRANCH:
         case RCC_IR_COND_BRANCH:
         case RCC_IR_RETURN:
@@ -2178,6 +2179,7 @@ static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {
         case RCC_IR_ATOMIC_COMPARE_EXCHANGE:
         case RCC_IR_CALL:
         case RCC_IR_CAPTURE_RETURN_PAIR:
+        case RCC_IR_FRINT:
         case RCC_IR_BRANCH:
         case RCC_IR_COND_BRANCH:
         case RCC_IR_RETURN:
@@ -2588,6 +2590,7 @@ static bool ir_pass_licm_candidate(
     switch (instruction->opcode) {
         case RCC_IR_FPTRUNC:
         case RCC_IR_FPTOSI:
+        case RCC_IR_FRINT:
             /*
              * Narrowing float conversion can overflow, and floating-to-
              * integer conversion can be invalid for NaN or out-of-range

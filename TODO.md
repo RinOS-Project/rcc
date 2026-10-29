@@ -18,9 +18,13 @@
   `copysign`, and fixed rounding builtins through explicit low/high i32 values
   in typed IR. C17/C++20 verified-backend checks report zero fallback; the
   existing i686 legacy C/C++ runtime checks still pass.
-- [ ] Add typed-IR support for dynamic-rounding `rint` after the floating
-  environment operation is represented explicitly. The existing i686 legacy
-  output handles these calls correctly.
+- [x] Add typed-IR `frint` semantics that observe the active rounding
+  environment, with x87 `FRNDINT` lowering on i686 and x86-64. C17/C++20
+  verified builds report zero fallback on both targets. Execute verified
+  objects at O0 and O2 on i686 and x86-64 under all four rounding modes for
+  `rintf`, `rint`, and RinOS binary64 `rintl`; verify negative zero and
+  `FE_INEXACT` when the result is discarded. Legacy runtime coverage remains
+  on both targets.
 
 ## RCC continuation (2026-10-29, command-line include search order)
 

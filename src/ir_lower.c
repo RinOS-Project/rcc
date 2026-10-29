@@ -12883,14 +12883,9 @@ static bool lower_float_math_builtin_call(
         return true;
     }
     width = float_type.bit_width;
-    /* Keep dynamic-rounding rint on the legacy x87 path until typed IR has an
-     * explicit operation that observes the active floating-point environment.
-     * The other binary64 builtins use two i32 words on i686. */
-    if (g_opts.target_arch == ARCH_X86 && width == 64u) {
-        if (kind == 11) {
-            context->unsupported = true;
-            return true;
-        }
+    /* The i686 bitwise lowering uses two i32 words for binary64 operations;
+     * rint remains a typed float operation so its backend can observe x87 CW. */
+    if (g_opts.target_arch == ARCH_X86 && width == 64u && kind != 11) {
         *result = lower_i686_float64_math_builtin(
             context, kind, floating_expression, second_expression,
             expression->call_args);
@@ -12909,6 +12904,11 @@ static bool lower_float_math_builtin_call(
 
     input = lower_expression(context, (Expr*)floating_expression);
     if (!input.valid) return true;
+    if (kind == 11) {
+        *result = lower_float_builtin_op(
+            context, RCC_IR_FRINT, float_type, &input.value, 1u);
+        return true;
+    }
     raw = lower_float_builtin_bitcast(context, input, integer_type);
     if (!raw.valid) return true;
     zero = lower_float_builtin_constant(context, integer_type, 0u);
@@ -12997,14 +12997,6 @@ static bool lower_float_math_builtin_call(
             context, RCC_IR_OR, integer_type, magnitude, other_sign);
         *result = lower_float_builtin_bitcast(
             context, combined, float_type);
-        return true;
-    }
-
-    if (kind == 11) {
-        /* rint follows the dynamic floating-point environment. Its legacy
-         * x87 lowering is exact; keep it on that backend until the typed IR
-         * carries a rounding-mode-sensitive operation. */
-        context->unsupported = true;
         return true;
     }
 

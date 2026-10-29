@@ -64,6 +64,8 @@ typedef enum {
     RCC_IR_FCMP,
     RCC_IR_SITOFP,
     RCC_IR_FPTOSI,
+    /* Round to integral value using the active floating-point environment. */
+    RCC_IR_FRINT,
     RCC_IR_FPTRUNC,
     RCC_IR_ICMP,
     RCC_IR_TRUNC,

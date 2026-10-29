@@ -292,6 +292,13 @@ static bool mir_verify_instruction_type(
                 instruction->type.kind == RCC_MIR_TYPE_INTEGER &&
                 (instruction->type.bit_width == 32u ||
                  instruction->type.bit_width == 64u);
+        case RCC_MIR_FRINT:
+            return mir_shape(verifier, instruction, 1u, 0u) &&
+                instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
+                (instruction->type.bit_width == 32u ||
+                 instruction->type.bit_width == 64u) &&
+                mir_operand_type(verifier, instruction, 0u,
+                                 instruction->type);
         case RCC_MIR_FPTRUNC:
             return mir_shape(verifier, instruction, 1u, 0u) &&
                 mir_register_type(verifier, instruction->operands[0],

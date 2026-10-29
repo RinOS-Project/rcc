@@ -1544,7 +1544,7 @@ static bool x86_legal_selected_shape(
                 instruction->target_count == 0u;
         case RCC_X86_TRUNCATE: case RCC_X86_ZERO_EXTEND:
         case RCC_X86_SIGN_EXTEND: case RCC_X86_FLOAT_EXTEND:
-        case RCC_X86_SITOFP: case RCC_X86_FPTOSI:
+        case RCC_X86_SITOFP: case RCC_X86_FPTOSI: case RCC_X86_FRINT:
         case RCC_X86_FLOAT_TRUNCATE:
         case RCC_X86_REINTERPRET:
         case RCC_X86_LOAD:
