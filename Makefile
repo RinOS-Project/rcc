@@ -4253,6 +4253,10 @@ test-cxx-member-specifiers: $(RCXX_TARGET)
 
 test-cxx-function-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-templates)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-parameter-count)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-function-template-parameter-count,cxx_function_template_parameter_count.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only \
+		tests/cxx_function_template_parameter_count.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-templates/x86.ro \
 		tests/cxx_function_templates.cpp

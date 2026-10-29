@@ -34952,17 +34952,17 @@ bool rcc_parse_cxx_member_template_arguments(Expr* member) {
 
 typedef struct CxxFunctionTemplateMatch {
     CxxTemplate* tmpl;
-    Type* arguments[32];
+    Type** arguments;
     Type** pack_arguments;
     int64_t* pack_values;
     bool* pack_value_present;
     int pack_capacity;
-    int pack_offsets[32];
-    int pack_counts[32];
-    bool pack_seen[32];
+    int* pack_offsets;
+    int* pack_counts;
+    bool* pack_seen;
     int pack_count;
-    int64_t values[32];
-    bool value_present[32];
+    int64_t* values;
+    bool* value_present;
     int argument_count;
     int specificity;
     int fixed_function_parameter_count;
@@ -34976,6 +34976,37 @@ typedef struct CxxFunctionTemplateMatch {
     Decl* instance;
     Type* substitution_failure_type;
 } CxxFunctionTemplateMatch;
+
+static bool cxx_function_template_match_allocate_parameters(
+    CxxFunctionTemplateMatch* match, int parameter_count) {
+    size_t count;
+    if (!match || parameter_count < 0) return false;
+    count = parameter_count > 0 ? (size_t)parameter_count : 1u;
+    if (count > SIZE_MAX / sizeof(*match->arguments) ||
+        count > SIZE_MAX / sizeof(*match->pack_offsets) ||
+        count > SIZE_MAX / sizeof(*match->pack_counts) ||
+        count > SIZE_MAX / sizeof(*match->pack_seen) ||
+        count > SIZE_MAX / sizeof(*match->values) ||
+        count > SIZE_MAX / sizeof(*match->value_present)) {
+        return false;
+    }
+    match->arguments = ast_arena_alloc(sizeof(*match->arguments) * count);
+    match->pack_offsets =
+        ast_arena_alloc(sizeof(*match->pack_offsets) * count);
+    match->pack_counts =
+        ast_arena_alloc(sizeof(*match->pack_counts) * count);
+    match->pack_seen = ast_arena_alloc(sizeof(*match->pack_seen) * count);
+    match->values = ast_arena_alloc(sizeof(*match->values) * count);
+    match->value_present =
+        ast_arena_alloc(sizeof(*match->value_present) * count);
+    memset(match->arguments, 0, sizeof(*match->arguments) * count);
+    memset(match->pack_offsets, 0, sizeof(*match->pack_offsets) * count);
+    memset(match->pack_counts, 0, sizeof(*match->pack_counts) * count);
+    memset(match->pack_seen, 0, sizeof(*match->pack_seen) * count);
+    memset(match->values, 0, sizeof(*match->values) * count);
+    memset(match->value_present, 0, sizeof(*match->value_present) * count);
+    return true;
+}
 
 static CxxFunctionTemplateMatch* cxx_allocate_function_template_matches(
     int count, SourceLoc loc) {
@@ -36170,8 +36201,8 @@ static int cxx_function_template_array_extent_pattern_relation(
 typedef struct {
     const CxxTemplate* left_template;
     const CxxTemplate* right_template;
-    int left_to_right[32];
-    int right_to_left[32];
+    int* left_to_right;
+    int* right_to_left;
     bool left_repeats_parameter;
     bool right_repeats_parameter;
     bool left_has_fixed_value_constraint;
@@ -36428,7 +36459,6 @@ static int cxx_function_template_repeated_nontype_pattern_relation(
         left->tmpl->func_def->type->kind != TYPE_FUNC ||
         right->tmpl->func_def->type->kind != TYPE_FUNC ||
         left->tmpl->param_count < 0 || right->tmpl->param_count < 0 ||
-        left->tmpl->param_count > 32 || right->tmpl->param_count > 32 ||
         left->tmpl->func_def->type->variadic !=
             right->tmpl->func_def->type->variadic ||
         left->tmpl->func_def->type->has_prototype !=
@@ -36445,8 +36475,22 @@ static int cxx_function_template_repeated_nontype_pattern_relation(
     }
     pattern.left_template = left->tmpl;
     pattern.right_template = right->tmpl;
-    for (int index = 0; index < 32; ++index) {
+    size_t left_count = left->tmpl->param_count > 0
+        ? (size_t)left->tmpl->param_count : 1u;
+    size_t right_count = right->tmpl->param_count > 0
+        ? (size_t)right->tmpl->param_count : 1u;
+    if (left_count > SIZE_MAX / sizeof(*pattern.left_to_right) ||
+        right_count > SIZE_MAX / sizeof(*pattern.right_to_left)) {
+        return 0;
+    }
+    pattern.left_to_right = ast_arena_alloc(
+        sizeof(*pattern.left_to_right) * left_count);
+    pattern.right_to_left = ast_arena_alloc(
+        sizeof(*pattern.right_to_left) * right_count);
+    for (int index = 0; index < left->tmpl->param_count; ++index) {
         pattern.left_to_right[index] = -1;
+    }
+    for (int index = 0; index < right->tmpl->param_count; ++index) {
         pattern.right_to_left[index] = -1;
     }
     left_parameter = left->tmpl->func_def->type->params;
@@ -37069,10 +37113,12 @@ static bool cxx_function_template_class_pack_expansion_deduce_element(
     int argument_pack_index, Type* argument_pattern,
     Type** deduced_arguments, int* deduced_value_parameters,
     bool* supported) {
-    TemplateParam parameter_params[32];
-    TemplateParam argument_params[32];
-    Type* element_deduced_arguments[32] = { NULL };
-    int element_deduced_value_parameters[32];
+    TemplateParam* parameter_params;
+    TemplateParam* argument_params;
+    Type** element_deduced_arguments;
+    int* element_deduced_value_parameters;
+    size_t parameter_count;
+    size_t argument_count;
     CxxTemplate parameter_template_view;
     CxxTemplate argument_template_view;
     bool nested_supported = false;
@@ -37081,8 +37127,7 @@ static bool cxx_function_template_class_pack_expansion_deduce_element(
     if (!parameter_template || !argument_template ||
         parameter_template->param_count <= 0 ||
         argument_template->param_count <= 0 ||
-        parameter_template->param_count > 32 ||
-        argument_template->param_count > 32 || parameter_pack_index < 0 ||
+        parameter_pack_index < 0 ||
         parameter_pack_index >= parameter_template->param_count ||
         argument_pack_index < 0 ||
         argument_pack_index >= argument_template->param_count ||
@@ -37090,6 +37135,23 @@ static bool cxx_function_template_class_pack_expansion_deduce_element(
         !deduced_value_parameters) {
         return false;
     }
+    parameter_count = (size_t)parameter_template->param_count;
+    argument_count = (size_t)argument_template->param_count;
+    if (parameter_count > SIZE_MAX / sizeof(*parameter_params) ||
+        argument_count > SIZE_MAX / sizeof(*argument_params) ||
+        parameter_count > SIZE_MAX / sizeof(*element_deduced_arguments) ||
+        parameter_count > SIZE_MAX /
+            sizeof(*element_deduced_value_parameters)) {
+        return false;
+    }
+    parameter_params = ast_arena_alloc(
+        sizeof(*parameter_params) * parameter_count);
+    argument_params = ast_arena_alloc(
+        sizeof(*argument_params) * argument_count);
+    element_deduced_arguments = ast_arena_alloc(
+        sizeof(*element_deduced_arguments) * parameter_count);
+    element_deduced_value_parameters = ast_arena_alloc(
+        sizeof(*element_deduced_value_parameters) * parameter_count);
     memcpy(parameter_params, parameter_template->params,
            sizeof(TemplateParam) * (size_t)parameter_template->param_count);
     memcpy(argument_params, argument_template->params,
@@ -37135,10 +37197,12 @@ static bool cxx_function_template_class_nontype_pack_expansion_deduce_element(
     int argument_pack_index, Expr* argument_pattern,
     Type** deduced_arguments, int* deduced_value_parameters,
     bool* supported) {
-    TemplateParam parameter_params[32];
-    TemplateParam argument_params[32];
-    Type* element_deduced_arguments[32] = { NULL };
-    int element_deduced_value_parameters[32];
+    TemplateParam* parameter_params;
+    TemplateParam* argument_params;
+    Type** element_deduced_arguments;
+    int* element_deduced_value_parameters;
+    size_t parameter_count;
+    size_t argument_count;
     CxxTemplate parameter_template_view;
     CxxTemplate argument_template_view;
     bool nested_supported = false;
@@ -37147,8 +37211,7 @@ static bool cxx_function_template_class_nontype_pack_expansion_deduce_element(
     if (!parameter_template || !argument_template ||
         parameter_template->param_count <= 0 ||
         argument_template->param_count <= 0 ||
-        parameter_template->param_count > 32 ||
-        argument_template->param_count > 32 || parameter_pack_index < 0 ||
+        parameter_pack_index < 0 ||
         parameter_pack_index >= parameter_template->param_count ||
         argument_pack_index < 0 ||
         argument_pack_index >= argument_template->param_count ||
@@ -37156,6 +37219,23 @@ static bool cxx_function_template_class_nontype_pack_expansion_deduce_element(
         !deduced_value_parameters) {
         return false;
     }
+    parameter_count = (size_t)parameter_template->param_count;
+    argument_count = (size_t)argument_template->param_count;
+    if (parameter_count > SIZE_MAX / sizeof(*parameter_params) ||
+        argument_count > SIZE_MAX / sizeof(*argument_params) ||
+        parameter_count > SIZE_MAX / sizeof(*element_deduced_arguments) ||
+        parameter_count > SIZE_MAX /
+            sizeof(*element_deduced_value_parameters)) {
+        return false;
+    }
+    parameter_params = ast_arena_alloc(
+        sizeof(*parameter_params) * parameter_count);
+    argument_params = ast_arena_alloc(
+        sizeof(*argument_params) * argument_count);
+    element_deduced_arguments = ast_arena_alloc(
+        sizeof(*element_deduced_arguments) * parameter_count);
+    element_deduced_value_parameters = ast_arena_alloc(
+        sizeof(*element_deduced_value_parameters) * parameter_count);
     memcpy(parameter_params, parameter_template->params,
            sizeof(TemplateParam) * (size_t)parameter_template->param_count);
     memcpy(argument_params, argument_template->params,
@@ -37592,20 +37672,31 @@ static bool cxx_function_template_class_pack_expansion_deduce(
     int argument_pack_count = 0;
     bool parameter_direct_pack_pattern;
     bool argument_direct_pack_pattern;
-    Type* deduced_arguments[32] = { NULL };
-    int deduced_value_parameters[32];
+    Type** deduced_arguments;
+    int* deduced_value_parameters;
+    size_t parameter_count;
     if (supported) *supported = false;
     if (!parameter_match || !argument_match || !parameter_match->tmpl ||
         !argument_match->tmpl || parameter_match->has_function_parameter_pack ||
         argument_match->has_function_parameter_pack ||
         !parameter_match->tmpl->func_def || !argument_match->tmpl->func_def ||
         parameter_match->tmpl->param_count <= 0 ||
-        argument_match->tmpl->param_count <= 0 ||
-        parameter_match->tmpl->param_count > 32 ||
-        argument_match->tmpl->param_count > 32) {
+        argument_match->tmpl->param_count <= 0) {
         return false;
     }
-    for (int index = 0; index < 32; ++index) {
+    parameter_count = (size_t)parameter_match->tmpl->param_count;
+    if (parameter_count > SIZE_MAX / sizeof(*deduced_arguments) ||
+        parameter_count > SIZE_MAX / sizeof(*deduced_value_parameters)) {
+        return false;
+    }
+    deduced_arguments = ast_arena_alloc(
+        sizeof(*deduced_arguments) * parameter_count);
+    deduced_value_parameters = ast_arena_alloc(
+        sizeof(*deduced_value_parameters) * parameter_count);
+    memset(deduced_arguments, 0,
+           sizeof(*deduced_arguments) * parameter_count);
+    for (int index = 0;
+         index < parameter_match->tmpl->param_count; ++index) {
         deduced_value_parameters[index] = -1;
     }
     for (int index = 0; index < parameter_match->tmpl->param_count; ++index) {
@@ -39426,9 +39517,16 @@ static bool prepare_cxx_function_template_match_impl(
     bool has_type_pack = false;
     bool has_value_pack = false;
     bool pack_seen = false;
+    Type** element_arguments = NULL;
+    int64_t* element_values = NULL;
+    bool* element_value_present = NULL;
     if (!tmpl || !match || tmpl->kind != TMPL_FUNCTION || !tmpl->func_def ||
-        tmpl->param_count < 0 || tmpl->param_count > 32) return false;
+        tmpl->param_count < 0) return false;
     memset(match, 0, sizeof(*match));
+    if (!cxx_function_template_match_allocate_parameters(
+            match, tmpl->param_count)) {
+        return false;
+    }
     match->tmpl = tmpl;
     match->argument_count = tmpl->param_count;
     for (ExprList* argument = call_arguments; argument;
@@ -39680,20 +39778,40 @@ static bool prepare_cxx_function_template_match_impl(
                     while (argument) {
                         Type* actual =
                             cxx_parser_expression_type(argument->expr);
-                        Type* element_arguments[32] = { NULL };
-                        int64_t element_values[32] = { 0 };
-                        bool element_value_present[32] = { false };
                         int element_specificity = 0;
                         if (!actual || pack_index < 0 ||
                             match->pack_count >= match->pack_capacity) {
                             return false;
                         }
+                        if (!element_arguments) {
+                            size_t parameter_count =
+                                (size_t)tmpl->param_count;
+                            if (parameter_count == 0u ||
+                                parameter_count >
+                                    SIZE_MAX / sizeof(*element_arguments) ||
+                                parameter_count >
+                                    SIZE_MAX / sizeof(*element_values) ||
+                                parameter_count > SIZE_MAX /
+                                    sizeof(*element_value_present)) {
+                                return false;
+                            }
+                            element_arguments = ast_arena_alloc(
+                                sizeof(*element_arguments) * parameter_count);
+                            element_values = ast_arena_alloc(
+                                sizeof(*element_values) * parameter_count);
+                            element_value_present = ast_arena_alloc(
+                                sizeof(*element_value_present) *
+                                parameter_count);
+                        }
                         memcpy(element_arguments, match->arguments,
-                               sizeof(element_arguments));
+                               sizeof(*element_arguments) *
+                                   (size_t)tmpl->param_count);
                         memcpy(element_values, match->values,
-                               sizeof(element_values));
+                               sizeof(*element_values) *
+                                   (size_t)tmpl->param_count);
                         memcpy(element_value_present, match->value_present,
-                               sizeof(element_value_present));
+                               sizeof(*element_value_present) *
+                                   (size_t)tmpl->param_count);
                         int saved_pending_pack_count =
                             tmpl->pending_pack_count;
                         bool element_deduced;
@@ -42366,7 +42484,7 @@ Decl* rcc_parser_cxx_resolve_function_pointer_template(
         if (!tmpl || tmpl->kind != TMPL_FUNCTION || !tmpl->func_def ||
             !tmpl->func_def->type ||
             tmpl->func_def->type->kind != TYPE_FUNC ||
-            tmpl->param_count < 0 || tmpl->param_count > 32) {
+            tmpl->param_count < 0) {
             continue;
         }
         for (int parameter = 0; parameter < tmpl->param_count; ++parameter) {
@@ -42401,6 +42519,10 @@ Decl* rcc_parser_cxx_resolve_function_pointer_template(
                 continue;
             }
         } else {
+            if (!cxx_function_template_match_allocate_parameters(
+                    &match, tmpl->param_count)) {
+                continue;
+            }
             match.tmpl = tmpl;
             match.argument_count = tmpl->param_count;
             for (DeclList* parameter = tmpl->func_def->func_params;
