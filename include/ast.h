@@ -436,13 +436,11 @@ int rcc_parser_cxx_materialize_member_function_templates(
     Type* aggregate, const char* name, struct ExprList* arguments,
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, bool explicit_arguments_specified,
-    TypeMethod** candidates,
-    int candidate_capacity,
+    TypeMethod*** candidates,
     bool* constraint_unsupported);
 int rcc_parser_cxx_materialize_constructor_templates(
     Type* aggregate, struct ExprList* arguments, bool defer_body,
-    TypeMethod** candidates,
-    int candidate_capacity, bool* constraint_unsupported);
+    TypeMethod*** candidates, bool* constraint_unsupported);
 int rcc_parser_cxx_materialize_operator_function_templates(
     struct CxxNamespace* scope, const char* name,
     struct ExprList* arguments, Decl** candidates, int candidate_capacity,

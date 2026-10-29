@@ -4041,15 +4041,18 @@ static int cxx_materialize_member_function_templates_internal(
     bool include_inherited, bool include_constructors, bool defer_body,
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, bool explicit_arguments_specified,
-    TypeMethod** candidates, int candidate_capacity,
+    TypeMethod*** candidates,
     bool* constraint_unsupported);
+static bool cxx_member_template_storage_capacity(
+    CxxClass* cls, const char* name, bool include_constructors,
+    bool include_inherited, unsigned depth, size_t* capacity);
 static void cxx_add_function_declaration_once(Decl* declaration);
 
 static bool cxx_eval_dependent_integer_member_template_call(
     Expr* member_expression, ExprList* arguments, int64_t* result) {
     Type* aggregate;
     CxxClass* owner;
-    TypeMethod* materialized[32] = { NULL };
+    TypeMethod** materialized = NULL;
     CxxDependentIntegerMemberCallCandidate* candidates;
     int* conversion_ranks;
     bool constraint_unsupported = false;
@@ -4098,8 +4101,7 @@ static bool cxx_eval_dependent_integer_member_template_call(
         member_expression->member_template_arguments,
         member_expression->member_template_argument_count,
         member_expression->member_has_template_arguments,
-        materialized, (int)(sizeof(materialized) / sizeof(materialized[0])),
-        &constraint_unsupported);
+        &materialized, &constraint_unsupported);
     if (constraint_unsupported || materialized_count < 0 ||
         materialized_count > INT_MAX - ordinary_count) {
         return false;
@@ -41968,42 +41970,110 @@ static bool cxx_collect_constructor_template_sources(
     return true;
 }
 
+static bool cxx_member_template_storage_capacity(
+    CxxClass* cls, const char* name, bool include_constructors,
+    bool include_inherited, unsigned depth, size_t* capacity) {
+    if (!capacity) return false;
+    if (!cls) return true;
+    if (depth > 64u) return true;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        const char* method_name = cxx_method_source_name(method);
+        if (!method || !method->member_template ||
+            (include_constructors
+                 ? !method->is_constructor
+                 : (method->is_constructor || !name || !method_name ||
+                    strcmp(method_name, name) != 0))) {
+            continue;
+        }
+        if (*capacity == SIZE_MAX) return false;
+        ++*capacity;
+    }
+    if (!include_inherited) return true;
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        if (!base && cls->bases[base_index].base_name) {
+            base = find_class(cls->bases[base_index].base_name);
+        }
+        if (!cxx_member_template_storage_capacity(
+                base, name, include_constructors, true, depth + 1u,
+                capacity)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int cxx_materialize_member_function_templates_internal(
     Type* aggregate, const char* name, ExprList* arguments,
     bool include_inherited, bool include_constructors, bool defer_body,
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, bool explicit_arguments_specified,
-    TypeMethod** candidates, int candidate_capacity,
+    TypeMethod*** candidates,
     bool* constraint_unsupported) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
-    CxxMethod* source_methods[32] = { NULL };
-    CxxMethod* matched_methods[32] = { NULL };
-    AccessSpec source_accesses[32] = { ACCESS_PUBLIC };
-    AccessSpec matched_accesses[32] = { ACCESS_PUBLIC };
-    CxxFunctionTemplateMatch matches[32] = { 0 };
+    CxxMethod** source_methods = NULL;
+    CxxMethod** matched_methods = NULL;
+    AccessSpec* source_accesses = NULL;
+    AccessSpec* matched_accesses = NULL;
+    CxxFunctionTemplateMatch* matches = NULL;
+    TypeMethod** materialized_candidates = NULL;
+    size_t source_capacity_size = 0;
+    int source_capacity;
     int source_count = 0;
     int match_count = 0;
     int result_count = 0;
     CxxNamespace* saved_namespace = active_namespace;
     bool unsupported = false;
+    if (candidates) *candidates = NULL;
     if (constraint_unsupported) *constraint_unsupported = false;
     if (!aggregate || !name || !cls || aggregate->cxx_dependent ||
         (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
         return 0;
     }
+    if (!cxx_member_template_storage_capacity(
+            cls, name, include_constructors, include_inherited, 0u,
+            &source_capacity_size) ||
+        source_capacity_size > (size_t)INT_MAX) {
+        rcc_error((SourceLoc){"<member-template>", 0, 0},
+                  "member function template candidate storage is too large");
+        return -1;
+    }
+    source_capacity = source_capacity_size > 0
+        ? (int)source_capacity_size : 1;
+    if ((size_t)source_capacity > SIZE_MAX / sizeof(*source_methods) ||
+        (size_t)source_capacity > SIZE_MAX / sizeof(*source_accesses) ||
+        (size_t)source_capacity > SIZE_MAX / sizeof(*matches)) {
+        rcc_error((SourceLoc){"<member-template>", 0, 0},
+                  "member function template candidate storage is too large");
+        return -1;
+    }
+    source_methods = ast_arena_alloc(
+        sizeof(*source_methods) * (size_t)source_capacity);
+    matched_methods = ast_arena_alloc(
+        sizeof(*matched_methods) * (size_t)source_capacity);
+    source_accesses = ast_arena_alloc(
+        sizeof(*source_accesses) * (size_t)source_capacity);
+    matched_accesses = ast_arena_alloc(
+        sizeof(*matched_accesses) * (size_t)source_capacity);
+    matches = ast_arena_alloc(sizeof(*matches) * (size_t)source_capacity);
+    if (!source_methods || !matched_methods || !source_accesses ||
+        !matched_accesses || !matches) {
+        rcc_error((SourceLoc){"<member-template>", 0, 0},
+                  "unable to allocate member function template candidates");
+        return -1;
+    }
     if (include_constructors) {
         if (!cxx_collect_constructor_template_sources(
                 cls, include_inherited, source_methods, source_accesses,
-                (int)(sizeof(source_methods) / sizeof(source_methods[0])),
-                &source_count, 0u)) {
+                source_capacity, &source_count, 0u)) {
             return -1;
         }
     } else if (include_inherited) {
         if (!cxx_collect_member_function_template_sources(
                 cls, name, ACCESS_PUBLIC, 0u, source_methods,
-                source_accesses,
-                (int)(sizeof(source_methods) / sizeof(source_methods[0])),
-                &source_count)) {
+                source_accesses, source_capacity, &source_count)) {
             return -1;
         }
     } else {
@@ -42015,13 +42085,12 @@ static int cxx_materialize_member_function_templates_internal(
                 strcmp(method_name, name) != 0) {
                 continue;
             }
-            if (source_count >=
-                (int)(sizeof(source_methods) / sizeof(source_methods[0]))) {
+            if (source_count >= source_capacity) {
                 rcc_error(method->decl ? method->decl->loc
                                        : method->member_template->func_def->loc,
-                          "too many member function template overloads for '%s'",
+                          "member function template candidate storage count is inconsistent for '%s'",
                           name);
-                return 0;
+                return -1;
             }
             source_methods[source_count] = method;
             source_accesses[source_count] = method->access;
@@ -42064,6 +42133,22 @@ static int cxx_materialize_member_function_templates_internal(
     if (constraint_unsupported) *constraint_unsupported = unsupported;
     if (unsupported) return 0;
 
+    if (candidates && match_count > 0) {
+        if ((size_t)match_count >
+            SIZE_MAX / sizeof(*materialized_candidates)) {
+            rcc_error((SourceLoc){"<member-template>", 0, 0},
+                      "materialized member function template set is too large");
+            return -1;
+        }
+        materialized_candidates = ast_arena_alloc(
+            sizeof(*materialized_candidates) * (size_t)match_count);
+        if (!materialized_candidates) {
+            rcc_error((SourceLoc){"<member-template>", 0, 0},
+                      "unable to allocate materialized member function templates");
+            return -1;
+        }
+    }
+
     for (int index = 0; index < match_count; ++index) {
         bool dominated = false;
         for (int other = 0; other < match_count; ++other) {
@@ -42095,15 +42180,13 @@ static int cxx_materialize_member_function_templates_internal(
                 this_adjustment);
             if (!lowered) continue;
             lowered->cxx_access = (unsigned char)matched_accesses[index];
-            if (result_count >= candidate_capacity || !candidates) {
-                rcc_error(lowered->function_decl->loc,
-                          "member function template candidate limit exceeded for '%s'",
-                          name);
-                return result_count;
+            if (materialized_candidates) {
+                materialized_candidates[result_count] = lowered;
             }
-            candidates[result_count++] = lowered;
+            ++result_count;
         }
     }
+    if (candidates) *candidates = materialized_candidates;
     return result_count;
 }
 
@@ -42111,35 +42194,54 @@ int rcc_parser_cxx_materialize_member_function_templates(
     Type* aggregate, const char* name, ExprList* arguments,
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, bool explicit_arguments_specified,
-    TypeMethod** candidates, int candidate_capacity,
+    TypeMethod*** candidates,
     bool* constraint_unsupported) {
     return cxx_materialize_member_function_templates_internal(
         aggregate, name, arguments, true, false, true, explicit_arguments,
         explicit_argument_count, explicit_arguments_specified, candidates,
-        candidate_capacity, constraint_unsupported);
+        constraint_unsupported);
 }
 
 int rcc_parser_cxx_materialize_constructor_templates(
     Type* aggregate, ExprList* arguments, bool defer_body,
-    TypeMethod** candidates,
-    int candidate_capacity, bool* constraint_unsupported) {
+    TypeMethod*** candidates, bool* constraint_unsupported) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
     return cxx_materialize_member_function_templates_internal(
         aggregate, cls ? cls->name : NULL, arguments, true, true, defer_body,
-        NULL, 0, false, candidates, candidate_capacity,
-        constraint_unsupported);
+        NULL, 0, false, candidates, constraint_unsupported);
 }
 
 bool rcc_parser_cxx_has_constructor_template(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
-    CxxMethod* methods[32] = { NULL };
-    AccessSpec accesses[32] = { ACCESS_PUBLIC };
+    CxxMethod** methods;
+    AccessSpec* accesses;
+    size_t capacity = 0;
     int count = 0;
-    return cls && cxx_collect_constructor_template_sources(
-                      cls, true, methods, accesses,
-                      (int)(sizeof(methods) / sizeof(methods[0])), &count,
-                      0u) &&
-           count > 0;
+    if (!cls) return false;
+    if (!cxx_member_template_storage_capacity(
+            cls, cls->name, true, true, 0u, &capacity) ||
+        capacity > (size_t)INT_MAX) {
+        rcc_error((SourceLoc){"<constructor>", 0, 0},
+                  "constructor template candidate storage is too large");
+        return false;
+    }
+    if (capacity == 0) capacity = 1;
+    if (capacity > SIZE_MAX / sizeof(*methods) ||
+        capacity > SIZE_MAX / sizeof(*accesses)) {
+        rcc_error((SourceLoc){"<constructor>", 0, 0},
+                  "constructor template candidate storage is too large");
+        return false;
+    }
+    methods = ast_arena_alloc(sizeof(*methods) * capacity);
+    accesses = ast_arena_alloc(sizeof(*accesses) * capacity);
+    if (!methods || !accesses) {
+        rcc_error((SourceLoc){"<constructor>", 0, 0},
+                  "unable to allocate constructor template candidates");
+        return false;
+    }
+    return cxx_collect_constructor_template_sources(
+               cls, true, methods, accesses, (int)capacity, &count, 0u) &&
+        count > 0;
 }
 
 /* Function-address template deduction uses the target function type as the

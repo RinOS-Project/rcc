@@ -53,10 +53,10 @@ extern Decl* rcc_parser_cxx_resolve_function_pointer_template(
     __attribute__((weak));
 extern int rcc_parser_cxx_materialize_member_function_templates(
     Type*, const char*, ExprList*,
-    const CxxParsedTemplateArgument*, int, bool, TypeMethod**, int, bool*)
+    const CxxParsedTemplateArgument*, int, bool, TypeMethod***, bool*)
     __attribute__((weak));
 extern int rcc_parser_cxx_materialize_constructor_templates(
-    Type*, ExprList*, bool, TypeMethod**, int, bool*) __attribute__((weak));
+    Type*, ExprList*, bool, TypeMethod***, bool*) __attribute__((weak));
 extern int rcc_parser_cxx_materialize_operator_function_templates(
     CxxNamespace*, const char*, ExprList*, Decl**, int, bool*)
     __attribute__((weak));
@@ -17601,7 +17601,7 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     Type** best_targets;
     TypeMethod** best_methods;
     bool best_is_template = false;
-    TypeMethod* template_methods[32] = { NULL };
+    TypeMethod** template_methods = NULL;
     bool template_constraint_unsupported = false;
     if (ambiguous) *ambiguous = false;
     if (!cls || argument_count < 0) return NULL;
@@ -17636,8 +17636,7 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
             return NULL;
         }
         template_count = rcc_parser_cxx_materialize_constructor_templates(
-            type, arguments, defer_template_bodies, template_methods,
-            (int)(sizeof(template_methods) / sizeof(template_methods[0])),
+            type, arguments, defer_template_bodies, &template_methods,
             &template_constraint_unsupported);
 #else
         rcc_error(arguments && arguments->expr
@@ -17656,9 +17655,7 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
             return NULL;
         }
     }
-    if (template_count < 0 || template_count >
-            (int)(sizeof(template_methods) / sizeof(template_methods[0])) ||
-        constructor_count > INT_MAX - template_count ||
+    if (template_count < 0 || constructor_count > INT_MAX - template_count ||
         constructor_count + template_count >
             INT_MAX - inherited_constructor_count) {
         rcc_error(arguments && arguments->expr
@@ -22162,8 +22159,8 @@ static bool sema_cxx_rewrite_class_relational_operator(
     ExprList* reversed_arguments = NULL;
     Symbol* functions;
     const char* direct_name;
-    TypeMethod* direct_template_methods[32] = { NULL };
-    TypeMethod* spaceship_template_methods[32] = { NULL };
+    TypeMethod** direct_template_methods = NULL;
+    TypeMethod** spaceship_template_methods = NULL;
     int direct_template_count = 0;
     int spaceship_template_count = 0;
     bool restrict_member_template_candidates = false;
@@ -22200,9 +22197,7 @@ static bool sema_cxx_rewrite_class_relational_operator(
             rcc_parser_cxx_materialize_member_function_templates(
                 left_aggregate, direct_name,
                 exprlist_new(expression->binary_rhs), NULL, 0, false,
-                direct_template_methods,
-                (int)(sizeof(direct_template_methods) /
-                      sizeof(direct_template_methods[0])),
+                &direct_template_methods,
                 &constraint_unsupported);
         if (direct_template_count > 0 && !constraint_unsupported) {
             sema_register_materialized_member_templates(left_aggregate);
@@ -22214,9 +22209,7 @@ static bool sema_cxx_rewrite_class_relational_operator(
             rcc_parser_cxx_materialize_member_function_templates(
                 left_aggregate, "operator<=>",
                 exprlist_new(expression->binary_rhs), NULL, 0, false,
-                spaceship_template_methods,
-                (int)(sizeof(spaceship_template_methods) /
-                      sizeof(spaceship_template_methods[0])),
+                &spaceship_template_methods,
                 &constraint_unsupported);
         if (spaceship_template_count > 0 && !constraint_unsupported) {
             sema_register_materialized_member_templates(left_aggregate);
@@ -22422,7 +22415,7 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     Type* right_type = NULL;
     Type* right_aggregate;
     TypeMethod* method;
-    TypeMethod* template_candidates[32];
+    TypeMethod** template_candidates = NULL;
     int template_candidate_count = 0;
     bool template_constraint_unsupported = false;
     bool right_analyzed = false;
@@ -22514,9 +22507,7 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
         template_candidate_count =
             rcc_parser_cxx_materialize_member_function_templates(
                 aggregate, name, exprlist_new(expression->binary_rhs),
-                NULL, 0, false, template_candidates,
-                (int)(sizeof(template_candidates) /
-                      sizeof(template_candidates[0])),
+                NULL, 0, false, &template_candidates,
                 &template_constraint_unsupported);
         if (template_candidate_count > 0) {
             sema_register_materialized_member_templates(aggregate);
@@ -22701,7 +22692,7 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
     const char* name;
     Type* aggregate;
     TypeMethod* method;
-    TypeMethod* template_candidates[32];
+    TypeMethod** template_candidates = NULL;
     int template_candidate_count = 0;
     bool template_constraint_unsupported = false;
     Expr* member;
@@ -22730,9 +22721,7 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
         template_candidate_count =
             rcc_parser_cxx_materialize_member_function_templates(
                 aggregate, name, call->call_args, NULL, 0, false,
-                template_candidates,
-                (int)(sizeof(template_candidates) /
-                      sizeof(template_candidates[0])),
+                &template_candidates,
                 &template_constraint_unsupported);
     }
 #endif
@@ -22865,7 +22854,7 @@ static bool sema_rewrite_cxx_unary_operator(Expr* expression,
     const char* name;
     Type* aggregate;
     TypeMethod* method;
-    TypeMethod* template_candidates[32];
+    TypeMethod** template_candidates = NULL;
     int template_candidate_count = 0;
     bool template_constraint_unsupported = false;
     ExprList* arguments = NULL;
@@ -22894,9 +22883,7 @@ static bool sema_rewrite_cxx_unary_operator(Expr* expression,
         template_candidate_count =
             rcc_parser_cxx_materialize_member_function_templates(
                 aggregate, name, arguments, NULL, 0, false,
-                template_candidates,
-                (int)(sizeof(template_candidates) /
-                      sizeof(template_candidates[0])),
+                &template_candidates,
                 &template_constraint_unsupported);
     }
 #endif
@@ -22959,7 +22946,7 @@ static bool sema_rewrite_cxx_subscript_operator(Expr* expression,
                                                 Type* object_type) {
     Type* aggregate;
     TypeMethod* method;
-    TypeMethod* template_candidates[32];
+    TypeMethod** template_candidates = NULL;
     int template_candidate_count = 0;
     bool template_constraint_unsupported = false;
     ExprList* arguments = NULL;
@@ -22989,9 +22976,7 @@ static bool sema_rewrite_cxx_subscript_operator(Expr* expression,
         template_candidate_count =
             rcc_parser_cxx_materialize_member_function_templates(
                 aggregate, "operator[]", exprlist_new(expression->index_expr),
-                NULL, 0, false, template_candidates,
-                (int)(sizeof(template_candidates) /
-                      sizeof(template_candidates[0])),
+                NULL, 0, false, &template_candidates,
                 &template_constraint_unsupported);
         if (template_candidate_count > 0) {
             sema_register_materialized_member_templates(aggregate);
@@ -23158,7 +23143,7 @@ static bool sema_rewrite_cxx_call_operator(Expr* expression,
                                            Type* object_type) {
     Type* aggregate;
     TypeMethod* method;
-    TypeMethod* template_candidates[32];
+    TypeMethod** template_candidates = NULL;
     int template_candidate_count = 0;
     bool template_constraint_unsupported = false;
     Expr* member;
@@ -23187,9 +23172,7 @@ static bool sema_rewrite_cxx_call_operator(Expr* expression,
         template_candidate_count =
             rcc_parser_cxx_materialize_member_function_templates(
                 aggregate, "operator()", expression->call_args, NULL, 0,
-                false, template_candidates,
-                (int)(sizeof(template_candidates) /
-                      sizeof(template_candidates[0])),
+                false, &template_candidates,
                 &template_constraint_unsupported);
         if (template_candidate_count > 0) {
             sema_register_materialized_member_templates(aggregate);
@@ -26567,7 +26550,7 @@ static Type* sema_expr(Expr* expr) {
                     ? member->member_base->type
                     : sema_expr(member->member_base);
                 TypeMethod* method;
-                TypeMethod* member_template_candidates[32] = { NULL };
+                TypeMethod** member_template_candidates = NULL;
                 int member_template_candidate_count = 0;
                 bool member_template_constraint_unsupported = false;
                 bool ambiguous_lookup = false;
@@ -26673,9 +26656,7 @@ static Type* sema_expr(Expr* expr) {
                                 member->member_template_arguments,
                                 member->member_template_argument_count,
                                 member->member_has_template_arguments,
-                                member_template_candidates,
-                                (int)(sizeof(member_template_candidates) /
-                                      sizeof(member_template_candidates[0])),
+                                &member_template_candidates,
                                 &member_template_constraint_unsupported);
                     }
 #endif
