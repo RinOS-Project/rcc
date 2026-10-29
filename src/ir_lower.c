@@ -19219,20 +19219,19 @@ static bool lower_cxx_constructor_initializer_expression_supported(
         }
         case EXPR_CALL:
             if (expression->call_is_new || expression->call_is_delete ||
-                !expression->cxx_call_is_noexcept ||
                 !expression->type || !type_is_scalar(expression->type) ||
                 !expression->call_func ||
                 expression->call_func->kind != EXPR_IDENT ||
                 !expression->call_func->ident_decl ||
-                expression->call_func->ident_decl->kind != DECL_FUNC ||
-                !lower_noexcept_expression(expression)) {
+                expression->call_func->ident_decl->kind != DECL_FUNC) {
                 return false;
             }
             for (const ExprList* argument = expression->call_args;
                  argument; argument = argument->next) {
                 if (argument->cxx_temporary_owner ||
                     !lower_cxx_constructor_initializer_expression_supported(
-                        context, argument->expr, depth + 1u)) {
+                        context, argument->expr, depth + 1u) ||
+                    !lower_noexcept_expression(argument->expr)) {
                     return false;
                 }
             }
@@ -19240,6 +19239,24 @@ static bool lower_cxx_constructor_initializer_expression_supported(
         default:
             return false;
     }
+}
+
+/* Constructor arguments may call a scalar function that throws. The caller's
+ * already-registered completed-subobject cleanups remain active while the
+ * argument is evaluated; keep each argument free of temporary cleanup work. */
+static bool lower_cxx_constructor_initializer_arguments_supported(
+    RccIrLowerContext* context, const ExprList* arguments) {
+    for (const ExprList* argument = arguments; argument;
+         argument = argument->next) {
+        if (argument->designator_kind != INIT_DESIGNATOR_NONE ||
+            argument->cxx_temporary_owner ||
+            argument->cxx_temporary_cleanups || !argument->expr ||
+            !lower_cxx_constructor_initializer_expression_supported(
+                context, argument->expr, 0u)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /* A scalar default-member initializer may be the first operation after the
@@ -19418,8 +19435,8 @@ static bool lower_cxx_initialize_constructor_members(
             if (!base_declaration ||
                 (!base_declaration->func_is_noexcept &&
                  !throwing_base_supported) ||
-                !lower_noexcept_expression_list(
-                    base_initializer->arguments) ||
+                !lower_cxx_constructor_initializer_arguments_supported(
+                    context, base_initializer->arguments) ||
                 !lower_cleanup_constructor_call_supported(&base_expression)) {
                 context->unsupported = true;
                 return false;
@@ -19513,18 +19530,10 @@ static bool lower_cxx_initialize_constructor_members(
             member_expression.compound_init = initializer->arguments;
             if (!lower_cleanup_constructor_call_supported(
                     &member_expression) || !member_constructor ||
-                !lower_noexcept_expression_list(initializer->arguments)) {
+                !lower_cxx_constructor_initializer_arguments_supported(
+                    context, initializer->arguments)) {
                 context->unsupported = true;
                 return false;
-            }
-            for (const ExprList* member_argument = initializer->arguments;
-                 member_argument; member_argument = member_argument->next) {
-                if (member_argument->cxx_temporary_owner ||
-                    !lower_cxx_constructor_initializer_expression_supported(
-                        context, member_argument->expr, 0u)) {
-                    context->unsupported = true;
-                    return false;
-                }
             }
             continue;
         }
@@ -19555,19 +19564,10 @@ static bool lower_cxx_initialize_constructor_members(
                  (!initializer->constructor || !member_constructor ||
                   !lower_cleanup_constructor_call_supported(
                       &member_expression) ||
-                  !lower_noexcept_expression_list(
-                      initializer->arguments)))) {
+                  !lower_cxx_constructor_initializer_arguments_supported(
+                      context, initializer->arguments)))) {
                 context->unsupported = true;
                 return false;
-            }
-            for (const ExprList* member_argument = initializer->arguments;
-                 member_argument; member_argument = member_argument->next) {
-                if (member_argument->cxx_temporary_owner ||
-                    !lower_cxx_constructor_initializer_expression_supported(
-                        context, member_argument->expr, 0u)) {
-                    context->unsupported = true;
-                    return false;
-                }
             }
             continue;
         }

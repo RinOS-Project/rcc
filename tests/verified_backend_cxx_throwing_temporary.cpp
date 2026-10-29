@@ -275,6 +275,11 @@ struct VerifiedSecondPotentiallyThrowingBase {
 
 static int verified_multiple_base_member_initializer_mode;
 
+static int verified_throwing_base_initializer_value(int value) {
+    if (value == -2) throw 67;
+    return value;
+}
+
 static int verified_multiple_base_member_initializer_value() {
     if (verified_multiple_base_member_initializer_mode == 7) throw 67;
     return 13;
@@ -308,7 +313,9 @@ struct VerifiedMultipleThrowingBaseDerived :
         int* cleanup_order, int first, int second, int member_initial,
         int body_mode)
         : VerifiedPotentiallyThrowingBase(cleanup_order, first),
-          VerifiedSecondPotentiallyThrowingBase(cleanup_order, second),
+          VerifiedSecondPotentiallyThrowingBase(
+              cleanup_order,
+              verified_throwing_base_initializer_value(second)),
           member(cleanup_order, member_initial),
           tail(7) {
         switch (body_mode) {
@@ -794,7 +801,8 @@ extern "C" int verified_cxx_single_throwing_base_constructor(
         {
             VerifiedMultipleThrowingBaseDerived object(
                 &cleanup_order, mode == 3 ? -1 : 8,
-                mode == 1 ? -1 : 9, mode == 8 ? -1 : 3,
+                mode == 1 ? -1 : mode == 10 ? -2 : 9,
+                mode == 8 ? -1 : 3,
                 mode == 9 ? 2 : mode);
             if (mode == 4) throw 64;
             result = object.first_value * 100 +
@@ -816,7 +824,8 @@ extern "C" int verified_cxx_reference_bound_throwing_base_constructor(
             const VerifiedMultipleThrowingBaseDerived& object =
                 VerifiedMultipleThrowingBaseDerived(
                     &cleanup_order, mode == 3 ? -1 : 8,
-                    mode == 1 ? -1 : 9, mode == 8 ? -1 : 3,
+                    mode == 1 ? -1 : mode == 10 ? -2 : 9,
+                    mode == 8 ? -1 : 3,
                     mode == 9 ? 2 : mode);
             if (mode == 4) throw 64;
             result = object.first_value * 100 +
