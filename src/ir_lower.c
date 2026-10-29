@@ -7661,7 +7661,11 @@ static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
             value.type.kind != RCC_IR_TYPE_POINTER) {
             return lower_invalid_value();
         }
-        if (destination_volatile_local || source_volatile_local) {
+        destination_volatile = destination_volatile ||
+            destination.volatile_access;
+        source_volatile = source_volatile || value.volatile_access;
+        if (destination_volatile_local || source_volatile_local ||
+            destination_volatile || source_volatile) {
             if (!lower_copy_volatile_aggregate_storage(
                     context, destination, value, lhs_type,
                     destination_volatile, source_volatile)) {

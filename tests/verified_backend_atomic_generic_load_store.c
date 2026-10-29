@@ -137,6 +137,12 @@ __attribute__((noinline)) int local_volatile_aggregate_copy(void)
     word_aggregate plain_structure = {0x10293847u};
     volatile word_union_aggregate volatile_union = {.value = 0u};
     word_union_aggregate plain_union = {.value = 0x50617283u};
+    volatile word_aggregate* volatile_structure_pointer =
+        &volatile_structure;
+    word_aggregate* plain_structure_pointer = &plain_structure;
+    volatile word_union_aggregate* volatile_union_pointer =
+        &volatile_union;
+    word_union_aggregate* plain_union_pointer = &plain_union;
     volatile bitfield_aggregate volatile_bits;
     bitfield_aggregate plain_bits = {5u, 19u};
     volatile unsigned char* volatile_bits_bytes =
@@ -151,6 +157,18 @@ __attribute__((noinline)) int local_volatile_aggregate_copy(void)
     plain_union.value = 0xa7c5e319u;
     volatile_structure = plain_structure;
     volatile_union = plain_union;
+    plain_structure.value = 0x13579bdfu;
+    plain_union.value = 0x2468ace1u;
+    *volatile_structure_pointer = *plain_structure_pointer;
+    *volatile_union_pointer = *plain_union_pointer;
+    if (volatile_structure.value != plain_structure.value ||
+        volatile_union.value != plain_union.value) return 1;
+    volatile_structure.value = 0x50617283u;
+    volatile_union.value = 0x94a5b6c7u;
+    *plain_structure_pointer = *volatile_structure_pointer;
+    *plain_union_pointer = *volatile_union_pointer;
+    if (plain_structure.value != 0x50617283u ||
+        plain_union.value != 0x94a5b6c7u) return 1;
     volatile_bits = plain_bits;
     for (unsigned int offset = 0u; offset < sizeof(plain_bits); ++offset) {
         if (volatile_bits_bytes[offset] != plain_bits_bytes[offset]) {

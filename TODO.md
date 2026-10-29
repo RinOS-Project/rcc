@@ -12068,12 +12068,12 @@ remains a separate open item.
       runtime values for initialized struct and designated-union cases.
 - [x] Copy whole automatic volatile C struct/union objects between volatile
       and ordinary locals using volatile object-representation accesses; the
-      fixture checks both directions for struct, union, and bit-field object
-      representations.
+      fixture checks both directions for direct and pointer-based struct and
+      union copies, plus bit-field object representations.
 - [ ] Extend typed-SSA aggregate atomics to wider or under-aligned objects,
       non-trivial C++ objects, and the full `std::atomic<T>` API/concurrency
-      model. Volatile aggregate copies through pointers, non-automatic
-      objects, or nested volatile members remain separate typed-SSA gaps.
+      model. Volatile aggregate static-local/TLS setup and nested volatile
+      member aggregates remain separate typed-SSA gaps.
 - [x] Update the LICM local-load regression for the valid case where a
       hoisted load is folded to its dominating stored value and the dead load
       instruction is removed. `test-ir` passes both x86 and x64 IR/MIR and
