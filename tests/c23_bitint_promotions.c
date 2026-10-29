@@ -56,6 +56,8 @@ _Static_assert(RCC_HAS_TYPE((u7)127 + (u7)1, u7) &&
                "unsigned bit-precise arithmetic wraps at its value width");
 _Static_assert((s7)63 + (s7)-63 == 0,
                "representable signed bit-precise arithmetic remains valid");
+_Static_assert((s7)31 << 1 == 62,
+               "representable signed bit-precise left shift remains valid");
 
 static int bitint_switch_value(u7 value) {
     switch (value) {

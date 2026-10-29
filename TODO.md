@@ -119,7 +119,9 @@
     N3220 wording differs from Clang 18's AST promotion result for this case,
     so Clang 18 is not used as the conformance oracle. Verify exact types,
     AMD64 runtime behavior, i686/AMD64 RIN/RLL/DRV generation and validation,
-    plus rejection of signed `_BitInt` addition/division overflow in ICEs.
+    plus rejection of signed `_BitInt` addition/division overflow, invalid
+    shift counts, negative signed shift operands, and signed shift overflow in
+    ICEs.
   - [x] Verify conditional common types, unsigned wraparound through
     postincrement and compound assignment, switch control types, and duplicate
     `case` values after conversion to a narrow unsigned `_BitInt` type.

@@ -1259,6 +1259,9 @@ test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/duplicate-cases.ro tests/invalid_c23_bitint_duplicate_cases.c,$(TEST_OUT)/c23-bitint/duplicate-cases.log)
 	$(GREP) -F -q 'duplicate case value after conversion to switch type' $(TEST_OUT)/c23-bitint/duplicate-cases.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/duplicate-cases.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-bitint/invalid-shifts.ro tests/invalid_c23_bitint_shift_ice.c,$(TEST_OUT)/c23-bitint/invalid-shifts.log)
+	$(call CHECK_COUNT,static assertion is not an integer constant expression,$(TEST_OUT)/c23-bitint/invalid-shifts.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/invalid-shifts.ro)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c23-bitint/c17.ro tests/invalid_c17_bitint.c,$(TEST_OUT)/c23-bitint/c17.log)
 	$(GREP) -F -q '_BitInt requires C23 mode' $(TEST_OUT)/c23-bitint/c17.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/c17.ro)
