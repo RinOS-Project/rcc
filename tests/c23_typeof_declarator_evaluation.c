@@ -53,6 +53,40 @@ static int typeof_declarator_size_interaction(void) {
     return 0;
 }
 
+static int typeof_issue1120_independent_evaluations(void) {
+    int expression_count = 0;
+    int expression_bound_count = 0;
+    int expression_declarator_count = 0;
+    typeof((++expression_count,
+            (int (*)[++expression_bound_count])0)) expression_values[
+        ++expression_declarator_count];
+
+    if (expression_count != 1) return 211 + expression_count;
+    if (expression_bound_count != 1) return 221 + expression_bound_count;
+    if (expression_declarator_count != 1)
+        return 231 + expression_declarator_count;
+    if (sizeof(expression_values) != sizeof(int (*)[1])) {
+        return 220;
+    }
+
+    int type_name_bound_count = 0;
+    int type_name_declarator_count = 0;
+    int second_type_name_declarator_count = 0;
+    typeof(int[++type_name_bound_count]) type_name_values[
+        ++type_name_declarator_count],
+        second_type_name_values[++second_type_name_declarator_count];
+
+    if (type_name_bound_count != 1 || type_name_declarator_count != 1 ||
+        second_type_name_declarator_count != 1) {
+        return 230;
+    }
+    if (sizeof(type_name_values) != sizeof(int[1]) ||
+        sizeof(second_type_name_values) != sizeof(int[1])) {
+        return 240;
+    }
+    return 0;
+}
+
 int main(void) {
     int bound = 3;
     typeof(int[bound++]) first, second;
@@ -66,5 +100,7 @@ int main(void) {
     if (typedef_status != 0) return typedef_status;
     int prototype_status = typeof_prototype_scope_contexts();
     if (prototype_status != 0) return prototype_status;
-    return typeof_declarator_size_interaction();
+    int declarator_status = typeof_declarator_size_interaction();
+    if (declarator_status != 0) return declarator_status;
+    return typeof_issue1120_independent_evaluations();
 }

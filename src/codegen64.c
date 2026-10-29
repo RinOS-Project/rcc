@@ -10327,6 +10327,14 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CAST:
+            /* Evaluate variably modified bounds in a cast type-name even
+             * though the computed extent does not affect the pointer value. */
+            if (expr->type && gen64_type_has_vla_any(expr->type)) {
+                int slot_index = 0;
+                gen64_typeof_runtime_evaluations(mod, expr->type);
+                gen64_vla_extents(mod, expr->type, NULL, NULL, NULL,
+                                  &slot_index);
+            }
             if (type_is_complex(expr->type)) {
                 if (expr->call_result_offset >= 0 ||
                     !gen64_complex_store_operand(

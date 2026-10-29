@@ -15606,6 +15606,16 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CAST:
+            /* A cast type-name may contain a variably modified pointer type.
+             * Its size expressions are evaluated as part of the cast
+             * expression even though the resulting pointer value does not
+             * depend on the computed extent. */
+            if (expr->type && codegen_type_has_vla_any(expr->type)) {
+                int slot_index = 0;
+                gen_typeof_runtime_evaluations(mod, expr->type);
+                gen_vla_extents(mod, expr->type, NULL, NULL, NULL,
+                                &slot_index);
+            }
             if (type_is_complex(expr->type)) {
                 if (expr->call_result_offset >= 0) {
                     rcc_error(expr->loc,

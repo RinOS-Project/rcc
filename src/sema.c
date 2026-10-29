@@ -24794,6 +24794,7 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_CAST: {
             Type* source = sema_expr(expr->cast_expr);
+            sema_vla_bounds(expr->cast_type, expr->loc);
             sema_validate_array_parameter_type(expr->cast_type,
                                                expr->loc, false);
             sema_validate_restrict_type(expr->cast_type, expr->loc);

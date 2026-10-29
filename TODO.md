@@ -226,6 +226,15 @@
 - [ ] Audit the remaining sequencing cases. WG14 issue 1120 is open on
   full-expression boundaries for typeof/declarator size expressions, so do
   not treat one compiler's ordering as a general conformance oracle.
+  - [x] Evaluate VLA size expressions in cast type-names and semantically
+    resolve their bounds before code generation. Cover a VM `typeof` expression
+    whose type comes from a pointer-to-VLA cast, an independent bound in the
+    enclosing declarator, and `typeof(type-name)` reused by comma declarators.
+    Check each independent side effect without asserting relative order;
+    generate i686/AMD64 objects and run the AMD64 RCC/GCC C2x fixtures. GCC
+    reevaluates a VM `typeof` expression for multiple declarators, so that
+    issue-1120 question is not used as a once-only oracle. Temporary-lifetime
+    cases whose full-expression boundary remains disputed stay open.
   - [x] Make the same-declaration VLA typedef regression use independent
     counters, checking each bound is captured once without asserting the
     relative evaluation order of distinct size expressions.
@@ -1763,6 +1772,11 @@
       cleanupを伴うscope退出gotoも対応済み。追加runtime-bound次元などのVLA形式と
       ここで未実装のthrowing/partial-construction cleanup形式は引き続きsubset外。
 - [ ] aggregate/vector/exceptionを含む全frontendのtyped SSA lowering
+  - [ ] Lower C23 variably modified `typeof` expressions and VLA typedef capture
+        into typed SSA. `rcc --target x86_64-unknown-rinos -std=c23
+        -fverified-backend -v -c tests/c23_typeof_declarator_evaluation.c`
+        currently reports `typeof_vla_typedef_capture` outside the subset;
+        require zero fallback and runtime coverage on both target widths.
   - [x] `switch`の`case`ラベルを`while`/`do`/`for`本体内から収集し、通常のswitch
         dispatchとloop backedgeを保ったverified SSA CFGへlowerする。i686/AMD64
         `-O2` emissionとx86_64通常／最適化後実行を回帰検証
