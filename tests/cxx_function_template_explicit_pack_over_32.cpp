@@ -47,6 +47,15 @@ static_assert(ExplicitAndDeducedPackSameType<
                   ExplicitAndDeducedPackTypeList<int*, float*, int>>::value,
               "deduction must append to the explicitly specified pack");
 
+template<int Value>
+struct ExplicitAndDeducedValuePackTag {};
+
+template<int... Values>
+int explicit_then_deduced_value_pack(ExplicitAndDeducedValuePackTag<Values>...) {
+    return static_cast<int>(sizeof...(Values)) * 100 +
+           (0 + ... + Values);
+}
+
 int main() {
     return count_explicit_pack<
                int, int, int, int, int, int, int, int, int, int, int,
@@ -59,7 +68,11 @@ int main() {
                        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
                        12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
                        22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33) == 33 &&
-                   count_deferred_explicit_pack(7) == 33
+                   count_deferred_explicit_pack(7) == 33 &&
+                   explicit_then_deduced_value_pack<1, 2>(
+                       ExplicitAndDeducedValuePackTag<1>{},
+                       ExplicitAndDeducedValuePackTag<2>{},
+                       ExplicitAndDeducedValuePackTag<3>{}) == 306
                ? 0
                : 1;
 }
