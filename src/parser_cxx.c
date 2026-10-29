@@ -45,7 +45,7 @@ static bool cxx_function_template_call_is_dependent(
     const CxxTemplate* context);
 static bool cxx_candidate_function_template_call_is_dependent(
     ExprList* call_arguments,
-    CxxParsedTemplateArgument explicit_arguments[32][32],
+    CxxParsedTemplateArgument* const* explicit_arguments,
     const int explicit_argument_counts[32],
     const bool explicit_arguments_valid[32], int candidate_count,
     bool explicit_arguments_specified, const CxxTemplate* context);
@@ -2237,7 +2237,7 @@ static bool cxx_parse_explicit_member_function_template_specialization(
     Type* return_type, bool is_inline, bool is_constexpr, bool is_consteval,
     SourceLoc loc, CxxTemplate* specialization, int template_head_count);
 static bool cxx_parse_explicit_function_template_argument_list(
-    CxxTemplate* primary, CxxParsedTemplateArgument arguments[32],
+    CxxTemplate* primary, CxxParsedTemplateArgument** arguments,
     int* argument_count, SourceLoc loc);
 
 static bool cxx_parse_explicit_function_template_specialization(
@@ -30635,6 +30635,7 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                                                int64_t* pack_values,
                                                bool* pack_value_present,
                                                int* pack_count,
+                                               int pack_capacity,
                                                int* pack_offsets,
                                                int* pack_counts,
                                                bool* pack_seen) {
@@ -30657,7 +30658,8 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                 tmpl, parameter->decl->type);
             bool value_pack = pack_index >= 0 &&
                 tmpl->params[pack_index].kind == TPARAM_NONTYPE;
-            if (!pack_arguments || !pack_count || pack_index < 0 ||
+            if (!pack_arguments || !pack_count || pack_capacity < 0 ||
+                pack_index < 0 ||
                 (value_pack && (!pack_values || !pack_value_present))) {
                 if (report_errors) {
                     rcc_error(parameter->decl->loc,
@@ -30693,7 +30695,7 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                     }
                     return false;
                 }
-                if (*pack_count >= 32) {
+                if (*pack_count >= pack_capacity) {
                     if (report_errors) {
                         rcc_error(argument->expr->loc,
                                   "function template parameter pack exceeds compiler limits");
@@ -34819,9 +34821,10 @@ bool rcc_parse_cxx_member_template_arguments(Expr* member) {
 typedef struct CxxFunctionTemplateMatch {
     CxxTemplate* tmpl;
     Type* arguments[32];
-    Type* pack_arguments[32];
-    int64_t pack_values[32];
-    bool pack_value_present[32];
+    Type** pack_arguments;
+    int64_t* pack_values;
+    bool* pack_value_present;
+    int pack_capacity;
     int pack_offsets[32];
     int pack_counts[32];
     bool pack_seen[32];
@@ -34832,14 +34835,37 @@ typedef struct CxxFunctionTemplateMatch {
     int specificity;
     int fixed_function_parameter_count;
     bool has_function_parameter_pack;
-    int conversion_ranks[32];
-    Type* conversion_targets[32];
-    Type* conversion_sources[32];
-    TypeMethod* conversion_methods[32];
+    int* conversion_ranks;
+    Type** conversion_targets;
+    Type** conversion_sources;
+    TypeMethod** conversion_methods;
+    int conversion_capacity;
     int conversion_rank_count;
     Decl* instance;
     Type* substitution_failure_type;
 } CxxFunctionTemplateMatch;
+
+static void cxx_function_template_match_allocate_conversions(
+    CxxFunctionTemplateMatch* match, int capacity) {
+    if (!match || capacity <= 0) return;
+    match->conversion_ranks = ast_arena_alloc(
+        sizeof(match->conversion_ranks[0]) * (size_t)capacity);
+    match->conversion_targets = ast_arena_alloc(
+        sizeof(match->conversion_targets[0]) * (size_t)capacity);
+    match->conversion_sources = ast_arena_alloc(
+        sizeof(match->conversion_sources[0]) * (size_t)capacity);
+    match->conversion_methods = ast_arena_alloc(
+        sizeof(match->conversion_methods[0]) * (size_t)capacity);
+    memset(match->conversion_ranks, 0,
+           sizeof(match->conversion_ranks[0]) * (size_t)capacity);
+    memset(match->conversion_targets, 0,
+           sizeof(match->conversion_targets[0]) * (size_t)capacity);
+    memset(match->conversion_sources, 0,
+           sizeof(match->conversion_sources[0]) * (size_t)capacity);
+    memset(match->conversion_methods, 0,
+           sizeof(match->conversion_methods[0]) * (size_t)capacity);
+    match->conversion_capacity = capacity;
+}
 
 typedef struct CxxConstraintAtom {
     const Expr* origin;
@@ -39254,6 +39280,7 @@ static bool prepare_cxx_function_template_match_impl(
     int explicit_argument_count, CxxFunctionTemplateMatch* match,
     bool* constraint_invalid, bool* constraint_unsupported) {
     int specificity = 0;
+    int call_argument_count = 0;
     bool has_type_pack = false;
     bool has_value_pack = false;
     bool pack_seen = false;
@@ -39262,6 +39289,13 @@ static bool prepare_cxx_function_template_match_impl(
     memset(match, 0, sizeof(*match));
     match->tmpl = tmpl;
     match->argument_count = tmpl->param_count;
+    for (ExprList* argument = call_arguments; argument;
+         argument = argument->next) {
+        if (call_argument_count == INT_MAX) return false;
+        ++call_argument_count;
+    }
+    cxx_function_template_match_allocate_conversions(
+        match, call_argument_count > 0 ? call_argument_count : 1);
     for (DeclList* parameter = tmpl->func_def->func_params; parameter;
          parameter = parameter->next) {
         if (parameter->decl && parameter->decl->param_is_pack) {
@@ -39283,6 +39317,27 @@ static bool prepare_cxx_function_template_match_impl(
         }
     }
 
+    if (has_type_pack || has_value_pack) {
+        int pack_capacity = call_argument_count > 32
+            ? call_argument_count : 32;
+        if (explicit_arguments && explicit_argument_count > pack_capacity) {
+            pack_capacity = explicit_argument_count;
+        }
+        match->pack_arguments = ast_arena_alloc(
+            sizeof(match->pack_arguments[0]) * (size_t)pack_capacity);
+        match->pack_values = ast_arena_alloc(
+            sizeof(match->pack_values[0]) * (size_t)pack_capacity);
+        match->pack_value_present = ast_arena_alloc(
+            sizeof(match->pack_value_present[0]) * (size_t)pack_capacity);
+        memset(match->pack_arguments, 0,
+               sizeof(match->pack_arguments[0]) * (size_t)pack_capacity);
+        memset(match->pack_values, 0,
+               sizeof(match->pack_values[0]) * (size_t)pack_capacity);
+        memset(match->pack_value_present, 0,
+               sizeof(match->pack_value_present[0]) * (size_t)pack_capacity);
+        match->pack_capacity = pack_capacity;
+    }
+
     if (explicit_arguments) {
         int pack_parameter_index =
             cxx_parser_template_pack_parameter_index(tmpl);
@@ -39301,7 +39356,7 @@ static bool prepare_cxx_function_template_match_impl(
             }
             if (parameter->is_pack) {
                 int64_t explicit_value = explicit_arguments[index].value;
-                if (match->pack_count >= 32) return false;
+                if (match->pack_count >= match->pack_capacity) return false;
                 if (match->pack_counts[parameter_index] == 0) {
                     match->pack_offsets[parameter_index] = match->pack_count;
                 }
@@ -39464,9 +39519,7 @@ static bool prepare_cxx_function_template_match_impl(
                         bool element_value_present[32] = { false };
                         int element_specificity = 0;
                         if (!actual || pack_index < 0 ||
-                            match->pack_count >=
-                                (int)(sizeof(match->pack_arguments) /
-                                      sizeof(match->pack_arguments[0]))) {
+                            match->pack_count >= match->pack_capacity) {
                             return false;
                         }
                         memcpy(element_arguments, match->arguments,
@@ -39796,6 +39849,7 @@ static bool prepare_cxx_function_template_match_impl(
             match->value_present, &specificity, false,
             match->pack_arguments, match->pack_values,
             match->pack_value_present, &match->pack_count,
+            match->pack_capacity,
             match->pack_offsets, match->pack_counts, match->pack_seen);
         tmpl->pending_pack_args = saved_pending_pack_args;
         tmpl->pending_pack_expansions = saved_pending_pack_expansions;
@@ -39978,8 +40032,7 @@ static bool prepare_cxx_function_template_match_impl(
             match->instance, call_arguments, match->conversion_ranks,
             match->conversion_targets, match->conversion_sources,
             match->conversion_methods,
-            (int)(sizeof(match->conversion_ranks) /
-                  sizeof(match->conversion_ranks[0])),
+            match->conversion_capacity,
             &match->conversion_rank_count)) {
         return false;
     }
@@ -40204,14 +40257,21 @@ static bool cxx_resolve_explicit_member_template_owner_suffix(
 }
 
 static bool cxx_parse_explicit_function_template_argument_list(
-    CxxTemplate* primary, CxxParsedTemplateArgument arguments[32],
+    CxxTemplate* primary, CxxParsedTemplateArgument** arguments,
     int* argument_count, SourceLoc loc) {
+    int argument_capacity = 0;
     int pack_parameter_index;
 
     if (!primary || !arguments || !argument_count || !match(TOK_LT)) {
         return false;
     }
+    *arguments = NULL;
     *argument_count = 0;
+    argument_capacity = 8;
+    *arguments = ast_arena_alloc(
+        sizeof(**arguments) * (size_t)argument_capacity);
+    memset(*arguments, 0,
+           sizeof(**arguments) * (size_t)argument_capacity);
     pack_parameter_index =
         cxx_parser_template_pack_parameter_index(primary);
     if (!check(TOK_GT) && !check(TOK_RSHIFT)) {
@@ -40222,13 +40282,29 @@ static bool cxx_parse_explicit_function_template_argument_list(
             Token* argument_start = parser.cur;
             TemplateParam* parameter;
             CxxParsedTemplateArgument* argument;
-            if (*argument_count >= 32) {
-                rcc_error(loc,
-                          "explicit function-template argument limit exceeded");
-                while (!check(TOK_GT) && !check(TOK_RSHIFT) && !at_end()) {
-                    advance();
+            if (*argument_count == argument_capacity) {
+                int new_capacity;
+                if (argument_capacity > INT_MAX / 2) {
+                    rcc_error(loc,
+                              "too many explicit function-template arguments");
+                    return false;
                 }
-                break;
+                new_capacity = argument_capacity
+                    ? argument_capacity * 2 : 8;
+                if ((size_t)new_capacity >
+                    SIZE_MAX / sizeof(**arguments)) {
+                    rcc_error(loc,
+                              "too many explicit function-template arguments");
+                    return false;
+                }
+                *arguments = ast_arena_grow(
+                    *arguments,
+                    sizeof(**arguments) * (size_t)argument_capacity,
+                    sizeof(**arguments) * (size_t)new_capacity);
+                memset(*arguments + argument_capacity, 0,
+                       sizeof(**arguments) *
+                           (size_t)(new_capacity - argument_capacity));
+                argument_capacity = new_capacity;
             }
             if (parameter_index >= primary->param_count) {
                 rcc_error(loc,
@@ -40241,7 +40317,7 @@ static bool cxx_parse_explicit_function_template_argument_list(
                 break;
             }
             parameter = &primary->params[parameter_index];
-            argument = &arguments[(*argument_count)++];
+            argument = &(*arguments)[(*argument_count)++];
             if (parameter->kind == TPARAM_TYPE) {
                 argument->is_type = true;
                 argument->type = parse_cxx_template_type_argument();
@@ -40297,7 +40373,7 @@ static bool cxx_parse_explicit_function_template_specialization(
     Decl* selected_instance = NULL;
     DeclList* parameters;
     ExprList* signature_arguments = NULL;
-    CxxParsedTemplateArgument candidate_arguments[32][32] = { 0 };
+    CxxParsedTemplateArgument* candidate_arguments[32] = { NULL };
     int candidate_argument_counts[32] = { 0 };
     bool candidate_arguments_valid[32] = { false };
     const char* name;
@@ -40336,7 +40412,6 @@ static bool cxx_parse_explicit_function_template_specialization(
     argument_list_start_prev = parser.prev;
     for (int index = 0; index < candidate_count; ++index) {
         CxxTemplate* candidate = candidates[index];
-        CxxParsedTemplateArgument parsed_arguments[32] = { 0 };
         int parsed_argument_count = 0;
         int suppressed_before = g_suppressed_error_count;
         bool suppress_before = g_suppress_errors;
@@ -40350,11 +40425,10 @@ static bool cxx_parse_explicit_function_template_specialization(
         active_namespace = candidate->ns ? candidate->ns : g_global_namespace;
         g_suppress_errors = true;
         parsed = cxx_parse_explicit_function_template_argument_list(
-            candidate, parsed_arguments, &parsed_argument_count, loc);
+            candidate, &candidate_arguments[index],
+            &parsed_argument_count, loc);
         g_suppress_errors = suppress_before;
         if (parsed && g_suppressed_error_count == suppressed_before) {
-            memcpy(candidate_arguments[index], parsed_arguments,
-                   sizeof(parsed_arguments));
             candidate_argument_counts[index] = parsed_argument_count;
             candidate_arguments_valid[index] = true;
             if (!argument_list_end) {
@@ -41200,7 +41274,7 @@ static bool cxx_function_template_call_is_dependent(
 
 static bool cxx_candidate_function_template_call_is_dependent(
     ExprList* call_arguments,
-    CxxParsedTemplateArgument explicit_arguments[32][32],
+    CxxParsedTemplateArgument* const* explicit_arguments,
     const int explicit_argument_counts[32],
     const bool explicit_arguments_valid[32], int candidate_count,
     bool explicit_arguments_specified, const CxxTemplate* context) {
@@ -41224,7 +41298,7 @@ static bool cxx_candidate_function_template_call_is_dependent(
 static Expr* cxx_defer_function_template_call(
     const char* name, SourceLoc loc, CxxTemplate** candidates,
     int candidate_count, ExprList* call_arguments,
-    CxxParsedTemplateArgument explicit_arguments[32][32],
+    CxxParsedTemplateArgument* const* explicit_arguments,
     const int explicit_argument_counts[32],
     const bool explicit_arguments_valid[32],
     bool explicit_arguments_specified) {
@@ -41253,8 +41327,27 @@ static Expr* cxx_defer_function_template_call(
         deferred->candidate_explicit_arguments_valid = ast_arena_alloc(
             sizeof(deferred->candidate_explicit_arguments_valid[0]) *
             (size_t)candidate_count);
-        memcpy(deferred->candidate_explicit_arguments, explicit_arguments,
-               sizeof(explicit_arguments[0]) * (size_t)candidate_count);
+        for (int index = 0; index < candidate_count; ++index) {
+            int explicit_count = explicit_argument_counts[index];
+            if (explicit_arguments[index]) {
+                size_t copy_count = explicit_count > 0
+                    ? (size_t)explicit_count : 1u;
+                deferred->candidate_explicit_arguments[index] =
+                    ast_arena_alloc(sizeof(explicit_arguments[index][0]) *
+                                    copy_count);
+                if (explicit_count > 0) {
+                    memcpy(deferred->candidate_explicit_arguments[index],
+                           explicit_arguments[index],
+                           sizeof(explicit_arguments[index][0]) *
+                               (size_t)explicit_count);
+                } else {
+                    memset(deferred->candidate_explicit_arguments[index], 0,
+                           sizeof(explicit_arguments[index][0]));
+                }
+            } else {
+                deferred->candidate_explicit_arguments[index] = NULL;
+            }
+        }
         memcpy(deferred->candidate_explicit_argument_counts,
                explicit_argument_counts,
                sizeof(deferred->candidate_explicit_argument_counts[0]) *
@@ -41992,6 +42085,7 @@ Decl* rcc_parser_cxx_resolve_function_pointer_template(
                  parameter; parameter = parameter->next) {
                 ++match.fixed_function_parameter_count;
             }
+            cxx_function_template_match_allocate_conversions(&match, 1);
             if (!deduce_function_template_type(
                     tmpl, tmpl->func_def->type, target_function,
                     match.arguments, match.values, match.value_present,
@@ -42865,7 +42959,7 @@ Expr* rcc_parse_cxx_template_call(void) {
     if (candidate_count != 1 ||
         tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT ||
         tmpl->is_hidden_friend) {
-        CxxParsedTemplateArgument explicit_arguments[32][32] = { 0 };
+        CxxParsedTemplateArgument* explicit_arguments[32] = { NULL };
         int explicit_argument_counts[32] = { 0 };
         bool explicit_arguments_valid[32] = { false };
         bool explicit_arguments_parsed[32] = { false };
@@ -42890,7 +42984,6 @@ Expr* rcc_parse_cxx_template_call(void) {
 
             for (int index = 0; index < candidate_count; ++index) {
                 CxxTemplate* candidate = candidate_templates[index];
-                CxxParsedTemplateArgument parsed_arguments[32] = { 0 };
                 int parsed_argument_count = 0;
                 int suppressed_before = g_suppressed_error_count;
                 bool suppress_before = g_suppress_errors;
@@ -42906,7 +42999,8 @@ Expr* rcc_parse_cxx_template_call(void) {
                     ? candidate->ns : namespace_before_arguments;
                 g_suppress_errors = true;
                 parsed = cxx_parse_explicit_function_template_argument_list(
-                    candidate, parsed_arguments, &parsed_argument_count, loc);
+                    candidate, &explicit_arguments[index],
+                    &parsed_argument_count, loc);
                 g_suppress_errors = suppress_before;
                 if (parsed) {
                     if (!fallback_end) {
@@ -42914,8 +43008,6 @@ Expr* rcc_parse_cxx_template_call(void) {
                         fallback_end_prev = parser.prev;
                     }
                     if (g_suppressed_error_count == suppressed_before) {
-                        memcpy(explicit_arguments[index], parsed_arguments,
-                               sizeof(parsed_arguments));
                         explicit_argument_counts[index] =
                             parsed_argument_count;
                         explicit_arguments_valid[index] = true;
@@ -42936,7 +43028,7 @@ Expr* rcc_parse_cxx_template_call(void) {
                 active_namespace = tmpl->ns
                     ? tmpl->ns : namespace_before_arguments;
                 if (cxx_parse_explicit_function_template_argument_list(
-                        tmpl, explicit_arguments[0],
+                        tmpl, &explicit_arguments[0],
                         &explicit_argument_counts[0], loc)) {
                     explicit_arguments_parsed[0] = true;
                     fallback_end = parser.cur;
@@ -43004,7 +43096,6 @@ Expr* rcc_parse_cxx_template_call(void) {
             CxxNamespace* namespace_after_call_arguments = active_namespace;
             for (int index = 0; index < candidate_count; ++index) {
                 CxxTemplate* candidate = candidate_templates[index];
-                CxxParsedTemplateArgument parsed_arguments[32] = { 0 };
                 int parsed_argument_count = 0;
                 int suppressed_before;
                 bool suppress_before;
@@ -43022,13 +43113,12 @@ Expr* rcc_parse_cxx_template_call(void) {
                 suppress_before = g_suppress_errors;
                 g_suppress_errors = true;
                 parsed = cxx_parse_explicit_function_template_argument_list(
-                    candidate, parsed_arguments, &parsed_argument_count, loc);
+                    candidate, &explicit_arguments[index],
+                    &parsed_argument_count, loc);
                 g_suppress_errors = suppress_before;
                 explicit_arguments_parsed[index] = true;
                 if (parsed &&
                     g_suppressed_error_count == suppressed_before) {
-                    memcpy(explicit_arguments[index], parsed_arguments,
-                           sizeof(parsed_arguments));
                     explicit_argument_counts[index] = parsed_argument_count;
                     explicit_arguments_valid[index] = true;
                 }
@@ -43118,18 +43208,47 @@ Expr* rcc_parse_cxx_template_call(void) {
                 Type* diagnostic_arguments[32] = { NULL };
                 int64_t diagnostic_values[32] = { 0 };
                 bool diagnostic_present[32] = { false };
-                Type* diagnostic_pack[32] = { NULL };
-                int64_t diagnostic_pack_values[32] = { 0 };
-                bool diagnostic_pack_value_present[32] = { false };
+                int diagnostic_pack_capacity = 0;
+                Type** diagnostic_pack;
+                int64_t* diagnostic_pack_values;
+                bool* diagnostic_pack_value_present;
                 int diagnostic_pack_offsets[32] = { 0 };
                 int diagnostic_pack_counts[32] = { 0 };
                 bool diagnostic_pack_seen[32] = { false };
                 int diagnostic_pack_count = 0;
+                for (ExprList* argument = call_arguments; argument;
+                     argument = argument->next) {
+                    if (diagnostic_pack_capacity < INT_MAX) {
+                        ++diagnostic_pack_capacity;
+                    }
+                }
+                if (diagnostic_pack_capacity == 0) {
+                    diagnostic_pack_capacity = 1;
+                }
+                diagnostic_pack = ast_arena_alloc(
+                    sizeof(diagnostic_pack[0]) *
+                    (size_t)diagnostic_pack_capacity);
+                diagnostic_pack_values = ast_arena_alloc(
+                    sizeof(diagnostic_pack_values[0]) *
+                    (size_t)diagnostic_pack_capacity);
+                diagnostic_pack_value_present = ast_arena_alloc(
+                    sizeof(diagnostic_pack_value_present[0]) *
+                    (size_t)diagnostic_pack_capacity);
+                memset(diagnostic_pack, 0,
+                       sizeof(diagnostic_pack[0]) *
+                           (size_t)diagnostic_pack_capacity);
+                memset(diagnostic_pack_values, 0,
+                       sizeof(diagnostic_pack_values[0]) *
+                           (size_t)diagnostic_pack_capacity);
+                memset(diagnostic_pack_value_present, 0,
+                       sizeof(diagnostic_pack_value_present[0]) *
+                           (size_t)diagnostic_pack_capacity);
                 (void)deduce_function_template_arguments(
                     tmpl, call_arguments, diagnostic_arguments,
                     diagnostic_values, diagnostic_present, NULL, true,
                     diagnostic_pack, diagnostic_pack_values,
                     diagnostic_pack_value_present, &diagnostic_pack_count,
+                    diagnostic_pack_capacity,
                     diagnostic_pack_offsets, diagnostic_pack_counts,
                     diagnostic_pack_seen);
                 rcc_error(loc, "no matching function template overload for '%s'",

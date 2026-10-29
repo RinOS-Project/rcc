@@ -42,7 +42,7 @@ struct CxxParsedTemplateArgument {
 struct CxxDependentFunctionTemplateCall {
     struct CxxTemplate** candidates;
     int candidate_count;
-    CxxParsedTemplateArgument (*candidate_explicit_arguments)[32];
+    CxxParsedTemplateArgument** candidate_explicit_arguments;
     int* candidate_explicit_argument_counts;
     bool* candidate_explicit_arguments_valid;
     bool explicit_arguments_specified;

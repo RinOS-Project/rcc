@@ -12871,10 +12871,6 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                         ast_arena_alloc(
                             sizeof(cloned_call->candidate_explicit_arguments_valid[0]) *
                             (size_t)source_call->candidate_count);
-                    memcpy(cloned_call->candidate_explicit_arguments,
-                           source_call->candidate_explicit_arguments,
-                           sizeof(cloned_call->candidate_explicit_arguments[0]) *
-                               (size_t)source_call->candidate_count);
                     memcpy(cloned_call->candidate_explicit_argument_counts,
                            source_call->candidate_explicit_argument_counts,
                            sizeof(cloned_call->candidate_explicit_argument_counts[0]) *
@@ -12889,6 +12885,32 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                         int explicit_count =
                             source_call->candidate_explicit_argument_counts[
                                 candidate_index];
+                        if (source_call->candidate_explicit_arguments[
+                                candidate_index]) {
+                            size_t copy_count = explicit_count > 0
+                                ? (size_t)explicit_count : 1u;
+                            cloned_call->candidate_explicit_arguments[
+                                candidate_index] = ast_arena_alloc(
+                                    sizeof(CxxParsedTemplateArgument) *
+                                    copy_count);
+                            if (explicit_count > 0) {
+                                memcpy(
+                                    cloned_call->candidate_explicit_arguments[
+                                        candidate_index],
+                                    source_call->candidate_explicit_arguments[
+                                        candidate_index],
+                                    sizeof(CxxParsedTemplateArgument) *
+                                        (size_t)explicit_count);
+                            } else {
+                                memset(
+                                    cloned_call->candidate_explicit_arguments[
+                                        candidate_index], 0,
+                                    sizeof(CxxParsedTemplateArgument));
+                            }
+                        } else {
+                            cloned_call->candidate_explicit_arguments[
+                                candidate_index] = NULL;
+                        }
                         for (int argument_index = 0;
                              argument_index < explicit_count;
                              ++argument_index) {
