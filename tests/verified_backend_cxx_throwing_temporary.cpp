@@ -229,7 +229,12 @@ struct VerifiedPotentiallyThrowingBase {
     }
 };
 
-struct VerifiedReferenceBoundPartialAggregate : VerifiedThrowingTemporary {
+struct VerifiedReferenceBoundPartialPrefix {
+    int prefix_value;
+};
+
+struct VerifiedReferenceBoundPartialAggregate :
+        VerifiedReferenceBoundPartialPrefix, VerifiedThrowingTemporary {
     VerifiedPotentiallyThrowingBase pending;
 };
 
@@ -729,6 +734,7 @@ extern "C" int verified_cxx_reference_bound_partial_aggregate_cleanup(
         {
             const VerifiedReferenceBoundPartialAggregate& value =
                 VerifiedReferenceBoundPartialAggregate{
+                    {3},
                     {cleanup_order, 8, {9}},
                     VerifiedPotentiallyThrowingBase(
                         cleanup_order, should_throw ? -1 : 5)};

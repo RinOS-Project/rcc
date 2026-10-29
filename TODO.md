@@ -1888,9 +1888,10 @@
           legacy-host execution in `test-verified-cxx-throwing-temporary`.
     - [x] Extend bounded reference-bound partial construction to flat,
           non-virtual direct bases with non-throwing aggregate initialization.
-          Register each completed base while later direct members initialize;
-          a later throwing member unwinds the base once, while success hands
-          cleanup to the complete-object plan. The
+          Put the destructor-bearing base behind a non-empty trivial base to
+          verify a nonzero byte offset. Register each completed base while
+          later direct members initialize; a later throwing member unwinds the
+          base once, while success hands cleanup to the complete-object plan. The
           `test-verified-cxx-throwing-temporary` gate remains at 54 functions
           with zero fallback for i686/AMD64 at `-O0`/`-O2`, and generated
           AMD64 objects plus the legacy host verify failure and normal order.
