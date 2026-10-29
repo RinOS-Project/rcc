@@ -21,10 +21,9 @@
   `__has_c_attribute`, GCC C2x syntax and execution, and existing C++20
   nodiscard/constexpr regressions in `test-c23-nodiscard-attribute`,
   `test-cxx-nodiscard`, and focused gates.
-- [ ] Implement and test the remaining standard C attributes and their
-  semantics (`deprecated`, `fallthrough`, `maybe_unused`, `unsequenced`, and
-  `reproducible`); accepting/ignoring unknown attributes is not equivalent to
-  implementing these attributes.
+- [x] Implement and test the remaining standard C attributes and their
+  semantics (`fallthrough`, `unsequenced`, and `reproducible`); accepting or
+  ignoring unknown attributes is not equivalent to implementing them.
   - [x] Implement C23 `[[deprecated]]` for functions, objects, struct/union
     members, struct/union/enum tags, typedef names, and enumerators. Preserve
     messages/redeclarations and emit one diagnostic per use; advertise
@@ -34,17 +33,45 @@
   - [x] Diagnose C23 `[[deprecated]]` on a parameter as outside the standard
     attribute's appertainment constraint while retaining it as an explicit
     extension; the extension warns when the parameter is referenced.
+  - [x] Implement C23 `[[maybe_unused]]` on object/function/typedef/tag/member/
+    enumerator/label declarations and parameters. Retain its entity marker
+    through variable/function/typedef redeclarations, reject arguments and
+    pre-C23 use, and advertise `__has_c_attribute(maybe_unused) == 202311L`.
+    Verify the standard contexts on both targets, strict GCC C2x syntax, and
+    invalid-context diagnostics in `test-c23-maybe-unused-attribute`.
+    RCC currently has no general unused-entity warnings; the attribute's
+    warning suppression follows the standard's recommended practice.
+  - [x] Implement C23 `[[fallthrough]]` as a standalone attribute declaration.
+    Enforce the innermost-switch next-label and iteration-body constraints;
+    advertise `__has_c_attribute(fallthrough) == 202311L`; reject arguments,
+    non-declaration placement, and pre-C23 use. Gate both-target syntax and
+    constraint regressions and x64 host execution in
+    `test-c23-fallthrough-attribute`; the full `test-c23` and focused C++20
+    deprecated/nodiscard gates pass.
+  - [x] Implement C23 `[[reproducible]]` and `[[unsequenced]]` on function
+    declarators and function type specifiers. Preserve each property on the
+    function type, keep attributed/unattributed function types compatible, and
+    propagate properties from visible redeclarations to function definitions
+    and function-pointer objects. Reject arguments, non-function types, and
+    pre-C23 use; report `__has_c_attribute` value `202311L`. Verify function
+    typedefs, nested/array pointers, parameters, members, type-name parsing,
+    comma declarators, redeclarations, both target outputs, and x64 execution
+    in `test-c23-function-type-attributes`.
   - Progress: `deprecated` no longer has unsupported valid-position errors.
     GCC's current C2x frontend does not provide a tag-attribute diagnostic
     oracle, so RCC's struct/enum tag positions are directly covered by the
-    dual-target regression. The other listed standard attributes remain open.
+    dual-target regression. All standard C attributes are implemented and
+    covered by the `test-c23` gate; focused C++20 deprecated/nodiscard
+    regressions also pass.
 
 ## RCC continuation (2026-10-29, C23 bit-precise integers)
 
 - [x] Publish `BITINT_MAXWIDTH` as 64 and exercise signed/unsigned `_BitInt`
   types at 1/2/5/9/33/64-bit widths, including minimum/maximum values,
   conversion truncation, narrow unsigned wraparound, signed arithmetic,
-  `wb`/`uwb`/`WB`/`UWB` literals, and 64-bit literal boundaries.
+  `wb`/`uwb`/`WB`/`UWB` literals, and 64-bit literal boundaries. Clang 18
+  C2x compiled and executed the same semantic fixture after omitting only RCC's
+  implementation-specific `BITINT_MAXWIDTH == 64` assertion.
 - [x] Add `test-c23-bitint` to `test-c23` and `test-ci`. Verify i686/AMD64
   objects, x86_64 host execution, direct RIN plus RLD-linked RIN, and direct
   RLL/DRV output using `rinvalidate`; verify width diagnostics and C17/C++20
@@ -56,6 +83,8 @@
 - [x] Verify `_Generic` exact-type selection for bit-precise types and usual
   arithmetic conversions across narrower/equal/wider mixed ranks; exercise
   defined unsigned narrow-width left shifts including modulo wraparound.
+  Verify unary `+`, `-`, and `~` preserve narrow bit-precise types without
+  integer promotion and produce width-truncated signed/unsigned results.
 - [x] Verify variadic retrieval preserves bit-precise types: signed/unsigned
   `_BitInt(5)`, unsigned `_BitInt(33)`, and `_BitInt(64)` are read with their
   original types; execute on the x86_64 host and validate both targets' RIN/
@@ -69,6 +98,20 @@
   assertions/initializers/case labels and C++ constexpr switch/compound shifts.
   `test-c23-bitint` and `test-cxx-constexpr` pass for i686/AMD64 outputs and
   AMD64 host execution.
+- [x] Verify C23 integer-to-floating and floating-to-bit-precise-integer
+  conversions, including signed 9/33-bit values, unsigned 33/64-bit values,
+  truncation toward zero, mixed integer/floating arithmetic, and float/double
+  inputs immediately below and at 2^63 plus values near 2^64. Fix x86-64
+  legacy code generation for unsigned 64-bit integer-to-floating conversion
+  and floating-to-unsigned conversion by splitting the upper half before SSE
+  conversion. Fix i686 x87 floating-to-unsigned conversion by correcting its
+  half-range branch and restoring bit 63 in the high result word.
+  `test-c23-bitint-float-conversion` is part of `test-c23`/`test-ci`; it
+  compiles and assembles i686 output, compiles AMD64 legacy and verified
+  objects with zero fallback, and runs AMD64 output on the host. The generated
+  i686 code was also linked and executed under WSL and returned zero. The
+  installed GCC does not accept `_BitInt`; Clang 18 compiled and executed the
+  conversion fixture successfully as an independent oracle.
 - [ ] Audit remaining C23 bit-precise integer rules and contexts, especially
   promotions, conversions, invalid expressions, and overflow contexts.
 
@@ -7212,6 +7255,14 @@ remains a separate open item.
       operations/types beyond the scalar and fixed-size-pointer fetch-add
       subset, C++ class lifetime lowering, and cleanup/unwind/control-flow
       interactions remain open.
+  - [x] Lower supported scalar-width integer `_Atomic` VLA prefix/postfix increment/decrement,
+        `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, and `>>=` in
+        typed SSA. Implement RMW forms without a direct x86 operation as
+        compare-exchange retry loops; cover promoted signed 8/16-bit operands,
+        unsigned narrow-result truncation, chained bitwise updates, signed
+        division/remainder, and signed/unsigned shifts. Verify both scalar and
+        pointer-to-VLA functions emit with zero fallback for i686/AMD64 at
+        `-O0`/`-O2`; execute the x64 objects.
 
 ## RCC continuation (2026-10-20, typed-SSA multidimensional runtime-bound VLAs)
 
@@ -10453,6 +10504,11 @@ remains a separate open item.
       primary instantiations. Exact GCC Itanium symbols match; i686 and AMD64
       assembly, AMD64 execution, and missing/surplus template-head diagnostics
       pass in the focused class-template-owner target.
+- [x] Keep the explicit member-specialization lookahead's two-token history
+      current so a qualified member template-id is not classified as a free
+      function-template specialization. The non-template, class-template, and
+      nested-owner specialization gates pass on i686/AMD64 with GCC symbol
+      comparisons and AMD64 execution.
 - [x] Cover explicit member-template specialization through unary
       `operator~` syntax on a fully specialized class-template owner. The
       defaulted member-template parameter is selected through unary syntax;
@@ -11662,6 +11718,11 @@ remains a separate open item.
       argument types in `test-cxx-spaceship`; x86/x64 compilation, x64 runtime,
       related overload/class-template regressions, and a GCC C++20
       `-pedantic-errors` runtime oracle pass.
+- [x] Store the canonical namespace template in a class's hidden-friend ADL
+      list when a friend declaration redeclares an existing function template.
+      This prevents the same entity from entering overload resolution twice;
+      friend requires-expression and mismatch diagnostics pass for i686/AMD64,
+      with x64 execution and GCC C++20 syntax checks.
 - [x] Merge equivalent ordinary function-template declarations with their
       later definitions, including a template default added on the definition,
       so calls see one specialization rather than duplicate candidates. Extend
@@ -11672,6 +11733,14 @@ remains a separate open item.
 - [ ] Continue auditing ADL candidate identity and hidden-friend lookup across
       function-template redeclarations, specializations, and the remaining
       C++20 candidate-set and overload-conformance cases.
+- [x] Include built-in arithmetic candidates in C++20 relational and equality
+      resolution for class operands with implicit conversion functions. Rank
+      them together with direct and rewritten candidates, then materialize the
+      selected conversions. Cover class/class and class/scalar expressions in
+      both operand orders with `int`, `long`, and `double`, and reject ambiguous
+      `int`/`long` conversion sequences. `test-cxx-spaceship` passes i686/AMD64
+      generation and x64 execution; GCC 13.2 strict positive/negative oracles
+      agree.
 - [x] Parse namespace-scope explicit specializations of free function
       templates and attach each specialization to the selected primary by its
       explicit template-id and declared function type. Cover qualified
@@ -11727,3 +11796,20 @@ remains a separate open item.
       `CXX_REGRESSION_TARGETS`; verify it is reached by `test-cxx` and the
       Linux production `test-ci` workflow, and that native-Windows `test-cxx`
       includes the same gate.
+
+## RCC continuation (2026-10-29, volatile i686 wide division DWARF)
+
+- [x] Emit inline parameter values for signed and unsigned i686 64-bit variable
+      division and remainder over volatile global and block-scope static
+      operand pairs, including static TLS. Allow volatile reads only from
+      address-backed storage; atomic and volatile automatic operands remain
+      unsupported. Verify scoped/global/TLS relocations and signed/unsigned
+      boundary results in legacy and verified objects through
+      `test-debug-info-inline-expression`.
+- [x] Extend i686 inline division/remainder DWARF values to constant divisors
+      over volatile global and TLS sources. Cover signed `-7` and unsigned `7`
+      for both operations, verify relocation types/counts and full-width
+      results in legacy and verified objects through
+      `test-debug-info-inline-expression`.
+- [ ] Extend computed division/remainder expressions to broader operand trees
+      and atomic sources; expand optimized multi-piece location tracking.

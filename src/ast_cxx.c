@@ -5511,6 +5511,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
         field->initializer = f->initializer;
         field->is_deprecated = f->is_deprecated;
         field->deprecated_message = f->deprecated_message;
+        field->c23_is_maybe_unused = false;
         field->cxx_no_unique_address = use_no_unique_address;
         field->cxx_access = f->cxx_access;
         field->cxx_declaring_class = cls;
@@ -5552,6 +5553,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->initializer = base_field->initializer;
             field->is_deprecated = base_field->is_deprecated;
             field->deprecated_message = base_field->deprecated_message;
+            field->c23_is_maybe_unused =
+                base_field->c23_is_maybe_unused;
             field->cxx_no_unique_address = base_field->cxx_no_unique_address;
             field->cxx_access = access;
             field->cxx_declaring_class =
@@ -5635,6 +5638,8 @@ void cxx_class_compute_layout(CxxClass* cls) {
             field->initializer = base_field->initializer;
             field->is_deprecated = base_field->is_deprecated;
             field->deprecated_message = base_field->deprecated_message;
+            field->c23_is_maybe_unused =
+                base_field->c23_is_maybe_unused;
             field->cxx_no_unique_address = base_field->cxx_no_unique_address;
             field->cxx_access = access;
             field->cxx_declaring_class =
@@ -7925,15 +7930,15 @@ static void cxx_template_merge_default_arguments(CxxTemplate* target,
     }
 }
 
-void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
-    if (!ns || !tmpl) return;
+CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
+    if (!ns || !tmpl) return NULL;
     tmpl->ns = ns;
     if (tmpl->friend_access && tmpl->func_def &&
         !tmpl->func_def->func_body &&
         cxx_template_has_default_argument(tmpl)) {
         rcc_error(tmpl->func_def->loc,
                   "friend function template default arguments require a definition");
-        return;
+        return NULL;
     }
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* existing = ns->templates[index];
@@ -7945,7 +7950,7 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
             rcc_error(tmpl->func_def->loc,
                       "cannot add a default template argument to the first namespace declaration of hidden friend template '%s'",
                       tmpl->name ? tmpl->name : "<function template>");
-            return;
+            return NULL;
         }
         if ((existing->is_hidden_friend && existing->func_def &&
              existing->func_def->func_body &&
@@ -7955,13 +7960,13 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
              cxx_template_has_default_argument(tmpl))) {
             rcc_error(tmpl->func_def->loc,
                       "friend function template with a default template argument cannot be redeclared");
-            return;
+            return NULL;
         }
         if (cxx_template_redefines_default_argument(existing, tmpl)) {
             rcc_error(tmpl->func_def->loc,
                       "redefinition of default template argument for '%s'",
                       tmpl->name ? tmpl->name : "<function template>");
-            return;
+            return NULL;
         }
         bool had_friend_declaration = existing->friend_access != NULL;
         bool has_friend_declaration = tmpl->friend_access != NULL;
@@ -7977,7 +7982,7 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
         if (existing->func_def->func_body && tmpl->func_def->func_body) {
             rcc_error(tmpl->func_def->loc,
                       "redefinition of function template '%s'", tmpl->name);
-            return;
+            return NULL;
         }
         if (!existing->func_def->func_body && tmpl->func_def->func_body) {
             if (existing->instance_count != 0) {
@@ -7985,7 +7990,7 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
                           "function template '%s' is defined after an earlier "
                           "specialization was instantiated",
                           tmpl->name);
-                return;
+                return NULL;
             }
             cxx_template_merge_default_arguments(tmpl, existing);
             existing->func_def = tmpl->func_def;
@@ -7994,13 +7999,14 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
             existing->is_constexpr = tmpl->is_constexpr;
             existing->is_noexcept = tmpl->is_noexcept;
         }
-        return;
+        return existing;
     }
     tmpl->is_hidden_friend = tmpl->friend_access != NULL;
     ns->templates = ast_arena_grow(
         ns->templates, sizeof(CxxTemplate*) * (size_t)ns->template_count,
         sizeof(CxxTemplate*) * (size_t)(ns->template_count + 1));
     ns->templates[ns->template_count++] = tmpl;
+    return tmpl;
 }
 
 void cxx_namespace_add_using_namespace(CxxNamespace* ns, CxxNamespace* target) {
@@ -13109,6 +13115,13 @@ static Decl* template_clone_decl(CxxTemplate* tmpl, Decl* declaration,
         copy->var_init = template_clone_expr(
             tmpl, declaration->var_init, args, arg_count,
             value_args, value_present);
+        copy->var_reference_temporary_owner = NULL;
+        copy->var_reference_temporary_source = NULL;
+        copy->var_reference_temporary_alternate_type = NULL;
+        copy->var_reference_temporary_variant_offset = 0;
+        copy->var_reference_temporary_storage_size = 0;
+        copy->var_reference_temporary_storage_align = 0;
+        copy->var_reference_temporary_guard = NULL;
         copy->var_cleanup = NULL;
         copy->var_cleanups = NULL;
     }

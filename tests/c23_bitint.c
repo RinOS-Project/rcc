@@ -16,6 +16,23 @@
 #error "RCC must publish the supported C23 bit-precise integer width"
 #endif
 
+_Static_assert(_Generic(0WB, _BitInt(2): 1, default: 0),
+               "zero wb literals use the minimum signed bit-precise width");
+_Static_assert(_Generic(1WB, _BitInt(2): 1, default: 0) &&
+               _Generic(2WB, _BitInt(3): 1, default: 0) &&
+               _Generic(3WB, _BitInt(3): 1, default: 0),
+               "wb literal types use the smallest signed width");
+_Static_assert(_Generic(0UWB, unsigned _BitInt(1): 1, default: 0) &&
+               _Generic(1UWB, unsigned _BitInt(1): 1, default: 0) &&
+               _Generic(2UWB, unsigned _BitInt(2): 1, default: 0) &&
+               _Generic(3UWB, unsigned _BitInt(2): 1, default: 0),
+               "uwb literal types use the smallest unsigned width");
+_Static_assert(_Generic(9223372036854775807WB,
+                        _BitInt(64): 1, default: 0) &&
+               _Generic(18446744073709551615UWB,
+                        unsigned _BitInt(64): 1, default: 0),
+               "wb suffix literals cover their maximum supported widths");
+
 typedef unsigned _BitInt(1) u1;
 typedef _BitInt(2) s2;
 typedef signed _BitInt(5) s5;
@@ -130,5 +147,16 @@ int main(void)
     if (!check_bitint_varargs(23, (s5)-7, (u5)31,
                               ((u33)1 << 32) | (u33)17,
                               (u64)ULLONG_MAX)) return 11;
+    if (!_Generic(+(u1)1, u1: 1, default: 0) ||
+        !_Generic(-(u1)1, u1: 1, default: 0) ||
+        !_Generic(~(u1)0, u1: 1, default: 0) ||
+        -(u1)1 != 1u || ~(u1)0 != 1u || ~(u1)1 != 0u) return 16;
+    if (!_Generic(+(u5)1, u5: 1, default: 0) ||
+        !_Generic(-(u5)1, u5: 1, default: 0) ||
+        !_Generic(~(u5)1, u5: 1, default: 0) ||
+        -(u5)1 != 31u || ~(u5)0 != 31u || ~(u5)31 != 0u) return 17;
+    if (!_Generic(-(s5)1, s5: 1, default: 0) ||
+        !_Generic(~(s5)1, s5: 1, default: 0) ||
+        -(s5)-7 != 7 || ~(s5)1 != -2) return 18;
     return 0;
 }

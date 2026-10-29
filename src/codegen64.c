@@ -1718,6 +1718,64 @@ static void gen64_float_literal(Module* mod, const Expr* expression) {
     emit64_mov_reg_imm64(mod, RAX, bits);
 }
 
+static void gen64_integer_to_float(Module* mod, const Type* source_type,
+                                   int destination_width) {
+    int source_width = source_type->size >= 8 ? 8 : 4;
+    if (source_width == 8 && source_type->is_unsigned) {
+        int lower_half_label = new_label64();
+        int done_label = new_label64();
+        /* CVTSI2S* interprets a 64-bit source as signed.  Keep values below
+         * 2^63 on that fast path; for the upper half, convert ceil(value/2)
+         * and double the floating result to preserve rounding. */
+        emit64_test_reg_reg(mod, RAX, RAX);
+        emit64_jcc_label(mod, CC64_NS, lower_half_label);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_shr_reg_imm(mod, RCX, 1u);
+        emit64_mov_reg_imm64(mod, RDX, 1u);
+        emit64_and_reg_reg(mod, RAX, RDX);
+        emit64_or_reg_reg(mod, RCX, RAX);
+        emit64_int_to_sse(mod, 0, RCX, 8, destination_width);
+        emit64_sse_binary(mod, 0x58, 0, 0, destination_width);
+        emit64_jmp_label(mod, done_label);
+        emit64_label(mod, lower_half_label);
+        emit64_int_to_sse(mod, 0, RAX, 8, destination_width);
+        emit64_label(mod, done_label);
+        return;
+    }
+    emit64_int_to_sse(mod, 0, RAX, source_width, destination_width);
+}
+
+static void gen64_float_to_integer(Module* mod, const Type* source_type,
+                                   const Type* destination_type) {
+    int source_width = gen64_float_width(source_type);
+    int destination_width = destination_type->size >= 8 ? 8 : 4;
+    if (destination_width == 8 && destination_type->is_unsigned) {
+        int high_half_label = new_label64();
+        int done_label = new_label64();
+        uint64_t limit_bits = source_width == 4
+            ? UINT64_C(0x5f000000)
+            : UINT64_C(0x43e0000000000000);
+        emit64_mov_xmm_from_gpr(mod, 0, RAX, source_width);
+        emit64_mov_reg_imm64(mod, RDX, limit_bits);
+        emit64_mov_xmm_from_gpr(mod, 1, RDX, source_width);
+        emit64_sse_compare(mod, 0, 1, source_width);
+        emit64_jcc_label(mod, CC64_AE, high_half_label);
+        emit64_sse_to_int(mod, RAX, 0, source_width, 8);
+        emit64_jmp_label(mod, done_label);
+        emit64_label(mod, high_half_label);
+        /* The upper-half value is already integral at float/double precision.
+         * Subtract 2^63 to fit CVTT's signed range, then restore the high bit. */
+        emit64_sse_binary(mod, 0x5c, 0, 1, source_width);
+        emit64_sse_to_int(mod, RAX, 0, source_width, 8);
+        emit64_mov_reg_imm64(mod, RCX, UINT64_C(0x8000000000000000));
+        emit64_or_reg_reg(mod, RAX, RCX);
+        emit64_label(mod, done_label);
+        return;
+    }
+    emit64_mov_xmm_from_gpr(mod, 0, RAX, source_width);
+    emit64_sse_to_int(mod, RAX, 0, source_width, destination_width);
+}
+
 static void gen64_float_cast(Module* mod, Expr* expression) {
     Type* source_type = expression && expression->cast_expr
         ? expression->cast_expr->type : NULL;
@@ -1744,16 +1802,12 @@ static void gen64_float_cast(Module* mod, Expr* expression) {
             }
             return;
         }
-        source_width = source_type->size >= 8 ? 8 : 4;
-        emit64_int_to_sse(mod, 0, RAX, source_width, destination_width);
+        gen64_integer_to_float(mod, source_type, destination_width);
         emit64_mov_gpr_from_xmm(mod, RAX, 0, destination_width);
         return;
     }
     if (gen64_is_floating(source_type) && type_is_integer(destination_type)) {
-        source_width = gen64_float_width(source_type);
-        destination_width = destination_type->size >= 8 ? 8 : 4;
-        emit64_mov_xmm_from_gpr(mod, 0, RAX, source_width);
-        emit64_sse_to_int(mod, RAX, 0, source_width, destination_width);
+        gen64_float_to_integer(mod, source_type, destination_type);
         return;
     }
     /* Integer casts retain the existing raw integer representation. */
@@ -1782,8 +1836,7 @@ static void gen64_convert_to_float(Module* mod, Type* source_type,
         }
     } else if (type_is_integer(source_type) ||
                source_type->kind == TYPE_ENUM) {
-        source_width = source_type->size >= 8 ? 8 : 4;
-        emit64_int_to_sse(mod, 0, RAX, source_width, destination_width);
+        gen64_integer_to_float(mod, source_type, destination_width);
         converted = true;
     } else {
         return;
@@ -4656,6 +4709,16 @@ static void gen64_decl_storage_address(
     }
 }
 
+static void gen64_reference_temporary_owner_address(
+    Module* mod, Decl* owner) {
+    if (!owner) return;
+    if (owner->var_is_global || owner->var_is_thread_local) {
+        gen64_decl_storage_address(mod, owner);
+        return;
+    }
+    emit64_lea(mod, RAX, RBP, owner->var_offset);
+}
+
 static bool gen64_inline_method_address(Module* mod, Expr* expr);
 
 /* Generate lvalue address in RAX */
@@ -5715,6 +5778,8 @@ static CxxCleanupPlan* gen64_cxx_bind_constructor_cleanup_plan(
             constructor, item->expression, arguments);
         copy->body = gen64_cxx_bind_constructor_cleanup_plan(
             constructor, item->body, arguments);
+        copy->alternate_body = gen64_cxx_bind_constructor_cleanup_plan(
+            constructor, item->alternate_body, arguments);
         copy->next = NULL;
         *tail = copy;
         tail = &copy->next;
@@ -10681,6 +10746,13 @@ static bool gen64_cxx_cleanup_plan_registerable(
             if (!gen64_cxx_cleanup_plan_registerable(plan->body)) {
                 return false;
             }
+        } else if (plan->kind == CXX_CLEANUP_CONDITIONAL) {
+            if (!plan->expression ||
+                !gen64_cxx_cleanup_plan_registerable(plan->body) ||
+                !gen64_cxx_cleanup_plan_registerable(
+                    plan->alternate_body)) {
+                return false;
+            }
         } else {
             Expr* function = plan->expression &&
                     plan->expression->kind == EXPR_CALL
@@ -10743,6 +10815,27 @@ static void gen64_cxx_cleanup_plan_execute_reverse(
                 mod, item->body, unregister, frame_offset);
             emit64_jmp_label(mod, loop);
             emit64_label(mod, done);
+        } else if (item->kind == CXX_CLEANUP_CONDITIONAL) {
+            int then_label = new_label64();
+            int done_label = new_label64();
+            if (!item->expression) {
+                rcc_error((SourceLoc){"<conditional-cleanup>", 0, 0},
+                          "conditional C++ cleanup has no selector");
+                continue;
+            }
+            gen64_expr(mod, item->expression);
+            if (gen64_is_floating(item->expression->type)) {
+                gen64_float_truth(mod, item->expression);
+            }
+            emit64_test_reg_reg(mod, RAX, RAX);
+            emit64_jcc_label(mod, CC64_E, then_label);
+            gen64_cxx_cleanup_plan_execute_reverse(
+                mod, item->body, unregister, frame_offset);
+            emit64_jmp_label(mod, done_label);
+            emit64_label(mod, then_label);
+            gen64_cxx_cleanup_plan_execute_reverse(
+                mod, item->alternate_body, unregister, frame_offset);
+            emit64_label(mod, done_label);
         } else {
             if (unregister) {
                 CleanupCodegen64 cleanup = {0};
@@ -10792,6 +10885,27 @@ static void gen64_cxx_exception_register_plan_forward(
             emit64_mov_mem_reg(mod, RBP, plan->index_decl->var_offset, RAX);
             emit64_jmp_label(mod, loop);
             emit64_label(mod, done);
+        } else if (plan->kind == CXX_CLEANUP_CONDITIONAL) {
+            int then_label = new_label64();
+            int done_label = new_label64();
+            if (!plan->expression) {
+                rcc_error((SourceLoc){"<conditional-cleanup>", 0, 0},
+                          "conditional C++ cleanup has no selector");
+                continue;
+            }
+            gen64_expr(mod, plan->expression);
+            if (gen64_is_floating(plan->expression->type)) {
+                gen64_float_truth(mod, plan->expression);
+            }
+            emit64_test_reg_reg(mod, RAX, RAX);
+            emit64_jcc_label(mod, CC64_E, then_label);
+            gen64_cxx_exception_register_plan_forward(
+                mod, plan->body, frame_offset);
+            emit64_jmp_label(mod, done_label);
+            emit64_label(mod, then_label);
+            gen64_cxx_exception_register_plan_forward(
+                mod, plan->alternate_body, frame_offset);
+            emit64_label(mod, done_label);
         } else {
             CleanupCodegen64 cleanup = {0};
             cleanup.expression = plan->expression;
@@ -10837,6 +10951,27 @@ static void gen64_cxx_exception_unregister_plan_forward(
             emit64_mov_mem_reg(mod, RBP, plan->index_decl->var_offset, RAX);
             emit64_jmp_label(mod, loop);
             emit64_label(mod, done);
+        } else if (plan->kind == CXX_CLEANUP_CONDITIONAL) {
+            int then_label = new_label64();
+            int done_label = new_label64();
+            if (!plan->expression) {
+                rcc_error((SourceLoc){"<conditional-cleanup>", 0, 0},
+                          "conditional C++ cleanup has no selector");
+                return;
+            }
+            gen64_expr(mod, plan->expression);
+            if (gen64_is_floating(plan->expression->type)) {
+                gen64_float_truth(mod, plan->expression);
+            }
+            emit64_test_reg_reg(mod, RAX, RAX);
+            emit64_jcc_label(mod, CC64_E, then_label);
+            gen64_cxx_exception_unregister_plan_forward(
+                mod, plan->body, frame_offset);
+            emit64_jmp_label(mod, done_label);
+            emit64_label(mod, then_label);
+            gen64_cxx_exception_unregister_plan_forward(
+                mod, plan->alternate_body, frame_offset);
+            emit64_label(mod, done_label);
         } else {
             CleanupCodegen64 cleanup = {0};
             cleanup.expression = plan->expression;
@@ -11370,12 +11505,23 @@ static bool gen64_static_reference_aggregate_into_owner(
     }
     if (expression->kind == EXPR_COMPOUND) {
         if (expression->compound_constructor && type->cxx_class) {
-            gen64_decl_storage_address(mod, owner);
+            gen64_reference_temporary_owner_address(mod, owner);
             emit64_mov_reg_reg(mod, RCX, RAX);
             gen64_cxx_initialize_object(
                 mod, type, expression->compound_constructor,
                 expression->compound_value_init
                     ? NULL : expression->compound_init);
+            return true;
+        }
+        if (!owner->var_is_global && !owner->var_is_thread_local) {
+            gen64_zero_local_storage(mod, owner->var_offset,
+                                     (size_t)type->size);
+            if (!gen64_local_initializer(mod, type, expression,
+                                         owner->var_offset)) {
+                return false;
+            }
+            gen64_local_vtable_init(mod, type, RBP, owner->var_offset);
+            gen64_reference_temporary_owner_address(mod, owner);
             return true;
         }
         if (expression->compound_offset >= 0) {
@@ -11395,6 +11541,13 @@ static bool gen64_static_reference_aggregate_into_owner(
     } else if (expression->kind == EXPR_CALL &&
                gen64_is_aggregate(type) &&
                gen64_classify_aggregate(type).memory) {
+        if (!owner->var_is_global && !owner->var_is_thread_local) {
+            int result_offset = expression->call_result_offset;
+            expression->call_result_offset = owner->var_offset;
+            gen64_expr(mod, expression);
+            expression->call_result_offset = result_offset;
+            return true;
+        }
         Expr* old_call = active_static_reference_result_call64;
         const char* old_symbol = active_static_reference_result_symbol64;
         Decl* old_decl = active_static_reference_result_decl64;
@@ -11416,7 +11569,7 @@ static bool gen64_static_reference_aggregate_into_owner(
         }
     }
     emit64_mov_reg_reg(mod, RDX, RAX);
-    gen64_decl_storage_address(mod, owner);
+    gen64_reference_temporary_owner_address(mod, owner);
     emit64_mov_reg_reg(mod, RCX, RAX);
     gen64_copy_memory(mod, RCX, 0, RDX, 0, type->size);
     return true;
@@ -11513,10 +11666,136 @@ static void gen64_static_reference_owner_vtable_init(
     }
     /* Keep RBP as the live CFA base while initializing this static object. */
     emit64_push_reg(mod, RDI);
-    gen64_decl_storage_address(mod, owner);
+    gen64_reference_temporary_owner_address(mod, owner);
     emit64_mov_reg_reg(mod, RDI, RAX);
     gen64_local_vtable_init(mod, type, RDI, 0);
     emit64_pop_reg(mod, RDI);
+}
+
+static Expr* gen64_conditional_xvalue_complete_source(
+    Expr* expression, unsigned depth) {
+    Type* type;
+    if (!expression || depth >= 64u) return NULL;
+    type = expression->type;
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        (expression->kind == EXPR_CALL ||
+         expression->kind == EXPR_COMPOUND ||
+         expression->kind == EXPR_VA_ARG)) {
+        return expression;
+    }
+    if (expression->kind == EXPR_CAST && expression->cast_expr) {
+        Type* source_type = expression->cast_expr->type;
+        if (source_type && source_type->kind == TYPE_PTR &&
+            source_type->is_reference) {
+            source_type = source_type->base;
+        }
+        if (source_type &&
+            (source_type->kind == TYPE_STRUCT ||
+             source_type->kind == TYPE_UNION)) {
+            return gen64_conditional_xvalue_complete_source(
+                expression->cast_expr, depth + 1u);
+        }
+        if (expression->cast_type && expression->cast_type->is_reference &&
+            expression->cast_type->is_rvalue_reference) {
+            return gen64_conditional_xvalue_complete_source(
+                expression->cast_expr, depth + 1u);
+        }
+    }
+    if (expression->kind == EXPR_COMMA) {
+        return gen64_conditional_xvalue_complete_source(
+            expression->binary_rhs, depth + 1u);
+    }
+    if (expression->kind == EXPR_MEMBER &&
+        expression->cxx_member_xvalue) {
+        return gen64_conditional_xvalue_complete_source(
+            expression->member_base, depth + 1u);
+    }
+    if (expression->kind == EXPR_CXX_MEMBER_PTR_DOT &&
+        expression->cxx_member_xvalue) {
+        return gen64_conditional_xvalue_complete_source(
+            expression->binary_lhs, depth + 1u);
+    }
+    return NULL;
+}
+
+static void gen64_conditional_reference_temporary_store_tag(
+    Module* mod, Decl* owner, int tag) {
+    emit64_push_reg(mod, RAX);
+    gen64_reference_temporary_owner_address(mod, owner);
+    emit64_add_reg_imm(
+        mod, RAX, owner->var_reference_temporary_variant_offset);
+    emit64_mov_reg_reg(mod, RCX, RAX);
+    emit64_mov_reg_imm32(mod, RDX, (uint32_t)tag);
+    emit64_store_typed(mod, RCX, 0, RDX, type_int);
+    emit64_pop_reg(mod, RAX);
+}
+
+static bool gen64_conditional_reference_temporary_initializer(
+    Module* mod, Decl* declaration, Expr* conditional) {
+    Decl* owner = declaration
+        ? declaration->var_reference_temporary_owner : NULL;
+    Expr* arms[2];
+    Expr* sources[2];
+    Type* types[2];
+    int else_label;
+    int done_label;
+    if (!mod || !declaration || !owner || !conditional ||
+        conditional->kind != EXPR_COND ||
+        !conditional->cxx_conditional_xvalue ||
+        !owner->var_reference_temporary_alternate_type ||
+        owner->var_reference_temporary_variant_offset < 0) {
+        return false;
+    }
+    arms[0] = conditional->cond_then;
+    arms[1] = conditional->cond_else;
+    types[0] = owner->type;
+    types[1] = owner->var_reference_temporary_alternate_type;
+    sources[0] = gen64_conditional_xvalue_complete_source(arms[0], 0u);
+    sources[1] = gen64_conditional_xvalue_complete_source(arms[1], 0u);
+    for (size_t index = 0u; index < 2u; ++index) {
+        if (!sources[index] || !types[index] || types[index]->size <= 0 ||
+            (types[index]->kind != TYPE_STRUCT &&
+             types[index]->kind != TYPE_UNION) ||
+            !sources[index]->type ||
+            (sources[index]->type->kind != TYPE_STRUCT &&
+             sources[index]->type->kind != TYPE_UNION) ||
+            !type_is_compatible(types[index], sources[index]->type)) {
+            rcc_error(declaration->loc,
+                      "conditional reference temporary arm has no complete class source");
+            return false;
+        }
+    }
+    else_label = new_label64();
+    done_label = new_label64();
+    gen64_expr(mod, conditional->cond_test);
+    if (gen64_is_floating(conditional->cond_test->type)) {
+        gen64_float_truth(mod, conditional->cond_test);
+    }
+    emit64_test_reg_reg(mod, RAX, RAX);
+    emit64_jcc_label(mod, CC64_E, else_label);
+    if (!gen64_static_reference_aggregate_into_owner(
+            mod, declaration, sources[0], types[0])) {
+        return false;
+    }
+    gen64_static_reference_owner_vtable_init(mod, types[0], owner);
+    gen64_reference_temporary_owner_address(mod, owner);
+    gen64_cxx_reference_adjustment_force(mod, arms[0]);
+    gen64_conditional_reference_temporary_store_tag(mod, owner, 0);
+    emit64_jmp_label(mod, done_label);
+    emit64_label(mod, else_label);
+    if (!gen64_static_reference_aggregate_into_owner(
+            mod, declaration, sources[1], types[1])) {
+        return false;
+    }
+    gen64_static_reference_owner_vtable_init(mod, types[1], owner);
+    gen64_reference_temporary_owner_address(mod, owner);
+    gen64_cxx_reference_adjustment_force(mod, arms[1]);
+    gen64_conditional_reference_temporary_store_tag(mod, owner, 1);
+    emit64_label(mod, done_label);
+    return true;
 }
 
 static bool gen64_static_reference_temporary_initializer(
@@ -11527,11 +11806,18 @@ static bool gen64_static_reference_temporary_initializer(
     Expr* source = declaration
         ? declaration->var_reference_temporary_source : NULL;
     Type* type = owner ? owner->type : NULL;
+    bool conditional_variant = owner &&
+        owner->var_reference_temporary_alternate_type != NULL;
     if (!source) source = gen64_reference_temporary_source(initializer);
     if (!source) source = initializer;
     if (!mod || !declaration || !owner || !source || !type) return false;
 
-    if (gen64_is_aggregate(type) || type->kind == TYPE_ARRAY) {
+    if (conditional_variant) {
+        if (!gen64_conditional_reference_temporary_initializer(
+                mod, declaration, initializer)) {
+            return false;
+        }
+    } else if (gen64_is_aggregate(type) || type->kind == TYPE_ARRAY) {
         if (!gen64_static_reference_aggregate_into_owner(
                 mod, declaration, source, type)) {
             return false;
@@ -11550,7 +11836,9 @@ static bool gen64_static_reference_temporary_initializer(
         emit64_store_typed(mod, RCX, 0, RAX, type);
     }
 
-    gen64_static_reference_owner_vtable_init(mod, type, owner);
+    if (!conditional_variant) {
+        gen64_static_reference_owner_vtable_init(mod, type, owner);
+    }
 
     if (declaration->var_reference_temporary_source) {
         bool replaced = false;
@@ -11564,7 +11852,7 @@ static bool gen64_static_reference_temporary_initializer(
             return false;
         }
         gen64_lvalue(mod, subobject);
-    } else {
+    } else if (!conditional_variant) {
         gen64_decl_storage_address(mod, owner);
         gen64_cxx_reference_adjustment_force(mod, initializer);
     }
@@ -14239,6 +14527,21 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                                              (size_t)d->type->size);
                 }
                 if (d->var_init &&
+                    d->var_reference_temporary_offset < 0 &&
+                    d->var_reference_temporary_owner &&
+                    d->var_reference_temporary_owner
+                        ->var_reference_temporary_alternate_type) {
+                    if (!gen64_conditional_reference_temporary_initializer(
+                            mod, d, d->var_init)) {
+                        rcc_error(
+                            d->loc,
+                            "cannot initialize conditional reference temporary for '%s'",
+                            d->name);
+                    } else {
+                        emit64_store_typed(
+                            mod, RBP, d->var_offset, RAX, d->type);
+                    }
+                } else if (d->var_init &&
                     d->var_reference_temporary_offset < 0) {
                     Expr* temporary_source =
                         d->var_reference_temporary_source

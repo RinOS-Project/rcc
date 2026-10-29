@@ -654,7 +654,7 @@ CxxNamespace* cxx_namespace_for_decl_name(CxxNamespace* root,
                                            const char* qualified_name);
 const char* cxx_namespace_qualified_name(CxxNamespace* ns);
 void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl);
-void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl);
+CxxTemplate* cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl);
 bool cxx_function_template_friend_signature_matches(
     const CxxTemplate* candidate, const CxxTemplate* current,
     const char* function_name, Type* function_type,

@@ -10545,6 +10545,7 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
     if (relocations) {
         tls_relocations = *relocations;
         tls_relocations.allow_tls = true;
+        tls_relocations.allow_volatile = true;
         relocations = &tls_relocations;
     }
     if (!mod || !parameter_type || !source_expression || !expression ||
@@ -10578,7 +10579,9 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
          !(dividend->var_is_global || dividend->var_is_static_local)) ||
         dividend->var_is_vla ||
         !dividend->type ||
-        dividend->type->is_volatile || dividend->type->is_reference ||
+        (dividend->type->is_volatile &&
+         !(dividend->var_is_global || dividend->var_is_static_local)) ||
+        dividend->type->is_reference ||
         dividend->type->is_atomic ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
             dividend->type, parameter_type, 0u) ||
@@ -11016,6 +11019,7 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
     if (relocations) {
         tls_relocations = *relocations;
         tls_relocations.allow_tls = true;
+        tls_relocations.allow_volatile = true;
         relocations = &tls_relocations;
     }
     if (!mod || !parameter_type || !source_expression || !expression ||
@@ -11067,7 +11071,8 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
         (divisor->var_is_thread_local && !divisor_is_address_backed) ||
         dividend->var_is_vla || divisor->var_is_vla ||
         !dividend->type || !divisor->type ||
-        dividend->type->is_volatile || divisor->type->is_volatile ||
+        (dividend->type->is_volatile && !dividend_is_address_backed) ||
+        (divisor->type->is_volatile && !divisor_is_address_backed) ||
         dividend->type->is_reference || divisor->type->is_reference ||
         dividend->type->is_atomic || divisor->type->is_atomic ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(

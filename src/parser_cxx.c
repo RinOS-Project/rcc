@@ -12785,11 +12785,15 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                     rcc_error(peek()->loc,
                               "class friend template must declare a function template");
                 } else {
-                    cxx_class_record_hidden_friend_template(cls, tmpl);
-                    cxx_namespace_add_template(
-                        active_namespace ? active_namespace
-                                         : g_global_namespace,
-                        tmpl);
+                    CxxTemplate* registered_template =
+                        cxx_namespace_add_template(
+                            active_namespace ? active_namespace
+                                             : g_global_namespace,
+                            tmpl);
+                    if (registered_template) {
+                        cxx_class_record_hidden_friend_template(
+                            cls, registered_template);
+                    }
                 }
                 continue;
             }
@@ -18074,7 +18078,8 @@ static bool cxx_explicit_function_template_specialization_starts(void) {
         return false;
     }
     for (token = parser.cur; token && token->type != TOK_EOF;
-         previous_token = token, token = token->next) {
+         previous_previous = previous_token, previous_token = token,
+         token = token->next) {
         Token* after_template_id;
         if (token->type == TOK_SEMICOLON || token->type == TOK_LBRACE ||
             token->type == TOK_ASSIGN || token->type == TOK_RBRACE) {

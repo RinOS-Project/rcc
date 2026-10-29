@@ -203,6 +203,30 @@ debug_inline_nonconstant_unsigned_long_long_tls_dividend =
 thread_local unsigned long long
 debug_inline_nonconstant_unsigned_long_long_tls_divisor =
     0x8000000000000001ULL;
+volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_global_dividend =
+    -0x7123456789abcdefLL;
+volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_global_divisor =
+    -0x100000001LL;
+thread_local volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_dividend =
+    -0x7123456789abcdefLL;
+thread_local volatile long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_divisor =
+    -0x100000001LL;
+volatile unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_global_dividend =
+    0xfedcba9876543217ULL;
+volatile unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_global_divisor =
+    0x8000000000000001ULL;
+thread_local volatile unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_dividend =
+    0xfedcba9876543217ULL;
+thread_local volatile unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_divisor =
+    0x8000000000000001ULL;
 unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_shift_count_source = 4u;
 volatile unsigned long long
@@ -413,6 +437,150 @@ debug_inline_nonconstant_unsigned_long_long_tls_pair_remainder_entry(void)
     return debug_nonconstant_unsigned_long_long_parameter_inline(
         debug_inline_nonconstant_unsigned_long_long_tls_dividend %
         debug_inline_nonconstant_unsigned_long_long_tls_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_global_pair_divide_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_global_dividend /
+        debug_inline_nonconstant_signed_long_long_volatile_global_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_global_pair_remainder_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_global_dividend %
+        debug_inline_nonconstant_signed_long_long_volatile_global_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_pair_divide_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_tls_dividend /
+        debug_inline_nonconstant_signed_long_long_volatile_tls_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_pair_remainder_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_tls_dividend %
+        debug_inline_nonconstant_signed_long_long_volatile_tls_divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_global_pair_divide_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_global_dividend /
+        debug_inline_nonconstant_unsigned_long_long_volatile_global_divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_global_pair_remainder_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_global_dividend %
+        debug_inline_nonconstant_unsigned_long_long_volatile_global_divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_pair_divide_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_dividend /
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_pair_remainder_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_dividend %
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_global_constant_divide_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_global_dividend /
+        -7LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_global_constant_remainder_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_global_dividend %
+        -7LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_constant_divide_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_tls_dividend /
+        -7LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_tls_constant_remainder_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_tls_dividend %
+        -7LL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_global_constant_divide_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_global_dividend /
+        7ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_global_constant_remainder_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_global_dividend %
+        7ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_constant_divide_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_dividend /
+        7ULL);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_tls_constant_remainder_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_tls_dividend %
+        7ULL);
 }
 
 extern "C" unsigned long long
@@ -2062,6 +2230,96 @@ debug_inline_nonconstant_signed_long_long_static_constant_remainder_entry(void)
     static long long dividend = -0x7123456789abcdefLL;
     return debug_nonconstant_signed_long_long_parameter_inline(
         dividend % -7LL);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_static_pair_divide_entry(
+    void)
+{
+    static volatile long long dividend = -0x7123456789abcdefLL;
+    static volatile long long divisor = -0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend / divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_static_pair_remainder_entry(
+    void)
+{
+    static volatile long long dividend = -0x7123456789abcdefLL;
+    static volatile long long divisor = -0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend % divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_static_tls_pair_divide_entry(
+    void)
+{
+    static thread_local volatile long long dividend =
+        -0x7123456789abcdefLL;
+    static thread_local volatile long long divisor = -0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend / divisor);
+}
+
+extern "C" long long
+debug_inline_nonconstant_signed_long_long_volatile_static_tls_pair_remainder_entry(
+    void)
+{
+    static thread_local volatile long long dividend =
+        -0x7123456789abcdefLL;
+    static thread_local volatile long long divisor = -0x100000001LL;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        dividend % divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_static_pair_divide_entry(
+    void)
+{
+    static volatile unsigned long long dividend =
+        0xfedcba9876543217ULL;
+    static volatile unsigned long long divisor =
+        0x8000000000000001ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend / divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_static_pair_remainder_entry(
+    void)
+{
+    static volatile unsigned long long dividend =
+        0xfedcba9876543217ULL;
+    static volatile unsigned long long divisor =
+        0x8000000000000001ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend % divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_static_tls_pair_divide_entry(
+    void)
+{
+    static thread_local volatile unsigned long long dividend =
+        0xfedcba9876543217ULL;
+    static thread_local volatile unsigned long long divisor =
+        0x8000000000000001ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend / divisor);
+}
+
+extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_static_tls_pair_remainder_entry(
+    void)
+{
+    static thread_local volatile unsigned long long dividend =
+        0xfedcba9876543217ULL;
+    static thread_local volatile unsigned long long divisor =
+        0x8000000000000001ULL;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        dividend % divisor);
 }
 
 extern "C" long long

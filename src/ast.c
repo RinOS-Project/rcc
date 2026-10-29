@@ -649,6 +649,8 @@ bool type_is_compatible(Type* a, Type* b) {
                type_is_compatible(a->base, b->base);
     }
     if (a->kind == TYPE_FUNC) {
+        /* C23 function-type properties are compatible when either
+         * declaration omits them; sema merges visible properties separately. */
         /* C++ pointer-to-member function types retain the member function's
          * cv qualification on this function-type carrier. */
         if (a->is_const != b->is_const ||
@@ -1788,6 +1790,10 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_reference_temporary_offset = 0;
     d->var_reference_temporary_owner = NULL;
     d->var_reference_temporary_source = NULL;
+    d->var_reference_temporary_alternate_type = NULL;
+    d->var_reference_temporary_variant_offset = 0;
+    d->var_reference_temporary_storage_size = 0;
+    d->var_reference_temporary_storage_align = 0;
     d->var_reference_temporary_guard = NULL;
     d->var_dynamic_initializer = false;
     d->var_vla_size_offset = 0;

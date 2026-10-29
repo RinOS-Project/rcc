@@ -896,6 +896,10 @@ static long pp_c_attribute_value(const Preprocessor* pp,
     }
     if (strcmp(attribute, "nodiscard") == 0) return 202311L;
     if (strcmp(attribute, "deprecated") == 0) return 202311L;
+    if (strcmp(attribute, "maybe_unused") == 0) return 202311L;
+    if (strcmp(attribute, "fallthrough") == 0) return 202311L;
+    if (strcmp(attribute, "reproducible") == 0) return 202311L;
+    if (strcmp(attribute, "unsequenced") == 0) return 202311L;
     return 0;
 }
 

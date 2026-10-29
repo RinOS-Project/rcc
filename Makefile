@@ -571,7 +571,8 @@ endif
 -include $(wildcard $(OBJDIR)/*.d)
 
 .PHONY: all clean build-rcc build-rcxx build-rld build-rar test-cxx test-cxx-cli test-cxx-language-core test-cxx-multiple-inheritance-virtual test-cxx-secondary-virtual-override test-cxx-virtual-base test-cxx-destructor-body test-cxx-array-destructor test-cxx-constexpr test-cxx-constexpr-aggregate test-cxx-enum-class test-cxx-constraints test-cxx-new-array test-cxx-language-linkage test-cxx-member-specifiers test-cxx-member-methods test-cxx-function-templates test-cxx-function-template-explicit-specialization test-cxx-function-template-overloads test-cxx-function-template-references test-cxx-non-type-templates test-initializer-brace-elision test-initializer-mixed test-flexible-arrays test-floating-static-initializers test-floating-runtime-x64 test-floating-runtime-i686 test-numeric-literals test-vla-runtime test-vla-semantics test-static-locals test-block-extern test-tls-block-scope test-cxx-qualified-namespaces test-cxx-using test-cxx-overloads test-cxx-inline-aggregates test-cxx-parser-recovery test-cxx-exceptions test-cxx-object-exceptions test-tool-relative-includes test-preprocessor-continuation test-preprocessor-if test-preprocessor-operators test-preprocessor-va-opt test-atomic-builtins test-atomic-language test-x86-wide-scalar test-language-boundaries test-noreturn test-integer-literals test-integer-promotions test-integer-conversions test-function-calls test-inline-asm test-inline-asm-encoding test-inline-asm-ports test-intrin-header test-inline-asm-execute test-inline-asm-validation test-varargs test-scalar-comparisons test-aggregate-copy test-aggregate-returns test-aggregate-packed-abi test-compound-literals test-static-compound-address test-bootstrap-core test-bootstrap-link test-bootstrap-execute test-bootstrap-stage2 test-executable-imports test-pragma-pack test-bitfields test-cxx-bitfields test-compound-assignment test-switch-statement test-control-flow test-parser-recovery test-link test-archive-link test-static-assert test-manifest test-signing test-sanitize test-driver-policy test-weak-link test-comdat-link test-object-width test-special-sections test-direct-relocation test-format-validation test-global-initializers test-global-finalizers test-ir test-ir-lowering test-verified-backend test-verified-i686-floating-arithmetic test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-destructor test-optimize test-generic test-initializer-overrides test-alignof test-alignas test-tls test-pic-plt test-pic-got test-pic-tls test-pic-direct-internal test-golden-artifacts test-cxx-lambda-invalid test-cxx-lambda-init-capture-invalid test-cxx-spaceship test-cxx-final test-cxx-override test-cxx-empty-base test-cxx-no-unique-address
-.PHONY: print-host-cc test-c17 test-c23 test-c23-bitint test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c-utf8-string-literals test-c-utf16-utf32-string-literals test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
+.PHONY: print-host-cc test-c17 test-c23 test-c23-bitint test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c-utf8-string-literals test-c-utf16-utf32-string-literals test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
+.PHONY: test-c23-function-type-attributes
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-exception-cleanup-verified test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-member-methods-invalid
@@ -1189,8 +1190,8 @@ test-c-null-void-pointer-constant: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.ro)
 	@echo "C17 void-pointer null constant and C++ rejection tests completed"
 
-.PHONY: test-c23-bitint test-c23-embed
-test-c23: $(RCC_TARGET) test-c23-bitint test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute
+.PHONY: test-c23-bitint test-c23-bitint-float-conversion test-c23-embed
+test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes
 	@echo "RCC C23 _BitInt, nullptr, empty-initialization, typeof, attributes, and binary-resource regressions completed"
 
 test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
@@ -1262,6 +1263,40 @@ test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
 	$(GREP) -F -q '_BitInt requires C23 mode' $(TEST_OUT)/c23-bitint/cxx.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-bitint/cxx.ro)
 	@echo "C23 _BitInt storage, arithmetic, literal, ABI-format, and mode-boundary tests passed"
+
+test-c23-bitint-float-conversion: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-bitint-float-conversion)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -S \
+		-o $(TEST_OUT)/c23-bitint-float-conversion/x86.s \
+		tests/c23_bitint_float_conversion.c
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/c23-bitint-float-conversion/x86-host.o \
+		$(TEST_OUT)/c23-bitint-float-conversion/x86.s
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -c \
+		-o $(TEST_OUT)/c23-bitint-float-conversion/x86.ro \
+		tests/c23_bitint_float_conversion.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -c \
+		-o $(TEST_OUT)/c23-bitint-float-conversion/x64.ro \
+		tests/c23_bitint_float_conversion.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/c23-bitint-float-conversion/x64-verified.ro \
+		tests/c23_bitint_float_conversion.c \
+		>$(TEST_OUT)/c23-bitint-float-conversion/x64-verified.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/c23-bitint-float-conversion/x64-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/c23-bitint-float-conversion/x64-verified.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -S \
+		-o $(TEST_OUT)/c23-bitint-float-conversion/x64.s \
+		tests/c23_bitint_float_conversion.c
+	$(CC) -o $(TEST_OUT)/c23-bitint-float-conversion/x64-host \
+		$(TEST_OUT)/c23-bitint-float-conversion/x64.s
+	$(TEST_OUT)/c23-bitint-float-conversion/x64-host
+	@echo "C23 _BitInt floating-point conversions pass for both targets and x64 execution"
 
 .PHONY: test-c23-embed
 
@@ -1394,6 +1429,125 @@ test-c23-deprecated-attribute: $(RCC_TARGET)
 	$(GREP) -F -q 'C23 [[deprecated]] argument must be a string literal' \
 		$(TEST_OUT)/c23-deprecated-attribute/arguments.log
 	@echo "C23 deprecated function/object/enumerator/member/parameter/tag/typedef attributes and diagnostics tested"
+
+test-c23-maybe-unused-attribute: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-maybe-unused-attribute)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -S \
+		-o $(TEST_OUT)/c23-maybe-unused-attribute/x86.s \
+		tests/c23_attribute_maybe_unused.c \
+		>$(TEST_OUT)/c23-maybe-unused-attribute/x86.log 2>&1
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -S \
+		-o $(TEST_OUT)/c23-maybe-unused-attribute/x64.s \
+		tests/c23_attribute_maybe_unused.c \
+		>$(TEST_OUT)/c23-maybe-unused-attribute/x64.log 2>&1
+	$(CC) -std=c2x -Werror -pedantic-errors -fsyntax-only \
+		tests/c23_attribute_maybe_unused.c \
+		>$(TEST_OUT)/c23-maybe-unused-attribute/gcc.log 2>&1
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-std=c17 -c -o $(TEST_OUT)/c23-maybe-unused-attribute/c17.ro \
+		tests/invalid_c17_attribute_maybe_unused.c,\
+		$(TEST_OUT)/c23-maybe-unused-attribute/c17.log)
+	$(GREP) -F -q 'C23 [[maybe_unused]] requires -std=c23' \
+		$(TEST_OUT)/c23-maybe-unused-attribute/c17.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-std=c23 -c -o $(TEST_OUT)/c23-maybe-unused-attribute/arguments.ro \
+		tests/invalid_c23_attribute_maybe_unused_arguments.c,\
+		$(TEST_OUT)/c23-maybe-unused-attribute/arguments.log)
+	$(GREP) -F -q 'C23 [[maybe_unused]] does not accept arguments' \
+		$(TEST_OUT)/c23-maybe-unused-attribute/arguments.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-std=c23 -c -o $(TEST_OUT)/c23-maybe-unused-attribute/context.ro \
+		tests/invalid_c23_attribute_maybe_unused_context.c,\
+		$(TEST_OUT)/c23-maybe-unused-attribute/context.log)
+	$(GREP) -F -q 'C23 [[maybe_unused]] requires an object, function, typedef, tag, enumerator, member, or label declaration' \
+		$(TEST_OUT)/c23-maybe-unused-attribute/context.log
+	@echo "C23 maybe_unused declarations, labels, version, and constraints tested"
+
+test-c23-fallthrough-attribute: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-fallthrough-attribute)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -S \
+		-o $(TEST_OUT)/c23-fallthrough-attribute/x86.s \
+		tests/c23_attribute_fallthrough.c \
+		>$(TEST_OUT)/c23-fallthrough-attribute/x86.log 2>&1
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -S \
+		-o $(TEST_OUT)/c23-fallthrough-attribute/x64.s \
+		tests/c23_attribute_fallthrough.c \
+		>$(TEST_OUT)/c23-fallthrough-attribute/x64.log 2>&1
+	$(CC) -std=c2x -Wall -Wextra -Werror -pedantic-errors -fsyntax-only \
+		tests/c23_attribute_fallthrough.c \
+		>$(TEST_OUT)/c23-fallthrough-attribute/gcc.log 2>&1
+	$(CC) -o $(TEST_OUT)/c23-fallthrough-attribute/x64-host \
+		$(TEST_OUT)/c23-fallthrough-attribute/x64.s
+	$(TEST_OUT)/c23-fallthrough-attribute/x64-host
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-std=c17 -c -o $(TEST_OUT)/c23-fallthrough-attribute/c17.ro \
+		tests/invalid_c17_attribute_fallthrough.c,\
+		$(TEST_OUT)/c23-fallthrough-attribute/c17.log)
+	$(GREP) -F -q 'C23 [[fallthrough]] requires -std=c23' \
+		$(TEST_OUT)/c23-fallthrough-attribute/c17.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-std=c23 -c -o $(TEST_OUT)/c23-fallthrough-attribute/arguments.ro \
+		tests/invalid_c23_attribute_fallthrough_arguments.c,\
+		$(TEST_OUT)/c23-fallthrough-attribute/arguments.log)
+	$(GREP) -F -q 'C23 [[fallthrough]] does not accept arguments' \
+		$(TEST_OUT)/c23-fallthrough-attribute/arguments.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-std=c23 -c -o $(TEST_OUT)/c23-fallthrough-attribute/context.ro \
+		tests/invalid_c23_attribute_fallthrough_context.c,\
+		$(TEST_OUT)/c23-fallthrough-attribute/context.log)
+	$(GREP) -F -q 'C23 [[fallthrough]] requires an enclosing switch statement' \
+		$(TEST_OUT)/c23-fallthrough-attribute/context.log
+	$(GREP) -F -q 'the next block item after C23 [[fallthrough]] must be a case or default label of the innermost switch' \
+		$(TEST_OUT)/c23-fallthrough-attribute/context.log
+	$(GREP) -F -q 'the next block item after C23 [[fallthrough]] inside an iteration must be a case or default label in the same iteration body' \
+		$(TEST_OUT)/c23-fallthrough-attribute/context.log
+	$(GREP) -F -q 'C23 [[fallthrough]] must be a block item' \
+		$(TEST_OUT)/c23-fallthrough-attribute/context.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-fallthrough-attribute/c17.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-fallthrough-attribute/arguments.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-fallthrough-attribute/context.ro)
+	@echo "C23 fallthrough version, switch constraints, and iteration scope tested"
+
+test-c23-function-type-attributes: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-function-type-attributes)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c23 -S \
+		-o $(TEST_OUT)/c23-function-type-attributes/x86.s \
+		tests/c23_attribute_function_type.c \
+		>$(TEST_OUT)/c23-function-type-attributes/x86.log 2>&1
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c23 -S \
+		-o $(TEST_OUT)/c23-function-type-attributes/x64.s \
+		tests/c23_attribute_function_type.c \
+		>$(TEST_OUT)/c23-function-type-attributes/x64.log 2>&1
+	$(CC) -o $(TEST_OUT)/c23-function-type-attributes/x64-host \
+		$(TEST_OUT)/c23-function-type-attributes/x64.s
+	$(TEST_OUT)/c23-function-type-attributes/x64-host
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-std=c17 -c -o $(TEST_OUT)/c23-function-type-attributes/c17.ro \
+		tests/invalid_c17_attribute_function_type.c,\
+		$(TEST_OUT)/c23-function-type-attributes/c17.log)
+	$(GREP) -F -q 'C23 [[reproducible]] requires -std=c23' \
+		$(TEST_OUT)/c23-function-type-attributes/c17.log
+	$(GREP) -F -q 'C23 [[unsequenced]] requires -std=c23' \
+		$(TEST_OUT)/c23-function-type-attributes/c17.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-std=c23 -c -o $(TEST_OUT)/c23-function-type-attributes/arguments.ro \
+		tests/invalid_c23_attribute_function_type_arguments.c,\
+		$(TEST_OUT)/c23-function-type-attributes/arguments.log)
+	$(GREP) -F -q 'C23 [[reproducible]] does not accept arguments' \
+		$(TEST_OUT)/c23-function-type-attributes/arguments.log
+	$(GREP) -F -q 'C23 [[unsequenced]] does not accept arguments' \
+		$(TEST_OUT)/c23-function-type-attributes/arguments.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-std=c23 -c -o $(TEST_OUT)/c23-function-type-attributes/context.ro \
+		tests/invalid_c23_attribute_function_type_context.c,\
+		$(TEST_OUT)/c23-function-type-attributes/context.log)
+	$(GREP) -F -q 'C23 [[reproducible]] and [[unsequenced]] require a function type' \
+		$(TEST_OUT)/c23-function-type-attributes/context.log
+	$(call CHECK_COUNT,C23 [[reproducible]] and [[unsequenced]] require a function type,$(TEST_OUT)/c23-function-type-attributes/context.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-function-type-attributes/c17.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-function-type-attributes/arguments.ro)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-function-type-attributes/context.ro)
+	@echo "C23 reproducible/unsequenced function type attributes and constraints tested"
 
 test-c23-embed: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-embed)
@@ -8424,9 +8578,9 @@ endif
 		$(TEST_OUT)/cxx-template-template-invalid/x86.log
 	$(GREP) -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-invalid/x64.log
-	$(GREP) -q "function template-template argument does not match its parameter list" \
+	$(GREP) -q "explicit function-template template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-invalid/x86.log
-	$(GREP) -q "function template-template argument does not match its parameter list" \
+	$(GREP) -q "explicit function-template template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-invalid/x64.log
 	@echo "RCC++ template-template parameter diagnostics completed"
 
@@ -8906,6 +9060,14 @@ test-cxx-nonmember-operator-posix: $(RCXX_TARGET)
 
 test-cxx-spaceship-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-spaceship)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-builtin-comparison-conversions)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-builtin-comparison-conversions,cxx_builtin_comparison_conversions.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_builtin_comparison_conversions.cpp
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_builtin_comparison_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-builtin-comparison-conversions/gcc-ambiguous.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x86.ro tests/cxx_builtin_comparison_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x86.log)
+	$(GREP) -F -q "ambiguous C++20 relational operator candidates" $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x64.ro tests/cxx_builtin_comparison_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x64.log)
+	$(GREP) -F -q "ambiguous C++20 relational operator candidates" $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x64.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-spaceship/x86.s tests/cxx_spaceship.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-spaceship/x86.o \
@@ -9551,7 +9713,15 @@ test-cxx-nonmember-operator: $(RCXX_TARGET)
 
 test-cxx-spaceship: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-spaceship)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-builtin-comparison-conversions)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-spaceship,cxx_spaceship.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-builtin-comparison-conversions,cxx_builtin_comparison_conversions.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_builtin_comparison_conversions.cpp
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_builtin_comparison_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-builtin-comparison-conversions/gcc-ambiguous.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x86.ro tests/cxx_builtin_comparison_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x86.log)
+	$(GREP) -F -q "ambiguous C++20 relational operator candidates" $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x64.ro tests/cxx_builtin_comparison_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x64.log)
+	$(GREP) -F -q "ambiguous C++20 relational operator candidates" $(TEST_OUT)/cxx-builtin-comparison-conversions/ambiguous-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-spaceship/invalid-x86.ro tests/cxx_spaceship_invalid.cpp,$(TEST_OUT)/cxx-spaceship/invalid-x86.log)
 	$(GREP) -F -q "RinOS C++20 built-in <=> requires integral, enum, or compatible pointer operands" $(TEST_OUT)/cxx-spaceship/invalid-x86.log
 	$(GREP) -F -q "C++20 comparison rewriting requires an integer-returning operator<=> in the bounded RCC++ profile" $(TEST_OUT)/cxx-spaceship/invalid-x86.log
@@ -9855,9 +10025,11 @@ test-cxx-friend-function: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-compound-return)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-compound-return,cxx_friend_template_compound_return.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.ro tests/cxx_friend_template_compound_return_invalid.cpp,$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.log)
-	$(GREP) -F -q "ambiguous function template overload for 'compound_return_mismatch_friend'" $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.log
+	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.ro tests/cxx_friend_template_compound_return_invalid.cpp,$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.log)
-	$(GREP) -F -q "ambiguous function template overload for 'compound_return_mismatch_friend'" $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.log
+	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_compound_return_invalid.cpp,$(TEST_OUT)/cxx-friend-function/compound-return-invalid-gcc.log)
+	$(GREP) -F -q "is private within this context" $(TEST_OUT)/cxx-friend-function/compound-return-invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/default-friend-invalid-x86.ro tests/cxx_friend_template_default_friend_invalid.cpp,$(TEST_OUT)/cxx-friend-function/default-friend-invalid-x86.log)
 	$(GREP) -F -q "friend function template default arguments require a definition" $(TEST_OUT)/cxx-friend-function/default-friend-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/default-friend-invalid-x64.ro tests/cxx_friend_template_default_friend_invalid.cpp,$(TEST_OUT)/cxx-friend-function/default-friend-invalid-x64.log)
@@ -19631,30 +19803,30 @@ test-verified-atomic-vla-rmw: $(RCC_TARGET)
 		-o $(TEST_OUT)/verified-backend/atomic-vla-rmw-x86.ro \
 		tests/verified_backend_atomic_vla_rmw.c \
 		>$(TEST_OUT)/verified-backend/atomic-vla-rmw-x86.log
-	$(GREP) -F -q "Verified backend fallback: function 'main' is outside the typed SSA subset" \
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/atomic-vla-rmw-x86.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-vla-rmw-x86.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-vla-rmw-x86.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/atomic-vla-rmw-x86-o2.ro \
 		tests/verified_backend_atomic_vla_rmw.c \
 		>$(TEST_OUT)/verified-backend/atomic-vla-rmw-x86-o2.log
-	$(GREP) -F -q "Verified backend fallback: function 'main' is outside the typed SSA subset" \
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/atomic-vla-rmw-x86-o2.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-vla-rmw-x86-o2.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-vla-rmw-x86-o2.log,0)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/atomic-vla-rmw-x64.ro \
 		tests/verified_backend_atomic_vla_rmw.c \
 		>$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64.log
-	$(GREP) -F -q "Verified backend fallback: function 'main' is outside the typed SSA subset" \
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64.log,0)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/atomic-vla-rmw-x64-o2.ro \
 		tests/verified_backend_atomic_vla_rmw.c \
 		>$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64-o2.log
-	$(GREP) -F -q "Verified backend fallback: function 'main' is outside the typed SSA subset" \
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64-o2.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64-o2.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64-o2.log,0)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/atomic-vla-rmw-run \
 		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
@@ -19681,7 +19853,7 @@ test-verified-atomic-vla-rmw: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64.ro
 	$(TEST_OUT)/verified-backend/atomic-vla-rmw-run --entry \
 		$(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64-o2.ro
-	@echo "Verified atomic VLA legacy fallback RMW tests completed"
+	@echo "Verified atomic scalar RMW and pointer-to-VLA tests completed"
 
 test-verified-atomic-fetch-add: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
@@ -20054,6 +20226,86 @@ test-verified-volatile: $(RCC_TARGET)
 	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/volatile-cxx-x64.log
 	@echo "Verified backend volatile scalar access tests completed"
+
+.PHONY: test-verified-cxx-conditional-xvalue
+.PHONY: test-cxx-conditional-static-xvalue
+test-verified-cxx-conditional-xvalue: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) test-verified-cxx-reference-local test-cxx-conditional-static-xvalue
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x86-o0.ro \
+		tests/cxx_reference_conditional_different_derived.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x86-o0.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x86-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x86-o0.log,0)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x86-o2.ro \
+		tests/cxx_reference_conditional_different_derived.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x86-o2.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o0.ro \
+		tests/cxx_reference_conditional_different_derived.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o0.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o0.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o2.ro \
+		tests/cxx_reference_conditional_different_derived.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o2.log,0)
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x86-o0.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x86-o2.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o0.ro x64
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-conditional-xvalue-x64-o2.ro x64
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-xvalue-legacy)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conditional-xvalue-legacy/x86.s \
+		tests/cxx_reference_conditional_different_derived.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-conditional-xvalue-legacy/x86.o \
+		$(TEST_OUT)/cxx-conditional-xvalue-legacy/x86.s
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conditional-xvalue-legacy/x64.s \
+		tests/cxx_reference_conditional_different_derived.cpp
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-conditional-xvalue-legacy/x64-host \
+		$(TEST_OUT)/cxx-conditional-xvalue-legacy/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-conditional-xvalue-legacy/x64-host
+
+test-cxx-conditional-static-xvalue: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-static-xvalue)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-fsyntax-only tests/cxx_reference_conditional_static.cpp
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conditional-static-xvalue/x86.s \
+		tests/cxx_reference_conditional_static.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-conditional-static-xvalue/x86.o \
+		$(TEST_OUT)/cxx-conditional-static-xvalue/x86.s
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-conditional-static-xvalue/x64.s \
+		tests/cxx_reference_conditional_static.cpp
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-conditional-static-xvalue/x64-host \
+		$(TEST_OUT)/cxx-conditional-static-xvalue/x64.s \
+		$(CXX_HOST_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(TEST_OUT)/cxx-conditional-static-xvalue/x64-host
 
 test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
@@ -21039,7 +21291,7 @@ endif
 	$(TEST_OUT)/verified-cxx-static-local-scalar/native-x64-o2-host
 	@echo "C++ dynamic function-static scalar initialization tests completed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) $(VERIFIED_BACKEND_X86_RUNTIME_DEPS) test-rinvalidate-dynamic-tls test-verified-goto test-verified-atomic-vla-rmw test-verified-atomic-fetch-add test-verified-vla-local-bound test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-partial-array-init test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested test-verified-sysv-sse-pair-return test-verified-cxx-static-local-scalar
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME) $(VERIFIED_BACKEND_X86_RUNTIME_DEPS) test-rinvalidate-dynamic-tls test-verified-goto test-verified-atomic-vla-rmw test-verified-atomic-fetch-add test-verified-vla-local-bound test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-conditional-xvalue test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-partial-array-init test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested test-verified-sysv-sse-pair-return test-verified-cxx-static-local-scalar
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \

@@ -165,6 +165,7 @@ typedef struct {
     RccIrValue aggregate_return_address;
     const Expr* aggregate_result_destination_expression;
     RccIrLowerValue aggregate_result_destination;
+    const Decl* conditional_xvalue_owner;
     RccIrValue active_exception_frame;
     RccIrValue wide_phi_zero;
     /* While a local C++ object is being initialized, successfully completed
@@ -822,6 +823,55 @@ static bool lower_mark_wide_local_address_escaped(
     local->wide_ssa_block = NULL;
     local->wide_ssa_address_escaped = true;
     return true;
+}
+
+static const Expr* lower_conditional_xvalue_complete_source(
+    const Expr* expression, unsigned depth) {
+    const Type* type;
+    if (!expression || depth >= 64u) return NULL;
+    type = expression->type;
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        (expression->kind == EXPR_CALL ||
+         expression->kind == EXPR_COMPOUND ||
+         expression->kind == EXPR_VA_ARG)) {
+        return expression;
+    }
+    if (expression->kind == EXPR_CAST && expression->cast_expr) {
+        const Type* source_type = expression->cast_expr->type;
+        if (source_type && source_type->kind == TYPE_PTR &&
+            source_type->is_reference) {
+            source_type = source_type->base;
+        }
+        if (source_type &&
+            (source_type->kind == TYPE_STRUCT ||
+             source_type->kind == TYPE_UNION)) {
+            return lower_conditional_xvalue_complete_source(
+                expression->cast_expr, depth + 1u);
+        }
+        if (expression->cast_type && expression->cast_type->is_reference &&
+            expression->cast_type->is_rvalue_reference) {
+            return lower_conditional_xvalue_complete_source(
+                expression->cast_expr, depth + 1u);
+        }
+    }
+    if (expression->kind == EXPR_COMMA) {
+        return lower_conditional_xvalue_complete_source(
+            expression->binary_rhs, depth + 1u);
+    }
+    if (expression->kind == EXPR_MEMBER &&
+        expression->cxx_member_xvalue) {
+        return lower_conditional_xvalue_complete_source(
+            expression->member_base, depth + 1u);
+    }
+    if (expression->kind == EXPR_CXX_MEMBER_PTR_DOT &&
+        expression->cxx_member_xvalue) {
+        return lower_conditional_xvalue_complete_source(
+            expression->binary_lhs, depth + 1u);
+    }
+    return NULL;
 }
 
 static RccIrLowerLabel* lower_find_label_statement(
@@ -2630,6 +2680,12 @@ static RccIrLowerValue lower_lvalue_address_impl(
             (cast_source->type->kind == TYPE_STRUCT ||
              cast_source->type->kind == TYPE_UNION) &&
             !cast_source->type->is_reference) {
+            address = lower_expression(context, cast_source);
+        } else if (cast_source &&
+                   context->aggregate_result_destination_expression &&
+                   lower_conditional_xvalue_complete_source(
+                       cast_source, 0u) ==
+                       context->aggregate_result_destination_expression) {
             address = lower_expression(context, cast_source);
         } else {
             address = lower_lvalue_address(context, cast_source);
@@ -7556,6 +7612,159 @@ static ExprKind lower_compound_binary_kind(ExprKind kind) {
     }
 }
 
+static RccIrLowerValue lower_atomic_integer_compound_assignment(
+    RccIrLowerContext* context, const Expr* expression,
+    ExprKind binary_kind) {
+    Type* object_type = expression && expression->binary_lhs
+        ? expression->binary_lhs->type : NULL;
+    Type* operation_type;
+    RccIrType atomic_type;
+    RccIrType operation_ir_type;
+    RccIrOpcode opcode;
+    RccIrLowerValue address;
+    RccIrLowerValue right;
+    RccIrLowerValue operation_left;
+    RccIrLowerValue operation_right;
+    RccIrLowerValue desired;
+    RccIrLowerValue result;
+    RccIrBlock* entry;
+    RccIrBlock* loop;
+    RccIrBlock* done;
+    RccIrValue phi_operands[2];
+    RccIrBlockId phi_targets[2];
+    RccIrValue binary_operands[2];
+    RccIrValue compare_exchange_operands[3];
+    RccIrValue compare_operands[2];
+    RccIrInstruction* initial_load;
+    RccIrInstruction* current_phi;
+    RccIrInstruction* product;
+    RccIrInstruction* compare_exchange;
+    RccIrInstruction* compare;
+
+    /* Evaluate the object address and RHS once, then recompute from the value
+     * returned by each failed CAS. This keeps compound assignment atomic even
+     * when another thread updates the object during the operation. */
+    if (!context || !object_type ||
+        (!type_is_integer(object_type) &&
+         object_type->kind != TYPE_ENUM) ||
+        object_type->is_bit_precise ||
+        !expression->binary_rhs || !expression->binary_rhs->type ||
+        !expression->type ||
+        !lower_type(object_type, &atomic_type) ||
+        atomic_type.kind != RCC_IR_TYPE_INTEGER ||
+        (atomic_type.bit_width != 8u && atomic_type.bit_width != 16u &&
+         atomic_type.bit_width != 32u &&
+         (atomic_type.bit_width != 64u || g_opts.target_arch != ARCH_X64))) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operation_type = binary_kind == EXPR_LSHIFT || binary_kind == EXPR_RSHIFT
+        ? type_common(object_type, type_int)
+        : type_common(object_type, expression->binary_rhs->type);
+    if (!operation_type ||
+        (!type_is_integer(operation_type) &&
+         operation_type->kind != TYPE_ENUM) ||
+        operation_type->is_bit_precise ||
+        !lower_type(operation_type, &operation_ir_type) ||
+        operation_ir_type.kind != RCC_IR_TYPE_INTEGER ||
+        (operation_ir_type.bit_width != 8u &&
+         operation_ir_type.bit_width != 16u &&
+         operation_ir_type.bit_width != 32u &&
+         (operation_ir_type.bit_width != 64u ||
+          g_opts.target_arch != ARCH_X64))) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    address = lower_lvalue_address(context, expression->binary_lhs);
+    right = lower_expression(context, expression->binary_rhs);
+    if (!address.valid || address.type.kind != RCC_IR_TYPE_POINTER ||
+        !right.valid || right.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    right = lower_cast(context, right, operation_type);
+    if (!right.valid ||
+        !rcc_ir_type_equal(right.type, operation_ir_type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    entry = context->current;
+    loop = rcc_ir_block_add(context->function, "atomic.compound.loop");
+    done = rcc_ir_block_add(context->function, "atomic.compound.done");
+    if (!entry || !loop || !done) return lower_invalid_value();
+    initial_load = lower_append(
+        context, RCC_IR_LOAD, atomic_type, &address.value, 1u, NULL, 0u);
+    if (!initial_load) return lower_invalid_value();
+    rcc_ir_set_volatile_access(initial_load, true);
+    if (!lower_branch(context, loop->id)) return lower_invalid_value();
+
+    context->current = loop;
+    context->terminated = false;
+    phi_operands[0] = initial_load->result;
+    phi_operands[1] = RCC_IR_VALUE_NONE;
+    phi_targets[0] = entry->id;
+    phi_targets[1] = loop->id;
+    current_phi = lower_append(
+        context, RCC_IR_PHI, atomic_type, phi_operands, 2u,
+        phi_targets, 2u);
+    if (!current_phi) return lower_invalid_value();
+    operation_left = lower_cast(
+        context,
+        lower_value(current_phi->result, atomic_type,
+                    object_type->is_unsigned),
+        operation_type);
+    operation_right = right;
+    if (!operation_left.valid) return lower_invalid_value();
+    binary_operands[0] = operation_left.value;
+    binary_operands[1] = operation_right.value;
+    opcode = lower_binary_opcode(binary_kind, operation_type->is_unsigned);
+    if (opcode == RCC_IR_UNREACHABLE) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    product = lower_append(
+        context, opcode, operation_ir_type,
+        binary_operands, 2u, NULL, 0u);
+    if (!product) return lower_invalid_value();
+    desired = lower_cast(
+        context,
+        lower_value(product->result, operation_ir_type,
+                    operation_type->is_unsigned),
+        object_type);
+    if (!desired.valid || !rcc_ir_type_equal(desired.type, atomic_type)) {
+        return lower_invalid_value();
+    }
+    compare_exchange_operands[0] = address.value;
+    compare_exchange_operands[1] = current_phi->result;
+    compare_exchange_operands[2] = desired.value;
+    compare_exchange = lower_append(
+        context, RCC_IR_ATOMIC_COMPARE_EXCHANGE, atomic_type,
+        compare_exchange_operands, 3u, NULL, 0u);
+    if (!compare_exchange) return lower_invalid_value();
+    current_phi->operands[1] = compare_exchange->result;
+    compare_operands[0] = compare_exchange->result;
+    compare_operands[1] = current_phi->result;
+    compare = lower_append(
+        context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+        compare_operands, 2u, NULL, 0u);
+    if (!compare) return lower_invalid_value();
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_EQ);
+    if (!lower_conditional_branch(
+            context, lower_value(compare->result,
+                                 rcc_ir_type_integer(1u), true),
+            done->id, loop->id)) {
+        return lower_invalid_value();
+    }
+
+    context->current = done;
+    context->terminated = false;
+    result = lower_value(desired.value, atomic_type,
+                         object_type->is_unsigned);
+    return lower_cast(context, result, expression->type);
+}
+
 static RccIrLowerValue lower_compound_assignment(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerValue address;
@@ -7617,6 +7826,18 @@ static RccIrLowerValue lower_compound_assignment(
     }
     if (expression->binary_lhs->type->is_atomic) {
         RccIrType atomic_type;
+        if ((expression->kind == EXPR_MUL_ASSIGN ||
+             expression->kind == EXPR_DIV_ASSIGN ||
+             expression->kind == EXPR_MOD_ASSIGN ||
+             expression->kind == EXPR_AND_ASSIGN ||
+             expression->kind == EXPR_OR_ASSIGN ||
+             expression->kind == EXPR_XOR_ASSIGN ||
+             expression->kind == EXPR_LSHIFT_ASSIGN ||
+             expression->kind == EXPR_RSHIFT_ASSIGN) &&
+            expression->binary_lhs->type->kind != TYPE_PTR) {
+            return lower_atomic_integer_compound_assignment(
+                context, expression, binary_kind);
+        }
         if (expression->binary_lhs->type->kind == TYPE_PTR) {
             RccIrLowerValue delta;
             RccIrLowerValue old_pointer;
@@ -8909,6 +9130,29 @@ static bool lower_temporary_cleanup_plan_list_supported(
             }
             continue;
         }
+        if (plan->kind == CXX_CLEANUP_CONDITIONAL) {
+            const Type* condition_type = plan->expression
+                ? plan->expression->type : NULL;
+            if (!condition_type ||
+                (!plan->body && !plan->alternate_body) ||
+                (condition_type->kind != TYPE_BOOL &&
+                 condition_type->kind != TYPE_INT &&
+                 condition_type->kind != TYPE_ENUM &&
+                 condition_type->kind != TYPE_PTR)) {
+                return false;
+            }
+            if ((plan->body &&
+                 !lower_temporary_cleanup_plan_list_supported(
+                     plan->body, owner, array_indices,
+                     array_index_count, allow_throwing_destructors)) ||
+                (plan->alternate_body &&
+                 !lower_temporary_cleanup_plan_list_supported(
+                     plan->alternate_body, owner, array_indices,
+                     array_index_count, allow_throwing_destructors))) {
+                return false;
+            }
+            continue;
+        }
         if (plan->kind == CXX_CLEANUP_EXPRESSION) {
             const Expr* cleanup = plan->expression;
             const Expr* function = cleanup && cleanup->kind == EXPR_CALL
@@ -9164,6 +9408,16 @@ static bool lower_scope_cleanup_declaration_supported(
         ? declaration->var_reference_temporary_owner : NULL;
     const Expr* reference_source = declaration
         ? declaration->var_reference_temporary_source : NULL;
+    bool conditional_reference_temporary = reference_owner &&
+        reference_owner->var_reference_temporary_alternate_type &&
+        declaration && declaration->var_reference_temporary_alternate_type &&
+        declaration->var_init && declaration->var_init->kind == EXPR_COND &&
+        declaration->var_init->cxx_conditional_xvalue &&
+        declaration->var_reference_temporary_variant_offset >= 0 &&
+        reference_owner->var_reference_temporary_storage_size > 0;
+    bool storage_supported;
+    bool initializer_supported;
+    bool cleanups_supported;
     bool reference_temporary = declaration && declaration->type &&
         declaration->type->kind == TYPE_PTR &&
         declaration->type->is_reference &&
@@ -9171,25 +9425,26 @@ static bool lower_scope_cleanup_declaration_supported(
         (reference_owner->type->kind == TYPE_STRUCT ||
          reference_owner->type->kind == TYPE_UNION) &&
         declaration->type->base &&
-        (reference_source
-             ? (reference_source->type &&
-                (reference_source->type->kind == TYPE_STRUCT ||
-                 reference_source->type->kind == TYPE_UNION) &&
-                type_is_compatible(reference_source->type,
-                                   reference_owner->type) &&
-                type_is_compatible(reference_owner->type,
-                                   reference_source->type))
-             : ((type_is_compatible(declaration->type->base,
+        (conditional_reference_temporary ||
+         (reference_source
+              ? (reference_source->type &&
+                 (reference_source->type->kind == TYPE_STRUCT ||
+                  reference_source->type->kind == TYPE_UNION) &&
+                 type_is_compatible(reference_source->type,
                                     reference_owner->type) &&
                  type_is_compatible(reference_owner->type,
-                                    declaration->type->base)) ||
-                (declaration->var_init && declaration->var_init->type &&
-                 (declaration->var_init->type->kind == TYPE_STRUCT ||
-                  declaration->var_init->type->kind == TYPE_UNION) &&
-                 type_is_compatible(declaration->var_init->type,
-                                    reference_owner->type) &&
-                 type_is_compatible(reference_owner->type,
-                                    declaration->var_init->type)))) &&
+                                    reference_source->type))
+              : ((type_is_compatible(declaration->type->base,
+                                     reference_owner->type) &&
+                  type_is_compatible(reference_owner->type,
+                                     declaration->type->base)) ||
+                 (declaration->var_init && declaration->var_init->type &&
+                  (declaration->var_init->type->kind == TYPE_STRUCT ||
+                   declaration->var_init->type->kind == TYPE_UNION) &&
+                  type_is_compatible(declaration->var_init->type,
+                                     reference_owner->type) &&
+                  type_is_compatible(reference_owner->type,
+                                     declaration->var_init->type))))) &&
         !declaration->var_is_global &&
         !declaration->var_is_static_local &&
         !declaration->var_is_thread_local &&
@@ -9208,19 +9463,21 @@ static bool lower_scope_cleanup_declaration_supported(
     if (reference_temporary) {
         cleanup_owner = declaration->var_reference_temporary_owner;
     }
-    if (!lower_storage_type_supported_internal(cleanup_owner->type, 0u) ||
-        (!lower_cleanup_initializer_supported(declaration->var_init) &&
-         (!reference_temporary ||
-          !cleanup_owner->type->cxx_nontrivial ||
-          !lower_nontrivial_temporary_conditional_arm_supported(
-              declaration->var_init, cleanup_owner->type)))) {
+    storage_supported = lower_storage_type_supported_internal(
+        cleanup_owner->type, 0u);
+    initializer_supported =
+        lower_cleanup_initializer_supported(declaration->var_init) ||
+        conditional_reference_temporary ||
+        (reference_temporary && cleanup_owner->type->cxx_nontrivial &&
+         lower_nontrivial_temporary_conditional_arm_supported(
+             declaration->var_init, cleanup_owner->type));
+    cleanups_supported = lower_temporary_cleanup_plan_list_supported(
+        declaration->var_cleanups, cleanup_owner,
+        array_indices, 0u, true);
+    if (!storage_supported || !initializer_supported) {
         return false;
     }
-    if (!lower_temporary_cleanup_plan_list_supported(
-            declaration->var_cleanups, cleanup_owner,
-            array_indices, 0u, true)) {
-        return false;
-    }
+    if (!cleanups_supported) return false;
     return true;
 }
 
@@ -9466,17 +9723,25 @@ static bool lower_bind_temporary_owner(RccIrLowerContext* context,
 static RccIrLowerValue lower_allocate_temporary_owner_storage(
     RccIrLowerContext* context, const Decl* owner) {
     RccIrInstruction* allocation;
+    int storage_size;
+    int storage_align;
     if (!context || !owner || !owner->type || owner->type->size <= 0 ||
         owner->type->align <= 0 || lower_find_local(context, owner)) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
+    storage_size = owner->var_reference_temporary_storage_size >
+            owner->type->size
+        ? owner->var_reference_temporary_storage_size : owner->type->size;
+    storage_align = owner->var_reference_temporary_storage_align >
+            owner->type->align
+        ? owner->var_reference_temporary_storage_align : owner->type->align;
     allocation = lower_append(context, RCC_IR_ALLOCA,
                               rcc_ir_type_pointer(0u), NULL, 0u,
                               NULL, 0u);
     if (!allocation) return lower_invalid_value();
-    rcc_ir_set_immediate(allocation, (uint64_t)owner->type->size);
-    allocation->alignment = (uint32_t)owner->type->align;
+    rcc_ir_set_immediate(allocation, (uint64_t)storage_size);
+    allocation->alignment = (uint32_t)storage_align;
     allocation->source_declaration = owner;
     if (!lower_add_local(context, owner, allocation->result,
                          rcc_ir_type_pointer(0u))) {
@@ -9693,6 +9958,45 @@ static bool lower_emit_temporary_cleanup_action(
         return lower_emit_temporary_cleanup_array_loop(
             context, action, unregister_current_frame);
     }
+    if (action->kind == CXX_CLEANUP_CONDITIONAL) {
+        RccIrLowerValue condition = lower_expression(
+            context, action->expression);
+        RccIrBlock* then_block = rcc_ir_block_add(
+            context->function, "temporary.cleanup.select");
+        RccIrBlock* else_block = rcc_ir_block_add(
+            context->function, "temporary.cleanup.skip");
+        RccIrBlock* merge_block = rcc_ir_block_add(
+            context->function, "temporary.cleanup.end");
+        if (!condition.valid || !then_block || !else_block || !merge_block ||
+            !lower_conditional_branch(context, condition, then_block->id,
+                                      else_block->id)) {
+            return false;
+        }
+        context->current = then_block;
+        context->terminated = false;
+        if (action->body &&
+            !lower_emit_temporary_cleanup_plan_list(
+                context, action->body, unregister_current_frame)) {
+            return false;
+        }
+        if (context->terminated || !lower_branch(context, merge_block->id)) {
+            return false;
+        }
+        context->current = else_block;
+        context->terminated = false;
+        if (action->alternate_body &&
+            !lower_emit_temporary_cleanup_plan_list(
+                context, action->alternate_body,
+                unregister_current_frame)) {
+            return false;
+        }
+        if (context->terminated || !lower_branch(context, merge_block->id)) {
+            return false;
+        }
+        context->current = merge_block;
+        context->terminated = false;
+        return true;
+    }
     if (action->kind == CXX_CLEANUP_EXPRESSION) {
         if (unregister_current_frame &&
             !lower_change_current_exception_cleanup(
@@ -9743,6 +10047,16 @@ static bool lower_emit_temporary_cleanup_plan_list(
 static bool lower_prepare_scope_cleanup_plan(
     RccIrLowerContext* context, const CxxCleanupPlan* plan) {
     for (const CxxCleanupPlan* item = plan; item; item = item->next) {
+        if (item->kind == CXX_CLEANUP_CONDITIONAL) {
+            if ((item->body &&
+                 !lower_prepare_scope_cleanup_plan(context, item->body)) ||
+                (item->alternate_body &&
+                 !lower_prepare_scope_cleanup_plan(
+                     context, item->alternate_body))) {
+                return false;
+            }
+            continue;
+        }
         if (item->kind != CXX_CLEANUP_ARRAY_LOOP) continue;
         RccIrLowerLocal* index_local = lower_find_local(
             context, item->index_decl);
@@ -9879,6 +10193,42 @@ static bool lower_change_current_cleanup_plan(
                     context, plan, register_cleanup)) {
                 return false;
             }
+        } else if (plan->kind == CXX_CLEANUP_CONDITIONAL) {
+            RccIrLowerValue condition = lower_expression(
+                context, plan->expression);
+            RccIrBlock* then_block = rcc_ir_block_add(
+                context->function, "exception.cleanup.select");
+            RccIrBlock* else_block = rcc_ir_block_add(
+                context->function, "exception.cleanup.skip");
+            RccIrBlock* merge_block = rcc_ir_block_add(
+                context->function, "exception.cleanup.register.end");
+            if (!condition.valid || !then_block || !else_block ||
+                !merge_block ||
+                !lower_conditional_branch(context, condition,
+                                          then_block->id,
+                                          else_block->id)) {
+                return false;
+            }
+            context->current = then_block;
+            context->terminated = false;
+            if ((plan->body &&
+                 !lower_change_current_cleanup_plan(
+                     context, plan->body, register_cleanup)) ||
+                context->terminated ||
+                !lower_branch(context, merge_block->id)) {
+                return false;
+            }
+            context->current = else_block;
+            context->terminated = false;
+            if ((plan->alternate_body &&
+                 !lower_change_current_cleanup_plan(
+                     context, plan->alternate_body, register_cleanup)) ||
+                context->terminated ||
+                !lower_branch(context, merge_block->id)) {
+                return false;
+            }
+            context->current = merge_block;
+            context->terminated = false;
         } else if (plan->kind != CXX_CLEANUP_EXPRESSION ||
                    !lower_change_current_exception_cleanup(
                        context, plan, register_cleanup)) {
@@ -15092,6 +15442,104 @@ static RccIrLowerValue lower_conditional_expression(
     int aggregate_return_kind = LOWER_ABI_RETURN_UNSUPPORTED;
     bool aggregate_result;
     bool supported_temporary_conditional = false;
+    if (context && expression &&
+        context->conditional_xvalue_owner &&
+        context->aggregate_result_destination_expression == expression &&
+        context->conditional_xvalue_owner
+            ->var_reference_temporary_alternate_type) {
+        const Decl* owner = context->conditional_xvalue_owner;
+        const Expr* arms[2] = {expression->cond_then,
+                               expression->cond_else};
+        RccIrLowerValue values[2];
+        RccIrLowerValue selector_address;
+        RccIrType selector_type;
+        RccIrBlock* arm_blocks[2];
+        RccIrBlock* merge_block;
+        RccIrBlock* end_blocks[2];
+        RccIrValue phi_operands[2];
+        RccIrBlockId phi_targets[2];
+        uint64_t tag_values[2] = {0u, 1u};
+        if (!expression->cxx_conditional_xvalue ||
+            expression->kind != EXPR_COND ||
+            !owner->type || owner->var_reference_temporary_variant_offset < 0 ||
+            !context->aggregate_result_destination.valid ||
+            context->aggregate_result_destination.type.kind !=
+                RCC_IR_TYPE_POINTER || !lower_type(type_int, &selector_type) ||
+            selector_type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        selector_address = lower_byte_offset_address(
+            context, context->aggregate_result_destination,
+            (uint64_t)owner->var_reference_temporary_variant_offset);
+        condition = lower_truth_expression(context, expression->cond_test);
+        if (!selector_address.valid || !condition.valid) {
+            return lower_invalid_value();
+        }
+        arm_blocks[0] = rcc_ir_block_add(
+            context->function, "reference.xvalue.then");
+        arm_blocks[1] = rcc_ir_block_add(
+            context->function, "reference.xvalue.else");
+        merge_block = rcc_ir_block_add(
+            context->function, "reference.xvalue.end");
+        if (!arm_blocks[0] || !arm_blocks[1] || !merge_block ||
+            !lower_conditional_branch(context, condition, arm_blocks[0]->id,
+                                      arm_blocks[1]->id)) {
+            return lower_invalid_value();
+        }
+        for (unsigned index = 0u; index < 2u; ++index) {
+            const Expr* source = lower_conditional_xvalue_complete_source(
+                arms[index], 0u);
+            const Expr* previous_destination_expression;
+            RccIrLowerValue previous_destination;
+            const Decl* previous_owner;
+            RccIrLowerValue tag;
+            if (!source) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            context->current = arm_blocks[index];
+            context->terminated = false;
+            tag = lower_integer_constant(
+                context, selector_type, true, tag_values[index]);
+            if (!tag.valid) return lower_invalid_value();
+            if (!lower_store_address(context, selector_address, tag)) {
+                return lower_invalid_value();
+            }
+            previous_destination_expression =
+                context->aggregate_result_destination_expression;
+            previous_destination = context->aggregate_result_destination;
+            previous_owner = context->conditional_xvalue_owner;
+            context->aggregate_result_destination_expression = source;
+            context->aggregate_result_destination =
+                previous_destination;
+            context->conditional_xvalue_owner = NULL;
+            values[index] = lower_expression(context, arms[index]);
+            context->aggregate_result_destination_expression =
+                previous_destination_expression;
+            context->aggregate_result_destination = previous_destination;
+            context->conditional_xvalue_owner = previous_owner;
+            if (!values[index].valid ||
+                values[index].type.kind != RCC_IR_TYPE_POINTER ||
+                context->terminated ||
+                !lower_branch(context, merge_block->id)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            end_blocks[index] = context->current;
+        }
+        context->current = merge_block;
+        context->terminated = false;
+        phi_operands[0] = values[0].value;
+        phi_operands[1] = values[1].value;
+        phi_targets[0] = end_blocks[0]->id;
+        phi_targets[1] = end_blocks[1]->id;
+        phi = lower_append(context, RCC_IR_PHI,
+                           rcc_ir_type_pointer(0u), phi_operands, 2u,
+                           phi_targets, 2u);
+        if (!phi) return lower_invalid_value();
+        return lower_value(phi->result, rcc_ir_type_pointer(0u), true);
+    }
     if (!expression || !expression->type) {
         context->unsupported = true;
         return lower_invalid_value();
@@ -22067,6 +22515,8 @@ static RccIrLowerValue lower_compound_literal_address(
     RccIrLowerContext* context, const Expr* expression) {
     const Type* type;
     RccIrInstruction* allocation;
+    RccIrLowerValue destination;
+    bool use_destination;
     if (!context || !expression || expression->kind != EXPR_COMPOUND) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
@@ -22081,30 +22531,43 @@ static RccIrLowerValue lower_compound_literal_address(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    allocation = lower_append(
-        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
-        NULL, 0u, NULL, 0u);
-    if (!allocation) return lower_invalid_value();
-    rcc_ir_set_immediate(allocation, (uint64_t)type->size);
-    allocation->alignment = (uint32_t)type->align;
+    use_destination =
+        context->aggregate_result_destination_expression == expression;
+    if (use_destination) {
+        destination = context->aggregate_result_destination;
+        if (!destination.valid ||
+            destination.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+    } else {
+        allocation = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!allocation) return lower_invalid_value();
+        rcc_ir_set_immediate(allocation, (uint64_t)type->size);
+        allocation->alignment = (uint32_t)type->align;
+        destination = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
+    }
     if (type->kind == TYPE_ARRAY) {
         if (!lower_array_initializer(
-                context, allocation->result, type, expression)) {
+                context, destination.value, type, expression)) {
             return lower_invalid_value();
         }
     } else if (type->kind == TYPE_STRUCT) {
         if (!lower_initialize_struct_storage(
-                context, allocation->result, type, expression)) {
+                context, destination.value, type, expression)) {
             return lower_invalid_value();
         }
     } else if (type->kind == TYPE_UNION) {
         if (!lower_initialize_union_storage(
-                context, allocation->result, type, expression)) {
+                context, destination.value, type, expression)) {
             return lower_invalid_value();
         }
     } else if (type_is_cxx_member_function_pointer(type)) {
         if (!lower_initialize_scalar_storage(
-                context, allocation->result, type, expression)) {
+                context, destination.value, type, expression)) {
             return lower_invalid_value();
         }
     } else {
@@ -22119,7 +22582,7 @@ static RccIrLowerValue lower_compound_literal_address(
         value = lower_expression(context, initializer);
         value = lower_cast(context, value, type);
         address = lower_value(
-            allocation->result, rcc_ir_type_pointer(0u), true);
+            destination.value, rcc_ir_type_pointer(0u), true);
         if (!value.valid ||
             !lower_store_address(context, address, value)) {
             return lower_invalid_value();
@@ -22127,11 +22590,10 @@ static RccIrLowerValue lower_compound_literal_address(
     }
     if (type->kind == TYPE_STRUCT &&
         !lower_cxx_initialize_object_vtables(
-            context, allocation->result, type)) {
+            context, destination.value, type)) {
         return lower_invalid_value();
     }
-    return lower_value(
-        allocation->result, rcc_ir_type_pointer(0u), true);
+    return destination;
 }
 
 static bool lower_vla_object_type_supported_internal(
@@ -22697,14 +23159,21 @@ static bool lower_declaration(RccIrLowerContext* context,
                     declaration->var_reference_temporary_owner;
                 const Expr* owner_initializer = temporary_source
                     ? temporary_source : declaration->var_init;
+                bool conditional_xvalue_owner = owner &&
+                    owner->var_reference_temporary_alternate_type != NULL;
                 if (!owner_initializer || !owner_initializer->type ||
                     !owner->type ||
-                    (owner_initializer->type->kind != TYPE_STRUCT &&
-                     owner_initializer->type->kind != TYPE_UNION) ||
-                    !type_is_compatible(
-                        owner_initializer->type, owner->type) ||
-                    !type_is_compatible(
-                        owner->type, owner_initializer->type)) {
+                    (conditional_xvalue_owner
+                         ? (owner_initializer->kind != EXPR_COND ||
+                            !owner_initializer->cxx_conditional_xvalue ||
+                            !owner->var_reference_temporary_alternate_type ||
+                            owner->var_reference_temporary_variant_offset < 0)
+                         : ((owner_initializer->type->kind != TYPE_STRUCT &&
+                             owner_initializer->type->kind != TYPE_UNION) ||
+                            !type_is_compatible(
+                                owner_initializer->type, owner->type) ||
+                            !type_is_compatible(
+                                owner->type, owner_initializer->type)))) {
                     context->unsupported = true;
                     return false;
                 }
@@ -22715,6 +23184,8 @@ static bool lower_declaration(RccIrLowerContext* context,
                 {
                     bool previous_conditional_permission =
                         context->allow_nontrivial_temporary_conditional;
+                    const Decl* previous_xvalue_owner =
+                        context->conditional_xvalue_owner;
                     const Expr* previous_destination_expression =
                         context->aggregate_result_destination_expression;
                     RccIrLowerValue previous_destination =
@@ -22722,29 +23193,38 @@ static bool lower_declaration(RccIrLowerContext* context,
                     RccIrLowerValue owner_storage =
                         lower_allocate_temporary_owner_storage(
                             context, owner);
-                    if (!owner_storage.valid) return false;
+                    if (!owner_storage.valid) {
+                        return false;
+                    }
                     context->allow_nontrivial_temporary_conditional = true;
                     context->aggregate_result_destination_expression =
                         owner_initializer;
                     context->aggregate_result_destination = owner_storage;
+                    context->conditional_xvalue_owner =
+                        conditional_xvalue_owner ? owner : NULL;
                     initializer = lower_expression(
                         context, owner_initializer);
                     context->allow_nontrivial_temporary_conditional =
                         previous_conditional_permission;
+                    context->conditional_xvalue_owner =
+                        previous_xvalue_owner;
                     context->aggregate_result_destination_expression =
                         previous_destination_expression;
                     context->aggregate_result_destination =
                         previous_destination;
                     if (!initializer.valid ||
                         initializer.type.kind != RCC_IR_TYPE_POINTER ||
-                        (initializer.value != owner_storage.value &&
+                        (!conditional_xvalue_owner &&
+                         initializer.value != owner_storage.value &&
                          !lower_copy_abi_aggregate_storage(
                              context, owner_storage.value,
                              initializer.value, owner->type))) {
                         context->unsupported = true;
                         return false;
                     }
-                    initializer = owner_storage;
+                    if (!conditional_xvalue_owner) {
+                        initializer = owner_storage;
+                    }
                     if (!temporary_source &&
                         declaration->var_init->cxx_virtual_base_adjustment) {
                         const CxxClass* source_class =

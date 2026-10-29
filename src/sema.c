@@ -1950,6 +1950,13 @@ static bool sema_cleanup_plan_has_unregistered_call(
             if (sema_cleanup_plan_has_unregistered_call(plan->body)) {
                 return true;
             }
+        } else if (plan->kind == CXX_CLEANUP_CONDITIONAL) {
+            if (!plan->expression ||
+                sema_cleanup_plan_has_unregistered_call(plan->body) ||
+                sema_cleanup_plan_has_unregistered_call(
+                    plan->alternate_body)) {
+                return true;
+            }
         } else {
             Expr* function = plan->expression &&
                     plan->expression->kind == EXPR_CALL
@@ -2279,13 +2286,87 @@ static Expr* sema_cxx_static_reference_temporary_source(Expr* expression) {
         if (else_type && else_type->kind == TYPE_PTR &&
             else_type->is_reference) else_type = else_type->base;
         if (then_source && else_source && then_type && else_type &&
-            type_is_compatible(then_type, else_type) &&
+            (type_is_compatible(then_type, else_type) ||
+             ((then_type->kind == TYPE_STRUCT ||
+               then_type->kind == TYPE_UNION) &&
+              (else_type->kind == TYPE_STRUCT ||
+               else_type->kind == TYPE_UNION) &&
+              then_type->is_complete && else_type->is_complete)) &&
             then_type->is_const == else_type->is_const &&
             then_type->is_volatile == else_type->is_volatile) {
             return expression;
         }
     }
     return NULL;
+}
+
+static bool sema_cxx_conditional_temporary_types(
+    Expr* expression, Type** then_type_out, Type** else_type_out) {
+    Expr* then_source;
+    Expr* else_source;
+    Type* then_type;
+    Type* else_type;
+    if (then_type_out) *then_type_out = NULL;
+    if (else_type_out) *else_type_out = NULL;
+    if (!expression || expression->kind != EXPR_COND ||
+        !expression->cxx_conditional_xvalue) {
+        return false;
+    }
+    then_source = sema_cxx_static_reference_temporary_source(
+        expression->cond_then);
+    else_source = sema_cxx_static_reference_temporary_source(
+        expression->cond_else);
+    then_type = then_source ? then_source->type : NULL;
+    else_type = else_source ? else_source->type : NULL;
+    if (then_type && then_type->kind == TYPE_PTR && then_type->is_reference) {
+        then_type = then_type->base;
+    }
+    if (else_type && else_type->kind == TYPE_PTR && else_type->is_reference) {
+        else_type = else_type->base;
+    }
+    if (!then_source || !else_source || !then_type || !else_type ||
+        (then_type->kind != TYPE_STRUCT && then_type->kind != TYPE_UNION) ||
+        (else_type->kind != TYPE_STRUCT && else_type->kind != TYPE_UNION) ||
+        !then_type->is_complete || !else_type->is_complete ||
+        then_type->is_volatile != else_type->is_volatile) {
+        return false;
+    }
+    if (then_type_out) *then_type_out = then_type;
+    if (else_type_out) *else_type_out = else_type;
+    return true;
+}
+
+static Expr* sema_cxx_reference_temporary_selector(
+    Decl* owner, int offset, SourceLoc loc) {
+    Expr* object;
+    Expr* address;
+    Expr* byte_address;
+    Expr* byte_offset;
+    Expr* selector_address;
+    Expr* selector;
+    Expr* condition;
+    Type* byte_pointer_type;
+    Type* selector_pointer_type;
+    if (!owner || !owner->type || offset < 0) return NULL;
+    object = expr_ident(owner->name, loc);
+    object->ident_decl = owner;
+    object->type = owner->type;
+    address = expr_unary(EXPR_ADDR, object, loc);
+    address->type = type_ptr(owner->type);
+    byte_pointer_type = type_ptr(type_char);
+    byte_address = expr_cast(byte_pointer_type, address, loc);
+    byte_address->type = byte_pointer_type;
+    byte_offset = expr_binary(EXPR_ADD, byte_address,
+                              expr_int(offset, loc), loc);
+    byte_offset->type = byte_pointer_type;
+    selector_pointer_type = type_ptr(type_int);
+    selector_address = expr_cast(selector_pointer_type, byte_offset, loc);
+    selector_address->type = selector_pointer_type;
+    selector = expr_unary(EXPR_DEREF, selector_address, loc);
+    selector->type = type_int;
+    condition = expr_binary(EXPR_NE, selector, expr_int(0, loc), loc);
+    condition->type = type_int;
+    return condition;
 }
 
 static bool sema_cxx_static_reference_has_temporary_source(
@@ -16034,9 +16115,13 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Expr* xvalue_temporary_source = NULL;
     Expr* reference_subobject_source = NULL;
     Type* object_type;
+    Type* conditional_then_type = NULL;
+    Type* conditional_else_type = NULL;
     bool reference_temporary = false;
     bool static_reference_temporary = false;
     bool xvalue_has_temporary = false;
+    bool conditional_xvalue_temporary = false;
+    bool conditional_xvalue_has_distinct_types = false;
     int cleanup_budget = 4096;
     if (rcc_parser_is_cxx_mode() && declaration && declaration->type &&
         declaration->var_init && declaration->var_is_static_local &&
@@ -16070,6 +16155,17 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
             xvalue_temporary_source =
                 sema_cxx_static_reference_temporary_source(
                     declaration->var_init);
+            conditional_xvalue_temporary =
+                xvalue_temporary_source &&
+                sema_cxx_conditional_temporary_types(
+                    xvalue_temporary_source, &conditional_then_type,
+                    &conditional_else_type);
+            conditional_xvalue_has_distinct_types =
+                conditional_xvalue_temporary &&
+                (conditional_then_type->cxx_class !=
+                     conditional_else_type->cxx_class ||
+                 !type_is_compatible(conditional_then_type,
+                                     conditional_else_type));
             if (xvalue_has_temporary && !xvalue_temporary_source) {
                 rcc_error(
                     declaration->loc,
@@ -16084,7 +16180,9 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         }
         prvalue_initializer = !is_lvalue(declaration->var_init) &&
                               !is_xvalue(declaration->var_init);
-        object_type = xvalue_temporary_source
+        object_type = conditional_xvalue_has_distinct_types
+            ? conditional_then_type
+            : xvalue_temporary_source
             ? xvalue_temporary_source->type
             : materialized_xvalue_source
                 ? (declaration->var_init->type
@@ -16169,10 +16267,51 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         return;
     }
     if (static_reference_temporary || reference_subobject_source ||
+        (conditional_xvalue_has_distinct_types &&
+         reference_temporary) ||
         (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
          reference_temporary)) {
         Decl* owner = decl_var("__rcc_reference_temporary", object_type,
                                NULL, declaration->loc);
+        if (conditional_xvalue_has_distinct_types) {
+            int storage_size = conditional_then_type->size;
+            int storage_align = conditional_then_type->align;
+            int selector_align = type_int && type_int->align > 0
+                ? type_int->align : 4;
+            int selector_size = type_int && type_int->size > 0
+                ? type_int->size : 4;
+            int selector_offset;
+            if (conditional_else_type->size > storage_size) {
+                storage_size = conditional_else_type->size;
+            }
+            if (conditional_else_type->align > storage_align) {
+                storage_align = conditional_else_type->align;
+            }
+            if (selector_align > storage_align) {
+                storage_align = selector_align;
+            }
+            if (selector_align <= 0 || storage_align <= 0 ||
+                storage_size > INT_MAX - selector_align - selector_size) {
+                rcc_error(declaration->loc,
+                          "conditional reference temporary exceeds storage limits");
+                return;
+            }
+            selector_offset = (storage_size + selector_align - 1) /
+                              selector_align * selector_align;
+            storage_size = selector_offset + selector_size;
+            declaration->var_reference_temporary_alternate_type =
+                conditional_else_type;
+            declaration->var_reference_temporary_variant_offset =
+                selector_offset;
+            declaration->var_reference_temporary_storage_size = storage_size;
+            declaration->var_reference_temporary_storage_align =
+                storage_align;
+            owner->var_reference_temporary_alternate_type =
+                conditional_else_type;
+            owner->var_reference_temporary_variant_offset = selector_offset;
+            owner->var_reference_temporary_storage_size = storage_size;
+            owner->var_reference_temporary_storage_align = storage_align;
+        }
         if (static_reference_temporary) {
             const char* owner_name = sema_reference_temporary_symbol(
                 declaration, "$rcc_reference_temporary");
@@ -16220,7 +16359,50 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         object->ident_decl = declaration;
         object->type = object_type;
     }
-    if (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
+    if (conditional_xvalue_has_distinct_types &&
+        declaration->var_reference_temporary_owner) {
+        Decl* owner = declaration->var_reference_temporary_owner;
+        Expr* then_object = expr_ident(owner->name, declaration->loc);
+        Expr* else_object = expr_ident(owner->name, declaration->loc);
+        CxxCleanupPlan* then_cleanups = NULL;
+        CxxCleanupPlan* else_cleanups = NULL;
+        CxxCleanupPlan* conditional_cleanup;
+        int branch_cleanup_budget = cleanup_budget;
+        then_object->ident_decl = owner;
+        then_object->type = conditional_then_type;
+        else_object->ident_decl = owner;
+        else_object->type = conditional_else_type;
+        if ((sema_cxx_type_has_destructor_cleanup(
+                 conditional_then_type, 0) &&
+             !sema_cxx_append_object_cleanups(
+                 declaration, conditional_then_type, then_object,
+                 &then_cleanups, 0, &branch_cleanup_budget, true,
+                 !declaration->var_is_thread_local)) ||
+            (sema_cxx_type_has_destructor_cleanup(
+                 conditional_else_type, 0) &&
+             !sema_cxx_append_object_cleanups(
+                 declaration, conditional_else_type, else_object,
+                 &else_cleanups, 0, &branch_cleanup_budget, true,
+                 !declaration->var_is_thread_local))) {
+            rcc_error(declaration->loc,
+                      "conditional C++ temporary cleanup metadata is incomplete");
+            return;
+        }
+        conditional_cleanup = ast_arena_alloc(sizeof(*conditional_cleanup));
+        memset(conditional_cleanup, 0, sizeof(*conditional_cleanup));
+        conditional_cleanup->kind = CXX_CLEANUP_CONDITIONAL;
+        conditional_cleanup->expression = sema_cxx_reference_temporary_selector(
+            owner, owner->var_reference_temporary_variant_offset,
+            declaration->loc);
+        conditional_cleanup->body = else_cleanups;
+        conditional_cleanup->alternate_body = then_cleanups;
+        if (!conditional_cleanup->expression) {
+            rcc_error(declaration->loc,
+                      "conditional C++ temporary cleanup selector is unavailable");
+            return;
+        }
+        declaration->var_cleanups = conditional_cleanup;
+    } else if (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
         !sema_cxx_append_object_cleanups(declaration, object_type, object,
                                          &declaration->var_cleanups, 0,
                                          &cleanup_budget, true,
@@ -21262,9 +21444,17 @@ typedef struct SemaCxxBinaryOperatorCandidate {
     Type* targets[2];
     TypeMethod* methods[2];
     bool is_member;
+    bool is_builtin;
     bool rewritten;
     bool reversed;
 } SemaCxxBinaryOperatorCandidate;
+
+enum {
+    SEMA_CXX_BUILTIN_ARITHMETIC_TYPE_COUNT = 9,
+    SEMA_CXX_MAX_BINARY_OPERATOR_CANDIDATES =
+        5 + SEMA_CXX_BUILTIN_ARITHMETIC_TYPE_COUNT *
+                SEMA_CXX_BUILTIN_ARITHMETIC_TYPE_COUNT,
+};
 
 static bool sema_cxx_collect_binary_operator_candidate(
     SemaCxxBinaryOperatorCandidate* candidate, Symbol* functions,
@@ -21320,6 +21510,70 @@ static int sema_cxx_binary_operator_candidate_relation(
         return left->reversed ? -1 : 1;
     }
     return 0;
+}
+
+static int sema_cxx_append_builtin_comparison_candidates(
+    SemaCxxBinaryOperatorCandidate* candidates, int candidate_count,
+    Expr* left, Expr* right) {
+    Type* arithmetic_types[SEMA_CXX_BUILTIN_ARITHMETIC_TYPE_COUNT] = {
+        type_int, type_uint, type_long, type_ulong, type_llong, type_ullong,
+        type_float, type_double, type_long_double,
+    };
+
+    if (!candidates || !left || !right) return candidate_count;
+    for (int left_index = 0;
+         left_index < SEMA_CXX_BUILTIN_ARITHMETIC_TYPE_COUNT;
+         ++left_index) {
+        for (int right_index = 0;
+             right_index < SEMA_CXX_BUILTIN_ARITHMETIC_TYPE_COUNT;
+             ++right_index) {
+            Type* left_target = arithmetic_types[left_index];
+            Type* right_target = arithmetic_types[right_index];
+            TypeMethod* left_conversion = NULL;
+            TypeMethod* right_conversion = NULL;
+            int left_rank = cxx_conversion_rank_detail(
+                left, left_target, &left_conversion);
+            int right_rank = cxx_conversion_rank_detail(
+                right, right_target, &right_conversion);
+            SemaCxxBinaryOperatorCandidate* candidate;
+
+            if (left_rank < 0 || right_rank < 0) continue;
+            candidate = &candidates[candidate_count++];
+            memset(candidate, 0, sizeof(*candidate));
+            candidate->is_builtin = true;
+            candidate->targets[0] = left_target;
+            candidate->targets[1] = right_target;
+            candidate->ranks[0] = left_rank;
+            candidate->ranks[1] = right_rank;
+            candidate->methods[0] = left_conversion;
+            candidate->methods[1] = right_conversion;
+        }
+    }
+    return candidate_count;
+}
+
+static bool sema_cxx_materialize_builtin_comparison(
+    Expr* expression, const SemaCxxBinaryOperatorCandidate* candidate) {
+    Expr* converted_left;
+    Expr* converted_right;
+
+    if (!expression || !candidate || !candidate->is_builtin ||
+        !expression->binary_lhs || !expression->binary_rhs) {
+        return false;
+    }
+    converted_left = ast_arena_alloc(sizeof(*converted_left));
+    converted_right = ast_arena_alloc(sizeof(*converted_right));
+    *converted_left = *expression->binary_lhs;
+    *converted_right = *expression->binary_rhs;
+    if (!implicit_cast_with_explicit_conversion(
+            converted_left, candidate->targets[0], false) ||
+        !implicit_cast_with_explicit_conversion(
+            converted_right, candidate->targets[1], false)) {
+        return false;
+    }
+    expression->binary_lhs = converted_left;
+    expression->binary_rhs = converted_right;
+    return true;
 }
 
 static bool sema_cxx_collect_member_binary_operator_candidate(
@@ -21478,7 +21732,8 @@ static bool sema_cxx_collect_member_binary_operator_candidate(
 
 static bool sema_cxx_rewrite_class_equality_operator(
     Expr* expression, Type* aggregate, const char* name) {
-    SemaCxxBinaryOperatorCandidate candidates[5];
+    SemaCxxBinaryOperatorCandidate candidates[
+        SEMA_CXX_MAX_BINARY_OPERATOR_CANDIDATES];
     int candidate_count = 0;
     int best_index = -1;
     bool ambiguous = false;
@@ -21526,6 +21781,9 @@ static bool sema_cxx_rewrite_class_equality_operator(
             true, true)) {
         ++candidate_count;
     }
+    candidate_count = sema_cxx_append_builtin_comparison_candidates(
+        candidates, candidate_count, expression->binary_lhs,
+        expression->binary_rhs);
     for (int index = 0; index < candidate_count; ++index) {
         bool better_than_every_other = true;
         for (int other = 0; other < candidate_count; ++other) {
@@ -21559,6 +21817,9 @@ static bool sema_cxx_rewrite_class_equality_operator(
                        expression->kind == EXPR_NE
             ? expr_unary(EXPR_NOT, call, expression->loc) : call;
         *expression = *result;
+    } else if (candidates[best_index].is_builtin) {
+        return sema_cxx_materialize_builtin_comparison(
+            expression, &candidates[best_index]);
     } else if (candidates[best_index].rewritten) {
         Expr* call = expr_call(sema_cxx_selected_operator_function(
                                    "operator==",
@@ -21592,7 +21853,8 @@ static bool sema_cxx_is_relational_operator(ExprKind kind) {
  * applied consistently. */
 static bool sema_cxx_rewrite_class_relational_operator(
     Expr* expression, Type* left_type, bool* candidates_considered) {
-    SemaCxxBinaryOperatorCandidate candidates[5];
+    SemaCxxBinaryOperatorCandidate candidates[
+        SEMA_CXX_MAX_BINARY_OPERATOR_CANDIDATES];
     int candidate_count = 0;
     int best_index = -1;
     bool ambiguous = false;
@@ -21708,6 +21970,13 @@ static bool sema_cxx_rewrite_class_relational_operator(
             true, true)) {
         ++candidate_count;
     }
+
+    /* C++20's built-in relational candidates remain viable when a class
+     * operand has an implicit conversion to an arithmetic type.  Compare
+     * them with user operators before materializing either conversion. */
+    candidate_count = sema_cxx_append_builtin_comparison_candidates(
+        candidates, candidate_count, expression->binary_lhs,
+        expression->binary_rhs);
     if (!candidate_count) return false;
 
     for (int index = 0; index < candidate_count; ++index) {
@@ -21734,7 +22003,10 @@ static bool sema_cxx_rewrite_class_relational_operator(
 
     {
         SemaCxxBinaryOperatorCandidate* selected = &candidates[best_index];
-        if (selected->rewritten) {
+        if (selected->is_builtin) {
+            return sema_cxx_materialize_builtin_comparison(
+                expression, selected);
+        } else if (selected->rewritten) {
             Expr* spaceship_call;
             Expr* comparison;
             Expr* zero = expr_int(0, expression->loc);
@@ -21853,7 +22125,6 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     Type* right_type = NULL;
     Type* right_aggregate;
     TypeMethod* method;
-    TypeMethod* equality_method;
     TypeMethod* template_candidates[32];
     int template_candidate_count = 0;
     bool template_constraint_unsupported = false;
@@ -21877,13 +22148,9 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     }
     method = relational_candidates_considered
         ? NULL : sema_find_function_method(aggregate, name);
-    equality_method = expression->kind == EXPR_NE
-        ? sema_find_function_method(aggregate, "operator==") : NULL;
     if ((expression->kind == EXPR_EQ || expression->kind == EXPR_NE) &&
         aggregate && (aggregate->kind == TYPE_STRUCT ||
-                      aggregate->kind == TYPE_UNION) &&
-        ((method && method->function_decl) ||
-         (equality_method && equality_method->function_decl))) {
+                      aggregate->kind == TYPE_UNION)) {
         right_type = sema_expr(expression->binary_rhs);
         right_analyzed = true;
         if (sema_cxx_rewrite_class_equality_operator(
@@ -21982,7 +22249,8 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
     exprlist_append(&arguments, expression->binary_rhs);
     function = sema_cxx_operator_function(name, arguments);
     if (expression->kind == EXPR_EQ || expression->kind == EXPR_NE) {
-        SemaCxxBinaryOperatorCandidate candidates[3];
+        SemaCxxBinaryOperatorCandidate candidates[
+            SEMA_CXX_MAX_BINARY_OPERATOR_CANDIDATES];
         int candidate_count = 0;
         int best_index = -1;
         bool ambiguous = false;
@@ -22014,6 +22282,9 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
                 reversed_equal_arguments, true, true)) {
             ++candidate_count;
         }
+        candidate_count = sema_cxx_append_builtin_comparison_candidates(
+            candidates, candidate_count, expression->binary_lhs,
+            expression->binary_rhs);
 
         for (int index = 0; index < candidate_count; ++index) {
             bool better_than_every_other = true;
@@ -22038,6 +22309,10 @@ static bool sema_rewrite_cxx_binary_operator(Expr* expression, Type* left_type) 
             /* Keep semantic traversal deterministic after the diagnostic;
              * code generation is suppressed by the recorded error. */
             best_index = 0;
+        }
+        if (best_index >= 0 && candidates[best_index].is_builtin) {
+            return sema_cxx_materialize_builtin_comparison(
+                expression, &candidates[best_index]);
         }
         if (best_index >= 0 && candidates[best_index].rewritten) {
             Expr* rewritten;
@@ -26981,6 +27256,94 @@ bool rcc_sema_cxx_requires_satisfied(Expr* expression) {
     return valid;
 }
 
+static void sema_validate_c23_fallthrough_stmt(
+    Stmt* stmt, bool inside_switch, bool inside_iteration,
+    bool is_block_item, Stmt* next_block_item) {
+    if (!stmt) return;
+
+    if (stmt->kind == STMT_NULL && stmt->c23_is_fallthrough) {
+        bool next_is_switch_label = next_block_item &&
+            (next_block_item->kind == STMT_CASE ||
+             next_block_item->kind == STMT_DEFAULT);
+        if (!inside_switch) {
+            rcc_error(stmt->loc,
+                      "C23 [[fallthrough]] requires an enclosing switch statement");
+        } else if (!is_block_item) {
+            rcc_error(stmt->loc,
+                      "C23 [[fallthrough]] must be a block item");
+        } else if (!next_is_switch_label) {
+            if (inside_iteration) {
+                rcc_error(stmt->loc,
+                          "the next block item after C23 [[fallthrough]] inside an iteration must be a case or default label in the same iteration body");
+            } else {
+                rcc_error(stmt->loc,
+                          "the next block item after C23 [[fallthrough]] must be a case or default label of the innermost switch");
+            }
+        }
+        return;
+    }
+
+    switch (stmt->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = stmt->block_stmts; item; item = item->next) {
+                /* A marker and its following case/default item share this
+                 * block's enclosing switch and iteration execution. */
+                sema_validate_c23_fallthrough_stmt(
+                    item->stmt, inside_switch, inside_iteration, true,
+                    item->next ? item->next->stmt : NULL);
+            }
+            break;
+        case STMT_IF:
+            sema_validate_c23_fallthrough_stmt(
+                stmt->if_then, inside_switch, inside_iteration, false, NULL);
+            sema_validate_c23_fallthrough_stmt(
+                stmt->if_else, inside_switch, inside_iteration, false, NULL);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            sema_validate_c23_fallthrough_stmt(
+                stmt->while_body, inside_switch, true, false, NULL);
+            break;
+        case STMT_FOR:
+            sema_validate_c23_fallthrough_stmt(
+                stmt->for_init, inside_switch, inside_iteration, false, NULL);
+            sema_validate_c23_fallthrough_stmt(
+                stmt->for_body, inside_switch, true, false, NULL);
+            break;
+        case STMT_SWITCH:
+            sema_validate_c23_fallthrough_stmt(
+                stmt->switch_body, true, inside_iteration, false, NULL);
+            break;
+        case STMT_CASE:
+            sema_validate_c23_fallthrough_stmt(
+                stmt->case_stmt, inside_switch, inside_iteration,
+                is_block_item, next_block_item);
+            break;
+        case STMT_DEFAULT:
+            sema_validate_c23_fallthrough_stmt(
+                stmt->default_stmt, inside_switch, inside_iteration,
+                is_block_item, next_block_item);
+            break;
+        case STMT_LABEL:
+            sema_validate_c23_fallthrough_stmt(
+                stmt->label_stmt, inside_switch, inside_iteration,
+                is_block_item, next_block_item);
+            break;
+        case STMT_TRY:
+            sema_validate_c23_fallthrough_stmt(
+                stmt->try_body, inside_switch, inside_iteration, false, NULL);
+            for (CxxCatch* handler = stmt->try_catches; handler;
+                 handler = handler->next) {
+                sema_validate_c23_fallthrough_stmt(
+                    handler->body, inside_switch, inside_iteration,
+                    false, NULL);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 static void sema_stmt(Stmt* stmt) {
     if (!stmt) return;
 
@@ -31197,6 +31560,36 @@ static void sema_validate_stored_generic_lambda_decl(Decl* declaration) {
     }
 }
 
+static void sema_merge_function_type_attributes(Type* destination,
+                                               const Type* source) {
+    if (!destination || !source || destination->kind != source->kind) {
+        return;
+    }
+    if (destination->kind == TYPE_FUNC) {
+        destination->c23_function_is_reproducible |=
+            source->c23_function_is_reproducible;
+        destination->c23_function_is_unsequenced |=
+            source->c23_function_is_unsequenced;
+        sema_merge_function_type_attributes(destination->ret_type,
+                                            source->ret_type);
+        TypeParam* destination_param = destination->params;
+        const TypeParam* source_param = source->params;
+        while (destination_param && source_param) {
+            sema_merge_function_type_attributes(destination_param->type,
+                                                source_param->type);
+            destination_param = destination_param->next;
+            source_param = source_param->next;
+        }
+        return;
+    }
+    if (destination->kind == TYPE_PTR ||
+        destination->kind == TYPE_ARRAY ||
+        destination->kind == TYPE_VECTOR) {
+        sema_merge_function_type_attributes(destination->base,
+                                           source->base);
+    }
+}
+
 static void sema_decl(Decl* decl) {
     if (!decl) return;
     if (decl->type) decl->type = sema_resolve_typeof_type(decl->type);
@@ -31339,12 +31732,20 @@ static void sema_decl(Decl* decl) {
                 sym = symtab_define(g_symtab, decl->name, SYM_VAR,
                                     decl->type, decl->loc);
             }
+            if (sym && sym->kind == SYM_VAR && sym->type && decl->type &&
+                type_is_compatible(sym->type, decl->type)) {
+                sema_merge_function_type_attributes(decl->type, sym->type);
+                sym->type = decl->type;
+            }
             if (sym->decl && sym->decl->var_is_deprecated) {
                 decl->var_is_deprecated = true;
                 if (!decl->var_deprecated_message) {
                     decl->var_deprecated_message =
                         sym->decl->var_deprecated_message;
                 }
+            }
+            if (sym->decl && sym->decl->c23_is_maybe_unused) {
+                decl->c23_is_maybe_unused = true;
             }
             sym->decl = decl;
             if (!is_global || decl->var_init) sym->is_defined = true;
@@ -31644,6 +32045,15 @@ static void sema_decl(Decl* decl) {
                         redeclaration_prior->func_deprecated_message;
                 }
             }
+            if (redeclaration_prior &&
+                redeclaration_prior->c23_is_maybe_unused) {
+                decl->c23_is_maybe_unused = true;
+            }
+            if (redeclaration_prior) {
+                sema_merge_function_type_attributes(
+                    decl->type, redeclaration_prior->type);
+            }
+            if (!cxx_overload_set) sym->type = decl->type;
 
             if (decl->func_body) {
                 sym->is_defined = true;
@@ -31731,6 +32141,8 @@ static void sema_decl(Decl* decl) {
                 /* Analyze body */
                 loop_depth = 0;
                 current_switch = NULL;
+                sema_validate_c23_fallthrough_stmt(
+                    decl->func_body, false, false, false, NULL);
                 sema_stmt(decl->func_body);
                 sema_validate_cleanup_gotos(decl->func_body);
                 sema_validate_vla_gotos(decl->func_body);

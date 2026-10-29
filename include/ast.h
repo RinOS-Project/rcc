@@ -105,6 +105,7 @@ typedef struct TypeField {
     Expr* initializer;
     bool is_deprecated;          /* C++ deprecated data member. */
     const char* deprecated_message;
+    bool c23_is_maybe_unused;
     /* C++20 [[no_unique_address]] on a non-static data member. */
     bool cxx_no_unique_address;
     /* 0 public/C, 1 protected, 2 private.  Kept numeric here so the common
@@ -141,6 +142,7 @@ typedef struct EnumConstantInfo {
     bool is_unsigned;
     bool is_deprecated;
     const char* deprecated_message;
+    bool c23_is_maybe_unused;
 } EnumConstantInfo;
 
 typedef enum {
@@ -232,6 +234,7 @@ struct Type {
     bool is_atomic;          /* C17 _Atomic-qualified scalar object type. */
     bool is_nodiscard;       /* C23/C++ nodiscard return-type attribute. */
     const char* nodiscard_message;
+    bool c23_tag_is_maybe_unused;
     bool c23_tag_is_deprecated;
     const char* c23_tag_deprecated_message;
     bool is_restrict;
@@ -239,6 +242,9 @@ struct Type {
     bool is_rvalue_reference;
     /* Function-type qualifiers retained for C++ member-function pointers. */
     bool function_is_noexcept;
+    /* C23 function-type properties; compatible-type checks ignore them. */
+    bool c23_function_is_reproducible;
+    bool c23_function_is_unsequenced;
     CxxRefQualifier function_ref_qualifier;
     bool cxx_is_member_pointer;
     Type* cxx_member_pointer_owner;
@@ -666,6 +672,7 @@ typedef struct ExprList {
 typedef enum {
     CXX_CLEANUP_EXPRESSION,
     CXX_CLEANUP_ARRAY_LOOP,
+    CXX_CLEANUP_CONDITIONAL,
 } CxxCleanupPlanKind;
 
 /* Validated automatic-object cleanup actions.  Array nodes execute their
@@ -676,6 +683,7 @@ struct CxxCleanupPlan {
     Decl* index_decl;
     int element_count;
     CxxCleanupPlan* body;
+    CxxCleanupPlan* alternate_body;
     CxxCleanupPlan* next;
 };
 
@@ -1276,6 +1284,8 @@ struct Stmt {
      * though C++ does not extend the temporary beyond the return full-expression. */
     bool return_reference_result;
     int return_reference_temporary_offset;
+    bool c23_is_maybe_unused;
+    bool c23_is_fallthrough;
 
     union {
         /* STMT_EXPR */
@@ -1453,6 +1463,7 @@ struct Decl {
     const char* param_deprecated_message;
     bool typedef_is_deprecated;
     const char* typedef_deprecated_message;
+    bool c23_is_maybe_unused;
     /* Itanium ABI passes a non-trivial by-value class parameter as an
      * invisible pointer to the caller-created parameter object. */
     bool param_is_cxx_indirect;
@@ -1475,6 +1486,10 @@ struct Decl {
             int var_reference_temporary_offset; /* Lifetime-extended object */
             Decl* var_reference_temporary_owner; /* Complete-object cleanup */
             Expr* var_reference_temporary_source; /* Complete object for subobject binding */
+            Type* var_reference_temporary_alternate_type; /* Other conditional xvalue arm */
+            int var_reference_temporary_variant_offset; /* Selector byte offset in owner storage */
+            int var_reference_temporary_storage_size; /* Includes conditional selector storage */
+            int var_reference_temporary_storage_align;
             Decl* var_reference_temporary_guard; /* Static/TLS init guard */
             bool var_dynamic_initializer; /* Initialize on first use */
             int var_vla_size_offset; /* Saved runtime VLA byte size */
