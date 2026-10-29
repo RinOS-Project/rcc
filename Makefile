@@ -17218,21 +17218,21 @@ test-complex: $(RCC_TARGET)
 		tests/c_complex_abi.c \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x86.log
-	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 23 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x86.log
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 \
 		-fverified-backend -v -c -o $(TEST_OUT)/complex/complex-x64.ro \
 		tests/c_complex_abi.c \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x64.log
-	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 23 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x64.log
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/complex/complex-x64-o2.ro \
 		tests/c_complex_abi.c -I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 23 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x64-o2.log
 	$(CC) $(CFLAGS) -I$(RINOS_ROOT)/RinOS-SDK/include \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
@@ -17247,9 +17247,11 @@ test-complex: $(RCC_TARGET)
 		tests/c_complex_abi_test.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c $(TEST_OUT)/complex/complex_runtime.o -lm
 	$(TEST_OUT)/complex/run-complex$(EXE_SUFFIX) \
-		$(TEST_OUT)/complex/complex-x64.ro
+		$(TEST_OUT)/complex/complex-x64.ro \
+		$(TEST_OUT)/complex/complex-x86.ro
 	$(TEST_OUT)/complex/run-complex$(EXE_SUFFIX) \
-		$(TEST_OUT)/complex/complex-x64-o2.ro
+		$(TEST_OUT)/complex/complex-x64-o2.ro \
+		$(TEST_OUT)/complex/complex-x86.ro
 
 test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/long-double)

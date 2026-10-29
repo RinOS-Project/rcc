@@ -67,6 +67,18 @@ typedef RccComplexDouble RINOS_ABI (*ComplexFloatToDouble)(
     RccComplexFloat);
 typedef RccComplexDouble RINOS_ABI (*ComplexDoubleNoArg)(void);
 
+/* RinOS long double uses the binary64 ABI.  Keep the host harness independent
+ * of the host compiler's long-double format while matching its two-SSE-word
+ * SysV aggregate calling convention. */
+typedef struct ComplexBinary64Pair {
+    double real;
+    double imaginary;
+} ComplexBinary64Pair;
+typedef ComplexBinary64Pair RINOS_ABI (*ComplexPairUnary)(
+    ComplexBinary64Pair);
+typedef ComplexBinary64Pair RINOS_ABI (*ComplexPairBinary)(
+    ComplexBinary64Pair, ComplexBinary64Pair);
+
 typedef struct MappedObject {
     void* memory;
     size_t size;
@@ -302,8 +314,42 @@ static void* symbol_address(MappedObject mapped,
         mapped.section_offsets[symbol->section] + symbol->value;
 }
 
+static void assert_complex_object_data(const ObjectFile* object,
+                                       const char* symbol_name,
+                                       SectionType expected_section,
+                                       double expected_real,
+                                       double expected_imaginary) {
+    ObjSymbol* symbol = objfile_find_symbol((ObjectFile*)object, symbol_name);
+    ObjSection* section = object->sections;
+    double components[2];
+    bool valid;
+    assert(symbol != NULL && symbol->section >= 0 &&
+           (size_t)symbol->section < (size_t)object->section_count);
+    for (int index = 0; index < symbol->section; ++index) {
+        assert(section != NULL);
+        section = section->next;
+    }
+    valid = section != NULL && section->type == expected_section &&
+            section->data != NULL && section->size >= sizeof(components) &&
+            symbol->value <= section->size - sizeof(components);
+    if (!valid) {
+        fprintf(stderr,
+                "complex initializer %s: section=%s type=%d expected=%d "
+                "section-size=%llu value=%llu\n",
+                symbol_name, section && section->name ? section->name : "?",
+                section ? (int)section->type : -1, (int)expected_section,
+                (unsigned long long)(section ? section->size : 0u),
+                (unsigned long long)symbol->value);
+    }
+    assert(valid);
+    memcpy(components, section->data + symbol->value, sizeof(components));
+    assert(components[0] == expected_real &&
+           components[1] == expected_imaginary);
+}
+
 int main(int argc, char** argv) {
     ObjectFile* object;
+    ObjectFile* x86_object = NULL;
     MappedObject mapped;
     void* address;
     ComplexFloatUnary float_identity;
@@ -324,6 +370,11 @@ int main(int argc, char** argv) {
     ComplexLocalTest local_scalar_initializer;
     ComplexLocalTest local_constructor_initializer;
     ComplexLocalTest local_arithmetic;
+    ComplexLocalTest static_initializer;
+    ComplexPairUnary long_double_identity;
+    ComplexPairBinary long_double_add;
+    ComplexPairBinary long_double_multiply;
+    ComplexPairBinary long_double_divide;
     RccComplexFloat a = __builtin_complex(2.0f, 3.0f);
     RccComplexFloat b = __builtin_complex(4.0f, -1.0f);
     RccComplexFloat value_float;
@@ -331,9 +382,21 @@ int main(int argc, char** argv) {
     RccComplexDouble y = __builtin_complex(4.0, -1.0);
     RccComplexDouble value_double;
 
-    assert(argc == 2);
+    assert(argc == 2 || argc == 3);
     object = objfile_read(argv[1]);
     assert(object != NULL && object->arch == ARCH_X64);
+    assert_complex_object_data(object, "rcc_complex_static_value",
+                               SECT_DATA, 7.0, -8.0);
+    assert_complex_object_data(object, "rcc_complex_tls_value",
+                               SECT_TLS, 9.0, 10.0);
+    if (argc == 3) {
+        x86_object = objfile_read(argv[2]);
+        assert(x86_object != NULL && x86_object->arch == ARCH_X86);
+        assert_complex_object_data(x86_object, "rcc_complex_static_value",
+                                   SECT_DATA, 7.0, -8.0);
+        assert_complex_object_data(x86_object, "rcc_complex_tls_value",
+                                   SECT_TLS, 9.0, 10.0);
+    }
     mapped = map_object(object);
 
     address = symbol_address(mapped, object,
@@ -381,6 +444,21 @@ int main(int argc, char** argv) {
                              "rcc_complex_local_arithmetic");
     memcpy(&local_arithmetic, &address, sizeof(local_arithmetic));
     address = symbol_address(mapped, object,
+                             "rcc_complex_static_initializer");
+    memcpy(&static_initializer, &address, sizeof(static_initializer));
+    address = symbol_address(mapped, object,
+                             "rcc_complex_long_double_identity");
+    memcpy(&long_double_identity, &address, sizeof(long_double_identity));
+    address = symbol_address(mapped, object,
+                             "rcc_complex_long_double_add");
+    memcpy(&long_double_add, &address, sizeof(long_double_add));
+    address = symbol_address(mapped, object,
+                             "rcc_complex_long_double_multiply");
+    memcpy(&long_double_multiply, &address, sizeof(long_double_multiply));
+    address = symbol_address(mapped, object,
+                             "rcc_complex_long_double_divide");
+    memcpy(&long_double_divide, &address, sizeof(long_double_divide));
+    address = symbol_address(mapped, object,
                              "rcc_complex_double_identity");
     memcpy(&double_identity, &address, sizeof(double_identity));
     address = symbol_address(mapped, object, "rcc_complex_double_add");
@@ -423,6 +501,26 @@ int main(int argc, char** argv) {
     assert(local_scalar_initializer() == 0);
     assert(local_constructor_initializer() == 0);
     assert(local_arithmetic() == 0);
+    assert(static_initializer() == 0);
+
+    {
+        ComplexBinary64Pair lhs = {2.0, 3.0};
+        ComplexBinary64Pair rhs = {4.0, -1.0};
+        ComplexBinary64Pair value = long_double_identity(lhs);
+        assert(close_double(value.real, 2.0) &&
+               close_double(value.imaginary, 3.0));
+        value = long_double_add(lhs, rhs);
+        assert(close_double(value.real, 6.0) &&
+               close_double(value.imaginary, 2.0));
+        value = long_double_multiply(lhs, rhs);
+        assert(close_double(value.real, 11.0) &&
+               close_double(value.imaginary, 10.0));
+        rhs.real = 1.0;
+        rhs.imaginary = 1.0;
+        value = long_double_divide(lhs, rhs);
+        assert(close_double(value.real, 2.5) &&
+               close_double(value.imaginary, 0.5));
+    }
 
     value_double = double_identity(x);
     assert(close_double(__real__ value_double, 2.0) &&
@@ -439,6 +537,7 @@ int main(int argc, char** argv) {
 
     unmap_object(mapped);
     objfile_free(object);
+    objfile_free(x86_object);
     puts("RCC complex arithmetic and SysV ABI execution passed");
     return 0;
 }

@@ -6,6 +6,11 @@
 
 typedef float complex RccComplexFloat;
 typedef double complex RccComplexDouble;
+typedef long double complex RccComplexLongDouble;
+
+RccComplexDouble rcc_complex_static_value = CMPLX(7.0, -8.0);
+_Thread_local RccComplexDouble rcc_complex_tls_value =
+    CMPLX(9.0, 10.0);
 
 RccComplexFloat rcc_complex_float_identity(RccComplexFloat value) {
     return value;
@@ -88,4 +93,28 @@ int rcc_complex_local_arithmetic(void) {
     RccComplexFloat right = __builtin_complex(4.0f, -1.0f);
     RccComplexFloat value = left * right + left;
     return value != __builtin_complex(13.0f, 13.0f);
+}
+
+int rcc_complex_static_initializer(void) {
+    return rcc_complex_static_value != CMPLX(7.0, -8.0);
+}
+
+RccComplexLongDouble rcc_complex_long_double_identity(
+    RccComplexLongDouble value) {
+    return value;
+}
+
+RccComplexLongDouble rcc_complex_long_double_add(
+    RccComplexLongDouble left, RccComplexLongDouble right) {
+    return left + right;
+}
+
+RccComplexLongDouble rcc_complex_long_double_multiply(
+    RccComplexLongDouble left, RccComplexLongDouble right) {
+    return left * right;
+}
+
+RccComplexLongDouble rcc_complex_long_double_divide(
+    RccComplexLongDouble left, RccComplexLongDouble right) {
+    return left / right;
 }
