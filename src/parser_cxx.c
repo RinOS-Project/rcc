@@ -55,6 +55,10 @@ static bool cxx_resolve_dependent_function_template_calls(
     Expr* expression, unsigned depth);
 static void cxx_set_block_scope_function_linkage(Decl* declaration);
 static void cxx_set_block_scope_statement_linkage(Stmt* statement);
+static void* cxx_allocate_zeroed_array(size_t element_size, size_t count);
+static void* cxx_grow_zeroed_array(void* previous, size_t element_size,
+                                   size_t previous_count,
+                                   size_t new_count);
 
 typedef struct CxxFriendSignatureAliasUse {
     CxxClass* owner;
@@ -16719,10 +16723,11 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         bool class_is_deprecated;
         Token* name_token;
         CxxTemplate* primary;
-        Type* arguments[32] = { NULL };
-        Expr* value_arguments[32] = { NULL };
-        bool specialization_pack_expansions[32] = { false };
+        Type** arguments;
+        Expr** value_arguments;
+        bool* specialization_pack_expansions;
         int argument_count = 0;
+        size_t argument_capacity;
         int primary_pack_index = -1;
         bool has_specialization_pack_expansion = false;
         bool argument_count_matches_primary = false;
@@ -16738,13 +16743,47 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         primary = name_token ? find_class_template(name_token->value.str_val)
                              : NULL;
         primary_pack_index = cxx_class_pack_index(primary);
+        argument_capacity = primary && primary->param_count > 0
+            ? (size_t)primary->param_count : 1u;
+        arguments = cxx_allocate_zeroed_array(sizeof(*arguments),
+                                               argument_capacity);
+        value_arguments = cxx_allocate_zeroed_array(
+            sizeof(*value_arguments), argument_capacity);
+        specialization_pack_expansions = cxx_allocate_zeroed_array(
+            sizeof(*specialization_pack_expansions), argument_capacity);
         active_template = tmpl;
         expect(TOK_LT, "<");
         if (!check(TOK_GT)) {
             do {
-                if (argument_count == (int)(sizeof(arguments) /
-                                            sizeof(arguments[0]))) {
-                    rcc_error(loc, "class specialization argument limit exceeded");
+                if ((size_t)argument_count >= argument_capacity) {
+                    size_t new_capacity = argument_capacity <= SIZE_MAX / 2u
+                        ? argument_capacity * 2u
+                        : (size_t)argument_count + 1u;
+                    Type** grown_arguments = cxx_grow_zeroed_array(
+                        arguments, sizeof(*arguments),
+                        (size_t)argument_count, new_capacity);
+                    Expr** grown_value_arguments = cxx_grow_zeroed_array(
+                        value_arguments, sizeof(*value_arguments),
+                        (size_t)argument_count, new_capacity);
+                    bool* grown_pack_expansions = cxx_grow_zeroed_array(
+                        specialization_pack_expansions,
+                        sizeof(*specialization_pack_expansions),
+                        (size_t)argument_count, new_capacity);
+                    if (!grown_arguments || !grown_value_arguments ||
+                        !grown_pack_expansions) {
+                        rcc_error(loc,
+                                  "class specialization argument storage is too large");
+                        while (!check(TOK_GT) && !at_end()) advance();
+                        break;
+                    }
+                    arguments = grown_arguments;
+                    value_arguments = grown_value_arguments;
+                    specialization_pack_expansions = grown_pack_expansions;
+                    argument_capacity = new_capacity;
+                }
+                if (argument_count == INT_MAX) {
+                    rcc_error(loc,
+                              "class specialization argument count overflows");
                     while (!check(TOK_GT) && !at_end()) advance();
                     break;
                 }
@@ -16883,8 +16922,12 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         active_template = outer_template;
         tmpl->templated_class = specialized_class;
         if (specialized_class) {
-            int64_t identity_values[32] = { 0 };
-            bool identity_present[32] = { false };
+            int64_t* identity_values = cxx_allocate_zeroed_array(
+                sizeof(*identity_values),
+                argument_count > 0 ? (size_t)argument_count : 1u);
+            bool* identity_present = cxx_allocate_zeroed_array(
+                sizeof(*identity_present),
+                argument_count > 0 ? (size_t)argument_count : 1u);
             if (primary && argument_count_matches_primary) {
                 for (int argument_index = 0;
                      argument_index < argument_count; ++argument_index) {
@@ -23791,9 +23834,12 @@ static Type* instantiate_class_template_for_owner(
     if (tmpl->primary_template &&
         tmpl->specialization_arg_count ==
             tmpl->primary_template->param_count) {
-        Type* identity_arguments[32] = { NULL };
-        int64_t identity_values[32] = { 0 };
-        bool identity_present[32] = { false };
+        Type* identity_arguments_small[32] = { NULL };
+        int64_t identity_values_small[32] = { 0 };
+        bool identity_present_small[32] = { false };
+        Type** identity_arguments = identity_arguments_small;
+        int64_t* identity_values = identity_values_small;
+        bool* identity_present = identity_present_small;
         bool identity_valid = true;
         int identity_argument_count = tmpl->primary_template->param_count;
         int expansion_index = -1;
@@ -23831,13 +23877,22 @@ static Type* instantiate_class_template_for_owner(
                 expansion_count = argument_count - specialization_pack_index;
                 identity_argument_count =
                     tmpl->specialization_arg_count - 1 + expansion_count;
-                if (identity_argument_count > 32) {
-                    rcc_error(loc,
-                              "class-template identity argument limit "
-                              "exceeded");
-                    identity_valid = false;
-                    expansion_index = -2;
-                }
+            }
+        }
+        if (identity_argument_count > 32) {
+            identity_arguments = cxx_allocate_zeroed_array(
+                sizeof(*identity_arguments),
+                (size_t)identity_argument_count);
+            identity_values = cxx_allocate_zeroed_array(
+                sizeof(*identity_values), (size_t)identity_argument_count);
+            identity_present = cxx_allocate_zeroed_array(
+                sizeof(*identity_present),
+                (size_t)identity_argument_count);
+            if (!identity_arguments || !identity_values ||
+                !identity_present) {
+                rcc_error(loc, "class template identity state is too large");
+                identity_valid = false;
+                expansion_index = -2;
             }
         }
         if (expansion_index >= 0) {
@@ -25539,10 +25594,8 @@ static bool cxx_class_specialization_pattern_layout(
     int pattern_count;
     int expansion_index = -1;
     int expansion_count;
-    if (!specialization || argument_count < 0 || argument_count > 32 ||
-        specialization->specialization_arg_count < 0 ||
-        specialization->specialization_arg_count > 32 ||
-        (argument_count > 0 && !pattern_indices)) {
+    if (!specialization || argument_count < 0 ||
+        specialization->specialization_arg_count < 0) {
         return false;
     }
     pattern_count = specialization->specialization_arg_count;
@@ -25556,8 +25609,10 @@ static bool cxx_class_specialization_pattern_layout(
     }
     if (expansion_index < 0) {
         if (pattern_count != argument_count) return false;
-        for (int index = 0; index < argument_count; ++index) {
-            pattern_indices[index] = index;
+        if (pattern_indices) {
+            for (int index = 0; index < argument_count; ++index) {
+                pattern_indices[index] = index;
+            }
         }
         if (expansion_index_out) *expansion_index_out = -1;
         if (expansion_count_out) *expansion_count_out = 0;
@@ -25567,18 +25622,31 @@ static bool cxx_class_specialization_pattern_layout(
     expansion_count = argument_count - (pattern_count - 1);
     for (int argument_index = 0; argument_index < argument_count;
          ++argument_index) {
-        if (argument_index < expansion_index) {
-            pattern_indices[argument_index] = argument_index;
-        } else if (argument_index < expansion_index + expansion_count) {
-            pattern_indices[argument_index] = expansion_index;
-        } else {
-            pattern_indices[argument_index] =
-                argument_index - expansion_count + 1;
+        if (pattern_indices) {
+            if (argument_index < expansion_index) {
+                pattern_indices[argument_index] = argument_index;
+            } else if (argument_index < expansion_index + expansion_count) {
+                pattern_indices[argument_index] = expansion_index;
+            } else {
+                pattern_indices[argument_index] =
+                    argument_index - expansion_count + 1;
+            }
         }
     }
     if (expansion_index_out) *expansion_index_out = expansion_index;
     if (expansion_count_out) *expansion_count_out = expansion_count;
     return true;
+}
+
+static int cxx_class_specialization_pattern_index(
+    int argument_index, int expansion_index, int expansion_count) {
+    if (expansion_index < 0 || argument_index < expansion_index) {
+        return argument_index;
+    }
+    if (argument_index < expansion_index + expansion_count) {
+        return expansion_index;
+    }
+    return argument_index - expansion_count + 1;
 }
 
 static int cxx_template_constraint_relation(
@@ -25587,8 +25655,6 @@ static int cxx_template_constraint_relation(
 static bool cxx_class_specialization_patterns_equivalent(
     CxxTemplate* primary, CxxTemplate* left, CxxTemplate* right,
     int argument_count) {
-    int left_pattern_indices[32] = { 0 };
-    int right_pattern_indices[32] = { 0 };
     int left_expansion_index;
     int right_expansion_index;
     int left_expansion_count;
@@ -25597,7 +25663,7 @@ static bool cxx_class_specialization_patterns_equivalent(
         right->param_count == 0 ||
         left->param_count != right->param_count ||
         left->specialization_arg_count != right->specialization_arg_count ||
-        argument_count < 0 || argument_count > 32) {
+        argument_count < 0) {
         return false;
     }
     for (int index = 0; index < left->param_count; ++index) {
@@ -25621,10 +25687,10 @@ static bool cxx_class_specialization_patterns_equivalent(
         if (left_expands != right_expands) return false;
     }
     if (!cxx_class_specialization_pattern_layout(
-            left, argument_count, left_pattern_indices,
+            left, argument_count, NULL,
             &left_expansion_index, &left_expansion_count) ||
         !cxx_class_specialization_pattern_layout(
-            right, argument_count, right_pattern_indices,
+            right, argument_count, NULL,
             &right_expansion_index, &right_expansion_count) ||
         left_expansion_index != right_expansion_index ||
         left_expansion_count != right_expansion_count) {
@@ -25636,8 +25702,10 @@ static bool cxx_class_specialization_patterns_equivalent(
         int primary_parameter_index = primary_pack_index >= 0 &&
                 argument_index >= primary_pack_index
             ? primary_pack_index : argument_index;
-        int left_pattern_index = left_pattern_indices[argument_index];
-        int right_pattern_index = right_pattern_indices[argument_index];
+        int left_pattern_index = cxx_class_specialization_pattern_index(
+            argument_index, left_expansion_index, left_expansion_count);
+        int right_pattern_index = cxx_class_specialization_pattern_index(
+            argument_index, right_expansion_index, right_expansion_count);
         if (primary_parameter_index >= primary->param_count) return false;
         if (primary->params[primary_parameter_index].kind == TPARAM_NONTYPE) {
             Expr* left_value = left->specialization_value_args
@@ -25669,8 +25737,6 @@ static bool cxx_class_specialization_patterns_equivalent(
 static int cxx_class_specialization_zero_tail_pack_relation(
     CxxTemplate* primary, CxxTemplate* left, CxxTemplate* right,
     int argument_count) {
-    int left_indices[32] = { 0 };
-    int right_indices[32] = { 0 };
     int left_expansion = -1;
     int right_expansion = -1;
     int left_expansion_count = 0;
@@ -25682,13 +25748,14 @@ static int cxx_class_specialization_zero_tail_pack_relation(
     int expanded_pack_index;
     bool left_is_expanded;
 
-    if (!primary || !left || !right || argument_count < 0 ||
-        argument_count > 32 ||
-        !cxx_class_specialization_pattern_layout(
-            left, argument_count, left_indices, &left_expansion,
+    if (!primary || !left || !right || argument_count < 0) {
+        return 0;
+    }
+    if (!cxx_class_specialization_pattern_layout(
+            left, argument_count, NULL, &left_expansion,
             &left_expansion_count) ||
         !cxx_class_specialization_pattern_layout(
-            right, argument_count, right_indices, &right_expansion,
+            right, argument_count, NULL, &right_expansion,
             &right_expansion_count) ||
         (left_expansion >= 0) == (right_expansion >= 0)) {
         return 0;
@@ -25739,10 +25806,14 @@ static int cxx_class_specialization_zero_tail_pack_relation(
         int primary_parameter_index = primary_pack_index >= 0 &&
                 argument_index >= primary_pack_index
             ? primary_pack_index : argument_index;
-        int fixed_pattern_index = left_is_expanded
-            ? right_indices[argument_index] : left_indices[argument_index];
-        int expanded_pattern_index = left_is_expanded
-            ? left_indices[argument_index] : right_indices[argument_index];
+        int fixed_pattern_index = cxx_class_specialization_pattern_index(
+            argument_index,
+            left_is_expanded ? right_expansion : left_expansion,
+            left_is_expanded ? right_expansion_count : left_expansion_count);
+        int expanded_pattern_index = cxx_class_specialization_pattern_index(
+            argument_index,
+            left_is_expanded ? left_expansion : right_expansion,
+            left_is_expanded ? left_expansion_count : right_expansion_count);
         if (primary_parameter_index >= primary->param_count) return 0;
         if (primary->params[primary_parameter_index].kind == TPARAM_NONTYPE) {
             Expr* fixed_value = fixed->specialization_value_args
@@ -25793,18 +25864,17 @@ static int cxx_class_specialization_value_parameter_index(
 static bool cxx_class_specialization_value_patterns_incomparable(
     CxxTemplate* primary, CxxTemplate* left, CxxTemplate* right,
     int argument_count) {
-    int left_indices[32] = { 0 };
-    int right_indices[32] = { 0 };
     int left_expansion = -1;
     int right_expansion = -1;
     if (!primary || !left || !right || left == right ||
         left->param_count == 0 || right->param_count == 0 ||
-        cxx_class_pack_index(primary) >= 0 || argument_count < 2 ||
-        argument_count > 32 ||
+        cxx_class_pack_index(primary) >= 0 || argument_count < 2) {
+        return false;
+    }
+    if (!cxx_class_specialization_pattern_layout(
+            left, argument_count, NULL, &left_expansion, NULL) ||
         !cxx_class_specialization_pattern_layout(
-            left, argument_count, left_indices, &left_expansion, NULL) ||
-        !cxx_class_specialization_pattern_layout(
-            right, argument_count, right_indices, &right_expansion, NULL) ||
+            right, argument_count, NULL, &right_expansion, NULL) ||
         left_expansion >= 0 || right_expansion >= 0) {
         return false;
     }
@@ -25818,14 +25888,22 @@ static bool cxx_class_specialization_value_patterns_incomparable(
                 primary->params[second].kind != TPARAM_NONTYPE) {
                 continue;
             }
+            int left_first_index = cxx_class_specialization_pattern_index(
+                first, left_expansion, 0);
+            int right_first_index = cxx_class_specialization_pattern_index(
+                first, right_expansion, 0);
+            int left_second_index = cxx_class_specialization_pattern_index(
+                second, left_expansion, 0);
+            int right_second_index = cxx_class_specialization_pattern_index(
+                second, right_expansion, 0);
             Expr* left_first = left->specialization_value_args
-                ? left->specialization_value_args[left_indices[first]] : NULL;
+                ? left->specialization_value_args[left_first_index] : NULL;
             Expr* left_second = left->specialization_value_args
-                ? left->specialization_value_args[left_indices[second]] : NULL;
+                ? left->specialization_value_args[left_second_index] : NULL;
             Expr* right_first = right->specialization_value_args
-                ? right->specialization_value_args[right_indices[first]] : NULL;
+                ? right->specialization_value_args[right_first_index] : NULL;
             Expr* right_second = right->specialization_value_args
-                ? right->specialization_value_args[right_indices[second]]
+                ? right->specialization_value_args[right_second_index]
                 : NULL;
             int left_first_parameter =
                 cxx_class_specialization_value_parameter_index(left,
@@ -25867,11 +25945,21 @@ static bool cxx_deduce_class_specialization_expanded_type(
     CxxTemplate* specialization, Type* pattern, Type* actual,
     Type** candidate_arguments, int* candidate_pack_count,
     int* specificity) {
-    Type* element_arguments[32] = { NULL };
+    Type* element_arguments_small[32] = { NULL };
+    Type** element_arguments = element_arguments_small;
     int element_specificity = 0;
-    int pack_index = cxx_class_pack_index(specialization);
+    int pack_index;
     if (!specialization || !pattern || !actual || !candidate_arguments ||
-        !candidate_pack_count || pack_index < 0 ||
+        !candidate_pack_count ||
+        specialization->param_count <= 0) {
+        return false;
+    }
+    pack_index = cxx_class_pack_index(specialization);
+    if (specialization->param_count > 32) {
+        element_arguments = cxx_allocate_zeroed_array(
+            sizeof(*element_arguments), (size_t)specialization->param_count);
+    }
+    if (!element_arguments || pack_index < 0 ||
         pack_index != specialization->param_count - 1 ||
         specialization->params[pack_index].kind != TPARAM_TYPE ||
         !specialization->params[pack_index].is_pack ||
@@ -25893,7 +25981,10 @@ static bool cxx_deduce_class_specialization_expanded_type(
             candidate_arguments[parameter_index] = element_argument;
         }
     }
-    if (pack_index + *candidate_pack_count >= 32) return false;
+    if (*candidate_pack_count < 0 ||
+        *candidate_pack_count > INT_MAX - pack_index - 1) {
+        return false;
+    }
     candidate_arguments[pack_index + *candidate_pack_count] =
         element_arguments[pack_index];
     ++*candidate_pack_count;
@@ -25906,12 +25997,26 @@ static bool cxx_deduce_class_specialization_expanded_value(
     int64_t actual_value, int64_t* candidate_values,
     bool* candidate_value_present, int* candidate_pack_count,
     int* specificity) {
-    int64_t element_values[32] = { 0 };
-    bool element_value_present[32] = { false };
+    int64_t element_values_small[32] = { 0 };
+    bool element_value_present_small[32] = { false };
+    int64_t* element_values = element_values_small;
+    bool* element_value_present = element_value_present_small;
     int element_specificity = 0;
-    int pack_index = cxx_class_pack_index(specialization);
+    int pack_index;
     if (!specialization || !pattern || !candidate_values ||
-        !candidate_value_present || !candidate_pack_count || pack_index < 0 ||
+        !candidate_value_present || !candidate_pack_count ||
+        specialization->param_count <= 0) {
+        return false;
+    }
+    pack_index = cxx_class_pack_index(specialization);
+    if (specialization->param_count > 32) {
+        element_values = cxx_allocate_zeroed_array(
+            sizeof(*element_values), (size_t)specialization->param_count);
+        element_value_present = cxx_allocate_zeroed_array(
+            sizeof(*element_value_present),
+            (size_t)specialization->param_count);
+    }
+    if (!element_values || !element_value_present || pack_index < 0 ||
         pack_index != specialization->param_count - 1 ||
         specialization->params[pack_index].kind != TPARAM_NONTYPE ||
         !specialization->params[pack_index].is_pack) {
@@ -25927,7 +26032,8 @@ static bool cxx_deduce_class_specialization_expanded_value(
             specialization, pattern, actual_type, actual_value,
             element_values, element_value_present, &element_specificity) ||
         !element_value_present[pack_index] ||
-        pack_index + *candidate_pack_count >= 32) {
+        *candidate_pack_count < 0 ||
+        *candidate_pack_count > INT_MAX - pack_index - 1) {
         return false;
     }
     for (int index = 0; index < pack_index; ++index) {
