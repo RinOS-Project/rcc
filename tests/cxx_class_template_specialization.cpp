@@ -55,6 +55,7 @@ template<
     typename T28, typename T29, typename T30, typename T31,
     typename T32>
 struct WidePartial {
+    char selected_storage[1];
     static constexpr int selected = 1;
 };
 
@@ -72,6 +73,7 @@ struct WidePartial<
     T8, T9, T10, T11, T12, T13, T14, T15,
     T16, T17, T18, T19, T20, T21, T22, T23,
     T24, T25, T26, T27, T28, T29, T30, T31, int> {
+    char selected_storage[2];
     static constexpr int selected = 2;
 };
 
@@ -89,6 +91,7 @@ struct WidePartial<
     T8, T9, T10, T11, T12, T13, T14, T15,
     T16, T17, T18, T19, T20, T21, T22, T23,
     T24, T25, T26, T27, T28, T29, T30, T31, int> {
+    char selected_storage[3];
     static constexpr int selected = 3;
 };
 
@@ -97,11 +100,28 @@ static_assert(WidePartial<
     char, char, char, char, char, char, char, char,
     char, char, char, char, char, char, char, char,
     char, char, char, char, char, char, char, char, int>::selected == 2);
+static_assert(sizeof(WidePartial<
+    char, char, char, char, char, char, char, char,
+    char, char, char, char, char, char, char, char,
+    char, char, char, char, char, char, char, char,
+    char, char, char, char, char, char, char, char, int>) == 2);
 static_assert(WidePartial<
     char*, char, char, char, char, char, char, char,
     char, char, char, char, char, char, char, char,
     char, char, char, char, char, char, char, char,
     char, char, char, char, char, char, char, char, int>::selected == 3);
+
+template<typename... PrefixTypes>
+struct WideDependentClassId {
+    using selected = WidePartial<PrefixTypes..., int>;
+};
+
+using WideDependentSelected = typename WideDependentClassId<
+    char, char, char, char, char, char, char, char,
+    char, char, char, char, char, char, char, char,
+    char, char, char, char, char, char, char, char,
+    char, char, char, char, char, char, char, char>::selected;
+static_assert(sizeof(WideDependentSelected) == 2);
 
 template<typename... Types>
 struct WideClassPack {

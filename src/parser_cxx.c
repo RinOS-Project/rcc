@@ -21337,7 +21337,6 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     (parameter->kind != TPARAM_TYPE &&
                      parameter->kind != TPARAM_NONTYPE &&
                      parameter->kind != TPARAM_TEMPLATE) ||
-                    !parameter->is_pack ||
                     !tmpl || !expansion_parameter ||
                     expansion_pack_index == -2 ||
                     !expansion_parameter->is_pack) {
@@ -27215,15 +27214,41 @@ static Type* cxx_instantiate_dependent_class_template(
     const int64_t* values, const bool* value_present, int argument_count,
     SourceLoc loc) {
     CxxTemplate* selected = NULL;
-    Type* selected_arguments[32] = { NULL };
-    int64_t selected_values[32] = { 0 };
-    bool selected_value_present[32] = { false };
-    int selected_ranks[32] = { 0 };
+    Type** selected_arguments;
+    int64_t* selected_values;
+    bool* selected_value_present;
+    int* selected_ranks;
     int selected_argument_count = 0;
     int pack_index;
+    size_t selected_capacity;
 
-    if (!tmpl || argument_count < 0 || argument_count > 32 ||
+    if (!tmpl || argument_count < 0 ||
         (argument_count > 0 && (!arguments || !values || !value_present))) {
+        return NULL;
+    }
+    selected_capacity = argument_count > 0 ? (size_t)argument_count : 1u;
+    if (tmpl->param_count > 0 &&
+        selected_capacity < (size_t)tmpl->param_count) {
+        selected_capacity = (size_t)tmpl->param_count;
+    }
+    for (int index = 0; index < tmpl->specialization_count; ++index) {
+        CxxTemplate* specialization = tmpl->specializations[index];
+        if (specialization && specialization->param_count > 0 &&
+            selected_capacity < (size_t)specialization->param_count) {
+            selected_capacity = (size_t)specialization->param_count;
+        }
+    }
+    selected_arguments = cxx_allocate_zeroed_array(
+        sizeof(*selected_arguments), selected_capacity);
+    selected_values = cxx_allocate_zeroed_array(
+        sizeof(*selected_values), selected_capacity);
+    selected_value_present = cxx_allocate_zeroed_array(
+        sizeof(*selected_value_present), selected_capacity);
+    selected_ranks = cxx_allocate_zeroed_array(
+        sizeof(*selected_ranks), selected_capacity);
+    if (!selected_arguments || !selected_values ||
+        !selected_value_present || !selected_ranks) {
+        rcc_error(loc, "dependent class template state is too large");
         return NULL;
     }
     if (cxx_active_class_template_instance_matches(
@@ -27243,16 +27268,40 @@ static Type* cxx_instantiate_dependent_class_template(
          ++specialization_index) {
         CxxTemplate* specialization =
             tmpl->specializations[specialization_index];
-        Type* candidate_arguments[32] = { NULL };
-        int64_t candidate_values[32] = { 0 };
-        bool candidate_value_present[32] = { false };
-        bool candidate_template_present[32] = { false };
-        int candidate_ranks[32] = { 0 };
-        int pattern_indices[32] = { 0 };
+        size_t candidate_capacity = argument_count > 0
+            ? (size_t)argument_count : 1u;
+        Type** candidate_arguments;
+        int64_t* candidate_values;
+        bool* candidate_value_present;
+        bool* candidate_template_present;
+        int* candidate_ranks;
+        int* pattern_indices;
         int expansion_index = -1;
         int expansion_count = 0;
         int candidate_pack_count = 0;
         bool function_type_pack = false;
+        if (specialization && specialization->param_count > 0 &&
+            candidate_capacity < (size_t)specialization->param_count) {
+            candidate_capacity = (size_t)specialization->param_count;
+        }
+        candidate_arguments = cxx_allocate_zeroed_array(
+            sizeof(*candidate_arguments), candidate_capacity);
+        candidate_values = cxx_allocate_zeroed_array(
+            sizeof(*candidate_values), candidate_capacity);
+        candidate_value_present = cxx_allocate_zeroed_array(
+            sizeof(*candidate_value_present), candidate_capacity);
+        candidate_template_present = cxx_allocate_zeroed_array(
+            sizeof(*candidate_template_present), candidate_capacity);
+        candidate_ranks = cxx_allocate_zeroed_array(
+            sizeof(*candidate_ranks), candidate_capacity);
+        pattern_indices = cxx_allocate_zeroed_array(
+            sizeof(*pattern_indices), candidate_capacity);
+        if (!candidate_arguments || !candidate_values ||
+            !candidate_value_present || !candidate_template_present ||
+            !candidate_ranks || !pattern_indices) {
+            rcc_error(loc, "dependent class specialization state is too large");
+            return NULL;
+        }
         bool matches = specialization && specialization->templated_class &&
             cxx_class_specialization_pattern_layout(
                 specialization, argument_count, pattern_indices,
@@ -27266,9 +27315,6 @@ static Type* cxx_instantiate_dependent_class_template(
                 specialization, owner_class) ||
             (specialization->enclosing_class &&
              specialization->enclosing_class != owner_class)) {
-            continue;
-        }
-        if (!full_specialization && specialization->param_count > 32) {
             continue;
         }
         if (matches && !full_specialization) {
@@ -27573,14 +27619,20 @@ static Type* cxx_instantiate_dependent_class_template(
             }
             if (!selected || candidate_dominates) {
                 selected = specialization;
-                memcpy(selected_ranks, candidate_ranks,
-                       sizeof(selected_ranks));
+                if (argument_count > 0) {
+                    memcpy(selected_ranks, candidate_ranks,
+                           sizeof(*selected_ranks) *
+                               (size_t)argument_count);
+                }
                 memcpy(selected_arguments, candidate_arguments,
-                       sizeof(selected_arguments));
+                       sizeof(*selected_arguments) *
+                           (size_t)candidate_argument_count);
                 memcpy(selected_values, candidate_values,
-                       sizeof(selected_values));
+                       sizeof(*selected_values) *
+                           (size_t)candidate_argument_count);
                 memcpy(selected_value_present, candidate_value_present,
-                       sizeof(selected_value_present));
+                       sizeof(*selected_value_present) *
+                           (size_t)candidate_argument_count);
                 selected_argument_count = candidate_argument_count;
             } else if (!selected_dominates) {
                 rcc_error(loc,
@@ -27787,8 +27839,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                 argument_pack_expansion =
                     match(TOK_ELLIPSIS) || argument_pack_expansion;
                 if (argument_pack_expansion) {
-                    if (!parameter->is_pack || pack_index < 0 ||
-                        !cxx_parser_template_pack_parameter_in_scopes(
+                    if (!cxx_parser_template_pack_parameter_in_scopes(
                             active_template, argument, NULL, -1)) {
                         rcc_error(loc,
                                   "class-template-id pack expansion must name "
