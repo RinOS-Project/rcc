@@ -17269,6 +17269,16 @@ static void cxx_function_template_lookup_adl_type(
         cxx_function_template_lookup_adl_type(lookup, type->base, name);
         return;
     }
+    if (type->kind == TYPE_FUNC) {
+        cxx_function_template_lookup_adl_type(
+            lookup, type->ret_type, name);
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            cxx_function_template_lookup_adl_type(
+                lookup, parameter->type, name);
+        }
+        return;
+    }
     if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
         type->kind != TYPE_ENUM) {
         return;
@@ -17444,6 +17454,19 @@ static bool cxx_type_is_associated_with(Type* type,
     if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
         !type->cxx_is_member_pointer) {
         return cxx_type_is_associated_with(type->base, granting_class);
+    }
+    if (type->kind == TYPE_FUNC) {
+        if (cxx_type_is_associated_with(type->ret_type, granting_class)) {
+            return true;
+        }
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (cxx_type_is_associated_with(parameter->type,
+                                            granting_class)) {
+                return true;
+            }
+        }
+        return false;
     }
     if (type->cxx_class &&
         cxx_class_is_associated_with(type->cxx_class, granting_class)) {

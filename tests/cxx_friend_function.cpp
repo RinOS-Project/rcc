@@ -42,6 +42,32 @@ int find_in_enclosing_namespace(InlineArgument& argument) {
 }
 }
 
+namespace function_type_adl {
+struct Payload {
+    template<class Callable>
+    friend int hidden_function_type_friend(Callable) {
+        return 71;
+    }
+};
+
+void callback(Payload* payload) {
+    (void)payload;
+}
+}
+
+namespace function_return_type_adl {
+struct Result {
+    template<class Callable>
+    friend int hidden_function_return_type_friend(Callable) {
+        return 73;
+    }
+};
+
+Result* callback() {
+    return nullptr;
+}
+}
+
 int declared_friend(FriendHost& host, int replacement) {
     host.value += replacement;
     return host.value + 2;
@@ -380,6 +406,9 @@ int main() {
            find_in_associated_namespace(nested_argument) == 42 &&
            find_in_inline_namespace(parent_argument) == 53 &&
            find_in_enclosing_namespace(inline_argument) == 64 &&
+           hidden_function_type_friend(&function_type_adl::callback) == 71 &&
+           hidden_function_return_type_friend(
+               &function_return_type_adl::callback) == 73 &&
            friend_visibility::prior_visible_friend(prior_visible) == 31 &&
            reveal_declared(host, 37) == 37 &&
            reveal(second_host, 19) == 19 &&
