@@ -6534,6 +6534,11 @@ remains a separate open item.
       non-overlapping cases; one- and two-element overlaps are diagnosed as
       ambiguous by GCC and RCC++, with no RCC object emitted. Positive
       i686/AMD64 generation and AMD64 execution pass.
+- [x] Rank a nested class-template-id above a general type parameter and
+      recurse into its type arguments when comparing partial specializations.
+      GCC and RCC++ select `Box<T>` over `T`, then `Box<T*>` over `Box<T>`;
+      native-Windows `test-cxx-class-template-specialization` passes for
+      i686/AMD64 generation and AMD64 execution.
 
 ## RCC continuation (2026-10-17, constrained class-pack partial ordering)
 

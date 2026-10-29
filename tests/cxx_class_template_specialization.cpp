@@ -355,6 +355,46 @@ static_assert(UnequalExpansionPack<>::kind == 0);
 static_assert(UnequalExpansionPack<int, UnequalExpansionBox<char>>::kind == 1);
 static_assert(UnequalExpansionPack<UnequalExpansionBox<int>, char>::kind == 2);
 
+struct NestedOrderGeneral {};
+struct NestedOrderSecondPointer {};
+struct NestedOrderTemplateId {};
+struct NestedOrderInnerPointer {};
+
+template<typename First, typename Second>
+struct NestedTemplateOrder {
+    using selected = NestedOrderGeneral;
+};
+
+template<typename First, typename Second>
+struct NestedTemplateOrder<First, Second*> {
+    using selected = NestedOrderSecondPointer;
+};
+
+template<typename Inner, typename Second>
+struct NestedTemplateOrder<UnequalExpansionBox<Inner>, Second*> {
+    using selected = NestedOrderTemplateId;
+};
+
+template<typename Inner, typename Second>
+struct NestedTemplateOrder<UnequalExpansionBox<Inner*>, Second*> {
+    using selected = NestedOrderInnerPointer;
+};
+
+template<typename Left, typename Right>
+struct NestedOrderSameType {};
+
+template<typename Type>
+struct NestedOrderSameType<Type, Type> {
+    using result = char;
+};
+
+static_assert(sizeof(typename NestedOrderSameType<
+                  NestedTemplateOrder<UnequalExpansionBox<int>, char*>::selected,
+                  NestedOrderTemplateId>::result) == sizeof(char));
+static_assert(sizeof(typename NestedOrderSameType<
+                  NestedTemplateOrder<UnequalExpansionBox<int*>, char*>::selected,
+                  NestedOrderInnerPointer>::result) == sizeof(char));
+
 int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};

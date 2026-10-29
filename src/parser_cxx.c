@@ -23930,10 +23930,11 @@ static bool cxx_active_class_template_instance_matches(
 }
 
 /* This is a bounded partial-ordering rank, not a claim of full standard
- * ordering.  It is deliberately structural: a nested pointer/array pattern
- * is more constrained than a bare parameter, and a concrete type or value is
- * more constrained than its dependent counterpart.  Keeping one rank per
- * template argument lets orthogonal patterns such as `X<T, 4>` and
+ * ordering.  It is deliberately structural: nested pointer/array and
+ * class-template-id patterns are more constrained than a bare parameter,
+ * and nested type arguments contribute their own rank.  A concrete type or
+ * value is more constrained than its dependent counterpart.  Keeping one rank
+ * per template argument lets orthogonal patterns such as `X<T, 4>` and
  * `X<int, N>` remain ambiguous instead of letting an arbitrary scalar score
  * choose one. */
 static int cxx_class_specialization_type_rank(const Type* pattern) {
@@ -23953,6 +23954,23 @@ static int cxx_class_specialization_type_rank(const Type* pattern) {
     }
     if (pattern->kind == TYPE_PTR) {
         return rank + 1 + cxx_class_specialization_type_rank(pattern->base);
+    }
+    if ((pattern->kind == TYPE_STRUCT || pattern->kind == TYPE_UNION) &&
+        pattern->cxx_template && pattern->cxx_template_arg_count > 0 &&
+        pattern->cxx_template_args && pattern->cxx_template->params &&
+        pattern->cxx_template_arg_count <=
+            pattern->cxx_template->param_count) {
+        int template_rank = rank + (pattern->cxx_dependent ? 1 : 3);
+        for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+            if (pattern->cxx_template->params[index].kind == TPARAM_TYPE &&
+                !pattern->cxx_template->params[index].is_pack &&
+                (!pattern->cxx_template_arg_pack_expansions ||
+                 !pattern->cxx_template_arg_pack_expansions[index])) {
+                template_rank += cxx_class_specialization_type_rank(
+                    pattern->cxx_template_args[index]);
+            }
+        }
+        return template_rank;
     }
     if (pattern->cxx_dependent) return rank;
     return rank + 3;
