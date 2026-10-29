@@ -464,6 +464,54 @@ struct Constructed {
 };
 }
 
+namespace constexpr_candidate_set {
+#define DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(Index) \
+    enum Tag##Index { tag##Index }; \
+    template <typename T> constexpr int choose(T value, Tag##Index tag) { \
+        return Index + (value - value) + (tag - tag); \
+    }
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(0)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(1)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(2)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(3)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(4)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(5)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(6)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(7)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(8)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(9)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(10)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(11)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(12)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(13)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(14)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(15)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(16)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(17)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(18)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(19)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(20)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(21)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(22)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(23)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(24)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(25)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(26)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(27)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(28)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(29)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(30)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(31)
+DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE(32)
+#undef DECLARE_CONSTEXPR_TEMPLATE_CANDIDATE
+
+using Target = int (*)(int, Tag32);
+}
+
+static_assert(constexpr_candidate_set::choose(
+                  7, constexpr_candidate_set::tag32) == 32,
+              "constexpr overload evaluation must retain all candidates");
+
 template <typename T>
 int defer_candidate(T value) {
     return choose_candidate<void>(value);
@@ -472,6 +520,7 @@ int defer_candidate(T value) {
 int main() {
     CandidateOverloadArgument<32> value;
     member_candidate_set::Object object;
+    constexpr_candidate_set::Target target = constexpr_candidate_set::choose;
     member_candidate_set::Constructed constructed(
         7, member_candidate_set::Tag<32>{});
     return choose_candidate<void>(value) == 32 &&
@@ -481,7 +530,8 @@ int main() {
                        adl_candidate_set::Tag<32>{}) == 32 &&
                    7 + operator_candidate_set::Tag<32>{} == 32 &&
                    object.choose(7, member_candidate_set::Tag<32>{}) == 32 &&
-                   constructed.value == 32
+                   constructed.value == 32 &&
+                   target(9, constexpr_candidate_set::tag32) == 32
                ? 0
                : 1;
 }
