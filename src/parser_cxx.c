@@ -29818,6 +29818,15 @@ static bool deduce_function_template_type_with_pack(
                 if (expansion_index >= 0) {
                     int class_pack_index =
                         cxx_class_pack_index(pattern_template);
+                    size_t element_capacity = tmpl->param_count > 0
+                        ? (size_t)tmpl->param_count : 1u;
+                    Type** element_arguments = cxx_allocate_zeroed_array(
+                        sizeof(*element_arguments), element_capacity);
+                    int64_t* element_values = cxx_allocate_zeroed_array(
+                        sizeof(*element_values), element_capacity);
+                    bool* element_value_present =
+                        cxx_allocate_zeroed_array(
+                            sizeof(*element_value_present), element_capacity);
                     Expr* pack_value_pattern =
                         pattern->cxx_template_value_args
                             ? pattern->cxx_template_value_args[expansion_index]
@@ -29861,7 +29870,6 @@ static bool deduce_function_template_type_with_pack(
                          class_pack_parameter->kind != TPARAM_NONTYPE &&
                          class_pack_parameter->kind != TPARAM_TEMPLATE) ||
                         actual_argument_count < expansion_index ||
-                        actual_argument_count > 32 ||
                         (actual_arguments_required && !actual_arguments) ||
                         (actual_class_nontype_pack && actual_class &&
                          actual_class->template_pack_count > 0 &&
@@ -29881,6 +29889,10 @@ static bool deduce_function_template_type_with_pack(
                           *deduced_pack_count != 0)) ||
                         (function_template_pack &&
                          *deduced_pack_count != 0)) {
+                        return false;
+                    }
+                    if (!element_arguments || !element_values ||
+                        !element_value_present) {
                         return false;
                     }
                     for (int index = 0;
@@ -29927,16 +29939,15 @@ static bool deduce_function_template_type_with_pack(
                     for (int actual_index = expansion_index;
                          actual_index < actual_argument_count;
                          ++actual_index) {
-                        Type* element_arguments[32] = { NULL };
-                        int64_t element_values[32] = { 0 };
-                        bool element_value_present[32] = { false };
                         int element_specificity = 0;
                         Type* pack_element = NULL;
-                        if (tmpl->param_count >
-                            (int)(sizeof(element_arguments) /
-                                  sizeof(element_arguments[0]))) {
-                            return false;
-                        }
+                        memset(element_arguments, 0,
+                               sizeof(*element_arguments) * element_capacity);
+                        memset(element_values, 0,
+                               sizeof(*element_values) * element_capacity);
+                        memset(element_value_present, 0,
+                               sizeof(*element_value_present) *
+                                   element_capacity);
                         memcpy(element_arguments, arguments,
                                sizeof(Type*) * (size_t)tmpl->param_count);
                         if (values && value_present) {
@@ -29990,15 +30001,18 @@ static bool deduce_function_template_type_with_pack(
                                        NULL)) {
                             return false;
                         }
-                        if (*deduced_pack_count >= 32) return false;
+                        if (*deduced_pack_count < 0 ||
+                            *deduced_pack_count == INT_MAX) {
+                            return false;
+                        }
                         if (function_value_pack) {
                             if (!element_value_present[function_pack_index]) {
                                 return false;
                             }
                             int pack_offset = cxx_template_pending_pack_offset(
                                 tmpl, function_pack_index);
-                            if (pack_offset < 0 || pack_offset >= 32 ||
-                                *deduced_pack_count >= 32 - pack_offset) {
+                            if (pack_offset < 0 ||
+                                *deduced_pack_count > INT_MAX - pack_offset) {
                                 return false;
                             }
                             tmpl->pending_pack_values[
@@ -39904,6 +39918,67 @@ static Type* cxx_function_template_substitute_default_type(
     return result;
 }
 
+static size_t cxx_function_template_type_argument_budget(Type* type) {
+    size_t budget = 0u;
+    Type** arguments = NULL;
+    int argument_count = 0;
+    CxxClass* cls;
+    CxxTemplate* template_owner;
+    if (!type) return 0u;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        budget = cxx_function_template_type_argument_budget(type->base);
+    } else if (type->kind == TYPE_FUNC) {
+        budget = cxx_function_template_type_argument_budget(type->ret_type);
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            size_t nested = cxx_function_template_type_argument_budget(
+                parameter->type);
+            if (nested > SIZE_MAX - budget) return SIZE_MAX;
+            budget += nested;
+        }
+    }
+    if (budget == SIZE_MAX) return SIZE_MAX;
+    cls = type->cxx_class;
+    if (cls && cls->template_identity_tmpl) {
+        template_owner = cls->template_identity_tmpl;
+        arguments = cls->template_identity_args;
+        argument_count = cls->template_identity_arg_count;
+    } else if (cls && cls->templ) {
+        template_owner = cls->templ;
+        arguments = cls->template_args;
+        argument_count = cls->template_arg_count;
+    } else {
+        template_owner = type->cxx_template;
+        arguments = type->cxx_template_args;
+        argument_count = type->cxx_template_arg_count;
+    }
+    if (argument_count < 0) return SIZE_MAX;
+    if (template_owner) {
+        int pack_index = cxx_class_pack_index(template_owner);
+        if (pack_index >= 0 && pack_index < template_owner->param_count &&
+            template_owner->params[pack_index].kind == TPARAM_NONTYPE &&
+            cls && cls->template_pack_count > 0) {
+            if (cls->template_pack_count > INT_MAX - pack_index) {
+                return SIZE_MAX;
+            }
+            int expanded_count = pack_index + cls->template_pack_count;
+            if (expanded_count > argument_count) {
+                argument_count = expanded_count;
+            }
+        }
+    }
+    if ((size_t)argument_count > SIZE_MAX - budget) return SIZE_MAX;
+    budget += (size_t)argument_count;
+    for (int index = 0; index < argument_count; ++index) {
+        if (!arguments) break;
+        size_t nested = cxx_function_template_type_argument_budget(
+            arguments[index]);
+        if (nested > SIZE_MAX - budget) return SIZE_MAX;
+        budget += nested;
+    }
+    return budget;
+}
+
 static bool prepare_cxx_function_template_match_impl(
     CxxTemplate* tmpl, ExprList* call_arguments,
     const CxxParsedTemplateArgument* explicit_arguments,
@@ -39955,24 +40030,47 @@ static bool prepare_cxx_function_template_match_impl(
     }
 
     if (has_type_pack || has_value_pack) {
-        int pack_capacity = call_argument_count > 32
-            ? call_argument_count : 32;
-        if (explicit_arguments && explicit_argument_count > pack_capacity) {
-            pack_capacity = explicit_argument_count;
+        size_t pack_capacity = tmpl->param_count > 0
+            ? (size_t)tmpl->param_count : 1u;
+        if ((size_t)call_argument_count > SIZE_MAX - pack_capacity) {
+            return false;
+        }
+        pack_capacity += (size_t)call_argument_count;
+        if (explicit_argument_count < 0 ||
+            (size_t)explicit_argument_count > SIZE_MAX - pack_capacity) {
+            return false;
+        }
+        pack_capacity += (size_t)explicit_argument_count;
+        for (ExprList* argument = call_arguments; argument;
+             argument = argument->next) {
+            size_t argument_budget =
+                cxx_function_template_type_argument_budget(
+                    cxx_parser_expression_type(argument->expr));
+            if (argument_budget > SIZE_MAX - pack_capacity) return false;
+            pack_capacity += argument_budget;
+        }
+        if (pack_capacity > (size_t)INT_MAX ||
+            pack_capacity > SIZE_MAX / sizeof(match->pack_arguments[0]) ||
+            pack_capacity > SIZE_MAX / sizeof(match->pack_values[0]) ||
+            pack_capacity > SIZE_MAX /
+                                sizeof(match->pack_value_present[0])) {
+            rcc_error(peek()->loc,
+                      "function template pack deduction state is too large");
+            return false;
         }
         match->pack_arguments = ast_arena_alloc(
-            sizeof(match->pack_arguments[0]) * (size_t)pack_capacity);
+            sizeof(match->pack_arguments[0]) * pack_capacity);
         match->pack_values = ast_arena_alloc(
-            sizeof(match->pack_values[0]) * (size_t)pack_capacity);
+            sizeof(match->pack_values[0]) * pack_capacity);
         match->pack_value_present = ast_arena_alloc(
-            sizeof(match->pack_value_present[0]) * (size_t)pack_capacity);
+            sizeof(match->pack_value_present[0]) * pack_capacity);
         memset(match->pack_arguments, 0,
-               sizeof(match->pack_arguments[0]) * (size_t)pack_capacity);
+               sizeof(match->pack_arguments[0]) * pack_capacity);
         memset(match->pack_values, 0,
-               sizeof(match->pack_values[0]) * (size_t)pack_capacity);
+               sizeof(match->pack_values[0]) * pack_capacity);
         memset(match->pack_value_present, 0,
-               sizeof(match->pack_value_present[0]) * (size_t)pack_capacity);
-        match->pack_capacity = pack_capacity;
+               sizeof(match->pack_value_present[0]) * pack_capacity);
+        match->pack_capacity = (int)pack_capacity;
     }
 
     if (explicit_arguments) {
@@ -40744,14 +40842,13 @@ static bool prepare_cxx_function_template_match_impl(
             return false;
         }
     }
-    if (!cxx_function_template_instance_viable(
+    bool instance_viable = cxx_function_template_instance_viable(
             match->instance, call_arguments, match->conversion_ranks,
             match->conversion_targets, match->conversion_sources,
             match->conversion_methods,
             match->conversion_capacity,
-            &match->conversion_rank_count)) {
-        return false;
-    }
+            &match->conversion_rank_count);
+    if (!instance_viable) return false;
     return true;
 }
 

@@ -9165,14 +9165,79 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         Type* nested_owner_type = NULL;
         CxxClass* nested_owner_class = NULL;
         CxxTemplate* nested_class_template = type->cxx_template;
-        Type* nested_arguments[32] = { NULL };
-        int64_t nested_values[32] = { 0 };
-        bool nested_value_present[32] = { false };
-        Expr* nested_value_expressions[32] = { NULL };
-        bool nested_pack_expansions[32] = { false };
+        Type** nested_arguments;
+        int64_t* nested_values;
+        bool* nested_value_present;
+        Expr** nested_value_expressions;
+        bool* nested_pack_expansions;
+        size_t nested_source_count;
+        size_t expansion_bound = arg_count > 0 ? (size_t)arg_count : 0u;
+        size_t nested_capacity;
         int nested_count = 0;
         int pack_index = -1;
         bool still_dependent = false;
+        if (type->cxx_template_arg_count < 0) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "dependent class template argument count is invalid");
+            return NULL;
+        }
+        nested_source_count = (size_t)type->cxx_template_arg_count;
+        for (int parameter_index = 0;
+             tmpl && parameter_index < tmpl->param_count;
+             ++parameter_index) {
+            if (!tmpl->params[parameter_index].is_pack) continue;
+            int pack_length = template_pending_pack_length(
+                tmpl, parameter_index);
+            if (pack_length > 0 && (size_t)pack_length > expansion_bound) {
+                expansion_bound = (size_t)pack_length;
+            }
+        }
+        nested_capacity = nested_source_count > 0u
+            ? nested_source_count : 1u;
+        if (nested_source_count > 0u && expansion_bound > 0u) {
+            if (expansion_bound + 1u > SIZE_MAX / nested_source_count) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "dependent class template expansion state is too large");
+                return NULL;
+            }
+            nested_capacity = nested_source_count * (expansion_bound + 1u);
+        }
+        if (nested_capacity > (size_t)INT_MAX ||
+            nested_capacity > SIZE_MAX / sizeof(*nested_arguments) ||
+            nested_capacity > SIZE_MAX / sizeof(*nested_values) ||
+            nested_capacity > SIZE_MAX / sizeof(*nested_value_present) ||
+            nested_capacity > SIZE_MAX / sizeof(*nested_value_expressions) ||
+            nested_capacity > SIZE_MAX / sizeof(*nested_pack_expansions)) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "dependent class template expansion state is too large");
+            return NULL;
+        }
+        nested_arguments = ast_arena_alloc(
+            sizeof(*nested_arguments) * nested_capacity);
+        nested_values = ast_arena_alloc(
+            sizeof(*nested_values) * nested_capacity);
+        nested_value_present = ast_arena_alloc(
+            sizeof(*nested_value_present) * nested_capacity);
+        nested_value_expressions = ast_arena_alloc(
+            sizeof(*nested_value_expressions) * nested_capacity);
+        nested_pack_expansions = ast_arena_alloc(
+            sizeof(*nested_pack_expansions) * nested_capacity);
+        if (!nested_arguments || !nested_values ||
+            !nested_value_present || !nested_value_expressions ||
+            !nested_pack_expansions) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "dependent class template expansion state allocation failed");
+            return NULL;
+        }
+        memset(nested_arguments, 0,
+               sizeof(*nested_arguments) * nested_capacity);
+        memset(nested_values, 0, sizeof(*nested_values) * nested_capacity);
+        memset(nested_value_present, 0,
+               sizeof(*nested_value_present) * nested_capacity);
+        memset(nested_value_expressions, 0,
+               sizeof(*nested_value_expressions) * nested_capacity);
+        memset(nested_pack_expansions, 0,
+               sizeof(*nested_pack_expansions) * nested_capacity);
         if (type->cxx_dependent_class_template_owner) {
             CxxNestedClassTemplate* nested_entry;
             nested_owner_type = template_substitute_type(
@@ -9196,12 +9261,6 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 }
                 nested_class_template = nested_entry->declaration;
             }
-        }
-        if (type->cxx_template_arg_count >
-            (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
-            rcc_error((SourceLoc){"<template>", 0, 0},
-                      "dependent class template argument limit exceeded");
-            return NULL;
         }
         for (int parameter_index = 0;
              parameter_index < nested_class_template->param_count;
@@ -9331,12 +9390,9 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 }
                 if (local_expansion_count < 0 &&
                     (has_local_pack_source || !expands_enclosing_pack)) {
-                    if (nested_count >=
-                        (int)(sizeof(nested_arguments) /
-                              sizeof(nested_arguments[0]))) {
+                    if ((size_t)nested_count >= nested_capacity) {
                         rcc_error((SourceLoc){"<template>", 0, 0},
-                                  "dependent class template argument limit "
-                                  "exceeded");
+                                  "dependent class template expansion state is too small");
                         return NULL;
                     }
                     nested_arguments[nested_count] = template_substitute_type(
@@ -9414,25 +9470,49 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                         return NULL;
                     }
                 }
+                size_t expanded_capacity = arg_count > 0
+                    ? (size_t)arg_count : 1u;
+                Type** expanded_arguments;
+                int64_t* expanded_values;
+                bool* expanded_value_present;
+                if (arg_count < 0 || (arg_count > 0 && !args) ||
+                    expanded_capacity >
+                        SIZE_MAX / sizeof(*expanded_arguments) ||
+                    expanded_capacity > SIZE_MAX / sizeof(*expanded_values) ||
+                    expanded_capacity >
+                        SIZE_MAX / sizeof(*expanded_value_present)) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "expanded class template argument state is too large");
+                    return NULL;
+                }
+                expanded_arguments = ast_arena_alloc(
+                    sizeof(*expanded_arguments) * expanded_capacity);
+                expanded_values = ast_arena_alloc(
+                    sizeof(*expanded_values) * expanded_capacity);
+                expanded_value_present = ast_arena_alloc(
+                    sizeof(*expanded_value_present) * expanded_capacity);
+                if (!expanded_arguments || !expanded_values ||
+                    !expanded_value_present) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "expanded class template argument state allocation failed");
+                    return NULL;
+                }
                 for (int pack_value = 0;
                      pack_value < expansion_count; ++pack_value) {
                     int pending_pack_index = has_local_pack_source
                         ? local_expansion_offset + pack_value : pack_value;
-                    Type* expanded_arguments[32] = { NULL };
-                    int64_t expanded_values[32] = { 0 };
-                    bool expanded_value_present[32] = { false };
-                    if (nested_count >=
-                        (int)(sizeof(nested_arguments) /
-                              sizeof(nested_arguments[0])) ||
-                        arg_count < 0 ||
-                        (arg_count > 0 && !args) ||
-                        arg_count > (int)(sizeof(expanded_arguments) /
-                                          sizeof(expanded_arguments[0]))) {
+                    if ((size_t)nested_count >= nested_capacity) {
                         rcc_error((SourceLoc){"<template>", 0, 0},
-                                  "expanded class template argument limit "
-                                  "exceeded");
+                                  "dependent class template expansion state is too small");
                         return NULL;
                     }
+                    memset(expanded_arguments, 0,
+                           sizeof(*expanded_arguments) * expanded_capacity);
+                    memset(expanded_values, 0,
+                           sizeof(*expanded_values) * expanded_capacity);
+                    memset(expanded_value_present, 0,
+                           sizeof(*expanded_value_present) *
+                               expanded_capacity);
                     if (arg_count > 0) {
                         memcpy(expanded_arguments, args,
                                sizeof(Type*) * (size_t)arg_count);
@@ -9595,11 +9675,9 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 }
                 continue;
             }
-            if (nested_count >=
-                (int)(sizeof(nested_arguments) /
-                      sizeof(nested_arguments[0]))) {
+            if ((size_t)nested_count >= nested_capacity) {
                 rcc_error((SourceLoc){"<template>", 0, 0},
-                          "dependent class template argument limit exceeded");
+                          "dependent class template expansion state is too small");
                 return NULL;
             }
             if (parameter && parameter->kind == TPARAM_NONTYPE) {
@@ -9748,8 +9826,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                       type->cxx_template_param_index);
             return NULL;
         }
-        if (nested_count > (int)(sizeof(nested_arguments) /
-                                 sizeof(nested_arguments[0]))) {
+        if (nested_count >
+            (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
             rcc_error((SourceLoc){"<template>", 0, 0},
                       "template-template argument list exceeds the supported "
                       "limit");

@@ -20,6 +20,14 @@ template<class... Types>
 struct ExplicitAndDeducedPackTypeList {};
 
 template<class... Types>
+struct DeducedClassTypePack {};
+
+template<class... Types>
+int count_deduced_class_type_pack(DeducedClassTypePack<Types...>) {
+    return sizeof...(Types);
+}
+
+template<class... Types>
 ExplicitAndDeducedPackTypeList<Types...> explicit_then_deduced_pack(
     Types...);
 
@@ -97,7 +105,13 @@ int main() {
                    explicit_value_pack_with_deduced_suffix<1, 2>(
                           ExplicitAndDeducedValuePackTag<1>{},
                           ExplicitAndDeducedValuePackTag<2>{},
-                          ExplicitAndDeducedValuePackTag<3>{}) == 233
+                          ExplicitAndDeducedValuePackTag<3>{}) == 233 &&
+                   count_deduced_class_type_pack(DeducedClassTypePack<
+                       int, int, int, int, int, int, int, int, int, int, int,
+                       int, int, int, int, int, int, int, int, int, int,
+                       int, int, int, int, int, int, int, int, int, int, int,
+                       int>{}) ==
+                       33
                ? 0
                : 1;
 }
