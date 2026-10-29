@@ -333,6 +333,28 @@ struct SecondTagOnly { using second_tag = int; };
 static_assert(CrossedConstraintPack<FirstTagOnly*, FirstTagOnly*>::kind == 1);
 static_assert(CrossedConstraintPack<SecondTagOnly*, SecondTagOnly*>::kind == 2);
 
+template<typename T>
+struct UnequalExpansionBox {};
+
+template<typename... Types>
+struct UnequalExpansionPack {
+    static constexpr int kind = 0;
+};
+
+template<typename Head, typename... Tail>
+struct UnequalExpansionPack<Head, UnequalExpansionBox<Tail>...> {
+    static constexpr int kind = 1;
+};
+
+template<typename Head, typename... Tail>
+struct UnequalExpansionPack<UnequalExpansionBox<Head>, Tail...> {
+    static constexpr int kind = 2;
+};
+
+static_assert(UnequalExpansionPack<>::kind == 0);
+static_assert(UnequalExpansionPack<int, UnequalExpansionBox<char>>::kind == 1);
+static_assert(UnequalExpansionPack<UnequalExpansionBox<int>, char>::kind == 2);
+
 int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};

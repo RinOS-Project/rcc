@@ -6527,6 +6527,13 @@ remains a separate open item.
       structurally incomparable patterns ambiguous. GCC C++20 plus RCC++
       i686/AMD64 ambiguity diagnostics are part of the class-specialization
       regression gates.
+- [x] Deduce nested class-template-ids recursively in the unequal pack
+      expansions `<Head, UnequalExpansionBox<Tail>...>` and
+      `<UnequalExpansionBox<Head>, Tail...>`. GCC and RCC++ i686/AMD64 select
+      the primary for an empty pack and each partial specialization for its
+      non-overlapping cases; one- and two-element overlaps are diagnosed as
+      ambiguous by GCC and RCC++, with no RCC object emitted. Positive
+      i686/AMD64 generation and AMD64 execution pass.
 
 ## RCC continuation (2026-10-17, constrained class-pack partial ordering)
 

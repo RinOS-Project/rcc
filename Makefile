@@ -8069,6 +8069,14 @@ test-cxx-class-template-specialization-ambiguous-posix: $(RCXX_TARGET)
 
 test-cxx-class-template-specialization-partial-order-invalid-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_specialization_unequal_pack_expansion_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-gcc.log)
+	$(GREP) -F -q "ambiguous template instantiation" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x86.ro tests/cxx_class_template_specialization_unequal_pack_expansion_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x86.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x64.ro tests/cxx_class_template_specialization_unequal_pack_expansion_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x64.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x64.ro)
 	@if $(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.ro \
 		tests/cxx_class_template_specialization_partial_order_invalid.cpp \
@@ -8126,6 +8134,14 @@ test-cxx-class-template-specialization-ambiguous: $(RCXX_TARGET)
 
 test-cxx-class-template-specialization-partial-order-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_specialization_unequal_pack_expansion_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-gcc.log)
+	$(GREP) -F -q "ambiguous template instantiation" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x86.ro tests/cxx_class_template_specialization_unequal_pack_expansion_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x86.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x64.ro tests/cxx_class_template_specialization_unequal_pack_expansion_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x64.log)
+	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/unequal-pack-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.ro tests/cxx_class_template_specialization_partial_order_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.log)
 	$(GREP) -F -q "ambiguous class template partial specialization" $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.ro tests/cxx_class_template_specialization_partial_order_invalid.cpp,$(TEST_OUT)/cxx-class-template-specialization-partial-order-invalid/x64.log)

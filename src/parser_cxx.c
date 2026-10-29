@@ -24188,6 +24188,56 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
         }
         return actual_parameter == pack_end;
     }
+    if (pattern->kind == actual->kind &&
+        (pattern->kind == TYPE_STRUCT || pattern->kind == TYPE_UNION) &&
+        pattern->cxx_template && pattern->cxx_template_arg_count > 0 &&
+        pattern->cxx_template_arg_count <= 32) {
+        CxxClass* actual_class = actual->cxx_class;
+        CxxTemplate* actual_template = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_tmpl
+            : actual_class && actual_class->templ
+                ? actual_class->templ : actual->cxx_template;
+        Type** actual_arguments = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_args
+            : actual_class && actual_class->templ
+                ? actual_class->template_args : actual->cxx_template_args;
+        int actual_argument_count = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_arg_count
+            : actual_class && actual_class->templ
+                ? actual_class->template_arg_count
+                : actual->cxx_template_arg_count;
+        CxxTemplate* pattern_template = pattern->cxx_template;
+        bool type_only_arguments = true;
+        if (actual_template == pattern_template && actual_arguments &&
+            pattern->cxx_template_args &&
+            actual_argument_count == pattern->cxx_template_arg_count &&
+            actual_argument_count == pattern_template->param_count) {
+            for (int index = 0; index < actual_argument_count; ++index) {
+                if (pattern_template->params[index].kind != TPARAM_TYPE ||
+                    pattern_template->params[index].is_pack ||
+                    (pattern->cxx_template_arg_pack_expansions &&
+                     pattern->cxx_template_arg_pack_expansions[index])) {
+                    type_only_arguments = false;
+                    break;
+                }
+            }
+            if (type_only_arguments) {
+                for (int index = 0; index < actual_argument_count; ++index) {
+                    if (!deduce_class_specialization_type(
+                            tmpl, pattern->cxx_template_args[index],
+                            actual_arguments[index], arguments, specificity,
+                            pack_count)) {
+                        return false;
+                    }
+                }
+                if (specificity) ++*specificity;
+                return true;
+            }
+        }
+    }
     if (pattern->kind == TYPE_PTR && actual->kind == TYPE_PTR &&
         pattern->is_reference == actual->is_reference &&
         pattern->is_rvalue_reference == actual->is_rvalue_reference) {
@@ -26218,7 +26268,8 @@ static Type* cxx_instantiate_dependent_class_template(
                         (pattern->cxx_dependent_member_name ||
                          pattern->cxx_dependent_alias_template ||
                          pattern->cxx_dependent_class_template_owner ||
-                         pattern->cxx_template_arg_count > 0 ||
+                         (pattern->cxx_template_arg_count > 0 &&
+                          !pattern->cxx_template) ||
                          pattern->cxx_dependent_decltype_expr)) {
                         Type* resolved_pattern = substitute_template_type(
                             specialization, pattern, candidate_arguments,
@@ -26986,7 +27037,8 @@ static Type* parse_class_template_specialization_with_owner_type(
                         (pattern->cxx_dependent_member_name ||
                          pattern->cxx_dependent_alias_template ||
                          pattern->cxx_dependent_class_template_owner ||
-                         pattern->cxx_template_arg_count > 0 ||
+                         (pattern->cxx_template_arg_count > 0 &&
+                          !pattern->cxx_template) ||
                          pattern->cxx_dependent_decltype_expr)) {
                         bool suppress_before = g_suppress_errors;
                         int suppressed_before = g_suppressed_error_count;
