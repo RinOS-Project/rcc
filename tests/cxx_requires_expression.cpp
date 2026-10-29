@@ -1,7 +1,26 @@
+namespace std {
+template<typename T, typename U>
+concept same_as = true;
+
+template<typename From, typename To>
+concept convertible_to = true;
+}
+
 template<int N>
 int nested_requirement_probe() {
     return requires { requires (N > 0); } ? 1 : 0;
 }
+
+namespace custom {
+template<typename From, typename To>
+concept same_as = false;
+
+template<typename From, typename To>
+concept convertible_to = false;
+}
+
+using std::same_as;
+using std::convertible_to;
 
 int potentially_throwing();
 
@@ -32,6 +51,10 @@ int main() {
     static_assert(!requires { { value + 2 } -> bool; });
     static_assert(!requires { { value + 2 } -> std::same_as<bool>; });
     static_assert(!requires { { value + 2 } -> std::convertible_to<int*>; });
+    static_assert(!requires { { value + 2 } -> custom::same_as<int>; });
+    static_assert(!requires { { value + 2 } -> custom::convertible_to<long>; });
+    static_assert(requires { { value + 2 } -> same_as<int>; });
+    static_assert(requires { { value + 2 } -> convertible_to<long>; });
     static_assert(requires { { potentially_throwing() }; });
     static_assert(!requires { { potentially_throwing() } noexcept; });
     return requires {} && requires { value + 2; } &&

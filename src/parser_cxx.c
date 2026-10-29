@@ -6301,17 +6301,17 @@ static bool cxx_requires_return_constraint_has_arguments(void) {
     return token->next && token->next->type == TOK_LT;
 }
 
-static bool cxx_name_has_suffix(const char* name, const char* suffix) {
-    size_t name_length;
-    size_t suffix_length;
+static bool cxx_is_std_library_concept(const CxxTemplate* concept,
+                                       const char* expected_name) {
+    CxxNamespace* std_namespace;
 
-    if (!name || !suffix) return false;
-    name_length = strlen(name);
-    suffix_length = strlen(suffix);
-    return name_length >= suffix_length &&
-           strcmp(name + name_length - suffix_length, suffix) == 0 &&
-           (name_length == suffix_length ||
-            name[name_length - suffix_length - 1u] == ':');
+    if (!concept || !concept->is_concept || !concept->name ||
+        !concept->ns || !expected_name ||
+        strcmp(concept->name, expected_name) != 0) {
+        return false;
+    }
+    std_namespace = cxx_namespace_find(g_global_namespace, "std");
+    return std_namespace != NULL && concept->ns == std_namespace;
 }
 
 /* Named concepts currently share the fixed-arity evaluator used by ordinary
@@ -6434,15 +6434,22 @@ static Type* parse_cxx_requires_return_constraint(
     }
 
     constraint_name = parse_qualified_name();
-    if (cxx_name_has_suffix(constraint_name, "same_as") ||
-        cxx_name_has_suffix(constraint_name, "convertible_to")) {
-        expect(TOK_LT, "< after requires-expression return constraint");
-        return_type = parse_cxx_type_spec();
-        expect(TOK_GT, "> after requires-expression return constraint");
-        if (cxx_name_has_suffix(constraint_name, "convertible_to")) {
-            *return_type_convertible = true;
+    {
+        CxxTemplate* resolved_concept = find_concept(constraint_name);
+        int standard_same_as = cxx_is_std_library_concept(
+            resolved_concept, "same_as");
+        int standard_convertible_to = cxx_is_std_library_concept(
+            resolved_concept, "convertible_to");
+
+        if (standard_same_as || standard_convertible_to) {
+            expect(TOK_LT, "< after requires-expression return constraint");
+            return_type = parse_cxx_type_spec();
+            expect(TOK_GT, "> after requires-expression return constraint");
+            if (standard_convertible_to) {
+                *return_type_convertible = true;
+            }
+            return return_type;
         }
-        return return_type;
     }
 
     {
@@ -16751,7 +16758,30 @@ static CxxTemplate* find_variable_template(const char* qualified_name) {
 
 static CxxTemplate* find_concept(const char* qualified_name) {
     CxxTemplate* candidate = find_template(qualified_name, TMPL_FUNCTION);
-    return candidate && candidate->is_concept ? candidate : NULL;
+    if (candidate) return candidate->is_concept ? candidate : NULL;
+
+    /* find_template() handles qualified names and direct declarations.
+     * Concept using-declarations preserve the target declaration identity,
+     * so resolve the imported target instead of reconstructing a concept
+     * from the spelling used at the call site. */
+    if (qualified_name && !strstr(qualified_name, "::")) {
+        CxxNamespace* scope = active_namespace
+            ? active_namespace : g_global_namespace;
+        for (CxxNamespace* ns = scope; ns; ns = ns->parent) {
+            for (int index = 0; index < ns->using_declaration_count; ++index) {
+                const char* target = ns->using_declarations[index];
+                const char* final_component;
+                if (!target) continue;
+                final_component = strrchr(target, ':');
+                final_component = final_component
+                    ? final_component + 1 : target;
+                if (strcmp(final_component, qualified_name) != 0) continue;
+                candidate = find_template(target, TMPL_FUNCTION);
+                if (candidate && candidate->is_concept) return candidate;
+            }
+        }
+    }
+    return NULL;
 }
 
 typedef struct {
