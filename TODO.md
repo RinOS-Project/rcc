@@ -8361,11 +8361,16 @@ remains a separate open item.
       checks zero fallback for i686/AMD64 at `-O0`/`-O2`, executes AMD64
       objects, and compares the C17 source with GCC via
       `make SHELL=cmd.exe test-verified-atomic-fetch-add`.
-- [ ] Aggregate generic builtin operands, atomic aggregate operations,
-      floating-point RMW, and complete C++ atomic API/concurrency semantics
-      remain open. Scalar generic load/store/exchange/compare-exchange and
-      floating load/store/exchange/compare-exchange are covered separately by
-      the same verified-backend test gate.
+- [x] Lower generic aggregate load/store/exchange/compare-exchange for
+      complete naturally aligned 1/2/4/8-byte struct and union objects using
+      their integer object representation; require trivial copyability for
+      C++ classes and restrict 8-byte objects to AMD64. The focused gate
+      verifies i686/AMD64 at `-O0`/`-O2`, runs AMD64 outputs, and compares the
+      C17 fixture with GCC.
+- [ ] Remaining aggregate sizes/layouts and non-trivial C++ objects, floating
+      RMW, and complete C++ atomic API/concurrency semantics remain open.
+      Scalar and bounded aggregate generic load/store/exchange/compare-exchange
+      plus floating load/store/exchange/compare-exchange have dedicated tests.
 - [x] Fix optimized VLA-bound dead-store elimination: runtime array
       declarator bounds and variably-modified types in `sizeof` are now reads
       (including nested pointer/array types), so an initializer such as
@@ -8418,10 +8423,12 @@ remains a separate open item.
 - [x] Typed-SSA lowering for dynamic VLA pointer strides and subtraction of
       two pointers to compatible complete VLA objects is implemented in the
       continuation below.
-- [ ] Typed-SSA lowering for aggregate generic atomics, floating-point RMW,
-      and complete C++ atomic operations remains open. Scalar generic and
-      floating load/store/exchange/compare-exchange plus integral bitwise,
-      min/max, and wraparound RMW are implemented and tested.
+- [x] Typed-SSA lowering for bounded generic aggregate load/store/exchange/
+      compare-exchange is complete; see the 2026-10-30 continuation below.
+- [ ] Remaining aggregate sizes/layouts, floating-point RMW, and complete
+      C++ atomic operations remain open. Scalar generic and floating
+      load/store/exchange/compare-exchange plus integral bitwise, min/max, and
+      wraparound RMW are implemented and tested.
 
 ## RCC continuation (2026-10-21, typed-SSA pointer-to-VLA extents)
 
@@ -12033,3 +12040,22 @@ remains a separate open item.
       fallback for i686/AMD64 at `-O0`/`-O2`; verified-object execution checks
       both ordinary and reference-bound partial-construction unwind order
       (`7021`), and the legacy-host runtime passes.
+
+## RCC continuation (2026-10-30, typed-SSA generic aggregate atomics)
+
+- [x] Lower generic `__atomic_load`, `__atomic_store`, `__atomic_exchange`,
+      and `__atomic_compare_exchange` for complete, naturally aligned 1/2/4/8-
+      byte struct/union objects using a same-width integer object
+      representation. Require trivial copyability for C++ classes and limit
+      8-byte operations to AMD64; preserve scalar-only `_n` and legacy `__sync`
+      forms. The implementation reads and writes the full object
+      representation, including padding, and uses the existing observable
+      atomic load, exchange, and compare-exchange IR operations.
+- [x] Add runtime coverage for successful and failed aggregate compare-exchange
+      plus aggregate load/store/exchange. `test-verified-atomic-fetch-add`
+      passes i686/AMD64 compilation at `-O0`/`-O2` with zero fallback, AMD64
+      object execution, and GCC C17 oracles; scalar, pointer, and floating
+      atomic regressions in the same target also pass.
+- [ ] Extend typed-SSA aggregate atomics to wider or under-aligned objects,
+      non-trivial C++ objects, and the full `std::atomic<T>` API/concurrency
+      model. Local aggregate declarations remain a separate typed-SSA gap.

@@ -47,7 +47,11 @@ int main(int argc, char** argv)
     ObjectFile* object;
     ObjSection* text;
     ObjSection* rodata;
+    ObjSection* data;
+    ObjSection* bss;
     int rodata_index;
+    int data_index;
+    int bss_index;
     ObjSymbol* entry_symbol;
     ObjSymbol* wide_loop_symbol = NULL;
     ObjSymbol* nested_wide_loop_symbol = NULL;
@@ -58,7 +62,10 @@ int main(int argc, char** argv)
     ObjSymbol* rint_discard_symbol = NULL;
     size_t page_size;
     size_t mapping_size;
+    size_t text_mapping_size;
     size_t rodata_offset = 0u;
+    size_t data_offset = 0u;
+    size_t bss_offset = 0u;
     size_t used_size;
     void* memory;
     void* entry_address;
@@ -84,7 +91,11 @@ int main(int argc, char** argv)
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     rodata = objfile_get_section(object, ".rodata");
+    data = objfile_get_section(object, ".data");
+    bss = objfile_get_section(object, ".bss");
     rodata_index = object_section_index(object, rodata);
+    data_index = object_section_index(object, data);
+    bss_index = object_section_index(object, bss);
     entry_symbol = rint_only ? NULL : objfile_find_symbol(object, "main");
     assert(text != NULL && text->data != NULL && text->size != 0u &&
            (rint_only ||
@@ -123,14 +134,35 @@ int main(int argc, char** argv)
     page_size = host_page_size > 0 ? (size_t)host_page_size : 0u;
 #endif
     assert(page_size != 0u && text->size <= SIZE_MAX - page_size + 1u);
-    used_size = (size_t)text->size;
+    text_mapping_size = ((size_t)text->size + page_size - 1u) &
+        ~(page_size - 1u);
+    used_size = text_mapping_size;
     if (rodata && rodata->size != 0u) {
         size_t alignment = rodata->align ? rodata->align : 1u;
+        if (alignment < page_size) alignment = page_size;
         size_t mask = alignment - 1u;
         assert((alignment & mask) == 0u && used_size <= SIZE_MAX - mask);
         rodata_offset = (used_size + mask) & ~mask;
         assert(rodata->size <= SIZE_MAX - rodata_offset);
         used_size = rodata_offset + (size_t)rodata->size;
+    }
+    if (data && data->size != 0u) {
+        size_t alignment = data->align ? data->align : 1u;
+        if (alignment < page_size) alignment = page_size;
+        size_t mask = alignment - 1u;
+        assert((alignment & mask) == 0u && used_size <= SIZE_MAX - mask);
+        data_offset = (used_size + mask) & ~mask;
+        assert(data->size <= SIZE_MAX - data_offset);
+        used_size = data_offset + (size_t)data->size;
+    }
+    if (bss && bss->size != 0u) {
+        size_t alignment = bss->align ? bss->align : 1u;
+        if (alignment < page_size) alignment = page_size;
+        size_t mask = alignment - 1u;
+        assert((alignment & mask) == 0u && used_size <= SIZE_MAX - mask);
+        bss_offset = (used_size + mask) & ~mask;
+        assert(bss->size <= SIZE_MAX - bss_offset);
+        used_size = bss_offset + (size_t)bss->size;
     }
     assert(used_size <= SIZE_MAX - page_size + 1u);
     mapping_size = (used_size + page_size - 1u) & ~(page_size - 1u);
@@ -148,21 +180,35 @@ int main(int argc, char** argv)
         memcpy((uint8_t*)memory + rodata_offset,
                rodata->data, (size_t)rodata->size);
     }
+    if (data && data->size != 0u) {
+        memcpy((uint8_t*)memory + data_offset,
+               data->data, (size_t)data->size);
+    }
     for (ObjReloc* relocation = text->relocs; relocation;
          relocation = relocation->next) {
         ObjSymbol* symbol = objfile_find_symbol(
             object, relocation->symbol_name);
         uint8_t* place;
+        size_t symbol_section_offset;
         int64_t target;
         int64_t delta;
         int32_t encoded;
-        assert(symbol != NULL &&
-               (symbol->section == 0 ||
-                (rodata && symbol->section == rodata_index)) &&
-               relocation->offset <= text->size);
+        assert(symbol != NULL && relocation->offset <= text->size);
+        if (symbol->section == 0) {
+            symbol_section_offset = 0u;
+        } else if (rodata && symbol->section == rodata_index) {
+            symbol_section_offset = rodata_offset;
+        } else if (data && symbol->section == data_index) {
+            symbol_section_offset = data_offset;
+        } else if (bss && symbol->section == bss_index) {
+            symbol_section_offset = bss_offset;
+        } else {
+            assert(!"entry runner relocation target section is unsupported");
+            symbol_section_offset = 0u;
+        }
         place = (uint8_t*)memory + relocation->offset;
         target = (int64_t)(uintptr_t)memory +
-            (symbol->section == 0 ? 0 : (int64_t)rodata_offset) +
+            (int64_t)symbol_section_offset +
             (int64_t)symbol->value + relocation->addend;
         if (relocation->type == RELOC_REL32) {
             assert(sizeof(encoded) <= text->size - relocation->offset);
@@ -181,9 +227,11 @@ int main(int argc, char** argv)
         }
     }
 #ifdef _WIN32
-    assert(VirtualProtect(memory, mapping_size, PAGE_EXECUTE_READ, &previous));
+    assert(VirtualProtect(memory, text_mapping_size,
+                          PAGE_EXECUTE_READ, &previous));
 #else
-    assert(mprotect(memory, mapping_size, PROT_READ | PROT_EXEC) == 0);
+    assert(mprotect(memory, text_mapping_size,
+                    PROT_READ | PROT_EXEC) == 0);
 #endif
     if (!rint_only) {
         entry_address = (uint8_t*)memory + entry_symbol->value;
