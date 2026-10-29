@@ -13027,7 +13027,7 @@ static Symbol* sema_cxx_operator_function(const char* name,
                                           ExprList* arguments) {
     Symbol* functions;
     SemaCxxAdlCandidates matching = {0};
-    Decl* template_candidates[32] = { NULL };
+    Decl** template_candidates = NULL;
     int argument_count = 0;
     if (!name) return NULL;
     for (ExprList* argument = arguments; argument;
@@ -13064,9 +13064,7 @@ static Symbol* sema_cxx_operator_function(const char* name,
         bool constraint_unsupported = false;
         int template_count =
             rcc_parser_cxx_materialize_operator_function_templates(
-                current_cxx_namespace, name, arguments, template_candidates,
-                (int)(sizeof(template_candidates) /
-                      sizeof(template_candidates[0])),
+                current_cxx_namespace, name, arguments, NULL, 0,
                 &constraint_unsupported);
         if (constraint_unsupported) {
             SourceLoc loc = arguments->expr ? arguments->expr->loc
@@ -13075,10 +13073,31 @@ static Symbol* sema_cxx_operator_function(const char* name,
                       "function template constraint for overloaded operator '%s' could not be evaluated",
                       name);
         }
-        if (template_count > (int)(sizeof(template_candidates) /
-                                   sizeof(template_candidates[0]))) {
-            template_count = (int)(sizeof(template_candidates) /
-                                   sizeof(template_candidates[0]));
+        if (template_count > 0) {
+            bool second_pass_constraint_unsupported = false;
+            if ((size_t)template_count >
+                SIZE_MAX / sizeof(*template_candidates)) {
+                rcc_error(arguments->expr ? arguments->expr->loc
+                                          : (SourceLoc){"<sema>", 0, 0},
+                          "too many overloaded operator template candidates for '%s'",
+                          name);
+                return sema_cxx_make_function_symbol(name, &matching);
+            }
+            template_candidates = ast_arena_alloc(
+                sizeof(*template_candidates) * (size_t)template_count);
+            template_count =
+                rcc_parser_cxx_materialize_operator_function_templates(
+                    current_cxx_namespace, name, arguments,
+                    template_candidates, template_count,
+                    &second_pass_constraint_unsupported);
+            if (second_pass_constraint_unsupported &&
+                !constraint_unsupported) {
+                SourceLoc loc = arguments->expr ? arguments->expr->loc
+                                                : (SourceLoc){"<sema>", 0, 0};
+                rcc_error(loc,
+                          "function template constraint for overloaded operator '%s' could not be evaluated",
+                          name);
+            }
         }
         for (int index = 0; index < template_count; ++index) {
             Decl* candidate = template_candidates[index];

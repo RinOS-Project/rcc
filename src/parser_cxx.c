@@ -46,8 +46,8 @@ static bool cxx_function_template_call_is_dependent(
 static bool cxx_candidate_function_template_call_is_dependent(
     ExprList* call_arguments,
     CxxParsedTemplateArgument* const* explicit_arguments,
-    const int explicit_argument_counts[32],
-    const bool explicit_arguments_valid[32], int candidate_count,
+    const int* explicit_argument_counts,
+    const bool* explicit_arguments_valid, int candidate_count,
     bool explicit_arguments_specified, const CxxTemplate* context);
 static bool cxx_dependent_decltype_calls_are_viable(
     Expr* expression, unsigned depth);
@@ -17313,7 +17313,7 @@ static void cxx_function_template_lookup_namespace(
 static int namespace_function_templates(CxxNamespace* ns, const char* name,
                                         CxxTemplate** results, int capacity) {
     CxxFunctionTemplateLookup lookup = { 0 };
-    if (!ns || !name || !results || capacity <= 0) return 0;
+    if (!ns || !name || capacity < 0 || (capacity > 0 && !results)) return 0;
     lookup.results = results;
     lookup.capacity = capacity;
     cxx_function_template_lookup_namespace(&lookup, ns, name);
@@ -17480,7 +17480,8 @@ static int cxx_function_template_candidates_for_adl(
     const char* name, ExprList* arguments, CxxTemplate** results,
     int capacity, int initial_count) {
     CxxAdlFunctionTemplateLookup lookup = { 0 };
-    if (!name || !arguments || !results || capacity <= 0) return initial_count;
+    if (!name || !arguments || capacity < 0 ||
+        (capacity > 0 && !results)) return initial_count;
     lookup.templates.results = results;
     lookup.templates.capacity = capacity;
     lookup.templates.count = initial_count;
@@ -17499,7 +17500,7 @@ static int find_function_template_candidates_absolute(
     CxxNamespace* ns;
     const char* name = qualified_name;
 
-    if (!name || !results || capacity <= 0) return 0;
+    if (!name || capacity < 0 || (capacity > 0 && !results)) return 0;
     if (!strstr(name, "::")) {
         return namespace_function_templates(g_global_namespace, name,
                                             results, capacity);
@@ -17532,7 +17533,7 @@ static int find_function_template_candidates(const char* qualified_name,
     bool globally_qualified;
     int count;
 
-    if (!name || !results || capacity <= 0) return 0;
+    if (!name || capacity < 0 || (capacity > 0 && !results)) return 0;
     globally_qualified = name[0] == ':' && name[1] == ':';
     while (name[0] == ':' && name[1] == ':') name += 2;
     if (!strstr(name, "::")) {
@@ -17558,6 +17559,113 @@ static int find_function_template_candidates(const char* qualified_name,
     }
     return find_function_template_candidates_absolute(name, results,
                                                        capacity);
+}
+
+static bool cxx_grow_function_template_candidates(
+    CxxTemplate*** candidates, int* capacity, int required,
+    SourceLoc loc) {
+    if (!candidates || !capacity || required < 0) return false;
+    if (required <= *capacity) return true;
+    if ((size_t)required > SIZE_MAX / sizeof(**candidates)) {
+        rcc_error(loc, "too many function template overload candidates");
+        return false;
+    }
+    *candidates = ast_arena_grow(
+        *candidates, sizeof(**candidates) * (size_t)*capacity,
+        sizeof(**candidates) * (size_t)required);
+    memset(*candidates + *capacity, 0,
+           sizeof(**candidates) * (size_t)(required - *capacity));
+    *capacity = required;
+    return true;
+}
+
+static bool cxx_collect_function_template_candidates(
+    const char* name, CxxTemplate*** candidates, int* candidate_count,
+    int* candidate_capacity, SourceLoc loc) {
+    int required;
+    if (!candidates || !candidate_count || !candidate_capacity) return false;
+    *candidates = NULL;
+    *candidate_count = 0;
+    *candidate_capacity = 0;
+    required = find_function_template_candidates(name, NULL, 0);
+    if (required <= 0) return true;
+    if (!cxx_grow_function_template_candidates(
+            candidates, candidate_capacity, required, loc)) {
+        return false;
+    }
+    *candidate_count = find_function_template_candidates(
+        name, *candidates, *candidate_capacity);
+    return true;
+}
+
+static bool cxx_append_adl_function_template_candidates(
+    const char* name, ExprList* arguments, CxxTemplate*** candidates,
+    int* candidate_count, int* candidate_capacity, SourceLoc loc) {
+    int additional_capacity;
+    int required_capacity;
+    if (!candidates || !candidate_count || !candidate_capacity) {
+        return false;
+    }
+    if (!arguments) return true;
+    additional_capacity = cxx_function_template_candidates_for_adl(
+        name, arguments, NULL, 0, 0);
+    if (additional_capacity < 0 ||
+        additional_capacity > INT_MAX - *candidate_capacity) {
+        rcc_error(loc, "too many function template overload candidates");
+        return false;
+    }
+    required_capacity = *candidate_capacity + additional_capacity;
+    if (!cxx_grow_function_template_candidates(
+            candidates, candidate_capacity, required_capacity, loc)) {
+        return false;
+    }
+    *candidate_count = cxx_function_template_candidates_for_adl(
+        name, arguments, *candidates, *candidate_capacity, *candidate_count);
+    return true;
+}
+
+static bool cxx_grow_function_template_explicit_arguments(
+    CxxParsedTemplateArgument*** arguments, int** argument_counts,
+    bool** arguments_valid, bool** arguments_parsed, int* capacity,
+    int required, SourceLoc loc) {
+    size_t old_slots;
+    size_t new_slots;
+    if (!arguments || !argument_counts || !arguments_valid ||
+        !arguments_parsed || !capacity || required < 0) {
+        return false;
+    }
+    if (required <= *capacity) return true;
+    old_slots = (size_t)*capacity;
+    new_slots = (size_t)required;
+    if (new_slots > SIZE_MAX / sizeof(**arguments) ||
+        new_slots > SIZE_MAX / sizeof(**argument_counts) ||
+        new_slots > SIZE_MAX / sizeof(**arguments_valid) ||
+        new_slots > SIZE_MAX / sizeof(**arguments_parsed)) {
+        rcc_error(loc, "too many function template overload candidates");
+        return false;
+    }
+    *arguments = ast_arena_grow(
+        *arguments, sizeof(**arguments) * old_slots,
+        sizeof(**arguments) * new_slots);
+    *argument_counts = ast_arena_grow(
+        *argument_counts, sizeof(**argument_counts) * old_slots,
+        sizeof(**argument_counts) * new_slots);
+    *arguments_valid = ast_arena_grow(
+        *arguments_valid, sizeof(**arguments_valid) * old_slots,
+        sizeof(**arguments_valid) * new_slots);
+    *arguments_parsed = ast_arena_grow(
+        *arguments_parsed, sizeof(**arguments_parsed) * old_slots,
+        sizeof(**arguments_parsed) * new_slots);
+    memset(*arguments + old_slots, 0,
+           sizeof(**arguments) * (new_slots - old_slots));
+    memset(*argument_counts + old_slots, 0,
+           sizeof(**argument_counts) * (new_slots - old_slots));
+    memset(*arguments_valid + old_slots, 0,
+           sizeof(**arguments_valid) * (new_slots - old_slots));
+    memset(*arguments_parsed + old_slots, 0,
+           sizeof(**arguments_parsed) * (new_slots - old_slots));
+    *capacity = required;
+    return true;
 }
 
 static bool cxx_class_is_associated_with(CxxClass* actual,
@@ -34867,6 +34975,16 @@ typedef struct CxxFunctionTemplateMatch {
     Type* substitution_failure_type;
 } CxxFunctionTemplateMatch;
 
+static CxxFunctionTemplateMatch* cxx_allocate_function_template_matches(
+    int count, SourceLoc loc) {
+    if (count <= 0) return NULL;
+    if ((size_t)count > SIZE_MAX / sizeof(CxxFunctionTemplateMatch)) {
+        rcc_error(loc, "too many function template overload candidates");
+        return NULL;
+    }
+    return ast_arena_alloc(sizeof(CxxFunctionTemplateMatch) * (size_t)count);
+}
+
 static void cxx_function_template_match_allocate_conversions(
     CxxFunctionTemplateMatch* match, int capacity) {
     if (!match || capacity <= 0) return;
@@ -40116,37 +40234,37 @@ int rcc_parser_cxx_materialize_operator_function_templates(
     CxxNamespace* scope, const char* name, ExprList* arguments,
     Decl** candidates, int candidate_capacity,
     bool* constraint_unsupported) {
-    CxxTemplate* templates[32] = { NULL };
-    CxxFunctionTemplateMatch matches[32] = { 0 };
+    CxxTemplate** templates = NULL;
+    CxxFunctionTemplateMatch* matches;
+    Decl** selected_instances;
     CxxNamespace* saved_namespace = active_namespace;
     int template_count;
+    int template_capacity = 0;
     int match_count = 0;
     int result_count = 0;
     bool unsupported = false;
+    SourceLoc loc;
 
     if (constraint_unsupported) *constraint_unsupported = false;
-    if (!name || !arguments || !candidates || candidate_capacity <= 0) {
+    if (!name || !arguments || candidate_capacity < 0 ||
+        (!candidates && candidate_capacity != 0)) {
         return 0;
     }
+    loc = arguments->expr ? arguments->expr->loc
+                          : (SourceLoc){"<sema>", 0, 0};
     active_namespace = scope ? scope : g_global_namespace;
-    template_count = find_function_template_candidates(
-        name, templates, (int)(sizeof(templates) / sizeof(templates[0])));
-    if (template_count > (int)(sizeof(templates) / sizeof(templates[0]))) {
-        rcc_error(arguments->expr ? arguments->expr->loc :
-                                    (SourceLoc){"<sema>", 0, 0},
-                  "too many ordinary function template candidates for '%s'",
-                  name);
-        template_count = (int)(sizeof(templates) / sizeof(templates[0]));
+    if (!cxx_collect_function_template_candidates(
+            name, &templates, &template_count, &template_capacity, loc) ||
+        !cxx_append_adl_function_template_candidates(
+            name, arguments, &templates, &template_count,
+            &template_capacity, loc)) {
+        active_namespace = saved_namespace;
+        return 0;
     }
-    template_count = cxx_function_template_candidates_for_adl(
-        name, arguments, templates,
-        (int)(sizeof(templates) / sizeof(templates[0])), template_count);
-    if (template_count > (int)(sizeof(templates) / sizeof(templates[0]))) {
-        rcc_error(arguments->expr ? arguments->expr->loc :
-                                    (SourceLoc){"<sema>", 0, 0},
-                  "too many ADL function template candidates for '%s'",
-                  name);
-        template_count = (int)(sizeof(templates) / sizeof(templates[0]));
+    matches = cxx_allocate_function_template_matches(template_count, loc);
+    if (template_count > 0 && !matches) {
+        active_namespace = saved_namespace;
+        return 0;
     }
     for (int index = 0; index < template_count; ++index) {
         CxxTemplate* candidate = templates[index];
@@ -40162,15 +40280,17 @@ int rcc_parser_cxx_materialize_operator_function_templates(
         if (prepare_cxx_function_template_match(
                 candidate, arguments, NULL, 0, &match,
                 &constraint_invalid, &candidate_unsupported)) {
-            if (match_count < (int)(sizeof(matches) / sizeof(matches[0]))) {
-                matches[match_count++] = match;
-            }
+            matches[match_count++] = match;
         }
         unsupported = unsupported || candidate_unsupported;
     }
     active_namespace = saved_namespace;
     if (constraint_unsupported) *constraint_unsupported = unsupported;
     if (unsupported) return 0;
+
+    selected_instances = match_count > 0
+        ? ast_arena_alloc(sizeof(*selected_instances) * (size_t)match_count)
+        : NULL;
 
     for (int index = 0; index < match_count; ++index) {
         bool dominated = false;
@@ -40183,24 +40303,27 @@ int rcc_parser_cxx_materialize_operator_function_templates(
             }
         }
         if (dominated || !matches[index].instance) continue;
-        if (result_count >= candidate_capacity) {
-            rcc_error(matches[index].instance->loc,
-                      "ADL function template candidate limit exceeded for '%s'",
-                      name);
-            return result_count;
-        }
         bool duplicate = false;
         for (int prior = 0; prior < result_count; ++prior) {
-            if (candidates[prior] == matches[index].instance ||
-                (candidates[prior]->link_name &&
+            if (selected_instances[prior] == matches[index].instance ||
+                (selected_instances[prior]->link_name &&
                  matches[index].instance->link_name &&
-                 strcmp(candidates[prior]->link_name,
+                 strcmp(selected_instances[prior]->link_name,
                         matches[index].instance->link_name) == 0)) {
                 duplicate = true;
                 break;
             }
         }
-        if (!duplicate) candidates[result_count++] = matches[index].instance;
+        if (duplicate) continue;
+        if (candidates && result_count >= candidate_capacity) {
+            rcc_error(matches[index].instance->loc,
+                      "ADL function template candidate limit exceeded for '%s'",
+                      name);
+            return result_count;
+        }
+        selected_instances[result_count] = matches[index].instance;
+        if (candidates) candidates[result_count] = matches[index].instance;
+        ++result_count;
     }
     return result_count;
 }
@@ -41157,12 +41280,13 @@ static bool cxx_parse_explicit_member_function_template_specialization(
  * mixed overload-set ranking. */
 static bool cxx_eval_constexpr_function_template_call(
     Expr* expression, CxxTemplate* context, int64_t* result) {
-    CxxTemplate* candidates[32] = { NULL };
-    CxxFunctionTemplateMatch matches[32] = { 0 };
+    CxxTemplate** candidates = NULL;
+    CxxFunctionTemplateMatch* matches;
     CxxNamespace* saved_namespace = active_namespace;
     const char* name;
     const char* unqualified_name;
     int candidate_count;
+    int candidate_capacity = 0;
     int match_count = 0;
     int selected = -1;
     int best_count = 0;
@@ -41185,23 +41309,27 @@ static bool cxx_eval_constexpr_function_template_call(
         ? g_global_namespace
         : context && context->ns ? context->ns
                                  : saved_namespace;
-    candidate_count = find_function_template_candidates(
-        name, candidates, (int)(sizeof(candidates) / sizeof(candidates[0])));
-    if (candidate_count > (int)(sizeof(candidates) / sizeof(candidates[0]))) {
-        candidate_count = (int)(sizeof(candidates) / sizeof(candidates[0]));
+    if (!cxx_collect_function_template_candidates(
+            name, &candidates, &candidate_count, &candidate_capacity,
+            expression->loc)) {
+        active_namespace = saved_namespace;
+        return false;
     }
     if (!qualified && candidate_count > 0) {
-        candidate_count = cxx_function_template_candidates_for_adl(
-            unqualified_name, expression->call_args, candidates,
-            (int)(sizeof(candidates) / sizeof(candidates[0])),
-            candidate_count);
-        if (candidate_count > (int)(sizeof(candidates) /
-                                    sizeof(candidates[0]))) {
-            candidate_count = (int)(sizeof(candidates) /
-                                    sizeof(candidates[0]));
+        if (!cxx_append_adl_function_template_candidates(
+                unqualified_name, expression->call_args, &candidates,
+                &candidate_count, &candidate_capacity, expression->loc)) {
+            active_namespace = saved_namespace;
+            return false;
         }
     }
     if (candidate_count <= 0) {
+        active_namespace = saved_namespace;
+        return false;
+    }
+    matches = cxx_allocate_function_template_matches(
+        candidate_count, expression->loc);
+    if (!matches) {
         active_namespace = saved_namespace;
         return false;
     }
@@ -41228,10 +41356,6 @@ static bool cxx_eval_constexpr_function_template_call(
         if (prepare_cxx_function_template_match(
                 candidate, expression->call_args, NULL, 0, &match,
                 NULL, &constraint_unsupported)) {
-            if (match_count >= (int)(sizeof(matches) / sizeof(matches[0]))) {
-                active_namespace = saved_namespace;
-                return false;
-            }
             matches[match_count++] = match;
         } else if (constraint_unsupported) {
             active_namespace = saved_namespace;
@@ -41305,8 +41429,8 @@ static bool cxx_function_template_call_is_dependent(
 static bool cxx_candidate_function_template_call_is_dependent(
     ExprList* call_arguments,
     CxxParsedTemplateArgument* const* explicit_arguments,
-    const int explicit_argument_counts[32],
-    const bool explicit_arguments_valid[32], int candidate_count,
+    const int* explicit_argument_counts,
+    const bool* explicit_arguments_valid, int candidate_count,
     bool explicit_arguments_specified, const CxxTemplate* context) {
     if (!context) return false;
     if (!explicit_arguments_specified) {
@@ -41329,15 +41453,14 @@ static Expr* cxx_defer_function_template_call(
     const char* name, SourceLoc loc, CxxTemplate** candidates,
     int candidate_count, ExprList* call_arguments,
     CxxParsedTemplateArgument* const* explicit_arguments,
-    const int explicit_argument_counts[32],
-    const bool explicit_arguments_valid[32],
+    const int* explicit_argument_counts,
+    const bool* explicit_arguments_valid,
     bool explicit_arguments_specified) {
     CxxDependentFunctionTemplateCall* deferred;
     Expr* function;
     Expr* call;
     Type* dependent_type;
-    if (!name || !active_template || candidate_count <= 0 ||
-        candidate_count > 32) {
+    if (!name || !active_template || candidate_count <= 0) {
         return NULL;
     }
     deferred = ast_arena_alloc(sizeof(*deferred));
@@ -41401,7 +41524,7 @@ static Expr* cxx_defer_function_template_call(
 
 static bool cxx_resolve_dependent_function_template_call(Expr* expression) {
     CxxDependentFunctionTemplateCall* deferred;
-    CxxFunctionTemplateMatch matches[32];
+    CxxFunctionTemplateMatch* matches;
     int match_count = 0;
     CxxNamespace* saved_namespace = active_namespace;
     int selected = -1;
@@ -41427,6 +41550,9 @@ static bool cxx_resolve_dependent_function_template_call(Expr* expression) {
             }
         }
     }
+    matches = cxx_allocate_function_template_matches(
+        deferred->candidate_count, expression->loc);
+    if (!matches) return false;
     for (int index = 0; index < deferred->candidate_count; ++index) {
         CxxTemplate* candidate = deferred->candidates[index];
         CxxFunctionTemplateMatch match = { 0 };
@@ -41451,9 +41577,7 @@ static bool cxx_resolve_dependent_function_template_call(Expr* expression) {
                     : 0,
                 &match,
                 &constraint_invalid, &constraint_unsupported)) {
-            if (match_count < (int)(sizeof(matches) / sizeof(matches[0]))) {
-                matches[match_count++] = match;
-            }
+            matches[match_count++] = match;
         }
     }
     active_namespace = saved_namespace;
@@ -42026,10 +42150,11 @@ Decl* rcc_parser_cxx_resolve_function_pointer_template(
     const char* name, CxxNamespace* scope, Type* target,
     bool* has_templates, bool* is_ambiguous, int* selected_rank) {
     CxxNamespace* saved_namespace = active_namespace;
-    CxxTemplate* candidates[32] = { NULL };
-    CxxFunctionTemplateMatch matches[32] = { 0 };
+    CxxTemplate** candidates = NULL;
+    CxxFunctionTemplateMatch* matches;
     Type* target_function;
     int candidate_count;
+    int candidate_capacity = 0;
     int match_count = 0;
     int best_rank = INT_MAX;
     int selected = -1;
@@ -42043,11 +42168,11 @@ Decl* rcc_parser_cxx_resolve_function_pointer_template(
     globally_qualified = name[0] == ':' && name[1] == ':';
     active_namespace = globally_qualified
         ? g_global_namespace : (scope ? scope : g_global_namespace);
-    candidate_count = find_function_template_candidates(
-        name, candidates,
-        (int)(sizeof(candidates) / sizeof(candidates[0])));
-    if (candidate_count > (int)(sizeof(candidates) / sizeof(candidates[0]))) {
-        candidate_count = (int)(sizeof(candidates) / sizeof(candidates[0]));
+    if (!cxx_collect_function_template_candidates(
+            name, &candidates, &candidate_count, &candidate_capacity,
+            (SourceLoc){"<sema>", 0, 0})) {
+        active_namespace = saved_namespace;
+        return NULL;
     }
     if (has_templates) *has_templates = candidate_count > 0;
     if (!target || candidate_count == 0) {
@@ -42061,6 +42186,12 @@ Decl* rcc_parser_cxx_resolve_function_pointer_template(
     }
     if (candidates[0] && candidates[0]->ns) {
         active_namespace = candidates[0]->ns;
+    }
+    matches = cxx_allocate_function_template_matches(
+        candidate_count, (SourceLoc){"<sema>", 0, 0});
+    if (!matches) {
+        active_namespace = saved_namespace;
+        return NULL;
     }
 
     for (int index = 0; index < candidate_count; ++index) {
@@ -42593,8 +42724,9 @@ Expr* rcc_parse_cxx_template_call(void) {
     SourceLoc loc = peek()->loc;
     const char* name;
     CxxTemplate* tmpl;
-    CxxTemplate* candidate_templates[32];
+    CxxTemplate** candidate_templates = NULL;
     int candidate_count;
+    int candidate_capacity = 0;
     bool qualified_call;
     bool adl_arguments_parsed = false;
     Type* argument;
@@ -42608,9 +42740,11 @@ Expr* rcc_parse_cxx_template_call(void) {
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
     name = parse_qualified_name();
     qualified_call = strstr(name, "::") != NULL;
-    candidate_count = find_function_template_candidates(
-        name, candidate_templates,
-        (int)(sizeof(candidate_templates) / sizeof(candidate_templates[0])));
+    if (!cxx_collect_function_template_candidates(
+            name, &candidate_templates, &candidate_count,
+            &candidate_capacity, loc)) {
+        return expr_int(0, loc);
+    }
     if (candidate_count <= 0) {
         CxxTemplate* variable_template = find_variable_template(name);
         if (variable_template && check(TOK_LT)) {
@@ -42964,10 +43098,11 @@ Expr* rcc_parse_cxx_template_call(void) {
                 } while (match(TOK_COMMA));
             }
             expect(TOK_RPAREN, ")");
-            candidate_count = cxx_function_template_candidates_for_adl(
-                name, adl_call_arguments, candidate_templates,
-                (int)(sizeof(candidate_templates) /
-                      sizeof(candidate_templates[0])), 0);
+            if (!cxx_append_adl_function_template_candidates(
+                    name, adl_call_arguments, &candidate_templates,
+                    &candidate_count, &candidate_capacity, loc)) {
+                return expr_int(0, loc);
+            }
             if (candidate_count > 0) {
                 adl_arguments_parsed = true;
             }
@@ -42978,27 +43113,29 @@ Expr* rcc_parse_cxx_template_call(void) {
             return NULL;
         }
     }
-    if (candidate_count > (int)(sizeof(candidate_templates) /
-                                sizeof(candidate_templates[0]))) {
-        rcc_error(loc, "too many function template overloads for '%s'", name);
-        candidate_count = (int)(sizeof(candidate_templates) /
-                                sizeof(candidate_templates[0]));
-    }
     tmpl = candidate_templates[0];
     unsafe_versioned_shape = template_has_unsupported_versioned_shape(tmpl);
     if (candidate_count != 1 ||
         tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT ||
         tmpl->is_hidden_friend) {
-        CxxParsedTemplateArgument* explicit_arguments[32] = { NULL };
-        int explicit_argument_counts[32] = { 0 };
-        bool explicit_arguments_valid[32] = { false };
-        bool explicit_arguments_parsed[32] = { false };
+        CxxParsedTemplateArgument** explicit_arguments = NULL;
+        int* explicit_argument_counts = NULL;
+        bool* explicit_arguments_valid = NULL;
+        bool* explicit_arguments_parsed = NULL;
+        int explicit_storage_capacity = 0;
         Token* explicit_argument_list_start = NULL;
         Token* explicit_argument_list_start_prev = NULL;
         CxxNamespace* namespace_before_explicit_arguments = active_namespace;
         ExprList* call_arguments = adl_call_arguments;
         Expr* function;
         bool explicit_template_arguments = check(TOK_LT);
+
+        if (!cxx_grow_function_template_explicit_arguments(
+                &explicit_arguments, &explicit_argument_counts,
+                &explicit_arguments_valid, &explicit_arguments_parsed,
+                &explicit_storage_capacity, candidate_capacity, loc)) {
+            return expr_int(0, loc);
+        }
 
         if (explicit_template_arguments) {
             Token* argument_list_start = parser.cur;
@@ -43104,17 +43241,16 @@ Expr* rcc_parse_cxx_template_call(void) {
             }
             expect(TOK_RPAREN, ")");
             if (!qualified_call) {
-                candidate_count = cxx_function_template_candidates_for_adl(
-                    name, call_arguments, candidate_templates,
-                    (int)(sizeof(candidate_templates) /
-                          sizeof(candidate_templates[0])), candidate_count);
-                if (candidate_count > (int)(sizeof(candidate_templates) /
-                                            sizeof(candidate_templates[0]))) {
-                    rcc_error(loc,
-                              "too many function template overloads for '%s'",
-                              name);
-                    candidate_count = (int)(sizeof(candidate_templates) /
-                                            sizeof(candidate_templates[0]));
+                if (!cxx_append_adl_function_template_candidates(
+                        name, call_arguments, &candidate_templates,
+                        &candidate_count, &candidate_capacity, loc) ||
+                    !cxx_grow_function_template_explicit_arguments(
+                        &explicit_arguments, &explicit_argument_counts,
+                        &explicit_arguments_valid,
+                        &explicit_arguments_parsed,
+                        &explicit_storage_capacity, candidate_capacity,
+                        loc)) {
+                    return expr_int(0, loc);
                 }
             }
         }
@@ -43176,12 +43312,14 @@ Expr* rcc_parse_cxx_template_call(void) {
             return expr_int(0, loc);
         }
 
-        CxxFunctionTemplateMatch matches[32];
+        CxxFunctionTemplateMatch* matches =
+            cxx_allocate_function_template_matches(candidate_count, loc);
         int match_count = 0;
         bool constraint_invalid = false;
         bool constraint_unsupported = false;
         Type* substitution_failure_type = NULL;
         CxxTemplate* substitution_failure_template = NULL;
+        if (!matches) return expr_int(0, loc);
         for (int index = 0; index < candidate_count; ++index) {
             CxxFunctionTemplateMatch candidate_match = { 0 };
             if (explicit_template_arguments &&

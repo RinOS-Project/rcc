@@ -716,6 +716,7 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-tls-runtime-posix
 .PHONY: test-floating-math-builtins
 
+.PHONY: test-cxx-function-template-candidate-overloads
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-compiler-builtins \
@@ -809,6 +810,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-function-templates \
 	test-cxx-function-template-explicit-specialization \
 	test-cxx-function-template-explicit-pack \
+	test-cxx-function-template-candidate-overloads \
 	test-cxx-member-function-templates \
 	test-cxx-class-template-member-function-templates \
 	test-cxx-template-local-classes \
@@ -4372,6 +4374,13 @@ test-cxx-function-template-explicit-pack: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only \
 		tests/cxx_function_template_explicit_pack_over_32.cpp
 	@echo "RCC++ explicit function-template pack size tests completed"
+
+test-cxx-function-template-candidate-overloads: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-candidate-overloads)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-function-template-candidate-overloads,cxx_function_template_candidate_overloads.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only \
+		tests/cxx_function_template_candidate_overloads.cpp
+	@echo "RCC++ function-template candidate-set scaling tests completed"
 
 ifeq ($(OS),Windows_NT)
 RCC_SYSV_CXX_FLAGS = -mabi=sysv
