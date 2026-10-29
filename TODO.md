@@ -14,11 +14,13 @@
   verified-backend checks report zero legacy fallback. i686 floating
   classification's 64-bit raw representation now uses the actual EDX:EAX
   result pair in legacy code generation.
-- [ ] Extend i686 typed SSA/MIR to represent binary64 bit reinterpretation as
-  a two-word value, then lower its classification/sign/rounding builtins with
-  zero fallback. Add typed-IR support for dynamic-rounding `rint` after the
-  floating environment operation is represented explicitly. Existing i686
-  legacy output handles these calls correctly.
+- [x] Lower i686 binary64 classification, `fpclassify`, `signbit`,
+  `copysign`, and fixed rounding builtins through explicit low/high i32 values
+  in typed IR. C17/C++20 verified-backend checks report zero fallback; the
+  existing i686 legacy C/C++ runtime checks still pass.
+- [ ] Add typed-IR support for dynamic-rounding `rint` after the floating
+  environment operation is represented explicitly. The existing i686 legacy
+  output handles these calls correctly.
 
 ## RCC continuation (2026-10-29, command-line include search order)
 

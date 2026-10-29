@@ -17637,6 +17637,14 @@ test-floating-math-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend:' \
 		$(TEST_OUT)/floating-math-builtins/c-verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/floating-math-builtins/c-verified-x86.log,0)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/floating-math-builtins/cpp-verified-x86.ro \
+		tests/compiler_float_math_builtins_verified.cpp \
+		>$(TEST_OUT)/floating-math-builtins/cpp-verified-x86.log 2>&1
+	$(GREP) -F -q 'Verified backend:' \
+		$(TEST_OUT)/floating-math-builtins/cpp-verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/floating-math-builtins/cpp-verified-x86.log,0)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -DRCC_TEST_VERIFIED \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/floating-math-builtins/c-verified-x64.ro \
