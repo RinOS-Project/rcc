@@ -181,6 +181,9 @@ typedef struct {
      * constructor throws, the active exception frame then destroys only the
      * completed prefix instead of the not-yet-constructed complete object. */
     const Decl* partial_construction_owner;
+    /* A reference-bound temporary keeps its cleanup plan on the reference
+     * declaration while member addresses are based on its hidden owner. */
+    const Decl* partial_construction_cleanup_declaration;
     /* The verified backend handles bound temporary cleanup inside a local
      * C++20 aggregate parenthesized initializer as one full-expression. */
     const Expr* aggregate_paren_initializer;
@@ -294,6 +297,8 @@ static bool lower_wide_switch_body_edge_safe(const Stmt* statement);
 static bool lower_struct_type_supported(const Type* type);
 static bool lower_storage_type_supported_internal(
     const Type* type, unsigned depth);
+static bool lower_reference_owner_partial_init_supported(
+    const Type* type, const Expr* initializer);
 static bool lower_cxx_destructor_cleanup_hook_supported(const Type* type);
 static bool lower_copy_struct_storage(
     RccIrLowerContext* context, RccIrValue destination,
@@ -9422,10 +9427,13 @@ static bool lower_register_partial_member_cleanup(
     RccIrLowerContext* context, const TypeField* field) {
     const Decl* owner = context
         ? context->partial_construction_owner : NULL;
+    const Decl* cleanup_declaration = context &&
+        context->partial_construction_cleanup_declaration
+        ? context->partial_construction_cleanup_declaration : owner;
     if (!owner || !field || !field->type || !field->type->cxx_class) {
         return true;
     }
-    for (const CxxCleanupPlan* action = owner->var_cleanups;
+    for (const CxxCleanupPlan* action = cleanup_declaration->var_cleanups;
          action; action = action->next) {
         if (lower_cleanup_action_is_direct_member(action, owner, field)) {
             return lower_change_current_exception_cleanup(
@@ -9436,9 +9444,10 @@ static bool lower_register_partial_member_cleanup(
 }
 
 static bool lower_unregister_partial_member_cleanups(
-    RccIrLowerContext* context, const Decl* owner) {
-    if (!context || !owner) return false;
-    for (const CxxCleanupPlan* action = owner->var_cleanups;
+    RccIrLowerContext* context, const Decl* cleanup_declaration,
+    const Decl* owner) {
+    if (!context || !cleanup_declaration || !owner) return false;
+    for (const CxxCleanupPlan* action = cleanup_declaration->var_cleanups;
          action; action = action->next) {
         if (lower_cleanup_action_is_direct_member(action, owner, NULL) &&
             !lower_change_current_exception_cleanup(
@@ -9511,6 +9520,16 @@ static bool lower_scope_cleanup_declaration_supported(
     }
     if (reference_temporary) {
         cleanup_owner = declaration->var_reference_temporary_owner;
+    }
+    if (reference_temporary && cleanup_owner->type->cxx_nontrivial) {
+        const Expr* owner_initializer = reference_source
+            ? reference_source : declaration->var_init;
+        if (owner_initializer && owner_initializer->kind == EXPR_COMPOUND &&
+            lower_cleanup_initializer_may_throw(owner_initializer) &&
+            !lower_reference_owner_partial_init_supported(
+                cleanup_owner->type, owner_initializer)) {
+            return false;
+        }
     }
     storage_supported = lower_storage_type_supported_internal(
         cleanup_owner->type, 0u);
@@ -21568,6 +21587,62 @@ static bool lower_aggregate_prvalue_partial_init_supported(
     return true;
 }
 
+/* A reference-bound aggregate prvalue does not become a complete cleanup
+ * owner until its initializer finishes.  For this bounded path, accept only
+ * flat braced struct initializers whose potentially throwing direct class
+ * members are themselves initialized by a supported constructor or a
+ * complete aggregate-returning call.  Earlier direct class members can then
+ * be registered individually while later members are evaluated. */
+static bool lower_reference_owner_partial_init_supported(
+    const Type* type, const Expr* initializer) {
+    const TypeField* field;
+    const ExprList* item;
+    if (!type || type->kind != TYPE_STRUCT || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        !initializer->type ||
+        !type_is_compatible((Type*)type, initializer->type) ||
+        (type->cxx_class &&
+         (type->cxx_class->base_count != 0 ||
+          type->cxx_class->virtual_base_count != 0))) {
+        return false;
+    }
+    if (initializer->compound_constructor) {
+        return lower_cleanup_initializer_supported(initializer);
+    }
+    field = type->fields;
+    item = initializer->compound_init;
+    while (field && item) {
+        const Type* field_type = field->type;
+        const Expr* field_initializer = item->expr;
+        if (!field_type || !field_initializer ||
+            item->designator_kind != INIT_DESIGNATOR_NONE ||
+            field_type->kind == TYPE_ARRAY ||
+            field_type->kind == TYPE_UNION ||
+            !lower_cleanup_initializer_supported(field_initializer)) {
+            return false;
+        }
+        if (field_type->kind == TYPE_STRUCT &&
+            field_type->cxx_nontrivial) {
+            if (!field_type->cxx_class ||
+                (field_type->cxx_class->base_count != 0 ||
+                 field_type->cxx_class->virtual_base_count != 0) ||
+                (lower_cleanup_initializer_may_throw(field_initializer) &&
+                 field_initializer->kind != EXPR_COMPOUND &&
+                 !lower_cleanup_call_initializer_supported(
+                     field_initializer))) {
+                return false;
+            }
+        } else if (lower_cleanup_initializer_may_throw(field_initializer) ||
+                   !lower_aggregate_prvalue_partial_init_supported(
+                       field_type, 1u, false)) {
+            return false;
+        }
+        field = field->next;
+        item = item->next;
+    }
+    return !field && !item;
+}
+
 static bool lower_initialize_struct_field(
     RccIrLowerContext* context, RccIrValue base,
     const TypeField* field, const ExprList* initializer_item,
@@ -23410,6 +23485,8 @@ static bool lower_declaration(RccIrLowerContext* context,
     if (is_struct && declaration->var_init) {
         const Decl* previous_partial_owner =
             context->partial_construction_owner;
+        const Decl* previous_partial_cleanup_declaration =
+            context->partial_construction_cleanup_declaration;
         const Expr* previous_aggregate_paren_initializer =
             context->aggregate_paren_initializer;
         RccIrLowerScopeCleanup* aggregate_cleanup_marker =
@@ -23425,6 +23502,8 @@ static bool lower_declaration(RccIrLowerContext* context,
         }
         if (track_partial_members) {
             context->partial_construction_owner = declaration;
+            context->partial_construction_cleanup_declaration =
+                declaration;
         }
         initialized = lower_initialize_struct_storage(
                 context, allocation->result,
@@ -23432,11 +23511,14 @@ static bool lower_declaration(RccIrLowerContext* context,
             lower_cxx_initialize_object_vtables(
                 context, allocation->result, declaration->type);
         context->partial_construction_owner = previous_partial_owner;
+        context->partial_construction_cleanup_declaration =
+            previous_partial_cleanup_declaration;
         context->aggregate_paren_initializer =
             previous_aggregate_paren_initializer;
         if (!initialized ||
             (track_partial_members &&
-             !lower_unregister_partial_member_cleanups(context, declaration))) {
+             !lower_unregister_partial_member_cleanups(
+                 context, declaration, declaration))) {
             return false;
         }
         if (aggregate_paren_initializer &&
@@ -23516,10 +23598,21 @@ static bool lower_declaration(RccIrLowerContext* context,
                  * and project a reference-bound subobject from that owner
                  * when the initializer names one. */
                 {
+                    bool track_partial_members = declaration->var_cleanups &&
+                        lower_cleanup_initializer_may_throw(
+                            owner_initializer) &&
+                        lower_reference_owner_partial_init_supported(
+                            owner->type, owner_initializer);
                     bool previous_conditional_permission =
                         context->allow_nontrivial_temporary_conditional;
                     const Decl* previous_xvalue_owner =
                         context->conditional_xvalue_owner;
+                    const Decl* previous_partial_owner =
+                        context->partial_construction_owner;
+                    const Decl* previous_partial_cleanup_declaration =
+                        context->partial_construction_cleanup_declaration;
+                    const Expr* previous_aggregate_paren_initializer =
+                        context->aggregate_paren_initializer;
                     const Expr* previous_destination_expression =
                         context->aggregate_result_destination_expression;
                     RccIrLowerValue previous_destination =
@@ -23536,17 +23629,36 @@ static bool lower_declaration(RccIrLowerContext* context,
                     context->aggregate_result_destination = owner_storage;
                     context->conditional_xvalue_owner =
                         conditional_xvalue_owner ? owner : NULL;
+                    if (track_partial_members) {
+                        context->partial_construction_owner = owner;
+                        context->partial_construction_cleanup_declaration =
+                            declaration;
+                    }
+                    if (owner_initializer->kind == EXPR_COMPOUND &&
+                        owner_initializer->compound_paren_init) {
+                        context->aggregate_paren_initializer =
+                            owner_initializer;
+                    }
                     initializer = lower_expression(
                         context, owner_initializer);
                     context->allow_nontrivial_temporary_conditional =
                         previous_conditional_permission;
                     context->conditional_xvalue_owner =
                         previous_xvalue_owner;
+                    context->partial_construction_owner =
+                        previous_partial_owner;
+                    context->partial_construction_cleanup_declaration =
+                        previous_partial_cleanup_declaration;
+                    context->aggregate_paren_initializer =
+                        previous_aggregate_paren_initializer;
                     context->aggregate_result_destination_expression =
                         previous_destination_expression;
                     context->aggregate_result_destination =
                         previous_destination;
                     if (!initializer.valid ||
+                        (track_partial_members &&
+                         !lower_unregister_partial_member_cleanups(
+                             context, declaration, owner)) ||
                         initializer.type.kind != RCC_IR_TYPE_POINTER ||
                         (!conditional_xvalue_owner &&
                          initializer.value != owner_storage.value &&

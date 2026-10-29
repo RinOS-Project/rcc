@@ -1877,6 +1877,15 @@
         potentially throwing cleanup callbacks, VLA forms outside the currently
         verified subset (and VLA interaction with throwing cleanup), and other
         unvalidated automatic cleanup-plan shapes remain outside this subset.
+    - [x] Extend partial construction tracking to bounded reference-bound
+          struct prvalues with direct class members. Keep the hidden owner
+          separate from the reference declaration that stores its cleanup
+          plan; register each completed direct member during initialization,
+          unregister those actions when the complete object is ready, and let
+          the complete plan own normal cleanup. The throwing-member and normal
+          destruction-order regression passes with 52 functions and zero
+          fallback on i686/AMD64 at `-O0`/`-O2`, plus generated AMD64 and
+          legacy-host execution in `test-verified-cxx-throwing-temporary`.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering

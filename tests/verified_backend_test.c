@@ -4741,6 +4741,7 @@ static void verify_cxx_throwing_temporary_object(
     ObjSymbol* converted_base_lifetime_symbol;
     ObjSymbol* converted_virtual_base_lifetime_symbol;
     ObjSymbol* throwing_initializer_symbol;
+    ObjSymbol* reference_bound_partial_aggregate_symbol;
     ObjSymbol* throwing_constructor_symbol;
     ObjSymbol* throwing_base_constructor_symbol;
     ObjSymbol* temporary_cleanup_symbol;
@@ -4764,6 +4765,8 @@ static void verify_cxx_throwing_temporary_object(
         object, "verified_cxx_converted_virtual_base_lifetime");
     throwing_initializer_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_initializer_cleanup");
+    reference_bound_partial_aggregate_symbol = objfile_find_symbol(
+        object, "verified_cxx_reference_bound_partial_aggregate_cleanup");
     throwing_constructor_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_constructor_reference_cleanup");
     throwing_base_constructor_symbol = objfile_find_symbol(
@@ -4799,6 +4802,9 @@ static void verify_cxx_throwing_temporary_object(
            throwing_initializer_symbol != NULL &&
            throwing_initializer_symbol->binding == BIND_CODE &&
            throwing_initializer_symbol->section == 0 &&
+           reference_bound_partial_aggregate_symbol != NULL &&
+           reference_bound_partial_aggregate_symbol->binding == BIND_CODE &&
+           reference_bound_partial_aggregate_symbol->section == 0 &&
            throwing_constructor_symbol != NULL &&
            throwing_constructor_symbol->binding == BIND_CODE &&
            throwing_constructor_symbol->section == 0 &&
@@ -4822,6 +4828,7 @@ static void verify_cxx_throwing_temporary_object(
         int (RINOS_ABI *integer_argument)(int);
         int (RINOS_ABI *constructor_argument)(int);
         int (RINOS_ABI *cleanup_order_argument)(int*);
+        int (RINOS_ABI *partial_aggregate_arguments)(int*, int);
         int (RINOS_ABI *conditional_arguments)(int, int, int*);
         int result;
         int cleanup_order;
@@ -4942,6 +4949,26 @@ static void verify_cxx_throwing_temporary_object(
         memcpy(&integer_argument, &address, sizeof(integer_argument));
         assert(integer_argument(1) == 560);
         assert(integer_argument(0) == 66);
+        address = symbol_address(
+            memory, reference_bound_partial_aggregate_symbol);
+        memcpy(&partial_aggregate_arguments, &address,
+               sizeof(partial_aggregate_arguments));
+        cleanup_order = 0;
+        result = partial_aggregate_arguments(&cleanup_order, 1);
+        if (result != 618 || cleanup_order != 8) {
+            fprintf(stderr,
+                    "verified reference-bound partial aggregate throw returned %d/order %d, expected 618/order 8\n",
+                    result, cleanup_order);
+        }
+        assert(result == 618 && cleanup_order == 8);
+        cleanup_order = 0;
+        result = partial_aggregate_arguments(&cleanup_order, 0);
+        if (result != 1318 || cleanup_order != 18) {
+            fprintf(stderr,
+                    "verified reference-bound partial aggregate completion returned %d/order %d, expected 1318/order 18\n",
+                    result, cleanup_order);
+        }
+        assert(result == 1318 && cleanup_order == 18);
         address = symbol_address(memory, throwing_constructor_symbol);
         memcpy(&constructor_argument, &address,
                sizeof(constructor_argument));

@@ -229,6 +229,11 @@ struct VerifiedPotentiallyThrowingBase {
     }
 };
 
+struct VerifiedReferenceBoundPartialAggregate {
+    VerifiedThrowingTemporary completed;
+    VerifiedPotentiallyThrowingBase pending;
+};
+
 struct VerifiedSecondPotentiallyThrowingBase {
     int* cleanup_order;
     int second_value;
@@ -706,6 +711,25 @@ extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {
         result = value;
     }
     return result * 10 + cleanup_order;
+}
+
+extern "C" int verified_cxx_reference_bound_partial_aggregate_cleanup(
+    int* cleanup_order, int should_throw) {
+    int result = 0;
+    *cleanup_order = 0;
+    try {
+        {
+            const VerifiedReferenceBoundPartialAggregate& value =
+                VerifiedReferenceBoundPartialAggregate{
+                    {cleanup_order, 8, {9}},
+                    VerifiedPotentiallyThrowingBase(
+                        cleanup_order, should_throw ? -1 : 5)};
+            result = value.completed.cleanup_id + value.pending.first_value;
+        }
+    } catch (int exception) {
+        return exception * 10 + *cleanup_order;
+    }
+    return result * 100 + *cleanup_order;
 }
 
 extern "C" int verified_cxx_throwing_constructor_reference_cleanup(

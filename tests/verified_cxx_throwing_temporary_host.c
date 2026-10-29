@@ -22,6 +22,8 @@ extern int verified_cxx_converted_base_lifetime(void) RINOS_TEST_ABI;
 extern int verified_cxx_converted_virtual_base_lifetime(void) RINOS_TEST_ABI;
 extern int verified_cxx_throwing_initializer_cleanup(int should_throw)
     RINOS_TEST_ABI;
+extern int verified_cxx_reference_bound_partial_aggregate_cleanup(
+    int* cleanup_order, int should_throw) RINOS_TEST_ABI;
 extern int verified_cxx_throwing_constructor_reference_cleanup(
     int should_throw) RINOS_TEST_ABI;
 extern int verified_cxx_single_throwing_base_constructor(int should_throw)
@@ -219,6 +221,24 @@ int main(void) {
                 "constructor-body throw did not unwind the completed member exactly once: %d, expected 6821\n",
                 result);
         return 25;
+    }
+    cleanup_order = 0;
+    result = verified_cxx_reference_bound_partial_aggregate_cleanup(
+        &cleanup_order, 1);
+    if (result != 618 || cleanup_order != 8) {
+        fprintf(stderr,
+                "reference-bound partial aggregate throw returned %d/order %d, expected 618/order 8\n",
+                result, cleanup_order);
+        return 26;
+    }
+    cleanup_order = 0;
+    result = verified_cxx_reference_bound_partial_aggregate_cleanup(
+        &cleanup_order, 0);
+    if (result != 1318 || cleanup_order != 18) {
+        fprintf(stderr,
+                "reference-bound partial aggregate completion returned %d/order %d, expected 1318/order 18\n",
+                result, cleanup_order);
+        return 27;
     }
     return rcc_test_main();
 }
