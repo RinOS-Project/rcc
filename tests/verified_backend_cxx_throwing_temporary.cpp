@@ -806,6 +806,28 @@ extern "C" int verified_cxx_single_throwing_base_constructor(
     return result * 100 + cleanup_order;
 }
 
+extern "C" int verified_cxx_reference_bound_throwing_base_constructor(
+    int mode) {
+    int cleanup_order = 0;
+    int result = 0;
+    verified_multiple_base_member_initializer_mode = mode;
+    try {
+        {
+            const VerifiedMultipleThrowingBaseDerived& object =
+                VerifiedMultipleThrowingBaseDerived(
+                    &cleanup_order, mode == 3 ? -1 : 8,
+                    mode == 1 ? -1 : 9, mode == 8 ? -1 : 3,
+                    mode == 9 ? 2 : mode);
+            if (mode == 4) throw 64;
+            result = object.first_value * 100 +
+                object.second_value * 10 + object.tail;
+        }
+    } catch (int value) {
+        return value * 100 + cleanup_order;
+    }
+    return result * 100 + cleanup_order;
+}
+
 extern "C" int main() {
     return 0;
 }

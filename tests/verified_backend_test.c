@@ -4745,6 +4745,7 @@ static void verify_cxx_throwing_temporary_object(
     ObjSymbol* throwing_cleanup_callback_symbol;
     ObjSymbol* throwing_constructor_symbol;
     ObjSymbol* throwing_base_constructor_symbol;
+    ObjSymbol* reference_bound_throwing_base_constructor_symbol;
     ObjSymbol* temporary_cleanup_symbol;
     ObjSymbol* sibling_argument_cleanup_symbol;
     ObjSymbol* multiple_sibling_argument_cleanup_symbol;
@@ -4774,6 +4775,9 @@ static void verify_cxx_throwing_temporary_object(
         object, "verified_cxx_throwing_constructor_reference_cleanup");
     throwing_base_constructor_symbol = objfile_find_symbol(
         object, "verified_cxx_single_throwing_base_constructor");
+    reference_bound_throwing_base_constructor_symbol = objfile_find_symbol(
+        object,
+        "verified_cxx_reference_bound_throwing_base_constructor");
     temporary_cleanup_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_temporary_cleanup");
     sibling_argument_cleanup_symbol = objfile_find_symbol(
@@ -4817,6 +4821,10 @@ static void verify_cxx_throwing_temporary_object(
            throwing_base_constructor_symbol != NULL &&
            throwing_base_constructor_symbol->binding == BIND_CODE &&
            throwing_base_constructor_symbol->section == 0 &&
+           reference_bound_throwing_base_constructor_symbol != NULL &&
+           reference_bound_throwing_base_constructor_symbol->binding ==
+               BIND_CODE &&
+           reference_bound_throwing_base_constructor_symbol->section == 0 &&
            temporary_cleanup_symbol != NULL &&
            temporary_cleanup_symbol->binding == BIND_CODE &&
            temporary_cleanup_symbol->section == 0 &&
@@ -5012,6 +5020,13 @@ static void verify_cxx_throwing_temporary_object(
         assert(integer_argument(7) == 7021);
         assert(integer_argument(8) == 7121);
         assert(integer_argument(9) == 6821);
+        address = symbol_address(
+            memory, reference_bound_throwing_base_constructor_symbol);
+        memcpy(&integer_argument, &address, sizeof(integer_argument));
+        assert(integer_argument(1) == 6201);
+        assert(integer_argument(3) == 6100);
+        assert(integer_argument(2) == 6821);
+        assert(integer_argument(0) == 90321);
         address = symbol_address(memory, throwing_cleanup_callback_symbol);
         memcpy(&cleanup_order_argument, &address,
                sizeof(cleanup_order_argument));

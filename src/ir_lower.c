@@ -21745,8 +21745,11 @@ static bool lower_reference_owner_partial_init_supported(
     }
     cls = type->cxx_class;
     if (initializer->compound_constructor) {
-        return (!cls || cls->base_count == 0) &&
-            lower_cleanup_initializer_supported(initializer);
+        /* A constructor call does not complete the reference-bound owner
+         * until it returns. The constructor's own lowering tracks each
+         * completed direct base/member and unwinds them if a later
+         * initializer or the constructor body throws. */
+        return lower_cleanup_initializer_supported(initializer);
     }
     item = initializer->compound_init;
     if (cls && cls->base_count > 0) {

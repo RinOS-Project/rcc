@@ -30,6 +30,8 @@ extern int verified_cxx_throwing_constructor_reference_cleanup(
     int should_throw) RINOS_TEST_ABI;
 extern int verified_cxx_single_throwing_base_constructor(int should_throw)
     RINOS_TEST_ABI;
+extern int verified_cxx_reference_bound_throwing_base_constructor(
+    int mode) RINOS_TEST_ABI;
 extern int rcc_test_main(void) RINOS_TEST_ABI;
 
 int main(void) {
@@ -223,6 +225,34 @@ int main(void) {
                 "constructor-body throw did not unwind the completed member exactly once: %d, expected 6821\n",
                 result);
         return 25;
+    }
+    result = verified_cxx_reference_bound_throwing_base_constructor(1);
+    if (result != 6201) {
+        fprintf(stderr,
+                "reference-bound second throwing base did not unwind the first base: %d, expected 6201\n",
+                result);
+        return 29;
+    }
+    result = verified_cxx_reference_bound_throwing_base_constructor(3);
+    if (result != 6100) {
+        fprintf(stderr,
+                "reference-bound throwing first base destroyed incomplete state: %d, expected 6100\n",
+                result);
+        return 30;
+    }
+    result = verified_cxx_reference_bound_throwing_base_constructor(2);
+    if (result != 6821) {
+        fprintf(stderr,
+                "reference-bound constructor-body throw cleanup returned %d, expected 6821\n",
+                result);
+        return 31;
+    }
+    result = verified_cxx_reference_bound_throwing_base_constructor(0);
+    if (result != 90321) {
+        fprintf(stderr,
+                "reference-bound base construction/destruction returned %d, expected 90321\n",
+                result);
+        return 32;
     }
     cleanup_order = 0;
     result = verified_cxx_reference_bound_partial_aggregate_cleanup(

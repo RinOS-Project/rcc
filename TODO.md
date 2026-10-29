@@ -1871,9 +1871,8 @@
         SSA with no fallback on i686/AMD64 at `-O0` and `-O2` in
         `test-verified-cxx-throwing-temporary`.
   - [ ] Throwing initializer evaluation before a cleanup owner is fully
-        constructed, constructor-driven partial construction/unwind
-        outside the verified direct class-member/base path for automatic
-        reference-bound prvalues,
+        constructed, additional constructor-driven partial construction/unwind
+        shapes for automatic reference-bound prvalues,
         potentially throwing cleanup callbacks, VLA forms outside the currently
         verified subset (and VLA interaction with throwing cleanup), and other
         unvalidated automatic cleanup-plan shapes remain outside this subset.
@@ -1883,7 +1882,7 @@
           plan; register each completed direct member during initialization,
           unregister those actions when the complete object is ready, and let
           the complete plan own normal cleanup. The throwing-member and normal
-          destruction-order regression passes with 55 functions and zero
+          destruction-order regression passes with 56 functions and zero
           fallback on i686/AMD64 at `-O0`/`-O2`, plus generated AMD64 and
           legacy-host execution in `test-verified-cxx-throwing-temporary`.
     - [x] Extend bounded reference-bound partial construction to flat,
@@ -1892,12 +1891,20 @@
           and verify their nonzero offsets, reverse-order unwind on a later
           throwing member, and handoff to the complete-object cleanup plan on
           success. The
-          `test-verified-cxx-throwing-temporary` gate remains at 55 functions
+          `test-verified-cxx-throwing-temporary` gate remains at 56 functions
           with zero fallback for i686/AMD64 at `-O0`/`-O2`, and generated
           AMD64 objects plus the legacy host verify failure and normal order.
+    - [x] Bind a reference directly to a constructor-created prvalue with
+          multiple non-virtual direct bases. A throw from the second base
+          destroys the completed first base, a throw from the first destroys
+          no incomplete subobject, a constructor-body throw destroys the
+          completed member and bases, and success transfers lifetime to the
+          reference scope. `test-verified-cxx-throwing-temporary` emits 56
+          functions with zero fallback on i686/AMD64 at `-O0`/`-O2`; generated
+          AMD64 objects and legacy-host execution verify all four paths.
     - [x] Verify a normal scope-exit cleanup whose `noexcept(false)` destructor
           throws into the surrounding handler exactly once. The
-          `test-verified-cxx-throwing-temporary` gate emits 55 functions with
+          `test-verified-cxx-throwing-temporary` gate emits 56 functions with
           zero fallback on i686/AMD64 at `-O0`/`-O2`; generated AMD64 and
           legacy-host execution both observe result `889` and cleanup order `9`.
 - [x] target-independent MIR
