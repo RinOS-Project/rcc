@@ -7239,10 +7239,31 @@ static RccIrLowerValue lower_complex_float_negate(
         : lower_invalid_value();
 }
 
+static Type* lower_promoted_expression_type(const Expr* expression) {
+    Type* type = expression ? expression->type : NULL;
+    TypeField* field = NULL;
+    Type* bitfield_promotion;
+    if (expression &&
+        (expression->kind == EXPR_MEMBER ||
+         expression->kind == EXPR_PTR_MEMBER)) {
+        field = expression->member_field;
+    }
+    bitfield_promotion = type_bitfield_integer_promotion(field);
+    if (bitfield_promotion) return bitfield_promotion;
+    if (type && type->kind == TYPE_ENUM) {
+        if (type->enum_is_scoped) return type;
+        type = type->enum_underlying_type
+            ? type->enum_underlying_type : type_int;
+    }
+    if (type && type->kind < TYPE_INT) return type_int;
+    return type;
+}
+
 static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
                                         const Expr* expression) {
-    Type* comparison_type = type_common(expression->binary_lhs->type,
-                                        expression->binary_rhs->type);
+    Type* comparison_type = type_common(
+        lower_promoted_expression_type(expression->binary_lhs),
+        lower_promoted_expression_type(expression->binary_rhs));
     bool typeinfo_equality =
         (expression->kind == EXPR_EQ || expression->kind == EXPR_NE) &&
         expression->binary_lhs && expression->binary_rhs &&
@@ -7481,8 +7502,9 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
 
 static RccIrLowerValue lower_spaceship(RccIrLowerContext* context,
                                        const Expr* expression) {
-    Type* comparison_type = type_common(expression->binary_lhs->type,
-                                        expression->binary_rhs->type);
+    Type* comparison_type = type_common(
+        lower_promoted_expression_type(expression->binary_lhs),
+        lower_promoted_expression_type(expression->binary_rhs));
     RccIrType result_type;
     RccIrLowerValue left;
     RccIrLowerValue right;
@@ -7965,9 +7987,10 @@ static RccIrLowerValue lower_compound_assignment(
     }
     operation_type = binary_kind == EXPR_LSHIFT ||
             binary_kind == EXPR_RSHIFT
-        ? type_common(expression->binary_lhs->type, type_int)
-        : type_common(expression->binary_lhs->type,
-                      expression->binary_rhs->type);
+        ? lower_promoted_expression_type(expression->binary_lhs)
+        : type_common(
+              lower_promoted_expression_type(expression->binary_lhs),
+              lower_promoted_expression_type(expression->binary_rhs));
     if (!operation_type || !lower_type(operation_type, &ir_operation_type)) {
         context->unsupported = true;
         return lower_invalid_value();

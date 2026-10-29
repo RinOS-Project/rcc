@@ -22,6 +22,30 @@ struct bitfield_wide_storage {
     long long signed_high : 20;
 };
 
+struct bitfield_full_unsigned_int {
+    unsigned int value : 32;
+};
+
+#define RCC_BITFIELD_HAS_TYPE(expression, type) \
+    _Generic((expression), type: 1, default: 0)
+
+_Static_assert(RCC_BITFIELD_HAS_TYPE(
+                   +((struct bitfield_value){0}).low, int),
+               "narrow unsigned-int bit-fields promote to int");
+_Static_assert(RCC_BITFIELD_HAS_TYPE(
+                   ~((struct bitfield_value){0}).low, int),
+               "bitwise complement promotes a narrow unsigned-int bit-field");
+_Static_assert(RCC_BITFIELD_HAS_TYPE(
+                   ((struct bitfield_value){0}).low + 0, int),
+               "usual arithmetic conversions use the bit-field width");
+_Static_assert(RCC_BITFIELD_HAS_TYPE(
+                   ((struct bitfield_value){0}).low << 1, int),
+               "shift result uses the promoted bit-field type");
+_Static_assert(RCC_BITFIELD_HAS_TYPE(
+                   +((struct bitfield_full_unsigned_int){0}).value,
+                   unsigned int),
+               "a full-width unsigned-int bit-field promotes to unsigned int");
+
 static struct bitfield_value initialized_value = {
     .low = 3,
     .signed_value = -2,
@@ -73,6 +97,7 @@ int bitfield_runtime(void) {
     value.tail = 0x1234;
     value.byte_low = 0xf;
     value.byte_high = 0xa;
+    if (value.low < -1) return 19;
     if (value.low != 5 || value.signed_value != -7 || value.high != 0xa5) {
         return 10;
     }

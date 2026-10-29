@@ -2064,16 +2064,38 @@ static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
     emit64_mov_reg_reg(mod, RAX, R11);
 }
 
+static Type* codegen64_promoted_expression_type(const Expr* expression) {
+    Type* type = expression ? expression->type : NULL;
+    TypeField* field = NULL;
+    Type* bitfield_promotion;
+    if (expression &&
+        (expression->kind == EXPR_MEMBER ||
+         expression->kind == EXPR_PTR_MEMBER)) {
+        field = expression->member_field;
+    }
+    bitfield_promotion = type_bitfield_integer_promotion(field);
+    if (bitfield_promotion) return bitfield_promotion;
+    if (type && type->kind == TYPE_ENUM) {
+        if (type->enum_is_scoped) return type;
+        type = type->enum_underlying_type
+            ? type->enum_underlying_type : type_int;
+    }
+    if (type && type->kind < TYPE_INT) {
+        return type_int;
+    }
+    return type;
+}
+
 static Type* codegen64_comparison_type(Expr* expr) {
-    Type* left = expr && expr->binary_lhs ? expr->binary_lhs->type : NULL;
-    Type* right = expr && expr->binary_rhs ? expr->binary_rhs->type : NULL;
+    Type* left = codegen64_promoted_expression_type(
+        expr ? expr->binary_lhs : NULL);
+    Type* right = codegen64_promoted_expression_type(
+        expr ? expr->binary_rhs : NULL);
     if ((left && (left->kind == TYPE_PTR || left->kind == TYPE_ARRAY)) ||
         (right && (right->kind == TYPE_PTR || right->kind == TYPE_ARRAY))) {
         return type_ulong;
     }
     if (!left || !right) return type_int;
-    if (left->kind == TYPE_ENUM || left->kind < TYPE_INT) left = type_int;
-    if (right->kind == TYPE_ENUM || right->kind < TYPE_INT) right = type_int;
     return type_common(left, right);
 }
 
@@ -9158,8 +9180,14 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_XOR_ASSIGN:
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN: {
-            Type* operation_type = type_common(expr->binary_lhs->type,
-                                               expr->binary_rhs->type);
+            Type* left_type = codegen64_promoted_expression_type(
+                expr->binary_lhs);
+            Type* right_type = codegen64_promoted_expression_type(
+                expr->binary_rhs);
+            Type* operation_type =
+                expr->kind == EXPR_LSHIFT_ASSIGN ||
+                        expr->kind == EXPR_RSHIFT_ASSIGN
+                    ? left_type : type_common(left_type, right_type);
             if (expr->binary_lhs && expr->binary_lhs->type &&
                 expr->binary_lhs->type->is_atomic) {
                 if (gen64_atomic_bitwise_assignment(mod, expr) ||

@@ -513,6 +513,9 @@ bool type_is_complete(Type* t);
 bool type_is_compatible(Type* a, Type* b);
 bool type_is_compatible_qualified(Type* a, Type* b);
 Type* type_generic_selection_control(Type* type);
+/* Returns the value-range-sensitive promotion for a C++ integral bit-field
+ * or C unsigned-int bit-field, or NULL when ordinary promotion applies. */
+Type* type_bitfield_integer_promotion(const TypeField* field);
 /* Exact type identity for C++ type template arguments. Unlike general
  * compatibility, this retains cv qualification at every nested type level. */
 bool type_is_same_template_argument(Type* a, Type* b);

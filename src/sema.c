@@ -3110,17 +3110,37 @@ static Type* sema_builtin_integer_promotion(Type* type) {
     return sema_integer_promotion(type);
 }
 
+static Type* sema_builtin_integer_promotion_expression(Expr* expression) {
+    Type* type = expression ? expression->type : NULL;
+    Type* promoted = sema_builtin_integer_promotion(type);
+    TypeField* field = NULL;
+    Type* bitfield_promotion;
+    if (expression &&
+        (expression->kind == EXPR_MEMBER ||
+         expression->kind == EXPR_PTR_MEMBER)) {
+        field = expression->member_field;
+    }
+    bitfield_promotion = type_bitfield_integer_promotion(field);
+    return bitfield_promotion ? bitfield_promotion : promoted;
+}
+
 static bool sema_is_arithmetic_type(Type* type) {
     return type_is_arithmetic(type) ||
            (type && type->kind == TYPE_ENUM &&
             !sema_is_scoped_enum(type));
 }
 
-static Type* sema_common_arithmetic_type(Type* left, Type* right) {
-    if (left && left->kind == TYPE_ENUM) {
+static Type* sema_common_arithmetic_type(Type* left, Expr* left_expression,
+                                         Type* right,
+                                         Expr* right_expression) {
+    if (left_expression) {
+        left = sema_builtin_integer_promotion_expression(left_expression);
+    } else if (left && left->kind == TYPE_ENUM) {
         left = sema_builtin_integer_promotion(left);
     }
-    if (right && right->kind == TYPE_ENUM) {
+    if (right_expression) {
+        right = sema_builtin_integer_promotion_expression(right_expression);
+    } else if (right && right->kind == TYPE_ENUM) {
         right = sema_builtin_integer_promotion(right);
     }
     return type_common(left, right);
@@ -9759,6 +9779,7 @@ static bool sema_constexpr_constructor_leaves_indeterminate_scalar(
 static bool sema_constexpr_scalar_binary(
     int expression_kind, const SemaConstexprScalar* left,
     const SemaConstexprScalar* right, Type* result_type,
+    Type* right_conversion_type,
     SemaConstexprScalar* output) {
     SemaConstexprScalar converted_left;
     SemaConstexprScalar converted_right;
@@ -9766,6 +9787,7 @@ static bool sema_constexpr_scalar_binary(
     double left_value;
     double right_value;
     Type* operation_type;
+    Type* converted_right_type;
     bool comparison;
 
     if (!left || !right || !output || !result_type) {
@@ -9940,12 +9962,13 @@ static bool sema_constexpr_scalar_binary(
         }
         return false;
     }
-    operation_type = comparison ? type_common(left->type, right->type)
-                                : result_type;
+    operation_type = result_type;
+    converted_right_type = right_conversion_type
+        ? right_conversion_type : operation_type;
     if (!sema_constexpr_scalar_type(operation_type) ||
         !sema_constexpr_scalar_convert(left, operation_type,
                                        &converted_left) ||
-        !sema_constexpr_scalar_convert(right, operation_type,
+        !sema_constexpr_scalar_convert(right, converted_right_type,
                                        &converted_right)) {
         return false;
     }
@@ -10131,11 +10154,13 @@ static bool sema_constexpr_scalar_binary(
 }
 
 static bool sema_constexpr_scalar_assign(
-    int expression_kind, const SemaConstexprScalar* current,
-    const SemaConstexprScalar* right, Type* variable_type,
+    int expression_kind, Expr* left_expression, Expr* right_expression,
+    const SemaConstexprScalar* current, const SemaConstexprScalar* right,
+    Type* variable_type,
     SemaConstexprScalar* assigned) {
     SemaConstexprScalar computed;
     Type* operation_type = variable_type;
+    Type* right_conversion_type = NULL;
     int operation;
     if (!current || !right || !variable_type || !assigned) return false;
     if (expression_kind == EXPR_ASSIGN) {
@@ -10158,21 +10183,37 @@ static bool sema_constexpr_scalar_assign(
         Type* right_type = right->type;
         if (operation == EXPR_LSHIFT || operation == EXPR_RSHIFT) {
             if (sema_constexpr_integer_type(left_type)) {
-                operation_type = sema_builtin_integer_promotion(left_type);
+                operation_type = left_expression
+                    ? sema_builtin_integer_promotion_expression(
+                          left_expression)
+                    : sema_builtin_integer_promotion(left_type);
+            }
+            if (sema_constexpr_integer_type(right_type)) {
+                right_conversion_type = right_expression
+                    ? sema_builtin_integer_promotion_expression(
+                          right_expression)
+                    : sema_builtin_integer_promotion(right_type);
             }
         } else {
             if (sema_constexpr_integer_type(left_type)) {
-                left_type = sema_builtin_integer_promotion(left_type);
+                left_type = left_expression
+                    ? sema_builtin_integer_promotion_expression(
+                          left_expression)
+                    : sema_builtin_integer_promotion(left_type);
             }
             if (sema_constexpr_integer_type(right_type)) {
-                right_type = sema_builtin_integer_promotion(right_type);
+                right_type = right_expression
+                    ? sema_builtin_integer_promotion_expression(
+                          right_expression)
+                    : sema_builtin_integer_promotion(right_type);
             }
             operation_type = type_common(left_type, right_type);
         }
     }
     if (!operation_type ||
         !sema_constexpr_scalar_binary(operation, current, right,
-                                      operation_type, &computed)) {
+                                      operation_type,
+                                      right_conversion_type, &computed)) {
         return false;
     }
     return sema_constexpr_scalar_convert(&computed, variable_type, assigned);
@@ -12113,8 +12154,9 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                                expression->binary_lhs, bindings, binding_count,
                                &current) ||
                            !sema_constexpr_scalar_assign(
-                               expression->kind, &current, &right, object_type,
-                               &assigned) ||
+                               expression->kind, expression->binary_lhs,
+                               expression->binary_rhs, &current, &right,
+                               object_type, &assigned) ||
                            !sema_constexpr_store_binding_scalar(
                                expression->binary_lhs, bindings, binding_count,
                                &assigned, &assigned)) {
@@ -12146,7 +12188,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
             current.member_pointer_method =
                 bindings[binding_index].member_pointer_method;
             if (!sema_constexpr_scalar_assign(
-                    expression->kind, &current, &right,
+                    expression->kind, expression->binary_lhs,
+                    expression->binary_rhs, &current, &right,
                     bindings[binding_index].type, &assigned)) return false;
             bindings[binding_index].value = assigned.integer_value;
             bindings[binding_index].floating_value = assigned.floating_value;
@@ -12190,7 +12233,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                         expression->kind == EXPR_PREINC ||
                         expression->kind == EXPR_POSTINC ? EXPR_ADD_ASSIGN
                                                          : EXPR_SUB_ASSIGN,
-                        &current, &one, object_type, &updated) ||
+                        expression->unary_operand, NULL, &current, &one,
+                        object_type, &updated) ||
                     !sema_constexpr_store_binding_scalar(
                         expression->unary_operand, bindings, binding_count,
                         &updated, &updated)) return false;
@@ -12225,8 +12269,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                     expression->kind == EXPR_PREINC ||
                     expression->kind == EXPR_POSTINC ? EXPR_ADD_ASSIGN
                                                      : EXPR_SUB_ASSIGN,
-                    &current, &one, bindings[binding_index].type,
-                    &updated)) return false;
+                    expression->unary_operand, NULL, &current, &one,
+                    bindings[binding_index].type, &updated)) return false;
             bindings[binding_index].value = updated.integer_value;
             bindings[binding_index].floating_value = updated.floating_value;
             bindings[binding_index].is_floating = updated.is_floating;
@@ -12626,7 +12670,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
         case EXPR_LT:
         case EXPR_GT:
         case EXPR_LE:
-        case EXPR_GE:
+        case EXPR_GE: {
+            Type* operation_type;
             if (!sema_eval_constexpr_scalar_expr(expression->binary_lhs,
                                                   bindings, binding_count,
                                                   &left) ||
@@ -12671,9 +12716,24 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                 }
                 return isfinite(value->floating_value);
             }
+            operation_type = expression->type
+                ? expression->type : type_int;
+            if ((expression->kind == EXPR_EQ ||
+                 expression->kind == EXPR_NE ||
+                 expression->kind == EXPR_LT ||
+                 expression->kind == EXPR_GT ||
+                 expression->kind == EXPR_LE ||
+                 expression->kind == EXPR_GE) &&
+                !left.is_pointer && !right.is_pointer &&
+                !left.is_member_pointer && !right.is_member_pointer) {
+                operation_type = sema_common_arithmetic_type(
+                    left.type, expression->binary_lhs,
+                    right.type, expression->binary_rhs);
+            }
             return sema_constexpr_scalar_binary(
                 expression->kind, &left, &right,
-                expression->type ? expression->type : type_int, value);
+                operation_type, NULL, value);
+        }
         case EXPR_MOD:
         case EXPR_BITAND:
         case EXPR_BITOR:
@@ -12687,9 +12747,19 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                                                   bindings, binding_count,
                                                   &right) ||
                 left.is_floating || right.is_floating) return false;
-            return sema_constexpr_scalar_binary(
-                expression->kind, &left, &right,
-                expression->type ? expression->type : type_int, value);
+            {
+                Type* right_conversion_type = NULL;
+                if (expression->kind == EXPR_LSHIFT ||
+                    expression->kind == EXPR_RSHIFT) {
+                    right_conversion_type =
+                        sema_builtin_integer_promotion_expression(
+                            expression->binary_rhs);
+                }
+                return sema_constexpr_scalar_binary(
+                    expression->kind, &left, &right,
+                    expression->type ? expression->type : type_int,
+                    right_conversion_type, value);
+            }
         default:
             return false;
     }
@@ -24357,7 +24427,8 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc, "invalid operand type for unary operator");
             }
             expr->type = sema_is_integer_type(t)
-                ? sema_builtin_integer_promotion(t) : t;
+                ? sema_builtin_integer_promotion_expression(
+                      expr->unary_operand) : t;
             break;
         }
 
@@ -24380,7 +24451,8 @@ static Type* sema_expr(Expr* expr) {
             bool ambiguous_conversion = false;
             if (t && sema_is_integer_type(t) &&
                 !sema_is_scoped_enum(t)) {
-                promoted = sema_builtin_integer_promotion(t);
+                promoted = sema_builtin_integer_promotion_expression(
+                    expr->unary_operand);
             } else if (t && type_is_arithmetic(t) &&
                        t->kind != TYPE_BOOL) {
                 promoted = t;
@@ -24437,7 +24509,8 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc,
                           "bitwise complement requires integer operand");
             }
-            expr->type = sema_builtin_integer_promotion(t);
+            expr->type = sema_builtin_integer_promotion_expression(
+                expr->unary_operand);
             break;
         }
 
@@ -25215,7 +25288,8 @@ static Type* sema_expr(Expr* expr) {
                 expr->type = type_long;  /* ptrdiff_t */
             } else if (sema_is_arithmetic_type(lt) &&
                        sema_is_arithmetic_type(rt)) {
-                expr->type = sema_common_arithmetic_type(lt, rt);
+                expr->type = sema_common_arithmetic_type(
+                    lt, expr->binary_lhs, rt, expr->binary_rhs);
             } else {
                 rcc_error(expr->loc, "invalid operands to binary +/-");
                 expr->type = type_int;
@@ -25237,7 +25311,8 @@ static Type* sema_expr(Expr* expr) {
                        !sema_is_arithmetic_type(rt)) {
                 rcc_error(expr->loc, "invalid operands to binary operator");
             }
-            expr->type = sema_common_arithmetic_type(lt, rt);
+            expr->type = sema_common_arithmetic_type(
+                lt, expr->binary_lhs, rt, expr->binary_rhs);
             break;
         }
 
@@ -25369,8 +25444,9 @@ static Type* sema_expr(Expr* expr) {
                        sema_is_scoped_enum(rt)) {
                 rcc_error(expr->loc, "remainder operator requires integer operands");
             }
-            expr->type = type_common(sema_builtin_integer_promotion(lt),
-                                     sema_builtin_integer_promotion(rt));
+            expr->type = type_common(
+                sema_builtin_integer_promotion_expression(expr->binary_lhs),
+                sema_builtin_integer_promotion_expression(expr->binary_rhs));
             break;
         }
 
@@ -25391,8 +25467,9 @@ static Type* sema_expr(Expr* expr) {
                        sema_is_scoped_enum(rt)) {
                 rcc_error(expr->loc, "bitwise operator requires integer operands");
             }
-            expr->type = type_common(sema_builtin_integer_promotion(lt),
-                                     sema_builtin_integer_promotion(rt));
+            expr->type = type_common(
+                sema_builtin_integer_promotion_expression(expr->binary_lhs),
+                sema_builtin_integer_promotion_expression(expr->binary_rhs));
             break;
         }
 
@@ -25415,7 +25492,8 @@ static Type* sema_expr(Expr* expr) {
             /* C17 6.5.7 promotes each operand independently; unlike most
              * binary operators, the right operand never changes the result
              * type or the signedness of right shift. */
-            expr->type = sema_builtin_integer_promotion(lt);
+            expr->type = sema_builtin_integer_promotion_expression(
+                expr->binary_lhs);
             break;
         }
 
@@ -25732,7 +25810,11 @@ static Type* sema_expr(Expr* expr) {
                           "conditional operands have incompatible scoped enum types");
                 expr->type = type_int;
             } else {
-                expr->type = type_common(tt, et);
+                expr->type = type_common(
+                    sema_builtin_integer_promotion_expression(
+                        expr->cond_then),
+                    sema_builtin_integer_promotion_expression(
+                        expr->cond_else));
             }
             then_lvalue = is_lvalue(expr->cond_then);
             else_lvalue = is_lvalue(expr->cond_else);
@@ -27482,7 +27564,9 @@ static void sema_stmt(Stmt* stmt) {
                 rcc_error(stmt->switch_expr->loc,
                           "switch controlling expression must have integer type");
             }
-            context.control_type = sema_switch_control_type(control);
+            context.control_type = sema_switch_control_type(
+                sema_builtin_integer_promotion_expression(
+                    stmt->switch_expr));
             context.previous = current_switch;
             current_switch = &context;
             sema_stmt(stmt->switch_body);

@@ -492,6 +492,44 @@ unsigned type_integer_width(const Type* type) {
     return type->size > 0 ? (unsigned)type->size * 8u : 0u;
 }
 
+Type* type_bitfield_integer_promotion(const TypeField* field) {
+    Type* field_type;
+    unsigned field_width;
+    unsigned int_width;
+    if (!field || !field->is_bitfield || !field->type ||
+        field->type->is_bit_precise) {
+        return NULL;
+    }
+    field_type = field->type;
+    if (field_type->kind == TYPE_ENUM || !type_is_integer(field_type)) {
+        return NULL;
+    }
+
+    int_width = type_integer_width(type_int);
+    if (rcc_parser_is_cxx_mode()) {
+        unsigned declared_width = type_integer_width(field_type);
+        unsigned uint_width = type_integer_width(type_uint);
+        field_width = field->bit_width;
+        if (declared_width > 0u && field_width > declared_width) {
+            field_width = declared_width;
+        }
+        if (field_type->kind == TYPE_BOOL) return type_int;
+        if (!field_type->is_unsigned) {
+            return int_width > 0u && field_width <= int_width
+                ? type_int : NULL;
+        }
+        if (int_width > 0u && field_width < int_width) return type_int;
+        return uint_width > 0u && field_width <= uint_width
+            ? type_uint : NULL;
+    }
+
+    if (field_type->kind == TYPE_INT && field_type->is_unsigned &&
+        int_width > 0u && field->bit_width < int_width) {
+        return type_int;
+    }
+    return NULL;
+}
+
 bool type_is_floating(Type* t) {
     return t && (t->kind == TYPE_FLOAT || t->kind == TYPE_DOUBLE);
 }
