@@ -236,9 +236,9 @@ int main(void) {
     cleanup_order = 0;
     result = verified_cxx_reference_bound_partial_aggregate_cleanup(
         &cleanup_order, 0);
-    if (result != 1318 || cleanup_order != 18) {
+    if (result != 518 || cleanup_order != 18) {
         fprintf(stderr,
-                "reference-bound partial aggregate completion returned %d/order %d, expected 1318/order 18\n",
+                "reference-bound partial aggregate completion returned %d/order %d, expected 518/order 18\n",
                 result, cleanup_order);
         return 27;
     }

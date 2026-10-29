@@ -229,8 +229,7 @@ struct VerifiedPotentiallyThrowingBase {
     }
 };
 
-struct VerifiedReferenceBoundPartialAggregate {
-    VerifiedThrowingTemporary completed;
+struct VerifiedReferenceBoundPartialAggregate : VerifiedThrowingTemporary {
     VerifiedPotentiallyThrowingBase pending;
 };
 
@@ -733,7 +732,7 @@ extern "C" int verified_cxx_reference_bound_partial_aggregate_cleanup(
                     {cleanup_order, 8, {9}},
                     VerifiedPotentiallyThrowingBase(
                         cleanup_order, should_throw ? -1 : 5)};
-            result = value.completed.cleanup_id + value.pending.first_value;
+            result = value.pending.first_value;
         }
     } catch (int exception) {
         return exception * 10 + *cleanup_order;

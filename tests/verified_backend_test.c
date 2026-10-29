@@ -4969,12 +4969,12 @@ static void verify_cxx_throwing_temporary_object(
         assert(result == 618 && cleanup_order == 8);
         cleanup_order = 0;
         result = partial_aggregate_arguments(&cleanup_order, 0);
-        if (result != 1318 || cleanup_order != 18) {
+        if (result != 518 || cleanup_order != 18) {
             fprintf(stderr,
-                    "verified reference-bound partial aggregate completion returned %d/order %d, expected 1318/order 18\n",
+                    "verified reference-bound partial aggregate completion returned %d/order %d, expected 518/order 18\n",
                     result, cleanup_order);
         }
-        assert(result == 1318 && cleanup_order == 18);
+        assert(result == 518 && cleanup_order == 18);
         address = symbol_address(memory, throwing_constructor_symbol);
         memcpy(&constructor_argument, &address,
                sizeof(constructor_argument));
