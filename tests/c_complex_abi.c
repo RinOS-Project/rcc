@@ -650,6 +650,34 @@ int rcc_complex_standard_api_all(void) {
         RccComplexDouble value_double;
         RccComplexLongDouble value_long_double;
 
+        value_float = catanf(
+            CMPLXF(__builtin_nanf(""), __builtin_huge_valf()));
+        value_double = catan(
+            CMPLX(__builtin_nan(""), __builtin_huge_val()));
+        value_long_double = catanl(
+            CMPLXL((long double)__builtin_nan(""),
+                   (long double)__builtin_huge_val()));
+        if (!__builtin_isnan(__real__ value_float) ||
+            __imag__ value_float != 0.0f ||
+            !__builtin_isnan(__real__ value_double) ||
+            __imag__ value_double != 0.0 ||
+            !__builtin_isnan(__real__ value_long_double) ||
+            __imag__ value_long_double != 0.0L) return __LINE__;
+
+        value_float = catanf(
+            CMPLXF(__builtin_nanf(""), -__builtin_huge_valf()));
+        value_double = catan(
+            CMPLX(__builtin_nan(""), -__builtin_huge_val()));
+        value_long_double = catanl(
+            CMPLXL((long double)__builtin_nan(""),
+                   -(long double)__builtin_huge_val()));
+        if (!__builtin_isnan(__real__ value_float) ||
+            __imag__ value_float != 0.0f ||
+            !__builtin_isnan(__real__ value_double) ||
+            __imag__ value_double != 0.0 ||
+            !__builtin_isnan(__real__ value_long_double) ||
+            __imag__ value_long_double != 0.0L) return __LINE__;
+
         value_float = casinhf(CMPLXF(0.0f, __builtin_nanf("")));
         value_double = casinh(CMPLX(0.0, __builtin_nan("")));
         value_long_double = casinhl(
