@@ -31,6 +31,10 @@ _Atomic long long
 _Atomic long long
     debug_inline_nonconstant_signed_long_long_atomic_nested_sub_rhs =
         0x100000001ll;
+_Atomic long long debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs =
+    -0x7edcba9876543211ll;
+_Atomic long long debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs =
+    -0x0123456789abcdf0ll;
 _Atomic long long* debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape;
 _Atomic long long* debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape;
 long long* debug_inline_nonconstant_signed_long_long_runtime_local_escape;
@@ -501,6 +505,30 @@ long long debug_inline_nonconstant_signed_long_long_atomic_nested_sub_entry(
         debug_inline_nonconstant_signed_long_long_atomic_nested_sub_lhs -
         (debug_inline_nonconstant_signed_long_long_atomic_nested_sub_rhs *
          2ll));
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_bitand_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs &
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs);
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_bitor_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs |
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs);
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_bitxor_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs ^
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs);
 }
 
 long long debug_inline_nonconstant_signed_long_long_atomic_local_pair_divide_entry(

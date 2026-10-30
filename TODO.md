@@ -12021,10 +12021,16 @@ remains a separate open item.
       verify exact relocation counts plus carry/borrow boundary results in
       legacy and verified C objects. Focused `test-debug-info-inline-expression`
       and full `test-debug-info` pass.
-- [ ] Atomic operands beyond the bounded global nested add/sub and divmod
-      forms, volatile operands outside the bounded global/TLS forms, more
+- [ ] Atomic operands beyond the bounded global nested add/sub, divmod, and
+      bitwise forms, volatile operands outside the bounded global/TLS forms, more
       general computed division/remainder operands, and optimized multi-piece
       locations remain open.
+  - [x] Extend bounded signed i686 inline parameter bitwise `&`, `|`, and `^`
+        expressions to namespace-scope `_Atomic long long` operand pairs.
+        Emit four global relocations and two 32-bit `DW_OP_piece` values per
+        expression; interpret six high-bit and word-boundary operand pairs in
+        legacy and verified C objects. `test-debug-info-inline-expression`
+        and the full `test-debug-info` gate pass.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 

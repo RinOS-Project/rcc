@@ -14819,7 +14819,7 @@ static uint64_t verify_inline_i686_global_shift_expression(
 static void verify_inline_i686_global_nested_expression_impl(
     const char* path, const char* call_site_name, const char* left_name,
     const char* right_name, bool tls_sources, bool is_subtract,
-    bool is_unsigned) {
+    bool is_unsigned, uint8_t bitwise_operation) {
     static const InlineU64Pair add_pairs[] = {
         {0u, 0u},
         {1u, 2u},
@@ -14842,12 +14842,21 @@ static void verify_inline_i686_global_nested_expression_impl(
         {UINT64_C(0x8000000000000000), 1u},
         {UINT64_C(0x100000001), UINT64_C(0x20000000)}
     };
+    static const InlineU64Pair bitwise_pairs[] = {
+        {0u, 0u}, {1u, 2u}, {UINT64_MAX, UINT64_C(0x8000000000000000)},
+        {UINT64_C(0x8000000000000000), UINT64_C(0x7fffffffffffffff)},
+        {UINT64_C(0x100000001), UINT64_C(0x20000000)},
+        {UINT64_C(0xfedcba9876543210), UINT64_C(0x0123456789abcdef)}
+    };
     const char* inline_name = is_unsigned
         ? "debug_nonconstant_unsigned_long_long_parameter_inline"
         : "debug_nonconstant_signed_long_long_parameter_inline";
-    const InlineU64Pair* pairs = is_unsigned
+    const InlineU64Pair* pairs = bitwise_operation != 0u
+        ? bitwise_pairs : is_unsigned
         ? unsigned_add_pairs : is_subtract ? sub_pairs : add_pairs;
-    size_t pair_count = is_unsigned
+    size_t pair_count = bitwise_operation != 0u
+        ? sizeof(bitwise_pairs) / sizeof(bitwise_pairs[0])
+        : is_unsigned
         ? sizeof(unsigned_add_pairs) / sizeof(unsigned_add_pairs[0])
         : is_subtract
             ? sizeof(sub_pairs) / sizeof(sub_pairs[0])
@@ -14926,24 +14935,33 @@ static void verify_inline_i686_global_nested_expression_impl(
             ++expression_relocations;
         }
     }
-    assert(expression_relocations == (is_subtract ? 7u : 8u));
+    assert(expression_relocations == (bitwise_operation != 0u
+        ? 4u : is_subtract ? 7u : 8u));
     left_value = verify_inline_global_storage(object, left_name, 8u);
     right_value = verify_inline_global_storage(object, right_name, 8u);
-    assert(left_value == (is_unsigned
-        ? UINT64_C(0x7ffffffffffffff0)
+    assert(left_value == (bitwise_operation != 0u
+        ? UINT64_C(0x8123456789abcdef)
+        : is_unsigned ? UINT64_C(0x7ffffffffffffff0)
         : is_subtract
             ? tls_sources ? (uint64_t)INT64_MIN : UINT64_C(0x100000000)
             : UINT64_C(0x1ffffffff)));
-    assert(right_value == (is_unsigned
-        ? UINT64_C(0xfedcba9876543217)
+    assert(right_value == (bitwise_operation != 0u
+        ? UINT64_C(0xfedcba9876543210)
+        : is_unsigned ? UINT64_C(0xfedcba9876543217)
         : is_subtract
             ? tls_sources ? UINT64_MAX : UINT64_C(0x100000001)
             : 1u));
     for (size_t index = 0u; index < pair_count; ++index) {
         uint64_t doubled_right = pairs[index].right * 2u;
-        uint64_t expected = is_subtract
-            ? pairs[index].left - doubled_right
-            : pairs[index].left + doubled_right;
+        uint64_t expected = bitwise_operation == 0x1au
+            ? pairs[index].left & pairs[index].right
+            : bitwise_operation == 0x21u
+                ? pairs[index].left | pairs[index].right
+                : bitwise_operation == 0x27u
+                    ? pairs[index].left ^ pairs[index].right
+                    : is_subtract
+                        ? pairs[index].left - doubled_right
+                        : pairs[index].left + doubled_right;
         uint64_t actual = verify_inline_i686_global_shift_expression_kind(
             object, info, expression_offset, expression_size, left_name,
             pairs[index].left, right_name, pairs[index].right, tls_sources);
@@ -14957,14 +14975,22 @@ static void verify_inline_i686_global_nested_expression(
     const char* right_name, bool tls_sources, bool is_subtract) {
     verify_inline_i686_global_nested_expression_impl(
         path, call_site_name, left_name, right_name, tls_sources,
-        is_subtract, false);
+        is_subtract, false, 0u);
 }
 
 static void verify_inline_i686_global_unsigned_nested_expression(
     const char* path, const char* call_site_name, const char* left_name,
     const char* right_name) {
     verify_inline_i686_global_nested_expression_impl(
-        path, call_site_name, left_name, right_name, false, false, true);
+        path, call_site_name, left_name, right_name, false, false, true, 0u);
+}
+
+static void verify_inline_i686_global_atomic_bitwise_expression(
+    const char* path, const char* call_site_name, const char* left_name,
+    const char* right_name, uint8_t bitwise_operation) {
+    verify_inline_i686_global_nested_expression_impl(
+        path, call_site_name, left_name, right_name, false, false, false,
+        bitwise_operation);
 }
 
 static void verify_inline_i686_global_shift_parameter(
@@ -18291,6 +18317,33 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_signed_long_long_atomic_nested_sub_lhs",
             "debug_inline_nonconstant_signed_long_long_atomic_nested_sub_rhs",
             false, true);
+        {
+            static const struct {
+                const char* entry;
+                uint8_t opcode;
+            } atomic_bitwise_cases[] = {
+                {"debug_inline_nonconstant_signed_long_long_atomic_bitand_entry",
+                 0x1au},
+                {"debug_inline_nonconstant_signed_long_long_atomic_bitor_entry",
+                 0x21u},
+                {"debug_inline_nonconstant_signed_long_long_atomic_bitxor_entry",
+                 0x27u}
+            };
+            for (size_t index = 0u;
+                 index < sizeof(atomic_bitwise_cases) /
+                     sizeof(atomic_bitwise_cases[0]); ++index) {
+                verify_inline_i686_global_atomic_bitwise_expression(
+                    argv[2], atomic_bitwise_cases[index].entry,
+                    "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                    "debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs",
+                    atomic_bitwise_cases[index].opcode);
+                verify_inline_i686_global_atomic_bitwise_expression(
+                    argv[4], atomic_bitwise_cases[index].entry,
+                    "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                    "debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs",
+                    atomic_bitwise_cases[index].opcode);
+            }
+        }
         verify_inline_i686_global_u64_constant_division_expression_for_inline(
             argv[2],
             "debug_inline_nonconstant_unsigned_long_long_atomic_divide_entry",
