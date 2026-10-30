@@ -9,6 +9,30 @@ typedef struct RccLegacyComplexBinary64Pair {
     double real;
     double imaginary;
 } RccLegacyComplexBinary64Pair;
+typedef long double _Complex RccLegacyHostLongDoubleComplex;
+
+extern long double rcc_host_native_creall(RccLegacyHostLongDoubleComplex);
+extern long double rcc_host_native_cimagl(RccLegacyHostLongDoubleComplex);
+extern long double rcc_host_native_cabsl(RccLegacyHostLongDoubleComplex);
+extern long double rcc_host_native_cargl(RccLegacyHostLongDoubleComplex);
+extern RccLegacyHostLongDoubleComplex rcc_host_native_conjl(
+    RccLegacyHostLongDoubleComplex);
+extern RccLegacyHostLongDoubleComplex rcc_host_native_csqrtl(
+    RccLegacyHostLongDoubleComplex);
+
+static RccLegacyHostLongDoubleComplex rcc_legacy_pair_to_host(
+    RccLegacyComplexBinary64Pair value) {
+    return __builtin_complex((long double)value.real,
+                             (long double)value.imaginary);
+}
+
+static RccLegacyComplexBinary64Pair rcc_legacy_host_to_pair(
+    RccLegacyHostLongDoubleComplex value) {
+    RccLegacyComplexBinary64Pair result;
+    result.real = (double)__real__ value;
+    result.imaginary = (double)__imag__ value;
+    return result;
+}
 
 #if defined(_WIN64)
 #define RINOS_ABI __attribute__((sysv_abi))
@@ -82,6 +106,62 @@ extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_api_conj(
     RccLegacyComplexDouble);
 extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_api_csqrt(
     RccLegacyComplexDouble);
+extern double RINOS_ABI rcc_legacy_complex_api_creall(
+    RccLegacyComplexBinary64Pair);
+extern double RINOS_ABI rcc_legacy_complex_api_cimagl(
+    RccLegacyComplexBinary64Pair);
+extern double RINOS_ABI rcc_legacy_complex_api_cabsl(
+    RccLegacyComplexBinary64Pair);
+extern double RINOS_ABI rcc_legacy_complex_api_cargl(
+    RccLegacyComplexBinary64Pair);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_api_conjl(RccLegacyComplexBinary64Pair);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_api_csqrtl(RccLegacyComplexBinary64Pair);
+
+double RINOS_ABI rcc_legacy_bridge_creall(
+    RccLegacyComplexBinary64Pair value) __asm__("creall");
+double RINOS_ABI rcc_legacy_bridge_creall(
+    RccLegacyComplexBinary64Pair value) {
+    return (double)rcc_host_native_creall(rcc_legacy_pair_to_host(value));
+}
+
+double RINOS_ABI rcc_legacy_bridge_cimagl(
+    RccLegacyComplexBinary64Pair value) __asm__("cimagl");
+double RINOS_ABI rcc_legacy_bridge_cimagl(
+    RccLegacyComplexBinary64Pair value) {
+    return (double)rcc_host_native_cimagl(rcc_legacy_pair_to_host(value));
+}
+
+double RINOS_ABI rcc_legacy_bridge_cabsl(
+    RccLegacyComplexBinary64Pair value) __asm__("cabsl");
+double RINOS_ABI rcc_legacy_bridge_cabsl(
+    RccLegacyComplexBinary64Pair value) {
+    return (double)rcc_host_native_cabsl(rcc_legacy_pair_to_host(value));
+}
+
+double RINOS_ABI rcc_legacy_bridge_cargl(
+    RccLegacyComplexBinary64Pair value) __asm__("cargl");
+double RINOS_ABI rcc_legacy_bridge_cargl(
+    RccLegacyComplexBinary64Pair value) {
+    return (double)rcc_host_native_cargl(rcc_legacy_pair_to_host(value));
+}
+
+RccLegacyComplexBinary64Pair RINOS_ABI rcc_legacy_bridge_conjl(
+    RccLegacyComplexBinary64Pair value) __asm__("conjl");
+RccLegacyComplexBinary64Pair RINOS_ABI rcc_legacy_bridge_conjl(
+    RccLegacyComplexBinary64Pair value) {
+    return rcc_legacy_host_to_pair(
+        rcc_host_native_conjl(rcc_legacy_pair_to_host(value)));
+}
+
+RccLegacyComplexBinary64Pair RINOS_ABI rcc_legacy_bridge_csqrtl(
+    RccLegacyComplexBinary64Pair value) __asm__("csqrtl");
+RccLegacyComplexBinary64Pair RINOS_ABI rcc_legacy_bridge_csqrtl(
+    RccLegacyComplexBinary64Pair value) {
+    return rcc_legacy_host_to_pair(
+        rcc_host_native_csqrtl(rcc_legacy_pair_to_host(value)));
+}
 
 typedef struct RccLegacyComplexTlsCase {
     int failed;

@@ -17467,11 +17467,24 @@ test-complex-legacy: test-complex $(RCC_TARGET)
 		$(TEST_OUT)/complex/legacy-x64.log
 	$(CC) -std=c17 -Wall -Wextra -Werror -Wno-unused-value -fsyntax-only \
 		-I$(RINOS_ROOT)/public-base/libs/libc tests/c_complex_legacy_abi.c
+	$(CC) $(CFLAGS) -I$(RINOS_ROOT)/public-base/libs/libc \
+		-D__rin_cmul_f32=rcc_host_complex_mul_f32 \
+		-D__rin_cmul_f64=rcc_host_complex_mul_f64 \
+		-D__rin_cdiv_f32=rcc_host_complex_div_f32 \
+		-D__rin_cdiv_f64=rcc_host_complex_div_f64 \
+		-Dcreall=rcc_host_native_creall \
+		-Dcimagl=rcc_host_native_cimagl \
+		-Dcabsl=rcc_host_native_cabsl \
+		-Dcargl=rcc_host_native_cargl \
+		-Dconjl=rcc_host_native_conjl \
+		-Dcsqrtl=rcc_host_native_csqrtl \
+		-c -o $(TEST_OUT)/complex/complex_runtime_legacy.o \
+		$(RINOS_ROOT)/public-base/libs/libc/complex_runtime.c
 	$(CC) $(CFLAGS) -Werror -pthread \
 		-o $(TEST_OUT)/complex/run-legacy$(EXE_SUFFIX) \
 		tests/c_complex_legacy_abi_test.c \
 		$(TEST_OUT)/complex/legacy-x64.s \
-		$(TEST_OUT)/complex/complex_runtime.o -lm
+		$(TEST_OUT)/complex/complex_runtime_legacy.o -lm
 	$(TEST_OUT)/complex/run-legacy$(EXE_SUFFIX)
 
 test-long-double: $(RCC_TARGET) $(RCXX_TARGET)

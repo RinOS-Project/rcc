@@ -63,6 +63,36 @@ RccLegacyComplexDouble rcc_legacy_complex_api_csqrt(
     return csqrt(value);
 }
 
+long double rcc_legacy_complex_api_creall(
+    RccLegacyComplexLongDouble value) {
+    return creall(value);
+}
+
+long double rcc_legacy_complex_api_cimagl(
+    RccLegacyComplexLongDouble value) {
+    return cimagl(value);
+}
+
+long double rcc_legacy_complex_api_cabsl(
+    RccLegacyComplexLongDouble value) {
+    return cabsl(value);
+}
+
+long double rcc_legacy_complex_api_cargl(
+    RccLegacyComplexLongDouble value) {
+    return cargl(value);
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_api_conjl(
+    RccLegacyComplexLongDouble value) {
+    return conjl(value);
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_api_csqrtl(
+    RccLegacyComplexLongDouble value) {
+    return csqrtl(value);
+}
+
 _Static_assert(_Generic(
     (RccLegacyComplexFloat)0.0f + (double)0.0,
     RccLegacyComplexDouble: 1,
