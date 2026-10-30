@@ -21722,6 +21722,9 @@ typedef struct {
     RccIrType ir_type;
     size_t offset;
     size_t word_count;
+    LowerSysvAggregateClass aggregate_classification;
+    bool aggregate;
+    bool aggregate_on_stack;
 } RccIrCxxPlacementCleanupField;
 
 typedef struct {
@@ -21746,19 +21749,71 @@ static Type* lower_cxx_array_allocation_function_type(
         ? function_type : NULL;
 }
 
-static bool lower_cxx_placement_argument_ir_type(
-    const Type* type, RccIrType* ir_type, size_t* word_count) {
-    if (!type || !ir_type || !word_count) return false;
-    if (g_opts.target_arch == ARCH_X86 && !type->is_reference &&
-        lower_i686_wide_scalar_type(type)) {
-        *ir_type = rcc_ir_type_integer(32u);
-        *word_count = 2u;
-        return true;
+static bool lower_cxx_placement_argument_layout(
+    const Type* type, size_t* gp_arguments_used,
+    size_t* sse_arguments_used,
+    RccIrCxxPlacementCleanupField* field) {
+    RccIrType ir_type;
+    size_t word_count;
+    bool aggregate = lower_abi_is_aggregate(type) &&
+        !lower_abi_indirect_class_parameter(type);
+    bool aggregate_on_stack = false;
+    LowerSysvAggregateClass classification;
+    memset(&classification, 0, sizeof(classification));
+    if (!type || !gp_arguments_used || !sse_arguments_used) return false;
+    if (aggregate) {
+        if (type->size <= 0 ||
+            !lower_storage_type_supported_internal(type, 0u)) {
+            return false;
+        }
+        if (g_opts.target_arch == ARCH_X64) {
+            if (!lower_sysv_call_aggregate_assignment(
+                    type, gp_arguments_used, sse_arguments_used,
+                    &classification, &aggregate_on_stack)) {
+                return false;
+            }
+            word_count = (size_t)classification.count;
+        } else {
+            size_t chunk_size = lower_abi_chunk_size();
+            word_count = ((size_t)type->size + chunk_size - 1u) /
+                chunk_size;
+        }
+        ir_type = rcc_ir_type_pointer(0u);
+    } else if (lower_abi_indirect_class_parameter(type)) {
+        if (g_opts.target_arch == ARCH_X64 &&
+            *gp_arguments_used < 6u) {
+            ++*gp_arguments_used;
+        }
+        ir_type = rcc_ir_type_pointer(0u);
+        word_count = 1u;
+    } else {
+        if (g_opts.target_arch == ARCH_X64 &&
+            (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE)) {
+            if (*sse_arguments_used < 8u) ++*sse_arguments_used;
+        } else if (g_opts.target_arch == ARCH_X64 &&
+                   (type->kind == TYPE_PTR || type->kind == TYPE_ENUM ||
+                    type_is_integer((Type*)type))) {
+            if (*gp_arguments_used < 6u) ++*gp_arguments_used;
+        }
+        if (g_opts.target_arch == ARCH_X86 && !type->is_reference &&
+            lower_i686_wide_scalar_type(type)) {
+            ir_type = rcc_ir_type_integer(32u);
+            word_count = 2u;
+        } else if (!lower_type(type, &ir_type) ||
+                   ir_type.kind == RCC_IR_TYPE_VOID) {
+            return false;
+        } else {
+            word_count = 1u;
+        }
     }
-    if (!lower_type(type, ir_type) || ir_type->kind == RCC_IR_TYPE_VOID) {
-        return false;
+    if (field) {
+        field->type = type;
+        field->ir_type = ir_type;
+        field->word_count = word_count;
+        field->aggregate = aggregate;
+        field->aggregate_on_stack = aggregate_on_stack;
+        field->aggregate_classification = classification;
     }
-    *word_count = 1u;
     return true;
 }
 
@@ -21776,12 +21831,16 @@ static bool lower_cxx_make_array_placement_cleanup(
     RccIrLowerValue allocation_address;
     RccIrInstruction* load;
     RccIrValue* call_operands = NULL;
+    RccSysvMemoryArgument* callback_memory_arguments = NULL;
+    size_t callback_memory_argument_count = 0u;
     char* callback_name;
     size_t callback_name_capacity;
     size_t field_count = 0u;
     size_t pointer_size;
     size_t offset;
     size_t alignment;
+    size_t gp_arguments_used = 1u;
+    size_t sse_arguments_used = 0u;
     size_t index;
     const char* parent_name;
     if (!context || !deallocation || !deallocation->type ||
@@ -21794,12 +21853,11 @@ static bool lower_cxx_make_array_placement_cleanup(
     parameter = deallocation->type->params->next;
     for (argument = placement_arguments; argument;
          argument = argument->next) {
-        RccIrType field_type;
-        size_t field_word_count;
         if (!parameter || !parameter->type || !argument->expr ||
             argument->designator_kind != INIT_DESIGNATOR_NONE ||
-            !lower_cxx_placement_argument_ir_type(
-                parameter->type, &field_type, &field_word_count) ||
+            !lower_cxx_placement_argument_layout(
+                parameter->type, &gp_arguments_used,
+                &sse_arguments_used, NULL) ||
             parameter->type->size <= 0 || parameter->type->align <= 0) {
             context->unsupported = true;
             return false;
@@ -21821,19 +21879,19 @@ static bool lower_cxx_make_array_placement_cleanup(
     pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     alignment = pointer_size;
     offset = pointer_size;
+    gp_arguments_used = 1u;
+    sse_arguments_used = 0u;
     parameter = deallocation->type->params->next;
     for (index = 0u; index < field_count; ++index,
          parameter = parameter->next) {
         size_t field_alignment = (size_t)parameter->type->align;
         size_t field_size = (size_t)parameter->type->size;
-        size_t field_word_count;
         size_t remainder;
-        if (field_alignment > 8u ||
+        if (field_alignment > RCC_MAX_SUPPORTED_ALIGNMENT ||
             (field_alignment & (field_alignment - 1u)) != 0u ||
-            !lower_cxx_placement_argument_ir_type(
-                parameter->type, &cleanup->fields[index].ir_type,
-                &field_word_count) ||
-            field_size > 8u) {
+            !lower_cxx_placement_argument_layout(
+                parameter->type, &gp_arguments_used,
+                &sse_arguments_used, &cleanup->fields[index])) {
             context->unsupported = true;
             return false;
         }
@@ -21851,12 +21909,10 @@ static bool lower_cxx_make_array_placement_cleanup(
             context->unsupported = true;
             return false;
         }
-        cleanup->fields[index].type = parameter->type;
         cleanup->fields[index].offset = offset;
-        cleanup->fields[index].word_count = field_word_count;
         offset += field_size;
     }
-    if (alignment > 8u) {
+    if (alignment > RCC_MAX_SUPPORTED_ALIGNMENT) {
         context->unsupported = true;
         return false;
     }
@@ -21925,8 +21981,17 @@ static bool lower_cxx_make_array_placement_cleanup(
         context->unsupported = true;
         return false;
     }
+    if (g_opts.target_arch == ARCH_X64 &&
+        !lower_sysv_call_memory_arguments(
+            placement_arguments, deallocation->type->params->next, 1u,
+            call_operand_count, &callback_memory_arguments,
+            &callback_memory_argument_count)) {
+        context->unsupported = true;
+        return false;
+    }
     call_operands = rcc_alloc(call_operand_count * sizeof(*call_operands));
     if (!call_operands) {
+        rcc_free(callback_memory_arguments);
         context->unsupported = true;
         return false;
     }
@@ -21937,8 +22002,42 @@ static bool lower_cxx_make_array_placement_cleanup(
             &callback_context, record, (uint64_t)cleanup->fields[index].offset);
         if (!field_address.valid) {
             rcc_free(call_operands);
+            rcc_free(callback_memory_arguments);
             context->unsupported = true;
             return false;
+        }
+        if (cleanup->fields[index].aggregate) {
+            size_t chunk_size = lower_abi_chunk_size();
+            for (size_t word = 0u;
+                 word < cleanup->fields[index].word_count; ++word) {
+                size_t byte_offset = word * chunk_size;
+                RccIrLowerValue chunk_address = lower_byte_offset_address(
+                    &callback_context, field_address,
+                    (uint64_t)byte_offset);
+                RccIrLowerValue chunk;
+                if (g_opts.target_arch == ARCH_X64 &&
+                    !cleanup->fields[index].aggregate_on_stack &&
+                    cleanup->fields[index].aggregate_classification
+                        .classes[word] == LOWER_SYSV_CLASS_SSE) {
+                    size_t remaining = (size_t)cleanup->fields[index]
+                        .type->size - byte_offset;
+                    chunk = lower_load_address(
+                        &callback_context, chunk_address,
+                        remaining >= 8u ? type_double : type_float);
+                } else {
+                    chunk = lower_load_aggregate_chunk(
+                        &callback_context, field_address,
+                        cleanup->fields[index].type, byte_offset);
+                }
+                if (!chunk_address.valid || !chunk.valid) {
+                    rcc_free(call_operands);
+                    rcc_free(callback_memory_arguments);
+                    context->unsupported = true;
+                    return false;
+                }
+                call_operands[call_operand_index++] = chunk.value;
+            }
+            continue;
         }
         for (size_t word = 0u;
              word < cleanup->fields[index].word_count; ++word) {
@@ -21951,6 +22050,7 @@ static bool lower_cxx_make_array_placement_cleanup(
             }
             if (!word_address.valid) {
                 rcc_free(call_operands);
+                rcc_free(callback_memory_arguments);
                 context->unsupported = true;
                 return false;
             }
@@ -21960,6 +22060,7 @@ static bool lower_cxx_make_array_placement_cleanup(
                 &word_address.value, 1u, NULL, 0u);
             if (!field_load) {
                 rcc_free(call_operands);
+                rcc_free(callback_memory_arguments);
                 context->unsupported = true;
                 return false;
             }
@@ -21972,9 +22073,13 @@ static bool lower_cxx_make_array_placement_cleanup(
             call_operands, call_operand_count, NULL, 0u);
         rcc_free(call_operands);
         if (!call) {
+            rcc_free(callback_memory_arguments);
             context->unsupported = true;
             return false;
         }
+        call->sysv_memory_arguments = callback_memory_arguments;
+        call->sysv_memory_argument_count = callback_memory_argument_count;
+        callback_memory_arguments = NULL;
         rcc_ir_set_callee(call, decl_link_name(deallocation));
     }
     if (!lower_append(&callback_context, RCC_IR_RETURN,
@@ -22784,6 +22889,10 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     RccIrBlock* cleanup_done;
     RccIrValue operands[2];
     RccIrValue* allocation_operands;
+    RccIrValue* aggregate_argument_addresses = NULL;
+    RccSysvMemoryArgument* allocation_memory_arguments = NULL;
+    size_t allocation_memory_argument_count = 0u;
+    size_t placement_argument_count = 0u;
     RccIrInstruction* arithmetic;
     RccIrCxxPlacementCleanup placement_cleanup;
     Type* allocation_function_type;
@@ -22991,21 +23100,26 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     TypeParam* allocation_parameter = allocation_function_type
         ? allocation_function_type->params : NULL;
     if (allocation_parameter) allocation_parameter = allocation_parameter->next;
+    size_t allocation_gp_arguments_used = 1u;
+    size_t allocation_sse_arguments_used = 0u;
     for (const ExprList* placement_argument =
              expression->call_args ? expression->call_args->next : NULL;
          placement_argument; placement_argument = placement_argument->next) {
-        RccIrType ignored_type;
-        size_t argument_word_count;
+        RccIrCxxPlacementCleanupField argument_layout;
         const Type* argument_type = allocation_parameter
             ? allocation_parameter->type
             : placement_argument->expr ? placement_argument->expr->type : NULL;
-        if (!lower_cxx_placement_argument_ir_type(
-                argument_type, &ignored_type, &argument_word_count) ||
-            argument_word_count > SIZE_MAX - allocation_operand_count) {
+        if (!lower_cxx_placement_argument_layout(
+                argument_type, &allocation_gp_arguments_used,
+                &allocation_sse_arguments_used, &argument_layout) ||
+            argument_layout.word_count >
+                SIZE_MAX - allocation_operand_count ||
+            placement_argument_count == SIZE_MAX) {
             context->unsupported = true;
             return lower_invalid_value();
         }
-        allocation_operand_count += argument_word_count;
+        allocation_operand_count += argument_layout.word_count;
+        ++placement_argument_count;
         if (allocation_parameter) {
             allocation_parameter = allocation_parameter->next;
         }
@@ -23021,8 +23135,30 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         context->unsupported = true;
         return lower_invalid_value();
     }
+    if (placement_argument_count != 0u) {
+        if (placement_argument_count >
+            SIZE_MAX / sizeof(*aggregate_argument_addresses)) {
+            rcc_free(allocation_operands);
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        aggregate_argument_addresses = lower_scratch_alloc(
+            context, placement_argument_count *
+                sizeof(*aggregate_argument_addresses));
+        if (!aggregate_argument_addresses) {
+            rcc_free(allocation_operands);
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        for (size_t index = 0u; index < placement_argument_count; ++index) {
+            aggregate_argument_addresses[index] = RCC_IR_VALUE_NONE;
+        }
+    }
     allocation_operands[0] = allocation_size.value;
     size_t allocation_operand_index = 1u;
+    size_t placement_argument_index = 0u;
+    allocation_gp_arguments_used = 1u;
+    allocation_sse_arguments_used = 0u;
     allocation_parameter = allocation_function_type
         ? allocation_function_type->params : NULL;
     if (allocation_parameter) allocation_parameter = allocation_parameter->next;
@@ -23033,20 +23169,67 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         const Type* argument_type = allocation_parameter
             ? allocation_parameter->type
             : placement_argument->expr ? placement_argument->expr->type : NULL;
-        RccIrType ignored_type;
-        size_t argument_word_count;
+        RccIrCxxPlacementCleanupField argument_layout;
         if (!placement_argument->expr) {
             rcc_free(allocation_operands);
             context->unsupported = true;
             return lower_invalid_value();
         }
-        if (!lower_cxx_placement_argument_ir_type(
-                argument_type, &ignored_type, &argument_word_count)) {
+        if (!lower_cxx_placement_argument_layout(
+                argument_type, &allocation_gp_arguments_used,
+                &allocation_sse_arguments_used, &argument_layout)) {
             rcc_free(allocation_operands);
             context->unsupported = true;
             return lower_invalid_value();
         }
-        if (argument_word_count == 2u) {
+        if (argument_layout.aggregate) {
+            RccIrLowerValue placement_value = lower_expression(
+                context, placement_argument->expr);
+            RccIrLowerValue aggregate_copy = lower_cxx_array_slot(
+                context, (size_t)argument_type->size,
+                (size_t)argument_type->align);
+            if (!placement_value.valid ||
+                placement_value.type.kind != RCC_IR_TYPE_POINTER ||
+                !aggregate_copy.valid ||
+                !lower_copy_abi_aggregate_storage(
+                    context, aggregate_copy.value, placement_value.value,
+                    argument_type)) {
+                rcc_free(allocation_operands);
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            aggregate_argument_addresses[placement_argument_index] =
+                aggregate_copy.value;
+            for (size_t word = 0u;
+                 word < argument_layout.word_count; ++word) {
+                size_t byte_offset = word * lower_abi_chunk_size();
+                RccIrLowerValue chunk;
+                if (g_opts.target_arch == ARCH_X64 &&
+                    !argument_layout.aggregate_on_stack &&
+                    argument_layout.aggregate_classification
+                        .classes[word] == LOWER_SYSV_CLASS_SSE) {
+                    size_t remaining = (size_t)argument_type->size -
+                        byte_offset;
+                    RccIrLowerValue chunk_address =
+                        lower_byte_offset_address(
+                            context, aggregate_copy,
+                            (uint64_t)byte_offset);
+                    chunk = lower_load_address(
+                        context, chunk_address,
+                        remaining >= 8u ? type_double : type_float);
+                } else {
+                    chunk = lower_load_aggregate_chunk(
+                        context, aggregate_copy, argument_type,
+                        byte_offset);
+                }
+                if (!chunk.valid) {
+                    rcc_free(allocation_operands);
+                    return lower_invalid_value();
+                }
+                allocation_operands[allocation_operand_index++] =
+                    chunk.value;
+            }
+        } else if (argument_layout.word_count == 2u) {
             RccIrLowerWideValue wide_value;
             if (!lower_i686_wide_scalar_type(argument_type) ||
                 !lower_wide_scalar_expression(
@@ -23062,6 +23245,11 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         } else {
             RccIrLowerValue placement_value = lower_expression(
                 context, placement_argument->expr);
+            if (placement_value.valid && allocation_parameter &&
+                !lower_abi_indirect_class_parameter(argument_type)) {
+                placement_value = lower_cast(
+                    context, placement_value, (Type*)argument_type);
+            }
             if (!placement_value.valid) {
                 rcc_free(allocation_operands);
                 return lower_invalid_value();
@@ -23072,6 +23260,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         if (allocation_parameter) {
             allocation_parameter = allocation_parameter->next;
         }
+        ++placement_argument_index;
     }
     if (allocation_operand_index != allocation_operand_count) {
         rcc_free(allocation_operands);
@@ -23101,9 +23290,34 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         allocation_cleanup_name = placement_cleanup.callback_name;
         allocation_cleanup_object = placement_cleanup.record;
     }
-    allocator_address = lower_cxx_runtime_call(
-        context, allocation_name, rcc_ir_type_pointer(0u),
-        allocation_operands, allocation_operand_count);
+    if (g_opts.target_arch == ARCH_X64 && has_placement_arguments &&
+        !lower_sysv_call_memory_arguments(
+            expression->call_args,
+            allocation_function_type
+                ? allocation_function_type->params : NULL,
+            0u, allocation_operand_count, &allocation_memory_arguments,
+            &allocation_memory_argument_count)) {
+        rcc_free(allocation_operands);
+        rcc_free(placement_cleanup.fields);
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    RccIrInstruction* allocation_call = lower_append(
+        context, RCC_IR_CALL, rcc_ir_type_pointer(0u),
+        allocation_operands, allocation_operand_count, NULL, 0u);
+    if (!allocation_call) {
+        rcc_free(allocation_memory_arguments);
+        rcc_free(allocation_operands);
+        rcc_free(placement_cleanup.fields);
+        return lower_invalid_value();
+    }
+    allocation_call->sysv_memory_arguments = allocation_memory_arguments;
+    allocation_call->sysv_memory_argument_count =
+        allocation_memory_argument_count;
+    allocation_memory_arguments = NULL;
+    rcc_ir_set_callee(allocation_call, allocation_name);
+    allocator_address = lower_value(
+        allocation_call->result, rcc_ir_type_pointer(0u), true);
     if (!allocator_address.valid) {
         rcc_free(allocation_operands);
         rcc_free(placement_cleanup.fields);
@@ -23133,6 +23347,26 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         for (size_t field_index = 0u;
              field_index < placement_cleanup.field_count;
              ++field_index, placement_argument = placement_argument->next) {
+            if (placement_cleanup.fields[field_index].aggregate) {
+                RccIrLowerValue aggregate_source = lower_value(
+                    aggregate_argument_addresses[field_index],
+                    rcc_ir_type_pointer(0u), true);
+                field_address = lower_byte_offset_address(
+                    context, placement_cleanup.record,
+                    (uint64_t)placement_cleanup.fields[field_index].offset);
+                if (!aggregate_source.valid || !field_address.valid ||
+                    !lower_copy_abi_aggregate_storage(
+                        context, field_address.value, aggregate_source.value,
+                        placement_cleanup.fields[field_index].type)) {
+                    rcc_free(allocation_operands);
+                    rcc_free(placement_cleanup.fields);
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                placement_operand_index +=
+                    placement_cleanup.fields[field_index].word_count;
+                continue;
+            }
             if (placement_cleanup.fields[field_index].word_count == 2u) {
                 RccIrType word_type = rcc_ir_type_integer(32u);
                 RccIrLowerValue low = lower_value(

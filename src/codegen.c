@@ -10292,7 +10292,11 @@ static Type* gen_cxx_next_placement_parameter_type32(
 }
 
 static size_t gen_cxx_placement_argument_slot_size32(const Type* type) {
-    if (!type || type->is_reference) return 4u;
+    if (!type || type->is_reference ||
+        gen_cxx_indirect_parameter32(type)) return 4u;
+    if (gen_aggregate_type32(type)) {
+        return ((size_t)type->size + 3u) & ~(size_t)3u;
+    }
     if (gen_is_floating(type)) return gen_float_width(type) == 4 ? 4u : 8u;
     if (gen_is_integer64(type)) return 8u;
     return 4u;
@@ -10408,6 +10412,16 @@ static void gen_cxx_alloc_array_cookie32(
                 gen_lvalue(mod, argument->expr);
                 gen_cxx_reference_adjustment32(mod, argument->expr);
                 emit_mov_mem_reg(mod, ESP, temp_offset, EAX);
+            } else if (gen_aggregate_type32(parameter_type) &&
+                       !gen_cxx_indirect_parameter32(parameter_type)) {
+                gen_expr(mod, argument->expr);
+                emit_mov_reg_reg(mod, ECX, EAX);
+                emit_mov_reg_reg(mod, EDX, ESP);
+                if (temp_offset != 0) {
+                    emit_add_reg_imm(mod, EDX, temp_offset);
+                }
+                gen_copy_aggregate_to_address32(
+                    mod, EDX, ECX, parameter_type->size);
             } else if (gen_is_floating(parameter_type)) {
                 gen_expr_as_type(mod, argument->expr, parameter_type);
                 emit_mov_mem_reg(mod, ESP, temp_offset, EAX);

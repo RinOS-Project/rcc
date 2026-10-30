@@ -422,6 +422,38 @@ $(GREP) -F -q 'Verified backend: $(3) function(s) emitted' \
 $(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/$(1)/verified-x64-o2.log,0)
 endef
 
+# The allocation-resolution fixture throws during array construction.  Run
+# both legacy architectures with the host exception runtimes so the POSIX gate
+# exercises constructor-failure cleanup instead of only inspecting i686 output.
+define CXX_POSIX_EXCEPTION_ENTRY_TEST
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 $(3) -S \
+	-o $(TEST_OUT)/$(1)/x86.s tests/$(2)
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/$(1)/x86.o
+$(CC) -m32 -no-pie $(CFLAGS) -o $(TEST_OUT)/$(1)/x86-host \
+	$(if $(4),$(4),tests/cxx_language_core_host.c) $(TEST_OUT)/$(1)/x86.o \
+	$(CXX_HOST_EXCEPTION_RUNTIME_I686) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686)
+$(TEST_OUT)/$(1)/x86-host
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 $(3) -S \
+	-o $(TEST_OUT)/$(1)/x64.s tests/$(2)
+$(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
+$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/$(1)/x64.o
+$(CC) -no-pie $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host \
+	$(if $(4),$(4),tests/cxx_language_core_host.c) $(TEST_OUT)/$(1)/x64.o \
+	$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+$(TEST_OUT)/$(1)/x64-host
+endef
+
+ifeq ($(OS),Windows_NT)
+define CXX_PORTABLE_EXCEPTION_ENTRY_TEST
+$(call CXX_PORTABLE_ENTRY_TEST,$(1),$(2),$(3),$(4))
+endef
+else
+define CXX_PORTABLE_EXCEPTION_ENTRY_TEST
+$(call CXX_POSIX_EXCEPTION_ENTRY_TEST,$(1),$(2),$(3),$(4))
+endef
+endif
+
 ifeq ($(OS),Windows_NT)
 # Native Windows MinGW installations may not include 32-bit CRT libraries.
 # Keep the i686 ABI artifact check, then execute the same generated function
@@ -17006,9 +17038,9 @@ endif
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-allocation-multiple-using-selection)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-allocation-diamond-lookup)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-parenthesized-new-type)
-	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp)
-	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,,tests/cxx_language_core_host_no_allocator.c)
-	$(call CXX_PORTABLE_ENTRY_TEST,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,,tests/cxx_language_core_host_no_allocator.c)
+	$(call CXX_PORTABLE_EXCEPTION_ENTRY_TEST,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp)
+	$(call CXX_PORTABLE_EXCEPTION_ENTRY_TEST,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,,tests/cxx_language_core_host_no_allocator.c)
+	$(call CXX_PORTABLE_EXCEPTION_ENTRY_TEST,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,,tests/cxx_language_core_host_no_allocator.c)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-fsyntax-only tests/cxx_global_allocation_resolution.cpp
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
@@ -17052,7 +17084,7 @@ endif
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_class_allocation_multiple_using_selection.cpp
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-parenthesized-new-type,cxx_parenthesized_new_type.cpp,,tests/cxx_language_core_host_no_allocator.c)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_parenthesized_new_type.cpp
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,18)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,24)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/cxx-global-allocation-operators/verified-run \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \

@@ -10281,8 +10281,15 @@ remains a separate open item.
         objects at `-O0` and `-O2` under WSL; legacy i686 execution also links
         and runs there with the existing i686 exception runtime. The legacy
         AMD64 runtime passes as well.
-  - [ ] Add aggregate-by-value placement allocation and matching cleanup ABI
-        lowering for i686 and AMD64, with constructor-failure runtime coverage.
+  - [x] Lower trivial aggregate-by-value placement arguments through i686 and
+        AMD64 allocation calls and matching constructor-failure cleanup thunks.
+        Cover a mixed SSE/INTEGER 16-byte aggregate and a 24-byte MEMORY-class
+        aggregate; verify saved cleanup-record sizing, argument preservation,
+        two completed-element destructors in reverse order, and matching
+        placement delete arguments. `test-cxx-global-allocation-operators`
+        passes legacy i686/AMD64 runtime and verified i686/AMD64 generation
+        with zero fallback at `-O0`/`-O2`; WSL executes all four verified
+        objects, and strict GCC C++20 syntax plus the Windows gate pass.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

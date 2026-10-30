@@ -4150,7 +4150,7 @@ static void verify_cxx_global_array_placement_object(
             ++cleanup_symbol_count;
         }
     }
-    assert(cleanup_symbol_count == 2u && cleanup_symbol != NULL &&
+    assert(cleanup_symbol_count == 3u && cleanup_symbol != NULL &&
            cleanup_symbol->type == SYM_LOCAL &&
            cleanup_symbol->binding == BIND_CODE &&
            cleanup_symbol->section == 0);

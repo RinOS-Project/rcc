@@ -22,6 +22,27 @@ static int placement_array_marker;
 static allocation_size_type placement_array_last_size;
 static int placement_array_state;
 alignas(8) static unsigned char placement_array_slot[64];
+static int aggregate_placement_new_calls;
+static int aggregate_placement_delete_calls;
+static int aggregate_placement_delete_matches;
+static int aggregate_placement_delete_mismatch;
+static int aggregate_placement_new_mismatch;
+static int aggregate_placement_constructor_calls;
+static int aggregate_placement_destructor_calls;
+static int aggregate_placement_destructor_order[2];
+static int aggregate_placement_regular_delete_calls;
+static allocation_size_type aggregate_placement_last_size;
+alignas(8) static unsigned char aggregate_placement_slot[64];
+
+struct PlacementRegisterArguments {
+    double ratio;
+    int marker;
+    int trailer;
+};
+
+struct PlacementStackArguments {
+    double values[3];
+};
 
 void* operator new(allocation_size_type size) {
     (void)size;
@@ -103,6 +124,32 @@ struct ThrowingPlacementArray {
     }
 };
 
+struct AggregatePlacementArray {
+    int value;
+
+    static void* operator new[](
+        allocation_size_type size,
+        PlacementRegisterArguments register_arguments,
+        PlacementStackArguments stack_arguments);
+    static void operator delete[](
+        void* pointer,
+        PlacementRegisterArguments register_arguments,
+        PlacementStackArguments stack_arguments) noexcept;
+    static void operator delete[](void* pointer) noexcept;
+
+    AggregatePlacementArray(int initial_value) : value(initial_value) {
+        if (initial_value == 43) throw 97;
+        ++aggregate_placement_constructor_calls;
+    }
+    ~AggregatePlacementArray() noexcept {
+        if (aggregate_placement_destructor_calls < 2) {
+            aggregate_placement_destructor_order[
+                aggregate_placement_destructor_calls] = value;
+        }
+        ++aggregate_placement_destructor_calls;
+    }
+};
+
 void* ThrowingPlacementArray::operator new[](
     allocation_size_type size, int* state, int marker, double ratio,
     float narrow_ratio,
@@ -161,6 +208,47 @@ void ThrowingPlacementArray::operator delete[](
 void ThrowingPlacementArray::operator delete[](void* pointer) noexcept {
     if (pointer == &placement_array_slot[0]) {
         ++placement_array_regular_delete_calls;
+    }
+}
+
+void* AggregatePlacementArray::operator new[](
+    allocation_size_type size,
+    PlacementRegisterArguments register_arguments,
+    PlacementStackArguments stack_arguments) {
+    aggregate_placement_last_size = size;
+    int mismatch = 0;
+    if (register_arguments.ratio != 2.75) mismatch |= 1 << 0;
+    if (register_arguments.marker != 0x2468) mismatch |= 1 << 1;
+    if (register_arguments.trailer != 0x1357) mismatch |= 1 << 2;
+    if (stack_arguments.values[0] != 3.25) mismatch |= 1 << 3;
+    if (stack_arguments.values[1] != 4.5) mismatch |= 1 << 4;
+    if (stack_arguments.values[2] != 5.75) mismatch |= 1 << 5;
+    aggregate_placement_new_mismatch |= mismatch;
+    if (mismatch == 0) ++aggregate_placement_new_calls;
+    return &aggregate_placement_slot[0];
+}
+
+void AggregatePlacementArray::operator delete[](
+    void* pointer,
+    PlacementRegisterArguments register_arguments,
+    PlacementStackArguments stack_arguments) noexcept {
+    if (pointer == &aggregate_placement_slot[0]) {
+        int mismatch = 0;
+        ++aggregate_placement_delete_calls;
+        if (register_arguments.ratio != 2.75) mismatch |= 1 << 0;
+        if (register_arguments.marker != 0x2468) mismatch |= 1 << 1;
+        if (register_arguments.trailer != 0x1357) mismatch |= 1 << 2;
+        if (stack_arguments.values[0] != 3.25) mismatch |= 1 << 3;
+        if (stack_arguments.values[1] != 4.5) mismatch |= 1 << 4;
+        if (stack_arguments.values[2] != 5.75) mismatch |= 1 << 5;
+        aggregate_placement_delete_mismatch |= mismatch;
+        if (mismatch == 0) ++aggregate_placement_delete_matches;
+    }
+}
+
+void AggregatePlacementArray::operator delete[](void* pointer) noexcept {
+    if (pointer == &aggregate_placement_slot[0]) {
+        ++aggregate_placement_regular_delete_calls;
     }
 }
 
@@ -296,11 +384,72 @@ int main() {
         if (placement_array_regular_delete_calls != 0) return 66;
         return 67;
     }
+    PlacementRegisterArguments register_arguments;
+    PlacementStackArguments stack_arguments;
+    register_arguments.ratio = 2.75;
+    register_arguments.marker = 0x2468;
+    register_arguments.trailer = 0x1357;
+    stack_arguments.values[0] = 3.25;
+    stack_arguments.values[1] = 4.5;
+    stack_arguments.values[2] = 5.75;
+    int aggregate_placement_exception = 0;
+    try {
+        AggregatePlacementArray* aggregate_objects =
+            new (register_arguments, stack_arguments)
+                AggregatePlacementArray[3]{17, 31, 43};
+        delete[] aggregate_objects;
+    } catch (int exception_value) {
+        aggregate_placement_exception = exception_value;
+    }
+    bool aggregate_placement_cleanup =
+        aggregate_placement_exception == 97 &&
+        aggregate_placement_new_calls == 1 &&
+        aggregate_placement_last_size ==
+            sizeof(AggregatePlacementArray) * 3 +
+                sizeof(allocation_size_type) &&
+        aggregate_placement_constructor_calls == 2 &&
+        aggregate_placement_destructor_calls == 2 &&
+        aggregate_placement_destructor_order[0] == 31 &&
+        aggregate_placement_destructor_order[1] == 17 &&
+        aggregate_placement_delete_calls == 1 &&
+        aggregate_placement_delete_matches == 1 &&
+        aggregate_placement_delete_mismatch == 0 &&
+        aggregate_placement_regular_delete_calls == 0;
+    if (!aggregate_placement_cleanup) {
+        if (aggregate_placement_exception != 97) return 4;
+        if (aggregate_placement_new_calls != 1) {
+            if (aggregate_placement_new_mismatch != 0) {
+                for (int index = 0; index < 6; ++index) {
+                    if ((aggregate_placement_new_mismatch &
+                         (1 << index)) != 0) return 20 + index;
+                }
+            }
+            return 5;
+        }
+        if (aggregate_placement_last_size !=
+            sizeof(AggregatePlacementArray) * 3 +
+                sizeof(allocation_size_type)) return 6;
+        if (aggregate_placement_constructor_calls != 2) return 7;
+        if (aggregate_placement_destructor_calls != 2) return 8;
+        if (aggregate_placement_destructor_order[0] != 31 ||
+            aggregate_placement_destructor_order[1] != 17) return 13;
+        if (aggregate_placement_delete_calls != 1) return 9;
+        if (aggregate_placement_delete_mismatch != 0) {
+            for (int index = 0; index < 6; ++index) {
+                if ((aggregate_placement_delete_mismatch &
+                     (1 << index)) != 0) return 30 + index;
+            }
+        }
+        if (aggregate_placement_delete_matches != 1) return 10;
+        if (aggregate_placement_regular_delete_calls != 0) return 11;
+        return 12;
+    }
     bool existing_checks = initialized && array_initialized &&
         scalar_array_explicitly_initialized && deallocation_calls == 1 &&
         cookie_array_initialized && cookie_array_explicitly_initialized &&
         cookie_array_destructor_calls == 4 && array_deallocation_calls == 4;
-    return (!existing_checks ? 2 : 0) |
-        (!explicit_placement_array_cleanup ||
-         !default_placement_array_cleanup ? 1 : 0);
+    if (!existing_checks) return 100;
+    if (!explicit_placement_array_cleanup) return 101;
+    if (!default_placement_array_cleanup) return 102;
+    return 0;
 }
