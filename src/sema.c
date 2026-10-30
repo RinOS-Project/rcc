@@ -27368,12 +27368,13 @@ static Type* sema_expr(Expr* expr) {
                      sema_cxx_plain_class_array_element(object_type)) ||
                     (expr->call_new_is_array &&
                      !expr->call_new_args && expr->call_args &&
-                     !expr->call_args->next && object_type &&
+                     (!expr->call_args->next ||
+                      !expr->call_args->next->next) && object_type &&
                      object_type->kind != TYPE_ARRAY);
                 /* Cookie-bearing arrays evaluate their count in the
                  * specialized lowering path, which also computes the final
-                 * allocation extent. Resolve the ordinary one-argument
-                 * allocation function here; lowering passes that computed
+                 * allocation extent. Resolve allocation with at most one
+                 * placement argument here; lowering passes the computed
                  * extent directly instead of reevaluating the bound. */
                 if (resolve_global_allocator) {
                     Decl* allocation_function;

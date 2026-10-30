@@ -17048,7 +17048,7 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_parenthesized_new_type.cpp
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,9)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,13)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,15)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-allocation-multiple-using-selection,cxx_class_allocation_multiple_using_selection.cpp,7)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-allocation-diamond-lookup,cxx_class_allocation_diamond_lookup.cpp,2)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-parenthesized-new-type,cxx_parenthesized_new_type.cpp,2)

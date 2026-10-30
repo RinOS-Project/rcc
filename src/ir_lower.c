@@ -22513,10 +22513,12 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     RccIrBlock* cleanup_body;
     RccIrBlock* cleanup_done;
     RccIrValue operands[2];
+    RccIrValue allocation_operands[2];
     RccIrInstruction* arithmetic;
     size_t word_size;
     size_t initialized_count = 0u;
     size_t default_argument_count = 0u;
+    size_t allocation_operand_count = 1u;
     uint64_t maximum_size;
     int64_t constant_count;
     bool dynamic_count;
@@ -22708,10 +22710,22 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         if (!arithmetic) return lower_invalid_value();
         allocation_size = lower_value(arithmetic->result, word_type, true);
     }
-    operands[0] = allocation_size.value;
+    allocation_operands[0] = allocation_size.value;
+    if (expression->call_args && expression->call_args->next) {
+        const ExprList* placement_argument = expression->call_args->next;
+        RccIrLowerValue placement_value;
+        if (placement_argument->next || !placement_argument->expr) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        placement_value = lower_expression(context, placement_argument->expr);
+        if (!placement_value.valid) return lower_invalid_value();
+        allocation_operands[1] = placement_value.value;
+        allocation_operand_count = 2u;
+    }
     allocator_address = lower_cxx_runtime_call(
         context, allocation_name, rcc_ir_type_pointer(0u),
-        operands, 1u);
+        allocation_operands, allocation_operand_count);
     if (!allocator_address.valid) return lower_invalid_value();
     if (!lower_conditional_branch(
             context, allocator_address,

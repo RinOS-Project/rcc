@@ -5697,12 +5697,43 @@ static const char* gen64_cxx_array_allocation_name(const Expr* expr) {
 
 static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
+    const ExprList* placement_argument = expr && expr->call_args
+        ? expr->call_args->next : NULL;
     int done;
     if (!object_type || object_type->size <= 0 ||
         !expr || !expr->call_new_count) {
         rcc_fatal("validated C++ array allocation has incomplete metadata");
     }
     gen64_expr(mod, expr->call_new_count);
+    if (placement_argument) {
+        emit64_sub_reg_imm(mod, RSP, 32);
+        emit64_mov_mem_reg(mod, RSP, 0, RAX); /* evaluated element count */
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_mov_reg_imm32(mod, RAX, (uint32_t)object_type->size);
+        emit64_imul_reg_reg(mod, RAX, RCX);
+        emit64_add_reg_imm(mod, RAX, 8);
+        emit64_mov_mem_reg(mod, RSP, 8, RAX); /* cookie-inclusive size */
+        gen64_expr(mod, placement_argument->expr);
+        emit64_mov_mem_reg(mod, RSP, 16, RAX);
+        emit64_mov_reg_mem(mod, RDI, RSP, 8);
+        emit64_mov_reg_mem(mod, RSI, RSP, 16);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0u);
+            add_func_call_ref64(
+                gen64_cxx_array_allocation_name(expr), call_offset);
+        }
+        done = new_label64();
+        emit64_cmp_reg_imm(mod, RAX, 0);
+        emit64_jcc_label(mod, CC64_E, done);
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        emit64_mov_mem_reg(mod, RAX, 0, RCX);
+        emit64_add_reg_imm(mod, RAX, 8);
+        emit64_label(mod, done);
+        emit64_add_reg_imm(mod, RSP, 32);
+        return;
+    }
     emit64_sub_reg_imm(mod, RSP, 16);
     emit64_mov_mem_reg(mod, RSP, 0, RAX); /* evaluated element count */
     emit64_mov_reg_reg(mod, RCX, RAX);

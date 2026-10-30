@@ -10225,8 +10225,15 @@ remains a separate open item.
         AMD64 generation, AMD64 runtime behavior, and verified backend output
         with zero fallback for both targets at `-O0` and `-O2` in
         `test-cxx-global-allocation-operators`.
-  - [ ] Extend placement allocation to class arrays requiring constructors,
-        cookies, or constructor-failure matching placement-delete handling.
+  - [x] Pass one pointer placement argument to a class-specific
+        `operator new[]` for a cookie-bearing array with `noexcept` default
+        construction/destruction. Verify the pointer and cookie-inclusive size,
+        normal `delete[]`, i686/AMD64 generation, AMD64 runtime, and verified
+        backend output with zero fallback for both targets at `-O0` and `-O2`
+        in `test-cxx-global-allocation-operators`.
+  - [ ] Complete placement allocation for cookie-bearing arrays. Multiple
+        placement arguments and constructor-failure cleanup through the
+        matching placement `operator delete[]` remain open.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

@@ -10177,11 +10177,46 @@ static const char* gen_cxx_array_allocation_name(const Expr* expr) {
  * the cookie address and is therefore the value passed to rin_free. */
 static void gen_cxx_alloc_array_cookie32(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
+    const ExprList* placement_argument = expr && expr->call_args
+        ? expr->call_args->next : NULL;
     int cookie_size = gen_cxx_array_cookie_size();
     int allocated_label;
     if (!object_type || object_type->size <= 0 ||
         !expr || !expr->call_new_count) {
         rcc_fatal("validated C++ array allocation has incomplete metadata");
+    }
+    if (placement_argument) {
+        /* Keep the bound in a callee-saved register while evaluating the
+         * placement expression.  The allocator receives [size, placement]
+         * in cdecl order; the private cookie is written after the call. */
+        emit_push_reg(mod, ESI);
+        emit_push_reg(mod, EDI);
+        gen_expr(mod, placement_argument->expr);
+        emit_mov_reg_reg(mod, EDI, EAX);
+        gen_expr(mod, expr->call_new_count);
+        emit_mov_reg_reg(mod, ESI, EAX);
+        emit_mov_reg_reg(mod, EAX, ESI);
+        emit_scale_reg(mod, EAX, (uint32_t)object_type->size);
+        emit_add_reg_imm(mod, EAX, cookie_size);
+        emit_push_reg(mod, EDI);
+        emit_push_reg(mod, EAX);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0u);
+            add_func_call_ref(
+                gen_cxx_array_allocation_name(expr), call_offset);
+        }
+        emit_add_reg_imm(mod, ESP, 8);
+        allocated_label = new_label();
+        emit_cmp_reg_imm(mod, EAX, 0);
+        emit_jcc_label(mod, CC_E, allocated_label);
+        emit_mov_mem_reg(mod, EAX, 0, ESI);
+        emit_add_reg_imm(mod, EAX, cookie_size);
+        emit_label(mod, allocated_label);
+        emit_pop_reg(mod, EDI);
+        emit_pop_reg(mod, ESI);
+        return;
     }
     gen_expr(mod, expr->call_new_count);
     emit_push_reg(mod, EAX); /* Preserve the evaluated element count. */
