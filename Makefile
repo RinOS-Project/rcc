@@ -17046,7 +17046,7 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_class_allocation_multiple_using_selection.cpp
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-parenthesized-new-type,cxx_parenthesized_new_type.cpp,,tests/cxx_language_core_host_no_allocator.c)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_parenthesized_new_type.cpp
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,9)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,10)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,18)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-allocation-multiple-using-selection,cxx_class_allocation_multiple_using_selection.cpp,7)

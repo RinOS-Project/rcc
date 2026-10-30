@@ -27366,6 +27366,11 @@ static Type* sema_expr(Expr* expr) {
                     (expr->call_new_is_array &&
                      !expr->call_new_value_init && !expr->call_new_args &&
                      sema_cxx_plain_class_array_element(object_type)) ||
+                    /* Element initializers are separate from allocation
+                     * placement arguments and still require new[] lookup. */
+                    (expr->call_new_is_array && expr->call_new_args &&
+                     cls && object_type &&
+                     object_type->kind == TYPE_STRUCT) ||
                     (expr->call_new_is_array &&
                      !expr->call_new_args && expr->call_args &&
                      object_type &&

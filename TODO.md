@@ -10169,8 +10169,8 @@ remains a separate open item.
         arrays of scalar elements without cookies. Exercise replacement
         operators and the implicit RinOS fallback on i686 and AMD64, run the
         native x64 output, and verify both targets at `-O0`/`-O2` with no
-        verified-backend fallback. Arrays with element initialization, cookies,
-        and class-specific forms that need constructors or cookies remain open.
+        verified-backend fallback. Explicitly initialized scalar arrays remain
+        open; cookie-bearing class-array cases are covered below.
   - [x] Resolve direct class-specific scalar `operator new`/`operator delete`
         before global replacements or the implicit RinOS allocator. Treat
         class-scope allocation functions as implicitly static, validate their
@@ -10238,6 +10238,12 @@ remains a separate open item.
         size, normal `delete[]`, i686/AMD64 generation, AMD64 runtime, and
         verified output with zero fallback for both targets at `-O0` and `-O2`
         in `test-cxx-global-allocation-operators`.
+  - [x] Resolve global `operator new[]`/`operator delete[]` for cookie-bearing
+        class arrays with explicit per-element constructor arguments. Verify
+        constructor values, destructor count, cookie-inclusive allocation size,
+        GCC C++20, legacy i686/AMD64 generation and AMD64 execution, plus
+        verified i686/AMD64 output at `-O0`/`-O2` with zero fallback in
+        `test-cxx-global-allocation-operators`.
   - [ ] Preserve placement arguments through constructor-failure cleanup and
         invoke the matching placement `operator delete[]` after destroying the
         already-constructed elements.
