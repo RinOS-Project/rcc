@@ -72,9 +72,17 @@ struct ThrowingPlacementArray {
     int value;
 
     static void* operator new[](
-        allocation_size_type size, int* state, int marker);
+        allocation_size_type size, int* state, int marker, double ratio,
+        float narrow_ratio,
+        double factor_a, double factor_b, double factor_c, double factor_d,
+        double factor_e, double factor_f, double factor_g, double factor_h,
+        int spill_a, int spill_b, int spill_c, int spill_d);
     static void operator delete[](
-        void* pointer, int* state, int marker) noexcept;
+        void* pointer, int* state, int marker, double ratio,
+        float narrow_ratio,
+        double factor_a, double factor_b, double factor_c, double factor_d,
+        double factor_e, double factor_f, double factor_g, double factor_h,
+        int spill_a, int spill_b, int spill_c, int spill_d) noexcept;
     static void operator delete[](void* pointer) noexcept;
 
     ThrowingPlacementArray() : value(0) {
@@ -93,19 +101,39 @@ struct ThrowingPlacementArray {
 };
 
 void* ThrowingPlacementArray::operator new[](
-    allocation_size_type size, int* state, int marker) {
+    allocation_size_type size, int* state, int marker, double ratio,
+    float narrow_ratio,
+    double factor_a, double factor_b, double factor_c, double factor_d,
+    double factor_e, double factor_f, double factor_g, double factor_h,
+    int spill_a, int spill_b, int spill_c, int spill_d) {
     placement_array_last_size = size;
-    if (state == &placement_array_state && marker == 0x1357) {
+    if (state == &placement_array_state && marker == 0x1357 &&
+        ratio == 2.5 && narrow_ratio == 1.25f &&
+        factor_a == 1.5 && factor_b == 3.5 &&
+        factor_c == 4.5 && factor_d == 5.5 && factor_e == 6.5 &&
+        factor_f == 7.5 && factor_g == 8.5 && factor_h == 9.5 &&
+        spill_a == 11 && spill_b == 13 &&
+        spill_c == 17 && spill_d == 19) {
         ++placement_array_new_calls;
     }
     return &placement_array_slot[0];
 }
 
 void ThrowingPlacementArray::operator delete[](
-    void* pointer, int* state, int marker) noexcept {
+    void* pointer, int* state, int marker, double ratio,
+    float narrow_ratio,
+    double factor_a, double factor_b, double factor_c, double factor_d,
+    double factor_e, double factor_f, double factor_g, double factor_h,
+    int spill_a, int spill_b, int spill_c, int spill_d) noexcept {
     if (pointer == &placement_array_slot[0]) {
         ++placement_array_delete_calls;
-        if (state == &placement_array_state && marker == 0x1357) {
+        if (state == &placement_array_state && marker == 0x1357 &&
+            ratio == 2.5 && narrow_ratio == 1.25f &&
+            factor_a == 1.5 && factor_b == 3.5 &&
+            factor_c == 4.5 && factor_d == 5.5 && factor_e == 6.5 &&
+            factor_f == 7.5 && factor_g == 8.5 && factor_h == 9.5 &&
+            spill_a == 11 && spill_b == 13 &&
+            spill_c == 17 && spill_d == 19) {
             ++placement_array_delete_argument_matches;
         }
     }
@@ -156,7 +184,9 @@ int main() {
     placement_array_marker = 0x1357;
     try {
         ThrowingPlacementArray* throwing_objects =
-            new (&placement_array_state, placement_array_marker)
+            new (&placement_array_state, placement_array_marker, 2.5,
+                 1.25f, 1.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5,
+                 11, 13, 17, 19)
                 ThrowingPlacementArray[3]{
                 17, 31, 41};
         delete[] throwing_objects;
@@ -199,7 +229,9 @@ int main() {
     placement_array_exception = 0;
     try {
         ThrowingPlacementArray* throwing_default_objects =
-            new (&placement_array_state, placement_array_marker)
+            new (&placement_array_state, placement_array_marker, 2.5,
+                 1.25f, 1.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5,
+                 11, 13, 17, 19)
                 ThrowingPlacementArray[3];
         delete[] throwing_default_objects;
     } catch (int exception_value) {

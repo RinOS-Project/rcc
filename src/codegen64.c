@@ -5750,13 +5750,34 @@ static size_t gen64_cxx_array_placement_cleanup_argument_count(
     return count;
 }
 
+static Type* gen64_cxx_call_function_type(const Expr* expression) {
+    Type* function_type = expression && expression->call_abi_function_type
+        ? expression->call_abi_function_type
+        : expression && expression->call_func
+            ? expression->call_func->type : NULL;
+    if (function_type && function_type->kind == TYPE_PTR) {
+        function_type = function_type->base;
+    }
+    return function_type && function_type->kind == TYPE_FUNC
+        ? function_type : NULL;
+}
+
+static Type* gen64_cxx_next_placement_parameter_type(
+    TypeParam** parameter, const Expr* argument) {
+    Type* type = *parameter ? (*parameter)->type
+                            : gen64_default_argument_type(
+                                  argument ? argument->type : NULL);
+    if (*parameter) *parameter = (*parameter)->next;
+    return type;
+}
+
 static void gen64_cxx_alloc_array_cookie(
     Module* mod, Expr* expr,
     const CxxArrayPlacementCleanupThunk* cleanup_thunk) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     const ExprList* placement_argument = expr && expr->call_args
         ? expr->call_args->next : NULL;
-    static const int argument_registers[] = {RSI, RDX, RCX, R8, R9};
+    static const int argument_registers[] = {RDI, RSI, RDX, RCX, R8, R9};
     int done;
     if (!object_type || object_type->size <= 0 ||
         !expr || !expr->call_new_count) {
@@ -5786,20 +5807,46 @@ static void gen64_cxx_alloc_array_cookie(
     if (placement_argument) {
         const ExprList* argument;
         size_t placement_count = 0u;
-        size_t stack_argument_count;
+        size_t stack_argument_count = 0u;
         size_t outgoing_bytes;
         size_t local_bytes;
         size_t frame_bytes;
         size_t local_base;
         size_t index;
+        Type* function_type = gen64_cxx_call_function_type(expr);
+        TypeParam* parameter = function_type ? function_type->params : NULL;
+        size_t gp_cursor = 1u;
+        size_t fp_cursor = 0u;
+        if (parameter) parameter = parameter->next; /* allocation size */
         for (argument = placement_argument; argument;
              argument = argument->next) {
+            Type* parameter_type =
+                gen64_cxx_next_placement_parameter_type(
+                    &parameter, argument->expr);
             ++placement_count;
+            if ((parameter_type && parameter_type->is_reference) ||
+                !gen64_is_floating(parameter_type)) {
+                if (gp_cursor < 6u) ++gp_cursor;
+                else ++stack_argument_count;
+            } else if (fp_cursor < 8u) {
+                ++fp_cursor;
+            } else {
+                ++stack_argument_count;
+            }
         }
-        stack_argument_count = placement_count > 5u
-            ? placement_count - 5u : 0u;
+        if (placement_count > (size_t)(INT_MAX - 32) / 8u ||
+            stack_argument_count > (size_t)(INT_MAX - 32) / 8u) {
+            rcc_error(expr->loc,
+                      "C++ placement allocation argument area is too large");
+            return;
+        }
         outgoing_bytes = stack_argument_count * 8u;
         local_bytes = 16u + placement_count * 8u;
+        if (outgoing_bytes > (size_t)INT_MAX - 15u - local_bytes) {
+            rcc_error(expr->loc,
+                      "C++ placement allocation frame is too large");
+            return;
+        }
         frame_bytes = (outgoing_bytes + local_bytes + 15u) & ~(size_t)15u;
         local_base = outgoing_bytes;
         emit64_sub_reg_imm(mod, RSP, (uint32_t)frame_bytes);
@@ -5809,27 +5856,59 @@ static void gen64_cxx_alloc_array_cookie(
         emit64_imul_reg_reg(mod, RAX, RCX);
         emit64_add_reg_imm(mod, RAX, 8);
         emit64_mov_mem_reg(mod, RSP, (int)(local_base + 8u), RAX);
+        parameter = function_type ? function_type->params : NULL;
+        if (parameter) parameter = parameter->next;
         index = 0u;
         for (argument = placement_argument; argument;
              argument = argument->next, ++index) {
+            Type* parameter_type =
+                gen64_cxx_next_placement_parameter_type(
+                    &parameter, argument->expr);
             gen64_expr(mod, argument->expr);
+            if (gen64_is_floating(parameter_type) &&
+                !(parameter_type && parameter_type->is_reference)) {
+                gen64_convert_to_float(mod, argument->expr->type,
+                                       parameter_type);
+            } else if (type_is_integer(parameter_type) ||
+                       (parameter_type &&
+                        parameter_type->kind == TYPE_ENUM)) {
+                emit64_normalize_atomic_value(mod, RAX, parameter_type);
+            }
             emit64_mov_mem_reg(
                 mod, RSP, (int)(local_base + 16u + index * 8u), RAX);
         }
         emit64_mov_reg_mem(mod, RDI, RSP, (int)(local_base + 8u));
+        parameter = function_type ? function_type->params : NULL;
+        if (parameter) parameter = parameter->next;
+        gp_cursor = 1u;
+        fp_cursor = 0u;
+        size_t stack_index = 0u;
         index = 0u;
-        for (argument = placement_argument; argument && index < 5u;
+        for (argument = placement_argument; argument;
              argument = argument->next, ++index) {
-            emit64_mov_reg_mem(
-                mod, argument_registers[index], RSP,
-                (int)(local_base + 16u + index * 8u));
-        }
-        for (; argument; argument = argument->next, ++index) {
-            emit64_mov_reg_mem(
-                mod, RAX, RSP,
-                (int)(local_base + 16u + index * 8u));
-            emit64_mov_mem_reg(
-                mod, RSP, (int)(8u * (index - 5u)), RAX);
+            Type* parameter_type =
+                gen64_cxx_next_placement_parameter_type(
+                    &parameter, argument->expr);
+            int value_offset = (int)(local_base + 16u + index * 8u);
+            if (gen64_is_floating(parameter_type) &&
+                !(parameter_type && parameter_type->is_reference)) {
+                if (fp_cursor < 8u) {
+                    emit64_mov_xmm_from_memory(
+                        mod, (int)fp_cursor++, RSP, value_offset,
+                        gen64_float_width(parameter_type));
+                } else {
+                    emit64_mov_reg_mem(mod, RAX, RSP, value_offset);
+                    emit64_mov_mem_reg(
+                        mod, RSP, (int)(stack_index++ * 8u), RAX);
+                }
+            } else if (gp_cursor < 6u) {
+                emit64_mov_reg_mem(
+                    mod, argument_registers[gp_cursor++], RSP, value_offset);
+            } else {
+                emit64_mov_reg_mem(mod, RAX, RSP, value_offset);
+                emit64_mov_mem_reg(
+                    mod, RSP, (int)(stack_index++ * 8u), RAX);
+            }
         }
         emit_byte(mod, 0xE8);
         {
@@ -13262,7 +13341,7 @@ static void codegen_emit_static_local_cleanups64(Module* mod) {
 }
 
 static void codegen_emit_cxx_array_placement_cleanup_thunks64(Module* mod) {
-    static const int argument_registers[] = {RSI, RDX, RCX, R8, R9};
+    static const int argument_registers[] = {RDI, RSI, RDX, RCX, R8, R9};
     for (CxxArrayPlacementCleanupThunk* thunk =
              mod ? mod->cxx_array_placement_cleanup_thunks : NULL;
          thunk; thunk = thunk->next) {
@@ -13271,8 +13350,10 @@ static void codegen_emit_cxx_array_placement_cleanup_thunks64(Module* mod) {
                 thunk->deallocation_function->type->kind == TYPE_FUNC
             ? thunk->deallocation_function->type->params : NULL;
         size_t argument_count = 0u;
-        size_t stack_argument_count;
+        size_t stack_bytes = 0u;
         size_t outgoing_bytes;
+        size_t gp_cursor = 1u;
+        size_t fp_cursor = 0u;
         uint32_t start;
         while (parameter) {
             ++argument_count;
@@ -13281,10 +13362,25 @@ static void codegen_emit_cxx_array_placement_cleanup_thunks64(Module* mod) {
         if (argument_count == 0u || argument_count > (size_t)INT_MAX / 8u - 1u) {
             rcc_fatal("C++ placement cleanup thunk has invalid parameters");
         }
-        stack_argument_count = argument_count > 5u
-            ? argument_count - 5u : 0u;
-        outgoing_bytes = (uint32_t)((stack_argument_count * 8u + 15u) &
-                                    ~(size_t)15u);
+        parameter = thunk->deallocation_function->type->params;
+        if (parameter) parameter = parameter->next; /* deallocation pointer */
+        while (parameter) {
+            Type* parameter_type = parameter->type;
+            if (gen64_is_floating(parameter_type) &&
+                !(parameter_type && parameter_type->is_reference)) {
+                if (fp_cursor < 8u) ++fp_cursor;
+                else stack_bytes += 8u;
+            } else if (gp_cursor < 6u) {
+                ++gp_cursor;
+            } else {
+                stack_bytes += 8u;
+            }
+            parameter = parameter->next;
+        }
+        if (stack_bytes > (size_t)INT_MAX - 15u) {
+            rcc_fatal("C++ placement cleanup stack arguments are too large");
+        }
+        outgoing_bytes = (stack_bytes + 15u) & ~(size_t)15u;
         if ((code_offset(mod) & 1u) != 0u) emit_byte(mod, 0x90);
         start = code_offset(mod);
         add_func_def64(thunk->callback_name, start);
@@ -13294,17 +13390,37 @@ static void codegen_emit_cxx_array_placement_cleanup_thunks64(Module* mod) {
             emit64_sub_reg_imm(mod, RSP, (uint32_t)outgoing_bytes);
         }
         emit64_mov_reg_reg(mod, R10, RDI);
-        for (size_t index = 5u; index < argument_count; ++index) {
-            emit64_mov_reg_mem(
-                mod, RAX, R10, (int)((index + 1u) * 8u));
-            emit64_mov_mem_reg(
-                mod, RSP, (int)((index - 5u) * 8u), RAX);
-        }
-        for (size_t index = 0u;
-             index < argument_count && index < 5u; ++index) {
-            emit64_mov_reg_mem(
-                mod, argument_registers[index], R10,
-                (int)((index + 1u) * 8u));
+        parameter = thunk->deallocation_function->type->params;
+        if (parameter) parameter = parameter->next;
+        gp_cursor = 1u;
+        fp_cursor = 0u;
+        size_t stack_index = 0u;
+        size_t index = 0u;
+        while (parameter) {
+            Type* parameter_type = parameter->type;
+            int value_offset = (int)((index + 1u) * 8u);
+            if (gen64_is_floating(parameter_type) &&
+                !(parameter_type && parameter_type->is_reference)) {
+                if (fp_cursor < 8u) {
+                    emit64_mov_xmm_from_memory(
+                        mod, (int)fp_cursor++, R10, value_offset,
+                        gen64_float_width(parameter_type));
+                } else {
+                    emit64_mov_reg_mem(mod, RAX, R10, value_offset);
+                    emit64_mov_mem_reg(
+                        mod, RSP, (int)(stack_index++ * 8u), RAX);
+                }
+            } else if (gp_cursor < 6u) {
+                emit64_mov_reg_mem(
+                    mod, argument_registers[gp_cursor++], R10,
+                    value_offset);
+            } else {
+                emit64_mov_reg_mem(mod, RAX, R10, value_offset);
+                emit64_mov_mem_reg(
+                    mod, RSP, (int)(stack_index++ * 8u), RAX);
+            }
+            ++index;
+            parameter = parameter->next;
         }
         emit64_mov_reg_mem(mod, RDI, R10, 0);
         emit_byte(mod, 0xE8);

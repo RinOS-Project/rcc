@@ -10264,10 +10264,19 @@ remains a separate open item.
         destructor order, i686/AMD64 legacy generation and AMD64 execution,
         plus verified i686/AMD64 `-O0`/`-O2` with zero fallback and x64 runtime
         execution in `test-cxx-global-allocation-operators`.
-  - [ ] Extend placement allocation and failure-cleanup argument lowering to
-        floating-point register classes, wider-than-word i686 values, and
-        aggregate-by-value ABI parameters; current legacy cleanup thunks carry
-        each argument as one integer register/stack word.
+  - [x] Pass scalar `float`/`double` placement arguments through the AMD64 SSE
+        argument registers and stack overflow area, independently of integer registers.
+        The constructor-failure cleanup thunk restores the same argument mix;
+        the regression also exhausts both register classes. Verify AMD64 legacy
+        runtime, i686/AMD64 verified output at `-O0`/`-O2` with zero fallback,
+        i686 legacy object generation, and strict GCC C++20 in
+        `test-cxx-global-allocation-operators`.
+  - [ ] Complete i686 64-bit integer placement argument support across the
+        verified backend and runtime validation. Legacy i686 now reserves and
+        copies two-word scalar slots, but this ABI path is not covered by the
+        verified backend test.
+  - [ ] Add aggregate-by-value placement allocation and matching cleanup ABI
+        lowering for i686 and AMD64, with constructor-failure runtime coverage.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

@@ -10270,6 +10270,52 @@ static size_t gen_cxx_array_placement_cleanup_argument_count(
     return count;
 }
 
+static Type* gen_cxx_array_call_function_type32(const Expr* expression) {
+    Type* function_type = expression && expression->call_abi_function_type
+        ? expression->call_abi_function_type
+        : expression && expression->call_func
+            ? expression->call_func->type : NULL;
+    if (function_type && function_type->kind == TYPE_PTR) {
+        function_type = function_type->base;
+    }
+    return function_type && function_type->kind == TYPE_FUNC
+        ? function_type : NULL;
+}
+
+static Type* gen_cxx_next_placement_parameter_type32(
+    TypeParam** parameter, const Expr* argument) {
+    Type* type = *parameter ? (*parameter)->type
+                            : codegen_default_argument_type(
+                                  argument ? argument->type : NULL);
+    if (*parameter) *parameter = (*parameter)->next;
+    return type;
+}
+
+static size_t gen_cxx_placement_argument_slot_size32(const Type* type) {
+    if (!type || type->is_reference) return 4u;
+    if (gen_is_floating(type)) return gen_float_width(type) == 4 ? 4u : 8u;
+    if (gen_is_integer64(type)) return 8u;
+    return 4u;
+}
+
+static size_t gen_cxx_array_placement_cleanup_record_size32(
+    const CxxArrayPlacementCleanupThunk* thunk) {
+    const TypeParam* parameter = thunk && thunk->deallocation_function &&
+            thunk->deallocation_function->type &&
+            thunk->deallocation_function->type->kind == TYPE_FUNC
+        ? thunk->deallocation_function->type->params : NULL;
+    size_t size = 4u; /* Original allocation pointer. */
+    if (parameter) parameter = parameter->next;
+    while (parameter) {
+        size_t argument_size =
+            gen_cxx_placement_argument_slot_size32(parameter->type);
+        if (size > (size_t)INT_MAX - argument_size) return 0u;
+        size += argument_size;
+        parameter = parameter->next;
+    }
+    return size;
+}
+
 static void gen_cxx_alloc_array_cookie32(
     Module* mod, Expr* expr,
     const CxxArrayPlacementCleanupThunk* cleanup_thunk) {
@@ -10285,10 +10331,9 @@ static void gen_cxx_alloc_array_cookie32(
     size_t cleanup_argument_count =
         gen_cxx_array_placement_cleanup_argument_count(cleanup_thunk);
     size_t cleanup_record_size = cleanup_thunk
-        ? (cleanup_argument_count + 1u) * 4u : 0u;
+        ? gen_cxx_array_placement_cleanup_record_size32(cleanup_thunk) : 0u;
     if (cleanup_thunk &&
-        (cleanup_argument_count == 0u ||
-         cleanup_argument_count > (size_t)(INT_MAX / 4) - 1u)) {
+        (cleanup_argument_count == 0u || cleanup_record_size == 0u)) {
         rcc_fatal("C++ placement delete has invalid cleanup parameters");
     }
     if (cleanup_thunk) {
@@ -10304,34 +10349,111 @@ static void gen_cxx_alloc_array_cookie32(
     }
     if (placement_argument) {
         const ExprList* argument;
-        int placement_count = 0;
-        int temporary_bytes;
-        int index;
+        size_t placement_bytes = 0u;
+        size_t argument_area_bytes;
+        size_t frame_bytes;
+        size_t temp_base;
+        size_t argument_offset;
+        Type* allocation_type = gen_cxx_array_call_function_type32(expr);
+        TypeParam* parameter = allocation_type
+            ? allocation_type->params : NULL;
+        if (parameter) parameter = parameter->next; /* allocation size */
         for (argument = placement_argument; argument;
              argument = argument->next) {
-            ++placement_count;
+            Type* parameter_type =
+                gen_cxx_next_placement_parameter_type32(
+                    &parameter, argument->expr);
+            size_t argument_size =
+                gen_cxx_placement_argument_slot_size32(parameter_type);
+            if (placement_bytes > (size_t)INT_MAX - argument_size) {
+                rcc_error(expr->loc,
+                          "C++ placement allocation argument area is too large");
+                return;
+            }
+            placement_bytes += argument_size;
         }
-        temporary_bytes = (placement_count + 1) * 4;
+        if (placement_bytes > (size_t)INT_MAX - 8u) {
+            rcc_error(expr->loc,
+                      "C++ placement allocation argument area is too large");
+            return;
+        }
+        argument_area_bytes = placement_bytes + 4u;
+        if (argument_area_bytes > (size_t)INT_MAX / 2u) {
+            rcc_error(expr->loc,
+                      "C++ placement allocation argument area is too large");
+            return;
+        }
+        frame_bytes = argument_area_bytes * 2u;
+        temp_base = argument_area_bytes;
+        emit_sub_reg_imm(mod, ESP, (uint32_t)frame_bytes);
         gen_expr(mod, expr->call_new_count);
-        emit_push_reg(mod, EAX); /* Preserve the evaluated element count. */
-        for (argument = placement_argument; argument;
-             argument = argument->next) {
-            gen_expr(mod, argument->expr);
-            emit_push_reg(mod, EAX);
-        }
-        emit_sub_reg_imm(mod, ESP, temporary_bytes);
-        emit_mov_reg_mem(mod, EAX, ESP,
-                         temporary_bytes + placement_count * 4);
+        emit_mov_mem_reg(mod, ESP, (int)temp_base, EAX);
+        emit_mov_reg_mem(mod, EAX, ESP, (int)temp_base);
         emit_scale_reg(mod, EAX, (uint32_t)object_type->size);
         emit_add_reg_imm(mod, EAX, cookie_size);
         emit_mov_mem_reg(mod, ESP, 0, EAX);
-        argument = placement_argument;
-        for (index = 0; index < placement_count; ++index,
+
+        parameter = allocation_type ? allocation_type->params : NULL;
+        if (parameter) parameter = parameter->next;
+        argument_offset = 0u;
+        for (argument = placement_argument; argument;
              argument = argument->next) {
-            emit_mov_reg_mem(
-                mod, EAX, ESP,
-                temporary_bytes + (placement_count - index - 1) * 4);
-            emit_mov_mem_reg(mod, ESP, (index + 1) * 4, EAX);
+            Type* parameter_type =
+                gen_cxx_next_placement_parameter_type32(
+                    &parameter, argument->expr);
+            size_t argument_size =
+                gen_cxx_placement_argument_slot_size32(parameter_type);
+            int temp_offset = (int)(temp_base + 4u + argument_offset);
+            if (parameter_type && parameter_type->is_reference) {
+                gen_lvalue(mod, argument->expr);
+                gen_cxx_reference_adjustment32(mod, argument->expr);
+                emit_mov_mem_reg(mod, ESP, temp_offset, EAX);
+            } else if (gen_is_floating(parameter_type)) {
+                gen_expr_as_type(mod, argument->expr, parameter_type);
+                emit_mov_mem_reg(mod, ESP, temp_offset, EAX);
+                if (argument_size == 8u) {
+                    emit_mov_mem_reg(mod, ESP, temp_offset + 4, EDX);
+                }
+            } else if (gen_is_integer64(parameter_type)) {
+                gen_expr_as_type(mod, argument->expr, parameter_type);
+                if (!gen_is_integer64(argument->expr->type)) {
+                    emit_extend_eax_to_integer64(mod, argument->expr->type);
+                }
+                emit_mov_mem_reg(mod, ESP, temp_offset, EAX);
+                emit_mov_mem_reg(mod, ESP, temp_offset + 4, EDX);
+            } else {
+                gen_expr(mod, argument->expr);
+                if (type_is_integer(parameter_type) ||
+                    (parameter_type && parameter_type->kind == TYPE_ENUM)) {
+                    emit_convert_integer_value(
+                        mod, EAX, argument->expr->type, parameter_type);
+                }
+                emit_mov_mem_reg(mod, ESP, temp_offset, EAX);
+            }
+            codegen_push_call_temporary_cleanup32(
+                mod, argument->cxx_temporary_owner,
+                argument->cxx_temporary_cleanups);
+            argument_offset += argument_size;
+        }
+
+        parameter = allocation_type ? allocation_type->params : NULL;
+        if (parameter) parameter = parameter->next;
+        argument_offset = 0u;
+        for (argument = placement_argument; argument;
+             argument = argument->next) {
+            Type* parameter_type =
+                gen_cxx_next_placement_parameter_type32(
+                    &parameter, argument->expr);
+            size_t argument_size =
+                gen_cxx_placement_argument_slot_size32(parameter_type);
+            for (size_t word = 0u; word < argument_size; word += 4u) {
+                emit_mov_reg_mem(
+                    mod, EAX, ESP,
+                    (int)(temp_base + 4u + argument_offset + word));
+                emit_mov_mem_reg(
+                    mod, ESP, (int)(4u + argument_offset + word), EAX);
+            }
+            argument_offset += argument_size;
         }
         emit_byte(mod, 0xE8);
         {
@@ -10343,30 +10465,41 @@ static void gen_cxx_alloc_array_cookie32(
         allocated_label = new_label();
         emit_cmp_reg_imm(mod, EAX, 0);
         emit_jcc_label(mod, CC_E, allocated_label);
-        emit_mov_reg_mem(mod, ECX, ESP,
-                         temporary_bytes + placement_count * 4);
+        emit_mov_reg_mem(mod, ECX, ESP, (int)temp_base);
         emit_mov_mem_reg(mod, EAX, 0, ECX);
         emit_add_reg_imm(mod, EAX, cookie_size);
         emit_label(mod, allocated_label);
         if (cleanup_thunk) {
-            size_t record_offset = (size_t)temporary_bytes * 2u;
+            size_t record_offset = frame_bytes;
+            TypeParam* copy_parameter = allocation_type
+                ? allocation_type->params : NULL;
+            if (copy_parameter) copy_parameter = copy_parameter->next;
             emit_mov_reg_reg(mod, EDX, EAX);
             emit_mov_reg_reg(mod, ECX, EAX);
             emit_sub_reg_imm(mod, ECX, (uint32_t)cookie_size);
             emit_mov_mem_reg(mod, ESP, (int)record_offset, ECX);
-            for (index = 0, argument = placement_argument;
-                 argument; ++index, argument = argument->next) {
-                emit_mov_reg_mem(
-                    mod, EAX, ESP,
-                    temporary_bytes +
-                        (placement_count - (int)index - 1) * 4);
-                emit_mov_mem_reg(
-                    mod, ESP,
-                    (int)(record_offset + (index + 1u) * 4u), EAX);
+            argument_offset = 0u;
+            for (argument = placement_argument; argument;
+                 argument = argument->next) {
+                Type* parameter_type =
+                    gen_cxx_next_placement_parameter_type32(
+                        &copy_parameter, argument->expr);
+                size_t argument_size =
+                    gen_cxx_placement_argument_slot_size32(parameter_type);
+                for (size_t word = 0u; word < argument_size; word += 4u) {
+                    emit_mov_reg_mem(
+                        mod, EAX, ESP,
+                        (int)(temp_base + 4u + argument_offset + word));
+                    emit_mov_mem_reg(
+                        mod, ESP,
+                        (int)(record_offset + 4u + argument_offset + word),
+                        EAX);
+                }
+                argument_offset += argument_size;
             }
             emit_mov_reg_reg(mod, EAX, EDX);
         }
-        emit_add_reg_imm(mod, ESP, temporary_bytes * 2);
+        emit_add_reg_imm(mod, ESP, (uint32_t)frame_bytes);
         return;
     }
     if (cleanup_thunk) {
@@ -12287,9 +12420,8 @@ static void gen_cxx_init_class_array32(Module* mod, Expr* expr) {
     element_size = object_type->size;
     cleanup_thunk = module_add_cxx_array_placement_cleanup_thunk(mod, expr);
     if (cleanup_thunk) {
-        size_t cleanup_argument_count =
-            gen_cxx_array_placement_cleanup_argument_count(cleanup_thunk);
-        cleanup_record_size = (cleanup_argument_count + 1u) * 4u;
+        cleanup_record_size =
+            gen_cxx_array_placement_cleanup_record_size32(cleanup_thunk);
     }
     if (expr->call_new_array_cookie) {
         gen_cxx_alloc_array_cookie32(mod, expr, cleanup_thunk);
@@ -12399,8 +12531,7 @@ static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
             mod, expr);
         if (cleanup_thunk) {
             cleanup_record_size =
-                (gen_cxx_array_placement_cleanup_argument_count(
-                    cleanup_thunk) + 1u) * 4u;
+                gen_cxx_array_placement_cleanup_record_size32(cleanup_thunk);
         }
         gen_cxx_alloc_array_cookie32(mod, expr, cleanup_thunk);
         if (register_deallocation) {
@@ -21620,23 +21751,58 @@ static void codegen_emit_cxx_array_placement_cleanup_thunks32(Module* mod) {
                 thunk->deallocation_function->type->kind == TYPE_FUNC
             ? thunk->deallocation_function->type->params : NULL;
         size_t argument_count = 0u;
+        size_t placement_count;
+        size_t record_size;
+        size_t* argument_offsets = NULL;
+        size_t* argument_sizes = NULL;
         uint32_t start;
         while (parameter) {
             ++argument_count;
             parameter = parameter->next;
         }
-        if (argument_count == 0u || argument_count > (size_t)(INT_MAX / 4) - 1u) {
+        if (argument_count == 0u || argument_count > (size_t)INT_MAX / 4u) {
             rcc_fatal("C++ placement cleanup thunk has invalid parameters");
+        }
+        placement_count = argument_count - 1u;
+        record_size = gen_cxx_array_placement_cleanup_record_size32(thunk);
+        if (record_size == 0u || record_size > (size_t)INT_MAX ||
+            placement_count > SIZE_MAX / sizeof(*argument_offsets) ||
+            placement_count > SIZE_MAX / sizeof(*argument_sizes)) {
+            rcc_fatal("C++ placement cleanup record is too large");
+        }
+        if (placement_count != 0u) {
+            argument_offsets = rcc_alloc(
+                placement_count * sizeof(*argument_offsets));
+            argument_sizes = rcc_alloc(
+                placement_count * sizeof(*argument_sizes));
+        }
+        parameter = thunk->deallocation_function->type->params;
+        if (parameter) parameter = parameter->next;
+        size_t argument_index = 0u;
+        size_t record_offset = 4u;
+        while (parameter) {
+            size_t argument_size =
+                gen_cxx_placement_argument_slot_size32(parameter->type);
+            argument_offsets[argument_index] = record_offset;
+            argument_sizes[argument_index] = argument_size;
+            record_offset += argument_size;
+            ++argument_index;
+            parameter = parameter->next;
         }
         if ((code_offset(mod) & 1u) != 0u) emit_byte(mod, 0x90);
         start = code_offset(mod);
         add_func_def(thunk->callback_name, start);
         emit_push_reg(mod, EBP);
         emit_mov_reg_reg(mod, EBP, ESP);
-        for (size_t index = argument_count; index > 0u; --index) {
-            emit_mov_reg_mem(mod, EAX, EBP, 8);
-            emit_mov_reg_mem(mod, EDX, EAX, (int)(index * 4u));
-            emit_push_reg(mod, EDX);
+        for (size_t index = placement_count; index > 0u; --index) {
+            size_t size = argument_sizes[index - 1u];
+            for (size_t word = size; word > 0u; word -= 4u) {
+                emit_mov_reg_mem(mod, EAX, EBP, 8);
+                emit_mov_reg_mem(
+                    mod, EDX, EAX,
+                    (int)(argument_offsets[index - 1u] + word - 4u));
+                emit_push_reg(mod, EDX);
+            }
         }
         emit_mov_reg_mem(mod, EAX, EBP, 8);
         emit_mov_reg_mem(mod, EDX, EAX, 0);
@@ -21649,14 +21815,15 @@ static void codegen_emit_cxx_array_placement_cleanup_thunks32(Module* mod) {
                 decl_link_name((Decl*)thunk->deallocation_function),
                 call_offset);
         }
-        emit_add_reg_imm(mod, ESP,
-                         (uint32_t)((argument_count + 1u) * 4u));
+        emit_add_reg_imm(mod, ESP, (uint32_t)record_size);
         emit_leave(mod);
         emit_ret(mod);
         module_add_symbol(mod, thunk->callback_name, start, true,
                           MODULE_SYMBOL_CODE, false);
         module_set_symbol_size(mod, thunk->callback_name,
                                code_offset(mod) - start);
+        rcc_free(argument_offsets);
+        rcc_free(argument_sizes);
     }
 }
 
