@@ -534,6 +534,13 @@ COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/a
               $(SRCDIR)/emit_rin.c $(SRCDIR)/emit_rll.c $(SRCDIR)/emit_drv.c $(SRCDIR)/emit_ro.c \
               $(SRCDIR)/emit_asm.c $(SRCDIR)/build_manifest.c $(SRCDIR)/driver_policy.c
 COMMON_OBJS = $(COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
+INDEX_STATS_OBJDIR = $(OBJDIR)/index-stats
+INDEX_STATS_OBJECTS = $(INDEX_STATS_OBJDIR)/codegen.o \
+	$(INDEX_STATS_OBJDIR)/emit_rin.o \
+	$(INDEX_STATS_OBJDIR)/emit_drv.o
+INDEX_STATS_COMMON_OBJS = $(filter-out $(OBJDIR)/codegen.o \
+	$(OBJDIR)/emit_rin.o $(OBJDIR)/emit_drv.o,$(COMMON_OBJS)) \
+	$(INDEX_STATS_OBJECTS)
 
 # RCC (C compiler)
 RCC_SRCS = $(SRCDIR)/main.c
@@ -1113,6 +1120,18 @@ $(OBJDIR)/ringpu_shader.o: $(RINGPU_ROOT)/src/validation/shader.c | $(OBJDIR)
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -I$(INCDIR) -I$(RINGPU_ROOT)/include -I$(RINRESOURCE_ROOT)/include -c -o $@ $<
+
+$(INDEX_STATS_OBJDIR):
+	$(call MKDIR_P,$@)
+
+$(INDEX_STATS_OBJDIR)/codegen.o: $(SRCDIR)/codegen.c $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/symtab.h $(INCDIR)/codegen.h | $(INDEX_STATS_OBJDIR)
+	$(CC) $(CFLAGS) -DRCC_INDEX_STATS -I$(INCDIR) -I$(RINGPU_ROOT)/include -I$(RINRESOURCE_ROOT)/include -c -o $@ $<
+
+$(INDEX_STATS_OBJDIR)/emit_rin.o: $(SRCDIR)/emit_rin.c $(INCDIR)/rcc.h $(INCDIR)/codegen.h | $(INDEX_STATS_OBJDIR)
+	$(CC) $(CFLAGS) -DRCC_INDEX_STATS -I$(INCDIR) -I$(RINGPU_ROOT)/include -I$(RINRESOURCE_ROOT)/include -c -o $@ $<
+
+$(INDEX_STATS_OBJDIR)/emit_drv.o: $(SRCDIR)/emit_drv.c $(INCDIR)/rcc.h $(INCDIR)/ast.h $(INCDIR)/codegen.h | $(INDEX_STATS_OBJDIR)
+	$(CC) $(CFLAGS) -DRCC_INDEX_STATS -I$(INCDIR) -I$(RINGPU_ROOT)/include -I$(RINRESOURCE_ROOT)/include -c -o $@ $<
 
 clean:
 	rm -rf $(OBJDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
@@ -19738,8 +19757,26 @@ test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 # validator.  This deliberately covers all three image families and both
 # direct and linked RIN output; signing is exercised separately by
 # test-signing because this target is about section/table/ABI conformance.
-test-format-validation: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+test-format-validation: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) \
+	$(RINVALIDATE) $(INDEX_STATS_COMMON_OBJS)
 	$(call MKDIR_P,$(TEST_OUT)/format-validation)
+	$(CC) $(CFLAGS) -DRCC_INDEX_STATS -I$(INCDIR) \
+		-o $(TEST_OUT)/format-validation/module-index-scale \
+		tests/module_index_scale_test.c $(INDEX_STATS_COMMON_OBJS)
+	$(TEST_OUT)/format-validation/module-index-scale \
+		$(TEST_OUT)/format-validation
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/format-validation/module-index-small-rin.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/format-validation/module-index-large-rin.rin
+	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/format-validation/module-index-small-rll.rll
+	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/format-validation/module-index-large-rll.rll
+	$(RINVALIDATE) --kind driver --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/format-validation/module-index-small-drv.drv
+	$(RINVALIDATE) --kind driver --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/format-validation/module-index-large-drv.drv
 	$(CC) $(CFLAGS) -DRCC_INDEX_STATS -I$(INCDIR) \
 		-o $(TEST_OUT)/format-validation/object-builder-index \
 		tests/object_builder_index_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c

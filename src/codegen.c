@@ -422,6 +422,17 @@ Module* codegen_new(void) {
     mod->debug_verified_backend = false;
     mod->debug_statement_ranges = false;
     mod->debug_legacy_statement_lines = false;
+#ifdef RCC_INDEX_STATS
+    mod->stats_symbol_lookup_probes = 0u;
+    mod->stats_symbol_insert_probes = 0u;
+    mod->stats_symbol_rehash_probes = 0u;
+    mod->stats_relocation_lookup_probes = 0u;
+    mod->stats_relocation_rehash_probes = 0u;
+    mod->stats_resolver_candidate_visits = 0u;
+    mod->stats_image_resolver_calls = 0u;
+    mod->stats_tls_resolver_calls = 0u;
+    mod->stats_relative_patch_visits = 0u;
+#endif
 
     return mod;
 }
@@ -655,7 +666,11 @@ static int module_symbol_find_index(const Module* mod, const char* name) {
     if (!mod || !name || mod->symbol_hash_capacity == 0u) return -1;
     slot = (size_t)module_symbol_hash(name) &
            (mod->symbol_hash_capacity - 1u);
-    while (mod->symbol_hash_slots[slot] != 0u) {
+    for (;;) {
+#ifdef RCC_INDEX_STATS
+        ++((Module*)mod)->stats_symbol_lookup_probes;
+#endif
+        if (mod->symbol_hash_slots[slot] == 0u) return -1;
         uint32_t index = mod->symbol_hash_slots[slot] - 1u;
         if (index < (uint32_t)mod->symbol_count &&
             strcmp(mod->symbols[index].name, name) == 0) {
@@ -663,7 +678,6 @@ static int module_symbol_find_index(const Module* mod, const char* name) {
         }
         slot = (slot + 1u) & (mod->symbol_hash_capacity - 1u);
     }
-    return -1;
 }
 
 static bool module_symbol_index_reserve(Module* mod, size_t required_count) {
@@ -694,6 +708,9 @@ static bool module_symbol_index_reserve(Module* mod, size_t required_count) {
             size_t slot = (size_t)module_symbol_hash(name) &
                           (new_capacity - 1u);
             while (slots[slot] != 0u) {
+#ifdef RCC_INDEX_STATS
+                ++mod->stats_symbol_rehash_probes;
+#endif
                 slot = (slot + 1u) & (new_capacity - 1u);
             }
             slots[slot] = encoded_index;
@@ -710,6 +727,9 @@ static void module_symbol_index_insert(Module* mod, uint32_t index) {
     size_t slot = (size_t)module_symbol_hash(name) &
                   (mod->symbol_hash_capacity - 1u);
     while (mod->symbol_hash_slots[slot] != 0u) {
+#ifdef RCC_INDEX_STATS
+        ++mod->stats_symbol_insert_probes;
+#endif
         slot = (slot + 1u) & (mod->symbol_hash_capacity - 1u);
     }
     mod->symbol_hash_slots[slot] = index + 1u;
@@ -883,6 +903,9 @@ static bool module_relocation_index_reserve_slots(Module* mod,
         size_t slot = (size_t)module_relocation_hash(
             entry->source_section, entry->offset) & (new_capacity - 1u);
         while (slots[slot] != 0u) {
+#ifdef RCC_INDEX_STATS
+            ++mod->stats_relocation_rehash_probes;
+#endif
             slot = (slot + 1u) & (new_capacity - 1u);
         }
         slots[slot] = (uint32_t)entry_index + 1u;
@@ -923,7 +946,11 @@ static size_t module_relocation_index_slot(
     bool* found) {
     size_t slot = (size_t)module_relocation_hash(source_section, offset) &
                   (mod->relocation_lookup_slot_capacity - 1u);
-    while (mod->relocation_lookup_slots[slot] != 0u) {
+    for (;;) {
+#ifdef RCC_INDEX_STATS
+        ++((Module*)mod)->stats_relocation_lookup_probes;
+#endif
+        if (mod->relocation_lookup_slots[slot] == 0u) break;
         const ModuleRelocationLookupEntry* entry =
             &mod->relocation_lookup_entries[
                 mod->relocation_lookup_slots[slot] - 1u];
@@ -1126,9 +1153,15 @@ bool module_resolve_image_relocation(const Module* mod,
     uint64_t base;
 
     if (!mod || !value) return false;
+#ifdef RCC_INDEX_STATS
+    ++((Module*)mod)->stats_image_resolver_calls;
+#endif
     for (int index = module_relocation_index_head(
              mod, source_section, offset);
          index >= 0; index = mod->relocation_lookup_next[index]) {
+#ifdef RCC_INDEX_STATS
+        ++((Module*)mod)->stats_resolver_candidate_visits;
+#endif
         const ModuleReloc* candidate = &mod->relocs_arr[index];
         if (!candidate->is_relative && !candidate->is_tls &&
             candidate->is_64bit == is_64bit) {
@@ -1161,9 +1194,15 @@ bool module_resolve_tls_relocation(const Module* mod,
     const ModuleSymbol* symbol = NULL;
     uint64_t result;
     if (!mod || !value) return false;
+#ifdef RCC_INDEX_STATS
+    ++((Module*)mod)->stats_tls_resolver_calls;
+#endif
     for (int index = module_relocation_index_head(
              mod, source_section, offset);
          index >= 0; index = mod->relocation_lookup_next[index]) {
+#ifdef RCC_INDEX_STATS
+        ++((Module*)mod)->stats_resolver_candidate_visits;
+#endif
         const ModuleReloc* candidate = &mod->relocs_arr[index];
         if (candidate->is_tls) {
             if (relocation) return false;
@@ -1187,9 +1226,15 @@ bool module_resolve_tls_relocation64(const Module* mod,
     const ModuleSymbol* symbol = NULL;
     uint64_t result;
     if (!mod || !value) return false;
+#ifdef RCC_INDEX_STATS
+    ++((Module*)mod)->stats_tls_resolver_calls;
+#endif
     for (int index = module_relocation_index_head(
              mod, source_section, offset);
          index >= 0; index = mod->relocation_lookup_next[index]) {
+#ifdef RCC_INDEX_STATS
+        ++((Module*)mod)->stats_resolver_candidate_visits;
+#endif
         const ModuleReloc* candidate = &mod->relocs_arr[index];
         if (candidate->is_tls_index_offset) {
             if (relocation) return false;

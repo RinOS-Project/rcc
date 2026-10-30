@@ -146,6 +146,9 @@ static bool rin_patch_relative_relocations(Module* mod, uint8_t* output,
         uint32_t encoded;
 
         if (!relocation->is_relative) continue;
+#ifdef RCC_INDEX_STATS
+        ++mod->stats_relative_patch_visits;
+#endif
         if (!relocation_source(mod, relocation->source_section,
                                rodata_rva, data_rva, init_array_rva,
                                fini_array_rva, code_file_offset,

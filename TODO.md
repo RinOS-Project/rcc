@@ -12328,18 +12328,12 @@ remains a separate open item.
 
 ## RCC scalability follow-up (2026-10-31, direct-image relocation lookup)
 
-- [ ] `module_add_symbol()`は登録ごとにsymbol配列を線形走査し、
-      `module_set_symbol_source()`／`module_set_symbol_size()`も更新対象を線形検索する。
-      さらに`emit_rin.c`／`emit_drv.c`はrelocationごとに
-      `module_resolve_image_relocation()`を呼び、同関数は対象relocationを全件走査して
-      からsymbol配列も検索する。TLS解決も全relocation／symbolを再走査し、relative
-      relocationのpatchもsymbol配列を毎回検索する。`.ro`出力も各relocationでsymbol
-      lookupを繰り返すため、大規模object/imageではsymbol登録O(S²)に加え、全形式の
-      生成がrelocation数R・symbol数Sに対して最大O(R² + R×S)へ増え、compile/package
-      時間とメモリ負荷を増大させる。**受入:** module symbol名とsource-section＋offsetを
-      索引化し、登録／更新と各形式のrelocation解決を償却O(1)またはO(log N)にする。
-      重複・未定義symbol／relocationの診断、安定した出力順序・byte列を維持し、大小の
-      object/imageで探索回数・処理時間を比較する。
+- [x] Replace repeated linear Module symbol and relocation scans with
+      open-addressed indexes and insertion-ordered same-offset relocation
+      chains. Direct RIN/RLL/DRV image resolution and relative-patch symbol
+      lookup use these indexes while preserving duplicate diagnostics and
+      deterministic output. The indexed resolution paths and scale measurements
+      below pass.
   - [x] Add an open-addressed Module symbol-name index and use it for symbol
         insertion/update, weak/source/size metadata, relocation symbol
         resolution, and `.ro` undefined-symbol reference marking. The index
@@ -12350,9 +12344,20 @@ remains a separate open item.
         candidates in insertion order so image and TLS resolvers preserve
         duplicate detection and relocation-kind filtering. The same direct
         image, global initializer, format, and TLS gates pass.
-  - [ ] Add resolver probe/traversal counters and compare small/large object
-        generation time and memory use; include relative-relocation patching in
-        the measurements.
+  - [x] Add test-only Module symbol/relocation lookup, rehash, resolver-candidate,
+        and relative-patch counters. Measure five-run CPU medians and tracked
+        Module-owned capacities with 32-symbol/64-relocation and
+        4096-symbol/8192-relocation fixtures. On Windows, construction used
+        104/34469 symbol lookup probes and 321/55377 relocation-index probes;
+        tracked Module bytes were 33624/1139256. Large-image emission performed
+        4096 relative patches and 4096 resolver candidate visits per format;
+        five-run median RIN/RLL/DRV times were 8/15/10 ms with 98672/98672/98768
+        artifact bytes. Small-fixture medians were 1/3/1 ms with
+        1136/1136/1232 artifact bytes. The six generated RIN/RLL/DRV images
+        were accepted by rinvalidate. Tracked bytes include Module-owned array
+        capacities, symbol and relocation names, and Reloc nodes; allocator
+        metadata and temporary emitter output buffers are excluded.
+        `make SHELL=cmd.exe test-format-validation` passes.
 
 - [x] `.ro`の`objfile_add_symbol()`はsymbolを追加するたびにlinked list末尾まで歩き、
       `objfile_add_reloc()`もsection内relocation listの末尾を毎回探す。さらに

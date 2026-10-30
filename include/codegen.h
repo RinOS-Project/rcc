@@ -259,6 +259,19 @@ typedef struct Module {
     /* Classic codegens provide one source row for each emitted statement.
      * Kept separate from exact verified-backend statement ranges. */
     bool debug_legacy_statement_lines;
+#ifdef RCC_INDEX_STATS
+    /* Test-only counters for measuring Module indexes and direct image
+     * relocation paths. These fields are excluded from production builds. */
+    uint64_t stats_symbol_lookup_probes;
+    uint64_t stats_symbol_insert_probes;
+    uint64_t stats_symbol_rehash_probes;
+    uint64_t stats_relocation_lookup_probes;
+    uint64_t stats_relocation_rehash_probes;
+    uint64_t stats_resolver_candidate_visits;
+    uint64_t stats_image_resolver_calls;
+    uint64_t stats_tls_resolver_calls;
+    uint64_t stats_relative_patch_visits;
+#endif
 } Module;
 
 struct CxxNamespace;
