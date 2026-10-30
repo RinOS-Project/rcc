@@ -22,6 +22,12 @@
 
 typedef float _Complex RccComplexFloat;
 typedef double _Complex RccComplexDouble;
+extern float crealf(RccComplexFloat);
+extern float cimagf(RccComplexFloat);
+extern float cabsf(RccComplexFloat);
+extern float cargf(RccComplexFloat);
+extern RccComplexFloat conjf(RccComplexFloat);
+extern RccComplexFloat csqrtf(RccComplexFloat);
 extern double creal(RccComplexDouble);
 extern double cimag(RccComplexDouble);
 extern double cabs(RccComplexDouble);
@@ -66,6 +72,7 @@ typedef RccComplexFloat RINOS_ABI (*ComplexFloatBinary)(RccComplexFloat,
 typedef RccComplexDouble RINOS_ABI (*ComplexDoubleUnary)(RccComplexDouble);
 typedef RccComplexDouble RINOS_ABI (*ComplexDoubleBinary)(RccComplexDouble,
                                                           RccComplexDouble);
+typedef float RINOS_ABI (*ComplexFloatToReal)(RccComplexFloat);
 typedef double RINOS_ABI (*ComplexDoubleToReal)(RccComplexDouble);
 typedef float RINOS_ABI (*ComplexFloatReal)(RccComplexFloat);
 typedef int RINOS_ABI (*ComplexFloatTruth)(RccComplexFloat);
@@ -98,6 +105,8 @@ typedef union ComplexRuntimeAddress {
     void* object;
     void (RINOS_ABI *f32)(float, float, float, float, float*, float*);
     void (RINOS_ABI *f64)(double, double, double, double, double*, double*);
+    float (RINOS_ABI *complex_float_real)(RccComplexFloat);
+    RccComplexFloat (RINOS_ABI *complex_float_unary)(RccComplexFloat);
     double (RINOS_ABI *complex_double_real)(RccComplexDouble);
     RccComplexDouble (RINOS_ABI *complex_double_unary)(RccComplexDouble);
 } ComplexRuntimeAddress;
@@ -112,6 +121,18 @@ static void* complex_runtime_import(const char* name) {
         address.f32 = __rin_cdiv_f32;
     } else if (strcmp(name, "__rin_cdiv_f64") == 0) {
         address.f64 = __rin_cdiv_f64;
+    } else if (strcmp(name, "crealf") == 0) {
+        address.complex_float_real = crealf;
+    } else if (strcmp(name, "cimagf") == 0) {
+        address.complex_float_real = cimagf;
+    } else if (strcmp(name, "cabsf") == 0) {
+        address.complex_float_real = cabsf;
+    } else if (strcmp(name, "cargf") == 0) {
+        address.complex_float_real = cargf;
+    } else if (strcmp(name, "conjf") == 0) {
+        address.complex_float_unary = conjf;
+    } else if (strcmp(name, "csqrtf") == 0) {
+        address.complex_float_unary = csqrtf;
     } else if (strcmp(name, "creal") == 0) {
         address.complex_double_real = creal;
     } else if (strcmp(name, "cimag") == 0) {
@@ -389,6 +410,12 @@ int main(int argc, char** argv) {
     ComplexDoubleToReal api_carg;
     ComplexDoubleUnary api_conj;
     ComplexDoubleUnary api_csqrt;
+    ComplexFloatToReal api_crealf;
+    ComplexFloatToReal api_cimagf;
+    ComplexFloatToReal api_cabsf;
+    ComplexFloatToReal api_cargf;
+    ComplexFloatUnary api_conjf;
+    ComplexFloatUnary api_csqrtf;
     ComplexFloatUnary float_negate;
     ComplexFloatReal float_real;
     ComplexFloatTruth float_truth;
@@ -510,6 +537,18 @@ int main(int argc, char** argv) {
     memcpy(&api_conj, &address, sizeof(api_conj));
     address = symbol_address(mapped, object, "rcc_complex_api_csqrt");
     memcpy(&api_csqrt, &address, sizeof(api_csqrt));
+    address = symbol_address(mapped, object, "rcc_complex_api_crealf");
+    memcpy(&api_crealf, &address, sizeof(api_crealf));
+    address = symbol_address(mapped, object, "rcc_complex_api_cimagf");
+    memcpy(&api_cimagf, &address, sizeof(api_cimagf));
+    address = symbol_address(mapped, object, "rcc_complex_api_cabsf");
+    memcpy(&api_cabsf, &address, sizeof(api_cabsf));
+    address = symbol_address(mapped, object, "rcc_complex_api_cargf");
+    memcpy(&api_cargf, &address, sizeof(api_cargf));
+    address = symbol_address(mapped, object, "rcc_complex_api_conjf");
+    memcpy(&api_conjf, &address, sizeof(api_conjf));
+    address = symbol_address(mapped, object, "rcc_complex_api_csqrtf");
+    memcpy(&api_csqrtf, &address, sizeof(api_csqrtf));
 
     value_float = float_identity(a);
     assert(close_float(__real__ value_float, 2.0f) &&
@@ -586,6 +625,17 @@ int main(int argc, char** argv) {
     value_double = api_csqrt(__builtin_complex(3.0, 4.0));
     assert(close_double(__real__ value_double, 2.0) &&
            close_double(__imag__ value_double, 1.0));
+    assert(close_float(api_crealf(a), 2.0f));
+    assert(close_float(api_cimagf(a), 3.0f));
+    assert(close_float(api_cabsf(__builtin_complex(3.0f, 4.0f)), 5.0f));
+    assert(close_float(api_cargf(__builtin_complex(0.0f, 1.0f)),
+                       1.57079632679489661923f));
+    value_float = api_conjf(a);
+    assert(close_float(__real__ value_float, 2.0f) &&
+           close_float(__imag__ value_float, -3.0f));
+    value_float = api_csqrtf(__builtin_complex(3.0f, 4.0f));
+    assert(close_float(__real__ value_float, 2.0f) &&
+           close_float(__imag__ value_float, 1.0f));
     assert(feclearexcept(FE_ALL_EXCEPT) == 0);
     value_double = double_divide(x, __builtin_complex(0.0, 0.0));
     assert(isinf(__real__ value_double) && isinf(__imag__ value_double));

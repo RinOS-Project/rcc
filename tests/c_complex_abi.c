@@ -102,6 +102,30 @@ RccComplexDouble rcc_complex_api_csqrt(RccComplexDouble value) {
     return csqrt(value);
 }
 
+float rcc_complex_api_crealf(RccComplexFloat value) {
+    return crealf(value);
+}
+
+float rcc_complex_api_cimagf(RccComplexFloat value) {
+    return cimagf(value);
+}
+
+float rcc_complex_api_cabsf(RccComplexFloat value) {
+    return cabsf(value);
+}
+
+float rcc_complex_api_cargf(RccComplexFloat value) {
+    return cargf(value);
+}
+
+RccComplexFloat rcc_complex_api_conjf(RccComplexFloat value) {
+    return conjf(value);
+}
+
+RccComplexFloat rcc_complex_api_csqrtf(RccComplexFloat value) {
+    return csqrtf(value);
+}
+
 int rcc_complex_local_scalar_initializer(void) {
     RccComplexFloat value = 3.0f;
     return value != __builtin_complex(3.0f, 0.0f);
