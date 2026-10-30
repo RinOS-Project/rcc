@@ -1026,7 +1026,9 @@
         guard, a later access in the same thread must construct and reuse the
         reference, and thread exit must destroy the successful object once.
         `test-cxx-static-reference-temporaries-posix` checks guard-abort code
-        in i686/AMD64 output and passes the x64 pthread assertions in WSL.
+        in i686/AMD64 output and passes the x64 pthread assertions in WSL. The
+        host links the production RinOS `rin_atexit_registry.inc` and
+        `rin_exit_lifecycle.c`, rather than delegating TLS cleanup to libstdc++.
   - [x] Cover a namespace-scope thread-local reference temporary initialized
         by a built-in comma expression. The POSIX regression checks one left-
         operand evaluation per thread, stable repeated reference identity,
@@ -1786,6 +1788,12 @@
         both target variants, and verify `R_386_TLS_LE` / `R_X86_64_TPOFF32`
         records with the host object inspector before executing the generated
         retry/finalization cases.
+  - [x] Execute RCC-generated thread-local reference cleanup through the
+        production `rin_atexit_registry.inc` and `rin_exit_lifecycle.c` in the
+        POSIX pthread host gate. Verify the linked `__cxa_thread_atexit` and
+        `__rin_cxa_thread_finalize` symbols come from the RinOS registry,
+        each worker finalizes its TLS callbacks, and process/fini finalizers
+        run once.
   - [x] Correct i686 cdecl argument order for function-local static
         `__cxa_atexit`; verified generated callback/object/DSO values and
         successful destructor execution.

@@ -1,8 +1,23 @@
 #include <stddef.h>
 #include <stdio.h>
 #ifdef RCC_STATIC_REFERENCE_TLS_TEST
+#include <errno.h>
 #include <pthread.h>
+#include <stdlib.h>
 #include <stdint.h>
+
+#define __rin_atexit_register cxx_host_atexit_register
+#define __cxa_atexit cxx_host_cxa_atexit
+#define __cxa_finalize cxx_host_cxa_finalize
+#define at_quick_exit cxx_host_at_quick_exit
+#define quick_exit cxx_host_quick_exit
+#include <rinruntime/rin_atexit_registry.inc>
+#undef quick_exit
+#undef at_quick_exit
+#undef __cxa_finalize
+#undef __cxa_atexit
+#undef __rin_atexit_register
+#include <rinruntime/rin_exit_lifecycle.h>
 #endif
 
 #if defined(_WIN32) && defined(__x86_64__)
@@ -71,10 +86,28 @@ extern void RIN_SYSV __rcc_global_init(void);
 extern void RIN_SYSV __rcc_global_fini(void);
 
 #ifdef RCC_STATIC_REFERENCE_TLS_TEST
+static volatile int cxx_static_reference_process_finalized;
+static int cxx_static_reference_process_finalize_calls;
+static int cxx_static_reference_fini_finalize_calls;
+
+static void cxx_static_reference_process_finalize(void)
+{
+    ++cxx_static_reference_process_finalize_calls;
+}
+
+static void cxx_static_reference_fini_finalize(void)
+{
+    ++cxx_static_reference_fini_finalize_calls;
+}
+
 static void* cxx_static_reference_tls_thread(void* argument)
 {
     int value = (int)(intptr_t)argument;
     int result = cxx_static_reference_tls_worker(value);
+    rin_exit_lifecycle_run(&cxx_static_reference_process_finalized,
+                           __rin_cxa_thread_finalize,
+                           cxx_static_reference_process_finalize,
+                           cxx_static_reference_fini_finalize);
     return (void*)(intptr_t)result;
 }
 
@@ -298,7 +331,9 @@ int main(void)
         cxx_static_reference_tls_retry_constructions != 2 ||
         cxx_static_reference_tls_retry_destructions != 2 ||
         cxx_static_reference_tls_retry_guard_aborts != 1 ||
-        cxx_static_reference_tls_retry_destruction_order != 9495ULL) {
+        cxx_static_reference_tls_retry_destruction_order != 9495ULL ||
+        cxx_static_reference_process_finalize_calls != 1 ||
+        cxx_static_reference_fini_finalize_calls != 1) {
         fprintf(stderr,
                 "TLS reference second-thread state: worker %d, direct %d/%d, "
                 "base %d/%d, derived %d/%d, conversions %d, order %llu, "

@@ -5084,8 +5084,10 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET) \
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o
 	$(CC) $(CFLAGS) -DRCC_STATIC_REFERENCE_TLS_TEST -pthread -no-pie \
+		-I../../../libs/rinruntime/include \
 		-o $(TEST_OUT)/cxx-static-reference-temporaries/x64-host \
 		tests/cxx_static_reference_host.c \
+		../../../libs/rinruntime/rin_exit_lifecycle.c \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o \
 		$(CXX_HOST_EXCEPTION_RUNTIME) -lstdc++
 	$(TEST_OUT)/cxx-static-reference-temporaries/x64-host
