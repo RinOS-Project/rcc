@@ -12,6 +12,12 @@ int invalid_consteval_call(int value) {
     return require_constant(value);
 }
 
+consteval int immediate_address_target() {
+    return 9;
+}
+
+auto escaped_immediate_address = &immediate_address_target;
+
 constexpr int invalid_constexpr_heap_read() {
     int* value = new int;
     return *value;

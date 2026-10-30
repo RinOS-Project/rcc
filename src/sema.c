@@ -95,6 +95,7 @@ static unsigned cxx_exception_frame_counter = 0u;
 static Type* current_cxx_method_owner = NULL;
 static Decl* current_cxx_this_param = NULL;
 static Decl* current_cxx_function_decl = NULL;
+static bool current_cxx_immediate_invocation_context = false;
 static Decl* current_noexcept_resolution = NULL;
 static bool cxx_type_trait_nothrow_evaluation_unknown = false;
 static CxxNamespace* current_cxx_namespace = NULL;
@@ -1943,6 +1944,26 @@ static Symbol* sema_cxx_lookup_name(const char* name, SourceLoc use_loc) {
     }
     rcc_free(visited.items);
     return direct_symbol;
+}
+
+static Decl* sema_cxx_immediate_function_designator(Expr* expression) {
+    Decl* declaration = NULL;
+    Symbol* symbol;
+    if (expression && expression->kind == EXPR_ADDR) {
+        expression = expression->unary_operand;
+    }
+    if (!expression || expression->kind != EXPR_IDENT) return NULL;
+    declaration = expression->ident_decl;
+    if (!declaration && expression->ident_name) {
+        symbol = sema_cxx_lookup_name(expression->ident_name,
+                                      expression->loc);
+        if (symbol && symbol->kind == SYM_FUNC) {
+            declaration = symbol->decl;
+        }
+    }
+    return declaration && declaration->kind == DECL_FUNC &&
+                   declaration->func_is_consteval
+        ? declaration : NULL;
 }
 
 static CxxNamespace* sema_decl_namespace(Decl* decl) {
@@ -24330,7 +24351,14 @@ static Type* sema_expr(Expr* expr) {
                 object_type = symbol ? symbol->type : NULL;
             }
         } else {
+            bool saved_immediate_context =
+                current_cxx_immediate_invocation_context;
+            if (sema_cxx_immediate_function_designator(expr->call_func)) {
+                current_cxx_immediate_invocation_context = true;
+            }
             object_type = sema_expr(expr->call_func);
+            current_cxx_immediate_invocation_context =
+                saved_immediate_context;
         }
         if ((expr->call_func->kind == EXPR_MEMBER ||
              expr->call_func->kind == EXPR_PTR_MEMBER) &&
@@ -24779,6 +24807,19 @@ static Type* sema_expr(Expr* expr) {
             Type* t = sema_expr(expr->unary_operand);
             Type* addressed_type = t;
             Type* implicit_object_type = t;
+            Decl* addressed_function =
+                expr->unary_operand &&
+                expr->unary_operand->kind == EXPR_IDENT
+                    ? expr->unary_operand->ident_decl : NULL;
+            if (rcc_parser_is_cxx_mode() && addressed_function &&
+                addressed_function->kind == DECL_FUNC &&
+                addressed_function->func_is_consteval &&
+                !current_cxx_immediate_invocation_context &&
+                !(current_cxx_function_decl &&
+                  current_cxx_function_decl->func_is_consteval)) {
+                rcc_error(expr->loc,
+                          "cannot take address of an immediate function outside an immediate context");
+            }
             if (implicit_object_type &&
                 implicit_object_type->kind == TYPE_PTR &&
                 implicit_object_type->is_reference) {
@@ -26963,8 +27004,27 @@ static Type* sema_expr(Expr* expr) {
                     expr->call_func->type = selected_overload->type;
                 }
             }
-            ft = selected_overload
-                ? selected_overload->type : sema_expr(expr->call_func);
+            {
+                Decl* immediate_target = selected_overload;
+                bool saved_immediate_context =
+                    current_cxx_immediate_invocation_context;
+                if ((!immediate_target ||
+                     !immediate_target->func_is_consteval) &&
+                    expr->call_func) {
+                    Decl* candidate =
+                        sema_cxx_immediate_function_designator(
+                            expr->call_func);
+                    if (candidate) immediate_target = candidate;
+                }
+                if (immediate_target &&
+                    immediate_target->func_is_consteval) {
+                    current_cxx_immediate_invocation_context = true;
+                }
+                ft = selected_overload
+                    ? selected_overload->type : sema_expr(expr->call_func);
+                current_cxx_immediate_invocation_context =
+                    saved_immediate_context;
+            }
             if (expr->call_abi_function_type) {
                 ft = expr->call_abi_function_type;
             }
@@ -26983,6 +27043,11 @@ static Type* sema_expr(Expr* expr) {
                 expr->call_func->ident_decl &&
                 expr->call_func->ident_decl->kind == DECL_FUNC) {
                 call_declaration = expr->call_func->ident_decl;
+            }
+            if (!call_declaration && rcc_parser_is_cxx_mode()) {
+                call_declaration =
+                    sema_cxx_immediate_function_designator(
+                        expr->call_func);
             }
             if (call_declaration && call_declaration->func_is_deleted) {
                 rcc_error(expr->loc,
@@ -27129,7 +27194,10 @@ static Type* sema_expr(Expr* expr) {
                     constexpr_folded = sema_fold_constexpr_aggregate_call(
                         expr, call_declaration);
                 }
-                if (call_declaration->func_is_consteval && !constexpr_folded) {
+                if (call_declaration->func_is_consteval &&
+                    !constexpr_folded &&
+                    !(current_cxx_function_decl &&
+                      current_cxx_function_decl->func_is_consteval)) {
                     rcc_error(expr->loc,
                               "consteval call is not a constant expression");
                 }
