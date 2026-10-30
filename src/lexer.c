@@ -1603,7 +1603,9 @@ static Token* handle_pragma_directive(Lexer* lex) {
                     p++;
                     while (*p == ' ' || *p == '\t') p++;
                     while (isdigit((unsigned char)*p)) {
-                        alignment = alignment * 10 + (*p - '0');
+                        int digit = *p - '0';
+                        alignment = alignment > (16 - digit) / 10
+                            ? 17 : alignment * 10 + digit;
                         p++;
                     }
                 }
@@ -1611,7 +1613,9 @@ static Token* handle_pragma_directive(Lexer* lex) {
                 recognized = true;
             } else if (isdigit((unsigned char)*p)) {
                 while (isdigit((unsigned char)*p)) {
-                    value = value * 10 + (*p - '0');
+                    int digit = *p - '0';
+                    value = value > (16 - digit) / 10
+                        ? 17 : value * 10 + digit;
                     p++;
                 }
                 recognized = true;
