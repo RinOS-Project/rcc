@@ -11,6 +11,58 @@ RccLegacyComplexDouble rcc_legacy_complex_tls_read(void) {
     return rcc_legacy_complex_tls;
 }
 
+float rcc_legacy_complex_api_crealf(RccLegacyComplexFloat value) {
+    return crealf(value);
+}
+
+float rcc_legacy_complex_api_cimagf(RccLegacyComplexFloat value) {
+    return cimagf(value);
+}
+
+float rcc_legacy_complex_api_cabsf(RccLegacyComplexFloat value) {
+    return cabsf(value);
+}
+
+float rcc_legacy_complex_api_cargf(RccLegacyComplexFloat value) {
+    return cargf(value);
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_api_conjf(
+    RccLegacyComplexFloat value) {
+    return conjf(value);
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_api_csqrtf(
+    RccLegacyComplexFloat value) {
+    return csqrtf(value);
+}
+
+double rcc_legacy_complex_api_creal(RccLegacyComplexDouble value) {
+    return creal(value);
+}
+
+double rcc_legacy_complex_api_cimag(RccLegacyComplexDouble value) {
+    return cimag(value);
+}
+
+double rcc_legacy_complex_api_cabs(RccLegacyComplexDouble value) {
+    return cabs(value);
+}
+
+double rcc_legacy_complex_api_carg(RccLegacyComplexDouble value) {
+    return carg(value);
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_api_conj(
+    RccLegacyComplexDouble value) {
+    return conj(value);
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_api_csqrt(
+    RccLegacyComplexDouble value) {
+    return csqrt(value);
+}
+
 _Static_assert(_Generic(
     (RccLegacyComplexFloat)0.0f + (double)0.0,
     RccLegacyComplexDouble: 1,

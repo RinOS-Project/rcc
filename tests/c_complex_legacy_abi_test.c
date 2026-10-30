@@ -58,6 +58,30 @@ extern RccLegacyComplexBinary64Pair RINOS_ABI
 rcc_legacy_complex_double_add_long_double(RccLegacyComplexDouble, double);
 extern _Thread_local RccLegacyComplexDouble rcc_legacy_complex_tls;
 extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_tls_read(void);
+extern float RINOS_ABI rcc_legacy_complex_api_crealf(
+    RccLegacyComplexFloat);
+extern float RINOS_ABI rcc_legacy_complex_api_cimagf(
+    RccLegacyComplexFloat);
+extern float RINOS_ABI rcc_legacy_complex_api_cabsf(
+    RccLegacyComplexFloat);
+extern float RINOS_ABI rcc_legacy_complex_api_cargf(
+    RccLegacyComplexFloat);
+extern RccLegacyComplexFloat RINOS_ABI rcc_legacy_complex_api_conjf(
+    RccLegacyComplexFloat);
+extern RccLegacyComplexFloat RINOS_ABI rcc_legacy_complex_api_csqrtf(
+    RccLegacyComplexFloat);
+extern double RINOS_ABI rcc_legacy_complex_api_creal(
+    RccLegacyComplexDouble);
+extern double RINOS_ABI rcc_legacy_complex_api_cimag(
+    RccLegacyComplexDouble);
+extern double RINOS_ABI rcc_legacy_complex_api_cabs(
+    RccLegacyComplexDouble);
+extern double RINOS_ABI rcc_legacy_complex_api_carg(
+    RccLegacyComplexDouble);
+extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_api_conj(
+    RccLegacyComplexDouble);
+extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_api_csqrt(
+    RccLegacyComplexDouble);
 
 typedef struct RccLegacyComplexTlsCase {
     int failed;
@@ -122,6 +146,8 @@ static int near_double(double actual, double expected) {
 int main(void) {
     pthread_t tls_thread;
     RccLegacyComplexTlsCase tls_case = {0};
+    RccLegacyComplexFloat float_api_input = __builtin_complex(3.0f, 4.0f);
+    RccLegacyComplexDouble double_api_input = __builtin_complex(3.0, 4.0);
     RccLegacyComplexFloat float_left = __builtin_complex(2.0f, 3.0f);
     RccLegacyComplexFloat float_right = __builtin_complex(4.0f, -1.0f);
     RccLegacyComplexFloat float_result;
@@ -141,6 +167,29 @@ int main(void) {
     double_result = rcc_legacy_complex_tls_read();
     assert(fabs(__real__ double_result - 2.0) < 0.0000001 &&
            fabs(__imag__ double_result + 3.0) < 0.0000001);
+
+    assert(near_float(rcc_legacy_complex_api_crealf(float_api_input), 3.0f));
+    assert(near_float(rcc_legacy_complex_api_cimagf(float_api_input), 4.0f));
+    assert(near_float(rcc_legacy_complex_api_cabsf(float_api_input), 5.0f));
+    assert(near_float(rcc_legacy_complex_api_cargf(float_api_input),
+                      (float)atan2(4.0, 3.0)));
+    float_result = rcc_legacy_complex_api_conjf(float_api_input);
+    assert(near_float(__real__ float_result, 3.0f) &&
+           near_float(__imag__ float_result, -4.0f));
+    float_result = rcc_legacy_complex_api_csqrtf(float_api_input);
+    assert(near_float(__real__ float_result, 2.0f) &&
+           near_float(__imag__ float_result, 1.0f));
+    assert(near_double(rcc_legacy_complex_api_creal(double_api_input), 3.0));
+    assert(near_double(rcc_legacy_complex_api_cimag(double_api_input), 4.0));
+    assert(near_double(rcc_legacy_complex_api_cabs(double_api_input), 5.0));
+    assert(near_double(rcc_legacy_complex_api_carg(double_api_input),
+                       atan2(4.0, 3.0)));
+    double_result = rcc_legacy_complex_api_conj(double_api_input);
+    assert(near_double(__real__ double_result, 3.0) &&
+           near_double(__imag__ double_result, -4.0));
+    double_result = rcc_legacy_complex_api_csqrt(double_api_input);
+    assert(near_double(__real__ double_result, 2.0) &&
+           near_double(__imag__ double_result, 1.0));
 
     float_result = rcc_legacy_complex_float_add(float_left, float_right);
     assert(near_float(__real__ float_result, 6.0f) &&
