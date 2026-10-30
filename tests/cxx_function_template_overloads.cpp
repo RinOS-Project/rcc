@@ -833,6 +833,22 @@ struct InheritedMemberHidingRankDerived : InheritedMemberUsingRankBase {
     int choose(int) { return 405; }
 };
 
+struct InheritedMemberTemplateUsingHidingBase {
+    template<typename T>
+    int choose(T) { return 501; }
+
+    template<typename T>
+    int choose(T*) { return 502; }
+};
+
+struct InheritedMemberTemplateUsingHidingDerived
+    : InheritedMemberTemplateUsingHidingBase {
+    using InheritedMemberTemplateUsingHidingBase::choose;
+
+    template<typename T>
+    int choose(T) { return 503; }
+};
+
 struct FunctionTemplateMemberCallInheritedTemplateBase {
     int base_value;
 
@@ -3340,6 +3356,11 @@ static int consume_conversion_value_virtual_cleanup_root(
 }
 
 int main(void) {
+    InheritedMemberTemplateUsingHidingDerived inherited_template_hiding;
+    int inherited_template_hiding_value = 7;
+    if (inherited_template_hiding.choose(1) != 503 ||
+        inherited_template_hiding.choose(&inherited_template_hiding_value) !=
+            502) return 260;
     if (choose_fixed_nontype_prefix_pack<2>(1, 2) != 22) return 250;
     if (choose_defaulted_fixed_prefix_pack<>(0, 'x') != 431) return 251;
     if (choose_defaulted_fixed_prefix_pack<long>(0L, 'x') !=

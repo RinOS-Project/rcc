@@ -42514,6 +42514,52 @@ static TypeMethod* cxx_materialize_member_function_template(
     return lowered;
 }
 
+static bool cxx_member_template_same_overload_signature(
+    const CxxMethod* left, const CxxMethod* right) {
+    CxxTemplate* left_template = left ? left->member_template : NULL;
+    CxxTemplate* right_template = right ? right->member_template : NULL;
+    DeclList* left_parameter;
+    DeclList* right_parameter;
+    const char* left_name = cxx_method_source_name((CxxMethod*)left);
+    const char* right_name = cxx_method_source_name((CxxMethod*)right);
+
+    if (!left || !right || !left_template || !right_template ||
+        !left_name || !right_name || strcmp(left_name, right_name) != 0 ||
+        left->is_const != right->is_const ||
+        left->is_volatile != right->is_volatile ||
+        left->ref_qualifier != right->ref_qualifier ||
+        !left->decl || !right->decl || !left->decl->type ||
+        !right->decl->type || left->decl->type->kind != TYPE_FUNC ||
+        right->decl->type->kind != TYPE_FUNC ||
+        left->decl->type->variadic != right->decl->type->variadic ||
+        (!!left_template->constraint != !!right_template->constraint)) {
+        return false;
+    }
+    if (left_template->constraint &&
+        !cxx_template_constraint_mapping_matches(
+            left_template->constraint,
+            left_template->constraint_context
+                ? left_template->constraint_context : left_template,
+            right_template->constraint,
+            right_template->constraint_context
+                ? right_template->constraint_context : right_template)) {
+        return false;
+    }
+    left_parameter = left->decl->func_params;
+    right_parameter = right->decl->func_params;
+    while (left_parameter && right_parameter) {
+        if (!left_parameter->decl || !right_parameter->decl ||
+            !cxx_template_type_parameter_mapping_matches(
+                left_parameter->decl->type, left_template,
+                right_parameter->decl->type, right_template)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return left_parameter == NULL && right_parameter == NULL;
+}
+
 static bool cxx_collect_member_function_template_sources(
     CxxClass* cls, const char* name, AccessSpec inherited_access,
     unsigned depth, CxxMethod** methods, AccessSpec* accesses,
@@ -42579,10 +42625,36 @@ static bool cxx_collect_member_function_template_sources(
         if (selected_by_using && using_access > base_access) {
             base_access = using_access;
         }
+        int inherited_begin = *count;
         if (!cxx_collect_member_function_template_sources(
                 base, name, base_access, depth + 1u, methods, accesses,
                 capacity, count)) {
             return false;
+        }
+        for (int inherited_index = inherited_begin;
+             inherited_index < *count;) {
+            bool hidden = false;
+            CxxMethod* inherited_method = methods[inherited_index];
+            for (struct CxxMember* member = cls->members;
+                 member; member = member->next) {
+                CxxMethod* derived_method = member->method;
+                if (derived_method && derived_method->member_template &&
+                    cxx_member_template_same_overload_signature(
+                        derived_method, inherited_method)) {
+                    hidden = true;
+                    break;
+                }
+            }
+            if (!hidden) {
+                ++inherited_index;
+                continue;
+            }
+            for (int move_index = inherited_index + 1;
+                 move_index < *count; ++move_index) {
+                methods[move_index - 1] = methods[move_index];
+                accesses[move_index - 1] = accesses[move_index];
+            }
+            --*count;
         }
     }
     return true;

@@ -11840,6 +11840,12 @@ remains a separate open item.
       hides its base counterpart. `test-cxx-function-template-overloads`
       passes GCC C++20 `-Wall -Wextra -Werror`, i686/AMD64 code generation, and
       generated i686/AMD64 runtime execution.
+- [x] Apply using-declaration hiding to inherited member-function-template
+      candidates using declaration patterns before specialization. A derived
+      `choose(T)` hides the matching base template while a distinct base
+      `choose(T*)` remains eligible. GCC C++20 and
+      `test-cxx-function-template-overloads` pass for i686/AMD64 generation and
+      execution.
 
 ## RCC continuation (2026-10-28, hidden-friend ADL candidate identity)
 
