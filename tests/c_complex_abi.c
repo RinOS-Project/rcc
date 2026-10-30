@@ -793,21 +793,20 @@ int rcc_complex_standard_api_all(void) {
 
         value_float = cacosf(CMPLXF(
             __builtin_nanf(""), __builtin_huge_valf()));
+        if (!__builtin_isnan(__real__ value_float) ||
+            !__builtin_isinf(__imag__ value_float) ||
+            !__builtin_signbit(__imag__ value_float)) return __LINE__;
         value_double = cacos(CMPLX(
             __builtin_nan(""), __builtin_huge_val()));
+        if (!__builtin_isnan(__real__ value_double)) return __LINE__;
+        if (!__builtin_isinf(__imag__ value_double)) return __LINE__;
+        if (!__builtin_signbit(__imag__ value_double)) return __LINE__;
         value_long_double = cacosl(CMPLXL(
             (long double)__builtin_nan(""),
             (long double)__builtin_huge_val()));
-        if (!__builtin_isnan(__real__ value_float) ||
-            !__builtin_isinf(__imag__ value_float) ||
-            !__builtin_signbit(__imag__ value_float) ||
-            !__builtin_isnan(__real__ value_double) ||
-            !__builtin_isinf(__imag__ value_double) ||
-            !__builtin_signbit(__imag__ value_double) ||
-            !__builtin_isnan(__real__ value_long_double) ||
+        if (!__builtin_isnan(__real__ value_long_double) ||
             !__builtin_isinf(__imag__ value_long_double) ||
             !__builtin_signbit(__imag__ value_long_double)) return __LINE__;
-
         value_float = cexpf(CMPLXF(
             __builtin_huge_valf(), __builtin_nanf("")));
         value_double = cexp(CMPLX(
@@ -858,6 +857,63 @@ int rcc_complex_standard_api_all(void) {
             __real__ value_long_double < 0.0L ||
             !__builtin_isinf(__imag__ value_long_double) ||
             __imag__ value_long_double < 0.0L) return __LINE__;
+
+        {
+            int real_side, imaginary_side;
+            for (real_side = 0; real_side != 2; ++real_side) {
+                float input_float = real_side ? -1.0f : 1.0f;
+                double input_double = real_side ? -1.0 : 1.0;
+                long double input_long_double = real_side ? -1.0L : 1.0L;
+                for (imaginary_side = 0; imaginary_side != 2;
+                     ++imaginary_side) {
+                    float input_imaginary_float = imaginary_side
+                        ? -__builtin_huge_valf() : __builtin_huge_valf();
+                    double input_imaginary_double = imaginary_side
+                        ? -__builtin_huge_val() : __builtin_huge_val();
+                    long double input_imaginary_long_double = imaginary_side
+                        ? -(long double)__builtin_huge_val()
+                        : (long double)__builtin_huge_val();
+
+                    value_float = casinhf(CMPLXF(
+                        input_float, input_imaginary_float));
+                    value_double = casinh(CMPLX(
+                        input_double, input_imaginary_double));
+                    value_long_double = casinhl(CMPLXL(
+                        input_long_double, input_imaginary_long_double));
+                    if (!__builtin_isinf(__real__ value_float) ||
+                        !!__builtin_signbit(__real__ value_float) != real_side ||
+                        !__builtin_isfinite(__imag__ value_float) ||
+                        (imaginary_side
+                             ? (__imag__ value_float > -1.5707f ||
+                                __imag__ value_float < -1.5709f)
+                             : (__imag__ value_float < 1.5707f ||
+                                __imag__ value_float > 1.5709f)) ||
+                        !!__builtin_signbit(__imag__ value_float) !=
+                            imaginary_side) return __LINE__;
+                    if (!__builtin_isinf(__real__ value_double) ||
+                        !!__builtin_signbit(__real__ value_double) != real_side ||
+                        !__builtin_isfinite(__imag__ value_double) ||
+                        (imaginary_side
+                             ? (__imag__ value_double > -1.5707 ||
+                                __imag__ value_double < -1.5709)
+                             : (__imag__ value_double < 1.5707 ||
+                                __imag__ value_double > 1.5709)) ||
+                        !!__builtin_signbit(__imag__ value_double) !=
+                            imaginary_side) return __LINE__;
+                    if (!__builtin_isinf(__real__ value_long_double) ||
+                        !!__builtin_signbit(__real__ value_long_double) !=
+                            real_side ||
+                        !__builtin_isfinite(__imag__ value_long_double) ||
+                        (imaginary_side
+                             ? (__imag__ value_long_double > -1.5707L ||
+                                __imag__ value_long_double < -1.5709L)
+                             : (__imag__ value_long_double < 1.5707L ||
+                                __imag__ value_long_double > 1.5709L)) ||
+                        !!__builtin_signbit(__imag__ value_long_double) !=
+                            imaginary_side) return __LINE__;
+                }
+            }
+        }
 
         value_float = casinhf(CMPLXF(0.0f, __builtin_nanf("")));
         value_double = casinh(CMPLX(0.0, __builtin_nan("")));

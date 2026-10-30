@@ -1235,6 +1235,64 @@ static void check_complex_branch_cuts(void) {
                value_long_double.imaginary == 0.0 &&
                __builtin_signbit(value_long_double.imaginary));
 
+        {
+            int real_side, imaginary_side;
+            for (real_side = 0; real_side != 2; ++real_side) {
+                float input_float = real_side ? -1.0f : 1.0f;
+                double input_double = real_side ? -1.0 : 1.0;
+                for (imaginary_side = 0; imaginary_side != 2;
+                     ++imaginary_side) {
+                    float input_imaginary_float = imaginary_side
+                        ? -__builtin_huge_valf() : __builtin_huge_valf();
+                    double input_imaginary_double = imaginary_side
+                        ? -__builtin_huge_val() : __builtin_huge_val();
+
+                    value_float = rcc_legacy_complex_api_casinhf(
+                        __builtin_complex(input_float,
+                                          input_imaginary_float));
+                    value_double = rcc_legacy_complex_api_casinh(
+                        __builtin_complex(input_double,
+                                          input_imaginary_double));
+                    value_long_double = rcc_legacy_complex_api_casinhl(
+                        (ComplexBinary64Pair){
+                            input_double, input_imaginary_double});
+                    assert(isinf(__real__ value_float) &&
+                           !!__builtin_signbit(__real__ value_float) ==
+                               real_side &&
+                           isfinite(__imag__ value_float) &&
+                           (imaginary_side
+                                ? (__imag__ value_float < -1.5707f &&
+                                   __imag__ value_float > -1.5709f)
+                                : (__imag__ value_float > 1.5707f &&
+                                   __imag__ value_float < 1.5709f)) &&
+                           !!__builtin_signbit(__imag__ value_float) ==
+                               imaginary_side);
+                    assert(isinf(__real__ value_double) &&
+                           !!__builtin_signbit(__real__ value_double) ==
+                               real_side &&
+                           isfinite(__imag__ value_double) &&
+                           (imaginary_side
+                                ? (__imag__ value_double < -1.5707 &&
+                                   __imag__ value_double > -1.5709)
+                                : (__imag__ value_double > 1.5707 &&
+                                   __imag__ value_double < 1.5709)) &&
+                           !!__builtin_signbit(__imag__ value_double) ==
+                               imaginary_side);
+                    assert(isinf(value_long_double.real) &&
+                           !!__builtin_signbit(value_long_double.real) ==
+                               real_side &&
+                           isfinite(value_long_double.imaginary) &&
+                           (imaginary_side
+                                ? (value_long_double.imaginary < -1.5707 &&
+                                   value_long_double.imaginary > -1.5709)
+                                : (value_long_double.imaginary > 1.5707 &&
+                                   value_long_double.imaginary < 1.5709)) &&
+                           !!__builtin_signbit(
+                               value_long_double.imaginary) == imaginary_side);
+                }
+            }
+        }
+
         value_float = rcc_legacy_complex_api_casinhf(
             __builtin_complex(0.0f, __builtin_nanf("")));
         value_double = rcc_legacy_complex_api_casinh(
