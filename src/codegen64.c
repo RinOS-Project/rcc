@@ -11467,11 +11467,23 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             if (aggregate_result && !memory_result) {
                 int gp_return = 0;
                 int fp_return = 0;
+                if (result_class.count == 2 &&
+                    result_class.classes[0] == GEN64_CLASS_SSE &&
+                    result_class.classes[1] == GEN64_CLASS_INTEGER) {
+                    /* Preserve the INTEGER-class return in RAX before
+                     * extracting the leading SSE eightbyte through RAX. */
+                    emit64_mov_mem_reg(
+                        mod, RBP, expr->call_result_offset + 8, RAX);
+                }
                 for (int index = 0; index < result_class.count; ++index) {
                     if (result_class.classes[index] == GEN64_CLASS_INTEGER) {
-                        emit64_mov_mem_reg(
-                            mod, RBP, expr->call_result_offset + index * 8,
-                            gp_return++ == 0 ? RAX : RDX);
+                        if (!(result_class.count == 2 && index == 1 &&
+                              result_class.classes[0] == GEN64_CLASS_SSE)) {
+                            emit64_mov_mem_reg(
+                                mod, RBP,
+                                expr->call_result_offset + index * 8,
+                                gp_return++ == 0 ? RAX : RDX);
+                        }
                     } else {
                         emit64_mov_gpr_from_xmm(mod, RAX, fp_return++, 8);
                         emit64_mov_mem_reg(

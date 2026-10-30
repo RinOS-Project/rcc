@@ -40,6 +40,15 @@ struct PlacementRegisterArguments {
     int trailer;
 };
 
+static_assert(alignof(PlacementRegisterArguments) == 16,
+              "placement aggregate alignment");
+static_assert(sizeof(PlacementRegisterArguments) == 16,
+              "placement aggregate size");
+
+static PlacementRegisterArguments make_placement_register_arguments() {
+    return PlacementRegisterArguments{2.75, 0x2468, 0x1357};
+}
+
 struct PlacementStackArguments {
     double values[3];
 };
@@ -384,11 +393,9 @@ int main() {
         if (placement_array_regular_delete_calls != 0) return 66;
         return 67;
     }
-    PlacementRegisterArguments register_arguments;
+    PlacementRegisterArguments register_arguments =
+        make_placement_register_arguments();
     PlacementStackArguments stack_arguments;
-    register_arguments.ratio = 2.75;
-    register_arguments.marker = 0x2468;
-    register_arguments.trailer = 0x1357;
     stack_arguments.values[0] = 3.25;
     stack_arguments.values[1] = 4.5;
     stack_arguments.values[2] = 5.75;

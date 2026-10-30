@@ -19609,7 +19609,7 @@ static bool lower_abi_mixed_sse_aggregate_supported(
     if (sse_eightbyte_out) *sse_eightbyte_out = -1;
     if (g_opts.target_arch != ARCH_X64 || !type ||
         type->size <= 8 || type->size > 16 || type->align <= 0 ||
-        type->align > 8 ||
+        type->align > 16 ||
         !lower_abi_naturally_aligned_internal(type, 0u, 0u) ||
         !lower_sysv_classify_aggregate(type, &classification) ||
         classification.memory || classification.count != 2) return false;

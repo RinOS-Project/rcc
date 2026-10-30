@@ -10297,6 +10297,13 @@ remains a separate open item.
         verified i686/AMD64 output with zero fallback at `-O0`/`-O2`, verified
         i686 and AMD64 runtime (including explicit AMD64 `-O2` execution), and
         strict GCC C++20 syntax on Windows and POSIX hosts.
+  - [x] Extend x86_64 aggregate return handling to explicitly 16-byte-aligned
+        mixed SSE/INTEGER aggregates. Preserve both ABI return registers in the
+        legacy caller and lower the return/caller through verified SSA.
+        `test-cxx-global-allocation-operators` passes legacy i686/AMD64 runtime,
+        verified i686/AMD64 `-O0`/`-O2` with zero fallback, verified AMD64
+        `-O0`/`-O2` runtime, alignment/size static assertions, and strict GCC
+        C++20 syntax on Windows and POSIX hosts.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

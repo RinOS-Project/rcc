@@ -17084,7 +17084,7 @@ endif
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_class_allocation_multiple_using_selection.cpp
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-parenthesized-new-type,cxx_parenthesized_new_type.cpp,,tests/cxx_language_core_host_no_allocator.c)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_parenthesized_new_type.cpp
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,24)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,25)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/cxx-global-allocation-operators/verified-run \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
@@ -17096,6 +17096,9 @@ endif
 	$(TEST_OUT)/cxx-global-allocation-operators/verified-run \
 		--cxx-global-array-placement-object \
 		$(TEST_OUT)/cxx-global-allocation-operators/verified-x64.ro x64
+	$(TEST_OUT)/cxx-global-allocation-operators/verified-run \
+		--cxx-global-array-placement-object \
+		$(TEST_OUT)/cxx-global-allocation-operators/verified-x64-o2.ro x64
 ifneq ($(OS),Windows_NT)
 	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) \
 		$(VERIFIED_BACKEND_X86_HOST_LINK_FLAGS) -I$(INCDIR) \
