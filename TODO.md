@@ -12504,3 +12504,10 @@ remains a separate open item.
       `-9223372036854775807`. Evaluate signed boundary inputs through frame
       locations with no global relocations in legacy and verified C objects;
       `test-debug-info-inline-expression` and the full `test-debug-info` pass.
+
+## RCC continuation (2026-10-31, native Windows #line CI coverage)
+
+- [x] Move `test-preprocessor-line` into `CXX_REGRESSION_TARGETS` so `test-cxx`
+      runs its C/C++ preprocessing output, i686/AMD64 compile, and malformed
+      line diagnostics on both Linux and native Windows. Remove the redundant
+      Linux-only workflow invocation; both host shell gates pass.

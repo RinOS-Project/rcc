@@ -793,6 +793,7 @@ CXX_REGRESSION_TARGETS = \
 	test-preprocessor-standard-macros \
 	test-preprocessor-include \
 	test-preprocessor-include-next \
+	test-preprocessor-line \
 	test-preprocessor-line-macro \
 	test-multiple-inputs \
 	test-cxx-language-core \
