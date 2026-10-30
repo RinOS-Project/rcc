@@ -42,6 +42,30 @@ extern double cabs(RccComplexDouble);
 extern double carg(RccComplexDouble);
 extern RccComplexDouble conj(RccComplexDouble);
 extern RccComplexDouble csqrt(RccComplexDouble);
+#define RCC_DECLARE_HOST_COMPLEX_UNARY_API(name) \
+    extern RccComplexFloat name##f(RccComplexFloat); \
+    extern RccComplexDouble name(RccComplexDouble); \
+    extern RccHostComplexLongDouble name##l(RccHostComplexLongDouble)
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(cacos);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(casin);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(catan);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(ccos);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(csin);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(ctan);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(cacosh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(casinh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(catanh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(ccosh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(csinh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(ctanh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(cexp);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(clog);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(cproj);
+#undef RCC_DECLARE_HOST_COMPLEX_UNARY_API
+extern RccComplexFloat cpowf(RccComplexFloat, RccComplexFloat);
+extern RccComplexDouble cpow(RccComplexDouble, RccComplexDouble);
+extern RccHostComplexLongDouble cpowl(RccHostComplexLongDouble,
+                                      RccHostComplexLongDouble);
 extern void rcc_host_complex_mul_f32(float, float, float, float,
                                      float*, float*);
 extern void rcc_host_complex_mul_f64(double, double, double, double,
@@ -146,6 +170,35 @@ static ComplexBinary64Pair RINOS_ABI complex_import_csqrtl(
     return complex_host_to_pair(csqrtl(complex_pair_to_host(value)));
 }
 
+#define RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(name) \
+    static ComplexBinary64Pair RINOS_ABI \
+    complex_import_##name##l(ComplexBinary64Pair value) { \
+        return complex_host_to_pair( \
+            name##l(complex_pair_to_host(value))); \
+    }
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(cacos)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(casin)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(catan)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(ccos)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(csin)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(ctan)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(cacosh)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(casinh)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(catanh)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(ccosh)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(csinh)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(ctanh)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(cexp)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(clog)
+RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT(cproj)
+#undef RCC_DEFINE_COMPLEX_LONG_DOUBLE_IMPORT
+
+static ComplexBinary64Pair RINOS_ABI complex_import_cpowl(
+    ComplexBinary64Pair base, ComplexBinary64Pair exponent) {
+    return complex_host_to_pair(cpowl(complex_pair_to_host(base),
+                                      complex_pair_to_host(exponent)));
+}
+
 typedef struct MappedObject {
     void* memory;
     size_t size;
@@ -158,11 +211,17 @@ typedef union ComplexRuntimeAddress {
     void (RINOS_ABI *f64)(double, double, double, double, double*, double*);
     float (RINOS_ABI *complex_float_real)(RccComplexFloat);
     RccComplexFloat (RINOS_ABI *complex_float_unary)(RccComplexFloat);
+    RccComplexFloat (RINOS_ABI *complex_float_binary)(RccComplexFloat,
+                                                       RccComplexFloat);
     double (RINOS_ABI *complex_double_real)(RccComplexDouble);
     RccComplexDouble (RINOS_ABI *complex_double_unary)(RccComplexDouble);
+    RccComplexDouble (RINOS_ABI *complex_double_binary)(RccComplexDouble,
+                                                         RccComplexDouble);
     double (RINOS_ABI *complex_long_double_real)(ComplexBinary64Pair);
     ComplexBinary64Pair (RINOS_ABI *complex_long_double_unary)(
         ComplexBinary64Pair);
+    ComplexBinary64Pair (RINOS_ABI *complex_long_double_binary)(
+        ComplexBinary64Pair, ComplexBinary64Pair);
 } ComplexRuntimeAddress;
 
 static void* complex_runtime_import(const char* name) {
@@ -211,6 +270,38 @@ static void* complex_runtime_import(const char* name) {
         address.complex_long_double_unary = complex_import_conjl;
     } else if (strcmp(name, "csqrtl") == 0) {
         address.complex_long_double_unary = complex_import_csqrtl;
+    }
+#define RCC_IMPORT_COMPLEX_UNARY_API(function_name) \
+    else if (strcmp(name, #function_name "f") == 0) { \
+        address.complex_float_unary = function_name##f; \
+    } else if (strcmp(name, #function_name) == 0) { \
+        address.complex_double_unary = function_name; \
+    } else if (strcmp(name, #function_name "l") == 0) { \
+        address.complex_long_double_unary = \
+            complex_import_##function_name##l; \
+    }
+    RCC_IMPORT_COMPLEX_UNARY_API(cacos)
+    RCC_IMPORT_COMPLEX_UNARY_API(casin)
+    RCC_IMPORT_COMPLEX_UNARY_API(catan)
+    RCC_IMPORT_COMPLEX_UNARY_API(ccos)
+    RCC_IMPORT_COMPLEX_UNARY_API(csin)
+    RCC_IMPORT_COMPLEX_UNARY_API(ctan)
+    RCC_IMPORT_COMPLEX_UNARY_API(cacosh)
+    RCC_IMPORT_COMPLEX_UNARY_API(casinh)
+    RCC_IMPORT_COMPLEX_UNARY_API(catanh)
+    RCC_IMPORT_COMPLEX_UNARY_API(ccosh)
+    RCC_IMPORT_COMPLEX_UNARY_API(csinh)
+    RCC_IMPORT_COMPLEX_UNARY_API(ctanh)
+    RCC_IMPORT_COMPLEX_UNARY_API(cexp)
+    RCC_IMPORT_COMPLEX_UNARY_API(clog)
+    RCC_IMPORT_COMPLEX_UNARY_API(cproj)
+#undef RCC_IMPORT_COMPLEX_UNARY_API
+    else if (strcmp(name, "cpowf") == 0) {
+        address.complex_float_binary = cpowf;
+    } else if (strcmp(name, "cpow") == 0) {
+        address.complex_double_binary = cpow;
+    } else if (strcmp(name, "cpowl") == 0) {
+        address.complex_long_double_binary = complex_import_cpowl;
     } else {
         return NULL;
     }
@@ -499,6 +590,7 @@ int main(int argc, char** argv) {
     ComplexLocalTest local_constructor_initializer;
     ComplexLocalTest local_arithmetic;
     ComplexLocalTest static_initializer;
+    ComplexLocalTest standard_api_all;
     ComplexPairUnary long_double_identity;
     ComplexPairBinary long_double_add;
     ComplexPairBinary long_double_multiply;
@@ -574,6 +666,9 @@ int main(int argc, char** argv) {
     address = symbol_address(mapped, object,
                              "rcc_complex_static_initializer");
     memcpy(&static_initializer, &address, sizeof(static_initializer));
+    address = symbol_address(mapped, object,
+                             "rcc_complex_standard_api_all");
+    memcpy(&standard_api_all, &address, sizeof(standard_api_all));
     address = symbol_address(mapped, object,
                              "rcc_complex_long_double_identity");
     memcpy(&long_double_identity, &address, sizeof(long_double_identity));
@@ -705,6 +800,7 @@ int main(int argc, char** argv) {
     assert(local_constructor_initializer() == 0);
     assert(local_arithmetic() == 0);
     assert(static_initializer() == 0);
+    assert(standard_api_all() == 0);
 
     {
         ComplexBinary64Pair lhs = {2.0, 3.0};
