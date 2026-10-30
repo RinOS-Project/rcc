@@ -299,12 +299,14 @@ int main(void) {
     RccLegacyComplexTlsCase tls_case = {0};
     RccLegacyComplexFloat float_api_input = __builtin_complex(3.0f, 4.0f);
     RccLegacyComplexDouble double_api_input = __builtin_complex(3.0, 4.0);
+    RccLegacyComplexBinary64Pair long_double_api_input = {3.0, 4.0};
     RccLegacyComplexFloat float_left = __builtin_complex(2.0f, 3.0f);
     RccLegacyComplexFloat float_right = __builtin_complex(4.0f, -1.0f);
     RccLegacyComplexFloat float_result;
     RccLegacyComplexDouble double_left = __builtin_complex(2.0, 3.0);
     RccLegacyComplexDouble double_right = __builtin_complex(4.0, -1.0);
     RccLegacyComplexDouble double_result;
+    RccLegacyComplexBinary64Pair long_double_result;
 
     double_result = rcc_legacy_complex_tls_read();
     assert(fabs(__real__ double_result - 9.0) < 0.0000001 &&
@@ -341,6 +343,23 @@ int main(void) {
     double_result = rcc_legacy_complex_api_csqrt(double_api_input);
     assert(near_double(__real__ double_result, 2.0) &&
            near_double(__imag__ double_result, 1.0));
+    assert(near_double(
+        rcc_legacy_complex_api_creall(long_double_api_input), 3.0));
+    assert(near_double(
+        rcc_legacy_complex_api_cimagl(long_double_api_input), 4.0));
+    assert(near_double(
+        rcc_legacy_complex_api_cabsl(long_double_api_input), 5.0));
+    assert(near_double(
+        rcc_legacy_complex_api_cargl(long_double_api_input),
+        atan2(4.0, 3.0)));
+    long_double_result = rcc_legacy_complex_api_conjl(
+        long_double_api_input);
+    assert(near_double(long_double_result.real, 3.0) &&
+           near_double(long_double_result.imaginary, -4.0));
+    long_double_result = rcc_legacy_complex_api_csqrtl(
+        long_double_api_input);
+    assert(near_double(long_double_result.real, 2.0) &&
+           near_double(long_double_result.imaginary, 1.0));
 
     float_result = rcc_legacy_complex_float_add(float_left, float_right);
     assert(near_float(__real__ float_result, 6.0f) &&
