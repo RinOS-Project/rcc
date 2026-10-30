@@ -93,16 +93,32 @@ RccLegacyComplexLongDouble rcc_legacy_complex_api_csqrtl(
     return csqrtl(value);
 }
 
-_Static_assert(_Generic(
-    (RccLegacyComplexFloat)0.0f + (double)0.0,
-    RccLegacyComplexDouble: 1,
-    default: 0),
-    "float complex plus double must promote to double complex");
-_Static_assert(_Generic(
-    (RccLegacyComplexDouble)0.0 + (long double)0.0L,
-    RccLegacyComplexLongDouble: 1,
-    default: 0),
-    "double complex plus long double must promote to long double complex");
+#define RCC_ASSERT_COMPLEX_PROMOTION(complex_type, real_type, result_type) \
+    _Static_assert(_Generic( \
+        (complex_type)0 + (real_type)0, result_type: 1, default: 0), \
+        "complex promotion mismatch: complex + real"); \
+    _Static_assert(_Generic( \
+        (real_type)0 + (complex_type)0, result_type: 1, default: 0), \
+        "complex promotion mismatch: real + complex")
+RCC_ASSERT_COMPLEX_PROMOTION(
+    RccLegacyComplexFloat, float, RccLegacyComplexFloat);
+RCC_ASSERT_COMPLEX_PROMOTION(
+    RccLegacyComplexFloat, double, RccLegacyComplexDouble);
+RCC_ASSERT_COMPLEX_PROMOTION(
+    RccLegacyComplexFloat, long double, RccLegacyComplexLongDouble);
+RCC_ASSERT_COMPLEX_PROMOTION(
+    RccLegacyComplexDouble, float, RccLegacyComplexDouble);
+RCC_ASSERT_COMPLEX_PROMOTION(
+    RccLegacyComplexDouble, double, RccLegacyComplexDouble);
+RCC_ASSERT_COMPLEX_PROMOTION(
+    RccLegacyComplexDouble, long double, RccLegacyComplexLongDouble);
+RCC_ASSERT_COMPLEX_PROMOTION(
+    RccLegacyComplexLongDouble, float, RccLegacyComplexLongDouble);
+RCC_ASSERT_COMPLEX_PROMOTION(
+    RccLegacyComplexLongDouble, double, RccLegacyComplexLongDouble);
+RCC_ASSERT_COMPLEX_PROMOTION(
+    RccLegacyComplexLongDouble, long double, RccLegacyComplexLongDouble);
+#undef RCC_ASSERT_COMPLEX_PROMOTION
 
 RccLegacyComplexFloat rcc_legacy_complex_float_add(
     RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
@@ -264,6 +280,16 @@ RccLegacyComplexFloat rcc_legacy_complex_float_postfix_decrement(
     return value--;
 }
 
+RccLegacyComplexFloat rcc_legacy_complex_float_prefix_decrement(
+    RccLegacyComplexFloat value) {
+    return --value;
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_float_postfix_increment(
+    RccLegacyComplexFloat value) {
+    return value++;
+}
+
 RccLegacyComplexDouble rcc_legacy_complex_double_prefix_increment(
     RccLegacyComplexDouble value) {
     return ++value;
@@ -274,14 +300,34 @@ RccLegacyComplexDouble rcc_legacy_complex_double_postfix_decrement(
     return value--;
 }
 
+RccLegacyComplexDouble rcc_legacy_complex_double_prefix_decrement(
+    RccLegacyComplexDouble value) {
+    return --value;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_double_postfix_increment(
+    RccLegacyComplexDouble value) {
+    return value++;
+}
+
 int rcc_legacy_complex_float_equal(
     RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
     return left == right;
 }
 
+int rcc_legacy_complex_float_not_equal(
+    RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
+    return left != right;
+}
+
 int rcc_legacy_complex_double_equal(
     RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
     return left == right;
+}
+
+int rcc_legacy_complex_double_not_equal(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    return left != right;
 }
 
 int rcc_legacy_complex_float_truth(RccLegacyComplexFloat value) {
@@ -339,6 +385,11 @@ RccLegacyComplexFloat rcc_legacy_complex_float_add_assign_once(
 RccLegacyComplexFloat rcc_legacy_complex_float_increment_once(
     RccLegacyComplexFloat* value) {
     return ++*rcc_legacy_complex_counted_lvalue(value);
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_float_postfix_increment_once(
+    RccLegacyComplexFloat* value) {
+    return (*rcc_legacy_complex_counted_lvalue(value))++;
 }
 
 int rcc_legacy_complex_lvalue_evaluation_count(void) {
