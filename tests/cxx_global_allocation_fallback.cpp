@@ -19,5 +19,12 @@ int main() {
     int* value = new int(42);
     bool initialized = allocation_calls == 1 && *value == 42;
     delete value;
-    return initialized && deallocation_calls == 1 ? 0 : 1;
+    int* values = new int[2];
+    values[0] = 11;
+    values[1] = 29;
+    bool array_initialized = allocation_calls == 2 &&
+        values[0] == 11 && values[1] == 29;
+    delete[] values;
+    return initialized && array_initialized && deallocation_calls == 2
+        ? 0 : 1;
 }

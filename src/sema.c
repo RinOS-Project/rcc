@@ -24619,15 +24619,19 @@ static Decl* sema_cxx_resolve_global_allocation_function(
     Decl* extra_candidate;
     Decl* selected;
     Expr* designator;
+    const char* global_operator_name;
     bool explicitly_replaced;
 
     if (!call || !operator_name || !runtime_name || !parameter_type ||
         !call->call_args) {
         return NULL;
     }
-    symbol = sema_cxx_lookup_name(
-        is_deallocation ? "::operator delete" : "::operator new",
-        call->loc);
+    global_operator_name = is_deallocation
+        ? (strstr(operator_name, "[]")
+               ? "::operator delete[]" : "::operator delete")
+        : (strstr(operator_name, "[]")
+               ? "::operator new[]" : "::operator new");
+    symbol = sema_cxx_lookup_name(global_operator_name, call->loc);
     candidates = symbol && symbol->kind == SYM_FUNC
         ? symbol->decl : NULL;
     implicit_candidate = sema_cxx_default_global_allocation_function(
@@ -26724,10 +26728,9 @@ static Type* sema_expr(Expr* expr) {
                 Type* freed_type;
                 Type* object_type;
                 Decl* cleanup_function;
+                bool resolve_global_deallocator;
+                const char* deallocation_operator_name;
 
-                if (expr->call_delete_is_array) {
-                    sema_expr(expr->call_func);
-                }
                 if (!expr->call_args || expr->call_args->next ||
                     !expr->call_args->expr) {
                     rcc_error(expr->loc,
@@ -26749,10 +26752,19 @@ static Type* sema_expr(Expr* expr) {
                               "delete expression requires a complete object type");
                     return expr->type;
                 }
-                if (!expr->call_delete_is_array) {
+                resolve_global_deallocator = !expr->call_delete_is_array ||
+                    (!object_type->cxx_class &&
+                     !object_type->cxx_nontrivial &&
+                     object_type->kind != TYPE_STRUCT &&
+                     object_type->kind != TYPE_UNION &&
+                     object_type->kind != TYPE_ARRAY);
+                if (resolve_global_deallocator) {
+                    deallocation_operator_name =
+                        expr->call_delete_is_array
+                            ? "operator delete[]" : "operator delete";
                     Decl* deallocation_function =
                         sema_cxx_resolve_global_allocation_function(
-                            expr, "operator delete", "rin_free",
+                            expr, deallocation_operator_name, "rin_free",
                             type_ptr(type_void), true);
                     TypeParam* parameter = deallocation_function &&
                             deallocation_function->type &&
@@ -26766,7 +26778,7 @@ static Type* sema_expr(Expr* expr) {
                                   "use of deleted deallocation function '%s'",
                                   deallocation_function->name
                                       ? deallocation_function->name
-                                      : "operator delete");
+                                      : deallocation_operator_name);
                         return expr->type;
                     }
                     if (parameter && !implicit_cast(
@@ -26775,6 +26787,8 @@ static Type* sema_expr(Expr* expr) {
                                   "delete operand cannot be converted to the selected deallocation parameter");
                         return expr->type;
                     }
+                } else if (expr->call_delete_is_array) {
+                    sema_expr(expr->call_func);
                 }
                 if (object_type->cxx_nontrivial &&
                     !sema_cxx_trivially_destructible(object_type)) {
@@ -26835,16 +26849,33 @@ static Type* sema_expr(Expr* expr) {
                 CxxClass* cls = object_type ? object_type->cxx_class : NULL;
                 int argument_count;
                 CxxConstructorInfo* constructor = NULL;
+                bool resolve_global_allocator;
 
-                /* Resolve scalar allocation functions as an overload set
-                 * containing both visible global declarations and the
-                 * implicit RinOS allocator candidate.  Array allocation is
-                 * still lowered by its cookie-aware runtime path. */
-                if (!expr->call_new_is_array) {
+                resolve_global_allocator = !expr->call_new_is_array ||
+                    (!expr->call_new_value_init &&
+                     !expr->call_new_args && object_type &&
+                     !object_type->cxx_class &&
+                     !object_type->cxx_nontrivial &&
+                     object_type->kind != TYPE_STRUCT &&
+                     object_type->kind != TYPE_UNION &&
+                     object_type->kind != TYPE_ARRAY);
+                /* Resolve scalar allocation and plain scalar array
+                 * allocation against visible global overloads plus the
+                 * implicit RinOS allocator candidate.  Array forms with
+                 * cookies or element initialization keep their specialized
+                 * allocation path until it can pass the computed extent to
+                 * the selected function without reevaluating the bound. */
+                if (resolve_global_allocator) {
                     Decl* allocation_function;
                     Expr* deallocation_probe;
                     Expr* deallocation_pointer;
                     ExprList* deallocation_arguments = NULL;
+                    const char* allocation_operator_name =
+                        expr->call_new_is_array
+                            ? "operator new[]" : "operator new";
+                    const char* deallocation_operator_name =
+                        expr->call_new_is_array
+                            ? "operator delete[]" : "operator delete";
 
                     for (argument = expr->call_args; argument;
                          argument = argument->next) {
@@ -26852,7 +26883,7 @@ static Type* sema_expr(Expr* expr) {
                     }
                     allocation_function =
                         sema_cxx_resolve_global_allocation_function(
-                            expr, "operator new", "rin_malloc",
+                            expr, allocation_operator_name, "rin_malloc",
                             g_opts.target_arch == ARCH_X64
                                 ? type_ullong : type_uint,
                             false);
@@ -26870,11 +26901,12 @@ static Type* sema_expr(Expr* expr) {
                     exprlist_append(&deallocation_arguments,
                                     deallocation_pointer);
                     deallocation_probe = expr_call(
-                        expr_ident("operator delete", expr->loc),
+                        expr_ident(deallocation_operator_name, expr->loc),
                         deallocation_arguments, expr->loc);
                     expr->call_new_deallocation_function =
                         sema_cxx_resolve_global_allocation_function(
-                            deallocation_probe, "operator delete", "rin_free",
+                            deallocation_probe, deallocation_operator_name,
+                            "rin_free",
                             type_ptr(type_void), true);
                 } else {
                     /* Analyze the runtime allocator size through the normal

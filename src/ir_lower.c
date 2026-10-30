@@ -22964,9 +22964,24 @@ static RccIrLowerValue lower_cxx_new_expression(
     RccIrLowerValue result;
     CxxConstructorInfo* constructor;
     const Decl* constructor_decl;
+    bool simple_scalar_array;
     bool register_free = false;
     bool initialized;
-    if (context && expression && expression->call_new_is_array) {
+    simple_scalar_array = expression && expression->call_new_is_array &&
+        expression->call_new_type &&
+        !expression->call_new_type->cxx_class &&
+        !expression->call_new_type->cxx_nontrivial &&
+        expression->call_new_type->kind != TYPE_STRUCT &&
+        expression->call_new_type->kind != TYPE_UNION &&
+        expression->call_new_type->kind != TYPE_ARRAY &&
+        !expression->call_new_array_cookie &&
+        !expression->call_new_value_init &&
+        !expression->call_new_default_member_initializers &&
+        !expression->call_new_copy_init &&
+        !expression->call_new_args &&
+        !expression->call_new_constructor;
+    if (context && expression && expression->call_new_is_array &&
+        !simple_scalar_array) {
         return lower_cxx_new_array_expression(context, expression);
     }
     if (!context || !expression || !expression->call_func ||
@@ -23138,6 +23153,37 @@ static RccIrLowerValue lower_cxx_delete_expression(
             expression->call_delete_deallocation_function->link_name;
     }
     if (expression->call_delete_is_array) {
+        if (expression->call_delete_deallocation_function &&
+            object_type && !object_type->cxx_class &&
+            !object_type->cxx_nontrivial &&
+            object_type->kind != TYPE_STRUCT &&
+            object_type->kind != TYPE_UNION &&
+            object_type->kind != TYPE_ARRAY) {
+            RccIrBlock* deallocate_block = rcc_ir_block_add(
+                context->function, "delete.array.deallocate");
+            done_block = rcc_ir_block_add(
+                context->function, "delete.array.done");
+            if (!deallocate_block || !done_block ||
+                !lower_conditional_branch(
+                    context, object, deallocate_block->id,
+                    done_block->id)) {
+                return lower_invalid_value();
+            }
+            context->current = deallocate_block;
+            context->terminated = false;
+            (void)lower_cxx_runtime_call(
+                context, deallocation_name, rcc_ir_type_void(),
+                &object.value, 1u);
+            if (context->unsupported || context->terminated ||
+                !lower_branch(context, done_block->id)) {
+                return lower_invalid_value();
+            }
+            context->current = done_block;
+            context->terminated = false;
+            void_result.type = rcc_ir_type_void();
+            void_result.valid = true;
+            return void_result;
+        }
         return lower_cxx_delete_array_expression(
             context, expression, argument, object, object_type);
     }

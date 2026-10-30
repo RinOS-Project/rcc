@@ -10161,8 +10161,14 @@ remains a separate open item.
         candidate. Carry the selected deallocator through scalar destruction
         and exception cleanup. The regression executes replacement operators
         with both native code generation paths and checks the verified backend
-        for i686/AMD64 at `-O0` and `-O2`; array and class-specific selection
-        remain open.
+        for i686/AMD64 at `-O0` and `-O2`; specialized array forms and
+        class-specific selection remain open.
+  - [x] Resolve global `operator new[]`/`operator delete[]` for uninitialized
+        arrays of scalar elements without cookies. Exercise replacement
+        operators and the implicit RinOS fallback on i686 and AMD64, run the
+        native x64 output, and verify both targets at `-O0`/`-O2` with no
+        verified-backend fallback. Arrays with element initialization,
+        cookies, or class-specific operators remain open.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

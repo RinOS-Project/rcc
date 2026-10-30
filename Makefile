@@ -17000,7 +17000,7 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 		-fsyntax-only tests/cxx_global_allocation_resolution.cpp
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-fsyntax-only tests/cxx_global_allocation_fallback.cpp
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,4)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,7)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-global-allocation-operators/x86.ro \
