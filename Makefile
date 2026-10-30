@@ -17458,6 +17458,8 @@ test-complex-legacy: test-complex $(RCC_TARGET)
 		>$(TEST_OUT)/complex/legacy-x64.log
 	$(GREP) -F -q 'Code generation (x86-64)' \
 		$(TEST_OUT)/complex/legacy-x64.log
+	$(CC) -std=c17 -Wall -Wextra -Werror -Wno-unused-value -fsyntax-only \
+		tests/c_complex_legacy_abi.c
 	$(CC) $(CFLAGS) -Werror -o $(TEST_OUT)/complex/run-legacy$(EXE_SUFFIX) \
 		tests/c_complex_legacy_abi_test.c \
 		$(TEST_OUT)/complex/legacy-x64.s \

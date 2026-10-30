@@ -3,6 +3,10 @@
 
 typedef float _Complex RccLegacyComplexFloat;
 typedef double _Complex RccLegacyComplexDouble;
+typedef struct RccLegacyComplexBinary64Pair {
+    double real;
+    double imaginary;
+} RccLegacyComplexBinary64Pair;
 
 #if defined(_WIN64)
 #define RINOS_ABI __attribute__((sysv_abi))
@@ -46,6 +50,10 @@ extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_double_divide(
     RccLegacyComplexDouble, RccLegacyComplexDouble);
 extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_double_add_integer(
     RccLegacyComplexDouble, int);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_float_add_double(RccLegacyComplexFloat, double);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_double_add_long_double(RccLegacyComplexDouble, double);
 
 extern void rcc_host_complex_mul_f32(
     float, float, float, float, float*, float*);
@@ -157,5 +165,14 @@ int main(void) {
     double_result = rcc_legacy_complex_double_add_integer(double_left, 3);
     assert(near_double(__real__ double_result, 5.0) &&
            near_double(__imag__ double_result, 3.0));
+    double_result = rcc_legacy_complex_float_add_double(float_left, 0.5);
+    assert(near_double(__real__ double_result, 2.5) &&
+           near_double(__imag__ double_result, 3.0));
+    {
+        RccLegacyComplexBinary64Pair wide_result =
+            rcc_legacy_complex_double_add_long_double(double_left, 0.5);
+        assert(near_double(wide_result.real, 2.5) &&
+               near_double(wide_result.imaginary, 3.0));
+    }
     return 0;
 }

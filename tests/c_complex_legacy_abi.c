@@ -1,5 +1,17 @@
 typedef float _Complex RccLegacyComplexFloat;
 typedef double _Complex RccLegacyComplexDouble;
+typedef long double _Complex RccLegacyComplexLongDouble;
+
+_Static_assert(_Generic(
+    (RccLegacyComplexFloat)0.0f + (double)0.0,
+    RccLegacyComplexDouble: 1,
+    default: 0),
+    "float complex plus double must promote to double complex");
+_Static_assert(_Generic(
+    (RccLegacyComplexDouble)0.0 + (long double)0.0L,
+    RccLegacyComplexLongDouble: 1,
+    default: 0),
+    "double complex plus long double must promote to long double complex");
 
 RccLegacyComplexFloat rcc_legacy_complex_float_add(
     RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
@@ -90,5 +102,15 @@ RccLegacyComplexDouble rcc_legacy_complex_double_divide(
 
 RccLegacyComplexDouble rcc_legacy_complex_double_add_integer(
     RccLegacyComplexDouble left, int right) {
+    return left + right;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_float_add_double(
+    RccLegacyComplexFloat left, double right) {
+    return left + right;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_double_add_long_double(
+    RccLegacyComplexDouble left, long double right) {
     return left + right;
 }
