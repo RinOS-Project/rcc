@@ -2132,6 +2132,85 @@ static bool x86_emit_pointer_store(
     return true;
 }
 
+static bool x86_emit_fenv_instruction(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value address = instruction->operands[0];
+    RccX86HardwareGpr address_register;
+    unsigned extension;
+    uint8_t opcode;
+    bool two_byte_opcode;
+    bool preserve_address = address.kind != RCC_X86_VALUE_GPR;
+    switch (instruction->immediate) {
+        case RCC_IR_X86_FENV_FNSTENV:
+            opcode = 0xd9u;
+            extension = 6u;
+            two_byte_opcode = false;
+            break;
+        case RCC_IR_X86_FENV_FLDENV:
+            opcode = 0xd9u;
+            extension = 4u;
+            two_byte_opcode = false;
+            break;
+        case RCC_IR_X86_FENV_STMXCSR:
+            opcode = 0xaeu;
+            extension = 3u;
+            two_byte_opcode = true;
+            break;
+        case RCC_IR_X86_FENV_LDMXCSR:
+            opcode = 0xaeu;
+            extension = 2u;
+            two_byte_opcode = true;
+            break;
+        case RCC_IR_X86_FENV_FNSTCW:
+            opcode = 0xd9u;
+            extension = 7u;
+            two_byte_opcode = false;
+            break;
+        case RCC_IR_X86_FENV_FNSTSW:
+            opcode = 0xddu;
+            extension = 7u;
+            two_byte_opcode = false;
+            break;
+        case RCC_IR_X86_FENV_FLDCW:
+            opcode = 0xd9u;
+            extension = 5u;
+            two_byte_opcode = false;
+            break;
+        default:
+            return x86_encode_error(
+                encoder, "x86 floating environment operation is invalid");
+    }
+    if ((encoder->function->target != RCC_X86_TARGET_I686 &&
+         encoder->function->target != RCC_X86_TARGET_X86_64) ||
+        instruction->type.kind != RCC_MIR_TYPE_VOID ||
+        instruction->operand_types[0].kind != RCC_MIR_TYPE_POINTER ||
+        address.size != encoder->function->pointer_size ||
+        (address.kind != RCC_X86_VALUE_GPR &&
+         address.kind != RCC_X86_VALUE_FRAME &&
+         address.kind != RCC_X86_VALUE_OUTGOING_ARGUMENT &&
+         address.kind != RCC_X86_VALUE_INCOMING_ARGUMENT)) {
+        return x86_encode_error(
+            encoder, "x87 environment address is invalid");
+    }
+    address_register = preserve_address
+        ? x86_choose_scratch(address, address) : address.gpr;
+    if ((preserve_address && !x86_emit_push(encoder, address_register)) ||
+        (preserve_address && !x86_emit_load(
+            encoder, address_register, address,
+            encoder->function->pointer_size)) ||
+        !x86_emit_rex(
+            encoder, false, (RccX86HardwareGpr)extension,
+            address_register, false) ||
+        (two_byte_opcode && !x86_emit_u8(encoder, 0x0fu)) ||
+        !x86_emit_u8(encoder, opcode) ||
+        !x86_emit_indirect_modrm(encoder, extension, address_register) ||
+        (preserve_address && !x86_emit_pop(encoder, address_register))) {
+        return false;
+    }
+    return true;
+}
+
 static bool x86_emit_atomic_fetch_add(
     RccX86Encoder* encoder,
     const RccX86LegalInstruction* instruction) {
@@ -3433,6 +3512,8 @@ static bool x86_emit_instruction(
             return x86_emit_pointer_load(encoder, instruction);
         case RCC_X86_STORE:
             return x86_emit_pointer_store(encoder, instruction);
+        case RCC_X86_FENV:
+            return x86_emit_fenv_instruction(encoder, instruction);
         case RCC_X86_ATOMIC_FETCH_ADD:
             return x86_emit_atomic_fetch_add(encoder, instruction);
         case RCC_X86_ATOMIC_EXCHANGE:

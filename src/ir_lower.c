@@ -14,6 +14,7 @@
 #include "x86_legalize.h"
 #include "cxx_exception_type.h"
 #include <limits.h>
+#include <string.h>
 
 typedef struct {
     RccIrValue value;
@@ -13935,6 +13936,9 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             }
             units = 1u;
         } else if (parameter &&
+                   lower_i686_wide_scalar_type(parameter->type)) {
+            units = 2u;
+        } else if (parameter &&
                    lower_abi_is_aggregate(parameter->type)) {
             bool scalar_to_complex = argument->expr &&
                 argument->expr->type &&
@@ -14040,6 +14044,9 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     for (argument = expression->call_args; argument;
          argument = argument->next) {
         RccIrLowerValue value;
+        RccIrLowerWideValue wide_value;
+        bool wide_scalar_argument = parameter &&
+            lower_i686_wide_scalar_type(parameter->type);
         bool temporary_owner_bound = false;
         const Type* argument_type = parameter && parameter->type
             ? parameter->type
@@ -14199,6 +14206,15 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 }
                 value = lower_lvalue_address(context, argument->expr);
             }
+        } else if (wide_scalar_argument) {
+            memset(&wide_value, 0, sizeof(wide_value));
+            if (!lower_wide_scalar_expression(
+                    context, argument->expr, &wide_value)) {
+                rcc_free(operands);
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            value = lower_invalid_value();
         } else {
             value = lower_expression(context, argument->expr);
         }
@@ -14371,6 +14387,9 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                     operands[index++] = chunk.value;
                 }
             }
+        } else if (wide_scalar_argument) {
+            operands[index++] = wide_value.low.value;
+            operands[index++] = wide_value.high.value;
         } else if (parameter) {
             value = lower_cast(context, value, parameter->type);
             if (!value.valid) {
@@ -14407,7 +14426,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             operands[index++] = value.value;
         }
         if (parameter) parameter = parameter->next;
-        if (!value.valid) {
+        if (!wide_scalar_argument && !value.valid) {
             rcc_free(operands);
             return lower_invalid_value();
         }
@@ -15965,6 +15984,7 @@ static bool lower_wide_scalar_call(
     TypeParam* parameter;
     size_t argument_count = 0u;
     size_t index = 0u;
+    size_t word_size = lower_abi_chunk_size();
     RccIrValue* operands = NULL;
     RccIrInstruction* allocation;
     RccIrInstruction* call;
@@ -16016,8 +16036,26 @@ static bool lower_wide_scalar_call(
         size_t units;
         if (!argument->expr || !argument->expr->type) return false;
         if (parameter) {
-            if (lower_abi_is_aggregate(parameter->type)) return false;
-            units = lower_i686_wide_scalar_type(parameter->type) ? 2u : 1u;
+            if (lower_abi_indirect_class_parameter(parameter->type)) {
+                if (argument->cxx_temporary_owner ||
+                    !type_is_compatible(
+                        parameter->type, argument->expr->type)) {
+                    return false;
+                }
+                units = 1u;
+            } else if (lower_abi_is_aggregate(parameter->type)) {
+                if (!type_is_compatible(
+                        parameter->type, argument->expr->type) ||
+                    !lower_abi_aggregate_supported(parameter->type) ||
+                    argument->cxx_temporary_owner) {
+                    return false;
+                }
+                units = ((size_t)parameter->type->size + word_size - 1u) /
+                    word_size;
+            } else {
+                units = lower_i686_wide_scalar_type(parameter->type)
+                    ? 2u : 1u;
+            }
         } else {
             RccIrType argument_type;
             if (!function_type->variadic) return false;
@@ -16048,7 +16086,36 @@ static bool lower_wide_scalar_call(
     parameter = function_type->params;
     for (argument = expression->call_args; argument;
          argument = argument->next) {
-        if ((parameter &&
+        if (parameter &&
+            lower_abi_indirect_class_parameter(parameter->type)) {
+            RccIrLowerValue value = lower_expression(
+                context, argument->expr);
+            if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER) {
+                rcc_free(operands);
+                return false;
+            }
+            operands[index++] = value.value;
+        } else if (parameter && lower_abi_is_aggregate(parameter->type)) {
+            RccIrLowerValue aggregate = lower_expression(
+                context, argument->expr);
+            size_t units = ((size_t)parameter->type->size + word_size - 1u) /
+                word_size;
+            if (!aggregate.valid ||
+                aggregate.type.kind != RCC_IR_TYPE_POINTER) {
+                rcc_free(operands);
+                return false;
+            }
+            for (size_t unit = 0u; unit < units; ++unit) {
+                RccIrLowerValue chunk = lower_load_aggregate_chunk(
+                    context, aggregate, parameter->type,
+                    unit * word_size);
+                if (!chunk.valid) {
+                    rcc_free(operands);
+                    return false;
+                }
+                operands[index++] = chunk.value;
+            }
+        } else if ((parameter &&
              lower_i686_wide_scalar_type(parameter->type)) ||
             lower_i686_wide_scalar_type(argument->expr->type)) {
             RccIrLowerWideValue value;
@@ -16143,8 +16210,31 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                 }
                 return lower_zero_member_function_pointer(context);
             }
-            if (!lower_type(expression->type, &type) ||
-                type.kind != RCC_IR_TYPE_INTEGER) {
+            if (!lower_type(expression->type, &type)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (type.kind == RCC_IR_TYPE_POINTER &&
+                expression->type &&
+                (expression->type->kind == TYPE_NULLPTR ||
+                 (expression->type->kind == TYPE_PTR &&
+                  !expression->type->cxx_is_member_pointer &&
+                  (expression->is_cxx_nullptr ||
+                   expression->int_val == 0)))) {
+                RccIrType pointer_integer = rcc_ir_type_integer(
+                    g_opts.target_arch == ARCH_X64 ? 64u : 32u);
+                RccIrLowerValue integer_zero = lower_integer_constant(
+                    context, pointer_integer, true, 0u);
+                RccIrInstruction* pointer_zero;
+                if (!integer_zero.valid) return lower_invalid_value();
+                pointer_zero = lower_append(
+                    context, RCC_IR_INT_TO_PTR, type,
+                    &integer_zero.value, 1u, NULL, 0u);
+                return pointer_zero
+                    ? lower_value(pointer_zero->result, type, true)
+                    : lower_invalid_value();
+            }
+            if (type.kind != RCC_IR_TYPE_INTEGER) {
                 context->unsupported = true;
                 return lower_invalid_value();
             }
@@ -16963,6 +17053,12 @@ static RccIrLowerValue lower_conditional_expression(
     RccIrInstruction* phi;
     RccIrLowerValue aggregate_storage = lower_invalid_value();
     RccIrType aggregate_return_type;
+    Type* array_decay_type = expression && expression->type &&
+        expression->type->kind == TYPE_ARRAY &&
+        expression->cxx_conditional_lvalue
+        ? type_ptr(expression->type->base) : NULL;
+    const Type* result_ast_type = array_decay_type
+        ? array_decay_type : expression ? expression->type : NULL;
     int aggregate_return_kind = LOWER_ABI_RETURN_UNSUPPORTED;
     bool aggregate_result;
     bool supported_temporary_conditional = false;
@@ -17116,7 +17212,7 @@ static RccIrLowerValue lower_conditional_expression(
             aggregate_storage = lower_value(
                 allocation->result, rcc_ir_type_pointer(0u), true);
         }
-    } else if (!lower_type(expression->type, &result_type) ||
+    } else if (!lower_type(result_ast_type, &result_type) ||
                result_type.kind == RCC_IR_TYPE_VOID) {
         context->unsupported = true;
         return lower_invalid_value();
@@ -17167,7 +17263,7 @@ static RccIrLowerValue lower_conditional_expression(
             return lower_invalid_value();
         }
     } else {
-        then_value = lower_cast(context, then_value, expression->type);
+        then_value = lower_cast(context, then_value, result_ast_type);
     }
     then_end = context->current;
     if ((!aggregate_result && !then_value.valid) || context->terminated ||
@@ -17210,7 +17306,7 @@ static RccIrLowerValue lower_conditional_expression(
             return lower_invalid_value();
         }
     } else {
-        else_value = lower_cast(context, else_value, expression->type);
+        else_value = lower_cast(context, else_value, result_ast_type);
     }
     else_end = context->current;
     if ((!aggregate_result && !else_value.valid) || context->terminated ||
@@ -17229,7 +17325,7 @@ static RccIrLowerValue lower_conditional_expression(
                        targets, 2u);
     if (!phi) return lower_invalid_value();
     return lower_value(phi->result, result_type,
-                       expression->type->is_unsigned);
+                       result_ast_type && result_ast_type->is_unsigned);
 }
 
 static RccIrLowerValue lower_logical_expression(
@@ -17509,12 +17605,14 @@ static bool lower_statement_has_switch_label(const Stmt* statement) {
 }
 
 static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
+    RccIrLowerLocal* locals_marker;
     RccIrLowerScopeCleanup* scope_marker;
     RccIrLowerVlaAllocation* vla_marker;
     bool owns_scope;
     if (!block || block->kind != STMT_BLOCK) {
         return lower_statement(context, block);
     }
+    locals_marker = context->locals;
     scope_marker = context->scope_cleanups;
     vla_marker = context->vla_allocations;
     owns_scope = !block->block_no_scope;
@@ -17537,6 +17635,7 @@ static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
         }
         context->scope_cleanups = scope_marker;
         context->vla_allocations = vla_marker;
+        context->locals = locals_marker;
     }
     return !context->unsupported;
 }
@@ -18268,6 +18367,7 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
 }
 
 static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
+    RccIrLowerLocal* locals_marker = context->locals;
     RccIrBlock* condition_block;
     RccIrBlock* body_block;
     RccIrBlock* increment_block;
@@ -18300,8 +18400,10 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
         lower_wide_loop_body_edge_safe(statement->for_body)) {
         RccIrLowerWideState* baseline = lower_capture_wide_states(context);
         if (baseline) {
-            return lower_for_wide_ssa(
+            bool result = lower_for_wide_ssa(
                 context, statement, baseline, scope_marker);
+            context->locals = locals_marker;
+            return result;
         }
     }
     condition_block = rcc_ir_block_add(context->function, "for.cond");
@@ -18377,6 +18479,7 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     context->terminated = false;
     context->vla_allocations = scope_vla_marker;
     lower_invalidate_wide_locals(context);
+    context->locals = locals_marker;
     return true;
 }
 
@@ -26700,9 +26803,92 @@ static bool lower_statement_impl(RccIrLowerContext* context,
             return lower_cxx_try(context, statement);
         case STMT_THROW:
             return lower_cxx_throw(context, statement);
-        case STMT_ASM:
-            context->unsupported = true;
-            return false;
+        case STMT_ASM: {
+            typedef struct {
+                const char* assembly;
+                RccIrX86FenvOperation operation;
+                int memory_size;
+                bool output;
+                bool aggregate;
+            } LowerX86FenvAssembly;
+            static const LowerX86FenvAssembly supported_assemblies[] = {
+                {"fnstenv %0", RCC_IR_X86_FENV_FNSTENV, 28, true, true},
+                {"fldenv %0", RCC_IR_X86_FENV_FLDENV, 28, false, true},
+                {"stmxcsr %0", RCC_IR_X86_FENV_STMXCSR, 4, true, false},
+                {"ldmxcsr %0", RCC_IR_X86_FENV_LDMXCSR, 4, false, false},
+                {"fnstcw %0", RCC_IR_X86_FENV_FNSTCW, 2, true, false},
+                {"fnstsw %0", RCC_IR_X86_FENV_FNSTSW, 2, true, false},
+                {"fldcw %0", RCC_IR_X86_FENV_FLDCW, 2, false, false},
+            };
+            AsmOperand* operand;
+            AsmClobber* clobber;
+            const LowerX86FenvAssembly* specification = NULL;
+            RccIrLowerValue address;
+            RccIrInstruction* instruction;
+            size_t assembly_index;
+            if (statement->asm_basic || !statement->asm_volatile ||
+                !statement->asm_template) {
+                context->unsupported = true;
+                return false;
+            }
+            for (assembly_index = 0u;
+                 assembly_index < sizeof(supported_assemblies) /
+                     sizeof(supported_assemblies[0]);
+                 ++assembly_index) {
+                if (strcmp(statement->asm_template,
+                           supported_assemblies[assembly_index].assembly) ==
+                    0) {
+                    specification = &supported_assemblies[assembly_index];
+                    break;
+                }
+            }
+            if (!specification) {
+                context->unsupported = true;
+                return false;
+            }
+            if (specification->output) {
+                operand = statement->asm_outputs;
+                if (!operand || operand->next || statement->asm_inputs ||
+                    !operand->constraint ||
+                    strcmp(operand->constraint, "=m") != 0) {
+                    context->unsupported = true;
+                    return false;
+                }
+            } else {
+                operand = statement->asm_inputs;
+                if (!operand || operand->next || statement->asm_outputs ||
+                    !operand->constraint ||
+                    strcmp(operand->constraint, "m") != 0) {
+                    context->unsupported = true;
+                    return false;
+                }
+            }
+            clobber = statement->asm_clobbers;
+            if ((clobber && (clobber->next || !clobber->reg ||
+                             strcmp(clobber->reg, "memory") != 0)) ||
+                !operand->expr ||
+                !operand->expr->type ||
+                operand->expr->type->size != specification->memory_size ||
+                (specification->aggregate &&
+                 (operand->expr->type->kind != TYPE_STRUCT ||
+                  !operand->expr->type->is_complete))) {
+                context->unsupported = true;
+                return false;
+            }
+            address = lower_lvalue_address(context, operand->expr);
+            if (!address.valid ||
+                address.type.kind != RCC_IR_TYPE_POINTER) {
+                context->unsupported = true;
+                return false;
+            }
+            instruction = lower_append(
+                context, RCC_IR_X86_FENV, rcc_ir_type_void(),
+                &address.value, 1u, NULL, 0u);
+            if (!instruction) return false;
+            rcc_ir_set_immediate(instruction,
+                                 (uint64_t)specification->operation);
+            return true;
+        }
     }
     context->unsupported = true;
     return false;

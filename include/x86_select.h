@@ -58,6 +58,7 @@ typedef enum {
     RCC_X86_RETURN,
     RCC_X86_PREFETCH,
     RCC_X86_TRAP,
+    RCC_X86_FENV,
 } RccX86Opcode;
 
 typedef struct RccX86Instruction RccX86Instruction;

@@ -466,6 +466,7 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_PREFETCH: return "prefetch";
         case RCC_IR_UNREACHABLE: return "unreachable";
         case RCC_IR_SIGNAL_FENCE: return "signal_fence";
+        case RCC_IR_X86_FENV: return "x86_fenv";
     }
     return "invalid";
 }
@@ -1159,6 +1160,16 @@ static bool ir_verify_instruction_types(
                     verifier, "signal fence has invalid type or shape");
             }
             return true;
+        case RCC_IR_X86_FENV:
+            if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
+                !rcc_ir_type_equal(instruction->type, void_type) ||
+                instruction->immediate < RCC_IR_X86_FENV_FNSTENV ||
+                instruction->immediate > RCC_IR_X86_FENV_FLDCW) {
+                return ir_verify_error(
+                    verifier, "x86 floating environment op has invalid shape");
+            }
+            return ir_operand_has_type(
+                verifier, instruction, 0u, rcc_ir_type_pointer(0u));
         case RCC_IR_PREFETCH:
             if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
                 !rcc_ir_type_equal(instruction->type, void_type) ||
@@ -1485,7 +1496,8 @@ static bool ir_value_dominates_use(RccIrVerifier* verifier,
 
 static bool ir_value_dominates_edge(RccIrVerifier* verifier,
                                     RccIrValue value,
-                                    RccIrBlockId predecessor) {
+                                    RccIrBlockId predecessor,
+                                    RccIrBlockId phi_block) {
     size_t definition_block;
     if (value >= verifier->function->value_count ||
         predecessor >= verifier->function->block_count) {
@@ -1505,7 +1517,13 @@ static bool ir_value_dominates_edge(RccIrVerifier* verifier,
                                   verifier->function->block_count +
                               definition_block]) {
         return ir_verify_error(verifier,
-                               "phi incoming value does not dominate edge");
+                               "phi in block %u (%s) has incoming value %u from block %zu (%s) that does not dominate edge from block %u (%s)",
+                               phi_block,
+                               verifier->blocks[phi_block]->name,
+                               value, definition_block,
+                               verifier->blocks[definition_block]->name,
+                               predecessor,
+                               verifier->blocks[predecessor]->name);
     }
     return true;
 }
@@ -1559,7 +1577,8 @@ static bool ir_verify_uses(RccIrVerifier* verifier) {
                      index < instruction->operand_count; ++index) {
                     if (!ir_value_dominates_edge(
                             verifier, instruction->operands[index],
-                            instruction->targets[index])) {
+                            instruction->targets[index],
+                            instruction->block->id)) {
                         return false;
                     }
                 }

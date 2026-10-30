@@ -67,13 +67,72 @@ static RccMirBlock** mir_phi_collect_blocks(
     return blocks;
 }
 
-static size_t mir_phi_count_block_phis(const RccMirBlock* block) {
+/* Phi inputs are edge uses only when the phi result is used.  Starting from
+ * ordinary instruction uses and walking backward through used phis removes
+ * dead phi cycles from edge-copy lowering without dropping a value that can
+ * reach an emitted instruction. */
+static bool mir_phi_collect_live_values(
+    const RccMirFunction* function, bool** live_values_out,
+    char* error, size_t error_size) {
+    bool* live_values = NULL;
+    const RccMirBlock* block;
+    bool changed;
+    if (function->register_count > SIZE_MAX / sizeof(*live_values)) {
+        return mir_phi_error(error, error_size,
+                             "MIR phi liveness table is too large");
+    }
+    if (function->register_count != 0u) {
+        live_values = rcc_alloc(
+            function->register_count * sizeof(*live_values));
+    }
+    for (block = function->first_block; block; block = block->next) {
+        const RccMirInstruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            size_t operand;
+            if (instruction->opcode == RCC_MIR_PHI) continue;
+            for (operand = 0u; operand < instruction->operand_count;
+                 ++operand) {
+                live_values[instruction->operands[operand]] = true;
+            }
+            if (instruction->opcode == RCC_MIR_CALL &&
+                instruction->callee_value != RCC_MIR_VREG_NONE) {
+                live_values[instruction->callee_value] = true;
+            }
+        }
+    }
+    do {
+        changed = false;
+        for (block = function->first_block; block; block = block->next) {
+            const RccMirInstruction* instruction;
+            for (instruction = block->first;
+                 instruction && instruction->opcode == RCC_MIR_PHI;
+                 instruction = instruction->next) {
+                size_t incoming;
+                if (!live_values[instruction->definition]) continue;
+                for (incoming = 0u; incoming < instruction->operand_count;
+                     ++incoming) {
+                    RccMirVReg source = instruction->operands[incoming];
+                    if (!live_values[source]) {
+                        live_values[source] = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    } while (changed);
+    *live_values_out = live_values;
+    return true;
+}
+
+static size_t mir_phi_count_block_phis(
+    const RccMirBlock* block, const bool* live_values) {
     size_t count = 0u;
     const RccMirInstruction* instruction;
     for (instruction = block->first;
          instruction && instruction->opcode == RCC_MIR_PHI;
          instruction = instruction->next) {
-        ++count;
+        if (live_values[instruction->definition]) ++count;
     }
     return count;
 }
@@ -293,12 +352,13 @@ static bool mir_phi_schedule_edge(
 
 static bool mir_phi_build_parallel_copies(
     const RccMirFunction* function, RccMirBlock** blocks,
+    const bool* live_values,
     RccMirPhiPlan* plan, char* error, size_t error_size) {
     size_t successor;
     for (successor = 0u; successor < function->block_count; ++successor) {
         const RccMirBlock* block = blocks[successor];
         const RccMirInstruction* phi;
-        size_t phi_count = mir_phi_count_block_phis(block);
+        size_t phi_count = mir_phi_count_block_phis(block, live_values);
         size_t predecessor_count;
         if (phi_count == 0u) continue;
         predecessor_count = mir_phi_predecessor_count(
@@ -306,6 +366,7 @@ static bool mir_phi_build_parallel_copies(
         for (phi = block->first;
              phi && phi->opcode == RCC_MIR_PHI; phi = phi->next) {
             size_t incoming;
+            if (!live_values[phi->definition]) continue;
             for (incoming = 0u; incoming < phi->operand_count; ++incoming) {
                 RccMirBlockId predecessor = phi->targets[incoming];
                 RccMirEdgeCopies* edge = mir_phi_find_edge(
@@ -420,14 +481,30 @@ static bool mir_phi_verify_schedule(
         if (current_tokens[destination] != initial_tokens[source]) {
             size_t expected_token = initial_tokens[source];
             size_t observed_token = current_tokens[destination];
+            size_t destination_aliases = 0u;
+            for (size_t other = 0u; other < edge->copy_count; ++other) {
+                if (mir_phi_location_equal(
+                        allocation->locations[
+                            edge->copies[other].destination],
+                        locations[destination])) {
+                    ++destination_aliases;
+                }
+            }
             bool reported = mir_phi_error(
                 error, error_size,
-                "scheduled MIR phi moves change parallel-copy semantics on "
-                "edge %u -> %u at copy %zu (source token %zu, destination "
-                "contains %zu; locations %zu/%zu)",
+                "MIR phi parallel-copy semantics: edge %u->%u copy "
+                "%zu v%u->v%u loses %zu to %zu "
+                "(dest aliases %zu; src k%u/r%u/s%u; dst k%u/r%u)",
                 (unsigned)edge->predecessor,
                 (unsigned)edge->successor, index,
-                expected_token, observed_token, source, destination);
+                (unsigned)edge->copies[index].source,
+                (unsigned)edge->copies[index].destination,
+                expected_token, observed_token, destination_aliases,
+                (unsigned)locations[source].kind,
+                (unsigned)locations[source].physical_register,
+                locations[source].spill_offset,
+                (unsigned)locations[destination].kind,
+                (unsigned)locations[destination].physical_register);
             rcc_free(locations);
             rcc_free(initial_tokens);
             rcc_free(current_tokens);
@@ -456,6 +533,7 @@ bool rcc_mir_verify_phi_plan(
     const RccMirAllocation* allocation, const RccMirPhiPlan* plan,
     char* error, size_t error_size) {
     RccMirBlock** blocks;
+    bool* live_values = NULL;
     size_t edge_index;
     if (error && error_size != 0u) error[0] = '\0';
     if (!function || !policy || !allocation || !plan ||
@@ -476,6 +554,10 @@ bool rcc_mir_verify_phi_plan(
         return mir_phi_error(error, error_size,
                              "MIR phi frame layout is invalid");
     }
+    if (!mir_phi_collect_live_values(function, &live_values,
+                                     error, error_size)) {
+        return false;
+    }
     blocks = mir_phi_collect_blocks(function);
     for (edge_index = 0u; edge_index < plan->edge_count; ++edge_index) {
         const RccMirEdgeCopies* edge = &plan->edges[edge_index];
@@ -485,6 +567,7 @@ bool rcc_mir_verify_phi_plan(
         if (edge->predecessor >= function->block_count ||
             edge->successor >= function->block_count) {
             rcc_free(blocks);
+            rcc_free(live_values);
             return mir_phi_error(error, error_size,
                                  "MIR phi edge is out of range");
         }
@@ -497,9 +580,11 @@ bool rcc_mir_verify_phi_plan(
                 break;
             }
         }
-        phi_count = mir_phi_count_block_phis(blocks[edge->successor]);
+        phi_count = mir_phi_count_block_phis(
+            blocks[edge->successor], live_values);
         if (!edge_exists || edge->copy_count != phi_count) {
             rcc_free(blocks);
+            rcc_free(live_values);
             return mir_phi_error(error, error_size,
                                  "MIR phi edge copies do not match CFG");
         }
@@ -510,6 +595,7 @@ bool rcc_mir_verify_phi_plan(
                     blocks, function->block_count, edge->successor) > 1u;
             if (edge->requires_edge_block != expected_critical) {
                 rcc_free(blocks);
+                rcc_free(live_values);
                 return mir_phi_error(
                     error, error_size,
                     "MIR phi critical-edge classification is invalid");
@@ -520,7 +606,12 @@ bool rcc_mir_verify_phi_plan(
             const RccMirInstruction* phi =
                 blocks[edge->successor]->first;
             size_t incoming;
-            for (size_t seek = 0u; seek < copy_index; ++seek) {
+            size_t live_index = 0u;
+            while (phi && phi->opcode == RCC_MIR_PHI) {
+                if (live_values[phi->definition] &&
+                    live_index++ == copy_index) {
+                    break;
+                }
                 phi = phi->next;
             }
             if (!phi || phi->opcode != RCC_MIR_PHI ||
@@ -528,6 +619,7 @@ bool rcc_mir_verify_phi_plan(
                 !rcc_mir_type_equal(edge->copies[copy_index].type,
                                     phi->type)) {
                 rcc_free(blocks);
+                rcc_free(live_values);
                 return mir_phi_error(error, error_size,
                                      "MIR phi copy is inconsistent");
             }
@@ -537,6 +629,7 @@ bool rcc_mir_verify_phi_plan(
             if (incoming == phi->target_count ||
                 edge->copies[copy_index].source != phi->operands[incoming]) {
                 rcc_free(blocks);
+                rcc_free(live_values);
                 return mir_phi_error(error, error_size,
                                      "MIR phi source is inconsistent");
             }
@@ -545,6 +638,7 @@ bool rcc_mir_verify_phi_plan(
             if (plan->edges[earlier].predecessor == edge->predecessor &&
                 plan->edges[earlier].successor == edge->successor) {
                 rcc_free(blocks);
+                rcc_free(live_values);
                 return mir_phi_error(error, error_size,
                                      "MIR phi plan repeats an edge");
             }
@@ -552,12 +646,14 @@ bool rcc_mir_verify_phi_plan(
         if (!mir_phi_verify_schedule(edge, allocation,
                                      error, error_size)) {
             rcc_free(blocks);
+            rcc_free(live_values);
             return false;
         }
     }
     for (size_t successor = 0u; successor < function->block_count;
          ++successor) {
-        if (mir_phi_count_block_phis(blocks[successor]) != 0u) {
+        if (mir_phi_count_block_phis(
+                blocks[successor], live_values) != 0u) {
             for (size_t predecessor = 0u;
                  predecessor < function->block_count; ++predecessor) {
                 const RccMirInstruction* terminator =
@@ -574,6 +670,7 @@ bool rcc_mir_verify_phi_plan(
                         (RccMirPhiPlan*)plan, (RccMirBlockId)predecessor,
                         (RccMirBlockId)successor)) {
                     rcc_free(blocks);
+                    rcc_free(live_values);
                     return mir_phi_error(error, error_size,
                                          "MIR phi plan omits an edge");
                 }
@@ -581,6 +678,7 @@ bool rcc_mir_verify_phi_plan(
         }
     }
     rcc_free(blocks);
+    rcc_free(live_values);
     return true;
 }
 
@@ -589,6 +687,7 @@ bool rcc_mir_build_phi_plan(
     const RccMirAllocation* allocation, RccMirPhiPlan* plan,
     char* error, size_t error_size) {
     RccMirBlock** blocks;
+    bool* live_values = NULL;
     uint16_t maximum_size = 1u;
     uint16_t maximum_alignment = 1u;
     size_t edge;
@@ -601,14 +700,21 @@ bool rcc_mir_build_phi_plan(
         return false;
     }
     plan->frame_size = allocation->spill_area_size;
+    if (!mir_phi_collect_live_values(function, &live_values,
+                                     error, error_size)) {
+        rcc_mir_phi_plan_release(plan);
+        return false;
+    }
     blocks = mir_phi_collect_blocks(function);
-    if (!mir_phi_build_parallel_copies(function, blocks, plan,
+    if (!mir_phi_build_parallel_copies(function, blocks, live_values, plan,
                                        error, error_size)) {
         rcc_free(blocks);
+        rcc_free(live_values);
         rcc_mir_phi_plan_release(plan);
         return false;
     }
     rcc_free(blocks);
+    rcc_free(live_values);
     for (edge = 0u; edge < plan->edge_count; ++edge) {
         size_t copy;
         for (copy = 0u; copy < plan->edges[edge].copy_count; ++copy) {

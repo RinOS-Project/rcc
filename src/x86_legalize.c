@@ -1621,6 +1621,15 @@ static bool x86_legal_selected_shape(
                 instruction->type.kind == RCC_MIR_TYPE_VOID &&
                 instruction->operand_types[0].kind == RCC_MIR_TYPE_POINTER &&
                 instruction->immediate <= 7u;
+        case RCC_X86_FENV:
+            return !instruction->has_destination &&
+                instruction->operand_count == 1u &&
+                instruction->target_count == 0u &&
+                instruction->type.kind == RCC_MIR_TYPE_VOID &&
+                instruction->operand_types[0].kind ==
+                    RCC_MIR_TYPE_POINTER &&
+                instruction->immediate >= RCC_IR_X86_FENV_FNSTENV &&
+                instruction->immediate <= RCC_IR_X86_FENV_FLDCW;
         case RCC_X86_TRAP:
             return !instruction->has_destination &&
                 instruction->operand_count == 0u &&

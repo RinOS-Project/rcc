@@ -103,7 +103,19 @@ typedef enum {
     RCC_IR_UNREACHABLE,
     /* Compiler ordering boundary for asynchronous signal handlers. */
     RCC_IR_SIGNAL_FENCE,
+    /* Explicitly modeled x86 floating-point environment memory operations. */
+    RCC_IR_X86_FENV,
 } RccIrOpcode;
+
+typedef enum {
+    RCC_IR_X86_FENV_FNSTENV = 1,
+    RCC_IR_X86_FENV_FLDENV,
+    RCC_IR_X86_FENV_STMXCSR,
+    RCC_IR_X86_FENV_LDMXCSR,
+    RCC_IR_X86_FENV_FNSTCW,
+    RCC_IR_X86_FENV_FNSTSW,
+    RCC_IR_X86_FENV_FLDCW,
+} RccIrX86FenvOperation;
 
 typedef enum {
     RCC_IR_ICMP_EQ,

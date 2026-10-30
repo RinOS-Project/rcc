@@ -17505,33 +17505,25 @@ test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/long-double/verified-math-c-x86.ro \
 		tests/long_double_runtime.c \
 		>$(TEST_OUT)/long-double/verified-math-c-x86.log 2>&1
-	$(GREP) -F -q "Verified backend fallback: function '__rin_x87_getenv' is outside the typed SSA subset" \
-		$(TEST_OUT)/long-double/verified-math-c-x86.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-c-x86.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-c-x86.log,0)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
 		-o $(TEST_OUT)/long-double/verified-math-c-x64.ro \
 		tests/long_double_runtime.c \
 		>$(TEST_OUT)/long-double/verified-math-c-x64.log 2>&1
-	$(GREP) -F -q "Verified backend fallback: function '__rin_x87_getenv' is outside the typed SSA subset" \
-		$(TEST_OUT)/long-double/verified-math-c-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-c-x64.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-c-x64.log,0)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
 		-o $(TEST_OUT)/long-double/verified-math-cxx-x86.ro \
 		tests/long_double_runtime.c \
 		>$(TEST_OUT)/long-double/verified-math-cxx-x86.log 2>&1
-	$(GREP) -F -q "Verified backend fallback: function '__rin_x87_getenv' is outside the typed SSA subset" \
-		$(TEST_OUT)/long-double/verified-math-cxx-x86.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-cxx-x86.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-cxx-x86.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
 		-o $(TEST_OUT)/long-double/verified-math-cxx-x64.ro \
 		tests/long_double_runtime.c \
 		>$(TEST_OUT)/long-double/verified-math-cxx-x64.log 2>&1
-	$(GREP) -F -q "Verified backend fallback: function '__rin_x87_getenv' is outside the typed SSA subset" \
-		$(TEST_OUT)/long-double/verified-math-cxx-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-cxx-x64.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-cxx-x64.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-o $(TEST_OUT)/long-double/runtime-c-x86.s \

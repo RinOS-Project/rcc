@@ -79,6 +79,7 @@ typedef enum {
     RCC_MIR_PREFETCH,
     RCC_MIR_UNREACHABLE,
     RCC_MIR_SIGNAL_FENCE,
+    RCC_MIR_X86_FENV,
 } RccMirOpcode;
 
 typedef struct RccMirInstruction RccMirInstruction;

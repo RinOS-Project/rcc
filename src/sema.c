@@ -4267,6 +4267,60 @@ static bool sema_is_null_pointer_constant(const Expr* expression) {
     return expr_eval_integer_constant((Expr*)expression, &value) && value == 0;
 }
 
+static Type* sema_conditional_composite_type(Type* left, Type* right) {
+    Type* composite;
+    if (!left || !right || !type_is_compatible(left, right)) return NULL;
+    composite = ast_arena_alloc(sizeof(*composite));
+    if (!composite) return NULL;
+    *composite = *left;
+    composite->is_const = left->is_const || right->is_const;
+    composite->is_volatile = left->is_volatile || right->is_volatile;
+    composite->is_restrict = left->is_restrict || right->is_restrict;
+    composite->is_atomic = left->is_atomic || right->is_atomic;
+    if (left->kind == TYPE_PTR && !left->cxx_is_member_pointer) {
+        composite->base = sema_conditional_composite_type(
+            left->base, right->base);
+        if (!composite->base) return NULL;
+    } else if (left->kind == TYPE_ARRAY) {
+        composite->base = sema_conditional_composite_type(
+            left->base, right->base);
+        if (!composite->base) return NULL;
+        if (left->array_len < 0 && right->array_len >= 0) {
+            composite->array_len = right->array_len;
+            composite->size = right->size;
+            composite->align = right->align;
+            composite->array_bound = right->array_bound;
+            composite->array_unspecified_bound =
+                right->array_unspecified_bound;
+        }
+    }
+    return composite;
+}
+
+static Type* sema_conditional_composite_pointer_type(
+    Type* left, Type* right) {
+    Type* base;
+    if (!type_is_pointer(left) || !type_is_pointer(right)) return NULL;
+    if (left->base && right->base &&
+        (left->base->kind == TYPE_VOID || right->base->kind == TYPE_VOID) &&
+        !type_is_function(left->base) && !type_is_function(right->base)) {
+        base = ast_arena_alloc(sizeof(*base));
+        if (!base) return NULL;
+        *base = *type_void;
+        base->is_const = left->base->is_const || right->base->is_const;
+        base->is_volatile = left->base->is_volatile ||
+            right->base->is_volatile;
+        base->is_restrict = left->base->is_restrict ||
+            right->base->is_restrict;
+        base->is_atomic = left->base->is_atomic ||
+            right->base->is_atomic;
+    } else {
+        base = sema_conditional_composite_type(left->base, right->base);
+        if (!base) return NULL;
+    }
+    return type_ptr(base);
+}
+
 static bool sema_cxx_apply_derived_to_base_value_cast(
     Expr* expression, Type* target, bool allow_nontrivial_prvalue) {
     int adjustment = 0;
@@ -26180,6 +26234,7 @@ static Type* sema_expr(Expr* expr) {
             bool else_lvalue;
             bool then_xvalue;
             bool else_xvalue;
+            Type* pointer_common;
             expr->cxx_conditional_lvalue = false;
             expr->cxx_conditional_xvalue = false;
             expr->cond_test = sema_contextual_bool(expr->cond_test);
@@ -26213,6 +26268,17 @@ static Type* sema_expr(Expr* expr) {
                 expr->type = ev;
             } else if (else_nullptr && type_is_pointer(tv)) {
                 expr->type = tv;
+            } else if (sema_is_null_pointer_constant(expr->cond_then) &&
+                       type_is_pointer(ev)) {
+                expr->type = ev;
+            } else if (sema_is_null_pointer_constant(expr->cond_else) &&
+                       type_is_pointer(tv)) {
+                expr->type = tv;
+            } else if (type_is_pointer(tv) && type_is_pointer(ev) &&
+                       (pointer_common =
+                            sema_conditional_composite_pointer_type(
+                                tv, ev)) != NULL) {
+                expr->type = pointer_common;
             } else if ((sema_is_scoped_enum(tv) || sema_is_scoped_enum(ev)) &&
                        !(sema_is_scoped_enum(tv) &&
                          sema_is_scoped_enum(ev) &&
@@ -26220,12 +26286,24 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc,
                           "conditional operands have incompatible scoped enum types");
                 expr->type = type_int;
-            } else {
+            } else if (sema_is_arithmetic_type(tv) &&
+                       sema_is_arithmetic_type(ev)) {
+                expr->type = sema_common_arithmetic_type(
+                    tt, expr->cond_then, et, expr->cond_else);
+            } else if ((tv->kind == TYPE_STRUCT ||
+                        tv->kind == TYPE_UNION) &&
+                       type_is_compatible(tv, ev)) {
+                expr->type = tv;
+            } else if (rcc_parser_is_cxx_mode()) {
                 expr->type = type_common(
                     sema_builtin_integer_promotion_expression(
                         expr->cond_then),
                     sema_builtin_integer_promotion_expression(
                         expr->cond_else));
+            } else {
+                rcc_error(expr->loc,
+                          "conditional operands have incompatible types");
+                expr->type = type_int;
             }
             then_lvalue = is_lvalue(expr->cond_then);
             else_lvalue = is_lvalue(expr->cond_else);

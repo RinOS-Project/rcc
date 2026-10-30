@@ -646,6 +646,59 @@ static void verify_phi_parallel_copy_cycle(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_dead_phi_copies_are_omitted(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "dead_phi_copies", i32, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrBlock* left = rcc_ir_block_add(ir, "left");
+    RccIrBlock* right = rcc_ir_block_add(ir, "right");
+    RccIrBlock* merge = rcc_ir_block_add(ir, "merge");
+    RccIrBlockId branch_targets[] = {left->id, right->id};
+    RccIrBlockId input_blocks[] = {left->id, right->id};
+    RccIrValue first_inputs[2];
+    RccIrValue second_inputs[2];
+    RccIrValue result;
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation allocation;
+    RccMirPhiPlan plan;
+    char error[256];
+    assert(rcc_ir_append(entry, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                         &ir->parameters[0], 1u,
+                         branch_targets, 2u) != NULL);
+    first_inputs[0] = append_const(left, i32, 1u);
+    second_inputs[0] = append_const(left, i32, 2u);
+    append_branch(left, merge->id);
+    first_inputs[1] = append_const(right, i32, 3u);
+    second_inputs[1] = append_const(right, i32, 4u);
+    append_branch(right, merge->id);
+    assert(rcc_ir_append(merge, RCC_IR_PHI, i32, first_inputs, 2u,
+                         input_blocks, 2u) != NULL);
+    assert(rcc_ir_append(merge, RCC_IR_PHI, i32, second_inputs, 2u,
+                         input_blocks, 2u) != NULL);
+    result = append_const(merge, i32, 5u);
+    assert(rcc_ir_append(merge, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &result, 1u, NULL, 0u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    rcc_mir_register_policy_i686(&policy);
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &allocation, error, sizeof(error)));
+    assert(rcc_mir_build_phi_plan(
+        mir, &policy, &allocation, &plan, error, sizeof(error)));
+    assert(plan.edge_count == 0u);
+    assert(rcc_mir_verify_phi_plan(
+        mir, &policy, &allocation, &plan, error, sizeof(error)));
+    rcc_mir_phi_plan_release(&plan);
+    rcc_mir_allocation_release(&allocation);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_x86_critical_edge_selection_target(
     RccX86Target target)
 {
@@ -1105,6 +1158,7 @@ int main(void)
     verify_cfg_liveness_across_backward_successor(true);
     verify_fixed_register_constraints();
     verify_phi_parallel_copy_cycle();
+    verify_dead_phi_copies_are_omitted();
     verify_x86_critical_edge_selection();
     verify_sysv_call_legalization();
     verify_x86_return_pair_target_contract();
