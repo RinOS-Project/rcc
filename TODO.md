@@ -12328,3 +12328,13 @@ remains a separate open item.
       索引化し、登録／更新と各形式のrelocation解決を償却O(1)またはO(log N)にする。
       重複・未定義symbol／relocationの診断、安定した出力順序・byte列を維持し、大小の
       object/imageで探索回数・処理時間を比較する。
+
+- [ ] `.ro`の`objfile_add_symbol()`はsymbolを追加するたびにlinked list末尾まで歩き、
+      `objfile_add_reloc()`もsection内relocation listの末尾を毎回探す。さらに
+      `objfile_add_string()`はstring table先頭から全既存文字列を比較するため、symbol数S・
+      relocation数R・distinct string数Tが大きいobjectの生成／読み込みでO(S² + R² + T²)
+      の走査と文字列比較が発生する。**受入:** ObjectFile／ObjSectionにappend tailを持たせ、
+      section indexを直接解決する。string deduplicationはhash index等で有界化し、symbol／
+      relocation／string tableの決定的な順序と`.ro` byte列を維持する。多数symbol・relocation・
+      重複stringを持つfixtureでappend traversal／comparison回数とobject生成・読み込み時間を
+      計測し、各件数に対する二次増加を解消する。
