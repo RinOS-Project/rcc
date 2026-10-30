@@ -205,3 +205,142 @@ RccLegacyComplexLongDouble rcc_legacy_complex_double_add_long_double(
     RccLegacyComplexDouble left, long double right) {
     return left + right;
 }
+
+RccLegacyComplexFloat rcc_legacy_complex_float_add_assign(
+    RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
+    left += right;
+    return left;
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_float_subtract_assign(
+    RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
+    left -= right;
+    return left;
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_float_multiply_assign(
+    RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
+    left *= right;
+    return left;
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_float_divide_assign(
+    RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
+    left /= right;
+    return left;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_double_add_assign(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    left += right;
+    return left;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_double_subtract_assign(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    left -= right;
+    return left;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_double_multiply_assign(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    left *= right;
+    return left;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_double_divide_assign(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    left /= right;
+    return left;
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_float_prefix_increment(
+    RccLegacyComplexFloat value) {
+    return ++value;
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_float_postfix_decrement(
+    RccLegacyComplexFloat value) {
+    return value--;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_double_prefix_increment(
+    RccLegacyComplexDouble value) {
+    return ++value;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_double_postfix_decrement(
+    RccLegacyComplexDouble value) {
+    return value--;
+}
+
+int rcc_legacy_complex_float_equal(
+    RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
+    return left == right;
+}
+
+int rcc_legacy_complex_double_equal(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    return left == right;
+}
+
+int rcc_legacy_complex_float_truth(RccLegacyComplexFloat value) {
+    return !!value;
+}
+
+int rcc_legacy_complex_double_truth(RccLegacyComplexDouble value) {
+    return !!value;
+}
+
+float rcc_legacy_complex_float_real(RccLegacyComplexFloat value) {
+    return (float)value;
+}
+
+double rcc_legacy_complex_double_real(RccLegacyComplexDouble value) {
+    return (double)value;
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_double_narrow(
+    RccLegacyComplexDouble value) {
+    return (RccLegacyComplexFloat)value;
+}
+
+int rcc_legacy_complex_float_equal_real(
+    RccLegacyComplexFloat value, float real) {
+    return value == real;
+}
+
+int rcc_legacy_complex_float_not_equal_real(
+    RccLegacyComplexFloat value, float real) {
+    return value != real;
+}
+
+int rcc_legacy_complex_float_to_int(RccLegacyComplexFloat value) {
+    return (int)value;
+}
+
+_Bool rcc_legacy_complex_float_to_bool(RccLegacyComplexFloat value) {
+    return (_Bool)value;
+}
+
+static int rcc_legacy_complex_lvalue_evaluations;
+
+static RccLegacyComplexFloat* rcc_legacy_complex_counted_lvalue(
+    RccLegacyComplexFloat* value) {
+    ++rcc_legacy_complex_lvalue_evaluations;
+    return value;
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_float_add_assign_once(
+    RccLegacyComplexFloat* value, RccLegacyComplexFloat right) {
+    return *rcc_legacy_complex_counted_lvalue(value) += right;
+}
+
+RccLegacyComplexFloat rcc_legacy_complex_float_increment_once(
+    RccLegacyComplexFloat* value) {
+    return ++*rcc_legacy_complex_counted_lvalue(value);
+}
+
+int rcc_legacy_complex_lvalue_evaluation_count(void) {
+    return rcc_legacy_complex_lvalue_evaluations;
+}

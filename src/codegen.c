@@ -5624,7 +5624,22 @@ static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type) {
         return;
     }
     gen_expr(mod, expr);
-    if (gen_is_floating(target_type)) {
+    if (type_is_complex(source_type)) {
+        Type* component_type = source_type->complex_component_type;
+        if (target_type->kind == TYPE_BOOL) {
+            emit_test_scalar_value(mod, source_type);
+        } else if (component_type) {
+            emit_load_floating_raw(mod, component_type, EAX, 0);
+            if (gen_is_floating(target_type)) {
+                emit_x87_convert_float_to_float(
+                    mod, component_type, target_type);
+            } else if (type_is_integer(target_type) ||
+                       target_type->kind == TYPE_ENUM) {
+                emit_x87_convert_float_to_integer(
+                    mod, component_type, target_type);
+            }
+        }
+    } else if (gen_is_floating(target_type)) {
         if (gen_is_floating(source_type)) {
             emit_x87_convert_float_to_float(mod, source_type, target_type);
         } else if (type_is_integer(source_type)) {
@@ -5779,6 +5794,203 @@ static void gen_complex_binary32(Module* mod, Expr* expression) {
     emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
     emit_byte(mod, modrm(2, EAX, EBP));
     emit_dword(mod, (uint32_t)result_offset);
+}
+
+static void gen_complex_compound32(Module* mod, Expr* expression) {
+    Type* complex_type = expression && expression->binary_lhs
+        ? expression->binary_lhs->type : NULL;
+    Type* component_type = type_is_complex(complex_type)
+        ? complex_type->complex_component_type : NULL;
+    int32_t result_offset = expression
+        ? expression->call_result_offset : 0;
+    int32_t right_offset;
+    int32_t component_offset;
+    int operation;
+
+    if (!mod || !expression || !component_type || result_offset >= 0 ||
+        complex_type->size <= 0 || complex_type->size > INT32_MAX / 2) {
+        rcc_error(expression ? expression->loc : (SourceLoc){NULL, 0, 0},
+                  "complex compound assignment has no result storage");
+        return;
+    }
+    if (expression->kind == EXPR_ADD_ASSIGN) operation = EXPR_ADD;
+    else if (expression->kind == EXPR_SUB_ASSIGN) operation = EXPR_SUB;
+    else if (expression->kind == EXPR_MUL_ASSIGN) operation = EXPR_MUL;
+    else if (expression->kind == EXPR_DIV_ASSIGN) operation = EXPR_DIV;
+    else {
+        rcc_error(expression->loc,
+                  "invalid complex compound assignment operation");
+        return;
+    }
+    right_offset = result_offset + complex_type->size;
+
+    /* Evaluate the destination once, then use its saved address for both the
+     * read and write portions of the compound operation. */
+    gen_lvalue(mod, expression->binary_lhs);
+    emit_push_reg(mod, EAX);
+    emit_mov_reg_mem(mod, EDX, ESP, 0);
+    for (component_offset = 0; component_offset < complex_type->size;
+         component_offset += 4) {
+        emit_mov_reg_mem(mod, EAX, EDX, component_offset);
+        emit_mov_mem_reg(mod, EBP, result_offset + component_offset, EAX);
+    }
+    gen_complex_component_from_operand32(
+        mod, expression->binary_rhs, component_type, right_offset);
+
+    if (operation == EXPR_ADD || operation == EXPR_SUB) {
+        int component_width = gen_float_width(component_type);
+        for (component_offset = 0;
+             component_offset < complex_type->size;
+             component_offset += component_type->size) {
+            emit_x87_load_memory(mod, component_width, EBP,
+                                 result_offset + component_offset);
+            emit_x87_binary_memory(mod, operation, component_width, EBP,
+                                   right_offset + component_offset);
+            emit_x87_store_pop_memory(mod, component_width, EBP,
+                                      result_offset + component_offset);
+        }
+    } else {
+        int component_width = gen_float_width(component_type);
+        int argument_bytes = component_width == 8 ? 40 : 24;
+        uint32_t call_offset;
+        const char* helper = operation == EXPR_MUL
+            ? (component_width == 4 ? "__rin_cmul_f32" : "__rin_cmul_f64")
+            : (component_width == 4 ? "__rin_cdiv_f32" : "__rin_cdiv_f64");
+        emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EAX, EBP));
+        emit_dword(mod, (uint32_t)(result_offset + component_type->size));
+        emit_push_reg(mod, EAX);
+        emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EAX, EBP));
+        emit_dword(mod, (uint32_t)result_offset);
+        emit_push_reg(mod, EAX);
+        gen_complex_push_component32(
+            mod, right_offset + component_type->size, component_type);
+        gen_complex_push_component32(mod, right_offset, component_type);
+        gen_complex_push_component32(
+            mod, result_offset + component_type->size, component_type);
+        gen_complex_push_component32(mod, result_offset, component_type);
+        emit_byte(mod, 0xE8);
+        call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref(helper, call_offset);
+        emit_add_reg_imm(mod, ESP, argument_bytes);
+    }
+
+    emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
+    emit_byte(mod, modrm(2, EAX, EBP));
+    emit_dword(mod, (uint32_t)result_offset);
+    emit_push_reg(mod, EAX);
+    emit_mov_reg_mem(mod, EDX, ESP, 4);
+    for (component_offset = 0; component_offset < complex_type->size;
+         component_offset += 4) {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_mov_reg_mem(mod, ECX, EAX, component_offset);
+        emit_mov_mem_reg(mod, EDX, component_offset, ECX);
+    }
+    emit_mov_reg_mem(mod, EAX, ESP, 0);
+    emit_add_reg_imm(mod, ESP, 8);
+}
+
+static void gen_complex_increment32(Module* mod, Expr* expression) {
+    Type* complex_type = expression && expression->unary_operand
+        ? expression->unary_operand->type : NULL;
+    Type* component_type = type_is_complex(complex_type)
+        ? complex_type->complex_component_type : NULL;
+    int32_t result_offset = expression
+        ? expression->call_result_offset : 0;
+    bool postfix = expression &&
+        (expression->kind == EXPR_POSTINC ||
+         expression->kind == EXPR_POSTDEC);
+    bool decrement = expression &&
+        (expression->kind == EXPR_PREDEC ||
+         expression->kind == EXPR_POSTDEC);
+    int32_t component_offset;
+
+    if (!mod || !expression || !component_type || result_offset >= 0 ||
+        complex_type->size <= 0 ||
+        complex_type->size > INT32_MAX / 2) {
+        rcc_error(expression ? expression->loc : (SourceLoc){NULL, 0, 0},
+                  "complex increment has no result storage");
+        return;
+    }
+
+    /* The lvalue is evaluated once.  A postfix expression keeps its old
+     * value in the frame slot while the object itself receives the update. */
+    gen_lvalue(mod, expression->unary_operand);
+    emit_push_reg(mod, EAX);
+    if (postfix) {
+        for (component_offset = 0;
+             component_offset < complex_type->size;
+             component_offset += 4) {
+            emit_mov_reg_mem(mod, EDX, ESP, 0);
+            emit_mov_reg_mem(mod, EAX, EDX, component_offset);
+            emit_mov_mem_reg(mod, EBP, result_offset + component_offset,
+                             EAX);
+        }
+    }
+
+    emit_x87_load_memory(mod, gen_float_width(component_type), ESP, 0);
+    emit_x87_fld_one(mod);
+    if (decrement) emit_x87_fsubp_st1(mod);
+    else emit_x87_faddp_st1(mod);
+    emit_x87_store_pop_memory(
+        mod, gen_float_width(component_type), ESP, 0);
+
+    emit_pop_reg(mod, EDX);
+    if (postfix) {
+        emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EAX, EBP));
+        emit_dword(mod, (uint32_t)result_offset);
+    } else {
+        emit_mov_reg_reg(mod, EAX, EDX);
+    }
+}
+
+static Type* gen_complex_comparison_type32(Expr* expression) {
+    Type* left = expression && expression->binary_lhs
+        ? expression->binary_lhs->type : NULL;
+    Type* right = expression && expression->binary_rhs
+        ? expression->binary_rhs->type : NULL;
+    Type* comparison_type = left && right ? type_common(left, right) : NULL;
+    if (!type_is_complex(comparison_type)) {
+        comparison_type = type_is_complex(left) ? left : right;
+    }
+    return type_is_complex(comparison_type) ? comparison_type : NULL;
+}
+
+static void gen_complex_compare32(Module* mod, Expr* expression) {
+    Type* comparison_type = gen_complex_comparison_type32(expression);
+    Type* component_type = comparison_type
+        ? comparison_type->complex_component_type : NULL;
+    int32_t left_offset = expression
+        ? expression->call_result_offset : 0;
+    int32_t right_offset;
+
+    if (!mod || !expression || !component_type || left_offset >= 0 ||
+        (expression->kind != EXPR_EQ && expression->kind != EXPR_NE)) {
+        rcc_error(expression ? expression->loc : (SourceLoc){NULL, 0, 0},
+                  "complex comparison has no valid operand storage");
+        return;
+    }
+    right_offset = left_offset + comparison_type->size;
+    gen_complex_component_from_operand32(
+        mod, expression->binary_lhs, component_type, left_offset);
+    gen_complex_component_from_operand32(
+        mod, expression->binary_rhs, component_type, right_offset);
+
+    gen_complex_push_component32(mod, left_offset, component_type);
+    gen_complex_push_component32(mod, right_offset, component_type);
+    emit_x87_compare_stack(mod, component_type, expression->kind);
+    emit_push_reg(mod, EAX);
+    gen_complex_push_component32(
+        mod, left_offset + component_type->size, component_type);
+    gen_complex_push_component32(
+        mod, right_offset + component_type->size, component_type);
+    emit_x87_compare_stack(mod, component_type, expression->kind);
+    emit_pop_reg(mod, ECX);
+    if (expression->kind == EXPR_EQ) emit_and_reg_reg(mod, EAX, ECX);
+    else emit_or_reg_reg(mod, EAX, ECX);
 }
 
 static void emit_test_reg_imm(Module* mod, int reg, uint32_t imm) {
@@ -8920,6 +9132,22 @@ static Type* codegen_comparison_type(Expr* expr) {
 }
 
 static void emit_test_scalar_value(Module* mod, const Type* type) {
+    if (type_is_complex(type)) {
+        Type* component_type = type->complex_component_type;
+        emit_push_reg(mod, EAX); /* complex object address */
+        emit_mov_reg_mem(mod, EDX, ESP, 0);
+        emit_load_floating_raw(mod, component_type, EDX, 0);
+        emit_x87_floating_truth(mod, component_type);
+        emit_push_reg(mod, EAX); /* real-component truth */
+        emit_mov_reg_mem(mod, EDX, ESP, 4);
+        emit_load_floating_raw(mod, component_type, EDX,
+                               component_type->size);
+        emit_x87_floating_truth(mod, component_type);
+        emit_pop_reg(mod, ECX);
+        emit_or_reg_reg(mod, EAX, ECX);
+        emit_add_reg_imm(mod, ESP, 4);
+        return;
+    }
     if (gen_is_floating(type)) {
         emit_x87_floating_truth(mod, type);
         return;
@@ -14538,6 +14766,12 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_PREINC:
         case EXPR_PREDEC:
+            if (expr->unary_operand && expr->unary_operand->type &&
+                type_is_complex(expr->unary_operand->type) &&
+                !expr->unary_operand->type->is_atomic) {
+                gen_complex_increment32(mod, expr);
+                break;
+            }
             if (expr->unary_operand && expr->unary_operand->member_field &&
                 expr->unary_operand->member_field->is_bitfield) {
                 gen_lvalue(mod, expr->unary_operand);
@@ -14642,6 +14876,12 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+            if (expr->unary_operand && expr->unary_operand->type &&
+                type_is_complex(expr->unary_operand->type) &&
+                !expr->unary_operand->type->is_atomic) {
+                gen_complex_increment32(mod, expr);
+                break;
+            }
             if (expr->unary_operand && expr->unary_operand->member_field &&
                 expr->unary_operand->member_field->is_bitfield) {
                 gen_lvalue(mod, expr->unary_operand);
@@ -15210,6 +15450,11 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 emit_pop_reg(mod, ESI);
                 break;
             }
+            if (type_is_complex(expr->binary_lhs->type) ||
+                type_is_complex(expr->binary_rhs->type)) {
+                gen_complex_compare32(mod, expr);
+                break;
+            }
             if (gen_is_floating(expr->binary_lhs->type) ||
                 gen_is_floating(expr->binary_rhs->type)) {
                 Type* comparison_type = codegen_comparison_type(expr);
@@ -15471,6 +15716,11 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 }
                 break;
             }
+            if (expr->binary_lhs && expr->binary_lhs->type &&
+                type_is_complex(expr->binary_lhs->type)) {
+                gen_complex_compound32(mod, expr);
+                break;
+            }
             if (expr->binary_lhs &&
                 (expr->binary_lhs->kind == EXPR_MEMBER ||
                  expr->binary_lhs->kind == EXPR_PTR_MEMBER) &&
@@ -15559,6 +15809,13 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                     gen_atomic_arithmetic_assignment(mod, expr)) break;
                 rcc_error(expr->loc,
                           "atomic compound assignment operator is not supported by the target RMW backend");
+                break;
+            }
+            if ((expr->kind == EXPR_MUL_ASSIGN ||
+                 expr->kind == EXPR_DIV_ASSIGN) &&
+                expr->binary_lhs && expr->binary_lhs->type &&
+                type_is_complex(expr->binary_lhs->type)) {
+                gen_complex_compound32(mod, expr);
                 break;
             }
             if (expr->binary_lhs &&
@@ -15949,7 +16206,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                  * object address to RTTI instead of the lvalue address. */
                 gen_lvalue(mod, expr->cast_expr);
             } else if (gen_is_floating(expr->type) ||
-                gen_is_floating(expr->cast_expr->type)) {
+                gen_is_floating(expr->cast_expr->type) ||
+                type_is_complex(expr->cast_expr->type)) {
                 gen_expr_as_type(mod, expr->cast_expr, expr->type);
             } else {
                 gen_expr(mod, expr->cast_expr);
@@ -15957,7 +16215,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             if (!gen_is_floating(expr->type) &&
                 (type_is_integer(expr->type) ||
                  expr->type->kind == TYPE_ENUM) &&
-                !gen_is_floating(expr->cast_expr->type)) {
+                !gen_is_floating(expr->cast_expr->type) &&
+                !type_is_complex(expr->cast_expr->type)) {
                 emit_convert_integer_value(mod, EAX,
                                            expr->cast_expr->type,
                                            expr->type);
@@ -17891,9 +18150,39 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
             expression->va_arg_result_offset = -*bytes;
         }
     }
+    if ((expression->kind == EXPR_EQ || expression->kind == EXPR_NE) &&
+        expression->binary_lhs && expression->binary_rhs &&
+        (type_is_complex(expression->binary_lhs->type) ||
+         type_is_complex(expression->binary_rhs->type)) &&
+        expression->call_result_offset >= 0) {
+        Type* comparison_type = gen_complex_comparison_type32(expression);
+        int size = comparison_type ? comparison_type->size : 0;
+        int alignment = comparison_type ? comparison_type->align : 0;
+        int64_t extent;
+        if (alignment < stack_alignment) alignment = stack_alignment;
+        if (size <= 0 || size > INT_MAX / 2) {
+            *bytes = INT_MAX;
+        } else {
+            extent = (int64_t)*bytes + (int64_t)size * 2;
+            if (extent > INT_MAX) {
+                *bytes = INT_MAX;
+            } else {
+                *bytes = codegen_align_frame_bytes((int)extent, alignment);
+                expression->call_result_offset = -*bytes;
+            }
+        }
+    }
     if (type_is_complex(expression->type) &&
         (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
-         expression->kind == EXPR_MUL || expression->kind == EXPR_DIV) &&
+         expression->kind == EXPR_MUL || expression->kind == EXPR_DIV ||
+         expression->kind == EXPR_ADD_ASSIGN ||
+         expression->kind == EXPR_SUB_ASSIGN ||
+         expression->kind == EXPR_MUL_ASSIGN ||
+         expression->kind == EXPR_DIV_ASSIGN ||
+         expression->kind == EXPR_PREINC ||
+         expression->kind == EXPR_PREDEC ||
+         expression->kind == EXPR_POSTINC ||
+         expression->kind == EXPR_POSTDEC) &&
         expression->call_result_offset >= 0) {
         int size = expression->type->size;
         int alignment = expression->type->align;

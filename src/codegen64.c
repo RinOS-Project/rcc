@@ -2067,6 +2067,10 @@ static void gen64_float_to_integer(Module* mod, const Type* source_type,
     emit64_sse_to_int(mod, RAX, 0, source_width, destination_width);
 }
 
+static void gen64_truth_value(Module* mod, const Type* type);
+static void gen64_convert_to_float(Module* mod, Type* source_type,
+                                   Type* destination_type);
+
 static void gen64_float_cast(Module* mod, Expr* expression) {
     Type* source_type = expression && expression->cast_expr
         ? expression->cast_expr->type : NULL;
@@ -2080,6 +2084,23 @@ static void gen64_float_cast(Module* mod, Expr* expression) {
         return;
     }
     gen64_expr(mod, expression->cast_expr);
+    if (type_is_complex(source_type)) {
+        Type* component_type = source_type->complex_component_type;
+        if (destination_type->kind == TYPE_BOOL) {
+            gen64_truth_value(mod, source_type);
+        } else if (component_type) {
+            emit64_load_typed(mod, RAX, RAX, 0, component_type);
+            if (gen64_is_floating(destination_type)) {
+                gen64_convert_to_float(mod, component_type,
+                                       destination_type);
+            } else if (type_is_integer(destination_type) ||
+                       destination_type->kind == TYPE_ENUM) {
+                gen64_float_to_integer(mod, component_type,
+                                       destination_type);
+            }
+        }
+        return;
+    }
     if (gen64_is_floating(destination_type)) {
         destination_width = gen64_float_width(destination_type);
         if (gen64_is_floating(source_type)) {
@@ -2148,6 +2169,62 @@ static void gen64_float_truth(Module* mod, Expr* expression) {
     emit64_setcc(mod, CC64_P, RCX);
     emit64_movzx_r64_r8(mod, RCX, RCX);
     emit64_or_reg_reg(mod, RAX, RCX);
+}
+
+static void gen64_truth_value(Module* mod, const Type* type) {
+    if (type_is_complex(type)) {
+        Type* component_type = type->complex_component_type;
+        int width = gen64_float_width(component_type);
+        emit64_push_reg(mod, RAX); /* complex object address */
+        emit64_mov_reg_mem(mod, R11, RSP, 0);
+        emit64_mov_xmm_from_memory(mod, 0, R11, 0, width);
+        emit64_sse_xor(mod, 1, 1, width);
+        emit64_sse_compare(mod, 0, 1, width);
+        emit64_setcc(mod, CC64_NE, RAX);
+        emit64_movzx_r64_r8(mod, RAX, RAX);
+        emit64_setcc(mod, CC64_P, RCX);
+        emit64_movzx_r64_r8(mod, RCX, RCX);
+        emit64_or_reg_reg(mod, RAX, RCX);
+        emit64_push_reg(mod, RAX); /* real-component truth */
+        emit64_mov_reg_mem(mod, R11, RSP, 8);
+        emit64_mov_xmm_from_memory(
+            mod, 0, R11, component_type->size, width);
+        emit64_sse_xor(mod, 1, 1, width);
+        emit64_sse_compare(mod, 0, 1, width);
+        emit64_setcc(mod, CC64_NE, RAX);
+        emit64_movzx_r64_r8(mod, RAX, RAX);
+        emit64_setcc(mod, CC64_P, RCX);
+        emit64_movzx_r64_r8(mod, RCX, RCX);
+        emit64_or_reg_reg(mod, RAX, RCX);
+        emit64_pop_reg(mod, RCX);
+        emit64_or_reg_reg(mod, RAX, RCX);
+        emit64_add_reg_imm(mod, RSP, 8);
+        return;
+    }
+    if (gen64_is_floating(type)) {
+        int width = gen64_float_width(type);
+        emit64_mov_xmm_from_gpr(mod, 0, RAX, width);
+        emit64_sse_xor(mod, 1, 1, width);
+        emit64_sse_compare(mod, 0, 1, width);
+        emit64_setcc(mod, CC64_NE, RAX);
+        emit64_movzx_r64_r8(mod, RAX, RAX);
+        emit64_setcc(mod, CC64_P, RCX);
+        emit64_movzx_r64_r8(mod, RCX, RCX);
+        emit64_or_reg_reg(mod, RAX, RCX);
+        return;
+    }
+    emit64_test_reg_reg(mod, RAX, RAX);
+    emit64_setcc(mod, CC64_NE, RAX);
+    emit64_movzx_r64_r8(mod, RAX, RAX);
+}
+
+static void gen64_truth_expression(Module* mod, Expr* expression) {
+    if (gen64_is_floating(expression ? expression->type : NULL)) {
+        gen64_float_truth(mod, expression);
+        return;
+    }
+    gen64_expr(mod, expression);
+    gen64_truth_value(mod, expression ? expression->type : NULL);
 }
 
 static void gen64_float_compare(Module* mod, Expr* expression) {
@@ -5358,11 +5435,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 return;
             }
             if (expr->kind == EXPR_COND) {
-                if (gen64_is_floating(expr->cond_test->type)) {
-                    gen64_float_truth(mod, expr->cond_test);
-                } else {
-                    gen64_expr(mod, expr->cond_test);
-                }
+                gen64_truth_expression(mod, expr->cond_test);
                 emit64_test_reg_reg(mod, RAX, RAX);
                 emit64_jcc_label(mod, CC64_E, else_label);
             } else {
@@ -8474,6 +8547,229 @@ static void gen64_complex_binary(Module* mod, Expr* expression) {
     emit64_lea(mod, RAX, RBP, result_offset);
 }
 
+static void gen64_complex_compound(Module* mod, Expr* expression) {
+    Type* complex_type = expression && expression->binary_lhs
+        ? expression->binary_lhs->type : NULL;
+    Type* component_type = type_is_complex(complex_type)
+        ? complex_type->complex_component_type : NULL;
+    int32_t result_offset = expression
+        ? expression->call_result_offset : 0;
+    int32_t right_offset;
+    int32_t component_offset;
+    int operation;
+    int width;
+    uint32_t call_offset;
+    const char* helper;
+
+    if (!mod || !expression || !component_type || result_offset >= 0 ||
+        complex_type->size <= 0 || complex_type->size > INT32_MAX / 2) {
+        rcc_error(expression ? expression->loc : (SourceLoc){NULL, 0, 0},
+                  "complex compound assignment has no result storage");
+        return;
+    }
+    if (expression->kind == EXPR_ADD_ASSIGN) operation = EXPR_ADD;
+    else if (expression->kind == EXPR_SUB_ASSIGN) operation = EXPR_SUB;
+    else if (expression->kind == EXPR_MUL_ASSIGN) operation = EXPR_MUL;
+    else if (expression->kind == EXPR_DIV_ASSIGN) operation = EXPR_DIV;
+    else {
+        rcc_error(expression->loc,
+                  "invalid complex compound assignment operation");
+        return;
+    }
+    right_offset = result_offset + complex_type->size;
+    width = gen64_float_width(component_type);
+
+    /* Keep the destination address across RHS evaluation and evaluate the
+     * complex lvalue only once, as required for compound assignment. */
+    gen64_lvalue(mod, expression->binary_lhs);
+    emit64_push_reg(mod, RAX);
+    for (component_offset = 0; component_offset < complex_type->size;
+         component_offset += component_type->size) {
+        emit64_mov_reg_mem(mod, R11, RSP, 0);
+        emit64_mov_xmm_from_memory(
+            mod, 0, R11, component_offset, width);
+        emit64_mov_memory_from_xmm(
+            mod, RBP, result_offset + component_offset, 0, width);
+    }
+    if (!gen64_complex_store_operand(
+            mod, expression->binary_rhs, component_type, right_offset)) {
+        rcc_error(expression->loc,
+                  "complex compound assignment RHS could not be represented");
+        emit64_add_reg_imm(mod, RSP, 8);
+        return;
+    }
+
+    if (operation == EXPR_ADD || operation == EXPR_SUB) {
+        int opcode = operation == EXPR_ADD ? 0x58 : 0x5C;
+        for (component_offset = 0; component_offset < complex_type->size;
+             component_offset += component_type->size) {
+            emit64_mov_xmm_from_memory(
+                mod, 0, RBP, result_offset + component_offset, width);
+            emit64_mov_xmm_from_memory(
+                mod, 1, RBP, right_offset + component_offset, width);
+            emit64_sse_binary(mod, opcode, 0, 1, width);
+            emit64_mov_memory_from_xmm(
+                mod, RBP, result_offset + component_offset, 0, width);
+        }
+    } else {
+        helper = operation == EXPR_MUL
+            ? (width == 4 ? "__rin_cmul_f32" : "__rin_cmul_f64")
+            : (width == 4 ? "__rin_cdiv_f32" : "__rin_cdiv_f64");
+        emit64_mov_xmm_from_memory(mod, 0, RBP, result_offset, width);
+        emit64_mov_xmm_from_memory(
+            mod, 1, RBP, result_offset + component_type->size, width);
+        emit64_mov_xmm_from_memory(mod, 2, RBP, right_offset, width);
+        emit64_mov_xmm_from_memory(
+            mod, 3, RBP, right_offset + component_type->size, width);
+        emit64_lea(mod, RDI, RBP, result_offset);
+        emit64_lea(mod, RSI, RBP,
+                   result_offset + component_type->size);
+        emit_byte(mod, 0xE8);
+        call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64(helper, call_offset);
+    }
+
+    emit64_lea(mod, RAX, RBP, result_offset);
+    emit64_push_reg(mod, RAX);
+    for (component_offset = 0; component_offset < complex_type->size;
+         component_offset += component_type->size) {
+        emit64_mov_reg_mem(mod, R11, RSP, 0);
+        emit64_mov_reg_mem(mod, R10, RSP, 8);
+        emit64_mov_xmm_from_memory(
+            mod, 0, R11, component_offset, width);
+        emit64_mov_memory_from_xmm(
+            mod, R10, component_offset, 0, width);
+    }
+    emit64_mov_reg_mem(mod, RAX, RSP, 0);
+    emit64_add_reg_imm(mod, RSP, 16);
+}
+
+static void gen64_complex_increment(Module* mod, Expr* expression) {
+    Type* complex_type = expression && expression->unary_operand
+        ? expression->unary_operand->type : NULL;
+    Type* component_type = type_is_complex(complex_type)
+        ? complex_type->complex_component_type : NULL;
+    int32_t result_offset = expression
+        ? expression->call_result_offset : 0;
+    int32_t component_offset;
+    int width;
+    bool postfix = expression &&
+        (expression->kind == EXPR_POSTINC ||
+         expression->kind == EXPR_POSTDEC);
+    bool decrement = expression &&
+        (expression->kind == EXPR_PREDEC ||
+         expression->kind == EXPR_POSTDEC);
+    int32_t constant_offset;
+    uint64_t one_bits;
+
+    if (!mod || !expression || !component_type || result_offset >= 0 ||
+        complex_type->size <= 0 ||
+        complex_type->size > INT32_MAX / 2) {
+        rcc_error(expression ? expression->loc : (SourceLoc){NULL, 0, 0},
+                  "complex increment has no result storage");
+        return;
+    }
+    width = gen64_float_width(component_type);
+    constant_offset = result_offset + complex_type->size;
+    one_bits = width == 4 ? UINT64_C(0x3f800000)
+                         : UINT64_C(0x3ff0000000000000);
+
+    /* Evaluate the destination once.  Postfix preserves the old pair in its
+     * result slot; both forms update only the real component in place. */
+    gen64_lvalue(mod, expression->unary_operand);
+    emit64_push_reg(mod, RAX);
+    if (postfix) {
+        for (component_offset = 0;
+             component_offset < complex_type->size;
+             component_offset += component_type->size) {
+            emit64_mov_reg_mem(mod, R11, RSP, 0);
+            emit64_mov_xmm_from_memory(
+                mod, 0, R11, component_offset, width);
+            emit64_mov_memory_from_xmm(
+                mod, RBP, result_offset + component_offset, 0, width);
+        }
+    }
+
+    emit64_mov_reg_imm64(mod, R10, one_bits);
+    emit64_mov_mem_reg(mod, RBP, constant_offset, R10);
+    emit64_mov_reg_mem(mod, R11, RSP, 0);
+    emit64_mov_xmm_from_memory(mod, 0, R11, 0, width);
+    emit64_mov_xmm_from_memory(mod, 1, RBP, constant_offset, width);
+    emit64_sse_binary(mod, decrement ? 0x5C : 0x58, 0, 1, width);
+    emit64_mov_memory_from_xmm(mod, R11, 0, 0, width);
+
+    if (postfix) {
+        emit64_add_reg_imm(mod, RSP, 8);
+        emit64_lea(mod, RAX, RBP, result_offset);
+    } else {
+        emit64_pop_reg(mod, RAX);
+    }
+}
+
+static Type* gen64_complex_comparison_type(Expr* expression) {
+    Type* left = expression && expression->binary_lhs
+        ? expression->binary_lhs->type : NULL;
+    Type* right = expression && expression->binary_rhs
+        ? expression->binary_rhs->type : NULL;
+    Type* comparison_type = left && right ? type_common(left, right) : NULL;
+    if (!type_is_complex(comparison_type)) {
+        comparison_type = type_is_complex(left) ? left : right;
+    }
+    return type_is_complex(comparison_type) ? comparison_type : NULL;
+}
+
+static void gen64_complex_compare_component(Module* mod, int32_t left_offset,
+                                            int32_t right_offset, int width,
+                                            bool not_equal) {
+    emit64_mov_xmm_from_memory(mod, 0, RBP, left_offset, width);
+    emit64_mov_xmm_from_memory(mod, 1, RBP, right_offset, width);
+    emit64_sse_compare(mod, 0, 1, width);
+    emit64_setcc(mod, not_equal ? CC64_NE : CC64_E, RAX);
+    emit64_movzx_r64_r8(mod, RAX, RAX);
+    emit64_setcc(mod, not_equal ? CC64_P : CC64_NP, RCX);
+    emit64_movzx_r64_r8(mod, RCX, RCX);
+    if (not_equal) emit64_or_reg_reg(mod, RAX, RCX);
+    else emit64_and_reg_reg(mod, RAX, RCX);
+}
+
+static void gen64_complex_compare(Module* mod, Expr* expression) {
+    Type* comparison_type = gen64_complex_comparison_type(expression);
+    Type* component_type = comparison_type
+        ? comparison_type->complex_component_type : NULL;
+    int32_t left_offset = expression
+        ? expression->call_result_offset : 0;
+    int32_t right_offset;
+    int width;
+    bool not_equal = expression && expression->kind == EXPR_NE;
+
+    if (!mod || !expression || !component_type || left_offset >= 0 ||
+        (expression->kind != EXPR_EQ && expression->kind != EXPR_NE)) {
+        rcc_error(expression ? expression->loc : (SourceLoc){NULL, 0, 0},
+                  "complex comparison has no valid operand storage");
+        return;
+    }
+    width = gen64_float_width(component_type);
+    right_offset = left_offset + comparison_type->size;
+    if (!gen64_complex_store_operand(mod, expression->binary_lhs,
+                                     component_type, left_offset) ||
+        !gen64_complex_store_operand(mod, expression->binary_rhs,
+                                     component_type, right_offset)) {
+        rcc_error(expression->loc,
+                  "complex comparison operand could not be represented");
+        return;
+    }
+    gen64_complex_compare_component(mod, left_offset, right_offset, width,
+                                    not_equal);
+    emit64_push_reg(mod, RAX);
+    gen64_complex_compare_component(
+        mod, left_offset + component_type->size,
+        right_offset + component_type->size, width, not_equal);
+    emit64_pop_reg(mod, RCX);
+    if (not_equal) emit64_or_reg_reg(mod, RAX, RCX);
+    else emit64_and_reg_reg(mod, RAX, RCX);
+}
+
 static void gen64_expr_raw(Module* mod, Expr* expr) {
     if (!expr) return;
 
@@ -8646,16 +8942,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_NOT:
-            if (gen64_is_floating(expr->unary_operand->type)) {
-                gen64_float_truth(mod, expr->unary_operand);
-                emit64_mov_reg_imm32(mod, RCX, 1u);
-                emit64_xor_reg_reg(mod, RAX, RCX);
-            } else {
-                gen64_expr(mod, expr->unary_operand);
-                emit64_cmp_reg_imm(mod, RAX, 0);
-                emit64_setcc(mod, CC64_E, RAX);
-                emit64_movzx_r64_r8(mod, RAX, RAX);
-            }
+            gen64_expr(mod, expr->unary_operand);
+            gen64_truth_value(mod, expr->unary_operand->type);
+            emit64_mov_reg_imm32(mod, RCX, 1u);
+            emit64_xor_reg_reg(mod, RAX, RCX);
             break;
 
         case EXPR_ADDR:
@@ -8723,6 +9013,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_PREINC:
         case EXPR_PREDEC:
+            if (expr->unary_operand && expr->unary_operand->type &&
+                type_is_complex(expr->unary_operand->type) &&
+                !expr->unary_operand->type->is_atomic) {
+                gen64_complex_increment(mod, expr);
+                break;
+            }
             if (expr->unary_operand && expr->unary_operand->member_field &&
                 expr->unary_operand->member_field->is_bitfield) {
                 gen64_lvalue(mod, expr->unary_operand);
@@ -8815,6 +9111,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_POSTINC:
         case EXPR_POSTDEC:
+            if (expr->unary_operand && expr->unary_operand->type &&
+                type_is_complex(expr->unary_operand->type) &&
+                !expr->unary_operand->type->is_atomic) {
+                gen64_complex_increment(mod, expr);
+                break;
+            }
             if (expr->unary_operand && expr->unary_operand->member_field &&
                 expr->unary_operand->member_field->is_bitfield) {
                 gen64_lvalue(mod, expr->unary_operand);
@@ -9345,6 +9647,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_pop_reg(mod, R12);
                 break;
             }
+            if (type_is_complex(expr->binary_lhs->type) ||
+                type_is_complex(expr->binary_rhs->type)) {
+                gen64_complex_compare(mod, expr);
+                break;
+            }
             if (gen64_is_floating(expr->binary_lhs->type) ||
                 gen64_is_floating(expr->binary_rhs->type)) {
                 gen64_float_compare(mod, expr);
@@ -9378,18 +9685,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_AND: {
             int end_label = new_label64();
-            if (gen64_is_floating(expr->binary_lhs->type)) {
-                gen64_float_truth(mod, expr->binary_lhs);
-            } else {
-                gen64_expr(mod, expr->binary_lhs);
-            }
+            gen64_expr(mod, expr->binary_lhs);
+            gen64_truth_value(mod, expr->binary_lhs->type);
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_jcc_label(mod, CC64_E, end_label);
-            if (gen64_is_floating(expr->binary_rhs->type)) {
-                gen64_float_truth(mod, expr->binary_rhs);
-            } else {
-                gen64_expr(mod, expr->binary_rhs);
-            }
+            gen64_expr(mod, expr->binary_rhs);
+            gen64_truth_value(mod, expr->binary_rhs->type);
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_setcc(mod, CC64_NE, RAX);
             emit64_movzx_r64_r8(mod, RAX, RAX);
@@ -9399,18 +9700,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_OR: {
             int end_label = new_label64();
-            if (gen64_is_floating(expr->binary_lhs->type)) {
-                gen64_float_truth(mod, expr->binary_lhs);
-            } else {
-                gen64_expr(mod, expr->binary_lhs);
-            }
+            gen64_expr(mod, expr->binary_lhs);
+            gen64_truth_value(mod, expr->binary_lhs->type);
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_jcc_label(mod, CC64_NE, end_label);
-            if (gen64_is_floating(expr->binary_rhs->type)) {
-                gen64_float_truth(mod, expr->binary_rhs);
-            } else {
-                gen64_expr(mod, expr->binary_rhs);
-            }
+            gen64_expr(mod, expr->binary_rhs);
+            gen64_truth_value(mod, expr->binary_rhs->type);
             emit64_label(mod, end_label);
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_setcc(mod, CC64_NE, RAX);
@@ -9540,6 +9835,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 }
                 break;
             }
+            if (expr->binary_lhs && expr->binary_lhs->type &&
+                type_is_complex(expr->binary_lhs->type)) {
+                gen64_complex_compound(mod, expr);
+                break;
+            }
             if (expr->binary_lhs &&
                 (expr->binary_lhs->kind == EXPR_MEMBER ||
                  expr->binary_lhs->kind == EXPR_PTR_MEMBER) &&
@@ -9642,6 +9942,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     gen64_atomic_arithmetic_assignment(mod, expr)) break;
                 rcc_error(expr->loc,
                           "atomic compound assignment operator is not supported by the target RMW backend");
+                break;
+            }
+            if ((expr->kind == EXPR_MUL_ASSIGN ||
+                 expr->kind == EXPR_DIV_ASSIGN) &&
+                expr->binary_lhs && expr->binary_lhs->type &&
+                type_is_complex(expr->binary_lhs->type)) {
+                gen64_complex_compound(mod, expr);
                 break;
             }
             if (expr->binary_lhs &&
@@ -9798,11 +10105,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             if (type_is_complex(expr->type)) {
                 int else_label = new_label64();
                 int end_label = new_label64();
-                if (gen64_is_floating(expr->cond_test->type)) {
-                    gen64_float_truth(mod, expr->cond_test);
-                } else {
-                    gen64_expr(mod, expr->cond_test);
-                }
+                gen64_truth_expression(mod, expr->cond_test);
                 emit64_test_reg_reg(mod, RAX, RAX);
                 emit64_jcc_label(mod, CC64_E, else_label);
                 gen64_expr(mod, expr->cond_then);
@@ -9818,11 +10121,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             int else_label = new_label64();
             int end_label = new_label64();
-            if (gen64_is_floating(expr->cond_test->type)) {
-                gen64_float_truth(mod, expr->cond_test);
-            } else {
-                gen64_expr(mod, expr->cond_test);
-            }
+            gen64_truth_expression(mod, expr->cond_test);
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_jcc_label(mod, CC64_E, else_label);
             gen64_expr(mod, expr->cond_then);
@@ -10654,7 +10953,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                  * vptr through that address. */
                 gen64_lvalue(mod, expr->cast_expr);
             } else if (gen64_is_floating(expr->type) ||
-                gen64_is_floating(expr->cast_expr->type)) {
+                gen64_is_floating(expr->cast_expr->type) ||
+                type_is_complex(expr->cast_expr->type)) {
                 gen64_float_cast(mod, expr);
             } else {
                 gen64_expr(mod, expr->cast_expr);
@@ -11343,9 +11643,7 @@ static void gen64_cxx_cleanup_plan_execute_reverse(
                 continue;
             }
             gen64_expr(mod, item->expression);
-            if (gen64_is_floating(item->expression->type)) {
-                gen64_float_truth(mod, item->expression);
-            }
+            gen64_truth_value(mod, item->expression->type);
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_jcc_label(mod, CC64_E, then_label);
             gen64_cxx_cleanup_plan_execute_reverse(
@@ -11413,9 +11711,7 @@ static void gen64_cxx_exception_register_plan_forward(
                 continue;
             }
             gen64_expr(mod, plan->expression);
-            if (gen64_is_floating(plan->expression->type)) {
-                gen64_float_truth(mod, plan->expression);
-            }
+            gen64_truth_value(mod, plan->expression->type);
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_jcc_label(mod, CC64_E, then_label);
             gen64_cxx_exception_register_plan_forward(
@@ -11479,9 +11775,7 @@ static void gen64_cxx_exception_unregister_plan_forward(
                 return;
             }
             gen64_expr(mod, plan->expression);
-            if (gen64_is_floating(plan->expression->type)) {
-                gen64_float_truth(mod, plan->expression);
-            }
+            gen64_truth_value(mod, plan->expression->type);
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_jcc_label(mod, CC64_E, then_label);
             gen64_cxx_exception_unregister_plan_forward(
@@ -12002,11 +12296,7 @@ static bool gen64_static_reference_aggregate_into_owner(
     if (expression->kind == EXPR_COND) {
         int else_label = new_label64();
         int done_label = new_label64();
-        if (gen64_is_floating(expression->cond_test->type)) {
-            gen64_float_truth(mod, expression->cond_test);
-        } else {
-            gen64_expr(mod, expression->cond_test);
-        }
+        gen64_truth_expression(mod, expression->cond_test);
         emit64_test_reg_reg(mod, RAX, RAX);
         emit64_jcc_label(mod, CC64_E, else_label);
         if (!gen64_static_reference_aggregate_into_owner(
@@ -12290,9 +12580,7 @@ static bool gen64_conditional_reference_temporary_initializer(
     else_label = new_label64();
     done_label = new_label64();
     gen64_expr(mod, conditional->cond_test);
-    if (gen64_is_floating(conditional->cond_test->type)) {
-        gen64_float_truth(mod, conditional->cond_test);
-    }
+    gen64_truth_value(mod, conditional->cond_test->type);
     emit64_test_reg_reg(mod, RAX, RAX);
     emit64_jcc_label(mod, CC64_E, else_label);
     if (!gen64_static_reference_aggregate_into_owner(

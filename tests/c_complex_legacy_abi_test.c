@@ -80,6 +80,63 @@ extern RccLegacyComplexDouble RINOS_ABI
 rcc_legacy_complex_float_add_double(RccLegacyComplexFloat, double);
 extern RccLegacyComplexBinary64Pair RINOS_ABI
 rcc_legacy_complex_double_add_long_double(RccLegacyComplexDouble, double);
+extern RccLegacyComplexFloat RINOS_ABI rcc_legacy_complex_float_add_assign(
+    RccLegacyComplexFloat, RccLegacyComplexFloat);
+extern RccLegacyComplexFloat RINOS_ABI
+rcc_legacy_complex_float_subtract_assign(
+    RccLegacyComplexFloat, RccLegacyComplexFloat);
+extern RccLegacyComplexFloat RINOS_ABI
+rcc_legacy_complex_float_multiply_assign(
+    RccLegacyComplexFloat, RccLegacyComplexFloat);
+extern RccLegacyComplexFloat RINOS_ABI
+rcc_legacy_complex_float_divide_assign(
+    RccLegacyComplexFloat, RccLegacyComplexFloat);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_double_add_assign(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_double_subtract_assign(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_double_multiply_assign(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_double_divide_assign(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexFloat RINOS_ABI
+rcc_legacy_complex_float_prefix_increment(RccLegacyComplexFloat);
+extern RccLegacyComplexFloat RINOS_ABI
+rcc_legacy_complex_float_postfix_decrement(RccLegacyComplexFloat);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_double_prefix_increment(RccLegacyComplexDouble);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_double_postfix_decrement(RccLegacyComplexDouble);
+extern int RINOS_ABI rcc_legacy_complex_float_equal(
+    RccLegacyComplexFloat, RccLegacyComplexFloat);
+extern int RINOS_ABI rcc_legacy_complex_double_equal(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern int RINOS_ABI rcc_legacy_complex_float_truth(RccLegacyComplexFloat);
+extern int RINOS_ABI rcc_legacy_complex_double_truth(RccLegacyComplexDouble);
+extern float RINOS_ABI rcc_legacy_complex_float_real(
+    RccLegacyComplexFloat);
+extern double RINOS_ABI rcc_legacy_complex_double_real(
+    RccLegacyComplexDouble);
+extern RccLegacyComplexFloat RINOS_ABI rcc_legacy_complex_double_narrow(
+    RccLegacyComplexDouble);
+extern int RINOS_ABI rcc_legacy_complex_float_equal_real(
+    RccLegacyComplexFloat, float);
+extern int RINOS_ABI rcc_legacy_complex_float_not_equal_real(
+    RccLegacyComplexFloat, float);
+extern int RINOS_ABI rcc_legacy_complex_float_to_int(
+    RccLegacyComplexFloat);
+extern _Bool RINOS_ABI rcc_legacy_complex_float_to_bool(
+    RccLegacyComplexFloat);
+extern RccLegacyComplexFloat RINOS_ABI
+rcc_legacy_complex_float_add_assign_once(
+    RccLegacyComplexFloat*, RccLegacyComplexFloat);
+extern RccLegacyComplexFloat RINOS_ABI
+rcc_legacy_complex_float_increment_once(RccLegacyComplexFloat*);
+extern int RINOS_ABI rcc_legacy_complex_lvalue_evaluation_count(void);
 extern _Thread_local RccLegacyComplexDouble rcc_legacy_complex_tls;
 extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_tls_read(void);
 extern float RINOS_ABI rcc_legacy_complex_api_crealf(
@@ -382,6 +439,100 @@ int main(void) {
     double_result = rcc_legacy_complex_double_add_integer(double_left, 3);
     assert(near_double(__real__ double_result, 5.0) &&
            near_double(__imag__ double_result, 3.0));
+    float_result = rcc_legacy_complex_float_add_assign(
+        float_left, float_right);
+    assert(near_float(__real__ float_result, 6.0f) &&
+           near_float(__imag__ float_result, 2.0f));
+    float_result = rcc_legacy_complex_float_subtract_assign(
+        float_left, float_right);
+    assert(near_float(__real__ float_result, -2.0f) &&
+           near_float(__imag__ float_result, 4.0f));
+    float_result = rcc_legacy_complex_float_multiply_assign(
+        float_left, float_right);
+    assert(near_float(__real__ float_result, 11.0f) &&
+           near_float(__imag__ float_result, 10.0f));
+    float_result = rcc_legacy_complex_float_divide_assign(
+        float_left, __builtin_complex(1.0f, 1.0f));
+    assert(near_float(__real__ float_result, 2.5f) &&
+           near_float(__imag__ float_result, 0.5f));
+    double_result = rcc_legacy_complex_double_add_assign(
+        double_left, double_right);
+    assert(near_double(__real__ double_result, 6.0) &&
+           near_double(__imag__ double_result, 2.0));
+    double_result = rcc_legacy_complex_double_subtract_assign(
+        double_left, double_right);
+    assert(near_double(__real__ double_result, -2.0) &&
+           near_double(__imag__ double_result, 4.0));
+    double_result = rcc_legacy_complex_double_multiply_assign(
+        double_left, double_right);
+    assert(near_double(__real__ double_result, 11.0) &&
+           near_double(__imag__ double_result, 10.0));
+    double_result = rcc_legacy_complex_double_divide_assign(
+        double_left, __builtin_complex(1.0, 1.0));
+    assert(near_double(__real__ double_result, 2.5) &&
+           near_double(__imag__ double_result, 0.5));
+    float_result = rcc_legacy_complex_float_prefix_increment(float_left);
+    assert(near_float(__real__ float_result, 3.0f) &&
+           near_float(__imag__ float_result, 3.0f));
+    float_result = rcc_legacy_complex_float_postfix_decrement(float_left);
+    assert(near_float(__real__ float_result, 2.0f) &&
+           near_float(__imag__ float_result, 3.0f));
+    double_result = rcc_legacy_complex_double_prefix_increment(double_left);
+    assert(near_double(__real__ double_result, 3.0) &&
+           near_double(__imag__ double_result, 3.0));
+    double_result = rcc_legacy_complex_double_postfix_decrement(double_left);
+    assert(near_double(__real__ double_result, 2.0) &&
+           near_double(__imag__ double_result, 3.0));
+    assert(rcc_legacy_complex_float_equal(float_left, float_left));
+    assert(!rcc_legacy_complex_float_equal(float_left, float_right));
+    assert(rcc_legacy_complex_double_equal(double_left, double_left));
+    assert(!rcc_legacy_complex_double_equal(double_left, double_right));
+    assert(rcc_legacy_complex_float_truth(float_left));
+    assert(!rcc_legacy_complex_float_truth(__builtin_complex(0.0f, 0.0f)));
+    assert(rcc_legacy_complex_double_truth(double_left));
+    assert(!rcc_legacy_complex_double_truth(__builtin_complex(0.0, 0.0)));
+    assert(rcc_legacy_complex_float_truth(
+        __builtin_complex(0.0f, -1.0f)));
+    assert(rcc_legacy_complex_float_truth(
+        __builtin_complex(NAN, 0.0f)));
+    assert(near_float(rcc_legacy_complex_float_real(float_left), 2.0f));
+    assert(near_double(rcc_legacy_complex_double_real(double_left), 2.0));
+    assert(rcc_legacy_complex_float_equal_real(
+        __builtin_complex(2.0f, 0.0f), 2.0f));
+    assert(!rcc_legacy_complex_float_equal_real(
+        __builtin_complex(2.0f, 3.0f), 2.0f));
+    assert(rcc_legacy_complex_float_not_equal_real(
+        __builtin_complex(2.0f, 3.0f), 2.0f));
+    assert(!rcc_legacy_complex_float_equal_real(
+        __builtin_complex(NAN, 0.0f), NAN));
+    assert(rcc_legacy_complex_float_not_equal_real(
+        __builtin_complex(NAN, 0.0f), NAN));
+    assert(rcc_legacy_complex_float_to_int(
+        __builtin_complex(7.75f, 9.0f)) == 7);
+    assert(!rcc_legacy_complex_float_to_bool(
+        __builtin_complex(0.0f, 0.0f)));
+    assert(rcc_legacy_complex_float_to_bool(
+        __builtin_complex(0.0f, -1.0f)));
+    float_result = rcc_legacy_complex_double_narrow(double_left);
+    assert(near_float(__real__ float_result, 2.0f) &&
+           near_float(__imag__ float_result, 3.0f));
+    {
+        RccLegacyComplexFloat once_value =
+            __builtin_complex(2.0f, 3.0f);
+        float_result = rcc_legacy_complex_float_add_assign_once(
+            &once_value, __builtin_complex(1.0f, -1.0f));
+        assert(near_float(__real__ float_result, 3.0f) &&
+               near_float(__imag__ float_result, 2.0f));
+        assert(near_float(__real__ once_value, 3.0f) &&
+               near_float(__imag__ once_value, 2.0f));
+        assert(rcc_legacy_complex_lvalue_evaluation_count() == 1);
+        float_result = rcc_legacy_complex_float_increment_once(&once_value);
+        assert(near_float(__real__ float_result, 4.0f) &&
+               near_float(__imag__ float_result, 2.0f));
+        assert(near_float(__real__ once_value, 4.0f) &&
+               near_float(__imag__ once_value, 2.0f));
+        assert(rcc_legacy_complex_lvalue_evaluation_count() == 2);
+    }
     double_result = rcc_legacy_complex_float_add_double(float_left, 0.5);
     assert(near_double(__real__ double_result, 2.5) &&
            near_double(__imag__ double_result, 3.0));
