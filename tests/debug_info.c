@@ -51,6 +51,8 @@ volatile long long*
     debug_inline_nonconstant_signed_long_long_volatile_local_division_divisor_escape;
 volatile unsigned long long*
     debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_escape;
+volatile long long*
+    debug_inline_nonconstant_signed_long_long_volatile_local_constant_escape;
 _Thread_local _Atomic long long
     debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_lhs =
         -0x7edcba9876543211ll;
@@ -998,6 +1000,34 @@ debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_remainder_en
     return debug_nonconstant_unsigned_long_long_parameter_inline(
         debug_inline_nonconstant_unsigned_long_long_volatile_local_remainder_dividend %
         7ull);
+}
+
+long long
+debug_inline_nonconstant_signed_long_long_volatile_local_constant_divide_entry(
+    long long dividend)
+{
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_constant_dividend =
+            dividend;
+    debug_inline_nonconstant_signed_long_long_volatile_local_constant_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_constant_dividend;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_local_constant_dividend /
+        -7ll);
+}
+
+long long
+debug_inline_nonconstant_signed_long_long_volatile_local_constant_remainder_entry(
+    long long dividend)
+{
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_constant_remainder_dividend =
+            dividend;
+    debug_inline_nonconstant_signed_long_long_volatile_local_constant_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_constant_remainder_dividend;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_local_constant_remainder_dividend %
+        -7ll);
 }
 
 long long debug_inline_nonconstant_signed_long_long_atomic_constant_divide_entry(
