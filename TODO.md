@@ -11955,6 +11955,13 @@ remains a separate open item.
         and RCC i686/AMD64 generation plus x64 execution through
         `test-cxx-function-template-overloads`; broader partitioning remains
         open.
+  - [x] Evaluate `sizeof...(Pack)` in constexpr function-template calls using
+        per-parameter pack counts, including empty/nonempty type and non-type
+        packs, adjacent packs, and an overload with a trailing defaulted
+        template parameter. Accept unnamed expanded function parameters while
+        binding constexpr calls. GCC C++20 and the full
+        `test-cxx-function-template-overloads` gate pass on i686/AMD64 with
+        runtime execution.
 - [x] Keep `test-cxx-function-template-explicit-specialization` in
       `CXX_REGRESSION_TARGETS`; verify it is reached by `test-cxx` and the
       Linux production `test-ci` workflow, and that native-Windows `test-cxx`

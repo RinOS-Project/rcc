@@ -1025,6 +1025,39 @@ int choose_defaulted_fixed_prefix_pack(Type, Types...) {
            static_cast<int>(sizeof...(Types));
 }
 
+template<typename... Types>
+constexpr int constexpr_explicit_type_pack_count(Types...) {
+    return static_cast<int>(sizeof...(Types));
+}
+
+template<int... Values>
+constexpr int constexpr_explicit_value_pack_count() {
+    return static_cast<int>(sizeof...(Values));
+}
+
+template<typename... First, typename... Second>
+constexpr int constexpr_split_type_pack_count(First..., Second...) {
+    return static_cast<int>(sizeof...(First) * 10 + sizeof...(Second));
+}
+
+template<typename... Types, typename Defaulted = int>
+constexpr int constexpr_defaulted_pack_overload(Types...) {
+    return 100 + static_cast<int>(sizeof...(Types));
+}
+
+template<typename Fixed, typename... Rest>
+constexpr int constexpr_defaulted_pack_overload(Fixed, Rest...) {
+    return 200 + static_cast<int>(sizeof...(Rest));
+}
+
+static_assert(constexpr_explicit_type_pack_count() == 0);
+static_assert(constexpr_explicit_type_pack_count<int, char>(1, 'x') == 2);
+static_assert(constexpr_explicit_value_pack_count<>() == 0);
+static_assert(constexpr_explicit_value_pack_count<1, 2, 3>() == 3);
+static_assert(constexpr_split_type_pack_count<int, char>(1, 'x') == 20);
+static_assert(constexpr_defaulted_pack_overload<int>(1) == 200);
+static_assert(constexpr_defaulted_pack_overload<int, char>(1, 'x') == 201);
+
 template<template<typename> class... Templates>
 int choose_nontrailing_template_template_pack_order(
     FunctionTemplateTemplatePackBox<

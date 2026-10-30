@@ -5414,12 +5414,42 @@ typedef struct SemaConstexprBinding {
 } SemaConstexprBinding;
 
 static int constexpr_eval_depth;
+/* The active constexpr function supplies the concrete template-pack sizes
+ * needed to evaluate sizeof...(Pack) in its body.  Nested constexpr calls
+ * temporarily replace this pointer and restore the caller afterward. */
+static Decl* constexpr_function_context;
 /* C++20 constant evaluation may use transient allocation, but the storage
  * must be reclaimed before the evaluation completes.  Keep only the live
  * count here; object bytes and provenance remain attached to the binding that
  * owns the allocation.  The count is saved/restored around nested constexpr
  * calls so a failed inner evaluation cannot leak state into its caller. */
 static int constexpr_dynamic_live_count;
+
+static bool sema_constexpr_function_pack_size(
+    const Decl* function, const char* pack_name, int* pack_size) {
+    const CxxTemplate* tmpl = function ? function->func_template_owner : NULL;
+    int matching_index = -1;
+    int pack_parameter_count = 0;
+    if (!tmpl || !pack_name || !pack_size) return false;
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        const TemplateParam* parameter = &tmpl->params[index];
+        if (!parameter->is_pack) continue;
+        ++pack_parameter_count;
+        if (parameter->name && strcmp(parameter->name, pack_name) == 0) {
+            matching_index = index;
+        }
+    }
+    if (matching_index < 0) return false;
+    if (function->func_template_pack_counts) {
+        *pack_size = function->func_template_pack_counts[matching_index];
+    } else if (pack_parameter_count == 1 &&
+               function->func_template_pack_count >= 0) {
+        *pack_size = function->func_template_pack_count;
+    } else {
+        return false;
+    }
+    return *pack_size >= 0;
+}
 
 static bool sema_constexpr_integer_type(Type* type) {
     return type && (type_is_integer(type) || type->kind == TYPE_ENUM);
@@ -11769,6 +11799,8 @@ static bool sema_eval_constexpr_scalar_function(
     SemaConstexprScalar result;
     SemaConstexprStatementResult statement_result;
     int saved_dynamic_live_count;
+    Decl* saved_constexpr_function;
+    bool statement_evaluated;
     int count = 0;
 
     memset(bindings, 0, sizeof(bindings));
@@ -11833,7 +11865,7 @@ static bool sema_eval_constexpr_scalar_function(
         int argument_binding_count;
         Type* parameter_value_type;
         bool mutable_reference_alias = false;
-        if (!parameter->decl || !parameter->decl->name) return false;
+        if (!parameter->decl) return false;
         if (argument) {
             argument_expression = argument->expr;
             argument_bindings = caller_bindings;
@@ -11962,15 +11994,18 @@ static bool sema_eval_constexpr_scalar_function(
     }
     if (constexpr_eval_depth >= 64) return false;
     saved_dynamic_live_count = constexpr_dynamic_live_count;
+    saved_constexpr_function = constexpr_function_context;
+    constexpr_function_context = declaration;
     ++constexpr_eval_depth;
-    if (!sema_eval_constexpr_scalar_statement(
-            declaration->func_body, bindings, &count, &result,
-            &statement_result, false)) {
-        --constexpr_eval_depth;
+    statement_evaluated = sema_eval_constexpr_scalar_statement(
+        declaration->func_body, bindings, &count, &result,
+        &statement_result, false);
+    constexpr_function_context = saved_constexpr_function;
+    --constexpr_eval_depth;
+    if (!statement_evaluated) {
         constexpr_dynamic_live_count = saved_dynamic_live_count;
         return false;
     }
-    --constexpr_eval_depth;
     if (statement_result != SEMA_CONSTEXPR_STMT_RETURNED ||
         constexpr_dynamic_live_count != saved_dynamic_live_count ||
         (result.is_pointer && result.pointer_declaration &&
@@ -12878,6 +12913,19 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                 sema_constexpr_integer_mask(result_type));
             return true;
         case EXPR_SIZEOF:
+            if (expression->sizeof_pack_name) {
+                int pack_size;
+                if (!sema_constexpr_function_pack_size(
+                        constexpr_function_context,
+                        expression->sizeof_pack_name, &pack_size)) {
+                    return false;
+                }
+                value->type = expression->type
+                    ? expression->type : type_ulong;
+                value->integer_value = pack_size;
+                return true;
+            }
+            /* fall through */
         case EXPR_ALIGNOF:
             measured = expression->sizeof_type
                 ? expression->sizeof_type
