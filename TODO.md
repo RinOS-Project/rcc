@@ -10195,9 +10195,10 @@ remains a separate open item.
         C++20. Multiple using-declarations retain same-signature candidates and
         diagnose overload ambiguity, matching GCC. Distinct placement overloads
         are exercised in the placement-allocation coverage below.
-        Repeated/virtual-base lookup and bases requiring constructor/destructor
-        lowering remain open. Private using-declarations reject external
-        allocation.
+        Repeated and virtual diamond allocation lookup passes GCC and both RCC
+        target generations. Virtual-base object lifetime lowering and bases
+        requiring constructor/destructor lowering remain open. Private
+        using-declarations reject external allocation.
   - [x] Parse placement allocation arguments and pass them into global and
         class-specific scalar and plain trivial-array operator new lookup.
         Verify exact scalar/array byte extents, overload selection from two
