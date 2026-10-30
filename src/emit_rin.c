@@ -268,6 +268,9 @@ bool rcc_emit(Module* mod, const char* outfile) {
     uint64_t image_size;
     uint64_t data_payload_size;
     uint64_t tls_data_offset = 0u;
+    uint32_t data_section_alignment = 4096u;
+    uint32_t bss_section_alignment = 4096u;
+    uint32_t tls_alignment = 16u;
     uint8_t* output;
     FILE* file;
     Reloc* relocation;
@@ -279,6 +282,16 @@ bool rcc_emit(Module* mod, const char* outfile) {
         mod->tls.size > UINT32_MAX) {
         rcc_error((SourceLoc){outfile, 0, 0}, "invalid module for RIN v3 output");
         return false;
+    }
+    if (mod->data_align > data_section_alignment) {
+        data_section_alignment = mod->data_align;
+    }
+    if (mod->tls_align > tls_alignment) tls_alignment = mod->tls_align;
+    if (tls_alignment > data_section_alignment) {
+        data_section_alignment = tls_alignment;
+    }
+    if (mod->bss.align > bss_section_alignment) {
+        bss_section_alignment = mod->bss.align;
     }
     if (!rin_add_got_slot_relocations(mod, outfile) ||
         !rin_add_dynamic_tls_relocations(mod, outfile)) return false;
@@ -341,13 +354,12 @@ bool rcc_emit(Module* mod, const char* outfile) {
     }
     data_payload_size = mod->data.size;
     if (mod->tls.size > 0u) {
-        uint64_t tls_alignment = mod->tls_align < 16u ? 16u : mod->tls_align;
         tls_data_offset = align_up_u64(data_payload_size, tls_alignment);
         data_payload_size = tls_data_offset + mod->tls.size;
     }
     if (data_payload_size > 0u) {
         data_file_offset = payload_file_end;
-        data_rva = align_up_u64(mapped_end, 4096u);
+        data_rva = align_up_u64(mapped_end, data_section_alignment);
         if (mod->bss.size > 0u) {
             data_payload_size = align_up_u64(data_payload_size, 4096u);
         }
@@ -359,7 +371,7 @@ bool rcc_emit(Module* mod, const char* outfile) {
         }
     }
     if (mod->bss.size > 0u) {
-        bss_rva = align_up_u64(mapped_end, 4096u);
+        bss_rva = align_up_u64(mapped_end, bss_section_alignment);
         mapped_end = bss_rva + mod->bss.size;
     }
     if (relocation_count > 0u) {
@@ -442,7 +454,7 @@ bool rcc_emit(Module* mod, const char* outfile) {
         RinSectionV3* data_section = &sections[next_section++];
         data_section->type = RIN_IMAGE_SECTION_DATA;
         data_section->flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
-        data_section->alignment = 4096u;
+        data_section->alignment = data_section_alignment;
         data_section->file_offset = data_file_offset;
         data_section->file_size = data_payload_size;
         data_section->virtual_address = data_rva;
@@ -464,7 +476,7 @@ bool rcc_emit(Module* mod, const char* outfile) {
         RinSectionV3* bss_section = &sections[next_section++];
         bss_section->type = RIN_IMAGE_SECTION_BSS;
         bss_section->flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
-        bss_section->alignment = 4096u;
+        bss_section->alignment = bss_section_alignment;
         bss_section->virtual_address = bss_rva;
         bss_section->memory_size = mod->bss.size;
         bss_section->name_offset = bss_name;

@@ -18399,6 +18399,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         ObjSection* data = objfile_add_section(obj, ".data", SECT_DATA,
                                                SECT_FLAG_WRITE | SECT_FLAG_ALLOC);
         section_add_data(data, mod->data.data, mod->data.size);
+        data->align = mod->data_align;
         data_section = next_section++;
     }
 

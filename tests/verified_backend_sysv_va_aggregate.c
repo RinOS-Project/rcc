@@ -204,11 +204,11 @@ struct VerifiedSysvVaAligned4096Aggregate {
     long long second;
 };
 
-struct VerifiedSysvVaAligned8192Aggregate {
+struct VerifiedSysvVaAligned16384Aggregate {
 #ifdef __cplusplus
-    alignas(8192) long long first;
+    alignas(16384) long long first;
 #else
-    _Alignas(8192) long long first;
+    _Alignas(16384) long long first;
 #endif
     long long second;
 };
@@ -295,14 +295,14 @@ _Static_assert(sizeof(struct VerifiedSysvVaAligned4096Aggregate) == 4096,
 #endif
 
 #ifdef __cplusplus
-static_assert(alignof(VerifiedSysvVaAligned8192Aggregate) == 8192,
+static_assert(alignof(VerifiedSysvVaAligned16384Aggregate) == 16384,
               "C++ extended variadic MEMORY aggregate alignment");
-static_assert(sizeof(VerifiedSysvVaAligned8192Aggregate) == 8192,
+static_assert(sizeof(VerifiedSysvVaAligned16384Aggregate) == 16384,
               "C++ extended variadic MEMORY aggregate size");
 #else
-_Static_assert(_Alignof(struct VerifiedSysvVaAligned8192Aggregate) == 8192,
+_Static_assert(_Alignof(struct VerifiedSysvVaAligned16384Aggregate) == 16384,
                "C extended variadic MEMORY aggregate alignment");
-_Static_assert(sizeof(struct VerifiedSysvVaAligned8192Aggregate) == 8192,
+_Static_assert(sizeof(struct VerifiedSysvVaAligned16384Aggregate) == 16384,
                "C extended variadic MEMORY aggregate size");
 #endif
 
@@ -663,37 +663,37 @@ long long verified_sysv_va_aligned4096_aggregate_call(
         ninth, value, trailing);
 }
 
-long long verified_sysv_va_read_aligned8192_aggregate_after_nine_doubles(
+long long verified_sysv_va_read_aligned16384_aggregate_after_nine_doubles(
     int marker, ...)
 {
     va_list arguments;
-    struct VerifiedSysvVaAligned8192Aggregate value;
+    struct VerifiedSysvVaAligned16384Aggregate value;
     struct VerifiedSysvVaLargeAggregate trailing;
     va_start(arguments, marker);
     for (int index = 0; index < 9; ++index) {
         (void)va_arg(arguments, double);
     }
-    value = va_arg(arguments, struct VerifiedSysvVaAligned8192Aggregate);
+    value = va_arg(arguments, struct VerifiedSysvVaAligned16384Aggregate);
     trailing = va_arg(arguments, struct VerifiedSysvVaLargeAggregate);
     va_end(arguments);
     return value.second + trailing.third;
 }
 
-long long verified_sysv_va_aligned8192_aggregate_call(
+long long verified_sysv_va_aligned16384_aggregate_call(
     double first, double second, double third, double fourth, double fifth,
     double sixth, double seventh, double eighth, double ninth,
     long long value_first, long long value_second,
     long long trailing_first, long long trailing_second,
     long long trailing_third)
 {
-    struct VerifiedSysvVaAligned8192Aggregate value;
+    struct VerifiedSysvVaAligned16384Aggregate value;
     struct VerifiedSysvVaLargeAggregate trailing;
     value.first = value_first;
     value.second = value_second;
     trailing.first = trailing_first;
     trailing.second = trailing_second;
     trailing.third = trailing_third;
-    return verified_sysv_va_read_aligned8192_aggregate_after_nine_doubles(
+    return verified_sysv_va_read_aligned16384_aggregate_after_nine_doubles(
         7, first, second, third, fourth, fifth, sixth, seventh, eighth,
         ninth, value, trailing);
 }

@@ -235,7 +235,17 @@ bool rcc_emit_asm(Module* mod, const char* outfile) {
                                   0u);
     }
     if (ok && mod->data.size > 0u) {
-        ok = fprintf(file, ".section .data\n.p2align 4\n") >= 0 &&
+        unsigned alignment = 0u;
+        uint32_t value = mod->data_align;
+        while (value > 1u) {
+            if ((value & 1u) != 0u) {
+                alignment = 0u;
+                break;
+            }
+            value >>= 1;
+            ++alignment;
+        }
+        ok = fprintf(file, ".section .data\n.p2align %u\n", alignment) >= 0 &&
              emit_asm_reloc_bytes(file, mod, MODULE_SYMBOL_DATA,
                                   mod->data.data, mod->data.size, 0u);
     }

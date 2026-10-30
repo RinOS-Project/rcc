@@ -4187,7 +4187,7 @@ static int parse_explicit_alignment(void) {
          alignment > (int)RCC_MAX_SUPPORTED_ALIGNMENT ||
          (alignment & (alignment - 1)) != 0)) {
         rcc_error(loc,
-                  "_Alignas alignment must be a power of two no greater than 8192");
+                  "_Alignas alignment must be a power of two no greater than 16384");
         alignment = 0;
     }
     return alignment;
@@ -5054,7 +5054,7 @@ static void parser_parse_aggregate_attributes(
                              (int64_t)RCC_MAX_SUPPORTED_ALIGNMENT ||
                          (alignment_value & (alignment_value - 1)) != 0)) {
                         rcc_error(attribute_loc,
-                                  "aligned attribute requires a positive power-of-two constant no greater than 8192");
+                                  "aligned attribute requires a positive power-of-two constant no greater than 16384");
                     } else if (alignment_expression &&
                                alignment_value > attributes->alignment) {
                         attributes->alignment = (int)alignment_value;

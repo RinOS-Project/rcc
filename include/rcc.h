@@ -25,7 +25,7 @@
 #define RCC_MAX_IDENT       2049
 #define RCC_MAX_STRING      4096
 #define RCC_MAX_ERRORS      100
-#define RCC_MAX_SUPPORTED_ALIGNMENT 8192u
+#define RCC_MAX_SUPPORTED_ALIGNMENT 16384u
 
 /* Output format */
 typedef enum {

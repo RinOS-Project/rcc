@@ -194,6 +194,7 @@ typedef struct Module {
     DataSection init_array;
     DataSection fini_array;
     DataSection data;
+    uint32_t data_align;
     BssSection bss;
     DataSection tls;
     uint32_t tls_align;

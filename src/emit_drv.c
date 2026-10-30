@@ -237,6 +237,8 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     uint64_t payload_file_end;
     uint64_t mapped_end;
     uint64_t image_size;
+    uint32_t data_section_alignment = 4096u;
+    uint32_t bss_section_alignment = 4096u;
     uint8_t* output;
     FILE* file;
     size_t written;
@@ -249,6 +251,12 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
         mod->tls.size > 0u) {
         rcc_error((SourceLoc){outfile, 0, 0}, "invalid module for NDRV v3 output");
         return false;
+    }
+    if (mod->data_align > data_section_alignment) {
+        data_section_alignment = mod->data_align;
+    }
+    if (mod->bss.align > bss_section_alignment) {
+        bss_section_alignment = mod->bss.align;
     }
     if (!drv_add_got_slot_relocations(mod, outfile)) return false;
     for (source_relocation = mod->relocs; source_relocation;
@@ -311,11 +319,11 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
     if (mod->data.size > 0u) {
         data_file_offset = drv_align(payload_file_end, 16u);
         payload_file_end = data_file_offset + mod->data.size;
-        data_rva = drv_align(mapped_end, 4096u);
+        data_rva = drv_align(mapped_end, data_section_alignment);
         mapped_end = data_rva + mod->data.size;
     }
     if (mod->bss.size > 0u) {
-        bss_rva = drv_align(mapped_end, 4096u);
+        bss_rva = drv_align(mapped_end, bss_section_alignment);
         mapped_end = bss_rva + mod->bss.size;
     }
     if (relocation_count > 0u) {
@@ -400,7 +408,7 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
         RinSectionV3* section = &sections[next_section++];
         section->type = RIN_IMAGE_SECTION_DATA;
         section->flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
-        section->alignment = 16u;
+        section->alignment = data_section_alignment;
         section->file_offset = data_file_offset;
         section->file_size = mod->data.size;
         section->virtual_address = data_rva;
@@ -411,7 +419,7 @@ bool rcc_emit_drv(Module* mod, AST* ast, const char* outfile) {
         RinSectionV3* section = &sections[next_section++];
         section->type = RIN_IMAGE_SECTION_BSS;
         section->flags = RIN_IMAGE_SECTION_READ | RIN_IMAGE_SECTION_WRITE;
-        section->alignment = mod->bss.align;
+        section->alignment = bss_section_alignment;
         section->virtual_address = bss_rva;
         section->memory_size = mod->bss.size;
         section->name_offset = bss_name;

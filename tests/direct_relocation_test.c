@@ -79,6 +79,8 @@ static void verify_artifact(const char* object_path, const char* image_path,
     ObjSymbol* first;
     ObjSymbol* second;
     ObjSymbol* zero;
+    ObjSymbol* aligned_initialized_16384;
+    ObjSymbol* aligned_bss_16384;
     ObjSymbol* target;
     ObjSymbol* static_literal;
     ObjSymbol* static_suffix;
@@ -113,6 +115,7 @@ static void verify_artifact(const char* object_path, const char* image_path,
     ObjSection* object_code = NULL;
     ObjSection* object_rodata = NULL;
     ObjSection* object_data = NULL;
+    ObjSection* object_bss = NULL;
     RinHeaderV3 header;
     RinDriverHeaderV3 driver_header;
     RinSectionV3* sections;
@@ -152,6 +155,9 @@ static void verify_artifact(const char* object_path, const char* image_path,
     first = required_symbol(object, "first_value");
     second = required_symbol(object, "second_value");
     zero = required_symbol(object, "zero_value");
+    aligned_initialized_16384 =
+        required_symbol(object, "aligned_initialized_16384");
+    aligned_bss_16384 = required_symbol(object, "aligned_bss_16384");
     target = required_symbol(object, "target");
     static_literal = required_symbol(object, "static_literal");
     static_suffix = required_symbol(object, "static_suffix");
@@ -193,9 +199,17 @@ static void verify_artifact(const char* object_path, const char* image_path,
          section = section->next) {
         if (section->type == SECT_RODATA) object_rodata = section;
         if (section->type == SECT_DATA) object_data = section;
+        if (section->type == SECT_BSS) object_bss = section;
         if (section->type == SECT_CODE) object_code = section;
     }
-    assert(object_code != NULL && object_rodata != NULL && object_data != NULL);
+    assert(object_code != NULL && object_rodata != NULL && object_data != NULL &&
+           object_bss != NULL);
+    assert(object_data->align >= 16384u &&
+           aligned_initialized_16384->section >= 0 &&
+           aligned_initialized_16384->value % 16384u == 0u);
+    assert(object_bss->align >= 16384u &&
+           aligned_bss_16384->section >= 0 &&
+           aligned_bss_16384->value % 16384u == 0u);
     assert(object_rodata->flags == SECT_FLAG_ALLOC);
     assert(static_array->value + 9u <= object_data->size);
     assert(memcmp(object_data->data + static_array->value,
@@ -488,6 +502,10 @@ static void verify_artifact(const char* object_path, const char* image_path,
     }
     assert(code != NULL && data != NULL && bss != NULL &&
            relocation_section != NULL);
+    assert(data->alignment >= 16384u &&
+           (data->virtual_address & (data->alignment - 1u)) == 0u);
+    assert(bss->alignment >= 16384u &&
+           (bss->virtual_address & (bss->alignment - 1u)) == 0u);
     if (rodata != NULL) {
         assert(rodata->flags == RIN_IMAGE_SECTION_READ);
         assert(rodata->file_size == object_rodata->size &&
@@ -529,9 +547,8 @@ static void verify_artifact(const char* object_path, const char* image_path,
                (data->virtual_address & (data->alignment - 1u)) == 0u &&
                data->file_offset >= rodata->file_offset + rodata->file_size &&
                data->file_size == data->memory_size &&
-               bss->virtual_address == data->virtual_address +
+               bss->virtual_address >= data->virtual_address +
                    data->memory_size &&
-               (bss->virtual_address & 4095u) == 0u &&
                header.image_size == bss->virtual_address +
                    bss->memory_size);
     }
@@ -812,7 +829,7 @@ static void verify_external_data_relocation(const char* reference_path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 19);
+    assert(argc == 23);
     verify_artifact(argv[1], argv[2], RIN_ARCH_X86, RIN_IMAGE_MAGIC);
     verify_artifact(argv[3], argv[4], RIN_ARCH_X86_64, RIN_IMAGE_MAGIC);
     verify_artifact(argv[5], argv[6], RIN_ARCH_X86,
@@ -821,9 +838,11 @@ int main(int argc, char** argv)
                     RIN_DRIVER_IMAGE_MAGIC);
     verify_artifact(argv[9], argv[10], RIN_ARCH_X86, RIN_IMAGE_MAGIC);
     verify_artifact(argv[11], argv[12], RIN_ARCH_X86_64, RIN_IMAGE_MAGIC);
-    verify_external_data_relocation(argv[13], argv[14], argv[15],
+    verify_artifact(argv[13], argv[14], RIN_ARCH_X86, RIN_IMAGE_MAGIC);
+    verify_artifact(argv[15], argv[16], RIN_ARCH_X86_64, RIN_IMAGE_MAGIC);
+    verify_external_data_relocation(argv[17], argv[18], argv[19],
                                     RIN_ARCH_X86);
-    verify_external_data_relocation(argv[16], argv[17], argv[18],
+    verify_external_data_relocation(argv[20], argv[21], argv[22],
                                     RIN_ARCH_X86_64);
     return 0;
 }

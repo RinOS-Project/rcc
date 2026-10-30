@@ -143,6 +143,7 @@ endef
 # object, so do not make the whole production gate depend on unavailable
 # 32-bit Windows CRT libraries.
 VERIFIED_BACKEND_X86_HOST_CFLAGS = $(CFLAGS)
+HOST_LINK_NO_PIE =
 VERIFIED_BACKEND_X86_RUNTIME_DEPS = \
 	$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
 VERIFIED_BACKEND_X86_HOST_LINK_FLAGS =
@@ -153,6 +154,7 @@ MKDIR_P = mkdir -p "$(1)"
 EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
 CHECK_NONEMPTY = test -s "$(1)"
 VERIFIED_BACKEND_X86_HOST_CFLAGS = -m32 $(CFLAGS)
+HOST_LINK_NO_PIE = -no-pie
 VERIFIED_BACKEND_X86_RUNTIME_DEPS = \
 	$(CXX_HOST_EXCEPTION_RUNTIME_I686) \
 	$(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686)
@@ -1826,7 +1828,7 @@ test-c23-typeof-type-name: $(RCC_TARGET)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x64-run \
 		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
-		$(SRCDIR)/utils.c
+		$(SRCDIR)/utils.c -lm
 	$(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x64-run \
 		--entry $(TEST_OUT)/c23-typeof-type-name/declarator-evaluation-verified-x64.ro
 	$(CC) $(CFLAGS) -I$(INCDIR) \
@@ -8700,6 +8702,21 @@ test-cxx-alignas-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-alignas/x64 \
 		$(TEST_OUT)/cxx-alignas/start-x64.o $(TEST_OUT)/cxx-alignas/x64.o
 	$(TEST_OUT)/cxx-alignas/x64
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-alignas/verified-x86.ro tests/cxx_alignas.cpp \
+		>$(TEST_OUT)/cxx-alignas/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-alignas/verified-x86.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-alignas/verified-x64.ro tests/cxx_alignas.cpp \
+		>$(TEST_OUT)/cxx-alignas/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-alignas/verified-x64.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/cxx-alignas/run-verified-test \
+		tests/alignas_host_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/cxx-alignas/run-verified-test --cxx \
+		$(TEST_OUT)/cxx-alignas/verified-x86.ro \
+		$(TEST_OUT)/cxx-alignas/verified-x64.ro
 	@echo "RCC++ alignas/alignof tests completed"
 
 test-cxx-alignas-invalid: $(RCXX_TARGET)
@@ -10155,6 +10172,19 @@ test-cxx-structured-bindings: $(RCXX_TARGET)
 test-cxx-alignas: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alignas)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-alignas,cxx_alignas.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-alignas/verified-x86.ro tests/cxx_alignas.cpp \
+		>$(TEST_OUT)/cxx-alignas/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-alignas/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-alignas/verified-x64.ro tests/cxx_alignas.cpp \
+		>$(TEST_OUT)/cxx-alignas/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-alignas/verified-x64.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/cxx-alignas/run-verified-test \
+		tests/alignas_host_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/cxx-alignas/run-verified-test --cxx \
+		$(TEST_OUT)/cxx-alignas/verified-x86.ro \
+		$(TEST_OUT)/cxx-alignas/verified-x64.ro
 
 test-cxx-constinit: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constinit)
@@ -20421,7 +20451,7 @@ test-tls-runtime-posix: $(RCC_TARGET)
 	$(TEST_OUT)/tls-runtime/tls-runtime-test-x64
 	@echo "RCC-generated local-exec TLS thread-isolation runtime test passed"
 
-test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
+test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/direct)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/direct/x86.ro tests/direct_relocation.c
@@ -20433,6 +20463,10 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/direct/x64.ro tests/direct_relocation.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/direct/x64.rin tests/direct_relocation.c
+	$(RCC_TARGET) --target i686-unknown-rinos -shared --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/x86.rll tests/direct_relocation.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -shared --emit-unsigned-v3 \
+		-o $(TEST_OUT)/direct/x64.rll tests/direct_relocation.c
 	$(RLD_TARGET) -m64 --emit-unsigned-v3 \
 		-o $(TEST_OUT)/direct/x64-linked.rin $(TEST_OUT)/direct/x64.ro
 	$(RCC_TARGET) --target i686-unknown-rinos -driver --emit-unsigned-v3 \
@@ -20549,14 +20583,32 @@ test-direct-relocation: $(RCC_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/direct/x64.ro $(TEST_OUT)/direct/x64.drv \
 		$(TEST_OUT)/direct/x86.ro $(TEST_OUT)/direct/x86-linked.rin \
 		$(TEST_OUT)/direct/x64.ro $(TEST_OUT)/direct/x64-linked.rin \
+		$(TEST_OUT)/direct/x86.ro $(TEST_OUT)/direct/x86.rll \
+		$(TEST_OUT)/direct/x64.ro $(TEST_OUT)/direct/x64.rll \
 		$(TEST_OUT)/direct/unresolved.ro \
 		$(TEST_OUT)/direct/definition-x86.ro \
 		$(TEST_OUT)/direct/resolved-x86.rin \
 		$(TEST_OUT)/direct/unresolved-x64.ro \
 		$(TEST_OUT)/direct/definition-x64.ro \
 		$(TEST_OUT)/direct/resolved-x64.rin
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/direct/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/direct/x64.rin
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/direct/x86-linked.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/direct/x64-linked.rin
+	$(RINVALIDATE) --kind library --arch x86 --allow-unsigned \
+		$(TEST_OUT)/direct/x86.rll
+	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/direct/x64.rll
+	$(RINVALIDATE) --kind driver --arch x86 --allow-unsigned \
+		$(TEST_OUT)/direct/x86.drv
+	$(RINVALIDATE) --kind driver --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/direct/x64.drv
 	$(TEST_OUT)/pointer_arithmetic_run_test $(TEST_OUT)/direct/x64.ro
-	@echo "Direct RIN/NDRV v3 symbol relocation tests completed"
+	@echo "Direct RIN/RLL/NDRV v3 symbol relocation and alignment tests completed"
 
 test-ir:
 	$(call MKDIR_P,$(TEST_OUT))
@@ -20670,7 +20722,7 @@ test-verified-goto: $(RCC_TARGET)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/goto-run \
 		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
-		$(SRCDIR)/utils.c
+		$(SRCDIR)/utils.c -lm
 	$(TEST_OUT)/verified-backend/goto-run \
 		$(TEST_OUT)/verified-backend/goto-x64.ro
 	$(TEST_OUT)/verified-backend/goto-run \
@@ -20715,7 +20767,7 @@ test-verified-atomic-vla-rmw: $(RCC_TARGET)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/atomic-vla-rmw-run \
 		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
-		$(SRCDIR)/utils.c
+		$(SRCDIR)/utils.c -lm
 	$(TEST_OUT)/verified-backend/atomic-vla-rmw-run --entry \
 		$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64.ro
 	$(TEST_OUT)/verified-backend/atomic-vla-rmw-run --entry \
@@ -20903,7 +20955,7 @@ test-verified-vla-local-bound: $(RCC_TARGET)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/vla-local-bound-run \
 		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
-		$(SRCDIR)/utils.c
+		$(SRCDIR)/utils.c -lm
 	$(TEST_OUT)/verified-backend/vla-local-bound-run --entry \
 		$(TEST_OUT)/verified-backend/vla-local-bound-x64.ro
 	$(TEST_OUT)/verified-backend/vla-local-bound-run --entry \
@@ -21186,7 +21238,7 @@ test-cxx-conditional-static-xvalue: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-conditional-static-xvalue/x64.s \
 		tests/cxx_reference_conditional_static.cpp
-	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-conditional-static-xvalue/x64-host \
+	$(CC) $(CFLAGS) $(HOST_LINK_NO_PIE) -o $(TEST_OUT)/cxx-conditional-static-xvalue/x64-host \
 		$(TEST_OUT)/cxx-conditional-static-xvalue/x64.s \
 		$(CXX_HOST_EXCEPTION_RUNTIME) \
 		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
@@ -23061,6 +23113,7 @@ ifeq ($(OS),Windows_NT)
 		tests/alignas_host_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/alignas/run-test \
 		$(TEST_OUT)/alignas/x86.ro $(TEST_OUT)/alignas/x64.ro \
+		$(TEST_OUT)/alignas/verified-x86.ro \
 		$(TEST_OUT)/alignas/verified-x64.ro
 else
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
@@ -23097,6 +23150,7 @@ else
 		tests/alignas_host_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/alignas/run-test \
 		$(TEST_OUT)/alignas/x86.ro $(TEST_OUT)/alignas/x64.ro \
+		$(TEST_OUT)/alignas/verified-x86.ro \
 		$(TEST_OUT)/alignas/verified-x64.ro
 
 endif

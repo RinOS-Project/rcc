@@ -52,6 +52,7 @@ static bool codegen_cxx_virtual_base_offset(CxxClass* owner,
 /* Label management */
 static int label_counter = 0;
 static int current_stack_offset = 0;
+static int current_function_frame_base_spill_offset32 = 0;
 static Expr* active_static_reference_result_call32 = NULL;
 static const char* active_static_reference_result_symbol32 = NULL;
 static Decl* active_static_reference_result_decl32 = NULL;
@@ -365,6 +366,7 @@ Module* codegen_new(void) {
     mod->data.data = rcc_alloc(INIT_CAPACITY);
     mod->data.size = 0;
     mod->data.capacity = INIT_CAPACITY;
+    mod->data_align = 16u;
 
     mod->bss.size = 0;
     mod->bss.align = 1u;
@@ -2507,7 +2509,7 @@ static bool codegen_emit_static_reference_temporary_storage(
     alignment = owner->var_reference_temporary_storage_align > 0
         ? (uint32_t)owner->var_reference_temporary_storage_align
         : owner->type->align > 0 ? (uint32_t)owner->type->align : 1u;
-    if (alignment > 16u) alignment = 16u;
+    if (alignment > mod->data_align) mod->data_align = alignment;
     if (owner->var_is_thread_local) {
         aligned = ((uint64_t)mod->tls.size + alignment - 1u) &
                   ~((uint64_t)alignment - 1u);
@@ -2650,7 +2652,7 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         if (!declaration->var_is_thread_local) {
             alignment = declaration->type->align > 0
                 ? (uint32_t)declaration->type->align : 1u;
-            if (alignment > 16u) alignment = 16u;
+            if (alignment > mod->data_align) mod->data_align = alignment;
             while ((mod->data.size & (alignment - 1u)) != 0u) {
                 emit_data(mod, zero, 1u);
             }
@@ -2680,7 +2682,7 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     size = (uint32_t)declaration->type->size;
     alignment = declaration->type->align > 0
         ? (uint32_t)declaration->type->align : 1u;
-    if (alignment > 16u) alignment = 16u;
+    if (alignment > mod->data_align) mod->data_align = alignment;
     if (declaration->var_is_thread_local) {
         uint64_t aligned = ((uint64_t)mod->tls.size + alignment - 1u) &
                            ~((uint64_t)alignment - 1u);
@@ -2894,7 +2896,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         size = (uint32_t)declaration->type->size;
         alignment = declaration->type->align > 0
             ? (uint32_t)declaration->type->align : 1u;
-        if (alignment > 16u) alignment = 16u;
+        if (alignment > mod->data_align) mod->data_align = alignment;
         if (declaration->var_is_thread_local) {
             uint64_t aligned;
             if (declaration->storage == STORAGE_EXTERN &&
@@ -3660,6 +3662,17 @@ static void emit_leave(Module* mod) {
     emit_byte(mod, 0xC9);
     module_add_debug_frame_epilogue(mod, code_offset(mod),
                                     code_offset(mod) + 1u);
+}
+
+static void emit_function_epilogue32(Module* mod,
+                                    int frame_base_spill_offset) {
+    if (frame_base_spill_offset != 0) {
+        emit_mov_reg_mem(mod, ESP, EBP, frame_base_spill_offset);
+        emit_pop_reg(mod, EBP);
+    } else {
+        emit_leave(mod);
+    }
+    emit_ret(mod);
 }
 
 /* ═══════════════════════════════════════
@@ -8912,6 +8925,17 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 gen_symbol_address(mod, decl_link_name(decl), 0u);
             } else if (decl->var_is_vla) {
                 emit_mov_reg_mem(mod, EAX, EBP, decl->var_offset);
+            } else if (decl->var_offset > 0 &&
+                       !decl->var_is_global &&
+                       current_function_frame_base_spill_offset32 != 0) {
+                emit_mov_reg_mem(
+                    mod, EAX, EBP,
+                    current_function_frame_base_spill_offset32);
+                emit_add_reg_imm(mod, EAX, decl->var_offset);
+                if ((decl->type && decl->type->is_reference) ||
+                    decl->param_is_cxx_indirect) {
+                    emit_mov_reg_mem(mod, EAX, EAX, 0);
+                }
             } else if (decl->type && decl->type->is_reference) {
                 if (decl->var_is_global) {
                     gen_symbol_address(mod, decl_link_name(decl), 0u);
@@ -15422,6 +15446,14 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 gen_lvalue(mod, expr);
             } else if (decl->var_is_global) {
                 gen_symbol_address(mod, decl_link_name(decl), 0u);
+                if (gen_is_floating(decl->type)) {
+                    emit_load_floating_raw(mod, decl->type, EAX, 0);
+                } else {
+                    emit_load_typed32(mod, EAX, EAX, 0, decl->type);
+                }
+            } else if (decl->var_offset > 0 &&
+                       current_function_frame_base_spill_offset32 != 0) {
+                gen_lvalue(mod, expr);
                 if (gen_is_floating(decl->type)) {
                     emit_load_floating_raw(mod, decl->type, EAX, 0);
                 } else {
@@ -22732,8 +22764,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 emit_x87_double_value_from_raw(
                     mod, current_function_return_type);
             }
-            emit_leave(mod);
-            emit_ret(mod);
+            emit_function_epilogue32(
+                mod, current_function_frame_base_spill_offset32);
             break;
             }
 
@@ -22962,8 +22994,10 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
 static void gen_function(Module* mod, Decl* decl) {
     int stack_size;
     int frame_alignment;
+    int frame_base_spill_offset = 0;
     Type* old_return_type;
     int old_active_frame_offset;
+    int old_frame_base_spill_offset;
     Decl* old_function_decl;
     CleanupCodegen* old_cleanups;
     VLAScopeCodegen* old_vla_scopes;
@@ -23002,28 +23036,59 @@ static void gen_function(Module* mod, Decl* decl) {
         decl, stack_size, 4);
     frame_alignment = codegen_required_frame_alignment(decl->func_body);
     codegen_assign_vla_parameter_slots(decl, &stack_size);
+    if (frame_alignment > 4) {
+        if (stack_size > INT_MAX - 19) {
+            rcc_error(decl->loc,
+                      "function stack frame exceeds compiler limits");
+            return;
+        }
+        stack_size += 4;
+    }
     if (stack_size > INT_MAX - 15) {
         rcc_error(decl->loc, "function stack frame exceeds compiler limits");
         return;
     }
     stack_size = (stack_size + 15) & ~15;
+    if (frame_alignment > 4) frame_base_spill_offset = -stack_size;
 
     /* Function prologue.  An explicitly over-aligned local needs an aligned
      * frame base on i686; keep the normal saved-EBP/return-address layout at
      * [EBP] and [EBP+4] after rounding ESP down. */
     emit_push_reg(mod, EBP);
     if (frame_alignment > 4) {
+        emit_mov_reg_reg(mod, ECX, ESP);
         emit_mov_reg_mem(mod, EAX, ESP, 0);
+        emit_mov_mem_reg(mod, ESP, -4, EAX);
         emit_mov_reg_mem(mod, EDX, ESP, 4);
-        emit_and_reg_imm(mod, ESP, (uint32_t)(-(int)frame_alignment));
-        emit_mov_mem_reg(mod, ESP, 0, EAX);
-        emit_mov_mem_reg(mod, ESP, 4, EDX);
+        emit_mov_mem_reg(mod, ESP, -8, EDX);
+        emit_mov_reg_imm(mod, EAX, 0);
+        for (int probe = 0;
+             frame_alignment > 4096 &&
+             probe < (frame_alignment - 1 + 4095) / 4096;
+             ++probe) {
+            emit_sub_reg_imm(mod, ESP, 4096);
+            emit_mov_mem_reg(mod, ESP, 0, EAX);
+        }
+        emit_mov_reg_reg(mod, EAX, ECX);
+        emit_and_reg_imm(
+            mod, EAX, (uint32_t)(-(int)frame_alignment));
+        emit_mov_reg_reg(mod, ESP, EAX);
+        emit_mov_reg_mem(mod, EDX, ECX, -4);
+        emit_mov_reg_mem(mod, EAX, ECX, -8);
+        emit_mov_mem_reg(mod, ESP, 0, EDX);
+        emit_mov_mem_reg(mod, ESP, 4, EAX);
         emit_mov_reg_reg(mod, EBP, ESP);
     } else {
         emit_mov_reg_reg(mod, EBP, ESP);
     }
     if (stack_size > 0) {
         emit_sub_reg_imm(mod, ESP, stack_size);
+    }
+    old_frame_base_spill_offset =
+        current_function_frame_base_spill_offset32;
+    current_function_frame_base_spill_offset32 = frame_base_spill_offset;
+    if (frame_base_spill_offset != 0) {
+        emit_mov_mem_reg(mod, EBP, frame_base_spill_offset, ECX);
     }
     gen_clear_call_temporary_owners32(mod);
 
@@ -23084,6 +23149,8 @@ static void gen_function(Module* mod, Decl* decl) {
     codegen_release_named_labels();
     current_function_return_type = old_return_type;
     current_function_decl32 = old_function_decl;
+    current_function_frame_base_spill_offset32 =
+        old_frame_base_spill_offset;
     active_cxx_exception_frame_offset = old_active_frame_offset;
     active_cxx_exception_cleanup_marker = NULL;
     active_cxx_exception_cleanup_frame_offset = INT_MAX;
@@ -23099,8 +23166,7 @@ static void gen_function(Module* mod, Decl* decl) {
     if (gen_is_integer64(return_type)) {
         emit_mov_reg_imm(mod, EDX, 0);
     }
-    emit_leave(mod);
-    emit_ret(mod);
+    emit_function_epilogue32(mod, frame_base_spill_offset);
 }
 
 /* ═══════════════════════════════════════

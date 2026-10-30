@@ -954,24 +954,31 @@ bool linker_layout(Linker* ld, uint64_t base_addr) {
     };
     bool has_initialized_writable = false;
     bool has_bss = false;
+    uint32_t initialized_writable_alignment = 4096u;
+    uint32_t bss_alignment = 4096u;
 
     for (LinkedSection* s = ld->sections; s; s = s->next) {
         if (s->memory_size == 0u) continue;
         if (s->type == SECT_DATA || s->type == SECT_TLS) {
             has_initialized_writable = true;
+            if (s->align > initialized_writable_alignment) {
+                initialized_writable_alignment = s->align;
+            }
         } else if (s->type == SECT_BSS) {
             has_bss = true;
+            if (s->align > bss_alignment) bss_alignment = s->align;
         }
     }
 
     for (size_t i = 0; i < sizeof(order) / sizeof(order[0]); i++) {
         if (order[i] == SECT_DATA && has_initialized_writable) {
-            if (!linker_align_address(addr, 4096u, &addr)) {
+            if (!linker_align_address(addr, initialized_writable_alignment,
+                                      &addr)) {
                 fprintf(stderr, "rld: section layout overflow\n");
                 return false;
             }
         } else if (order[i] == SECT_BSS && has_bss) {
-            if (!linker_align_address(addr, 4096u, &addr)) {
+            if (!linker_align_address(addr, bss_alignment, &addr)) {
                 fprintf(stderr, "rld: section layout overflow\n");
                 return false;
             }
@@ -1474,6 +1481,8 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     uint64_t data_owner_end = 0u;
     uint64_t bss_owner_start = UINT64_MAX;
     uint64_t bss_owner_end = 0u;
+    uint32_t data_owner_alignment = 4096u;
+    uint32_t bss_owner_alignment = 4096u;
     uint64_t image_size = 0u;
     uint64_t section_table_offset = sizeof(RinHeaderV3);
     uint64_t dependency_table_offset;
@@ -1519,6 +1528,9 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
                 data_owner_start = linked->vaddr;
             }
             if (end > data_owner_end) data_owner_end = end;
+            if (linked->align > data_owner_alignment) {
+                data_owner_alignment = linked->align;
+            }
             has_data_owner = true;
             if (linked->type == SECT_TLS) ++tls_section_count;
         } else if (linked->type == SECT_BSS) {
@@ -1526,6 +1538,9 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
                 bss_owner_start = linked->vaddr;
             }
             if (end > bss_owner_end) bss_owner_end = end;
+            if (linked->align > bss_owner_alignment) {
+                bss_owner_alignment = linked->align;
+            }
             has_bss_owner = true;
         }
     }
@@ -1729,7 +1744,7 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         data_owner_section->type = RIN_IMAGE_SECTION_DATA;
         data_owner_section->flags = RIN_IMAGE_SECTION_READ |
                                     RIN_IMAGE_SECTION_WRITE;
-        data_owner_section->alignment = 4096u;
+        data_owner_section->alignment = data_owner_alignment;
         data_owner_section->virtual_address = data_owner_start - ld->base_addr;
         data_owner_section->memory_size = data_owner_end - data_owner_start;
         data_owner_section->name_offset = string_size;
@@ -1743,7 +1758,7 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         bss_owner_section->type = RIN_IMAGE_SECTION_BSS;
         bss_owner_section->flags = RIN_IMAGE_SECTION_READ |
                                    RIN_IMAGE_SECTION_WRITE;
-        bss_owner_section->alignment = 4096u;
+        bss_owner_section->alignment = bss_owner_alignment;
         bss_owner_section->virtual_address = bss_owner_start - ld->base_addr;
         bss_owner_section->memory_size = bss_owner_end - bss_owner_start;
         bss_owner_section->name_offset = string_size;

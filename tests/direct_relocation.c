@@ -68,6 +68,9 @@ union AggregateUnion {
 
 union AggregateUnion aggregate_union = {.number = 6};
 
+_Alignas(16384) int aligned_initialized_16384 = 73;
+_Alignas(16384) int aligned_bss_16384;
+
 struct LocalAggregate {
     int first;
     int second;
@@ -180,5 +183,6 @@ int main(void)
            large_local_array_value() + local_aggregate_initializer_value() +
            aggregate_numbers[1] + aggregate_numbers[4] +
            *aggregate_pointers[2] + aggregate_record.first +
-           aggregate_nested.values[3] + aggregate_union.number;
+           aggregate_nested.values[3] + aggregate_union.number +
+           aligned_initialized_16384 + aligned_bss_16384;
 }

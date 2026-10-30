@@ -2439,7 +2439,21 @@ static bool current_function_variadic64 = false;
 static int current_function_va_gp_offset64 = 0;
 static int current_function_va_fp_offset64 = 48;
 static int current_function_va_overflow_offset64 = 0;
+static int current_function_va_overflow_base_offset64 = 0;
 static int current_function_va_reg_save_offset64 = 0;
+
+static void gen64_function_epilogue(Module* mod,
+                                   int frame_base_spill_offset)
+{
+    if (frame_base_spill_offset != 0) {
+        emit64_mov_reg_mem(mod, RSP, RBP,
+                           frame_base_spill_offset);
+        emit64_pop_reg(mod, RBP);
+    } else {
+        emit64_leave(mod);
+    }
+    emit64_ret(mod);
+}
 
 static Type* codegen64_comparison_type(Expr* expr);
 
@@ -11523,8 +11537,16 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             emit64_mov_reg_imm32(
                 mod, RAX, (uint32_t)current_function_va_fp_offset64);
             emit64_store_typed(mod, RCX, 4, RAX, type_uint);
-            emit64_lea(mod, RAX, RBP,
-                       current_function_va_overflow_offset64);
+            if (current_function_va_overflow_base_offset64 != 0) {
+                emit64_mov_reg_mem(
+                    mod, RAX, RBP,
+                    current_function_va_overflow_base_offset64);
+                emit64_lea(mod, RAX, RAX,
+                           current_function_va_overflow_offset64);
+            } else {
+                emit64_lea(mod, RAX, RBP,
+                           current_function_va_overflow_offset64);
+            }
             emit64_mov_mem_reg(mod, RCX, 8, RAX);
             emit64_lea(mod, RAX, RBP,
                        current_function_va_reg_save_offset64);
@@ -16446,8 +16468,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                     mod, 0, RAX,
                     gen64_float_width(current_function_return_type64));
             }
-            emit64_leave(mod);
-            emit64_ret(mod);
+            gen64_function_epilogue(
+                mod, current_function_va_overflow_base_offset64);
             break;
             }
 
@@ -16850,10 +16872,13 @@ static void gen64_function(Module* mod, Decl* decl) {
     int64_t parameter_frame_size = (memory_result ? 8 : 0) +
                                    (variadic ? 176 : 0);
     int va_reg_save_offset = variadic ? -(int)parameter_frame_size : 0;
+    int local_frame_alignment = 16;
+    bool aligned_frame_rebase = false;
     int register_cursor = memory_result ? 1 : 0;
     int float_register_cursor = 0;
     int stack_cursor = 16; /* saved RBP + return address */
     int stack_size;
+    int frame_base_spill_offset = 0;
     Type* old_return_type;
     CleanupCodegen64* old_cleanups;
     VLAScopeCodegen64* old_vla_scopes;
@@ -16864,6 +16889,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     int old_va_gp_offset;
     int old_va_fp_offset;
     int old_va_overflow_offset;
+    int old_va_overflow_base_offset;
     int old_va_reg_save_offset;
     int old_active_frame_offset;
     Decl* old_function_decl;
@@ -16877,6 +16903,16 @@ static void gen64_function(Module* mod, Decl* decl) {
         gen64_stmt(mod, decl->func_body);
         return;
     }
+
+    {
+        int64_t ignored_overlap_shift = 0;
+        if (!gen64_local_parameter_overlap_shift(
+                decl->func_body, parameter_frame_size,
+                &ignored_overlap_shift, &local_frame_alignment)) {
+            return;
+        }
+    }
+    aligned_frame_rebase = local_frame_alignment > 16;
 
     if (decl->func_this_param) {
         implicit_this_parameter.decl = decl->func_this_param;
@@ -16975,17 +17011,53 @@ static void gen64_function(Module* mod, Decl* decl) {
                                                  8);
     stack_size = codegen_assign_cxx_constructor_storage(
         decl, stack_size, 8);
+    if (aligned_frame_rebase) {
+        if (stack_size > INT_MAX - 23) {
+            rcc_error(decl->loc,
+                      "function stack frame exceeds compiler limits");
+            return;
+        }
+        stack_size += 8;
+    }
     if (stack_size > INT_MAX - 15) {
         rcc_error(decl->loc, "function stack frame exceeds compiler limits");
         return;
     }
     stack_size = (stack_size + 15) & ~15;
+    if (aligned_frame_rebase) frame_base_spill_offset = -stack_size;
 
     /* Function prologue */
     emit64_push_reg(mod, RBP);
     emit64_mov_reg_reg(mod, RBP, RSP);
+    if (aligned_frame_rebase) {
+        emit64_mov_reg_reg(mod, R11, RBP);
+        emit64_mov_reg_mem(mod, RAX, RBP, 0);
+        emit64_mov_mem_reg(mod, RBP, -8, RAX);
+        emit64_mov_reg_mem(mod, RAX, RBP, 8);
+        emit64_mov_mem_reg(mod, RBP, -16, RAX);
+        emit64_mov_reg_imm32(mod, RAX, 0);
+        for (int probe = 0;
+             probe < (local_frame_alignment - 1 + 4095) / 4096;
+             ++probe) {
+            emit64_sub_reg_imm(mod, RSP, 4096);
+            emit64_mov_mem_reg(mod, RSP, 0, RAX);
+        }
+        emit64_mov_reg_reg(mod, RAX, R11);
+        emit64_mov_reg_imm64(
+            mod, R10, ~(uint64_t)(local_frame_alignment - 1));
+        emit64_and_reg_reg(mod, RAX, R10);
+        emit64_mov_reg_reg(mod, RSP, RAX);
+        emit64_mov_reg_mem(mod, R10, R11, -8);
+        emit64_mov_reg_mem(mod, RAX, R11, -16);
+        emit64_mov_mem_reg(mod, RSP, 0, R10);
+        emit64_mov_mem_reg(mod, RSP, 8, RAX);
+        emit64_mov_reg_reg(mod, RBP, RSP);
+    }
     if (stack_size > 0) {
         emit64_sub_reg_imm(mod, RSP, stack_size);
+    }
+    if (aligned_frame_rebase) {
+        emit64_mov_mem_reg(mod, RBP, frame_base_spill_offset, R11);
     }
     gen64_clear_call_temporary_owners(mod);
     if (memory_result) {
@@ -17082,21 +17154,29 @@ static void gen64_function(Module* mod, Decl* decl) {
             int storage = indirect_class ? 8
                 : aggregate ? gen64_aggregate_storage(value->type)
                                      : (size + 7) & ~7;
+            int incoming_stack_base = RBP;
+            if (aligned_frame_rebase) {
+                emit64_mov_reg_mem(mod, R11, RBP,
+                                   frame_base_spill_offset);
+                incoming_stack_base = R11;
+            }
             if (indirect_class) {
-                emit64_mov_reg_mem(mod, RAX, RBP, stack_cursor);
+                emit64_mov_reg_mem(mod, RAX, incoming_stack_base,
+                                   stack_cursor);
                 emit64_mov_mem_reg(mod, RBP, value->var_offset, RAX);
             } else if (aggregate) {
                 gen64_copy_memory(mod, RBP, value->var_offset,
-                                  RBP, stack_cursor, size);
+                                  incoming_stack_base, stack_cursor, size);
             } else if (value->type && gen64_is_floating(value->type)) {
                 emit64_mov_xmm_from_memory(
-                    mod, 0, RBP, stack_cursor,
+                    mod, 0, incoming_stack_base, stack_cursor,
                     gen64_float_width(value->type));
                 emit64_mov_memory_from_xmm(
                     mod, RBP, value->var_offset, 0,
                     gen64_float_width(value->type));
             } else {
-                emit64_load_typed(mod, RAX, RBP, stack_cursor, value->type);
+                emit64_load_typed(mod, RAX, incoming_stack_base,
+                                  stack_cursor, value->type);
                 emit64_store_typed(mod, RBP, value->var_offset, RAX,
                                    value->type);
             }
@@ -17116,6 +17196,8 @@ static void gen64_function(Module* mod, Decl* decl) {
     old_va_gp_offset = current_function_va_gp_offset64;
     old_va_fp_offset = current_function_va_fp_offset64;
     old_va_overflow_offset = current_function_va_overflow_offset64;
+    old_va_overflow_base_offset =
+        current_function_va_overflow_base_offset64;
     old_va_reg_save_offset = current_function_va_reg_save_offset64;
     current_function_sret_offset64 = memory_result ? -8 : 0;
     current_function_return_type64 = return_type;
@@ -17133,6 +17215,8 @@ static void gen64_function(Module* mod, Decl* decl) {
         current_function_va_fp_offset64 = 176;
     }
     current_function_va_overflow_offset64 = stack_cursor;
+    current_function_va_overflow_base_offset64 =
+        aligned_frame_rebase ? frame_base_spill_offset : 0;
     current_function_va_reg_save_offset64 = va_reg_save_offset;
     old_cleanups = active_cleanups64;
     old_vla_scopes = active_vla_scopes64;
@@ -17187,12 +17271,14 @@ static void gen64_function(Module* mod, Decl* decl) {
     current_function_va_gp_offset64 = old_va_gp_offset;
     current_function_va_fp_offset64 = old_va_fp_offset;
     current_function_va_overflow_offset64 = old_va_overflow_offset;
+    current_function_va_overflow_base_offset64 =
+        old_va_overflow_base_offset;
     current_function_va_reg_save_offset64 = old_va_reg_save_offset;
 
     /* Function epilogue */
     emit64_mov_reg_imm32(mod, RAX, 0);
-    emit64_leave(mod);
-    emit64_ret(mod);
+    gen64_function_epilogue(
+        mod, aligned_frame_rebase ? frame_base_spill_offset : 0);
 }
 
 static void codegen_emit_cxx_vtable_thunks64_in_namespace(

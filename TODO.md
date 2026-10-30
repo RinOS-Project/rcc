@@ -2335,6 +2335,13 @@
         9個目のstack double後に渡し、さらに24-byte aggregateを`va_arg`で読む経路を
         caller/callee双方でtyped SSA loweringする。C/C++ `-O0`/`-O2`全4 objectは
         fallbackなしで61関数を生成し、host SysV実行で結果100を検証。
+      - [x] Extend the supported C/C++ alignment ceiling from 8192 to 16384 bytes.
+        `test-alignas` and `test-cxx-alignas` verify 16 KiB locals/globals on
+        legacy and verified i686/AMD64 paths. The C/C++ SysV MEMORY-class
+        variadic aggregate with `va_arg` emits at `-O0`/`-O2` with zero fallback
+        and executes on AMD64. `test-direct-relocation` checks 16 KiB DATA/BSS
+        metadata for direct RIN, RLL, NDRV, and RLD-linked RIN v3 images; all
+        pass `rinvalidate`.
       - [x] 128/256/512/1024/2048-byte alignmentのC/C++ variadic MEMORY aggregateを
         9個目のstack double後に連続して渡し、さらに24-byte aggregateを読む。C/C++
         `-O0`/`-O2`の全4 objectで57関数をfallbackなしで生成し、verified SysV object
