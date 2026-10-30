@@ -12074,6 +12074,13 @@ remains a separate open item.
         boundary inputs for `/` and `%` in legacy and verified C objects.
         Focused `test-debug-info-inline-expression` and full
         `test-debug-info` gates pass.
+  - [x] Extend signed i686 constant-divisor division/remainder DWARF for
+        divisor -7 to escaped automatic `_Atomic long long` locals. Permit
+        atomic-qualified frame storage in the value-type match, resolve the
+        frame location, emit no global relocations, and verify signed boundary
+        inputs for `/` and `%` in legacy and verified C objects. Focused
+        `test-debug-info-inline-expression` and full `test-debug-info` gates
+        pass.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 

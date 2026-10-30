@@ -11210,8 +11210,6 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
         dividend->var_is_vla ||
         !dividend->type ||
         dividend->type->is_reference ||
-        (dividend->type->is_atomic &&
-         !(dividend->var_is_global || dividend->var_is_static_local)) ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             dividend->type, parameter_type, 0u) ||
         ((dividend->var_is_global || dividend->var_is_static_local)
@@ -11873,7 +11871,7 @@ static bool debug_inline_parameter_integer_expression(
     parameter_type = value->declaration->type;
     source_expression = argument->expr;
     if (!debug_inline_integer_expression_type(parameter_type) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             parameter_type, source_expression->type, 0u)) {
         return false;
     }
