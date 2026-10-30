@@ -663,6 +663,9 @@ int rcc_complex_standard_api_all(void) {
             __imag__ value_double != 0.0 ||
             !__builtin_isnan(__real__ value_long_double) ||
             __imag__ value_long_double != 0.0L) return __LINE__;
+        if (__builtin_signbit(__imag__ value_float) ||
+            __builtin_signbit(__imag__ value_double) ||
+            __builtin_signbit(__imag__ value_long_double)) return __LINE__;
 
         value_float = catanf(
             CMPLXF(__builtin_nanf(""), -__builtin_huge_valf()));
@@ -677,6 +680,37 @@ int rcc_complex_standard_api_all(void) {
             __imag__ value_double != 0.0 ||
             !__builtin_isnan(__real__ value_long_double) ||
             __imag__ value_long_double != 0.0L) return __LINE__;
+        if (!__builtin_signbit(__imag__ value_float) ||
+            !__builtin_signbit(__imag__ value_double) ||
+            !__builtin_signbit(__imag__ value_long_double)) return __LINE__;
+
+        value_float = catanf(CMPLXF(__builtin_nanf(""), 0.0f));
+        value_double = catan(CMPLX(__builtin_nan(""), 0.0));
+        value_long_double = catanl(
+            CMPLXL((long double)__builtin_nan(""), 0.0L));
+        if (!__builtin_isnan(__real__ value_float) ||
+            __imag__ value_float != 0.0f ||
+            __builtin_signbit(__imag__ value_float) ||
+            !__builtin_isnan(__real__ value_double) ||
+            __imag__ value_double != 0.0 ||
+            __builtin_signbit(__imag__ value_double) ||
+            !__builtin_isnan(__real__ value_long_double) ||
+            __imag__ value_long_double != 0.0L ||
+            __builtin_signbit(__imag__ value_long_double)) return __LINE__;
+
+        value_float = catanf(CMPLXF(__builtin_nanf(""), -0.0f));
+        value_double = catan(CMPLX(__builtin_nan(""), -0.0));
+        value_long_double = catanl(
+            CMPLXL((long double)__builtin_nan(""), -0.0L));
+        if (!__builtin_isnan(__real__ value_float) ||
+            __imag__ value_float != 0.0f ||
+            !__builtin_signbit(__imag__ value_float) ||
+            !__builtin_isnan(__real__ value_double) ||
+            __imag__ value_double != 0.0 ||
+            !__builtin_signbit(__imag__ value_double) ||
+            !__builtin_isnan(__real__ value_long_double) ||
+            __imag__ value_long_double != 0.0L ||
+            !__builtin_signbit(__imag__ value_long_double)) return __LINE__;
 
         value_float = cacosf(CMPLXF(0.0f, __builtin_nanf("")));
         value_double = cacos(CMPLX(0.0, __builtin_nan("")));
