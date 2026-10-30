@@ -18457,6 +18457,35 @@ int main(int argc, char** argv)
                     UINT64_C(0x8123456789abcdef),
                     UINT64_C(0xfedcba9876543210));
             }
+            static const struct {
+                const char* entry;
+                uint8_t opcode;
+            } volatile_tls_bitwise_cases[] = {
+                {"debug_inline_nonconstant_signed_long_long_volatile_tls_bitand_entry",
+                 0x1au},
+                {"debug_inline_nonconstant_signed_long_long_volatile_tls_bitor_entry",
+                 0x21u},
+                {"debug_inline_nonconstant_signed_long_long_volatile_tls_bitxor_entry",
+                 0x27u}
+            };
+            for (size_t index = 0u;
+                 index < sizeof(volatile_tls_bitwise_cases) /
+                     sizeof(volatile_tls_bitwise_cases[0]); ++index) {
+                verify_inline_i686_global_pair_bitwise_expression(
+                    argv[2], volatile_tls_bitwise_cases[index].entry,
+                    "debug_inline_nonconstant_signed_long_long_volatile_tls_bitwise_lhs",
+                    "debug_inline_nonconstant_signed_long_long_volatile_tls_bitwise_rhs",
+                    volatile_tls_bitwise_cases[index].opcode, false, true,
+                    UINT64_C(0x8123456789abcdef),
+                    UINT64_C(0xfedcba9876543210));
+                verify_inline_i686_global_pair_bitwise_expression(
+                    argv[4], volatile_tls_bitwise_cases[index].entry,
+                    "debug_inline_nonconstant_signed_long_long_volatile_tls_bitwise_lhs",
+                    "debug_inline_nonconstant_signed_long_long_volatile_tls_bitwise_rhs",
+                    volatile_tls_bitwise_cases[index].opcode, false, true,
+                    UINT64_C(0x8123456789abcdef),
+                    UINT64_C(0xfedcba9876543210));
+            }
         }
         verify_inline_i686_global_u64_constant_division_expression_for_inline(
             argv[2],

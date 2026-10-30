@@ -12045,6 +12045,10 @@ remains a separate open item.
         and `DW_OP_form_tls_address`, then verify both TLS template values and
         all three operations in legacy and verified C objects. Focused and
         full DWARF gates pass.
+  - [x] Extend signed i686 bitwise expressions to volatile namespace-scope
+        TLS `long long` pairs. Verify `TLSOFF32S` relocations,
+        `DW_OP_form_tls_address`, initialized TLS values, and `&`/`|`/`^` in
+        legacy and verified C objects.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 
