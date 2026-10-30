@@ -12328,6 +12328,19 @@ remains a separate open item.
       索引化し、登録／更新と各形式のrelocation解決を償却O(1)またはO(log N)にする。
       重複・未定義symbol／relocationの診断、安定した出力順序・byte列を維持し、大小の
       object/imageで探索回数・処理時間を比較する。
+  - [x] Add an open-addressed Module symbol-name index and use it for symbol
+        insertion/update, weak/source/size metadata, relocation symbol
+        resolution, and `.ro` undefined-symbol reference marking. The index
+        stores array positions, so symbol-array growth keeps entries valid.
+        `test-format-validation`, `test-direct-relocation`,
+        `test-global-initializers`, and `test-tls` pass.
+  - [x] Index relocation chains by source section and offset. Keep same-offset
+        candidates in insertion order so image and TLS resolvers preserve
+        duplicate detection and relocation-kind filtering. The same direct
+        image, global initializer, format, and TLS gates pass.
+  - [ ] Add resolver probe/traversal counters and compare small/large object
+        generation time and memory use; include relative-relocation patching in
+        the measurements.
 
 - [ ] `.ro`の`objfile_add_symbol()`はsymbolを追加するたびにlinked list末尾まで歩き、
       `objfile_add_reloc()`もsection内relocation listの末尾を毎回探す。さらに

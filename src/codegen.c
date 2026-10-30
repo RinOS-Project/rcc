@@ -383,6 +383,8 @@ Module* codegen_new(void) {
     mod->symbols = NULL;
     mod->symbol_count = 0;
     mod->symbol_capacity = 0;
+    mod->symbol_hash_slots = NULL;
+    mod->symbol_hash_capacity = 0u;
     mod->debug_frame_epilogues = NULL;
     mod->debug_frame_epilogue_count = 0u;
     mod->debug_frame_epilogue_capacity = 0u;
@@ -396,6 +398,12 @@ Module* codegen_new(void) {
     mod->relocs_arr = NULL;
     mod->reloc_count = 0;
     mod->reloc_capacity = 0;
+    mod->relocation_lookup_next = NULL;
+    mod->relocation_lookup_entries = NULL;
+    mod->relocation_lookup_count = 0u;
+    mod->relocation_lookup_capacity = 0u;
+    mod->relocation_lookup_slots = NULL;
+    mod->relocation_lookup_slot_capacity = 0u;
     mod->got_entries = NULL;
     mod->got_entry_count = 0u;
     mod->tls_index_entries = NULL;
@@ -566,7 +574,11 @@ void codegen_free(Module* mod) {
     rcc_free(mod->debug_frame_epilogues);
     rcc_free(mod->debug_frame_saves);
     rcc_free(mod->debug_inline_calls);
+    rcc_free(mod->symbol_hash_slots);
     rcc_free(mod->relocs_arr);
+    rcc_free(mod->relocation_lookup_next);
+    rcc_free(mod->relocation_lookup_entries);
+    rcc_free(mod->relocation_lookup_slots);
     rcc_free(mod);
 }
 
@@ -628,18 +640,97 @@ uint32_t code_offset(Module* mod) {
  * Symbol Table (for object files)
  * ═══════════════════════════════════════ */
 
+static uint32_t module_symbol_hash(const char* name) {
+    uint32_t hash = 2166136261u;
+    const unsigned char* cursor = (const unsigned char*)name;
+    while (*cursor) {
+        hash ^= *cursor++;
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static int module_symbol_find_index(const Module* mod, const char* name) {
+    size_t slot;
+    if (!mod || !name || mod->symbol_hash_capacity == 0u) return -1;
+    slot = (size_t)module_symbol_hash(name) &
+           (mod->symbol_hash_capacity - 1u);
+    while (mod->symbol_hash_slots[slot] != 0u) {
+        uint32_t index = mod->symbol_hash_slots[slot] - 1u;
+        if (index < (uint32_t)mod->symbol_count &&
+            strcmp(mod->symbols[index].name, name) == 0) {
+            return (int)index;
+        }
+        slot = (slot + 1u) & (mod->symbol_hash_capacity - 1u);
+    }
+    return -1;
+}
+
+static bool module_symbol_index_reserve(Module* mod, size_t required_count) {
+    size_t new_capacity = mod->symbol_hash_capacity
+        ? mod->symbol_hash_capacity : 32u;
+    uint32_t* slots;
+    if (mod->symbol_hash_capacity &&
+        required_count <= mod->symbol_hash_capacity -
+                              mod->symbol_hash_capacity / 4u) {
+        return true;
+    }
+    while (required_count > new_capacity - new_capacity / 4u) {
+        if (new_capacity > SIZE_MAX / 2u) {
+            rcc_fatal("module symbol index capacity overflow");
+            return false;
+        }
+        new_capacity *= 2u;
+    }
+    if (new_capacity > SIZE_MAX / sizeof(*slots)) {
+        rcc_fatal("module symbol index capacity overflow");
+        return false;
+    }
+    slots = rcc_alloc(new_capacity * sizeof(*slots));
+    for (size_t index = 0u; index < mod->symbol_hash_capacity; ++index) {
+        uint32_t encoded_index = mod->symbol_hash_slots[index];
+        if (encoded_index != 0u) {
+            const char* name = mod->symbols[encoded_index - 1u].name;
+            size_t slot = (size_t)module_symbol_hash(name) &
+                          (new_capacity - 1u);
+            while (slots[slot] != 0u) {
+                slot = (slot + 1u) & (new_capacity - 1u);
+            }
+            slots[slot] = encoded_index;
+        }
+    }
+    rcc_free(mod->symbol_hash_slots);
+    mod->symbol_hash_slots = slots;
+    mod->symbol_hash_capacity = new_capacity;
+    return true;
+}
+
+static void module_symbol_index_insert(Module* mod, uint32_t index) {
+    const char* name = mod->symbols[index].name;
+    size_t slot = (size_t)module_symbol_hash(name) &
+                  (mod->symbol_hash_capacity - 1u);
+    while (mod->symbol_hash_slots[slot] != 0u) {
+        slot = (slot + 1u) & (mod->symbol_hash_capacity - 1u);
+    }
+    mod->symbol_hash_slots[slot] = index + 1u;
+}
+
 void module_add_symbol(Module* mod, const char* name, uint32_t offset,
                        bool is_defined, ModuleSymbolSection section,
                        bool is_global) {
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        ModuleSymbol* existing = &mod->symbols[index];
-        if (strcmp(existing->name, name) != 0) continue;
+    int existing_index = module_symbol_find_index(mod, name);
+    if (existing_index >= 0) {
+        ModuleSymbol* existing = &mod->symbols[existing_index];
         if (is_defined && !existing->is_defined) {
             existing->offset = offset;
             existing->is_defined = true;
             existing->section = section;
             existing->is_global = is_global;
         }
+        return;
+    }
+
+    if (!module_symbol_index_reserve(mod, (size_t)mod->symbol_count + 1u)) {
         return;
     }
 
@@ -650,6 +741,7 @@ void module_add_symbol(Module* mod, const char* name, uint32_t offset,
         mod->symbol_capacity = new_cap;
     }
 
+    uint32_t index = (uint32_t)mod->symbol_count;
     ModuleSymbol* sym = &mod->symbols[mod->symbol_count++];
     sym->name = rcc_strdup(name);
     sym->offset = offset;
@@ -661,29 +753,21 @@ void module_add_symbol(Module* mod, const char* name, uint32_t offset,
     sym->source_file = NULL;
     sym->source_line = 0u;
     sym->source_column = 0u;
+    module_symbol_index_insert(mod, index);
 }
 
 void module_set_symbol_source(Module* mod, const char* name, SourceLoc loc) {
-    if (!mod || !name || !name[0]) return;
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        ModuleSymbol* symbol = &mod->symbols[index];
-        if (strcmp(symbol->name, name) != 0) continue;
-        symbol->source_file = loc.filename;
-        symbol->source_line = loc.line > 0 ? (uint32_t)loc.line : 0u;
-        symbol->source_column = loc.column > 0 ? (uint32_t)loc.column : 0u;
-        return;
-    }
+    int index = module_symbol_find_index(mod, name);
+    if (index < 0) return;
+    ModuleSymbol* symbol = &mod->symbols[index];
+    symbol->source_file = loc.filename;
+    symbol->source_line = loc.line > 0 ? (uint32_t)loc.line : 0u;
+    symbol->source_column = loc.column > 0 ? (uint32_t)loc.column : 0u;
 }
 
 void module_set_symbol_size(Module* mod, const char* name, uint32_t size) {
-    if (!mod || !name || !name[0]) return;
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        ModuleSymbol* symbol = &mod->symbols[index];
-        if (strcmp(symbol->name, name) == 0) {
-            symbol->size = size;
-            return;
-        }
-    }
+    int index = module_symbol_find_index(mod, name);
+    if (index >= 0) mod->symbols[index].size = size;
 }
 
 void module_add_debug_frame_epilogue(Module* mod, uint32_t return_pc,
@@ -746,26 +830,160 @@ void module_add_debug_frame_save(Module* mod, uint32_t save_pc,
 }
 
 void module_mark_symbol_weak(Module* mod, const char* name) {
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        ModuleSymbol* symbol = &mod->symbols[index];
-        if (strcmp(symbol->name, name) == 0) {
-            if (symbol->is_defined && symbol->is_global) {
-                symbol->is_weak = true;
-            }
-            return;
-        }
+    int index = module_symbol_find_index(mod, name);
+    if (index >= 0 && mod->symbols[index].is_defined &&
+        mod->symbols[index].is_global) {
+        mod->symbols[index].is_weak = true;
     }
 }
 
 void module_mark_symbol_weak_any(Module* mod, const char* name) {
-    if (!mod || !name) return;
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        ModuleSymbol* symbol = &mod->symbols[index];
-        if (strcmp(symbol->name, name) == 0) {
-            if (symbol->is_global) symbol->is_weak = true;
-            return;
-        }
+    int index = module_symbol_find_index(mod, name);
+    if (index >= 0 && mod->symbols[index].is_global) {
+        mod->symbols[index].is_weak = true;
     }
+}
+
+static uint32_t module_relocation_hash(ModuleSymbolSection source_section,
+                                       uint32_t offset) {
+    uint32_t hash = offset ^ ((uint32_t)source_section * 0x9e3779b9u);
+    hash ^= hash >> 16;
+    hash *= 0x7feb352du;
+    hash ^= hash >> 15;
+    hash *= 0x846ca68bu;
+    return hash ^ (hash >> 16);
+}
+
+static bool module_relocation_index_reserve_slots(Module* mod,
+                                                   size_t required_count) {
+    size_t new_capacity = mod->relocation_lookup_slot_capacity
+        ? mod->relocation_lookup_slot_capacity : 32u;
+    uint32_t* slots;
+    if (mod->relocation_lookup_slot_capacity &&
+        required_count <= mod->relocation_lookup_slot_capacity -
+                              mod->relocation_lookup_slot_capacity / 4u) {
+        return true;
+    }
+    while (required_count > new_capacity - new_capacity / 4u) {
+        if (new_capacity > SIZE_MAX / 2u) {
+            rcc_fatal("module relocation index capacity overflow");
+            return false;
+        }
+        new_capacity *= 2u;
+    }
+    if (new_capacity > SIZE_MAX / sizeof(*slots)) {
+        rcc_fatal("module relocation index capacity overflow");
+        return false;
+    }
+    slots = rcc_alloc(new_capacity * sizeof(*slots));
+    for (size_t entry_index = 0u;
+         entry_index < mod->relocation_lookup_count; ++entry_index) {
+        const ModuleRelocationLookupEntry* entry =
+            &mod->relocation_lookup_entries[entry_index];
+        size_t slot = (size_t)module_relocation_hash(
+            entry->source_section, entry->offset) & (new_capacity - 1u);
+        while (slots[slot] != 0u) {
+            slot = (slot + 1u) & (new_capacity - 1u);
+        }
+        slots[slot] = (uint32_t)entry_index + 1u;
+    }
+    rcc_free(mod->relocation_lookup_slots);
+    mod->relocation_lookup_slots = slots;
+    mod->relocation_lookup_slot_capacity = new_capacity;
+    return true;
+}
+
+static bool module_relocation_index_reserve_entries(Module* mod,
+                                                     size_t required_count) {
+    size_t new_capacity;
+    if (required_count <= mod->relocation_lookup_capacity) return true;
+    new_capacity = mod->relocation_lookup_capacity
+        ? mod->relocation_lookup_capacity : 16u;
+    while (new_capacity < required_count) {
+        if (new_capacity > SIZE_MAX / 2u) {
+            rcc_fatal("module relocation index capacity overflow");
+            return false;
+        }
+        new_capacity *= 2u;
+    }
+    if (new_capacity > SIZE_MAX /
+                           sizeof(*mod->relocation_lookup_entries)) {
+        rcc_fatal("module relocation index capacity overflow");
+        return false;
+    }
+    mod->relocation_lookup_entries = rcc_realloc(
+        mod->relocation_lookup_entries,
+        new_capacity * sizeof(*mod->relocation_lookup_entries));
+    mod->relocation_lookup_capacity = new_capacity;
+    return true;
+}
+
+static size_t module_relocation_index_slot(
+    const Module* mod, ModuleSymbolSection source_section, uint32_t offset,
+    bool* found) {
+    size_t slot = (size_t)module_relocation_hash(source_section, offset) &
+                  (mod->relocation_lookup_slot_capacity - 1u);
+    while (mod->relocation_lookup_slots[slot] != 0u) {
+        const ModuleRelocationLookupEntry* entry =
+            &mod->relocation_lookup_entries[
+                mod->relocation_lookup_slots[slot] - 1u];
+        if (entry->source_section == source_section &&
+            entry->offset == offset) {
+            *found = true;
+            return slot;
+        }
+        slot = (slot + 1u) &
+               (mod->relocation_lookup_slot_capacity - 1u);
+    }
+    *found = false;
+    return slot;
+}
+
+static bool module_relocation_index_add(Module* mod, int relocation_index) {
+    const ModuleReloc* relocation = &mod->relocs_arr[relocation_index];
+    bool found;
+    size_t slot;
+    if (mod->relocation_lookup_slot_capacity == 0u &&
+        !module_relocation_index_reserve_slots(mod, 1u)) return false;
+    slot = module_relocation_index_slot(
+        mod, relocation->source_section, relocation->offset, &found);
+    if (found) {
+        ModuleRelocationLookupEntry* entry =
+            &mod->relocation_lookup_entries[
+                mod->relocation_lookup_slots[slot] - 1u];
+        mod->relocation_lookup_next[entry->last_relocation_index] =
+            relocation_index;
+        entry->last_relocation_index = relocation_index;
+        return true;
+    }
+    if (!module_relocation_index_reserve_entries(
+            mod, mod->relocation_lookup_count + 1u) ||
+        !module_relocation_index_reserve_slots(
+            mod, mod->relocation_lookup_count + 1u)) return false;
+    slot = module_relocation_index_slot(
+        mod, relocation->source_section, relocation->offset, &found);
+    if (found) return module_relocation_index_add(mod, relocation_index);
+    size_t entry_index = mod->relocation_lookup_count++;
+    ModuleRelocationLookupEntry* entry =
+        &mod->relocation_lookup_entries[entry_index];
+    entry->source_section = relocation->source_section;
+    entry->offset = relocation->offset;
+    entry->first_relocation_index = relocation_index;
+    entry->last_relocation_index = relocation_index;
+    mod->relocation_lookup_slots[slot] = (uint32_t)entry_index + 1u;
+    return true;
+}
+
+static int module_relocation_index_head(const Module* mod,
+                                        ModuleSymbolSection source_section,
+                                        uint32_t offset) {
+    bool found;
+    size_t slot;
+    if (!mod || mod->relocation_lookup_slot_capacity == 0u) return -1;
+    slot = module_relocation_index_slot(mod, source_section, offset, &found);
+    if (!found) return -1;
+    return mod->relocation_lookup_entries[
+        mod->relocation_lookup_slots[slot] - 1u].first_relocation_index;
 }
 
 void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
@@ -774,12 +992,7 @@ void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
                            const char* symbol_name) {
     bool known_symbol = false;
     if (symbol_name && symbol_name[0] != '\0') {
-        for (int index = 0; index < mod->symbol_count; ++index) {
-            if (strcmp(mod->symbols[index].name, symbol_name) == 0) {
-                known_symbol = true;
-                break;
-            }
-        }
+        known_symbol = module_symbol_find_index(mod, symbol_name) >= 0;
         /* Every relocation must have a corresponding object-file symbol.
          * This also covers compiler-synthesized C++ runtime calls such as
          * rin_free, which are not source declarations in the AST. */
@@ -792,10 +1005,14 @@ void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
     if (mod->reloc_count >= mod->reloc_capacity) {
         int new_cap = mod->reloc_capacity == 0 ? 16 : mod->reloc_capacity * 2;
         mod->relocs_arr = rcc_realloc(mod->relocs_arr, new_cap * sizeof(ModuleReloc));
+        mod->relocation_lookup_next = rcc_realloc(
+            mod->relocation_lookup_next, (size_t)new_cap *
+                sizeof(*mod->relocation_lookup_next));
         mod->reloc_capacity = new_cap;
     }
 
-    ModuleReloc* rel = &mod->relocs_arr[mod->reloc_count++];
+    int relocation_index = mod->reloc_count++;
+    ModuleReloc* rel = &mod->relocs_arr[relocation_index];
     rel->source_section = source_section;
     rel->offset = offset;
     rel->target = target;
@@ -806,6 +1023,8 @@ void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
     rel->is_tls_index_module = false;
     rel->is_tls_index_offset = false;
     rel->symbol_name = symbol_name ? rcc_strdup(symbol_name) : NULL;
+    mod->relocation_lookup_next[relocation_index] = -1;
+    if (!module_relocation_index_add(mod, relocation_index)) return;
 }
 
 void module_add_got_relocation(Module* mod, ModuleSymbolSection source_section,
@@ -892,14 +1111,8 @@ const char* module_get_tls_index_entry(Module* mod, const char* target_symbol) {
 
 const ModuleSymbol* module_lookup_symbol(const Module* mod,
                                          const char* symbol_name) {
-    if (!mod || !symbol_name) return NULL;
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        if (mod->symbols[index].name &&
-            strcmp(mod->symbols[index].name, symbol_name) == 0) {
-            return &mod->symbols[index];
-        }
-    }
-    return NULL;
+    int index = module_symbol_find_index(mod, symbol_name);
+    return index >= 0 ? &mod->symbols[index] : NULL;
 }
 
 bool module_resolve_image_relocation(const Module* mod,
@@ -913,23 +1126,18 @@ bool module_resolve_image_relocation(const Module* mod,
     uint64_t base;
 
     if (!mod || !value) return false;
-    for (int index = 0; index < mod->reloc_count; ++index) {
+    for (int index = module_relocation_index_head(
+             mod, source_section, offset);
+         index >= 0; index = mod->relocation_lookup_next[index]) {
         const ModuleReloc* candidate = &mod->relocs_arr[index];
-        if (candidate->source_section == source_section &&
-            candidate->offset == offset && !candidate->is_relative &&
-            !candidate->is_tls && candidate->is_64bit == is_64bit) {
+        if (!candidate->is_relative && !candidate->is_tls &&
+            candidate->is_64bit == is_64bit) {
             if (relocation) return false;
             relocation = candidate;
         }
     }
     if (!relocation || !relocation->symbol_name) return false;
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        if (strcmp(mod->symbols[index].name,
-                   relocation->symbol_name) == 0) {
-            symbol = &mod->symbols[index];
-            break;
-        }
-    }
+    symbol = module_lookup_symbol(mod, relocation->symbol_name);
     if (!symbol || !symbol->is_defined) return false;
     switch (symbol->section) {
         case MODULE_SYMBOL_CODE: base = 0u; break;
@@ -953,22 +1161,17 @@ bool module_resolve_tls_relocation(const Module* mod,
     const ModuleSymbol* symbol = NULL;
     uint64_t result;
     if (!mod || !value) return false;
-    for (int index = 0; index < mod->reloc_count; ++index) {
+    for (int index = module_relocation_index_head(
+             mod, source_section, offset);
+         index >= 0; index = mod->relocation_lookup_next[index]) {
         const ModuleReloc* candidate = &mod->relocs_arr[index];
-        if (candidate->source_section == source_section &&
-            candidate->offset == offset && candidate->is_tls) {
+        if (candidate->is_tls) {
             if (relocation) return false;
             relocation = candidate;
         }
     }
     if (!relocation || !relocation->symbol_name) return false;
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        if (strcmp(mod->symbols[index].name,
-                   relocation->symbol_name) == 0) {
-            symbol = &mod->symbols[index];
-            break;
-        }
-    }
+    symbol = module_lookup_symbol(mod, relocation->symbol_name);
     if (!symbol || !symbol->is_defined ||
         symbol->section != MODULE_SYMBOL_TLS) return false;
     result = (uint64_t)symbol->offset + relocation->target;
@@ -984,21 +1187,17 @@ bool module_resolve_tls_relocation64(const Module* mod,
     const ModuleSymbol* symbol = NULL;
     uint64_t result;
     if (!mod || !value) return false;
-    for (int index = 0; index < mod->reloc_count; ++index) {
+    for (int index = module_relocation_index_head(
+             mod, source_section, offset);
+         index >= 0; index = mod->relocation_lookup_next[index]) {
         const ModuleReloc* candidate = &mod->relocs_arr[index];
-        if (candidate->source_section == source_section &&
-            candidate->offset == offset && candidate->is_tls_index_offset) {
+        if (candidate->is_tls_index_offset) {
             if (relocation) return false;
             relocation = candidate;
         }
     }
     if (!relocation || !relocation->symbol_name) return false;
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        if (strcmp(mod->symbols[index].name, relocation->symbol_name) == 0) {
-            symbol = &mod->symbols[index];
-            break;
-        }
-    }
+    symbol = module_lookup_symbol(mod, relocation->symbol_name);
     if (!symbol || !symbol->is_defined || symbol->section != MODULE_SYMBOL_TLS) {
         return false;
     }
@@ -1009,9 +1208,7 @@ bool module_resolve_tls_relocation64(const Module* mod,
 }
 
 void module_ensure_rodata_base_symbol(Module* mod) {
-    for (int index = 0; index < mod->symbol_count; ++index) {
-        if (strcmp(mod->symbols[index].name, "__rcc_rodata_base") == 0) return;
-    }
+    if (module_symbol_find_index(mod, "__rcc_rodata_base") >= 0) return;
     module_add_symbol(mod, "__rcc_rodata_base", 0u, true,
                       MODULE_SYMBOL_RODATA, false);
 }

@@ -914,8 +914,29 @@ ObjectFile* objfile_read(const char* filename) {
 
 static const ModuleSymbol* module_find_symbol(const Module* mod,
                                                const char* name) {
+    uint32_t hash = 2166136261u;
+    size_t slot;
+    if (!mod || !name) return NULL;
+    if (mod->symbol_hash_slots && mod->symbol_hash_capacity != 0u) {
+        const unsigned char* cursor = (const unsigned char*)name;
+        while (*cursor) {
+            hash ^= *cursor++;
+            hash *= 16777619u;
+        }
+        slot = (size_t)hash & (mod->symbol_hash_capacity - 1u);
+        while (mod->symbol_hash_slots[slot] != 0u) {
+            uint32_t index = mod->symbol_hash_slots[slot] - 1u;
+            if (index < (uint32_t)mod->symbol_count &&
+                strcmp(mod->symbols[index].name, name) == 0) {
+                return &mod->symbols[index];
+            }
+            slot = (slot + 1u) & (mod->symbol_hash_capacity - 1u);
+        }
+        return NULL;
+    }
     for (int index = 0; index < mod->symbol_count; ++index) {
-        if (strcmp(mod->symbols[index].name, name) == 0) {
+        if (mod->symbols[index].name &&
+            strcmp(mod->symbols[index].name, name) == 0) {
             return &mod->symbols[index];
         }
     }
@@ -18173,6 +18194,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
     int data_section = -1;
     int bss_section = -1;
     int tls_section = -1;
+    bool* relocation_referenced_symbols = NULL;
 
     /* Create .text section */
     ObjSection* text = objfile_add_section(obj, ".text", SECT_CODE,
@@ -18227,23 +18249,32 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
         tls_section = next_section++;
     }
 
+    /* Resolve relocation references once through the module name index. */
+    if (mod->symbol_count > 0) {
+        relocation_referenced_symbols = rcc_alloc(
+            (size_t)mod->symbol_count * sizeof(*relocation_referenced_symbols));
+    }
+    for (int relocation_index = 0;
+         relocation_index < mod->reloc_count; ++relocation_index) {
+        const char* relocation_name =
+            mod->relocs_arr[relocation_index].symbol_name;
+        const ModuleSymbol* referenced = relocation_name
+            ? module_find_symbol(mod, relocation_name) : NULL;
+        if (referenced) {
+            size_t symbol_index = (size_t)(referenced - mod->symbols);
+            if (symbol_index < (size_t)mod->symbol_count) {
+                relocation_referenced_symbols[symbol_index] = true;
+            }
+        }
+    }
+
     /* Add symbols from module */
     for (int i = 0; i < mod->symbol_count; i++) {
         ModuleSymbol* ms = &mod->symbols[i];
         const char* object_name = ms->name;
         char* scoped_name = NULL;
-        bool referenced = ms->is_defined;
-        if (!referenced) {
-            for (int relocation_index = 0;
-                 relocation_index < mod->reloc_count; relocation_index++) {
-                const char* relocation_name =
-                    mod->relocs_arr[relocation_index].symbol_name;
-                if (relocation_name && strcmp(relocation_name, ms->name) == 0) {
-                    referenced = true;
-                    break;
-                }
-            }
-        }
+        bool referenced = ms->is_defined ||
+            relocation_referenced_symbols[i];
         /* A prototype is type information, not an object-file dependency.
          * Emit an undefined symbol only when generated code references it. */
         if (!referenced) continue;
@@ -18271,6 +18302,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
                 rcc_error((SourceLoc){filename, 0, 0},
                           "defined symbol '%s' has no output section",
                           ms->name);
+                rcc_free(relocation_referenced_symbols);
                 objfile_free(obj);
                 return NULL;
             }
@@ -18285,6 +18317,7 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
                            ms->offset, 0);
         rcc_free(scoped_name);
     }
+    rcc_free(relocation_referenced_symbols);
 
     module_emit_debug_sections(obj, mod, filename);
 

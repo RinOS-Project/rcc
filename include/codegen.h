@@ -126,6 +126,13 @@ typedef struct ModuleReloc {
     const char* symbol_name;
 } ModuleReloc;
 
+typedef struct ModuleRelocationLookupEntry {
+    ModuleSymbolSection source_section;
+    uint32_t offset;
+    int first_relocation_index;
+    int last_relocation_index;
+} ModuleRelocationLookupEntry;
+
 /* A compiler-owned GOT slot.  The slot lives in writable .data and contains
  * the resolved address of target_symbol.  Code refers to the slot through a
  * PC-relative RELOC_GOT32 relocation, so the object remains position
@@ -199,6 +206,8 @@ typedef struct Module {
     ModuleSymbol* symbols;
     int symbol_count;
     int symbol_capacity;
+    uint32_t* symbol_hash_slots; /* module symbol index + 1 */
+    size_t symbol_hash_capacity;
     /* Absolute text ranges covering each `ret`/`ret imm16` instruction,
      * where epilogue CFI is active and normal body rules resume afterward. */
     ModuleDebugFrameEpilogue* debug_frame_epilogues;
@@ -217,6 +226,12 @@ typedef struct Module {
     ModuleReloc* relocs_arr;
     int reloc_count;
     int reloc_capacity;
+    int* relocation_lookup_next;
+    ModuleRelocationLookupEntry* relocation_lookup_entries;
+    size_t relocation_lookup_count;
+    size_t relocation_lookup_capacity;
+    uint32_t* relocation_lookup_slots; /* lookup entry index + 1 */
+    size_t relocation_lookup_slot_capacity;
     ModuleGotEntry* got_entries;
     uint32_t got_entry_count;
     ModuleTlsIndexEntry* tls_index_entries;
