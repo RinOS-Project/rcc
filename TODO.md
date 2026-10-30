@@ -12321,10 +12321,10 @@ remains a separate open item.
       さらに`emit_rin.c`／`emit_drv.c`はrelocationごとに
       `module_resolve_image_relocation()`を呼び、同関数は対象relocationを全件走査して
       からsymbol配列も検索する。TLS解決も全relocation／symbolを再走査し、relative
-      relocationのpatchもsymbol配列を毎回検索するため、大規模object/imageではsymbol
-      登録O(S²)に加え、直接RIN／NDRV出力がrelocation数R・symbol数Sに対して最大
-      O(R² + R×S)へ増える。compile/package時間とメモリ負荷が増大する。
-      **受入:** module symbol名とsource-section＋offsetを索引化し、登録／更新と各
-      relocation解決を償却O(1)またはO(log N)にする。重複・未定義symbol／relocationの
-      診断、安定した出力順序・byte列を維持し、大小のobject/imageで探索回数・処理時間を
-      比較する。
+      relocationのpatchもsymbol配列を毎回検索する。`.ro`出力も各relocationでsymbol
+      lookupを繰り返すため、大規模object/imageではsymbol登録O(S²)に加え、全形式の
+      生成がrelocation数R・symbol数Sに対して最大O(R² + R×S)へ増え、compile/package
+      時間とメモリ負荷を増大させる。**受入:** module symbol名とsource-section＋offsetを
+      索引化し、登録／更新と各形式のrelocation解決を償却O(1)またはO(log N)にする。
+      重複・未定義symbol／relocationの診断、安定した出力順序・byte列を維持し、大小の
+      object/imageで探索回数・処理時間を比較する。
