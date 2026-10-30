@@ -25,7 +25,9 @@ static void sort_times(double* samples, size_t count) {
 }
 
 static uint64_t module_tracked_bytes(const Module* mod) {
-    uint64_t bytes = sizeof(*mod) +
+    /* RCC_INDEX_STATS appends test-only counters to Module. Start at their
+     * offset so this estimate matches the production Module object size. */
+    uint64_t bytes = offsetof(Module, stats_symbol_lookup_probes) +
         mod->code.capacity + mod->rodata.capacity +
         mod->init_array.capacity + mod->fini_array.capacity +
         mod->data.capacity + mod->tls.capacity +

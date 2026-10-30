@@ -12349,7 +12349,8 @@ remains a separate open item.
         Module-owned capacities with 32-symbol/64-relocation and
         4096-symbol/8192-relocation fixtures. On Windows, construction used
         104/34469 symbol lookup probes and 321/55377 relocation-index probes;
-        tracked Module bytes were 33624/1139256. Large-image emission performed
+        tracked production Module bytes were 33552/1139184, excluding the
+        72-byte test-only counter tail. Large-image emission performed
         4096 relative patches and 4096 resolver candidate visits per format;
         five-run median RIN/RLL/DRV times were 8/15/10 ms with 98672/98672/98768
         artifact bytes. Small-fixture medians were 1/3/1 ms with
