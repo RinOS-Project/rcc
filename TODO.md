@@ -12036,6 +12036,10 @@ remains a separate open item.
         global relocations, and verify the two frame-backed 32-bit pieces and
         all three operations in legacy and verified C objects. The focused and
         full DWARF gates pass.
+  - [x] Extend signed i686 bitwise expressions to volatile namespace-scope
+        `long long` pairs. Preserve four global relocations and verify each
+        source's initialized value plus `&`/`|`/`^` results in legacy and
+        verified C objects.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 

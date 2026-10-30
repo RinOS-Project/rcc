@@ -12664,6 +12664,7 @@ static bool debug_inline_parameter_i686_u64_pair_bitwise_expression(
     if (relocations) {
         tls_relocations = *relocations;
         tls_relocations.allow_tls = true;
+        tls_relocations.allow_volatile = true;
         tls_relocations.allow_atomic = true;
         relocations = &tls_relocations;
     }
@@ -12715,7 +12716,6 @@ static bool debug_inline_parameter_i686_u64_pair_bitwise_expression(
         left_source->var_is_vla ||
         right_source->var_is_vla || !left_source->type || !right_source->type ||
         left_source->type->size != 8u || right_source->type->size != 8u ||
-        left_source->type->is_volatile || right_source->type->is_volatile ||
         left_source->type->is_reference || right_source->type->is_reference ||
         (left_source->type->is_atomic && !relocations->allow_atomic) ||
         (right_source->type->is_atomic && !relocations->allow_atomic) ||

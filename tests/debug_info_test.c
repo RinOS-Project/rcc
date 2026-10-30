@@ -15000,7 +15000,7 @@ static void verify_inline_i686_global_unsigned_nested_expression(
         0u, 0u);
 }
 
-static void verify_inline_i686_global_atomic_bitwise_expression(
+static void verify_inline_i686_global_pair_bitwise_expression(
     const char* path, const char* call_site_name, const char* left_name,
     const char* right_name, uint8_t bitwise_operation, bool is_unsigned,
     uint64_t expected_left_value, uint64_t expected_right_value) {
@@ -18359,6 +18359,21 @@ int main(int argc, char** argv)
                  "debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs",
                  0x27u, false, UINT64_C(0x8123456789abcdef),
                  UINT64_C(0xfedcba9876543210)},
+                {"debug_inline_nonconstant_signed_long_long_volatile_bitand_entry",
+                 "debug_inline_nonconstant_signed_long_long_volatile_bitwise_lhs",
+                 "debug_inline_nonconstant_signed_long_long_volatile_bitwise_rhs",
+                 0x1au, false, UINT64_C(0x8123456789abcdef),
+                 UINT64_C(0xfedcba9876543210)},
+                {"debug_inline_nonconstant_signed_long_long_volatile_bitor_entry",
+                 "debug_inline_nonconstant_signed_long_long_volatile_bitwise_lhs",
+                 "debug_inline_nonconstant_signed_long_long_volatile_bitwise_rhs",
+                 0x21u, false, UINT64_C(0x8123456789abcdef),
+                 UINT64_C(0xfedcba9876543210)},
+                {"debug_inline_nonconstant_signed_long_long_volatile_bitxor_entry",
+                 "debug_inline_nonconstant_signed_long_long_volatile_bitwise_lhs",
+                 "debug_inline_nonconstant_signed_long_long_volatile_bitwise_rhs",
+                 0x27u, false, UINT64_C(0x8123456789abcdef),
+                 UINT64_C(0xfedcba9876543210)},
                 {"debug_inline_nonconstant_signed_long_long_atomic_bitand_unsigned_rhs_entry",
                  "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
                  "debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_rhs",
@@ -18393,7 +18408,7 @@ int main(int argc, char** argv)
             for (size_t index = 0u;
                  index < sizeof(atomic_bitwise_cases) /
                      sizeof(atomic_bitwise_cases[0]); ++index) {
-                verify_inline_i686_global_atomic_bitwise_expression(
+                verify_inline_i686_global_pair_bitwise_expression(
                     argv[2], atomic_bitwise_cases[index].entry,
                     atomic_bitwise_cases[index].left,
                     atomic_bitwise_cases[index].right,
@@ -18401,7 +18416,7 @@ int main(int argc, char** argv)
                     atomic_bitwise_cases[index].is_unsigned,
                     atomic_bitwise_cases[index].left_value,
                     atomic_bitwise_cases[index].right_value);
-                verify_inline_i686_global_atomic_bitwise_expression(
+                verify_inline_i686_global_pair_bitwise_expression(
                     argv[4], atomic_bitwise_cases[index].entry,
                     atomic_bitwise_cases[index].left,
                     atomic_bitwise_cases[index].right,
