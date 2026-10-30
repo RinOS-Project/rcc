@@ -22,6 +22,13 @@
 
 typedef float _Complex RccComplexFloat;
 typedef double _Complex RccComplexDouble;
+typedef long double _Complex RccHostComplexLongDouble;
+extern long double creall(RccHostComplexLongDouble);
+extern long double cimagl(RccHostComplexLongDouble);
+extern long double cabsl(RccHostComplexLongDouble);
+extern long double cargl(RccHostComplexLongDouble);
+extern RccHostComplexLongDouble conjl(RccHostComplexLongDouble);
+extern RccHostComplexLongDouble csqrtl(RccHostComplexLongDouble);
 extern float crealf(RccComplexFloat);
 extern float cimagf(RccComplexFloat);
 extern float cabsf(RccComplexFloat);
@@ -94,6 +101,49 @@ typedef ComplexBinary64Pair RINOS_ABI (*ComplexPairUnary)(
     ComplexBinary64Pair);
 typedef ComplexBinary64Pair RINOS_ABI (*ComplexPairBinary)(
     ComplexBinary64Pair, ComplexBinary64Pair);
+typedef double RINOS_ABI (*ComplexLongDoubleToReal)(ComplexBinary64Pair);
+typedef ComplexBinary64Pair RINOS_ABI (*ComplexLongDoubleUnary)(
+    ComplexBinary64Pair);
+
+static RccHostComplexLongDouble complex_pair_to_host(
+    ComplexBinary64Pair value) {
+    return __builtin_complex((long double)value.real,
+                             (long double)value.imaginary);
+}
+
+static ComplexBinary64Pair complex_host_to_pair(
+    RccHostComplexLongDouble value) {
+    ComplexBinary64Pair result;
+    result.real = (double)__real__ value;
+    result.imaginary = (double)__imag__ value;
+    return result;
+}
+
+static double RINOS_ABI complex_import_creall(ComplexBinary64Pair value) {
+    return (double)creall(complex_pair_to_host(value));
+}
+
+static double RINOS_ABI complex_import_cimagl(ComplexBinary64Pair value) {
+    return (double)cimagl(complex_pair_to_host(value));
+}
+
+static double RINOS_ABI complex_import_cabsl(ComplexBinary64Pair value) {
+    return (double)cabsl(complex_pair_to_host(value));
+}
+
+static double RINOS_ABI complex_import_cargl(ComplexBinary64Pair value) {
+    return (double)cargl(complex_pair_to_host(value));
+}
+
+static ComplexBinary64Pair RINOS_ABI complex_import_conjl(
+    ComplexBinary64Pair value) {
+    return complex_host_to_pair(conjl(complex_pair_to_host(value)));
+}
+
+static ComplexBinary64Pair RINOS_ABI complex_import_csqrtl(
+    ComplexBinary64Pair value) {
+    return complex_host_to_pair(csqrtl(complex_pair_to_host(value)));
+}
 
 typedef struct MappedObject {
     void* memory;
@@ -109,6 +159,9 @@ typedef union ComplexRuntimeAddress {
     RccComplexFloat (RINOS_ABI *complex_float_unary)(RccComplexFloat);
     double (RINOS_ABI *complex_double_real)(RccComplexDouble);
     RccComplexDouble (RINOS_ABI *complex_double_unary)(RccComplexDouble);
+    double (RINOS_ABI *complex_long_double_real)(ComplexBinary64Pair);
+    ComplexBinary64Pair (RINOS_ABI *complex_long_double_unary)(
+        ComplexBinary64Pair);
 } ComplexRuntimeAddress;
 
 static void* complex_runtime_import(const char* name) {
@@ -145,6 +198,18 @@ static void* complex_runtime_import(const char* name) {
         address.complex_double_unary = conj;
     } else if (strcmp(name, "csqrt") == 0) {
         address.complex_double_unary = csqrt;
+    } else if (strcmp(name, "creall") == 0) {
+        address.complex_long_double_real = complex_import_creall;
+    } else if (strcmp(name, "cimagl") == 0) {
+        address.complex_long_double_real = complex_import_cimagl;
+    } else if (strcmp(name, "cabsl") == 0) {
+        address.complex_long_double_real = complex_import_cabsl;
+    } else if (strcmp(name, "cargl") == 0) {
+        address.complex_long_double_real = complex_import_cargl;
+    } else if (strcmp(name, "conjl") == 0) {
+        address.complex_long_double_unary = complex_import_conjl;
+    } else if (strcmp(name, "csqrtl") == 0) {
+        address.complex_long_double_unary = complex_import_csqrtl;
     } else {
         return NULL;
     }
@@ -416,6 +481,12 @@ int main(int argc, char** argv) {
     ComplexFloatToReal api_cargf;
     ComplexFloatUnary api_conjf;
     ComplexFloatUnary api_csqrtf;
+    ComplexLongDoubleToReal api_creall;
+    ComplexLongDoubleToReal api_cimagl;
+    ComplexLongDoubleToReal api_cabsl;
+    ComplexLongDoubleToReal api_cargl;
+    ComplexLongDoubleUnary api_conjl;
+    ComplexLongDoubleUnary api_csqrtl;
     ComplexFloatUnary float_negate;
     ComplexFloatReal float_real;
     ComplexFloatTruth float_truth;
@@ -549,6 +620,18 @@ int main(int argc, char** argv) {
     memcpy(&api_conjf, &address, sizeof(api_conjf));
     address = symbol_address(mapped, object, "rcc_complex_api_csqrtf");
     memcpy(&api_csqrtf, &address, sizeof(api_csqrtf));
+    address = symbol_address(mapped, object, "rcc_complex_api_creall");
+    memcpy(&api_creall, &address, sizeof(api_creall));
+    address = symbol_address(mapped, object, "rcc_complex_api_cimagl");
+    memcpy(&api_cimagl, &address, sizeof(api_cimagl));
+    address = symbol_address(mapped, object, "rcc_complex_api_cabsl");
+    memcpy(&api_cabsl, &address, sizeof(api_cabsl));
+    address = symbol_address(mapped, object, "rcc_complex_api_cargl");
+    memcpy(&api_cargl, &address, sizeof(api_cargl));
+    address = symbol_address(mapped, object, "rcc_complex_api_conjl");
+    memcpy(&api_conjl, &address, sizeof(api_conjl));
+    address = symbol_address(mapped, object, "rcc_complex_api_csqrtl");
+    memcpy(&api_csqrtl, &address, sizeof(api_csqrtl));
 
     value_float = float_identity(a);
     assert(close_float(__real__ value_float, 2.0f) &&
@@ -636,6 +719,25 @@ int main(int argc, char** argv) {
     value_float = api_csqrtf(__builtin_complex(3.0f, 4.0f));
     assert(close_float(__real__ value_float, 2.0f) &&
            close_float(__imag__ value_float, 1.0f));
+    {
+        ComplexBinary64Pair api_long_input = {3.0, 4.0};
+        ComplexBinary64Pair api_long_result;
+        assert(close_double(api_creall(api_long_input), 3.0));
+        assert(close_double(api_cimagl(api_long_input), 4.0));
+        assert(close_double(api_cabsl(api_long_input), 5.0));
+        assert(close_double(api_cargl(api_long_input),
+                            0.92729521800161223243));
+        api_long_input.real = 2.0;
+        api_long_input.imaginary = 3.0;
+        api_long_result = api_conjl(api_long_input);
+        assert(close_double(api_long_result.real, 2.0) &&
+               close_double(api_long_result.imaginary, -3.0));
+        api_long_input.real = 3.0;
+        api_long_input.imaginary = 4.0;
+        api_long_result = api_csqrtl(api_long_input);
+        assert(close_double(api_long_result.real, 2.0) &&
+               close_double(api_long_result.imaginary, 1.0));
+    }
     assert(feclearexcept(FE_ALL_EXCEPT) == 0);
     value_double = double_divide(x, __builtin_complex(0.0, 0.0));
     assert(isinf(__real__ value_double) && isinf(__imag__ value_double));

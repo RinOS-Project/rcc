@@ -126,6 +126,30 @@ RccComplexFloat rcc_complex_api_csqrtf(RccComplexFloat value) {
     return csqrtf(value);
 }
 
+long double rcc_complex_api_creall(RccComplexLongDouble value) {
+    return creall(value);
+}
+
+long double rcc_complex_api_cimagl(RccComplexLongDouble value) {
+    return cimagl(value);
+}
+
+long double rcc_complex_api_cabsl(RccComplexLongDouble value) {
+    return cabsl(value);
+}
+
+long double rcc_complex_api_cargl(RccComplexLongDouble value) {
+    return cargl(value);
+}
+
+RccComplexLongDouble rcc_complex_api_conjl(RccComplexLongDouble value) {
+    return conjl(value);
+}
+
+RccComplexLongDouble rcc_complex_api_csqrtl(RccComplexLongDouble value) {
+    return csqrtl(value);
+}
+
 int rcc_complex_local_scalar_initializer(void) {
     RccComplexFloat value = 3.0f;
     return value != __builtin_complex(3.0f, 0.0f);
