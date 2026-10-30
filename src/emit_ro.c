@@ -12628,6 +12628,19 @@ static bool debug_inline_parameter_i686_u64_global_bitwise_expression(
     return true;
 }
 
+static bool debug_inline_parameter_u64_storage_type_equal_ignoring_signedness(
+    const Type* left, const Type* right) {
+    Type left_unqualified;
+    Type right_unqualified;
+    if (!left || !right) return false;
+    left_unqualified = *left;
+    right_unqualified = *right;
+    left_unqualified.is_unsigned = false;
+    right_unqualified.is_unsigned = false;
+    return debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+        &left_unqualified, &right_unqualified, 0u);
+}
+
 static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
     const Module* mod, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
@@ -12676,10 +12689,10 @@ static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
     if (left_expression->kind != EXPR_IDENT ||
         !left_expression->ident_decl || right_expression->kind != EXPR_IDENT ||
         !right_expression->ident_decl ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
-            parameter_type, left_expression->type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
-            parameter_type, right_expression->type, 0u)) {
+        !debug_inline_parameter_u64_storage_type_equal_ignoring_signedness(
+            parameter_type, left_expression->type) ||
+        !debug_inline_parameter_u64_storage_type_equal_ignoring_signedness(
+            parameter_type, right_expression->type)) {
         return false;
     }
     left_source = left_expression->ident_decl;
@@ -12695,10 +12708,10 @@ static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
         left_source->type->is_reference || right_source->type->is_reference ||
         (left_source->type->is_atomic && !relocations->allow_atomic) ||
         (right_source->type->is_atomic && !relocations->allow_atomic) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
-            parameter_type, left_source->type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
-            parameter_type, right_source->type, 0u)) {
+        !debug_inline_parameter_u64_storage_type_equal_ignoring_signedness(
+            left_expression->type, left_source->type) ||
+        !debug_inline_parameter_u64_storage_type_equal_ignoring_signedness(
+            right_expression->type, right_source->type)) {
         return false;
     }
     operation = source_expression->kind == EXPR_BITAND ? 0x1au :

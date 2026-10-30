@@ -12225,7 +12225,8 @@ remains a separate open item.
       results in legacy and verified objects through
       `test-debug-info-inline-expression`.
 - [ ] Extend computed division/remainder expressions to broader operand trees
-      and atomic sources; expand optimized multi-piece location tracking.
+      and atomic sources; expand optimized multi-piece location tracking and
+      widen atomic bitwise operands beyond the verified mixed-signedness pair.
   - [x] Extend i686 unsigned 64-bit constant-divisor division/remainder DWARF
         values to address-backed atomic global sources. Verify divisor 7,
         full-width values, and source relocations in legacy and verified
@@ -12248,6 +12249,11 @@ remains a separate open item.
         from its frame location, emit no global relocations, and verify both
         operations across the signed operand matrix in normal and verified
         objects with the complete inline-expression verifier.
+  - [x] Extend i686 64-bit atomic global bitwise DWARF to usual arithmetic
+        conversions between signed and unsigned `long long` operands, in both
+        operand orders. Verify `&`, `|`, `^`, four relocations, and the full
+        value matrix in legacy and verified objects through
+        `test-debug-info-inline-expression`.
 
 ## RCC continuation (2026-10-29, non-type packs in class partial specializations)
 

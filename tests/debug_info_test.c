@@ -14819,7 +14819,9 @@ static uint64_t verify_inline_i686_global_shift_expression(
 static void verify_inline_i686_global_nested_expression_impl(
     const char* path, const char* call_site_name, const char* left_name,
     const char* right_name, bool tls_sources, bool is_subtract,
-    bool is_unsigned, uint8_t bitwise_operation) {
+    bool is_unsigned, uint8_t bitwise_operation,
+    uint64_t expected_left_bitwise_value,
+    uint64_t expected_right_bitwise_value) {
     static const InlineU64Pair add_pairs[] = {
         {0u, 0u},
         {1u, 2u},
@@ -14940,13 +14942,13 @@ static void verify_inline_i686_global_nested_expression_impl(
     left_value = verify_inline_global_storage(object, left_name, 8u);
     right_value = verify_inline_global_storage(object, right_name, 8u);
     assert(left_value == (bitwise_operation != 0u
-        ? UINT64_C(0x8123456789abcdef)
+        ? expected_left_bitwise_value
         : is_unsigned ? UINT64_C(0x7ffffffffffffff0)
         : is_subtract
             ? tls_sources ? (uint64_t)INT64_MIN : UINT64_C(0x100000000)
             : UINT64_C(0x1ffffffff)));
     assert(right_value == (bitwise_operation != 0u
-        ? UINT64_C(0xfedcba9876543210)
+        ? expected_right_bitwise_value
         : is_unsigned ? UINT64_C(0xfedcba9876543217)
         : is_subtract
             ? tls_sources ? UINT64_MAX : UINT64_C(0x100000001)
@@ -14975,22 +14977,25 @@ static void verify_inline_i686_global_nested_expression(
     const char* right_name, bool tls_sources, bool is_subtract) {
     verify_inline_i686_global_nested_expression_impl(
         path, call_site_name, left_name, right_name, tls_sources,
-        is_subtract, false, 0u);
+        is_subtract, false, 0u, 0u, 0u);
 }
 
 static void verify_inline_i686_global_unsigned_nested_expression(
     const char* path, const char* call_site_name, const char* left_name,
     const char* right_name) {
     verify_inline_i686_global_nested_expression_impl(
-        path, call_site_name, left_name, right_name, false, false, true, 0u);
+        path, call_site_name, left_name, right_name, false, false, true, 0u,
+        0u, 0u);
 }
 
 static void verify_inline_i686_global_atomic_bitwise_expression(
     const char* path, const char* call_site_name, const char* left_name,
-    const char* right_name, uint8_t bitwise_operation) {
+    const char* right_name, uint8_t bitwise_operation, bool is_unsigned,
+    uint64_t expected_left_value, uint64_t expected_right_value) {
     verify_inline_i686_global_nested_expression_impl(
-        path, call_site_name, left_name, right_name, false, false, false,
-        bitwise_operation);
+        path, call_site_name, left_name, right_name, false, false,
+        is_unsigned, bitwise_operation, expected_left_value,
+        expected_right_value);
 }
 
 static void verify_inline_i686_global_shift_parameter(
@@ -18320,28 +18325,78 @@ int main(int argc, char** argv)
         {
             static const struct {
                 const char* entry;
+                const char* left;
+                const char* right;
                 uint8_t opcode;
+                bool is_unsigned;
+                uint64_t left_value;
+                uint64_t right_value;
             } atomic_bitwise_cases[] = {
                 {"debug_inline_nonconstant_signed_long_long_atomic_bitand_entry",
-                 0x1au},
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs",
+                 0x1au, false, UINT64_C(0x8123456789abcdef),
+                 UINT64_C(0xfedcba9876543210)},
                 {"debug_inline_nonconstant_signed_long_long_atomic_bitor_entry",
-                 0x21u},
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs",
+                 0x21u, false, UINT64_C(0x8123456789abcdef),
+                 UINT64_C(0xfedcba9876543210)},
                 {"debug_inline_nonconstant_signed_long_long_atomic_bitxor_entry",
-                 0x27u}
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs",
+                 0x27u, false, UINT64_C(0x8123456789abcdef),
+                 UINT64_C(0xfedcba9876543210)},
+                {"debug_inline_nonconstant_signed_long_long_atomic_bitand_unsigned_rhs_entry",
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                 "debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_rhs",
+                 0x1au, true, UINT64_C(0x8123456789abcdef),
+                 UINT64_C(0xfedcba9876543210)},
+                {"debug_inline_nonconstant_signed_long_long_atomic_bitor_unsigned_rhs_entry",
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                 "debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_rhs",
+                 0x21u, true, UINT64_C(0x8123456789abcdef),
+                 UINT64_C(0xfedcba9876543210)},
+                {"debug_inline_nonconstant_signed_long_long_atomic_bitxor_unsigned_rhs_entry",
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                 "debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_rhs",
+                 0x27u, true, UINT64_C(0x8123456789abcdef),
+                 UINT64_C(0xfedcba9876543210)},
+                {"debug_inline_nonconstant_unsigned_long_long_atomic_bitand_signed_rhs_entry",
+                 "debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_lhs",
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                 0x1au, true, UINT64_C(0xfedcba9876543210),
+                 UINT64_C(0x8123456789abcdef)},
+                {"debug_inline_nonconstant_unsigned_long_long_atomic_bitor_signed_rhs_entry",
+                 "debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_lhs",
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                 0x21u, true, UINT64_C(0xfedcba9876543210),
+                 UINT64_C(0x8123456789abcdef)},
+                {"debug_inline_nonconstant_unsigned_long_long_atomic_bitxor_signed_rhs_entry",
+                 "debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_lhs",
+                 "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
+                 0x27u, true, UINT64_C(0xfedcba9876543210),
+                 UINT64_C(0x8123456789abcdef)}
             };
             for (size_t index = 0u;
                  index < sizeof(atomic_bitwise_cases) /
                      sizeof(atomic_bitwise_cases[0]); ++index) {
                 verify_inline_i686_global_atomic_bitwise_expression(
                     argv[2], atomic_bitwise_cases[index].entry,
-                    "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
-                    "debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs",
-                    atomic_bitwise_cases[index].opcode);
+                    atomic_bitwise_cases[index].left,
+                    atomic_bitwise_cases[index].right,
+                    atomic_bitwise_cases[index].opcode,
+                    atomic_bitwise_cases[index].is_unsigned,
+                    atomic_bitwise_cases[index].left_value,
+                    atomic_bitwise_cases[index].right_value);
                 verify_inline_i686_global_atomic_bitwise_expression(
                     argv[4], atomic_bitwise_cases[index].entry,
-                    "debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs",
-                    "debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs",
-                    atomic_bitwise_cases[index].opcode);
+                    atomic_bitwise_cases[index].left,
+                    atomic_bitwise_cases[index].right,
+                    atomic_bitwise_cases[index].opcode,
+                    atomic_bitwise_cases[index].is_unsigned,
+                    atomic_bitwise_cases[index].left_value,
+                    atomic_bitwise_cases[index].right_value);
             }
         }
         verify_inline_i686_global_u64_constant_division_expression_for_inline(

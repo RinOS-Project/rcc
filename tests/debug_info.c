@@ -35,6 +35,12 @@ _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs =
     -0x7edcba9876543211ll;
 _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs =
     -0x0123456789abcdf0ll;
+_Atomic unsigned long long
+    debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_lhs =
+        0xfedcba9876543210ull;
+_Atomic unsigned long long
+    debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_rhs =
+        0xfedcba9876543210ull;
 _Atomic long long* debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape;
 _Atomic long long* debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape;
 long long* debug_inline_nonconstant_signed_long_long_runtime_local_escape;
@@ -145,6 +151,13 @@ static int debug_line_helper(void)
 
 static inline long long debug_nonconstant_signed_long_long_parameter_inline(
     long long value)
+{
+    return value;
+}
+
+static inline unsigned long long
+debug_nonconstant_unsigned_long_long_parameter_inline(
+    unsigned long long value)
 {
     return value;
 }
@@ -529,6 +542,60 @@ long long debug_inline_nonconstant_signed_long_long_atomic_bitxor_entry(
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs ^
         debug_inline_nonconstant_signed_long_long_atomic_bitwise_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_signed_long_long_atomic_bitand_unsigned_rhs_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs &
+        debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_signed_long_long_atomic_bitor_unsigned_rhs_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs |
+        debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_signed_long_long_atomic_bitxor_unsigned_rhs_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs ^
+        debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_atomic_bitand_signed_rhs_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_lhs &
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_atomic_bitor_signed_rhs_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_lhs |
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_atomic_bitxor_signed_rhs_entry(
+    void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_lhs ^
+        debug_inline_nonconstant_signed_long_long_atomic_bitwise_lhs);
 }
 
 long long debug_inline_nonconstant_signed_long_long_atomic_local_pair_divide_entry(
