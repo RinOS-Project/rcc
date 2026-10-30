@@ -10193,11 +10193,21 @@ remains a separate open item.
         using-declaration selecting one direct base resolves both forms and is
         runtime-checked. RCC i686/AMD64 diagnostics and execution agree with GCC
         C++20. Multiple using-declarations retain same-signature candidates and
-        diagnose overload ambiguity, matching GCC. Selecting distinct placement
-        overloads remains open because placement-new syntax is not parsed yet.
+        diagnose overload ambiguity, matching GCC. Distinct placement overloads
+        are exercised in the placement-allocation coverage below.
         Repeated/virtual-base lookup and bases requiring constructor/destructor
         lowering remain open. Private using-declarations reject external
         allocation.
+  - [x] Parse placement allocation arguments and pass them into global and
+        class-specific scalar and plain trivial-array operator new lookup.
+        Verify exact scalar/array byte extents, overload selection from two
+        public base using-declarations, global placement operators, x64
+        execution, GCC C++20, and verified i686/AMD64 -O0/-O2 with zero
+        fallback. A placement call with no matching operator is diagnosed
+        instead of silently using the RinOS allocator.
+  - [ ] Extend placement allocation to class arrays requiring constructors,
+        cookies, or constructor-failure matching placement-delete handling.
+        Parenthesized type-id new syntax also remains unsupported.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

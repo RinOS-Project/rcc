@@ -46367,7 +46367,8 @@ Expr* rcc_parse_cxx_special_expression(void) {
     SourceLoc loc = peek()->loc;
 
     if (match(TOK_NEW)) {
-        Type* object_type = parse_cxx_type_spec();
+        ExprList* placement_args = NULL;
+        Type* object_type;
         Expr* count = NULL;
         Expr* bytes;
         Expr* allocation;
@@ -46377,6 +46378,18 @@ Expr* rcc_parse_cxx_special_expression(void) {
         bool value_init = false;
         bool brace_init = false;
 
+        if (match(TOK_LPAREN)) {
+            if (check(TOK_RPAREN)) {
+                rcc_error(loc, "new placement list requires an argument");
+            } else {
+                do {
+                    exprlist_append(&placement_args,
+                                    parse_assignment_expression());
+                } while (match(TOK_COMMA));
+            }
+            expect(TOK_RPAREN, ")");
+        }
+        object_type = parse_cxx_type_spec();
         if (match(TOK_LBRACKET)) {
             is_array = true;
             if (check(TOK_RBRACKET)) {
@@ -46412,6 +46425,10 @@ Expr* rcc_parse_cxx_special_expression(void) {
             bytes = expr_binary(EXPR_MUL, bytes, count, loc);
         }
         exprlist_append(&allocation_args, bytes);
+        for (ExprList* placement = placement_args; placement;
+             placement = placement->next) {
+            exprlist_append(&allocation_args, placement->expr);
+        }
         allocation = expr_call(expr_ident("rin_malloc", loc),
                                allocation_args, loc);
         allocation->call_is_new = true;
