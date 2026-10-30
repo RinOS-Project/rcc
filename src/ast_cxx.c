@@ -541,10 +541,11 @@ static void cxx_mangle_enum_name(char* buf, size_t* pos, Type* type) {
         const char* separator = strstr(namespace_name, "::");
         size_t component_length = separator
             ? (size_t)(separator - namespace_name) : strlen(namespace_name);
-        char component[512];
-        if (component_length == 0u || component_length >= sizeof(component)) {
+        char* component;
+        if (component_length == 0u) {
             rcc_fatal("C++ enum namespace component is invalid for mangling");
         }
+        component = rcc_alloc(component_length + 1u);
         memcpy(component, namespace_name, component_length);
         component[component_length] = '\0';
         mangle_name(buf, pos, component);
@@ -5901,16 +5902,35 @@ static CxxClass* cxx_primary_vtable_base(CxxClass* cls) {
     return NULL;
 }
 
+static const char* cxx_internal_class_symbol(const char* prefix,
+                                            const char* class_name,
+                                            const char* suffix) {
+    size_t prefix_length = strlen(prefix);
+    size_t class_length = strlen(class_name);
+    size_t suffix_length = strlen(suffix);
+    size_t length;
+    char* buffer;
+    const char* result;
+    if (prefix_length > SIZE_MAX - class_length ||
+        suffix_length > SIZE_MAX - prefix_length - class_length ||
+        prefix_length + class_length + suffix_length == SIZE_MAX) {
+        rcc_fatal("C++ internal class symbol is too large");
+    }
+    length = prefix_length + class_length + suffix_length;
+    buffer = rcc_alloc(length + 1u);
+    memcpy(buffer, prefix, prefix_length);
+    memcpy(buffer + prefix_length, class_name, class_length);
+    memcpy(buffer + prefix_length + class_length, suffix, suffix_length);
+    buffer[length] = '\0';
+    result = rcc_intern(buffer);
+    return result;
+}
+
 static const char* cxx_vtable_name(CxxClass* cls) {
-    char buffer[1024];
     char* class_name;
     if (!cls || !cls->name) return NULL;
     class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
-    if (snprintf(buffer, sizeof(buffer), "__rcc_vtable_%s", class_name) < 0 ||
-        strlen(buffer) >= sizeof(buffer) - 1u) {
-        rcc_fatal("C++ vtable symbol is too long");
-    }
-    return rcc_intern(buffer);
+    return cxx_internal_class_symbol("__rcc_vtable_", class_name, "");
 }
 
 typedef struct {
@@ -6536,7 +6556,6 @@ static const char* cxx_typeinfo_name(CxxClass* cls) {
     static const char local_prefix[] = "__rcc_typeinfo_local_type_";
     CxxTypeInfoIdentityBuilder builder = {0};
     const char* prefix;
-    char buffer[1024];
     char* class_name;
     bool has_local_scope;
     if (!cls || !cls->name) return NULL;
@@ -6558,80 +6577,55 @@ static const char* cxx_typeinfo_name(CxxClass* cls) {
         return rcc_intern(builder.data);
     }
     class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
-    if (snprintf(buffer, sizeof(buffer), "__rcc_typeinfo_%s", class_name) < 0 ||
-        strlen(buffer) >= sizeof(buffer) - 1u) {
-        rcc_fatal("C++ typeinfo symbol is too long");
-    }
-    return rcc_intern(buffer);
+    return cxx_internal_class_symbol("__rcc_typeinfo_", class_name, "");
 }
 
 static const char* cxx_virtual_base_table_name(CxxClass* cls) {
-    char buffer[1024];
     char* class_name;
     if (!cls || !cls->name) return NULL;
     class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
-    if (snprintf(buffer, sizeof(buffer), "__rcc_vbtable_%s", class_name) < 0 ||
-        strlen(buffer) >= sizeof(buffer) - 1u) {
-        rcc_fatal("C++ virtual-base table symbol is too long");
-    }
-    return rcc_intern(buffer);
+    return cxx_internal_class_symbol("__rcc_vbtable_", class_name, "");
 }
 
 static const char* cxx_secondary_vtable_name(CxxClass* cls,
                                              int base_index) {
-    char buffer[1024];
+    char suffix[64];
     char* class_name;
     if (!cls || !cls->name) return NULL;
     class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
-    if (snprintf(buffer, sizeof(buffer), "__rcc_vtable_%s_base%d",
-                 class_name, base_index) < 0 ||
-        strlen(buffer) >= sizeof(buffer) - 1u) {
-        rcc_fatal("C++ secondary vtable symbol is too long");
-    }
-    return rcc_intern(buffer);
+    snprintf(suffix, sizeof(suffix), "_base%d", base_index);
+    return cxx_internal_class_symbol("__rcc_vtable_", class_name, suffix);
 }
 
 static const char* cxx_virtual_secondary_vtable_name(CxxClass* cls,
                                                      int virtual_base_index) {
-    char buffer[1024];
+    char suffix[64];
     char* class_name;
     if (!cls || !cls->name) return NULL;
     class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
-    if (snprintf(buffer, sizeof(buffer), "__rcc_vtable_%s_vbase%d",
-                 class_name, virtual_base_index) < 0 ||
-        strlen(buffer) >= sizeof(buffer) - 1u) {
-        rcc_fatal("C++ virtual-base vtable symbol is too long");
-    }
-    return rcc_intern(buffer);
+    snprintf(suffix, sizeof(suffix), "_vbase%d", virtual_base_index);
+    return cxx_internal_class_symbol("__rcc_vtable_", class_name, suffix);
 }
 
 static const char* cxx_secondary_thunk_name(CxxClass* cls,
                                             int base_index, int slot) {
-    char buffer[1024];
+    char suffix[64];
     char* class_name;
     if (!cls || !cls->name) return NULL;
     class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
-    if (snprintf(buffer, sizeof(buffer), "__rcc_thunk_%s_base%d_slot%d",
-                 class_name, base_index, slot) < 0 ||
-        strlen(buffer) >= sizeof(buffer) - 1u) {
-        rcc_fatal("C++ secondary vtable thunk symbol is too long");
-    }
-    return rcc_intern(buffer);
+    snprintf(suffix, sizeof(suffix), "_base%d_slot%d", base_index, slot);
+    return cxx_internal_class_symbol("__rcc_thunk_", class_name, suffix);
 }
 
 static const char* cxx_virtual_secondary_thunk_name(
     CxxClass* cls, int virtual_base_index, int slot) {
-    char buffer[1024];
+    char suffix[64];
     char* class_name;
     if (!cls || !cls->name) return NULL;
     class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
-    if (snprintf(buffer, sizeof(buffer),
-                 "__rcc_thunk_%s_vbase%d_slot%d", class_name,
-                 virtual_base_index, slot) < 0 ||
-        strlen(buffer) >= sizeof(buffer) - 1u) {
-        rcc_fatal("C++ virtual-base thunk symbol is too long");
-    }
-    return rcc_intern(buffer);
+    snprintf(suffix, sizeof(suffix), "_vbase%d_slot%d",
+             virtual_base_index, slot);
+    return cxx_internal_class_symbol("__rcc_thunk_", class_name, suffix);
 }
 
 static int cxx_vtable_find_slot(const CxxVtableEntry* entries, int count,
@@ -14982,7 +14976,6 @@ bool cxx_class_resolve_nested_type_path(
     Type** resolved_type, bool* ambiguous, bool* accessible) {
     const char* component;
     CxxClass* owner = cls;
-    unsigned depth = 0;
 
     if (resolved_type) *resolved_type = NULL;
     if (ambiguous) *ambiguous = false;
@@ -14994,16 +14987,16 @@ bool cxx_class_resolve_nested_type_path(
         const char* separator = strstr(component, "::");
         size_t component_length = separator
             ? (size_t)(separator - component) : strlen(component);
-        char component_name[512];
+        char* component_name;
         bool component_ambiguous = false;
         bool component_accessible = false;
         CxxTypeAlias* alias;
         Type* nested_type;
 
-        if (depth++ >= 64u || component_length == 0u ||
-            component_length >= sizeof(component_name)) {
+        if (component_length == 0u) {
             return false;
         }
+        component_name = rcc_alloc(component_length + 1u);
         memcpy(component_name, component, component_length);
         component_name[component_length] = '\0';
         alias = cxx_class_find_inherited_type_alias(
@@ -15186,9 +15179,7 @@ static bool cxx_class_friend_name_matches(const CxxClass* target,
                                           const char* friend_name) {
     const char* normalized = friend_name;
     const char* namespace_name;
-    char qualified_name[512];
     size_t namespace_length;
-    size_t class_length;
     if (!target || !candidate || !candidate->name || !friend_name) {
         return false;
     }
@@ -15199,20 +15190,14 @@ static bool cxx_class_friend_name_matches(const CxxClass* target,
     }
     namespace_name = cxx_namespace_qualified_name(candidate->ns);
     namespace_length = namespace_name ? strlen(namespace_name) : 0u;
-    class_length = strlen(candidate->name);
-    if (namespace_length + (namespace_length ? 2u : 0u) + class_length >=
-        sizeof(qualified_name)) {
-        return false;
+    if (namespace_length != 0u) {
+        return strncmp(normalized, namespace_name, namespace_length) == 0 &&
+               normalized[namespace_length] == ':' &&
+               normalized[namespace_length + 1u] == ':' &&
+               strcmp(normalized + namespace_length + 2u,
+                      candidate->name) == 0;
     }
-    if (namespace_length) {
-        memcpy(qualified_name, namespace_name, namespace_length);
-        memcpy(qualified_name + namespace_length, "::", 2u);
-        memcpy(qualified_name + namespace_length + 2u, candidate->name,
-               class_length + 1u);
-    } else {
-        memcpy(qualified_name, candidate->name, class_length + 1u);
-    }
-    return strcmp(normalized, qualified_name) == 0;
+    return strcmp(normalized, candidate->name) == 0;
 }
 
 static bool cxx_class_grants_friendship_to(const CxxClass* target,

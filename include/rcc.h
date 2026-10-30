@@ -20,7 +20,9 @@
 
 /* Limits */
 #define RCC_MAX_PATH        260
-#define RCC_MAX_IDENT       256
+/* Keep identifiers beyond the C++ minimum supported implementation quantity
+ * (1024 characters), including the trailing NUL. */
+#define RCC_MAX_IDENT       2049
 #define RCC_MAX_STRING      4096
 #define RCC_MAX_ERRORS      100
 #define RCC_MAX_SUPPORTED_ALIGNMENT 8192u

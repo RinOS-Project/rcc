@@ -3591,13 +3591,22 @@ typedef struct CxxRttiEntry {
 #define CXX_RTTI_MAX_ENTRIES 128
 
 static const char* codegen_cxx_rtti_symbol(const char* vtable_symbol) {
-    char buffer[1200];
+    static const char prefix[] = "__rcc_rtti_";
+    size_t prefix_length = sizeof(prefix) - 1u;
+    size_t symbol_length;
+    char* buffer;
+    const char* result;
     if (!vtable_symbol) return NULL;
-    if (snprintf(buffer, sizeof(buffer), "__rcc_rtti_%s", vtable_symbol) < 0 ||
-        strlen(buffer) >= sizeof(buffer) - 1u) {
-        rcc_fatal("C++ RTTI metadata symbol is too long");
+    symbol_length = strlen(vtable_symbol);
+    if (symbol_length > SIZE_MAX - prefix_length - 1u) {
+        rcc_fatal("C++ RTTI metadata symbol size overflows");
     }
-    return rcc_intern(buffer);
+    buffer = rcc_alloc(prefix_length + symbol_length + 1u);
+    memcpy(buffer, prefix, prefix_length);
+    memcpy(buffer + prefix_length, vtable_symbol, symbol_length + 1u);
+    result = rcc_intern(buffer);
+    rcc_free(buffer);
+    return result;
 }
 
 static bool codegen_cxx_rtti_add(CxxRttiEntry* entries, int* count,
@@ -3696,18 +3705,33 @@ static void codegen_emit_signed_rodata(Module* mod, int64_t value,
 static const char* codegen_cxx_vbase_variant_symbol(CxxClass* owner,
                                                      bool is_virtual_base,
                                                      int index) {
-    char buffer[1200];
+    char suffix[32];
+    char* buffer;
+    const char* result;
     const char* base;
+    size_t base_length;
+    size_t suffix_length;
+    int suffix_written;
     if (!owner || !owner->virtual_base_table_symbol || index < 0) {
         return NULL;
     }
     base = owner->virtual_base_table_symbol;
-    if (snprintf(buffer, sizeof(buffer), "%s_%s%d", base,
-                 is_virtual_base ? "vbase" : "base", index) < 0 ||
-        strlen(buffer) >= sizeof(buffer) - 1u) {
-        rcc_fatal("C++ virtual-base variant table symbol is too long");
+    suffix_written = snprintf(suffix, sizeof(suffix), "_%s%d",
+                              is_virtual_base ? "vbase" : "base", index);
+    if (suffix_written < 0 || (size_t)suffix_written >= sizeof(suffix)) {
+        rcc_fatal("C++ virtual-base variant suffix formatting failed");
     }
-    return rcc_intern(buffer);
+    base_length = strlen(base);
+    suffix_length = (size_t)suffix_written;
+    if (base_length > SIZE_MAX - suffix_length - 1u) {
+        rcc_fatal("C++ virtual-base variant symbol size overflows");
+    }
+    buffer = rcc_alloc(base_length + suffix_length + 1u);
+    memcpy(buffer, base, base_length);
+    memcpy(buffer + base_length, suffix, suffix_length + 1u);
+    result = rcc_intern(buffer);
+    rcc_free(buffer);
+    return result;
 }
 
 static void codegen_emit_cxx_vbase_table(Module* mod, const char* symbol,

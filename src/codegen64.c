@@ -25,18 +25,33 @@ static Decl* active_static_reference_result_decl64 = NULL;
 static const char* codegen_cxx_vbase_variant_symbol(CxxClass* owner,
                                                      bool is_virtual_base,
                                                      int index) {
-    char buffer[1200];
+    char suffix[32];
+    char* buffer;
+    const char* result;
     const char* base;
+    size_t base_length;
+    size_t suffix_length;
+    int suffix_written;
     if (!owner || !owner->virtual_base_table_symbol || index < 0) {
         return NULL;
     }
     base = owner->virtual_base_table_symbol;
-    if (snprintf(buffer, sizeof(buffer), "%s_%s%d", base,
-                 is_virtual_base ? "vbase" : "base", index) < 0 ||
-        strlen(buffer) >= sizeof(buffer) - 1u) {
-        rcc_fatal("C++ virtual-base variant table symbol is too long");
+    suffix_written = snprintf(suffix, sizeof(suffix), "_%s%d",
+                              is_virtual_base ? "vbase" : "base", index);
+    if (suffix_written < 0 || (size_t)suffix_written >= sizeof(suffix)) {
+        rcc_fatal("C++ virtual-base variant suffix formatting failed");
     }
-    return rcc_intern(buffer);
+    base_length = strlen(base);
+    suffix_length = (size_t)suffix_written;
+    if (base_length > SIZE_MAX - suffix_length - 1u) {
+        rcc_fatal("C++ virtual-base variant symbol size overflows");
+    }
+    buffer = rcc_alloc(base_length + suffix_length + 1u);
+    memcpy(buffer, base, base_length);
+    memcpy(buffer + base_length, suffix, suffix_length + 1u);
+    result = rcc_intern(buffer);
+    rcc_free(buffer);
+    return result;
 }
 
 static void codegen64_expr_loc(SourceLoc* location, const Expr* expression) {

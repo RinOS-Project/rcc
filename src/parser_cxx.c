@@ -59,6 +59,95 @@ static void* cxx_allocate_zeroed_array(size_t element_size, size_t count);
 static void* cxx_grow_zeroed_array(void* previous, size_t element_size,
                                    size_t previous_count,
                                    size_t new_count);
+static void cxx_qualified_name_append(
+    char** buffer, size_t* capacity, size_t* length, const char* text);
+
+static char* cxx_copy_name_span(const char* source, size_t length) {
+    char* copy;
+    if (!source || length == SIZE_MAX) {
+        rcc_fatal("qualified C++ name is too large");
+    }
+    copy = ast_arena_alloc(length + 1u);
+    memcpy(copy, source, length);
+    copy[length] = '\0';
+    return copy;
+}
+
+static const char* cxx_join_qualified_name(const char* prefix,
+                                           const char* suffix) {
+    size_t prefix_length = prefix ? strlen(prefix) : 0u;
+    size_t suffix_length = suffix ? strlen(suffix) : 0u;
+    size_t separator_length = prefix_length != 0u ? 2u : 0u;
+    size_t length;
+    char* joined;
+    if (prefix_length > SIZE_MAX - separator_length ||
+        suffix_length > SIZE_MAX - prefix_length - separator_length ||
+        prefix_length + separator_length + suffix_length == SIZE_MAX) {
+        rcc_fatal("qualified C++ name is too large");
+    }
+    length = prefix_length + separator_length + suffix_length;
+    joined = ast_arena_alloc(length + 1u);
+    if (prefix_length != 0u) memcpy(joined, prefix, prefix_length);
+    if (separator_length != 0u) {
+        memcpy(joined + prefix_length, "::", separator_length);
+    }
+    if (suffix_length != 0u) {
+        memcpy(joined + prefix_length + separator_length,
+               suffix, suffix_length);
+    }
+    joined[length] = '\0';
+    return rcc_intern(joined);
+}
+
+static const char* cxx_concatenate_names(const char* prefix,
+                                          const char* suffix) {
+    size_t prefix_length = prefix ? strlen(prefix) : 0u;
+    size_t suffix_length = suffix ? strlen(suffix) : 0u;
+    char* joined;
+    if (suffix_length > SIZE_MAX - prefix_length ||
+        prefix_length + suffix_length == SIZE_MAX) {
+        rcc_fatal("qualified C++ name is too large");
+    }
+    joined = ast_arena_alloc(prefix_length + suffix_length + 1u);
+    if (prefix_length != 0u) memcpy(joined, prefix, prefix_length);
+    if (suffix_length != 0u) {
+        memcpy(joined + prefix_length, suffix, suffix_length);
+    }
+    joined[prefix_length + suffix_length] = '\0';
+    return rcc_intern(joined);
+}
+
+static void cxx_arena_name_append(char** buffer, size_t* capacity,
+                                 size_t* length, const char* text) {
+    size_t text_length;
+    size_t required;
+    if (!buffer || !capacity || !length || !text) {
+        rcc_fatal("invalid qualified C++ name builder state");
+    }
+    text_length = strlen(text);
+    if (*length == SIZE_MAX || text_length > SIZE_MAX - *length - 1u) {
+        rcc_fatal("qualified C++ name is too large");
+    }
+    required = *length + text_length + 1u;
+    if (*capacity < required) {
+        size_t new_capacity = *capacity ? *capacity : 32u;
+        char* new_buffer;
+        while (new_capacity < required) {
+            if (new_capacity > SIZE_MAX / 2u) {
+                new_capacity = required;
+                break;
+            }
+            new_capacity *= 2u;
+        }
+        new_buffer = ast_arena_alloc(new_capacity);
+        if (*length != 0u) memcpy(new_buffer, *buffer, *length);
+        *buffer = new_buffer;
+        *capacity = new_capacity;
+    }
+    memcpy(*buffer + *length, text, text_length);
+    *length += text_length;
+    (*buffer)[*length] = '\0';
+}
 
 typedef struct CxxFriendSignatureAliasUse {
     CxxClass* owner;
@@ -1700,7 +1789,6 @@ static void cxx_parser_add_local_using(const char* name,
 const char* rcc_parser_cxx_resolve_local_using(const char* name,
                                                SourceLoc loc) {
     const char* resolved = NULL;
-    char qualified[512];
     if (!name || !*name || cxx_parser_value_type(name)) return NULL;
     for (CxxLocalUsingBinding* binding = active_local_using_bindings;
          binding; binding = binding->next) {
@@ -1712,18 +1800,10 @@ const char* rcc_parser_cxx_resolve_local_using(const char* name,
             candidate = binding->target;
         } else {
             size_t target_length = strlen(binding->target);
-            if (target_length != 0u &&
-                target_length + 2u + strlen(name) >= sizeof(qualified)) {
-                rcc_error(loc, "local using target exceeds compiler limits");
-                return rcc_intern("__rcc_invalid_local_using");
-            }
             if (target_length == 0u) {
                 candidate = rcc_intern(name);
             } else {
-                memcpy(qualified, binding->target, target_length);
-                memcpy(qualified + target_length, "::", 2u);
-                strcpy(qualified + target_length + 2u, name);
-                candidate = rcc_intern(qualified);
+                candidate = cxx_join_qualified_name(binding->target, name);
             }
         }
         if (!resolved) {
@@ -4451,12 +4531,12 @@ static bool cxx_template_integer_call_add_using_declaration_candidates(
     for (int using_index = 0;
          using_index < scope->using_declaration_count; ++using_index) {
         const char* target = scope->using_declarations[using_index];
-        char target_buffer[512];
+        char* target_buffer;
         char* separator;
         const char* target_name;
         CxxNamespace* target_namespace = g_global_namespace;
-        if (!target || strlen(target) >= sizeof(target_buffer)) continue;
-        strcpy(target_buffer, target);
+        if (!target) continue;
+        target_buffer = cxx_copy_name_span(target, strlen(target));
         while (target_buffer[0] == ':' && target_buffer[1] == ':') {
             memmove(target_buffer, target_buffer + 2,
                     strlen(target_buffer + 2) + 1u);
@@ -4888,15 +4968,12 @@ static Decl* cxx_template_integer_call_function(
     while (name[0] == ':' && name[1] == ':') name += 2;
     qualified = strstr(name, "::") != NULL;
     if (qualified) {
-        char namespace_name[512];
         const char* separator = strrchr(name, ':');
         CxxNamespace* call_namespace = NULL;
         DeclList* declarations;
         if (separator && separator > name && separator[-1] == ':') {
             size_t namespace_length = (size_t)(separator - name - 1);
-            if (namespace_length >= sizeof(namespace_name)) return NULL;
-            memcpy(namespace_name, name, namespace_length);
-            namespace_name[namespace_length] = '\0';
+            char* namespace_name = cxx_copy_name_span(name, namespace_length);
             call_namespace = cxx_namespace_find(
                 g_global_namespace, namespace_name);
             if (call_namespace &&
@@ -5312,19 +5389,12 @@ static bool cxx_friend_function_name_matches(CxxNamespace* ns,
                                              const char* candidate_name,
                                              const char* name) {
     const char* namespace_name;
-    char qualified_name[512];
-    size_t namespace_length;
+    const char* qualified_name;
     if (!candidate_name || !name) return false;
     if (strcmp(candidate_name, name) == 0) return true;
     namespace_name = cxx_namespace_qualified_name(ns);
     if (!namespace_name || !*namespace_name) return false;
-    namespace_length = strlen(namespace_name);
-    if (namespace_length + 2u + strlen(name) >= sizeof(qualified_name)) {
-        return false;
-    }
-    memcpy(qualified_name, namespace_name, namespace_length);
-    memcpy(qualified_name + namespace_length, "::", 2u);
-    strcpy(qualified_name + namespace_length + 2u, name);
+    qualified_name = cxx_join_qualified_name(namespace_name, name);
     return strcmp(candidate_name, qualified_name) == 0;
 }
 
@@ -6331,37 +6401,27 @@ static bool cxx_using_starts_with_conversion_function_id(void) {
 }
 
 static const char* parse_cxx_using_conversion_base_name(void) {
-    char buffer[512] = "";
+    char* buffer = NULL;
+    size_t capacity = 0u;
     size_t length = 0u;
     if (match(TOK_SCOPE)) {
-        buffer[length++] = ':';
-        buffer[length++] = ':';
-        buffer[length] = '\0';
+        cxx_qualified_name_append(&buffer, &capacity, &length, "::");
     }
     while (check(TOK_IDENT)) {
         Token* component = advance();
-        size_t component_length = strlen(component->value.str_val);
-        if (length + component_length >= sizeof(buffer)) {
-            rcc_error(component->loc,
-                      "qualified base name in conversion using-declaration is too long");
-            return NULL;
-        }
-        memcpy(buffer + length, component->value.str_val,
-               component_length);
-        length += component_length;
-        buffer[length] = '\0';
+        cxx_qualified_name_append(&buffer, &capacity, &length,
+                                  component->value.str_val);
         if (!match(TOK_SCOPE)) break;
         if (check(TOK_OPERATOR)) break;
-        if (length + 2u >= sizeof(buffer)) {
-            rcc_error(component->loc,
-                      "qualified base name in conversion using-declaration is too long");
-            return NULL;
-        }
-        memcpy(buffer + length, "::", 2u);
-        length += 2u;
-        buffer[length] = '\0';
+        cxx_qualified_name_append(&buffer, &capacity, &length, "::");
     }
-    return length != 0u ? rcc_intern(buffer) : NULL;
+    if (length == 0u) {
+        rcc_free(buffer);
+        return NULL;
+    }
+    const char* result = rcc_intern(buffer);
+    rcc_free(buffer);
+    return result;
 }
 
 static bool pending_cxx_nodiscard;
@@ -6897,8 +6957,10 @@ static Type* parse_cxx_requires_return_constraint(
  * complete path. Unresolved names remain carriers so sema makes the
  * requires-expression false without rejecting the surrounding declaration. */
 static const char* parse_cxx_requires_nested_path(SourceLoc loc) {
-    char path[512];
-    size_t length = 0;
+    char* path = NULL;
+    size_t capacity = 0u;
+    size_t length = 0u;
+    const char* result;
 
     if (!match(TOK_SCOPE) || !check(TOK_IDENT)) {
         rcc_error(loc,
@@ -6907,29 +6969,22 @@ static const char* parse_cxx_requires_nested_path(SourceLoc loc) {
     }
     for (;;) {
         Token* component = advance();
-        size_t component_length = strlen(component->value.str_val);
-        size_t separator_length = length ? 2u : 0u;
-        if (length + separator_length >= sizeof(path) ||
-            component_length >= sizeof(path) - length - separator_length) {
-            rcc_error(loc,
-                      "requires-expression nested type path is too long");
-            return NULL;
+        if (length != 0u) {
+            cxx_qualified_name_append(&path, &capacity, &length, "::");
         }
-        if (separator_length) {
-            path[length++] = ':';
-            path[length++] = ':';
-        }
-        memcpy(path + length, component->value.str_val, component_length);
-        length += component_length;
-        path[length] = '\0';
+        cxx_qualified_name_append(&path, &capacity, &length,
+                                  component->value.str_val);
         if (!match(TOK_SCOPE)) break;
         if (!check(TOK_IDENT)) {
             rcc_error(loc,
                       "requires-expression type requirement expects a nested type");
+            rcc_free(path);
             return NULL;
         }
     }
-    return rcc_intern(path);
+    result = rcc_intern(path);
+    rcc_free(path);
+    return result;
 }
 
 static Type* parse_cxx_requires_type(SourceLoc loc) {
@@ -6968,7 +7023,7 @@ static Type* parse_cxx_requires_type(SourceLoc loc) {
             return resolved_type;
         }
     } else {
-        char owner_buffer[512];
+        char* owner_buffer;
         size_t owner_length;
         separator = NULL;
         qualified = parse_qualified_name();
@@ -6980,11 +7035,8 @@ static Type* parse_cxx_requires_type(SourceLoc loc) {
         for (separator = strstr(qualified, "::"); separator;
              separator = strstr(separator + 2, "::")) {
             owner_length = (size_t)(separator - qualified);
-            if (owner_length == 0 || owner_length >= sizeof(owner_buffer)) {
-                continue;
-            }
-            memcpy(owner_buffer, qualified, owner_length);
-            owner_buffer[owner_length] = '\0';
+            if (owner_length == 0u) continue;
+            owner_buffer = cxx_copy_name_span(qualified, owner_length);
             owner = find_class(owner_buffer);
             parameter_index = active_template_type_index(owner_buffer);
             if (owner || parameter_index >= 0) {
@@ -7159,8 +7211,6 @@ static const char* parse_operator_name(void) {
     if (check(TOK_STRING_LIT)) {
         Token* quote = advance();
         Token* suffix = expect(TOK_IDENT, "user-defined literal suffix");
-        char name[512];
-        int written;
         if (!quote || !quote->value.str_val ||
             strcmp(quote->value.str_val, "") != 0 || !suffix ||
             !suffix->value.str_val || suffix->value.str_val[0] != '_') {
@@ -7168,13 +7218,8 @@ static const char* parse_operator_name(void) {
                       "user-defined literal operator requires an empty string and a suffix beginning with '_'");
             return rcc_intern("operator\"\"_invalid");
         }
-        written = snprintf(name, sizeof(name), "operator\"\"%s",
-                           suffix->value.str_val);
-        if (written < 0 || (size_t)written >= sizeof(name)) {
-            rcc_error(suffix->loc, "user-defined literal operator name is too long");
-            return rcc_intern("operator\"\"_invalid");
-        }
-        return rcc_intern(name);
+        return cxx_concatenate_names("operator\"\"",
+                                     suffix->value.str_val);
     }
     if (match(TOK_LPAREN)) {
         expect(TOK_RPAREN, ")");
@@ -12165,17 +12210,9 @@ static void register_class_static_fields(CxxClass* cls) {
 }
 
 static const char* cxx_instance_static_source_name(
-    CxxClass* cls, const char* field_name, SourceLoc loc) {
-    char buffer[512];
-    int written;
+    CxxClass* cls, const char* field_name) {
     if (!cls || !cls->name || !field_name) return rcc_intern("");
-    written = snprintf(buffer, sizeof(buffer), "%s::%s",
-                       cls->name, field_name);
-    if (written < 0 || (size_t)written >= sizeof(buffer)) {
-        rcc_error(loc, "instantiated static member name exceeds compiler limit");
-        return rcc_intern("");
-    }
-    return rcc_intern(buffer);
+    return cxx_join_qualified_name(cls->name, field_name);
 }
 
 static void cxx_set_template_identity(
@@ -12233,8 +12270,7 @@ static void register_instantiated_class_static_fields(
             }
         }
         declaration = decl_var(
-            cxx_instance_static_source_name(instance, field->name,
-                                            source ? source->loc : (SourceLoc){"<template>", 0, 0}),
+            cxx_instance_static_source_name(instance, field->name),
             field->type, field->initializer,
             source ? source->loc : (SourceLoc){"<template>", 0, 0});
         declaration->link_name = rcc_intern(cxx_mangle_name(
@@ -13524,13 +13560,13 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                               "class using-declaration must name a base member");
                 } else {
                     size_t base_length = (size_t)(separator - qualified - 1);
-                    char base_name[512];
-                    if (base_length == 0 || base_length >= sizeof(base_name)) {
+                    char* base_name;
+                    if (base_length == 0u) {
                         rcc_error(using_loc,
                                   "class using-declaration base name is too long");
                     } else {
-                        memcpy(base_name, qualified, base_length);
-                        base_name[base_length] = '\0';
+                        base_name = cxx_copy_name_span(
+                            qualified, base_length);
                         int pack_parameter_index = -1;
                         if (is_pack_expansion && active_template) {
                             for (int parameter_index = 0;
@@ -13827,7 +13863,6 @@ static void add_namespace_statement(AST* ast, CxxNamespace* ns,
 
 static const char* cxx_using_qualified_name(const char* name,
                                             SourceLoc loc) {
-    char buffer[512];
     const char* namespace_name;
     size_t namespace_length;
     CxxNamespace* ns;
@@ -13837,21 +13872,22 @@ static const char* cxx_using_qualified_name(const char* name,
     if (active_namespace && active_namespace->name) {
         namespace_name = cxx_namespace_qualified_name(active_namespace);
         namespace_length = namespace_name ? strlen(namespace_name) : 0u;
-        if (namespace_length != 0u &&
-            namespace_length + 2u + strlen(name) < sizeof(buffer)) {
-            memcpy(buffer, namespace_name, namespace_length);
-            memcpy(buffer + namespace_length, "::", 2u);
-            strcpy(buffer + namespace_length + 2u, name);
+        if (namespace_length != 0u) {
+            const char* qualified_name = cxx_join_qualified_name(
+                namespace_name, name);
+            char* lookup_name = cxx_copy_name_span(
+                qualified_name, strlen(qualified_name));
             /* Prefer the innermost namespace spelling when it names a real
              * declaration owner; this gives `using detail::f` inside `api`
              * the expected `api::detail::f` target. */
             {
-                char* separator = strrchr(buffer, ':');
-                if (separator && separator > buffer && separator[-1] == ':') {
+                char* separator = strrchr(lookup_name, ':');
+                if (separator && separator > lookup_name &&
+                    separator[-1] == ':') {
                     separator[-1] = '\0';
-                    ns = cxx_namespace_find(g_global_namespace, buffer);
+                    ns = cxx_namespace_find(g_global_namespace, lookup_name);
                     separator[-1] = ':';
-                    if (ns) return rcc_intern(buffer);
+                    if (ns) return qualified_name;
                 }
             }
         }
@@ -13999,54 +14035,48 @@ static Decl* parse_cxx_using(AST* ast, CxxNamespace* ns) {
             }
         }
     } else {
-        char target[512];
-        const char* suffix = NULL;
+        char* target = NULL;
+        size_t target_capacity = 0u;
+        size_t target_length = 0u;
+        const char* target_name;
         /* The first identifier was consumed as the local spelling.  A using
          * declaration has no separate local identifier, so it is the first
          * component of the target and the remaining `::` chain follows. */
-        size_t target_length = 0u;
         if (globally_qualified) {
-            target[0] = ':';
-            target[1] = ':';
-            target[2] = '\0';
-            target_length = 2u;
+            cxx_qualified_name_append(&target, &target_capacity,
+                                      &target_length, "::");
         }
-        if (strlen(local_name->value.str_val) >=
-            sizeof(target) - target_length) {
-            rcc_error(loc, "using-declaration name is too long");
-            target[0] = '\0';
-        } else {
-            strcpy(target + target_length, local_name->value.str_val);
-        }
+        cxx_qualified_name_append(&target, &target_capacity, &target_length,
+                                  local_name->value.str_val);
         while (match(TOK_SCOPE)) {
             if (!check(TOK_IDENT)) {
                 rcc_error(peek()->loc, "expected identifier after ::");
                 break;
             }
-            if (strlen(target) + 2u +
-                    strlen(peek()->value.str_val) >= sizeof(target)) {
-                rcc_error(loc, "using-declaration name is too long");
-                break;
-            }
-            strcat(target, "::");
-            suffix = advance()->value.str_val;
-            strcat(target, suffix);
+            cxx_qualified_name_append(&target, &target_capacity,
+                                      &target_length, "::");
+            Token* suffix = advance();
+            cxx_qualified_name_append(&target, &target_capacity,
+                                      &target_length,
+                                      suffix->value.str_val);
         }
+        target_name = rcc_intern(target);
+        rcc_free(target);
         if (ast) {
-            Type* imported_type = rcc_parser_lookup_type(target);
+            Type* imported_type = rcc_parser_lookup_type(target_name);
             if (!imported_type && globally_qualified) {
-                imported_type = rcc_parser_lookup_type(target + 2u);
+                imported_type = rcc_parser_lookup_type(target_name + 2u);
             }
             if (imported_type) {
-                const char* imported_name = strrchr(target, ':');
+                const char* imported_name = strrchr(target_name, ':');
                 imported_name = imported_name
-                    ? imported_name + 1 : target;
+                    ? imported_name + 1 : target_name;
                 rcc_parser_define_type(rcc_intern(imported_name),
                                        imported_type);
             }
         }
         cxx_namespace_add_using_decl(ns, globally_qualified
-            ? rcc_intern(target) : cxx_using_qualified_name(target, loc));
+            ? target_name : cxx_using_qualified_name(target_name, loc));
     }
     expect(TOK_SEMICOLON, ";");
     return alias_declaration;
@@ -14334,9 +14364,11 @@ static bool cxx_constrained_auto_parameter_starts(void) {
  * consumed while deciding which template-parameter form is present. */
 static bool cxx_constrained_type_parameter_starts(void) {
     Token* token = parser.cur;
-    char qualified_name[512];
+    char* qualified_name = NULL;
+    size_t capacity = 0u;
     size_t name_length = 0u;
     bool leading_scope = false;
+    bool result = false;
 
     if (!token || (token->type != TOK_IDENT && token->type != TOK_SCOPE)) {
         return false;
@@ -14352,30 +14384,26 @@ static bool cxx_constrained_type_parameter_starts(void) {
         return false;
     }
     if (leading_scope) {
-        qualified_name[name_length++] = ':';
-        qualified_name[name_length++] = ':';
+        cxx_qualified_name_append(&qualified_name, &capacity,
+                                  &name_length, "::");
     }
     for (;;) {
-        size_t component_length = strlen(token->value.str_val);
-        if (component_length >= sizeof(qualified_name) - name_length) {
-            return false;
-        }
-        memcpy(qualified_name + name_length, token->value.str_val,
-               component_length);
-        name_length += component_length;
+        cxx_qualified_name_append(&qualified_name, &capacity,
+                                  &name_length, token->value.str_val);
         if (!token->next || token->next->type != TOK_SCOPE) break;
-        if (name_length + 2u >= sizeof(qualified_name)) return false;
-        qualified_name[name_length++] = ':';
-        qualified_name[name_length++] = ':';
+        cxx_qualified_name_append(&qualified_name, &capacity,
+                                  &name_length, "::");
         token = token->next->next;
-        if (!token || token->type != TOK_IDENT) return false;
+        if (!token || token->type != TOK_IDENT) goto done;
     }
     if (!token->next || (token->next->type != TOK_IDENT &&
                          token->next->type != TOK_ELLIPSIS)) {
-        return false;
+        goto done;
     }
-    qualified_name[name_length] = '\0';
-    return find_concept(qualified_name) != NULL;
+    result = find_concept(qualified_name) != NULL;
+done:
+    rcc_free(qualified_name);
+    return result;
 }
 
 /* `typename T` introduces a type template parameter, while
@@ -17125,15 +17153,13 @@ static CxxTemplate* namespace_template(CxxNamespace* ns,
 
 static CxxTemplate* find_template_absolute(const char* qualified_name,
                                             int kind) {
-    char buffer[512];
+    char* buffer;
     char* component;
     char* next;
     CxxNamespace* ns = g_global_namespace;
     CxxTemplate* result;
-    if (!qualified_name || strlen(qualified_name) >= sizeof(buffer)) {
-        return NULL;
-    }
-    strcpy(buffer, qualified_name);
+    if (!qualified_name) return NULL;
+    buffer = cxx_copy_name_span(qualified_name, strlen(qualified_name));
     component = buffer;
     for (;;) {
         next = strstr(component, "::");
@@ -17149,7 +17175,6 @@ static CxxTemplate* find_template_absolute(const char* qualified_name,
 
 static CxxTemplate* find_template(const char* qualified_name,
                                   int kind) {
-    char buffer[512];
     CxxNamespace* ns;
     CxxTemplate* result;
     const char* name = qualified_name;
@@ -17170,12 +17195,9 @@ static CxxTemplate* find_template(const char* qualified_name,
     if (!globally_qualified) {
         for (ns = active_namespace; ns; ns = ns->parent) {
             const char* scope_name = cxx_namespace_qualified_name(ns);
-            int written;
             if (!scope_name || !*scope_name) continue;
-            written = snprintf(buffer, sizeof(buffer), "%s::%s",
-                               scope_name, name);
-            if (written < 0 || (size_t)written >= sizeof(buffer)) continue;
-            result = find_template_absolute(buffer, kind);
+            result = find_template_absolute(
+                cxx_join_qualified_name(scope_name, name), kind);
             if (result) return result;
         }
     }
@@ -17199,7 +17221,7 @@ static CxxNestedClassTemplate* find_nested_class_template(
     const char* qualified_name, CxxClass** owner_out) {
     const char* separator;
     size_t owner_length;
-    char owner_name[512];
+    char* owner_name;
     CxxClass* owner;
     if (owner_out) *owner_out = NULL;
     if (!qualified_name || !(separator = strrchr(qualified_name, ':')) ||
@@ -17207,9 +17229,8 @@ static CxxNestedClassTemplate* find_nested_class_template(
         return NULL;
     }
     owner_length = (size_t)(separator - qualified_name - 1);
-    if (owner_length == 0 || owner_length >= sizeof(owner_name)) return NULL;
-    memcpy(owner_name, qualified_name, owner_length);
-    owner_name[owner_length] = '\0';
+    if (owner_length == 0) return NULL;
+    owner_name = cxx_copy_name_span(qualified_name, owner_length);
     /* A class-template owner must first be specialized; treating its primary
      * pattern as an ordinary class would lose the enclosing arguments. */
     if (find_class_template(owner_name)) return NULL;
@@ -17331,12 +17352,12 @@ static void cxx_function_template_lookup_namespace(
 
 static void cxx_function_template_lookup_using_declaration(
     CxxFunctionTemplateLookup* lookup, const char* target) {
-    char buffer[512];
+    char* buffer;
     char* separator;
     CxxNamespace* target_namespace = g_global_namespace;
     const char* target_name;
-    if (!lookup || !target || strlen(target) >= sizeof(buffer)) return;
-    strcpy(buffer, target);
+    if (!lookup || !target) return;
+    buffer = cxx_copy_name_span(target, strlen(target));
     while (buffer[0] == ':' && buffer[1] == ':') {
         memmove(buffer, buffer + 2, strlen(buffer + 2) + 1u);
     }
@@ -17570,7 +17591,7 @@ static int cxx_function_template_candidates_for_adl(
 
 static int find_function_template_candidates_absolute(
     const char* qualified_name, CxxTemplate** results, int capacity) {
-    char buffer[512];
+    char* buffer;
     char* component;
     char* next;
     CxxNamespace* ns;
@@ -17581,8 +17602,7 @@ static int find_function_template_candidates_absolute(
         return namespace_function_templates(g_global_namespace, name,
                                             results, capacity);
     }
-    if (strlen(name) >= sizeof(buffer)) return 0;
-    strcpy(buffer, name);
+    buffer = cxx_copy_name_span(name, strlen(name));
     ns = g_global_namespace;
     component = buffer;
     for (;;) {
@@ -17604,7 +17624,6 @@ static int find_function_template_candidates_absolute(
 static int find_function_template_candidates(const char* qualified_name,
                                              CxxTemplate** results,
                                              int capacity) {
-    char buffer[512];
     const char* name = qualified_name;
     bool globally_qualified;
     int count;
@@ -17623,13 +17642,10 @@ static int find_function_template_candidates(const char* qualified_name,
     if (!globally_qualified) {
         for (CxxNamespace* ns = active_namespace; ns; ns = ns->parent) {
             const char* scope_name = cxx_namespace_qualified_name(ns);
-            int written;
             if (!scope_name || !*scope_name) continue;
-            written = snprintf(buffer, sizeof(buffer), "%s::%s",
-                               scope_name, name);
-            if (written < 0 || (size_t)written >= sizeof(buffer)) continue;
             count = find_function_template_candidates_absolute(
-                buffer, results, capacity);
+                cxx_join_qualified_name(scope_name, name),
+                results, capacity);
             if (count > 0) return count;
         }
     }
@@ -18028,7 +18044,7 @@ static CxxTypeAlias* find_qualified_class_type_alias(
     bool* ambiguous, bool* accessible) {
     const char* separator;
     size_t owner_length;
-    char owner_name[512];
+    char* owner_name;
     CxxClass* owner;
     Type* owner_type;
 
@@ -18041,9 +18057,8 @@ static CxxTypeAlias* find_qualified_class_type_alias(
         return NULL;
     }
     owner_length = (size_t)(separator - qualified_name - 1);
-    if (owner_length == 0u || owner_length >= sizeof(owner_name)) return NULL;
-    memcpy(owner_name, qualified_name, owner_length);
-    owner_name[owner_length] = '\0';
+    if (owner_length == 0u) return NULL;
+    owner_name = cxx_copy_name_span(qualified_name, owner_length);
     owner = find_class(owner_name);
     if (!owner) {
         owner_type = rcc_parser_lookup_type(owner_name);
@@ -18165,7 +18180,7 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
     const char* separator;
     const char* member_name;
     size_t owner_length;
-    char owner_name[512];
+    char* owner_name;
     CxxClass* cls;
     Decl* declaration = NULL;
     TypeParam* field;
@@ -18193,13 +18208,12 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
         return NULL;
     }
     owner_length = (size_t)(separator - qualified - 1);
-    if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
+    if (owner_length == 0u) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
     }
-    memcpy(owner_name, qualified, owner_length);
-    owner_name[owner_length] = '\0';
+    owner_name = cxx_copy_name_span(qualified, owner_length);
     member_name = separator + 1;
     if (!*member_name) {
         parser.cur = saved_cur;
@@ -18548,35 +18562,30 @@ static bool cxx_qualified_member_definition_starts(void) {
 }
 
 static bool cxx_parse_qualified_operator_member_id(
-    char* owner_name, size_t owner_capacity, const char** member_name) {
+    const char** owner_name, const char** member_name) {
+    char* buffer = NULL;
+    size_t capacity = 0u;
     size_t length = 0u;
-    if (!owner_name || owner_capacity == 0u || !member_name) return false;
-    owner_name[0] = '\0';
+    if (!owner_name || !member_name) return false;
+    *owner_name = NULL;
     *member_name = NULL;
     if (match(TOK_SCOPE)) {
-        if (owner_capacity < 3u) return false;
-        memcpy(owner_name, "::", 3u);
-        length = 2u;
+        cxx_arena_name_append(&buffer, &capacity, &length, "::");
     }
     while (check(TOK_IDENT)) {
         Token* component = advance();
-        size_t component_length = strlen(component->value.str_val);
-        if (length + component_length + 1u >= owner_capacity) return false;
-        memcpy(owner_name + length, component->value.str_val,
-               component_length);
-        length += component_length;
-        owner_name[length] = '\0';
+        cxx_arena_name_append(&buffer, &capacity, &length,
+                              component->value.str_val);
         if (!check(TOK_SCOPE) || !parser.cur->next) return false;
         if (parser.cur->next->type == TOK_OPERATOR) {
             advance();
             if (!match(TOK_OPERATOR)) return false;
             *member_name = parse_operator_name();
-            return *member_name != NULL;
+            if (!*member_name) return false;
+            *owner_name = rcc_intern(buffer);
+            return true;
         }
-        if (length + 2u >= owner_capacity) return false;
-        owner_name[length++] = ':';
-        owner_name[length++] = ':';
-        owner_name[length] = '\0';
+        cxx_arena_name_append(&buffer, &capacity, &length, "::");
         advance();
     }
     return false;
@@ -19015,7 +19024,7 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
     const char* qualified;
     const char* separator;
     const char* member_name;
-    char owner_name[512];
+    char* owner_name;
     size_t owner_length;
     CxxClass* cls;
     CxxMethod* selected = NULL;
@@ -19038,13 +19047,12 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
         return NULL;
     }
     owner_length = (size_t)(separator - qualified - 1);
-    if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
+    if (owner_length == 0u) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
     }
-    memcpy(owner_name, qualified, owner_length);
-    owner_name[owner_length] = '\0';
+    owner_name = cxx_copy_name_span(qualified, owner_length);
     member_name = separator + 1;
     cls = find_class(owner_name);
     if (!cls || !cls->type || !cls->type->is_complete ||
@@ -19220,38 +19228,32 @@ static bool cxx_qualified_destructor_definition_starts(void) {
  * ordinary identifier component. On failure the caller restores the token
  * cursor so other declaration forms retain their existing parsing path. */
 static bool cxx_parse_qualified_destructor_owner(
-    char* owner_name, size_t owner_capacity, const char** destructor_name) {
+    const char** owner_name, const char** destructor_name) {
+    char* buffer = NULL;
+    size_t capacity = 0u;
     size_t length = 0u;
     bool saw_scope = false;
-    if (!owner_name || owner_capacity == 0u || !destructor_name) return false;
-    owner_name[0] = '\0';
+    if (!owner_name || !destructor_name) return false;
+    *owner_name = NULL;
     *destructor_name = NULL;
     if (match(TOK_SCOPE)) {
-        if (owner_capacity < 3u) return false;
-        memcpy(owner_name, "::", 3u);
-        length = 2u;
+        cxx_arena_name_append(&buffer, &capacity, &length, "::");
     }
     while (check(TOK_IDENT)) {
         Token* component = advance();
-        size_t component_length = strlen(component->value.str_val);
-        if (length + component_length + 1u >= owner_capacity) return false;
-        memcpy(owner_name + length, component->value.str_val,
-               component_length);
-        length += component_length;
-        owner_name[length] = '\0';
+        cxx_arena_name_append(&buffer, &capacity, &length,
+                              component->value.str_val);
         if (!check(TOK_SCOPE) || !parser.cur->next) return false;
         if (parser.cur->next->type == TOK_TILDE) {
             advance();
             advance();
             Token* destructor = expect(TOK_IDENT, "destructor class name");
             if (!destructor) return false;
+            *owner_name = rcc_intern(buffer);
             *destructor_name = destructor->value.str_val;
             return saw_scope || length != 0u;
         }
-        if (length + 2u >= owner_capacity) return false;
-        owner_name[length++] = ':';
-        owner_name[length++] = ':';
-        owner_name[length] = '\0';
+        cxx_arena_name_append(&buffer, &capacity, &length, "::");
         advance();
         saw_scope = true;
     }
@@ -19264,8 +19266,7 @@ Stmt* rcc_parse_cxx_qualified_destructor_definition(
     Token* saved_prev = parser.prev;
     CxxClass* saved_class = active_class;
     CxxNamespace* saved_namespace = active_namespace;
-    char owner_name[512];
-    char qualified_buffer[1024];
+    const char* owner_name = NULL;
     const char* destructor_name = NULL;
     const char* qualified;
     CxxClass* cls;
@@ -19281,21 +19282,14 @@ Stmt* rcc_parse_cxx_qualified_destructor_definition(
 
     if (!cxx_qualified_destructor_definition_starts()) return NULL;
     if (!cxx_parse_qualified_destructor_owner(
-            owner_name, sizeof(owner_name), &destructor_name) ||
+            &owner_name, &destructor_name) ||
         !destructor_name || !check(TOK_LPAREN)) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
     }
-    if (snprintf(qualified_buffer, sizeof(qualified_buffer), "%s::~%s",
-                 owner_name, destructor_name) < 0 ||
-        strlen(owner_name) + strlen(destructor_name) + 4u >=
-            sizeof(qualified_buffer)) {
-        parser.cur = saved_cur;
-        parser.prev = saved_prev;
-        return NULL;
-    }
-    qualified = rcc_intern(qualified_buffer);
+    qualified = cxx_join_qualified_name(
+        owner_name, cxx_concatenate_names("~", destructor_name));
     cls = find_class(owner_name);
     if (!cls || !cls->type || !cls->type->is_complete || !cls->name ||
         strcmp(destructor_name, cls->name) != 0) {
@@ -19452,30 +19446,26 @@ static bool cxx_qualified_conversion_definition_starts(void) {
 }
 
 static bool cxx_parse_qualified_conversion_owner(
-    char* owner_name, size_t owner_capacity, CxxClass** owner_class,
+    const char** owner_name, CxxClass** owner_class,
     bool* owner_is_dependent, SourceLoc loc) {
+    char* buffer = NULL;
+    size_t capacity = 0u;
     size_t length = 0u;
-    if (!owner_name || owner_capacity == 0u || !owner_class ||
+    if (!owner_name || !owner_class ||
         !owner_is_dependent) return false;
-    owner_name[0] = '\0';
+    *owner_name = NULL;
     *owner_class = NULL;
     *owner_is_dependent = false;
     if (match(TOK_SCOPE)) {
-        if (owner_capacity < 3u) return false;
-        memcpy(owner_name, "::", 3u);
-        length = 2u;
+        cxx_arena_name_append(&buffer, &capacity, &length, "::");
     }
     while (check(TOK_IDENT)) {
         Token* component = advance();
-        size_t component_length = strlen(component->value.str_val);
-        if (length + component_length + 1u >= owner_capacity) return false;
-        memcpy(owner_name + length, component->value.str_val,
-               component_length);
-        length += component_length;
-        owner_name[length] = '\0';
+        cxx_arena_name_append(&buffer, &capacity, &length,
+                              component->value.str_val);
         if (check(TOK_LT)) {
             CxxTemplate* owner_template =
-                find_class_template(rcc_intern(owner_name));
+                find_class_template(rcc_intern(buffer));
             Type* owner_type;
             CxxClass* cls;
             if (!owner_template) return false;
@@ -19496,16 +19486,14 @@ static bool cxx_parse_qualified_conversion_owner(
                 CxxNestedClassTemplate* nested_entry;
                 CxxTemplate* nested_declaration;
                 CxxClass* nested_class;
-                size_t nested_name_length;
                 Type* nested_owner_type = NULL;
                 if (check(TOK_OPERATOR)) {
                     *owner_class = cls;
+                    *owner_name = rcc_intern(buffer);
                     return true;
                 }
                 if (!check(TOK_IDENT)) return false;
                 nested_token = advance();
-                nested_name_length =
-                    strlen(nested_token->value.str_val);
                 nested_entry = cxx_class_find_nested_template(
                     cls, nested_token->value.str_val);
                 if (!nested_entry && cls->templ &&
@@ -19540,16 +19528,12 @@ static bool cxx_parse_qualified_conversion_owner(
                     nested_class = nested_declaration->templated_class;
                 }
                 if (!nested_class || !check(TOK_SCOPE) ||
-                    !parser.cur->next ||
-                    length + nested_name_length + 2u >= owner_capacity) {
+                    !parser.cur->next) {
                     return false;
                 }
-                owner_name[length++] = ':';
-                owner_name[length++] = ':';
-                memcpy(owner_name + length, nested_token->value.str_val,
-                       nested_name_length);
-                length += nested_name_length;
-                owner_name[length] = '\0';
+                cxx_arena_name_append(&buffer, &capacity, &length, "::");
+                cxx_arena_name_append(&buffer, &capacity, &length,
+                                      nested_token->value.str_val);
                 if (!match(TOK_SCOPE)) return false;
                 cls = nested_class;
             }
@@ -19557,13 +19541,11 @@ static bool cxx_parse_qualified_conversion_owner(
         if (!check(TOK_SCOPE) || !parser.cur->next) return false;
         if (parser.cur->next->type == TOK_OPERATOR) {
             advance();
-            *owner_class = find_class(owner_name);
+            *owner_class = find_class(buffer);
+            if (*owner_class) *owner_name = rcc_intern(buffer);
             return *owner_class != NULL;
         }
-        if (length + 2u >= owner_capacity) return false;
-        owner_name[length++] = ':';
-        owner_name[length++] = ':';
-        owner_name[length] = '\0';
+        cxx_arena_name_append(&buffer, &capacity, &length, "::");
         advance();
     }
     return false;
@@ -19575,8 +19557,7 @@ Stmt* rcc_parse_cxx_qualified_conversion_definition(
     Token* saved_prev = parser.prev;
     CxxClass* saved_class = active_class;
     CxxNamespace* saved_namespace = active_namespace;
-    char owner_name[512];
-    char qualified_buffer[1024];
+    const char* owner_name = NULL;
     const char* qualified;
     CxxClass* cls = NULL;
     bool owner_is_dependent = false;
@@ -19593,11 +19574,10 @@ Stmt* rcc_parse_cxx_qualified_conversion_definition(
     bool definition_noexcept = false;
     int64_t noexcept_value = 0;
     Stmt* body;
-    int written;
 
     if (!cxx_qualified_conversion_definition_starts()) return NULL;
     if (!cxx_parse_qualified_conversion_owner(
-            owner_name, sizeof(owner_name), &cls, &owner_is_dependent, loc) ||
+            &owner_name, &cls, &owner_is_dependent, loc) ||
         !match(TOK_OPERATOR)) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
@@ -19621,15 +19601,8 @@ Stmt* rcc_parse_cxx_qualified_conversion_definition(
         active_namespace = saved_namespace;
         return stmt_null(loc);
     }
-    written = snprintf(qualified_buffer, sizeof(qualified_buffer),
-                       "%s::operator conversion", owner_name);
-    if (written < 0 || (size_t)written >= sizeof(qualified_buffer)) {
-        rcc_error(loc, "qualified conversion function name is too long");
-        active_class = saved_class;
-        active_namespace = saved_namespace;
-        return stmt_null(loc);
-    }
-    qualified = rcc_intern(qualified_buffer);
+    qualified = cxx_join_qualified_name(owner_name,
+                                        "operator conversion");
 
     expect(TOK_LPAREN, "(");
     parameters = parse_cxx_parameter_declarations(&is_variadic);
@@ -19753,8 +19726,7 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
     CxxNamespace* saved_namespace = active_namespace;
     const char* qualified;
     const char* member_name = NULL;
-    char owner_name[512];
-    char qualified_buffer[1024];
+    const char* owner_name = NULL;
     size_t owner_length;
     CxxClass* cls;
     CxxTemplate* owner_template = NULL;
@@ -19787,28 +19759,19 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
             if (token && token->type == TOK_OPERATOR) break;
         }
         if (token && token->type == TOK_OPERATOR) {
-            int written;
             if (!cxx_parse_qualified_operator_member_id(
-                    owner_name, sizeof(owner_name), &member_name) ||
+                    &owner_name, &member_name) ||
                 !member_name) {
                 parser.cur = saved_cur;
                 parser.prev = saved_prev;
                 return NULL;
             }
-            written = snprintf(qualified_buffer, sizeof(qualified_buffer),
-                               "%s::%s", owner_name, member_name);
-            if (written < 0 || (size_t)written >= sizeof(qualified_buffer)) {
-                parser.cur = saved_cur;
-                parser.prev = saved_prev;
-                return NULL;
-            }
-            qualified = rcc_intern(qualified_buffer);
+            qualified = cxx_join_qualified_name(owner_name, member_name);
         } else {
             const char* separator;
             qualified = parse_qualified_name();
             if (check(TOK_LT) &&
                 (owner_template = find_class_template(qualified)) != NULL) {
-                int written;
                 owner_type = parse_class_template_specialization(
                     owner_template, loc);
                 if (!owner_type || !match(TOK_SCOPE)) {
@@ -19826,16 +19789,7 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
                     parser.prev = saved_prev;
                     return NULL;
                 }
-                written = snprintf(qualified_buffer,
-                                   sizeof(qualified_buffer), "%s::%s",
-                                   qualified, member_name);
-                if (written < 0 ||
-                    (size_t)written >= sizeof(qualified_buffer)) {
-                    parser.cur = saved_cur;
-                    parser.prev = saved_prev;
-                    return NULL;
-                }
-                qualified = rcc_intern(qualified_buffer);
+                qualified = cxx_join_qualified_name(qualified, member_name);
                 cls = owner_type->cxx_dependent
                     ? owner_template->templated_class
                     : owner_type->cxx_class;
@@ -19853,13 +19807,12 @@ Stmt* rcc_parse_cxx_qualified_member_definition(
                 return NULL;
             }
             owner_length = (size_t)(separator - qualified - 1);
-            if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
+            if (owner_length == 0u) {
                 parser.cur = saved_cur;
                 parser.prev = saved_prev;
                 return NULL;
             }
-            memcpy(owner_name, qualified, owner_length);
-            owner_name[owner_length] = '\0';
+            owner_name = cxx_copy_name_span(qualified, owner_length);
             member_name = separator + 1;
         }
     } else {
@@ -23429,7 +23382,9 @@ static Type* instantiate_class_template_for_owner(
     SourceLoc loc) {
     CxxClass* definition;
     CxxClass* instance;
-    char tag[320];
+    char* tag = NULL;
+    size_t tag_capacity = 0u;
+    size_t tag_length = 0u;
     int index;
     uint32_t constructor_mask;
     bool has_value_parameters = false;
@@ -23737,8 +23692,10 @@ static Type* instantiate_class_template_for_owner(
 
     definition = tmpl->templated_class;
     if (tmpl->specialization_arg_count > 0) {
-        char specialization_suffix[256] = "";
-        size_t suffix_length = 0;
+        char instance_suffix[32];
+        char* specialization_suffix = NULL;
+        size_t suffix_capacity = 0u;
+        size_t suffix_length = 0u;
         for (int argument_index = 0;
              argument_index < tmpl->specialization_arg_count;
              ++argument_index) {
@@ -23746,32 +23703,31 @@ static Type* instantiate_class_template_for_owner(
                     tmpl->specialization_value_args[argument_index]
                 ? "v"
                 : cxx_mangle_type(tmpl->specialization_args[argument_index]);
-            int written = snprintf(
-                specialization_suffix + suffix_length,
-                sizeof(specialization_suffix) - suffix_length,
-                "%s%s", argument_index == 0 ? "" : "_",
-                mangled ? mangled : "?");
-            if (written < 0 || (size_t)written >=
-                                   sizeof(specialization_suffix) -
-                                       suffix_length) {
-                rcc_error(loc,
-                          "class template specialization pattern is too long");
-                return NULL;
+            if (argument_index != 0) {
+                cxx_arena_name_append(&specialization_suffix,
+                                      &suffix_capacity, &suffix_length, "_");
             }
-            suffix_length += (size_t)written;
+            cxx_arena_name_append(&specialization_suffix,
+                                  &suffix_capacity, &suffix_length,
+                                  mangled ? mangled : "?");
         }
-        if (snprintf(tag, sizeof(tag), "%s.__instance%d.%s",
-                     tmpl->name ? tmpl->name : "template",
-                     tmpl->instance_count, specialization_suffix) >=
-            (int)sizeof(tag)) {
-            rcc_error(loc, "class template specialization name is too long");
-            return NULL;
-        }
-    } else if (snprintf(tag, sizeof(tag), "%s.__instance%d",
-                        tmpl->name ? tmpl->name : "template",
-                        tmpl->instance_count) >= (int)sizeof(tag)) {
-        rcc_error(loc, "class template specialization name is too long");
-        return NULL;
+        cxx_arena_name_append(&tag, &tag_capacity, &tag_length,
+                              tmpl->name ? tmpl->name : "template");
+        snprintf(instance_suffix, sizeof(instance_suffix),
+                 ".__instance%d", tmpl->instance_count);
+        cxx_arena_name_append(&tag, &tag_capacity, &tag_length,
+                              instance_suffix);
+        cxx_arena_name_append(&tag, &tag_capacity, &tag_length, ".");
+        cxx_arena_name_append(&tag, &tag_capacity, &tag_length,
+                              specialization_suffix);
+    } else {
+        char instance_suffix[32];
+        cxx_arena_name_append(&tag, &tag_capacity, &tag_length,
+                              tmpl->name ? tmpl->name : "template");
+        snprintf(instance_suffix, sizeof(instance_suffix), ".__instance%d",
+                 tmpl->instance_count);
+        cxx_arena_name_append(&tag, &tag_capacity, &tag_length,
+                              instance_suffix);
     }
     instance = cxx_class_new(ast_arena_strdup(tag), loc);
     instance->is_struct = definition->is_struct;
@@ -24050,81 +24006,56 @@ static Type* instantiate_class_template_for_owner(
     }
 
     if (tmpl->is_local_class_template && tmpl->local_class_pattern) {
-        char identity[1024];
-        size_t identity_length;
+        char* identity = NULL;
+        size_t identity_capacity = 0u;
+        size_t identity_length = 0u;
+        char argument_identity[64];
         const char* source_identity =
             tmpl->local_class_pattern->type->cxx_scope_identity;
-        int written = snprintf(identity, sizeof(identity), "%s",
-                               source_identity ? source_identity : tmpl->name);
-        if (written < 0 || (size_t)written >= sizeof(identity)) {
-            rcc_error(loc, "local class specialization identity is too long");
-            return NULL;
-        }
-        identity_length = (size_t)written;
+        cxx_arena_name_append(&identity, &identity_capacity, &identity_length,
+                              source_identity ? source_identity : tmpl->name);
         for (int identity_index = 0;
              identity_index < tmpl->param_count; ++identity_index) {
-            char argument_identity[384];
             TemplateParam* parameter = &tmpl->params[identity_index];
             if (parameter->is_pack && tmpl->pending_pack_count >= 0) {
-                written = snprintf(argument_identity,
-                                   sizeof(argument_identity), "_P%d",
-                                   tmpl->pending_pack_count);
-                if (written < 0 ||
-                    (size_t)written >= sizeof(argument_identity) ||
-                    (size_t)written >= sizeof(identity) - identity_length) {
-                    rcc_error(loc,
-                              "local class specialization identity exceeds compiler limits");
-                    return NULL;
-                }
-                memcpy(identity + identity_length, argument_identity,
-                       (size_t)written + 1u);
-                identity_length += (size_t)written;
+                snprintf(argument_identity, sizeof(argument_identity), "_P%d",
+                         tmpl->pending_pack_count);
+                cxx_arena_name_append(&identity, &identity_capacity,
+                                      &identity_length, argument_identity);
                 for (int pack_value = 0;
                      pack_value < tmpl->pending_pack_count; ++pack_value) {
                     if (parameter->kind == TPARAM_NONTYPE) {
-                        written = snprintf(argument_identity,
-                                           sizeof(argument_identity), "_V%lld",
-                                           (long long)tmpl->pending_pack_values[
+                        snprintf(argument_identity, sizeof(argument_identity),
+                                 "_V%lld", (long long)tmpl->pending_pack_values[
                                                pack_value]);
+                        cxx_arena_name_append(&identity, &identity_capacity,
+                                              &identity_length,
+                                              argument_identity);
                     } else {
                         char* mangled = cxx_mangle_type(
                             tmpl->pending_pack_args[pack_value]);
-                        written = snprintf(argument_identity,
-                                           sizeof(argument_identity), "_T%s",
-                                           mangled ? mangled : "unknown");
+                        cxx_arena_name_append(&identity, &identity_capacity,
+                                              &identity_length, "_T");
+                        cxx_arena_name_append(&identity, &identity_capacity,
+                                              &identity_length,
+                                              mangled ? mangled : "unknown");
                     }
-                    if (written < 0 ||
-                        (size_t)written >= sizeof(argument_identity) ||
-                        (size_t)written >= sizeof(identity) - identity_length) {
-                        rcc_error(loc,
-                                  "local class specialization identity exceeds compiler limits");
-                        return NULL;
-                    }
-                    memcpy(identity + identity_length, argument_identity,
-                           (size_t)written + 1u);
-                    identity_length += (size_t)written;
                 }
                 continue;
             }
             if (parameter->kind == TPARAM_NONTYPE) {
-                written = snprintf(argument_identity,
-                                   sizeof(argument_identity), "_V%lld",
-                                   (long long)value_args[identity_index]);
+                snprintf(argument_identity, sizeof(argument_identity), "_V%lld",
+                         (long long)value_args[identity_index]);
+                cxx_arena_name_append(&identity, &identity_capacity,
+                                      &identity_length, argument_identity);
             } else {
                 char* mangled = cxx_mangle_type(arguments[identity_index]);
-                written = snprintf(argument_identity,
-                                   sizeof(argument_identity), "_T%s",
-                                   mangled ? mangled : "unknown");
+                cxx_arena_name_append(&identity, &identity_capacity,
+                                      &identity_length, "_T");
+                cxx_arena_name_append(&identity, &identity_capacity,
+                                      &identity_length,
+                                      mangled ? mangled : "unknown");
             }
-            if (written < 0 || (size_t)written >= sizeof(argument_identity) ||
-                (size_t)written >= sizeof(identity) - identity_length) {
-                rcc_error(loc,
-                          "local class specialization identity exceeds compiler limits");
-                return NULL;
-            }
-            memcpy(identity + identity_length, argument_identity,
-                   (size_t)written + 1u);
-            identity_length += (size_t)written;
         }
         instance->type->cxx_scope_identity = rcc_intern(identity);
     }
@@ -29038,7 +28969,7 @@ static bool cxx_function_template_resolve_class_static_integer(
     const char* qualified_name;
     const char* separator;
     const char* member_name;
-    char owner_name[512];
+    char* owner_name;
     CxxClass* owner_class;
     CxxClass* resolved_class;
     CxxTemplate* identity_template;
@@ -29061,13 +28992,11 @@ static bool cxx_function_template_resolve_class_static_integer(
         return false;
     }
     member_name = separator + 1;
-    if (!*member_name || (size_t)(separator - qualified_name - 1) >=
-                             sizeof(owner_name)) {
+    if (!*member_name || separator == qualified_name) {
         return false;
     }
-    memcpy(owner_name, qualified_name,
-           (size_t)(separator - qualified_name - 1));
-    owner_name[separator - qualified_name - 1] = '\0';
+    owner_name = cxx_copy_name_span(
+        qualified_name, (size_t)(separator - qualified_name - 1));
     owner_class = find_class(owner_name);
     if (!owner_class) return false;
 
@@ -34611,29 +34540,23 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
 
 static bool consume_cxx_class_alias_template_owner(
     const char** owner_name_out) {
-    char owner_name[512];
+    char* owner_name = NULL;
+    size_t capacity = 0u;
     size_t length = 0u;
     bool global_qualified = false;
 
     if (owner_name_out) *owner_name_out = NULL;
-    owner_name[0] = '\0';
     if (check(TOK_SCOPE)) {
         if (!parser.cur->next || parser.cur->next->type != TOK_IDENT) {
             return false;
         }
-        owner_name[length++] = ':';
-        owner_name[length++] = ':';
-        owner_name[length] = '\0';
+        cxx_arena_name_append(&owner_name, &capacity, &length, "::");
         advance();
         global_qualified = true;
     }
     while (check(TOK_IDENT)) {
         const char* component = peek()->value.str_val;
-        size_t component_length = strlen(component);
-        if (component_length >= sizeof(owner_name) - length) return false;
-        memcpy(owner_name + length, component, component_length);
-        length += component_length;
-        owner_name[length] = '\0';
+        cxx_arena_name_append(&owner_name, &capacity, &length, component);
         advance();
         if (check(TOK_SCOPE) && parser.cur->next &&
             parser.cur->next->type == TOK_IDENT) {
@@ -34660,10 +34583,7 @@ static bool consume_cxx_class_alias_template_owner(
                 (inherited_alias || ambiguous)) {
                 break;
             }
-            if (length + 2u >= sizeof(owner_name)) return false;
-            owner_name[length++] = ':';
-            owner_name[length++] = ':';
-            owner_name[length] = '\0';
+            cxx_arena_name_append(&owner_name, &capacity, &length, "::");
             advance();
             continue;
         }
@@ -41131,10 +41051,10 @@ int rcc_parser_cxx_materialize_operator_function_templates(
 
 static bool cxx_resolve_explicit_member_template_owner_suffix(
     Type** owner_type, CxxClass** owner_class, const char** member_name,
-    char* qualified_buffer, size_t qualified_capacity,
+    const char** qualified_name,
     int* nested_owner_template_count, SourceLoc loc) {
     if (!owner_type || !owner_class || !*owner_class || !member_name ||
-        !qualified_buffer || !qualified_capacity ||
+        !qualified_name || !*qualified_name ||
         !nested_owner_template_count) {
         return false;
     }
@@ -41142,39 +41062,21 @@ static bool cxx_resolve_explicit_member_template_owner_suffix(
         Token* component_token;
         const char* component_name;
         CxxNestedClassTemplate* nested_template = NULL;
-        size_t qualified_length;
-        size_t qualified_remaining;
-        int written;
 
         if (!match(TOK_SCOPE)) return false;
         if (match(TOK_OPERATOR)) {
-            size_t qualified_length = strlen(qualified_buffer);
-            size_t qualified_remaining;
-            int written;
             component_name = parse_operator_name();
-            if (!component_name || qualified_length >= qualified_capacity) {
-                return false;
-            }
-            qualified_remaining = qualified_capacity - qualified_length;
-            written = snprintf(qualified_buffer + qualified_length,
-                               qualified_remaining, "::%s", component_name);
-            if (written < 0 || (size_t)written >= qualified_remaining) {
-                return false;
-            }
+            if (!component_name) return false;
+            *qualified_name = cxx_join_qualified_name(
+                *qualified_name, component_name);
             *member_name = component_name;
             return true;
         }
         if (!check(TOK_IDENT)) return false;
         component_token = advance();
         component_name = component_token->value.str_val;
-        qualified_length = strlen(qualified_buffer);
-        if (qualified_length >= qualified_capacity) return false;
-        qualified_remaining = qualified_capacity - qualified_length;
-        written = snprintf(qualified_buffer + qualified_length,
-                           qualified_remaining, "::%s", component_name);
-        if (written < 0 || (size_t)written >= qualified_remaining) {
-            return false;
-        }
+        *qualified_name = cxx_join_qualified_name(
+            *qualified_name, component_name);
 
         if (check(TOK_LT)) {
             nested_template = cxx_class_find_nested_template(
@@ -41614,10 +41516,9 @@ static bool cxx_parse_explicit_member_function_template_specialization(
     const char* parsed_name = NULL;
     const char* qualified = NULL;
     const char* separator;
-    char operator_owner_name[512];
+    const char* operator_owner_name = NULL;
     const char* operator_member_name = NULL;
-    char owner_name[512];
-    char qualified_buffer[1024];
+    const char* owner_name = NULL;
     size_t owner_length;
     const char* member_name = NULL;
     CxxClass* cls = NULL;
@@ -41650,10 +41551,9 @@ static bool cxx_parse_explicit_member_function_template_specialization(
     bool operator_owner_parsed;
 
     operator_owner_parsed = cxx_parse_qualified_operator_member_id(
-        operator_owner_name, sizeof(operator_owner_name),
+        &operator_owner_name,
         &operator_member_name);
     if (operator_owner_parsed) {
-        int written;
         cls = find_class(operator_owner_name);
         if (!cls || !operator_member_name) {
             parser.cur = saved_cur;
@@ -41661,15 +41561,8 @@ static bool cxx_parse_explicit_member_function_template_specialization(
             return false;
         }
         member_name = operator_member_name;
-        written = snprintf(qualified_buffer, sizeof(qualified_buffer),
-                           "%s::%s", operator_owner_name,
-                           operator_member_name);
-        if (written < 0 || (size_t)written >= sizeof(qualified_buffer)) {
-            parser.cur = saved_cur;
-            parser.prev = saved_prev;
-            return false;
-        }
-        qualified = rcc_intern(qualified_buffer);
+        qualified = cxx_join_qualified_name(operator_owner_name,
+                                            operator_member_name);
     } else {
         parser.cur = name_start;
         parser.prev = name_prev;
@@ -41695,44 +41588,26 @@ static bool cxx_parse_explicit_member_function_template_specialization(
             parser.prev = saved_prev;
             return false;
         }
-        if (strlen(parsed_name) >= sizeof(qualified_buffer)) {
-            parser.cur = saved_cur;
-            parser.prev = saved_prev;
-            return false;
-        }
-        strcpy(qualified_buffer, parsed_name);
         if (!cxx_resolve_explicit_member_template_owner_suffix(
-                &owner_type, &cls, &member_name, qualified_buffer,
-                sizeof(qualified_buffer), &nested_owner_template_count,
-                loc)) {
+                &owner_type, &cls, &member_name, &parsed_name,
+                &nested_owner_template_count, loc)) {
             parser.cur = saved_cur;
             parser.prev = saved_prev;
             return false;
         }
-        qualified = rcc_intern(qualified_buffer);
+        qualified = parsed_name;
     } else if (!operator_owner_parsed) {
-        int operator_qualified_length;
         parser.cur = name_start;
         parser.prev = name_prev;
         if (cxx_parse_qualified_operator_member_id(
-                owner_name, sizeof(owner_name), &member_name)) {
+                &owner_name, &member_name)) {
             cls = find_class(owner_name);
             if (!cls) {
                 parser.cur = saved_cur;
                 parser.prev = saved_prev;
                 return false;
             }
-            operator_qualified_length = snprintf(
-                qualified_buffer, sizeof(qualified_buffer), "%s::%s",
-                owner_name, member_name);
-            if (operator_qualified_length < 0 ||
-                (size_t)operator_qualified_length >=
-                    sizeof(qualified_buffer)) {
-                parser.cur = saved_cur;
-                parser.prev = saved_prev;
-                return false;
-            }
-            qualified = rcc_intern(qualified_buffer);
+            qualified = cxx_join_qualified_name(owner_name, member_name);
         } else {
             parser.cur = name_start;
             parser.prev = name_prev;
@@ -41744,25 +41619,18 @@ static bool cxx_parse_explicit_member_function_template_specialization(
                 return false;
             }
             owner_length = (size_t)(separator - qualified - 1);
-            if (owner_length == 0u || owner_length >= sizeof(owner_name)) {
+            if (owner_length == 0u) {
                 parser.cur = saved_cur;
                 parser.prev = saved_prev;
                 return false;
             }
-            memcpy(owner_name, qualified, owner_length);
-            owner_name[owner_length] = '\0';
+            owner_name = cxx_copy_name_span(qualified, owner_length);
             member_name = separator + 1;
             cls = find_class(owner_name);
             if (cls && check(TOK_LT)) {
                 CxxNestedClassTemplate* nested_template =
                     cxx_class_find_nested_template(cls, member_name);
                 if (nested_template && nested_template->declaration) {
-                    if (strlen(qualified) >= sizeof(qualified_buffer)) {
-                        parser.cur = saved_cur;
-                        parser.prev = saved_prev;
-                        return false;
-                    }
-                    strcpy(qualified_buffer, qualified);
                     owner_type =
                         parse_class_template_specialization_for_owner(
                             nested_template->declaration, cls, loc);
@@ -41785,13 +41653,12 @@ static bool cxx_parse_explicit_member_function_template_specialization(
                     nested_owner_template_count = 1;
                     if (!cxx_resolve_explicit_member_template_owner_suffix(
                             &owner_type, &cls, &member_name,
-                            qualified_buffer, sizeof(qualified_buffer),
+                            &qualified,
                             &nested_owner_template_count, loc)) {
                         parser.cur = saved_cur;
                         parser.prev = saved_prev;
                         return false;
                     }
-                    qualified = rcc_intern(qualified_buffer);
                 }
             }
         }
@@ -44837,24 +44704,20 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
 static bool parse_cxx_member_pointer_owner_type(Type** owner_out) {
     Token* cursor = parser.cur;
     Token* star = NULL;
-    char owner_name[256];
+    char* owner_name = NULL;
+    size_t owner_capacity = 0u;
     size_t owner_length = 0u;
     SourceLoc loc;
 
     if (!cursor || !owner_out) return false;
-    owner_name[0] = '\0';
     if (cursor->type == TOK_SCOPE) {
-        owner_name[owner_length++] = ':';
-        owner_name[owner_length++] = ':';
+        cxx_arena_name_append(&owner_name, &owner_capacity, &owner_length,
+                              "::");
         cursor = cursor->next;
     }
     while (cursor && cursor->type == TOK_IDENT) {
-        size_t segment_length = strlen(cursor->value.str_val);
-        if (owner_length + segment_length >= sizeof(owner_name)) return false;
-        memcpy(owner_name + owner_length, cursor->value.str_val,
-               segment_length);
-        owner_length += segment_length;
-        owner_name[owner_length] = '\0';
+        cxx_arena_name_append(&owner_name, &owner_capacity, &owner_length,
+                              cursor->value.str_val);
         if (!cursor->next || cursor->next->type != TOK_SCOPE ||
             !cursor->next->next) {
             return false;
@@ -44864,12 +44727,11 @@ static bool parse_cxx_member_pointer_owner_type(Type** owner_out) {
             break;
         }
         if (cursor->next->next->type != TOK_IDENT ||
-            owner_length + 2u >= sizeof(owner_name)) {
+            !cursor->next->next->value.str_val) {
             return false;
         }
-        memcpy(owner_name + owner_length, "::", 2u);
-        owner_length += 2u;
-        owner_name[owner_length] = '\0';
+        cxx_arena_name_append(&owner_name, &owner_capacity, &owner_length,
+                              "::");
         cursor = cursor->next->next;
     }
     if (!star) return false;
@@ -44967,8 +44829,6 @@ static Type* parse_dependent_nested_alias_template_type(SourceLoc loc) {
     const char* owner_name;
     const char* alias_name;
     int parameter_index;
-    char dependent_tag[512];
-    int written;
     Type* dependent;
 
     if (!cxx_dependent_alias_template_starts()) {
@@ -45066,13 +44926,7 @@ static Type* parse_dependent_nested_alias_template_type(SourceLoc loc) {
     }
     expect(TOK_GT, ">");
 
-    written = snprintf(dependent_tag, sizeof(dependent_tag), "%s::%s",
-                       owner_name, alias_name);
-    if (written < 0 || (size_t)written >= sizeof(dependent_tag)) {
-        rcc_error(loc, "dependent nested alias-template name is too long");
-        return type_int;
-    }
-    dependent = type_struct(rcc_intern(dependent_tag));
+    dependent = type_struct(cxx_join_qualified_name(owner_name, alias_name));
     dependent->cxx_dependent = true;
     dependent->cxx_template_param_index = parameter_index;
     dependent->cxx_dependent_member_name = alias_name;
@@ -45409,52 +45263,34 @@ static Type* parse_cxx_type_spec(void) {
                             if (check(TOK_SCOPE)) continue;
                             break;
                         }
-                        char nested_path[512];
-                        size_t path_length = strlen(member_name);
-                        int written;
-                        if (path_length >= sizeof(nested_path)) {
-                            rcc_error(loc,
-                                      "dependent nested type name is too long");
-                            t = type_int;
-                            typename_resolved = true;
-                            break;
-                        }
-                        memcpy(nested_path, member_name, path_length + 1u);
+                        char* nested_path = NULL;
+                        size_t nested_capacity = 0u;
+                        size_t path_length = 0u;
+                        cxx_arena_name_append(&nested_path,
+                                              &nested_capacity, &path_length,
+                                              member_name);
                         while (check(TOK_SCOPE) && parser.cur->next &&
                                parser.cur->next->type == TOK_IDENT &&
                                (!parser.cur->next->next ||
                                 parser.cur->next->next->type != TOK_LT)) {
                             advance();
                             Token* suffix = advance();
-                            written = snprintf(
-                                nested_path + path_length,
-                                sizeof(nested_path) - path_length,
-                                "::%s", suffix->value.str_val);
-                            if (written < 0 ||
-                                (size_t)written >=
-                                    sizeof(nested_path) - path_length) {
-                                rcc_error(loc,
-                                          "dependent nested type name is too long");
-                                path_length = sizeof(nested_path);
-                                break;
-                            }
-                            path_length += (size_t)written;
-                        }
-                        if (path_length >= sizeof(nested_path)) {
-                            t = type_int;
-                            typename_resolved = true;
-                            break;
+                            cxx_arena_name_append(&nested_path,
+                                                  &nested_capacity,
+                                                  &path_length, "::");
+                            cxx_arena_name_append(&nested_path,
+                                                  &nested_capacity,
+                                                  &path_length,
+                                                  suffix->value.str_val);
                         }
                         {
                             Type* dependent =
                                 ast_arena_alloc(sizeof(*dependent));
-                            int dependent_written;
                             *dependent = *owner_type;
                             dependent->cxx_dependent_member_name =
                                 rcc_intern(nested_path);
                             dependent->cxx_dependent = true;
-                            dependent_written = snprintf(
-                                nested_path, sizeof(nested_path), "%s::%s",
+                            dependent->tag = cxx_join_qualified_name(
                                 owner_type->tag ? owner_type->tag
                                     : owner_template_name
                                         ? owner_template_name
@@ -45462,16 +45298,7 @@ static Type* parse_cxx_type_spec(void) {
                                             ? owner_type->cxx_template->name
                                             : "<dependent-template>",
                                 dependent->cxx_dependent_member_name);
-                            if (dependent_written < 0 ||
-                                (size_t)dependent_written >=
-                                    sizeof(nested_path)) {
-                                rcc_error(loc,
-                                          "dependent nested type name is too long");
-                                owner_type = type_int;
-                            } else {
-                                dependent->tag = rcc_intern(nested_path);
-                                owner_type = dependent;
-                            }
+                            owner_type = dependent;
                         }
                         typename_resolved = true;
                         saw_member = true;
@@ -45671,106 +45498,81 @@ static Type* parse_cxx_type_spec(void) {
                     owner_class = active_class;
                 }
                 {
-                    char nested_path[512];
+                    char* nested_path = NULL;
+                    size_t nested_capacity = 0u;
+                    size_t path_length = 0u;
                     Token* first_member = advance();
-                    int written = snprintf(nested_path, sizeof(nested_path),
-                                           "%s", first_member->value.str_val);
                     bool has_nested_suffix = false;
-                    if (written < 0 ||
-                        (size_t)written >= sizeof(nested_path)) {
-                        rcc_error(loc, "dependent nested type name is too long");
-                        t = type_int;
-                    } else {
-                        size_t path_length = (size_t)written;
-                        while (check(TOK_SCOPE) && parser.cur->next &&
-                               parser.cur->next->type == TOK_IDENT) {
-                            Token* suffix;
-                            advance();
-                            suffix = advance();
-                            has_nested_suffix = true;
-                            written = snprintf(
-                                nested_path + path_length,
-                                sizeof(nested_path) - path_length,
-                                "::%s", suffix->value.str_val);
-                            if (written < 0 ||
-                                (size_t)written >=
-                                    sizeof(nested_path) - path_length) {
-                                rcc_error(loc,
-                                          "dependent nested type name is too long");
-                                path_length = sizeof(nested_path);
-                                break;
-                            }
-                            path_length += (size_t)written;
-                        }
-                        member_name = rcc_intern(nested_path);
-                        member_alias = owner_class && !has_nested_suffix
-                            ? cxx_class_find_type_alias(owner_class,
-                                                        member_name)
-                            : NULL;
-                        if (path_length >= sizeof(nested_path)) {
+                    cxx_arena_name_append(&nested_path, &nested_capacity,
+                                          &path_length,
+                                          first_member->value.str_val);
+                    while (check(TOK_SCOPE) && parser.cur->next &&
+                           parser.cur->next->type == TOK_IDENT) {
+                        Token* suffix;
+                        advance();
+                        suffix = advance();
+                        has_nested_suffix = true;
+                        cxx_arena_name_append(&nested_path,
+                                              &nested_capacity, &path_length,
+                                              "::");
+                        cxx_arena_name_append(&nested_path,
+                                              &nested_capacity, &path_length,
+                                              suffix->value.str_val);
+                    }
+                    member_name = rcc_intern(nested_path);
+                    member_alias = owner_class && !has_nested_suffix
+                        ? cxx_class_find_type_alias(owner_class, member_name)
+                        : NULL;
+                    if (owner_type->cxx_dependent &&
+                        (owner_type->cxx_template_param_index >= 0 ||
+                         owner_type->cxx_template)) {
+                        const char* dependent_owner = owner_name
+                            ? owner_name : owner_type->tag;
+                        t = ast_arena_alloc(sizeof(*t));
+                        *t = *owner_type;
+                        t->tag = cxx_join_qualified_name(
+                            dependent_owner, member_name);
+                        t->cxx_dependent = true;
+                        t->cxx_template_param_index =
+                            owner_type->cxx_template_param_index;
+                        t->cxx_dependent_member_name = member_name;
+                    } else if (has_nested_suffix && owner_class) {
+                        Type* resolved_type = NULL;
+                        bool path_ambiguous = false;
+                        bool path_accessible = true;
+                        if (cxx_class_resolve_nested_type_path(
+                                owner_class, member_name, active_class,
+                                &resolved_type, &path_ambiguous,
+                                &path_accessible)) {
+                            t = resolved_type;
+                        } else if (path_ambiguous) {
+                            rcc_error(loc,
+                                      "nested type '%s' is ambiguous in class '%s'",
+                                      member_name,
+                                      owner_class->name
+                                          ? owner_class->name : "<unnamed>");
                             t = type_int;
-                        } else if (owner_type->cxx_dependent &&
-                                   (owner_type->cxx_template_param_index >= 0 ||
-                                    owner_type->cxx_template)) {
-                            char dependent_name[1024];
-                            int dependent_written = snprintf(
-                                dependent_name, sizeof(dependent_name),
-                                "%s::%s", owner_name ? owner_name
-                                                      : owner_type->tag,
-                                member_name);
-                            if (dependent_written < 0 ||
-                                (size_t)dependent_written >=
-                                    sizeof(dependent_name)) {
-                                rcc_error(loc,
-                                          "dependent nested type name is too long");
-                                t = type_int;
-                            } else {
-                                t = ast_arena_alloc(sizeof(*t));
-                                *t = *owner_type;
-                                t->tag = rcc_intern(dependent_name);
-                                t->cxx_dependent = true;
-                                t->cxx_template_param_index =
-                                    owner_type->cxx_template_param_index;
-                                t->cxx_dependent_member_name = member_name;
-                            }
-                        } else if (has_nested_suffix && owner_class) {
-                            Type* resolved_type = NULL;
-                            bool path_ambiguous = false;
-                            bool path_accessible = true;
-                            if (cxx_class_resolve_nested_type_path(
-                                    owner_class, member_name, active_class,
-                                    &resolved_type, &path_ambiguous,
-                                    &path_accessible)) {
-                                t = resolved_type;
-                            } else if (path_ambiguous) {
-                                rcc_error(loc,
-                                          "nested type '%s' is ambiguous in class '%s'",
-                                          member_name,
-                                          owner_class->name
-                                              ? owner_class->name : "<unnamed>");
-                                t = type_int;
-                            } else if (!path_accessible) {
-                                rcc_error(loc,
-                                          "nested type '%s' is inaccessible in class '%s'",
-                                          member_name,
-                                          owner_class->name
-                                              ? owner_class->name : "<unnamed>");
-                                t = type_int;
-                            } else {
-                                rcc_error(loc,
-                                          "unknown or inaccessible nested type '%s'",
-                                          member_name);
-                                t = type_int;
-                            }
-                        } else if (member_alias &&
-                                   member_alias->access == ACCESS_PUBLIC) {
-                            t = member_alias->type;
+                        } else if (!path_accessible) {
+                            rcc_error(loc,
+                                      "nested type '%s' is inaccessible in class '%s'",
+                                      member_name,
+                                      owner_class->name
+                                          ? owner_class->name : "<unnamed>");
+                            t = type_int;
                         } else {
                             rcc_error(loc,
                                       "unknown or inaccessible nested type '%s'",
                                       member_name);
                             t = type_int;
                         }
+                    } else if (member_alias &&
+                               member_alias->access == ACCESS_PUBLIC) {
+                        t = member_alias->type;
+                    } else {
+                        rcc_error(loc,
+                                  "unknown or inaccessible nested type '%s'",
+                                  member_name);
+                        t = type_int;
                     }
                 }
             }
@@ -47786,15 +47588,9 @@ static Stmt* parse_cxx_local_class_definition(void) {
     if (enclosing_template &&
         (enclosing_template->kind == TMPL_FUNCTION ||
          enclosing_template->kind == TMPL_CLASS)) {
-        char template_name[128];
-        int written = snprintf(template_name, sizeof(template_name),
-                               "__rcc_local_class_%s", local_identity);
-        if (written < 0 || (size_t)written >= sizeof(template_name)) {
-            rcc_error(loc, "local class template identity is too long");
-            return stmt_null(loc);
-        }
         local_template = cxx_template_new(loc);
-        local_template->name = rcc_intern(template_name);
+        local_template->name = cxx_concatenate_names(
+            "__rcc_local_class_", local_identity);
         local_template->kind = TMPL_CLASS;
         local_template->is_local_class_template = true;
         local_template->ns = enclosing_template->ns

@@ -1193,7 +1193,7 @@ static PPExprValue pp_expr_primary(PPExprParser* parser) {
         return pp_expr_signed((int64_t)value);
     }
     if (isalpha((unsigned char)*p) || *p == '_') {
-        char name[256];
+        char name[RCC_MAX_IDENT];
         p = read_ident(p, name, sizeof(name));
         parser->input = p;
         /* Macro expansion turns unresolved identifiers into zero per C17. */
@@ -1380,13 +1380,13 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
             continue;
         }
         if (isalpha((unsigned char)*p) || *p == '_') {
-            char ident[256];
+            char ident[RCC_MAX_IDENT];
             const char* end = read_ident(p, ident, sizeof(ident));
             if (strcmp(ident, "defined") == 0) {
                 const char* operand = pp_expr_skip(end);
                 bool parenthesized = *operand == '(';
                 if (parenthesized) operand = pp_expr_skip(operand + 1);
-                char name[256];
+                char name[RCC_MAX_IDENT];
                 const char* name_end = read_ident(operand, name, sizeof(name));
                 if (name_end == operand ||
                     (parenthesized && *pp_expr_skip(name_end) != ')')) {
@@ -1401,7 +1401,7 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
             }
             if (strcmp(ident, "__has_builtin") == 0) {
                 const char* cursor = pp_expr_skip(end);
-                char builtin_name[256];
+                char builtin_name[RCC_MAX_IDENT];
                 const char* name_end;
                 bool probe_valid = *cursor == '(';
 
@@ -2240,7 +2240,7 @@ static const char* macro_item_end(const char* p) {
         return p;
     }
     if (isalpha((unsigned char)*p) || *p == '_') {
-        char ident[256];
+        char ident[RCC_MAX_IDENT];
         return read_ident(p, ident, sizeof(ident));
     }
     return p + (*p ? 1 : 0);
@@ -2291,7 +2291,7 @@ static const char* pp_multiline_macro_extent(Preprocessor* pp,
             continue;
         }
         if (isalpha((unsigned char)*p) || *p == '_') {
-            char identifier[256];
+            char identifier[RCC_MAX_IDENT];
             const char* identifier_end = read_ident(
                 p, identifier, sizeof(identifier));
             Macro* macro = pp_get_macro(pp, identifier);
@@ -2354,7 +2354,7 @@ static char* expand_macro(Preprocessor* pp, Macro* macro, const char** args, int
             const char* parameter_start = skip_macro_space(p + 1);
             if (isalpha((unsigned char)*parameter_start) ||
                 *parameter_start == '_') {
-                char ident[256];
+                char ident[RCC_MAX_IDENT];
                 const char* end = read_ident(parameter_start, ident,
                                              sizeof(ident));
                 int parameter = macro_param_index(macro, ident);
@@ -2392,7 +2392,7 @@ static char* expand_macro(Preprocessor* pp, Macro* macro, const char** args, int
             buf_append(&result, p, (size_t)(end - p));
             p = end;
         } else if (isalpha((unsigned char)*p) || *p == '_') {
-            char ident[256];
+            char ident[RCC_MAX_IDENT];
             end = read_ident(p, ident, sizeof(ident));
 
             if (strcmp(ident, "__VA_OPT__") == 0) {
@@ -2508,7 +2508,7 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
         if (*p == '"' || *p == '\'') {
             p = buf_append_quoted_token(&result, p);
         } else if (isalpha(*p) || *p == '_') {
-            char ident[256];
+            char ident[RCC_MAX_IDENT];
             const char* end = read_ident(p, ident, sizeof(ident));
 
             if (strcmp(ident, "_Pragma") == 0) {
@@ -2803,14 +2803,14 @@ static const char* process_directive(Preprocessor* pp, const char* p,
             return skip_to_eol(p);
         }
 
-        char macro_name[256];
+        char macro_name[RCC_MAX_IDENT];
         p = read_ident(p, macro_name, sizeof(macro_name));
 
         if (*p == '(') {
             /* Function-like macro */
             p++; /* Skip '(' */
             const char* params[PP_MAX_PARAMS];
-            char param_bufs[PP_MAX_PARAMS][64];
+            char param_bufs[PP_MAX_PARAMS][RCC_MAX_IDENT];
             int param_count = 0;
 
             while (*p && *p != ')') {
@@ -2828,7 +2828,7 @@ static const char* process_directive(Preprocessor* pp, const char* p,
                     break;
                 }
 
-                char param[64];
+                char param[RCC_MAX_IDENT];
                 const char* before = p;
                 p = read_ident(p, param, sizeof(param));
                 if (param[0] && param_count < PP_MAX_PARAMS) {
@@ -2875,14 +2875,14 @@ static const char* process_directive(Preprocessor* pp, const char* p,
             return skip_to_eol(p);
         }
 
-        char name[256];
+        char name[RCC_MAX_IDENT];
         p = read_ident(p, name, sizeof(name));
         pp_undef(pp, name);
         return skip_to_eol(p);
     }
 
     if (strcmp(directive, "ifdef") == 0) {
-        char name[256];
+        char name[RCC_MAX_IDENT];
         p = read_ident(p, name, sizeof(name));
 
         bool parent_active = pp_is_active(pp);
@@ -2901,7 +2901,7 @@ static const char* process_directive(Preprocessor* pp, const char* p,
     }
 
     if (strcmp(directive, "ifndef") == 0) {
-        char name[256];
+        char name[RCC_MAX_IDENT];
         p = read_ident(p, name, sizeof(name));
 
         bool parent_active = pp_is_active(pp);
@@ -2972,7 +2972,7 @@ static const char* process_directive(Preprocessor* pp, const char* p,
     if ((strcmp(directive, "elifdef") == 0 ||
          strcmp(directive, "elifndef") == 0) &&
         !pp->cxx_mode && g_opts.c_standard >= 23) {
-        char name[256];
+        char name[RCC_MAX_IDENT];
         bool is_undefined_test = strcmp(directive, "elifndef") == 0;
         bool parent_active;
         bool had_true;
