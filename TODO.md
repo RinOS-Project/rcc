@@ -12031,6 +12031,11 @@ remains a separate open item.
         expression; interpret six high-bit and word-boundary operand pairs in
         legacy and verified C objects. `test-debug-info-inline-expression`
         and the full `test-debug-info` gate pass.
+  - [x] Extend those signed i686 bitwise expressions to automatic
+        `_Atomic long long` operand pairs. Resolve each frame offset, emit no
+        global relocations, and verify the two frame-backed 32-bit pieces and
+        all three operations in legacy and verified C objects. The focused and
+        full DWARF gates pass.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 

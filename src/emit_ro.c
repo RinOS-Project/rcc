@@ -12641,7 +12641,7 @@ static bool debug_inline_parameter_u64_storage_type_equal_ignoring_signedness(
         &left_unqualified, &right_unqualified, 0u);
 }
 
-static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
+static bool debug_inline_parameter_i686_u64_pair_bitwise_expression(
     const Module* mod, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
     uint8_t* expression, size_t expression_capacity,
@@ -12653,6 +12653,10 @@ static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
     const Expr* right_expression;
     const Decl* left_source;
     const Decl* right_source;
+    int64_t left_frame_offset = 0;
+    int64_t right_frame_offset = 0;
+    bool left_is_address_backed;
+    bool right_is_address_backed;
     uint8_t operation;
     size_t size = 0u;
     DebugInlineI686ExpressionRelocations tls_relocations;
@@ -12697,10 +12701,17 @@ static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
     }
     left_source = left_expression->ident_decl;
     right_source = right_expression->ident_decl;
-    if (!left_source || !right_source || left_source->kind != DECL_VAR ||
-        right_source->kind != DECL_VAR ||
-        !(left_source->var_is_global || left_source->var_is_static_local) ||
-        !(right_source->var_is_global || right_source->var_is_static_local) ||
+    left_is_address_backed = left_source &&
+        (left_source->var_is_global || left_source->var_is_static_local);
+    right_is_address_backed = right_source &&
+        (right_source->var_is_global || right_source->var_is_static_local);
+    if (!left_source || !right_source ||
+        (left_source->kind != DECL_VAR && left_source->kind != DECL_PARAM) ||
+        (right_source->kind != DECL_VAR && right_source->kind != DECL_PARAM) ||
+        (left_source->var_is_global && left_source->kind != DECL_VAR) ||
+        (right_source->var_is_global && right_source->kind != DECL_VAR) ||
+        (left_source->var_is_thread_local && !left_is_address_backed) ||
+        (right_source->var_is_thread_local && !right_is_address_backed) ||
         left_source->var_is_vla ||
         right_source->var_is_vla || !left_source->type || !right_source->type ||
         left_source->type->size != 8u || right_source->type->size != 8u ||
@@ -12711,7 +12722,15 @@ static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
         !debug_inline_parameter_u64_storage_type_equal_ignoring_signedness(
             left_expression->type, left_source->type) ||
         !debug_inline_parameter_u64_storage_type_equal_ignoring_signedness(
-            right_expression->type, right_source->type)) {
+            right_expression->type, right_source->type) ||
+        (!left_is_address_backed &&
+         !debug_inline_parameter_frame_offset(
+             mod, left_source, &left_frame_offset)) ||
+        (!right_is_address_backed &&
+         !debug_inline_parameter_frame_offset(
+             mod, right_source, &right_frame_offset)) ||
+        (!left_is_address_backed && left_frame_offset > INT64_MAX - 4) ||
+        (!right_is_address_backed && right_frame_offset > INT64_MAX - 4)) {
         return false;
     }
     operation = source_expression->kind == EXPR_BITAND ? 0x1au :
@@ -12719,10 +12738,10 @@ static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
     *relocations->count = 0u;
     for (size_t word = 0u; word < 2u; ++word) {
         if (!debug_inline_parameter_i686_append_storage_u32(
-                mod, left_source, 0, word != 0u, expression,
+                mod, left_source, left_frame_offset, word != 0u, expression,
                 expression_capacity, &size, relocations) ||
             !debug_inline_parameter_i686_append_storage_u32(
-                mod, right_source, 0, word != 0u, expression,
+                mod, right_source, right_frame_offset, word != 0u, expression,
                 expression_capacity, &size, relocations) ||
             !debug_inline_integer_expression_append_byte(
                 expression, expression_capacity, &size, operation) ||
@@ -12735,7 +12754,11 @@ static bool debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
             return false;
         }
     }
-    if (*relocations->count != 4u) return false;
+    if (*relocations->count !=
+        (left_is_address_backed ? 2u : 0u) +
+            (right_is_address_backed ? 2u : 0u)) {
+        return false;
+    }
     *expression_size = size;
     return true;
 }
@@ -15936,13 +15959,12 @@ static void debug_emit_inline_parameter_instances(
                    argument && argument->expr &&
                    (origin = debug_inline_parameter_origin_find(
                        origins, call->callee, value->declaration)) != NULL &&
-                   debug_inline_parameter_i686_u64_global_pair_bitwise_expression(
+                   debug_inline_parameter_i686_u64_pair_bitwise_expression(
                        mod, call->callee, value, argument,
                        integer_value_expression,
                        sizeof(integer_value_expression),
                        &integer_value_expression_size,
-                       &integer_value_relocations) &&
-                   integer_value_relocation_count == 4u) {
+                       &integer_value_relocations)) {
             uint64_t expression_offset;
             section_add_byte(info, 67u);
             debug_line_u32(info, origin->die_offset);

@@ -630,6 +630,54 @@ long long debug_inline_nonconstant_signed_long_long_atomic_local_pair_remainder_
         debug_inline_nonconstant_signed_long_long_atomic_local_divisor);
 }
 
+long long debug_inline_nonconstant_signed_long_long_atomic_local_bitand_entry(
+    long long left_value, long long right_value)
+{
+    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_bitand_lhs =
+        left_value;
+    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_bitand_rhs =
+        right_value;
+    debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_bitand_lhs;
+    debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_bitand_rhs;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_local_bitand_lhs &
+        debug_inline_nonconstant_signed_long_long_atomic_local_bitand_rhs);
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_local_bitor_entry(
+    long long left_value, long long right_value)
+{
+    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_bitor_lhs =
+        left_value;
+    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_bitor_rhs =
+        right_value;
+    debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_bitor_lhs;
+    debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_bitor_rhs;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_local_bitor_lhs |
+        debug_inline_nonconstant_signed_long_long_atomic_local_bitor_rhs);
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_entry(
+    long long left_value, long long right_value)
+{
+    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_lhs =
+        left_value;
+    _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_rhs =
+        right_value;
+    debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_lhs;
+    debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_rhs;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_lhs ^
+        debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_rhs);
+}
+
 long long debug_inline_nonconstant_signed_long_long_atomic_constant_divide_entry(
     void)
 {

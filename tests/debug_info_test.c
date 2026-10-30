@@ -12249,6 +12249,18 @@ static void verify_inline_integer_expression_parameter(
         ? "debug_inline_nonconstant_signed_long_long_add_two_variables_entry"
         : expected_operation == 0xe8u
             ? "debug_inline_nonconstant_signed_long_long_sub_two_variables_entry"
+            : expected_operation == 0xe7u && source_name &&
+                  strcmp(source_name,
+                         "debug_inline_nonconstant_signed_long_long_atomic_local_bitand_lhs") == 0
+                ? "debug_inline_nonconstant_signed_long_long_atomic_local_bitand_entry"
+            : expected_operation == 0xe6u && source_name &&
+                  strcmp(source_name,
+                         "debug_inline_nonconstant_signed_long_long_atomic_local_bitor_lhs") == 0
+                ? "debug_inline_nonconstant_signed_long_long_atomic_local_bitor_entry"
+            : expected_operation == 0xe5u && source_name &&
+                  strcmp(source_name,
+                         "debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_lhs") == 0
+                ? "debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_entry"
             : expected_operation == 0xe7u
                 ? "debug_inline_nonconstant_signed_long_long_and_two_variables_entry"
                 : expected_operation == 0xe6u
@@ -19744,6 +19756,48 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_signed_long_long_local_pair_dividend",
             false, 0x1du, 8u, INT64_MIN + 12,
             "debug_inline_nonconstant_signed_long_long_local_pair_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitand_lhs",
+            false, 0xe7u, 8u, 0,
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitand_rhs",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitand_lhs",
+            false, 0xe7u, 8u, 0,
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitand_rhs",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitor_lhs",
+            false, 0xe6u, 8u, 0,
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitor_rhs",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitor_lhs",
+            false, 0xe6u, 8u, 0,
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitor_rhs",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_lhs",
+            false, 0xe5u, 8u, 0,
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_rhs",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_lhs",
+            false, 0xe5u, 8u, 0,
+            "debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_rhs",
             false);
         verify_inline_integer_expression_parameter(
             argv[2], ARCH_X86,
