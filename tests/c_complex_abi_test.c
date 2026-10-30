@@ -1,6 +1,8 @@
 #include "objfile.h"
 
 #include <assert.h>
+#include <fenv.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -534,6 +536,16 @@ int main(int argc, char** argv) {
     value_double = double_divide(x, __builtin_complex(1.0, 1.0));
     assert(close_double(__real__ value_double, 2.5) &&
            close_double(__imag__ value_double, 0.5));
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    value_double = double_divide(x, __builtin_complex(0.0, 0.0));
+    assert(isinf(__real__ value_double) && isinf(__imag__ value_double));
+    assert((fetestexcept(FE_ALL_EXCEPT) & FE_DIVBYZERO) != 0);
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    value_double = double_divide(__builtin_complex(0.0, 0.0),
+                                 __builtin_complex(0.0, 0.0));
+    assert(isnan(__real__ value_double) && isnan(__imag__ value_double));
+    assert((fetestexcept(FE_ALL_EXCEPT) & (FE_DIVBYZERO | FE_INVALID)) ==
+           (FE_DIVBYZERO | FE_INVALID));
 
     unmap_object(mapped);
     objfile_free(object);

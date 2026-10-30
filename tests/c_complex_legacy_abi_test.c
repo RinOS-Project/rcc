@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <fenv.h>
 #include <math.h>
 
 typedef float _Complex RccLegacyComplexFloat;
@@ -162,6 +163,17 @@ int main(void) {
         double_left, __builtin_complex(1.0, 1.0));
     assert(near_double(__real__ double_result, 2.5) &&
            near_double(__imag__ double_result, 0.5));
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    double_result = rcc_legacy_complex_double_divide(
+        double_left, __builtin_complex(0.0, 0.0));
+    assert(isinf(__real__ double_result) && isinf(__imag__ double_result));
+    assert((fetestexcept(FE_ALL_EXCEPT) & FE_DIVBYZERO) != 0);
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    double_result = rcc_legacy_complex_double_divide(
+        __builtin_complex(0.0, 0.0), __builtin_complex(0.0, 0.0));
+    assert(isnan(__real__ double_result) && isnan(__imag__ double_result));
+    assert((fetestexcept(FE_ALL_EXCEPT) & (FE_DIVBYZERO | FE_INVALID)) ==
+           (FE_DIVBYZERO | FE_INVALID));
     double_result = rcc_legacy_complex_double_add_integer(double_left, 3);
     assert(near_double(__real__ double_result, 5.0) &&
            near_double(__imag__ double_result, 3.0));
