@@ -433,6 +433,127 @@ static int rcc_complex_annex_g_hyperbolic(void) {
     return 0;
 }
 
+static int rcc_complex_catanh_annexg(void) {
+    RccComplexFloat value_float;
+    RccComplexDouble value_double;
+    RccComplexLongDouble value_long_double;
+        value_float = catanhf(CMPLXF(
+            __builtin_huge_valf(), __builtin_nanf("")));
+        value_double = catanh(CMPLX(
+            __builtin_huge_val(), __builtin_nan("")));
+        value_long_double = catanhl(CMPLXL(
+            (long double)__builtin_huge_val(),
+            (long double)__builtin_nan("")));
+        if (__real__ value_float != 0.0f ||
+            __builtin_signbit(__real__ value_float) ||
+            !__builtin_isnan(__imag__ value_float) ||
+            __real__ value_double != 0.0 ||
+            __builtin_signbit(__real__ value_double) ||
+            !__builtin_isnan(__imag__ value_double) ||
+            __real__ value_long_double != 0.0L ||
+            __builtin_signbit(__real__ value_long_double) ||
+            !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+
+        value_float = catanhf(CMPLXF(
+            -__builtin_huge_valf(), __builtin_nanf("")));
+        value_double = catanh(CMPLX(
+            -__builtin_huge_val(), __builtin_nan("")));
+        value_long_double = catanhl(CMPLXL(
+            -(long double)__builtin_huge_val(),
+            (long double)__builtin_nan("")));
+        if (__real__ value_float != 0.0f ||
+            !__builtin_signbit(__real__ value_float) ||
+            !__builtin_isnan(__imag__ value_float) ||
+            __real__ value_double != 0.0 ||
+            !__builtin_signbit(__real__ value_double) ||
+            !__builtin_isnan(__imag__ value_double) ||
+            __real__ value_long_double != 0.0L ||
+            !__builtin_signbit(__real__ value_long_double) ||
+            !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+
+        value_float = catanhf(CMPLXF(
+            __builtin_nanf(""), __builtin_huge_valf()));
+        value_double = catanh(CMPLX(
+            __builtin_nan(""), __builtin_huge_val()));
+        value_long_double = catanhl(CMPLXL(
+            (long double)__builtin_nan(""),
+            (long double)__builtin_huge_val()));
+        if (!__builtin_isfinite(__real__ value_float) ||
+            __real__ value_float != 0.0f ||
+            __imag__ value_float < 1.5707f ||
+            __imag__ value_float > 1.5709f ||
+            !__builtin_isfinite(__real__ value_double) ||
+            __real__ value_double != 0.0 ||
+            __imag__ value_double < 1.5707 ||
+            __imag__ value_double > 1.5709 ||
+            !__builtin_isfinite(__real__ value_long_double) ||
+            __real__ value_long_double != 0.0L ||
+            __imag__ value_long_double < 1.5707L ||
+            __imag__ value_long_double > 1.5709L) return __LINE__;
+
+        value_float = catanhf(CMPLXF(
+            __builtin_nanf(""), -__builtin_huge_valf()));
+        value_double = catanh(CMPLX(
+            __builtin_nan(""), -__builtin_huge_val()));
+        value_long_double = catanhl(CMPLXL(
+            (long double)__builtin_nan(""),
+            -(long double)__builtin_huge_val()));
+        if (!__builtin_isfinite(__real__ value_float) ||
+            __real__ value_float != 0.0f ||
+            __imag__ value_float > -1.5707f ||
+            __imag__ value_float < -1.5709f ||
+            !__builtin_isfinite(__real__ value_double) ||
+            __real__ value_double != 0.0 ||
+            __imag__ value_double > -1.5707 ||
+            __imag__ value_double < -1.5709 ||
+            !__builtin_isfinite(__real__ value_long_double) ||
+            __real__ value_long_double != 0.0L ||
+            __imag__ value_long_double > -1.5707L ||
+            __imag__ value_long_double < -1.5709L) return __LINE__;
+
+        value_float = catanhf(CMPLXF(
+            0.0f, __builtin_nanf("")));
+        value_double = catanh(CMPLX(-0.0, __builtin_nan("")));
+        value_long_double = catanhl(CMPLXL(
+            -0.0L, (long double)__builtin_nan("")));
+        if (__real__ value_float != 0.0f ||
+            __builtin_signbit(__real__ value_float) ||
+            !__builtin_isnan(__imag__ value_float) ||
+            __real__ value_double != 0.0 ||
+            !__builtin_signbit(__real__ value_double) ||
+            !__builtin_isnan(__imag__ value_double) ||
+            __real__ value_long_double != 0.0L ||
+            !__builtin_signbit(__real__ value_long_double) ||
+            !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+
+        value_float = catanhf(CMPLXF(
+            __builtin_nanf(""), -0.0f));
+        value_double = catanh(CMPLX(__builtin_nan(""), -0.0));
+        value_long_double = catanhl(CMPLXL(
+            (long double)__builtin_nan(""), -0.0L));
+        if (!__builtin_isnan(__real__ value_float) ||
+            !__builtin_isnan(__imag__ value_float) ||
+            !__builtin_isnan(__real__ value_double) ||
+            !__builtin_isnan(__imag__ value_double) ||
+            !__builtin_isnan(__real__ value_long_double) ||
+            !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+
+        value_float = catanhf(CMPLXF(
+            __builtin_nanf(""), __builtin_nanf("")));
+        value_double = catanh(CMPLX(
+            __builtin_nan(""), __builtin_nan("")));
+        value_long_double = catanhl(CMPLXL(
+            (long double)__builtin_nan(""),
+            (long double)__builtin_nan("")));
+        if (!__builtin_isnan(__real__ value_float) ||
+            !__builtin_isnan(__imag__ value_float) ||
+            !__builtin_isnan(__real__ value_double) ||
+            !__builtin_isnan(__imag__ value_double) ||
+            !__builtin_isnan(__real__ value_long_double) ||
+            !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+    return 0;
+}
+
 int rcc_complex_standard_api_all(void) {
 #define RCC_COMPLEX_API_CHECK_FLOAT(call, expected_real, expected_imaginary) \
     do { \
@@ -1209,7 +1330,11 @@ int rcc_complex_standard_api_all(void) {
             !__builtin_isnan(__imag__ value_double) ||
             __real__ value_long_double != 0.0L ||
             !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+
+
     }
+
+    if (rcc_complex_catanh_annexg() != 0) return __LINE__;
 
 #undef RCC_COMPLEX_API_CHECK_FLOAT
 #undef RCC_COMPLEX_API_CHECK_DOUBLE

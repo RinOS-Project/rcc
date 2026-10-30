@@ -1,5 +1,15 @@
 # rcc v3 実装状況
 
+## RCC continuation (2026-10-31, Annex G catanh exceptional values)
+
+- [x] Exercise C99 Annex G G.6.3.3 `catanh` with positive/negative
+  infinities and quiet NaNs, NaN paired with either signed infinity, signed
+  zero paired with NaN, and NaN/NaN. Check float, double, and RinOS binary64
+  `long double` results and specified signed-zero behavior through both
+  legacy and verified generated callers. `test-complex-legacy` passes with
+  verified i686/AMD64 generation, verified AMD64 O0/O2 execution, and legacy
+  i686/AMD64 execution.
+
 ## RCC continuation (2026-10-30, floating math builtins)
 
 - [x] Validate argument counts and types for floating classification,

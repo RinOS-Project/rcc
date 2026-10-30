@@ -1570,6 +1570,119 @@ static void check_complex_branch_cuts(void) {
                !__builtin_signbit(value_long_double.imaginary));
     }
 
+    {
+        float infinity_float = __builtin_huge_valf();
+        double infinity_double = __builtin_huge_val();
+        double nan_double = __builtin_nan("");
+        RccLegacyComplexFloat value_float;
+        RccLegacyComplexDouble value_double;
+        RccLegacyComplexBinary64Pair value_long_double;
+
+        value_float = rcc_legacy_complex_api_catanhf(
+            __builtin_complex(infinity_float, __builtin_nanf("")));
+        value_double = rcc_legacy_complex_api_catanh(
+            __builtin_complex(infinity_double, nan_double));
+        value_long_double = rcc_legacy_complex_api_catanhl(
+            (ComplexBinary64Pair){infinity_double, nan_double});
+        assert(__real__ value_float == 0.0f &&
+               !__builtin_signbit(__real__ value_float) &&
+               isnan(__imag__ value_float));
+        assert(__real__ value_double == 0.0 &&
+               !__builtin_signbit(__real__ value_double) &&
+               isnan(__imag__ value_double));
+        assert(value_long_double.real == 0.0 &&
+               !__builtin_signbit(value_long_double.real) &&
+               isnan(value_long_double.imaginary));
+
+        value_float = rcc_legacy_complex_api_catanhf(
+            __builtin_complex(-infinity_float, __builtin_nanf("")));
+        value_double = rcc_legacy_complex_api_catanh(
+            __builtin_complex(-infinity_double, nan_double));
+        value_long_double = rcc_legacy_complex_api_catanhl(
+            (ComplexBinary64Pair){-infinity_double, nan_double});
+        assert(__real__ value_float == 0.0f &&
+               __builtin_signbit(__real__ value_float) &&
+               isnan(__imag__ value_float));
+        assert(__real__ value_double == 0.0 &&
+               __builtin_signbit(__real__ value_double) &&
+               isnan(__imag__ value_double));
+        assert(value_long_double.real == 0.0 &&
+               __builtin_signbit(value_long_double.real) &&
+               isnan(value_long_double.imaginary));
+
+        value_float = rcc_legacy_complex_api_catanhf(
+            __builtin_complex(__builtin_nanf(""), infinity_float));
+        value_double = rcc_legacy_complex_api_catanh(
+            __builtin_complex(nan_double, infinity_double));
+        value_long_double = rcc_legacy_complex_api_catanhl(
+            (ComplexBinary64Pair){nan_double, infinity_double});
+        assert(__builtin_isfinite(__real__ value_float) &&
+               __real__ value_float == 0.0f &&
+               near_float(__imag__ value_float, 1.57079632679489661923f));
+        assert(__builtin_isfinite(__real__ value_double) &&
+               __real__ value_double == 0.0 &&
+               near_double(__imag__ value_double, 1.57079632679489661923));
+        assert(__builtin_isfinite(value_long_double.real) &&
+               value_long_double.real == 0.0 &&
+               near_double(value_long_double.imaginary,
+                           1.57079632679489661923));
+
+        value_float = rcc_legacy_complex_api_catanhf(
+            __builtin_complex(__builtin_nanf(""), -infinity_float));
+        value_double = rcc_legacy_complex_api_catanh(
+            __builtin_complex(nan_double, -infinity_double));
+        value_long_double = rcc_legacy_complex_api_catanhl(
+            (ComplexBinary64Pair){nan_double, -infinity_double});
+        assert(__builtin_isfinite(__real__ value_float) &&
+               __real__ value_float == 0.0f &&
+               near_float(__imag__ value_float, -1.57079632679489661923f));
+        assert(__builtin_isfinite(__real__ value_double) &&
+               __real__ value_double == 0.0 &&
+               near_double(__imag__ value_double, -1.57079632679489661923));
+        assert(__builtin_isfinite(value_long_double.real) &&
+               value_long_double.real == 0.0 &&
+               near_double(value_long_double.imaginary,
+                           -1.57079632679489661923));
+
+        value_float = rcc_legacy_complex_api_catanhf(
+            __builtin_complex(0.0f, __builtin_nanf("")));
+        value_double = rcc_legacy_complex_api_catanh(
+            __builtin_complex(-0.0, nan_double));
+        value_long_double = rcc_legacy_complex_api_catanhl(
+            (ComplexBinary64Pair){-0.0, nan_double});
+        assert(__real__ value_float == 0.0f &&
+               !__builtin_signbit(__real__ value_float) &&
+               isnan(__imag__ value_float));
+        assert(__real__ value_double == 0.0 &&
+               __builtin_signbit(__real__ value_double) &&
+               isnan(__imag__ value_double));
+        assert(value_long_double.real == 0.0 &&
+               __builtin_signbit(value_long_double.real) &&
+               isnan(value_long_double.imaginary));
+
+        value_float = rcc_legacy_complex_api_catanhf(
+            __builtin_complex(__builtin_nanf(""), -0.0f));
+        value_double = rcc_legacy_complex_api_catanh(
+            __builtin_complex(nan_double, -0.0));
+        value_long_double = rcc_legacy_complex_api_catanhl(
+            (ComplexBinary64Pair){nan_double, -0.0});
+        assert(isnan(__real__ value_float) && isnan(__imag__ value_float));
+        assert(isnan(__real__ value_double) && isnan(__imag__ value_double));
+        assert(isnan(value_long_double.real) &&
+               isnan(value_long_double.imaginary));
+
+        value_float = rcc_legacy_complex_api_catanhf(
+            __builtin_complex(__builtin_nanf(""), __builtin_nanf("")));
+        value_double = rcc_legacy_complex_api_catanh(
+            __builtin_complex(nan_double, nan_double));
+        value_long_double = rcc_legacy_complex_api_catanhl(
+            (ComplexBinary64Pair){nan_double, nan_double});
+        assert(isnan(__real__ value_float) && isnan(__imag__ value_float));
+        assert(isnan(__real__ value_double) && isnan(__imag__ value_double));
+        assert(isnan(value_long_double.real) &&
+               isnan(value_long_double.imaginary));
+    }
+
 #undef RCC_ASSERT_FLOAT_BRANCH
 #undef RCC_ASSERT_DOUBLE_BRANCH
 #undef RCC_ASSERT_LONG_DOUBLE_BRANCH
