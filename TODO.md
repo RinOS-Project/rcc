@@ -12298,3 +12298,7 @@ remains a separate open item.
       execution, legacy i686/AMD64 object generation, AMD64 legacy runtime,
       and strict GCC C++20 syntax. `test-verified-cxx-virtual-base-value`
       passes on the Windows host.
+- [x] Cover multiple scalar arguments from a verified complete-object
+      constructor into separate virtual-base and derived fields; verify the
+      argument-to-field mapping with fallback-free i686/AMD64 O0/O2 execution.
+      `test-verified-cxx-virtual-base-value` passes.
