@@ -2802,22 +2802,26 @@ static bool x86_emit_stack_probe(RccX86Encoder* encoder, uint32_t bytes) {
         encoder->function->target == RCC_X86_TARGET_X86_64
             ? RCC_X86_GPR_R11 : RCC_X86_GPR_AX;
     uint16_t pointer_size = encoder->function->pointer_size;
-    if (bytes <= 4096u) return true;
+    if (bytes == 0u) return true;
     if (!x86_emit_move_register_register(
             encoder, scratch, RCC_X86_GPR_SP, pointer_size)) return false;
-    for (uint32_t remaining = bytes; remaining > 4096u;
-         remaining -= 4096u) {
+    /* Probe the final partial page too.  The prologue applies the complete
+     * frame adjustment after this loop, so omitting the last touch can let
+     * that single subtraction skip the guard below the current stack. */
+    for (uint32_t remaining = bytes; remaining != 0u;) {
+        const uint32_t step = remaining > 4096u ? 4096u : remaining;
         if (!x86_emit_prefix(
                 encoder, pointer_size, RCC_X86_GPR_BP, scratch, false) ||
             !x86_emit_u8(encoder, 0x81u) ||
             !x86_emit_u8(encoder, x86_modrm(3u, 5u, scratch)) ||
-            !x86_emit_u32(encoder, 4096u) ||
+            !x86_emit_u32(encoder, step) ||
             !x86_emit_prefix(
                 encoder, 1u, RCC_X86_GPR_AX, scratch, true) ||
             !x86_emit_u8(encoder, 0xc6u) ||
             !x86_emit_u8(encoder, x86_modrm(
                 0u, RCC_X86_GPR_AX, scratch)) ||
             !x86_emit_u8(encoder, 0u)) return false;
+        remaining -= step;
     }
     return true;
 }
