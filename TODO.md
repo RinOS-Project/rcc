@@ -2745,9 +2745,9 @@
       i686 legacy and verified `-g -O1` objects with
       `test-debug-info-inline-expression`.
   - [x] Recursively compose those runtime shifts through bounded i686 64-bit
-      bitwise-OR inline-parameter trees. Preserve the wide source, count, and
-      right-hand frame slots and evaluate each word for the same shift-count
-      boundaries in legacy and verified `-g -O1` objects through
+      bitwise AND/OR/XOR inline-parameter trees. Preserve the wide source,
+      count, and right-hand frame slots and evaluate each word for the same
+      shift-count boundaries in legacy and verified `-g -O1` objects through
       `test-debug-info-inline-expression`.
   - [ ] Other unsigned operands wider than the target address width (notably
         i686 `unsigned long long`) in computed expressions beyond the bounded
