@@ -17501,15 +17501,19 @@ test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/long-double/verified-cxx-x64.log
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-o $(TEST_OUT)/long-double/runtime-c-x86.s \
 		tests/long_double_runtime.c
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-o $(TEST_OUT)/long-double/runtime-c-x64.s \
 		tests/long_double_runtime.c
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-o $(TEST_OUT)/long-double/runtime-cxx-x86.s \
 		tests/long_double_runtime.c
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-o $(TEST_OUT)/long-double/runtime-cxx-x64.s \
 		tests/long_double_runtime.c
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double/runtime-c-x86.exe,$(TEST_OUT)/long-double/runtime-c-x86.s)
