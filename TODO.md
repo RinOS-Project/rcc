@@ -10188,10 +10188,13 @@ remains a separate open item.
         when a base is trivial and propagate nontrivial base lifetime state;
         verify derived byte extents and selected operators at runtime. GCC C++20
         and legacy i686/AMD64 generation plus x64 execution pass; verified
-        i686/AMD64 `-O0`/`-O2` emits 11 functions with zero fallback. Ambiguous
-        multiple-base lookup and bases requiring constructor/destructor lowering
-        remain open. Public using-declarations select inherited scalar/array
-        operators, and private using-declarations reject external allocation.
+        i686/AMD64 `-O0`/`-O2` emits 11 functions with zero fallback. Conflicting
+        direct-base scalar/array lookup is diagnosed as ambiguous; a public
+        using-declaration selecting one direct base resolves both forms and is
+        runtime-checked. RCC i686/AMD64 diagnostics and execution agree with GCC
+        C++20. Repeated/virtual-base lookup, overload-set merging across multiple
+        using-declarations, and bases requiring constructor/destructor lowering
+        remain open. Private using-declarations reject external allocation.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 
