@@ -85,8 +85,28 @@ int explicit_value_pack_with_deduced_suffix(
            (0 + ... + Values) * 10 + Tail;
 }
 
+template<
+    class T00, class T01, class T02, class T03,
+    class T04, class T05, class T06, class T07,
+    class T08, class T09, class T10, class T11,
+    class T12, class T13, class T14, class T15,
+    class T16, class T17, class T18, class T19,
+    class T20, class T21, class T22, class T23,
+    class T24, class T25, class T26, class T27,
+    class T28, class T29, class T30, class T31,
+    class... Types>
+int count_pack_after_32_template_parameters(Types... values) {
+    (void)sizeof...(values);
+    return sizeof...(Types);
+}
+
 int main() {
-    return count_explicit_pack<
+    return count_pack_after_32_template_parameters<
+               int, int, int, int, int, int, int, int,
+               int, int, int, int, int, int, int, int,
+               int, int, int, int, int, int, int, int,
+               int, int, int, int, int, int, int, int>(1, 2, 3) == 3 &&
+                   count_explicit_pack<
                int, int, int, int, int, int, int, int, int, int, int,
                int, int, int, int, int, int, int, int, int, int,
                int, int, int, int, int, int, int, int, int, int, int, int>(

@@ -13792,6 +13792,34 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                               "function parameter pack has no specialization range");
                     return NULL;
                 }
+                size_t argument_capacity = arg_count > 0
+                    ? (size_t)arg_count : 1u;
+                Type** expanded_arguments;
+                int64_t* expanded_values;
+                bool* expanded_value_present;
+                if (arg_count < 0 ||
+                    argument_capacity >
+                        SIZE_MAX / sizeof(*expanded_arguments) ||
+                    argument_capacity >
+                        SIZE_MAX / sizeof(*expanded_values) ||
+                    argument_capacity >
+                        SIZE_MAX / sizeof(*expanded_value_present)) {
+                    rcc_error(item->decl->loc,
+                              "function template pack substitution state is too large");
+                    return NULL;
+                }
+                expanded_arguments = ast_arena_alloc(
+                    sizeof(*expanded_arguments) * argument_capacity);
+                expanded_values = ast_arena_alloc(
+                    sizeof(*expanded_values) * argument_capacity);
+                expanded_value_present = ast_arena_alloc(
+                    sizeof(*expanded_value_present) * argument_capacity);
+                if (!expanded_arguments || !expanded_values ||
+                    !expanded_value_present) {
+                    rcc_error(item->decl->loc,
+                              "function template pack substitution state allocation failed");
+                    return NULL;
+                }
                 for (int pack_value = 0;
                      pack_value < pack_length; ++pack_value) {
                     char generated_name[64];
@@ -13805,45 +13833,50 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                   "function template pack parameter name is too long");
                         return NULL;
                     }
-                    {
-                        Type* expanded_arguments[32];
-                        if (arg_count > (int)(sizeof(expanded_arguments) /
-                                              sizeof(expanded_arguments[0]))) {
+                    memset(expanded_arguments, 0,
+                           sizeof(*expanded_arguments) * argument_capacity);
+                    memset(expanded_values, 0,
+                           sizeof(*expanded_values) * argument_capacity);
+                    memset(expanded_value_present, 0,
+                           sizeof(*expanded_value_present) *
+                               argument_capacity);
+                    if (arg_count > 0) {
+                        memcpy(expanded_arguments, args,
+                               sizeof(*expanded_arguments) *
+                                   (size_t)arg_count);
+                        if (value_args) {
+                            memcpy(expanded_values, value_args,
+                                   sizeof(*expanded_values) *
+                                       (size_t)arg_count);
+                        }
+                        if (value_present) {
+                            memcpy(expanded_value_present, value_present,
+                                   sizeof(*expanded_value_present) *
+                                       (size_t)arg_count);
+                        }
+                    }
+                    if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
+                        expanded_arguments[pack_index] =
+                            tmpl->pending_pack_args[
+                                pack_offset + pack_value];
+                    } else {
+                        if (!tmpl->pending_pack_values ||
+                            !tmpl->pending_pack_value_present ||
+                            !tmpl->pending_pack_value_present[
+                                pack_offset + pack_value]) {
                             rcc_error(item->decl->loc,
-                                      "function template pack substitution exceeds compiler limits");
+                                      "function non-type parameter pack value is missing");
                             return NULL;
                         }
-                        int64_t expanded_values[32];
-                        bool expanded_value_present[32];
-                        memcpy(expanded_arguments, args,
-                               sizeof(Type*) * (size_t)arg_count);
-                        memcpy(expanded_values, value_args,
-                               sizeof(int64_t) * (size_t)arg_count);
-                        memcpy(expanded_value_present, value_present,
-                               sizeof(bool) * (size_t)arg_count);
-                        if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
-                            expanded_arguments[pack_index] =
-                                tmpl->pending_pack_args[
-                                    pack_offset + pack_value];
-                        } else {
-                            if (!tmpl->pending_pack_values ||
-                                !tmpl->pending_pack_value_present ||
-                                !tmpl->pending_pack_value_present[
-                                    pack_offset + pack_value]) {
-                                rcc_error(item->decl->loc,
-                                          "function non-type parameter pack value is missing");
-                                return NULL;
-                            }
-                            expanded_values[pack_index] =
-                                tmpl->pending_pack_values[
-                                    pack_offset + pack_value];
-                            expanded_value_present[pack_index] = true;
-                        }
-                        parameter_type = template_substitute_type(
-                            tmpl, item->decl->type, expanded_arguments,
-                            arg_count, expanded_values,
-                            expanded_value_present);
+                        expanded_values[pack_index] =
+                            tmpl->pending_pack_values[
+                                pack_offset + pack_value];
+                        expanded_value_present[pack_index] = true;
                     }
+                    parameter_type = template_substitute_type(
+                        tmpl, item->decl->type, expanded_arguments,
+                        arg_count, expanded_values,
+                        expanded_value_present);
                     if (!parameter_type) {
                         rcc_error(item->decl->loc,
                                   "function template pack parameter substitution failed");
