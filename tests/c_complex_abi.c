@@ -552,6 +552,29 @@ static int rcc_complex_annexg_exceptional_values(void) {
             !__builtin_isnan(__real__ value_long_double) ||
             !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
 
+        {
+            int sign;
+            for (sign = 0; sign != 2; ++sign) {
+                float finite_float = sign ? -1.0f : 1.0f;
+                double finite_double = sign ? -1.0 : 1.0;
+                long double finite_long_double = sign ? -1.0L : 1.0L;
+
+                value_float = catanhf(CMPLXF(
+                    finite_float, __builtin_nanf("")));
+                value_double = catanh(CMPLX(
+                    finite_double, __builtin_nan("")));
+                value_long_double = catanhl(CMPLXL(
+                    finite_long_double, (long double)__builtin_nan("")));
+                if (!__builtin_isnan(__real__ value_float) ||
+                    !__builtin_isnan(__imag__ value_float) ||
+                    !__builtin_isnan(__real__ value_double) ||
+                    !__builtin_isnan(__imag__ value_double) ||
+                    !__builtin_isnan(__real__ value_long_double) ||
+                    !__builtin_isnan(__imag__ value_long_double))
+                    return __LINE__;
+            }
+        }
+
         value_float = ccoshf(CMPLXF(0.0f, __builtin_nanf("")));
         value_double = ccosh(CMPLX(0.0, __builtin_nan("")));
         value_long_double = ccoshl(
