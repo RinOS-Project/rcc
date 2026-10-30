@@ -216,6 +216,17 @@ typedef struct ObjectFile {
     uint32_t* strtab_hash_slots; /* string offset + 1; zero marks empty */
     size_t strtab_hash_capacity;
     size_t strtab_hash_count;
+    ObjSymbol** symbol_hash_slots; /* First symbol for each name */
+    size_t symbol_hash_capacity;
+    size_t symbol_hash_count;
+#ifdef RCC_INDEX_STATS
+    uint64_t string_index_probes;
+    uint64_t string_rehash_probes;
+    uint64_t symbol_index_probes;
+    uint64_t symbol_rehash_probes;
+    uint64_t symbol_append_operations;
+    uint64_t relocation_append_operations;
+#endif
 } ObjectFile;
 
 /* ═══════════════════════════════════════

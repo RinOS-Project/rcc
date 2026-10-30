@@ -12354,15 +12354,16 @@ remains a separate open item.
         generation time and memory use; include relative-relocation patching in
         the measurements.
 
-- [ ] `.ro`の`objfile_add_symbol()`はsymbolを追加するたびにlinked list末尾まで歩き、
+- [x] `.ro`の`objfile_add_symbol()`はsymbolを追加するたびにlinked list末尾まで歩き、
       `objfile_add_reloc()`もsection内relocation listの末尾を毎回探す。さらに
-      `objfile_add_string()`はstring table先頭から全既存文字列を比較するため、symbol数S・
-      relocation数R・distinct string数Tが大きいobjectの生成／読み込みでO(S² + R² + T²)
-      の走査と文字列比較が発生する。**受入:** ObjectFile／ObjSectionにappend tailを持たせ、
-      section indexを直接解決する。string deduplicationはhash index等で有界化し、symbol／
-      relocation／string tableの決定的な順序と`.ro` byte列を維持する。多数symbol・relocation・
-      重複stringを持つfixtureでappend traversal／comparison回数とobject生成・読み込み時間を
-      計測し、各件数に対する二次増加を解消する。
+      `objfile_add_string()`はstring table先頭から全既存文字列を比較する。さらにwriterは
+      各relocationで`objfile_find_symbol()`のlinear scanを呼ぶため、symbol数S・relocation数R・
+      distinct string数Tが大きいobjectの生成／読み込みでO(S² + R² + T² + R×S)の走査と
+      文字列比較が発生する。**受入:** ObjectFile／ObjSectionにappend tailを持たせ、section
+      indexを直接解決する。symbol名とstringのlookupをhash indexで有界化し、first-match規則、
+      symbol／relocation／string tableの決定的な順序と`.ro` byte列を維持する。多数symbol・
+      relocation・重複stringのfixtureでappend traversal／probe数とobject生成・読み込み時間を
+      比較し、二次増加を解消する。
   - [x] Add symbol and per-section relocation append tails, plus a section-index
         side array for direct relocation ownership lookup. Preserve list and
         serialized order; `test-format-validation` passes.
@@ -12370,5 +12371,16 @@ remains a separate open item.
         offsets, insertion order, and serialized string-table bytes. Rebuild the
         index when reading `.ro`; the regression round-trips 4096 unique strings
         and 128 symbols/relocations through `test-format-validation`.
-  - [ ] Add traversal/probe counters and comparative scale measurements for
-        symbol, relocation, and string insertion and object round trips.
+  - [x] Add an open-addressed symbol-name index pointing to stable `ObjSymbol`
+        nodes. Preserve the first-match behavior when duplicate names occur and
+        use the index for relocation symbol resolution during `.ro` writing.
+  - [x] Add test-only probe/append counters and small/large round-trip
+        measurements to `test-format-validation`: 64 strings/32 symbols versus
+        4096 strings/4096 symbols. The large fixture records 108674 string-index
+        probes, 30825 symbol-index probes versus 16781312 legacy linear symbol
+        comparisons. Direct tail appends perform zero traversal hops; the old
+        list walks would have taken 16773120 hops per append list.
+        The final large fixture tracks 958890 ObjectFile heap bytes, excluding
+        allocator metadata and test buffers. Final Windows runs measured
+        63-76/4-6 ms for build+write/read. Probe counts and serialized order are
+        asserted; timings are reported without flaky limits.

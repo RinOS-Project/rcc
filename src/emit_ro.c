@@ -146,6 +146,9 @@ static void objfile_string_index_reserve(ObjectFile* obj,
             size_t slot = (size_t)objfile_string_hash(string) &
                           (new_capacity - 1u);
             while (slots[slot] != 0u) {
+#ifdef RCC_INDEX_STATS
+                ++obj->string_rehash_probes;
+#endif
                 slot = (slot + 1u) & (new_capacity - 1u);
             }
             slots[slot] = encoded_offset;
@@ -161,10 +164,16 @@ static void objfile_string_index_insert(ObjectFile* obj, uint32_t offset) {
     size_t slot = (size_t)objfile_string_hash(string) &
                   (obj->strtab_hash_capacity - 1u);
     while (obj->strtab_hash_slots[slot] != 0u) {
+#ifdef RCC_INDEX_STATS
+        ++obj->string_index_probes;
+#endif
         uint32_t existing_offset = obj->strtab_hash_slots[slot] - 1u;
         if (strcmp(obj->strtab + existing_offset, string) == 0) return;
         slot = (slot + 1u) & (obj->strtab_hash_capacity - 1u);
     }
+#ifdef RCC_INDEX_STATS
+    ++obj->string_index_probes;
+#endif
     obj->strtab_hash_slots[slot] = offset + 1u;
     obj->strtab_hash_count++;
 }
@@ -188,6 +197,81 @@ static bool objfile_string_index_build(ObjectFile* obj) {
     return true;
 }
 
+static void objfile_symbol_index_reserve(ObjectFile* obj,
+                                         size_t required_count) {
+    size_t new_capacity = obj->symbol_hash_capacity
+        ? obj->symbol_hash_capacity : 16u;
+    ObjSymbol** slots;
+    if (obj->symbol_hash_capacity &&
+        required_count <= obj->symbol_hash_capacity -
+                              obj->symbol_hash_capacity / 4u) {
+        return;
+    }
+    while (required_count > new_capacity - new_capacity / 4u) {
+        if (new_capacity > SIZE_MAX / 2u) {
+            rcc_fatal("object symbol index capacity overflow");
+            return;
+        }
+        new_capacity *= 2u;
+    }
+    if (new_capacity > SIZE_MAX / sizeof(*slots)) {
+        rcc_fatal("object symbol index capacity overflow");
+        return;
+    }
+    slots = rcc_alloc(new_capacity * sizeof(*slots));
+    for (size_t index = 0u; index < obj->symbol_hash_capacity; ++index) {
+        ObjSymbol* symbol = obj->symbol_hash_slots[index];
+        if (symbol) {
+            size_t slot = (size_t)objfile_string_hash(symbol->name) &
+                          (new_capacity - 1u);
+            while (slots[slot]) {
+#ifdef RCC_INDEX_STATS
+                ++obj->symbol_rehash_probes;
+#endif
+                slot = (slot + 1u) & (new_capacity - 1u);
+            }
+            slots[slot] = symbol;
+        }
+    }
+    rcc_free(obj->symbol_hash_slots);
+    obj->symbol_hash_slots = slots;
+    obj->symbol_hash_capacity = new_capacity;
+}
+
+static void objfile_symbol_index_insert(ObjectFile* obj, ObjSymbol* symbol) {
+    uint32_t hash = objfile_string_hash(symbol->name);
+    size_t slot;
+    if (obj->symbol_hash_capacity == 0u) {
+        objfile_symbol_index_reserve(obj, 1u);
+    }
+    slot = (size_t)hash & (obj->symbol_hash_capacity - 1u);
+    while (obj->symbol_hash_slots[slot]) {
+#ifdef RCC_INDEX_STATS
+        ++obj->symbol_index_probes;
+#endif
+        if (strcmp(obj->symbol_hash_slots[slot]->name, symbol->name) == 0) {
+            return;
+        }
+        slot = (slot + 1u) & (obj->symbol_hash_capacity - 1u);
+    }
+    if (obj->symbol_hash_count + 1u > obj->symbol_hash_capacity -
+                                      obj->symbol_hash_capacity / 4u) {
+        objfile_symbol_index_reserve(obj, obj->symbol_hash_count + 1u);
+        slot = (size_t)hash & (obj->symbol_hash_capacity - 1u);
+        while (obj->symbol_hash_slots[slot]) {
+#ifdef RCC_INDEX_STATS
+            ++obj->symbol_index_probes;
+#endif
+            slot = (slot + 1u) & (obj->symbol_hash_capacity - 1u);
+        }
+    }
+#ifdef RCC_INDEX_STATS
+    ++obj->symbol_index_probes;
+#endif
+    obj->symbol_hash_slots[slot] = symbol;
+    ++obj->symbol_hash_count;
+}
+
 ObjectFile* objfile_new(const char* filename, uint16_t arch) {
     ObjectFile* obj = rcc_alloc(sizeof(ObjectFile));
     obj->filename = rcc_strdup(filename);
@@ -200,6 +284,9 @@ ObjectFile* objfile_new(const char* filename, uint16_t arch) {
     obj->symbols = NULL;
     obj->symbols_tail = NULL;
     obj->symbol_count = 0;
+    obj->symbol_hash_slots = NULL;
+    obj->symbol_hash_capacity = 0u;
+    obj->symbol_hash_count = 0u;
     obj->strtab = rcc_alloc(256);
     obj->strtab[0] = '\0';  /* First byte is null */
     obj->strtab_size = 1;
@@ -241,6 +328,7 @@ void objfile_free(ObjectFile* obj) {
     rcc_free(obj->strtab);
     rcc_free(obj->sections_by_index);
     rcc_free(obj->strtab_hash_slots);
+    rcc_free(obj->symbol_hash_slots);
     rcc_free((void*)obj->filename);
     rcc_free(obj);
 }
@@ -397,6 +485,9 @@ void section_set_memory_size(ObjSection* sect, uint64_t memory_size) {
 ObjSymbol* objfile_add_symbol(ObjectFile* obj, const char* name, SymbolType type,
                               SymbolBinding binding, int section, uint64_t value,
                               uint64_t size) {
+#ifdef RCC_INDEX_STATS
+    ++obj->symbol_append_operations;
+#endif
     ObjSymbol* sym = rcc_alloc(sizeof(ObjSymbol));
     sym->name = rcc_strdup(name);
     sym->value = value;
@@ -414,12 +505,33 @@ ObjSymbol* objfile_add_symbol(ObjectFile* obj, const char* name, SymbolType type
     }
     obj->symbols_tail = sym;
     obj->symbol_count++;
+    objfile_symbol_index_insert(obj, sym);
 
     return sym;
 }
 
 ObjSymbol* objfile_find_symbol(ObjectFile* obj, const char* name) {
+    if (!obj || !name) return NULL;
+    if (obj->symbol_hash_capacity != 0u) {
+        size_t slot = (size_t)objfile_string_hash(name) &
+                      (obj->symbol_hash_capacity - 1u);
+        while (obj->symbol_hash_slots[slot]) {
+#ifdef RCC_INDEX_STATS
+            ++obj->symbol_index_probes;
+#endif
+            ObjSymbol* symbol = obj->symbol_hash_slots[slot];
+            if (strcmp(symbol->name, name) == 0) return symbol;
+            slot = (slot + 1u) & (obj->symbol_hash_capacity - 1u);
+        }
+#ifdef RCC_INDEX_STATS
+        ++obj->symbol_index_probes;
+#endif
+        return NULL;
+    }
     for (ObjSymbol* s = obj->symbols; s; s = s->next) {
+#ifdef RCC_INDEX_STATS
+        ++obj->symbol_index_probes;
+#endif
         if (strcmp(s->name, name) == 0) {
             return s;
         }
@@ -433,6 +545,9 @@ ObjSymbol* objfile_find_symbol(ObjectFile* obj, const char* name) {
 
 void objfile_add_reloc(ObjectFile* obj, int section_idx, uint64_t offset,
                        const char* symbol, RelocType type, int64_t addend) {
+#ifdef RCC_INDEX_STATS
+    ++obj->relocation_append_operations;
+#endif
     /* Section indices are assigned in append order and kept in a side index. */
     if (section_idx < 0 || section_idx >= obj->section_count) return;
     ObjSection* sect = obj->sections_by_index[section_idx];
@@ -469,12 +584,18 @@ uint32_t objfile_add_string(ObjectFile* obj, const char* str) {
     size_t slot = (size_t)objfile_string_hash(str) &
                   (obj->strtab_hash_capacity - 1u);
     while (obj->strtab_hash_slots[slot] != 0u) {
+#ifdef RCC_INDEX_STATS
+        ++obj->string_index_probes;
+#endif
         uint32_t existing_offset = obj->strtab_hash_slots[slot] - 1u;
         if (strcmp(obj->strtab + existing_offset, str) == 0) {
             return existing_offset;
         }
         slot = (slot + 1u) & (obj->strtab_hash_capacity - 1u);
     }
+#ifdef RCC_INDEX_STATS
+    ++obj->string_index_probes;
+#endif
 
     /* Add new string */
     size_t len = strlen(str) + 1;
@@ -486,8 +607,14 @@ uint32_t objfile_add_string(ObjectFile* obj, const char* str) {
     slot = (size_t)objfile_string_hash(str) &
            (obj->strtab_hash_capacity - 1u);
     while (obj->strtab_hash_slots[slot] != 0u) {
+#ifdef RCC_INDEX_STATS
+        ++obj->string_index_probes;
+#endif
         slot = (slot + 1u) & (obj->strtab_hash_capacity - 1u);
     }
+#ifdef RCC_INDEX_STATS
+    ++obj->string_index_probes;
+#endif
     size_t required_size = (size_t)obj->strtab_size + len;
     if (required_size > obj->strtab_cap) {
         size_t new_capacity = obj->strtab_cap;

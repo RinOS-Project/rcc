@@ -19740,7 +19740,7 @@ test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 # test-signing because this target is about section/table/ABI conformance.
 test-format-validation: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/format-validation)
-	$(CC) $(CFLAGS) -I$(INCDIR) \
+	$(CC) $(CFLAGS) -DRCC_INDEX_STATS -I$(INCDIR) \
 		-o $(TEST_OUT)/format-validation/object-builder-index \
 		tests/object_builder_index_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/format-validation/object-builder-index \
