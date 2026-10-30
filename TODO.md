@@ -10205,9 +10205,11 @@ remains a separate open item.
         execution, GCC C++20, and verified i686/AMD64 -O0/-O2 with zero
         fallback. A placement call with no matching operator is diagnosed
         instead of silently using the RinOS allocator.
+  - [x] Distinguish parenthesized type-id new forms such as new (int)(value)
+        from placement argument lists; verify GCC C++20, x64 execution, and
+        verified i686/AMD64 -O0/-O2 with zero fallback.
   - [ ] Extend placement allocation to class arrays requiring constructors,
         cookies, or constructor-failure matching placement-delete handling.
-        Parenthesized type-id new syntax also remains unsupported.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

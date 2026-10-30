@@ -46363,12 +46363,67 @@ static Type* parse_cxx_template_type_argument(void) {
     return rcc_parser_parse_cxx_declarator(type, NULL, NULL);
 }
 
+static bool cxx_new_token_starts_type(const Token* token) {
+    if (!token) return false;
+    switch (token->type) {
+        case TOK_IDENT:
+        case TOK_AUTO:
+        case TOK_BOOL:
+        case TOK_CHAR:
+        case TOK_CHAR8_T:
+        case TOK_CHAR16_T:
+        case TOK_CHAR32_T:
+        case TOK_CONST:
+        case TOK_DECLTYPE:
+        case TOK_DOUBLE:
+        case TOK_ENUM:
+        case TOK_FLOAT:
+        case TOK_INT:
+        case TOK_LONG:
+        case TOK_SCOPE:
+        case TOK_SHORT:
+        case TOK_SIGNED:
+        case TOK_STRUCT:
+        case TOK_CLASS:
+        case TOK_TYPENAME:
+        case TOK_UNION:
+        case TOK_UNSIGNED:
+        case TOK_VOID:
+        case TOK_VOLATILE:
+        case TOK_WCHAR_T:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/* Distinguish a parenthesized type-id from placement arguments by examining
+ * the token after the balanced group.  A placement form must have another
+ * type specifier after its argument list. */
+static bool cxx_new_parentheses_are_type_id(void) {
+    Token* token = parser.cur;
+    unsigned depth = 0u;
+    if (!token || token->type != TOK_LPAREN) return false;
+    for (; token; token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            ++depth;
+        } else if (token->type == TOK_RPAREN) {
+            if (depth == 0u) return false;
+            --depth;
+            if (depth == 0u) {
+                return !cxx_new_token_starts_type(token->next);
+            }
+        }
+    }
+    return false;
+}
+
 Expr* rcc_parse_cxx_special_expression(void) {
     SourceLoc loc = peek()->loc;
 
     if (match(TOK_NEW)) {
         ExprList* placement_args = NULL;
-        Type* object_type;
+        Type* object_type = NULL;
         Expr* count = NULL;
         Expr* bytes;
         Expr* allocation;
@@ -46378,18 +46433,26 @@ Expr* rcc_parse_cxx_special_expression(void) {
         bool value_init = false;
         bool brace_init = false;
 
-        if (match(TOK_LPAREN)) {
-            if (check(TOK_RPAREN)) {
-                rcc_error(loc, "new placement list requires an argument");
-            } else {
-                do {
-                    exprlist_append(&placement_args,
-                                    parse_assignment_expression());
-                } while (match(TOK_COMMA));
-            }
+        if (check(TOK_LPAREN) && cxx_new_parentheses_are_type_id()) {
+            advance();
+            object_type = parse_cxx_type_spec();
+            object_type = rcc_parser_parse_cxx_declarator(
+                object_type, NULL, NULL);
             expect(TOK_RPAREN, ")");
+        } else {
+            if (match(TOK_LPAREN)) {
+                if (check(TOK_RPAREN)) {
+                    rcc_error(loc, "new placement list requires an argument");
+                } else {
+                    do {
+                        exprlist_append(&placement_args,
+                                        parse_assignment_expression());
+                    } while (match(TOK_COMMA));
+                }
+                expect(TOK_RPAREN, ")");
+            }
+            object_type = parse_cxx_type_spec();
         }
-        object_type = parse_cxx_type_spec();
         if (match(TOK_LBRACKET)) {
             is_array = true;
             if (check(TOK_RBRACKET)) {

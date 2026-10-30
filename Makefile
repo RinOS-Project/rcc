@@ -16996,6 +16996,7 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-global-allocation-fallback)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-specific-allocation)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-allocation-multiple-using-selection)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-parenthesized-new-type)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp)
@@ -17037,10 +17038,13 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(GREP) -F -q 'operator new' $(TEST_OUT)/cxx-class-specific-allocation/no-placement-gcc.log
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-class-allocation-multiple-using-selection,cxx_class_allocation_multiple_using_selection.cpp)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_class_allocation_multiple_using_selection.cpp
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-parenthesized-new-type,cxx_parenthesized_new_type.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_parenthesized_new_type.cpp
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,7)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,11)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-allocation-multiple-using-selection,cxx_class_allocation_multiple_using_selection.cpp,7)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-parenthesized-new-type,cxx_parenthesized_new_type.cpp,2)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-global-allocation-operators/x86.ro \
 		tests/cxx_global_allocation_operators.cpp
