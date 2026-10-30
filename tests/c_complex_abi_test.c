@@ -199,6 +199,57 @@ static ComplexBinary64Pair RINOS_ABI complex_import_cpowl(
                                       complex_pair_to_host(exponent)));
 }
 
+#define RCC_DEFINE_COMPLEX_REAL_IMPORT(name) \
+    static float RINOS_ABI complex_import_##name##f(RccComplexFloat value) { \
+        return name##f(value); \
+    } \
+    static double RINOS_ABI complex_import_##name(RccComplexDouble value) { \
+        return name(value); \
+    }
+RCC_DEFINE_COMPLEX_REAL_IMPORT(creal)
+RCC_DEFINE_COMPLEX_REAL_IMPORT(cimag)
+RCC_DEFINE_COMPLEX_REAL_IMPORT(cabs)
+RCC_DEFINE_COMPLEX_REAL_IMPORT(carg)
+#undef RCC_DEFINE_COMPLEX_REAL_IMPORT
+
+#define RCC_DEFINE_COMPLEX_UNARY_IMPORT(name) \
+    static RccComplexFloat RINOS_ABI \
+    complex_import_##name##f(RccComplexFloat value) { \
+        return name##f(value); \
+    } \
+    static RccComplexDouble RINOS_ABI \
+    complex_import_##name(RccComplexDouble value) { \
+        return name(value); \
+    }
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(conj)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(csqrt)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(cacos)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(casin)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(catan)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(ccos)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(csin)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(ctan)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(cacosh)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(casinh)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(catanh)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(ccosh)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(csinh)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(ctanh)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(cexp)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(clog)
+RCC_DEFINE_COMPLEX_UNARY_IMPORT(cproj)
+#undef RCC_DEFINE_COMPLEX_UNARY_IMPORT
+
+static RccComplexFloat RINOS_ABI complex_import_cpowf(
+    RccComplexFloat base, RccComplexFloat exponent) {
+    return cpowf(base, exponent);
+}
+
+static RccComplexDouble RINOS_ABI complex_import_cpow(
+    RccComplexDouble base, RccComplexDouble exponent) {
+    return cpow(base, exponent);
+}
+
 typedef struct MappedObject {
     void* memory;
     size_t size;
@@ -235,29 +286,29 @@ static void* complex_runtime_import(const char* name) {
     } else if (strcmp(name, "__rin_cdiv_f64") == 0) {
         address.f64 = __rin_cdiv_f64;
     } else if (strcmp(name, "crealf") == 0) {
-        address.complex_float_real = crealf;
+        address.complex_float_real = complex_import_crealf;
     } else if (strcmp(name, "cimagf") == 0) {
-        address.complex_float_real = cimagf;
+        address.complex_float_real = complex_import_cimagf;
     } else if (strcmp(name, "cabsf") == 0) {
-        address.complex_float_real = cabsf;
+        address.complex_float_real = complex_import_cabsf;
     } else if (strcmp(name, "cargf") == 0) {
-        address.complex_float_real = cargf;
+        address.complex_float_real = complex_import_cargf;
     } else if (strcmp(name, "conjf") == 0) {
-        address.complex_float_unary = conjf;
+        address.complex_float_unary = complex_import_conjf;
     } else if (strcmp(name, "csqrtf") == 0) {
-        address.complex_float_unary = csqrtf;
+        address.complex_float_unary = complex_import_csqrtf;
     } else if (strcmp(name, "creal") == 0) {
-        address.complex_double_real = creal;
+        address.complex_double_real = complex_import_creal;
     } else if (strcmp(name, "cimag") == 0) {
-        address.complex_double_real = cimag;
+        address.complex_double_real = complex_import_cimag;
     } else if (strcmp(name, "cabs") == 0) {
-        address.complex_double_real = cabs;
+        address.complex_double_real = complex_import_cabs;
     } else if (strcmp(name, "carg") == 0) {
-        address.complex_double_real = carg;
+        address.complex_double_real = complex_import_carg;
     } else if (strcmp(name, "conj") == 0) {
-        address.complex_double_unary = conj;
+        address.complex_double_unary = complex_import_conj;
     } else if (strcmp(name, "csqrt") == 0) {
-        address.complex_double_unary = csqrt;
+        address.complex_double_unary = complex_import_csqrt;
     } else if (strcmp(name, "creall") == 0) {
         address.complex_long_double_real = complex_import_creall;
     } else if (strcmp(name, "cimagl") == 0) {
@@ -273,9 +324,9 @@ static void* complex_runtime_import(const char* name) {
     }
 #define RCC_IMPORT_COMPLEX_UNARY_API(function_name) \
     else if (strcmp(name, #function_name "f") == 0) { \
-        address.complex_float_unary = function_name##f; \
+        address.complex_float_unary = complex_import_##function_name##f; \
     } else if (strcmp(name, #function_name) == 0) { \
-        address.complex_double_unary = function_name; \
+        address.complex_double_unary = complex_import_##function_name; \
     } else if (strcmp(name, #function_name "l") == 0) { \
         address.complex_long_double_unary = \
             complex_import_##function_name##l; \
@@ -297,9 +348,9 @@ static void* complex_runtime_import(const char* name) {
     RCC_IMPORT_COMPLEX_UNARY_API(cproj)
 #undef RCC_IMPORT_COMPLEX_UNARY_API
     else if (strcmp(name, "cpowf") == 0) {
-        address.complex_float_binary = cpowf;
+        address.complex_float_binary = complex_import_cpowf;
     } else if (strcmp(name, "cpow") == 0) {
-        address.complex_double_binary = cpow;
+        address.complex_double_binary = complex_import_cpow;
     } else if (strcmp(name, "cpowl") == 0) {
         address.complex_long_double_binary = complex_import_cpowl;
     } else {
