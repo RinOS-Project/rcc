@@ -1029,6 +1029,13 @@
         in i686/AMD64 output and passes the x64 pthread assertions in WSL. The
         host links the production RinOS `rin_atexit_registry.inc` and
         `rin_exit_lifecycle.c`, rather than delegating TLS cleanup to libstdc++.
+  - [x] Verify a block-scope `static thread_local const Base&` initialized
+        through a user-defined conversion returning `Derived`. Repeated access
+        performs one conversion per thread, preserves the reference and complete
+        object, then destroys `Derived` before `Base` at thread exit. The
+        `test-cxx-static-reference-temporaries-posix` gate passes GCC C++20
+        syntax checks, i686/AMD64 generation, and x64 pthread execution against
+        the RinOS TLS registry and exit lifecycle.
   - [x] Cover a namespace-scope thread-local reference temporary initialized
         by a built-in comma expression. The POSIX regression checks one left-
         operand evaluation per thread, stable repeated reference identity,

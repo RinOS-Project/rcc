@@ -271,11 +271,11 @@ int main(void)
     tls_result = cxx_static_reference_run_tls_thread(3);
     if (tls_result != 0 || cxx_static_reference_tls_constructions != 2 ||
         cxx_static_reference_tls_destructions != 2 ||
-        cxx_static_reference_tls_base_constructions != 6 ||
-        cxx_static_reference_tls_derived_constructions != 5 ||
-        cxx_static_reference_tls_base_destructions != 6 ||
-        cxx_static_reference_tls_derived_destructions != 5 ||
-        cxx_static_reference_tls_conversions != 2 ||
+        cxx_static_reference_tls_base_constructions != 7 ||
+        cxx_static_reference_tls_derived_constructions != 6 ||
+        cxx_static_reference_tls_base_destructions != 7 ||
+        cxx_static_reference_tls_derived_destructions != 6 ||
+        cxx_static_reference_tls_conversions != 3 ||
         cxx_static_reference_tls_comma_evaluations != 1 ||
         cxx_static_reference_tls_member_constructions != 1 ||
         cxx_static_reference_tls_member_destructions != 1 ||
@@ -284,7 +284,7 @@ int main(void)
         cxx_static_reference_tls_member_pointer_owner_destructions != 1 ||
         cxx_static_reference_tls_member_pointer_derived_constructions != 1 ||
         cxx_static_reference_tls_member_pointer_derived_destructions != 1 ||
-        cxx_static_reference_tls_destruction_order != 21212115212143ULL ||
+        cxx_static_reference_tls_destruction_order != 2121211215212143ULL ||
         cxx_static_reference_tls_retry_attempts != 2 ||
         cxx_static_reference_tls_retry_constructions != 1 ||
         cxx_static_reference_tls_retry_destructions != 1 ||
@@ -313,11 +313,11 @@ int main(void)
     tls_result = cxx_static_reference_run_tls_thread(4);
     if (tls_result != 0 || cxx_static_reference_tls_constructions != 4 ||
         cxx_static_reference_tls_destructions != 4 ||
-        cxx_static_reference_tls_base_constructions != 12 ||
-        cxx_static_reference_tls_derived_constructions != 10 ||
-        cxx_static_reference_tls_base_destructions != 12 ||
-        cxx_static_reference_tls_derived_destructions != 10 ||
-        cxx_static_reference_tls_conversions != 4 ||
+        cxx_static_reference_tls_base_constructions != 14 ||
+        cxx_static_reference_tls_derived_constructions != 12 ||
+        cxx_static_reference_tls_base_destructions != 14 ||
+        cxx_static_reference_tls_derived_destructions != 12 ||
+        cxx_static_reference_tls_conversions != 6 ||
         cxx_static_reference_tls_comma_evaluations != 2 ||
         cxx_static_reference_tls_member_constructions != 2 ||
         cxx_static_reference_tls_member_destructions != 2 ||
@@ -326,7 +326,7 @@ int main(void)
         cxx_static_reference_tls_member_pointer_owner_destructions != 2 ||
         cxx_static_reference_tls_member_pointer_derived_constructions != 2 ||
         cxx_static_reference_tls_member_pointer_derived_destructions != 2 ||
-        cxx_static_reference_tls_destruction_order != 21212115212154ULL ||
+        cxx_static_reference_tls_destruction_order != 2121211215212154ULL ||
         cxx_static_reference_tls_retry_attempts != 3 ||
         cxx_static_reference_tls_retry_constructions != 2 ||
         cxx_static_reference_tls_retry_destructions != 2 ||
