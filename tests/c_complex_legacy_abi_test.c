@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <fenv.h>
 #include <math.h>
+#include <pthread.h>
 
 typedef float _Complex RccLegacyComplexFloat;
 typedef double _Complex RccLegacyComplexDouble;
@@ -55,6 +56,31 @@ extern RccLegacyComplexDouble RINOS_ABI
 rcc_legacy_complex_float_add_double(RccLegacyComplexFloat, double);
 extern RccLegacyComplexBinary64Pair RINOS_ABI
 rcc_legacy_complex_double_add_long_double(RccLegacyComplexDouble, double);
+extern _Thread_local RccLegacyComplexDouble rcc_legacy_complex_tls;
+extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_tls_read(void);
+
+typedef struct RccLegacyComplexTlsCase {
+    int failed;
+} RccLegacyComplexTlsCase;
+
+static void* rcc_legacy_complex_tls_worker(void* opaque) {
+    RccLegacyComplexTlsCase* test_case =
+        (RccLegacyComplexTlsCase*)opaque;
+    RccLegacyComplexDouble value = rcc_legacy_complex_tls_read();
+    if (fabs(__real__ value - 9.0) > 0.0000001 ||
+        fabs(__imag__ value - 10.0) > 0.0000001) {
+        test_case->failed = 1;
+        return NULL;
+    }
+    __real__ rcc_legacy_complex_tls = -4.0;
+    __imag__ rcc_legacy_complex_tls = 8.0;
+    value = rcc_legacy_complex_tls_read();
+    if (fabs(__real__ value + 4.0) > 0.0000001 ||
+        fabs(__imag__ value - 8.0) > 0.0000001) {
+        test_case->failed = 1;
+    }
+    return NULL;
+}
 
 extern void rcc_host_complex_mul_f32(
     float, float, float, float, float*, float*);
@@ -94,12 +120,27 @@ static int near_double(double actual, double expected) {
 }
 
 int main(void) {
+    pthread_t tls_thread;
+    RccLegacyComplexTlsCase tls_case = {0};
     RccLegacyComplexFloat float_left = __builtin_complex(2.0f, 3.0f);
     RccLegacyComplexFloat float_right = __builtin_complex(4.0f, -1.0f);
     RccLegacyComplexFloat float_result;
     RccLegacyComplexDouble double_left = __builtin_complex(2.0, 3.0);
     RccLegacyComplexDouble double_right = __builtin_complex(4.0, -1.0);
     RccLegacyComplexDouble double_result;
+
+    double_result = rcc_legacy_complex_tls_read();
+    assert(fabs(__real__ double_result - 9.0) < 0.0000001 &&
+           fabs(__imag__ double_result - 10.0) < 0.0000001);
+    __real__ rcc_legacy_complex_tls = 2.0;
+    __imag__ rcc_legacy_complex_tls = -3.0;
+    assert(pthread_create(&tls_thread, NULL, rcc_legacy_complex_tls_worker,
+                          &tls_case) == 0);
+    assert(pthread_join(tls_thread, NULL) == 0);
+    assert(!tls_case.failed);
+    double_result = rcc_legacy_complex_tls_read();
+    assert(fabs(__real__ double_result - 2.0) < 0.0000001 &&
+           fabs(__imag__ double_result + 3.0) < 0.0000001);
 
     float_result = rcc_legacy_complex_float_add(float_left, float_right);
     assert(near_float(__real__ float_result, 6.0f) &&

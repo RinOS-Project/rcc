@@ -1,6 +1,15 @@
+#include <complex.h>
+
 typedef float _Complex RccLegacyComplexFloat;
 typedef double _Complex RccLegacyComplexDouble;
 typedef long double _Complex RccLegacyComplexLongDouble;
+
+_Thread_local RccLegacyComplexDouble rcc_legacy_complex_tls =
+    CMPLX(9.0, 10.0);
+
+RccLegacyComplexDouble rcc_legacy_complex_tls_read(void) {
+    return rcc_legacy_complex_tls;
+}
 
 _Static_assert(_Generic(
     (RccLegacyComplexFloat)0.0f + (double)0.0,
