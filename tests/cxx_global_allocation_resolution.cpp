@@ -67,8 +67,15 @@ int main() {
         array_allocation_last_size == sizeof(int) * 2 &&
         values[0] == 19 && values[1] == 23;
     delete[] values;
+    int* initialized_values = new int[4]{29, 31};
+    bool scalar_array_explicitly_initialized =
+        array_allocation_calls == 2 &&
+        array_allocation_last_size == sizeof(int) * 4 &&
+        initialized_values[0] == 29 && initialized_values[1] == 31 &&
+        initialized_values[2] == 0 && initialized_values[3] == 0;
+    delete[] initialized_values;
     GlobalCookieArray* objects = new GlobalCookieArray[2];
-    bool cookie_array_initialized = array_allocation_calls == 2 &&
+    bool cookie_array_initialized = array_allocation_calls == 3 &&
         array_allocation_last_size == sizeof(GlobalCookieArray) * 2 +
             sizeof(allocation_size_type) &&
         cookie_array_constructor_calls == 2 &&
@@ -77,16 +84,17 @@ int main() {
     GlobalCookieArray* initialized_objects =
         new GlobalCookieArray[2]{31, 41};
     bool cookie_array_explicitly_initialized =
-        array_allocation_calls == 3 &&
+        array_allocation_calls == 4 &&
         array_allocation_last_size == sizeof(GlobalCookieArray) * 2 +
             sizeof(allocation_size_type) &&
         cookie_array_constructor_calls == 4 &&
         initialized_objects[0].value == 31 &&
         initialized_objects[1].value == 41;
     delete[] initialized_objects;
-    return initialized && array_initialized && deallocation_calls == 1 &&
+    return initialized && array_initialized &&
+            scalar_array_explicitly_initialized && deallocation_calls == 1 &&
             cookie_array_initialized && cookie_array_explicitly_initialized &&
             cookie_array_destructor_calls == 4 &&
-            array_deallocation_calls == 3
+            array_deallocation_calls == 4
         ? 0 : 1;
 }

@@ -10169,8 +10169,13 @@ remains a separate open item.
         arrays of scalar elements without cookies. Exercise replacement
         operators and the implicit RinOS fallback on i686 and AMD64, run the
         native x64 output, and verify both targets at `-O0`/`-O2` with no
-        verified-backend fallback. Explicitly initialized scalar arrays remain
-        open; cookie-bearing class-array cases are covered below.
+        verified-backend fallback.
+  - [x] Resolve global `operator new[]`/`operator delete[]` for explicitly
+        initialized scalar arrays without placement arguments. Verify the
+        requested byte extent, explicit values, zero-initialized omitted
+        elements, GCC C++20, legacy i686/AMD64 generation and AMD64 execution,
+        and verified i686/AMD64 `-O0`/`-O2` with zero fallback in
+        `test-cxx-global-allocation-operators`.
   - [x] Resolve direct class-specific scalar `operator new`/`operator delete`
         before global replacements or the implicit RinOS allocator. Treat
         class-scope allocation functions as implicitly static, validate their

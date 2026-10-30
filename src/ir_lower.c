@@ -23029,6 +23029,175 @@ static RccIrLowerValue lower_cxx_new_expression(
     bool simple_class_array;
     bool register_free = false;
     bool initialized;
+    if (context && expression && expression->call_new_is_array &&
+        expression->call_new_args && !expression->call_new_array_cookie &&
+        expression->call_new_type &&
+        type_is_scalar(expression->call_new_type) &&
+        expression->call_func && expression->call_args &&
+        !expression->call_args->next) {
+        const ExprList* item;
+        size_t initializer_count = 0u;
+        int64_t constant_count;
+        uint64_t element_count;
+        size_t word_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+        Type* word_language_type = g_opts.target_arch == ARCH_X64
+            ? type_ulong : type_uint;
+        RccIrType word_type;
+        Type* allocator_result_type;
+        Expr allocation_expression;
+        RccIrLowerValue storage;
+        RccIrLowerValue result;
+        bool register_deallocation;
+        const char* deallocation_name =
+            expression->call_new_deallocation_function &&
+                    expression->call_new_deallocation_function->link_name
+                ? decl_link_name(
+                      expression->call_new_deallocation_function)
+                : "rin_free";
+
+        if (!expression->call_new_count ||
+            expression->call_new_type->size <= 0 ||
+            !expr_eval_integer_constant(
+                expression->call_new_count, &constant_count) ||
+            constant_count < 0 ||
+            !lower_type(word_language_type, &word_type) ||
+            word_type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        for (item = expression->call_new_args; item; item = item->next) {
+            if (!item->expr ||
+                item->designator_kind != INIT_DESIGNATOR_NONE) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            ++initializer_count;
+        }
+        element_count = (uint64_t)constant_count;
+        if (element_count < (uint64_t)initializer_count) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        if (expression->call_func->kind == EXPR_IDENT &&
+            expression->call_func->ident_decl &&
+            expression->call_func->ident_decl->type &&
+            expression->call_func->ident_decl->type->kind == TYPE_FUNC) {
+            allocator_result_type =
+                expression->call_func->ident_decl->type->ret_type;
+        } else if (expression->call_func->type &&
+                   expression->call_func->type->kind == TYPE_FUNC) {
+            allocator_result_type = expression->call_func->type->ret_type;
+        } else {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        if (!allocator_result_type ||
+            allocator_result_type->kind != TYPE_PTR) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        allocation_expression = *expression;
+        allocation_expression.type = allocator_result_type;
+        allocation_expression.call_is_new = false;
+        allocation_expression.call_is_delete = false;
+        storage = lower_call(context, &allocation_expression);
+        if (!storage.valid || storage.type.kind != RCC_IR_TYPE_POINTER) {
+            return lower_invalid_value();
+        }
+        result = lower_cast(context, storage, expression->type);
+        if (!result.valid || result.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        register_deallocation =
+            !lower_noexcept_expression_list(expression->call_new_args);
+        if (register_deallocation && !lower_cxx_change_current_cleanup(
+                context, deallocation_name, storage, true)) {
+            return lower_invalid_value();
+        }
+        size_t element_index = 0u;
+        for (item = expression->call_new_args; item;
+             item = item->next, ++element_index) {
+            RccIrLowerValue value = lower_expression(context, item->expr);
+            RccIrLowerValue address = lower_byte_offset_address(
+                context, storage,
+                (uint64_t)element_index *
+                    (uint64_t)expression->call_new_type->size);
+            value = lower_cast(context, value, expression->call_new_type);
+            if (!value.valid || !address.valid ||
+                !lower_store_address(context, address, value)) {
+                return lower_invalid_value();
+            }
+        }
+        if (element_count > (uint64_t)initializer_count) {
+            RccIrLowerValue index_slot = lower_cxx_array_slot(
+                context, word_size, word_size);
+            RccIrLowerValue initial_index = lower_integer_constant(
+                context, word_type, true, (uint64_t)initializer_count);
+            RccIrLowerValue count_value = lower_integer_constant(
+                context, word_type, true, element_count);
+            RccIrLowerValue one = lower_integer_constant(
+                context, word_type, true, 1u);
+            RccIrBlock* condition = rcc_ir_block_add(
+                context->function, "new.scalar.array.zero.cond");
+            RccIrBlock* body = rcc_ir_block_add(
+                context->function, "new.scalar.array.zero.body");
+            RccIrBlock* done = rcc_ir_block_add(
+                context->function, "new.scalar.array.zero.done");
+            if (!index_slot.valid || !initial_index.valid ||
+                !count_value.valid || !one.valid || !condition || !body ||
+                !done || !lower_store_address(
+                    context, index_slot, initial_index) ||
+                !lower_branch(context, condition->id)) {
+                return lower_invalid_value();
+            }
+            context->current = condition;
+            context->terminated = false;
+            RccIrLowerValue index = lower_load_address(
+                context, index_slot, word_language_type);
+            RccIrLowerValue has_next = lower_cxx_array_integer_compare(
+                context, index, count_value, RCC_IR_ICMP_ULT);
+            if (!index.valid || !has_next.valid ||
+                !lower_conditional_branch(
+                    context, has_next, body->id, done->id)) {
+                return lower_invalid_value();
+            }
+            context->current = body;
+            context->terminated = false;
+            index = lower_load_address(
+                context, index_slot, word_language_type);
+            RccIrLowerValue address = lower_cxx_array_element_address(
+                context, storage, index,
+                (size_t)expression->call_new_type->size);
+            if (!index.valid || !address.valid ||
+                !lower_zero_scalar_storage(
+                    context, address.value,
+                    expression->call_new_type)) {
+                return lower_invalid_value();
+            }
+            index = lower_load_address(
+                context, index_slot, word_language_type);
+            RccIrValue increment_operands[2] = {
+                index.value, one.value};
+            RccIrInstruction* increment = lower_append(
+                context, RCC_IR_ADD, word_type,
+                increment_operands, 2u, NULL, 0u);
+            if (!index.valid || !increment ||
+                !lower_store_address(
+                    context, index_slot,
+                    lower_value(increment->result, word_type, true)) ||
+                !lower_branch(context, condition->id)) {
+                return lower_invalid_value();
+            }
+            context->current = done;
+            context->terminated = false;
+        }
+        if (register_deallocation && !lower_cxx_change_current_cleanup(
+                context, deallocation_name, storage, false)) {
+            return lower_invalid_value();
+        }
+        return result;
+    }
     simple_class_array = expression && expression->call_new_is_array &&
         expression->call_new_type &&
         lower_cxx_plain_class_array_element(expression->call_new_type) &&

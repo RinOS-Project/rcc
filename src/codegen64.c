@@ -5695,6 +5695,36 @@ static const char* gen64_cxx_array_allocation_name(const Expr* expr) {
         ? decl_link_name((Decl*)allocation) : "rin_malloc";
 }
 
+static const char* gen64_cxx_array_deallocation_name(const Expr* expr) {
+    return expr && expr->call_new_deallocation_function &&
+            expr->call_new_deallocation_function->link_name
+        ? decl_link_name(expr->call_new_deallocation_function) : "rin_free";
+}
+
+static void gen64_cxx_change_current_cleanup_pointer(
+    Module* mod, const char* callback_name, int object_reg,
+    bool unregister) {
+    emit64_push_reg(mod, RAX);
+    emit64_push_reg(mod, RCX);
+    emit64_push_reg(mod, RDX);
+    emit64_mov_reg_reg(mod, RSI, object_reg);
+    gen64_symbol_address(mod, callback_name, 0u);
+    emit64_mov_reg_reg(mod, RDI, RAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64(
+            unregister
+                ? "rin_cpp_exception_unregister_current_cleanup"
+                : "rin_cpp_exception_register_current_cleanup",
+            call_offset);
+    }
+    emit64_pop_reg(mod, RDX);
+    emit64_pop_reg(mod, RCX);
+    emit64_pop_reg(mod, RAX);
+}
+
 static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     const ExprList* placement_argument = expr && expr->call_args
@@ -5891,6 +5921,10 @@ static void gen64_cxx_init_array(Module* mod, Expr* expr) {
     Type* element_type = expr ? expr->call_new_type : NULL;
     ExprList* argument;
     int offset = 0;
+    int64_t element_count = 0;
+    size_t initializer_count = 0u;
+    int zero_loop;
+    int zero_done;
 
     if (!element_type || element_type->size <= 0 ||
         !expr || !expr->call_new_count || !expr->call_new_args) {
@@ -5913,11 +5947,15 @@ static void gen64_cxx_init_array(Module* mod, Expr* expr) {
     {
         uint32_t call_offset = code_offset(mod);
         emit_dword(mod, 0u);
-        add_func_call_ref64("rin_malloc", call_offset);
+        add_func_call_ref64(gen64_cxx_array_allocation_name(expr), call_offset);
     }
     emit64_push_reg(mod, RAX);
+    emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    gen64_cxx_change_current_cleanup_pointer(
+        mod, gen64_cxx_array_deallocation_name(expr), RCX, false);
     for (argument = expr->call_new_args; argument;
-         argument = argument->next, offset += element_type->size) {
+         argument = argument->next, offset += element_type->size,
+         ++initializer_count) {
         if (gen64_is_aggregate(element_type)) {
             gen64_expr(mod, argument->expr);
             emit64_push_reg(mod, RAX);
@@ -5937,6 +5975,39 @@ static void gen64_cxx_init_array(Module* mod, Expr* expr) {
         }
         emit64_store_typed(mod, RCX, offset, RAX, element_type);
     }
+    if (expr_eval_integer_constant(expr->call_new_count, &element_count) &&
+        element_count > (int64_t)initializer_count) {
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        emit64_add_reg_imm(mod, RCX, (uint32_t)offset);
+        emit64_mov_reg_imm64(
+            mod, RDX,
+            (uint64_t)element_count - (uint64_t)initializer_count);
+        zero_loop = new_label64();
+        zero_done = new_label64();
+        emit64_cmp_reg_imm(mod, RDX, 0);
+        emit64_jcc_label(mod, CC64_E, zero_done);
+        emit64_label(mod, zero_loop);
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        int byte_offset = 0;
+        for (; byte_offset + 8 <= element_type->size; byte_offset += 8) {
+            emit64_mov_mem_reg(mod, RCX, byte_offset, RAX);
+        }
+        if (byte_offset + 4 <= element_type->size) {
+            emit64_store_typed(mod, RCX, byte_offset, RAX, type_uint);
+            byte_offset += 4;
+        }
+        for (; byte_offset < element_type->size; ++byte_offset) {
+            emit64_store_typed(mod, RCX, byte_offset, RAX, type_uchar);
+        }
+        emit64_add_reg_imm(mod, RCX, (uint32_t)element_type->size);
+        emit64_sub_reg_imm(mod, RDX, 1);
+        emit64_cmp_reg_imm(mod, RDX, 0);
+        emit64_jcc_label(mod, CC64_NE, zero_loop);
+        emit64_label(mod, zero_done);
+    }
+    emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    gen64_cxx_change_current_cleanup_pointer(
+        mod, gen64_cxx_array_deallocation_name(expr), RCX, true);
     emit64_pop_reg(mod, RAX);
 }
 

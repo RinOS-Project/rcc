@@ -27371,6 +27371,10 @@ static Type* sema_expr(Expr* expr) {
                     (expr->call_new_is_array && expr->call_new_args &&
                      cls && object_type &&
                      object_type->kind == TYPE_STRUCT) ||
+                    (expr->call_new_is_array && expr->call_new_args &&
+                     !cls && expr->call_args &&
+                     !expr->call_args->next && object_type &&
+                     type_is_scalar(object_type)) ||
                     (expr->call_new_is_array &&
                      !expr->call_new_args && expr->call_args &&
                      object_type &&

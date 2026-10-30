@@ -10172,6 +10172,38 @@ static const char* gen_cxx_array_allocation_name(const Expr* expr) {
         ? decl_link_name((Decl*)allocation) : "rin_malloc";
 }
 
+static const char* gen_cxx_array_deallocation_name(const Expr* expr) {
+    return expr && expr->call_new_deallocation_function &&
+            expr->call_new_deallocation_function->link_name
+        ? decl_link_name(expr->call_new_deallocation_function) : "rin_free";
+}
+
+static void gen_cxx_change_current_cleanup_pointer32(
+    Module* mod, const char* callback_name, int object_reg,
+    bool unregister) {
+    emit_push_reg(mod, EAX);
+    emit_push_reg(mod, ECX);
+    emit_push_reg(mod, EDX);
+    emit_mov_reg_reg(mod, EAX, object_reg);
+    emit_push_reg(mod, EAX);
+    gen_symbol_address(mod, callback_name, 0u);
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref(
+            unregister
+                ? "rin_cpp_exception_unregister_current_cleanup"
+                : "rin_cpp_exception_register_current_cleanup",
+            call_offset);
+    }
+    emit_add_reg_imm(mod, ESP, 8);
+    emit_pop_reg(mod, EDX);
+    emit_pop_reg(mod, ECX);
+    emit_pop_reg(mod, EAX);
+}
+
 /* Allocate a non-trivial array with a target-width element-count cookie.
  * The returned pointer addresses the first element; the allocator pointer is
  * the cookie address and is therefore the value passed to rin_free. */
@@ -10392,6 +10424,10 @@ static void gen_cxx_init_array32(Module* mod, Expr* expr) {
     Type* element_type = expr ? expr->call_new_type : NULL;
     ExprList* argument;
     int offset = 0;
+    int64_t element_count = 0;
+    size_t initializer_count = 0u;
+    int zero_loop;
+    int zero_done;
 
     if (!element_type || element_type->size <= 0 ||
         !expr || !expr->call_new_count || !expr->call_args) {
@@ -10411,12 +10447,16 @@ static void gen_cxx_init_array32(Module* mod, Expr* expr) {
     {
         uint32_t call_offset = code_offset(mod);
         emit_dword(mod, 0u);
-        add_func_call_ref("rin_malloc", call_offset);
+        add_func_call_ref(gen_cxx_array_allocation_name(expr), call_offset);
     }
     emit_add_reg_imm(mod, ESP, 4);
     emit_push_reg(mod, EAX);
+    emit_mov_reg_mem(mod, ECX, ESP, 0);
+    gen_cxx_change_current_cleanup_pointer32(
+        mod, gen_cxx_array_deallocation_name(expr), ECX, false);
     for (argument = expr->call_new_args; argument;
-         argument = argument->next, offset += element_type->size) {
+         argument = argument->next, offset += element_type->size,
+         ++initializer_count) {
         if (gen_aggregate_type32(element_type)) {
             gen_expr(mod, argument->expr);
             emit_push_reg(mod, EAX);
@@ -10436,6 +10476,36 @@ static void gen_cxx_init_array32(Module* mod, Expr* expr) {
         }
         emit_store_scalar32(mod, ECX, offset, element_type);
     }
+    if (expr_eval_integer_constant(expr->call_new_count, &element_count) &&
+        element_count > (int64_t)initializer_count) {
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        emit_add_reg_imm(mod, ECX, (uint32_t)offset);
+        emit_mov_reg_imm(mod, EDX,
+                         (uint32_t)(element_count -
+                                    (int64_t)initializer_count));
+        zero_loop = new_label();
+        zero_done = new_label();
+        emit_cmp_reg_imm(mod, EDX, 0);
+        emit_jcc_label(mod, CC_E, zero_done);
+        emit_label(mod, zero_loop);
+        emit_mov_reg_imm(mod, EAX, 0u);
+        for (int byte_offset = 0; byte_offset + 4 <= element_type->size;
+             byte_offset += 4) {
+            emit_mov_mem_reg(mod, ECX, byte_offset, EAX);
+        }
+        for (int byte_offset = (element_type->size / 4) * 4;
+             byte_offset < element_type->size; ++byte_offset) {
+            emit_mov_mem_reg8(mod, ECX, byte_offset, EAX);
+        }
+        emit_add_reg_imm(mod, ECX, (uint32_t)element_type->size);
+        emit_sub_reg_imm(mod, EDX, 1);
+        emit_cmp_reg_imm(mod, EDX, 0);
+        emit_jcc_label(mod, CC_NE, zero_loop);
+        emit_label(mod, zero_done);
+    }
+    emit_mov_reg_mem(mod, ECX, ESP, 0);
+    gen_cxx_change_current_cleanup_pointer32(
+        mod, gen_cxx_array_deallocation_name(expr), ECX, true);
     emit_pop_reg(mod, EAX);
 }
 
