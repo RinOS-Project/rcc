@@ -11962,6 +11962,12 @@ remains a separate open item.
         binding constexpr calls. GCC C++20 and the full
         `test-cxx-function-template-overloads` gate pass on i686/AMD64 with
         runtime execution.
+  - [x] Clone and substitute function-template parameter default arguments
+        with the active specialization's per-parameter pack counts, so
+        `sizeof...(Pack)` is concrete before semantic analysis. Cover empty and
+        nonempty type and non-type packs; strict GCC C++20 and the full
+        `test-cxx-function-template-overloads` gate pass on both target widths
+        with runtime execution.
 - [x] Keep `test-cxx-function-template-explicit-specialization` in
       `CXX_REGRESSION_TARGETS`; verify it is reached by `test-cxx` and the
       Linux production `test-ci` workflow, and that native-Windows `test-cxx`

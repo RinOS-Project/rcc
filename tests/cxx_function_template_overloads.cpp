@@ -1035,6 +1035,18 @@ constexpr int constexpr_explicit_value_pack_count() {
     return static_cast<int>(sizeof...(Values));
 }
 
+template<typename... Types>
+constexpr int constexpr_type_pack_default_argument(
+    int count = static_cast<int>(sizeof...(Types))) {
+    return count;
+}
+
+template<int... Values>
+constexpr int constexpr_value_pack_default_argument(
+    int count = static_cast<int>(sizeof...(Values))) {
+    return count;
+}
+
 template<typename... First, typename... Second>
 constexpr int constexpr_split_type_pack_count(First..., Second...) {
     return static_cast<int>(sizeof...(First) * 10 + sizeof...(Second));
@@ -1054,6 +1066,10 @@ static_assert(constexpr_explicit_type_pack_count() == 0);
 static_assert(constexpr_explicit_type_pack_count<int, char>(1, 'x') == 2);
 static_assert(constexpr_explicit_value_pack_count<>() == 0);
 static_assert(constexpr_explicit_value_pack_count<1, 2, 3>() == 3);
+static_assert(constexpr_type_pack_default_argument<>() == 0);
+static_assert(constexpr_type_pack_default_argument<int, char>() == 2);
+static_assert(constexpr_value_pack_default_argument<>() == 0);
+static_assert(constexpr_value_pack_default_argument<1, 2, 3>() == 3);
 static_assert(constexpr_split_type_pack_count<int, char>(1, 'x') == 20);
 static_assert(constexpr_defaulted_pack_overload<int>(1) == 200);
 static_assert(constexpr_defaulted_pack_overload<int, char>(1, 'x') == 201);

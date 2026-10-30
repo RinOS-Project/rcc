@@ -13959,7 +13959,9 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             Decl* parameter = decl_param(item->decl->name, parameter_type,
                                          item->decl->param_index,
                                          item->decl->loc);
-            parameter->param_default = item->decl->param_default;
+            parameter->param_default = template_clone_expr(
+                tmpl, item->decl->param_default, args, arg_count,
+                value_args, value_present);
             decllist_append(&parameters, parameter);
             TypeParam* type_parameter = ast_arena_alloc(sizeof(*type_parameter));
             type_parameter->name = parameter->name;
