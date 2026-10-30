@@ -12049,6 +12049,10 @@ remains a separate open item.
         TLS `long long` pairs. Verify `TLSOFF32S` relocations,
         `DW_OP_form_tls_address`, initialized TLS values, and `&`/`|`/`^` in
         legacy and verified C objects.
+  - [x] Extend signed i686 bitwise expressions to escaped automatic volatile
+        `long long` pairs. Resolve both frame offsets, emit no global
+        relocations, and verify frame-backed `&`/`|`/`^` values in legacy and
+        verified C objects. Focused and full DWARF gates pass.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 

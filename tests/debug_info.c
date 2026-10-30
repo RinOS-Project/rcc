@@ -41,6 +41,10 @@ volatile long long
 volatile long long
     debug_inline_nonconstant_signed_long_long_volatile_bitwise_rhs =
         -0x0123456789abcdf0ll;
+volatile long long*
+    debug_inline_nonconstant_signed_long_long_volatile_local_lhs_escape;
+volatile long long*
+    debug_inline_nonconstant_signed_long_long_volatile_local_rhs_escape;
 _Thread_local _Atomic long long
     debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_lhs =
         -0x7edcba9876543211ll;
@@ -766,6 +770,60 @@ long long debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_entry(
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_lhs ^
         debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_rhs);
+}
+
+long long debug_inline_nonconstant_signed_long_long_volatile_local_bitand_entry(
+    long long left_value, long long right_value)
+{
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitand_lhs =
+            left_value;
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitand_rhs =
+            right_value;
+    debug_inline_nonconstant_signed_long_long_volatile_local_lhs_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_bitand_lhs;
+    debug_inline_nonconstant_signed_long_long_volatile_local_rhs_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_bitand_rhs;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitand_lhs &
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitand_rhs);
+}
+
+long long debug_inline_nonconstant_signed_long_long_volatile_local_bitor_entry(
+    long long left_value, long long right_value)
+{
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitor_lhs =
+            left_value;
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitor_rhs =
+            right_value;
+    debug_inline_nonconstant_signed_long_long_volatile_local_lhs_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_bitor_lhs;
+    debug_inline_nonconstant_signed_long_long_volatile_local_rhs_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_bitor_rhs;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitor_lhs |
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitor_rhs);
+}
+
+long long debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_entry(
+    long long left_value, long long right_value)
+{
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_lhs =
+            left_value;
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_rhs =
+            right_value;
+    debug_inline_nonconstant_signed_long_long_volatile_local_lhs_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_lhs;
+    debug_inline_nonconstant_signed_long_long_volatile_local_rhs_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_rhs;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_lhs ^
+        debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_rhs);
 }
 
 long long debug_inline_nonconstant_signed_long_long_atomic_constant_divide_entry(
