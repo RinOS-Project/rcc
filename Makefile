@@ -4638,6 +4638,10 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(call CXX_POSIX_ENTRY_TEST,cxx-dependent-pointer-constexpr-member-call,cxx_dependent_pointer_constexpr_member_call.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host tests/cxx_dependent_pointer_constexpr_member_call.cpp
 	$(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-function-signature-wide-pack)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-class-function-signature-wide-pack,cxx_class_function_signature_wide_pack.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-class-function-signature-wide-pack/gcc-host tests/cxx_class_function_signature_wide_pack.cpp
+	$(TEST_OUT)/cxx-class-function-signature-wide-pack/gcc-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-function-template-overloads/x86.s \
 		tests/cxx_function_template_overloads.cpp
@@ -6134,6 +6138,10 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-pointer-constexpr-member-call,cxx_dependent_pointer_constexpr_member_call.cpp,-DRCC_TEST_WINDOWS_HOST_ASSEMBLY)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host.exe tests/cxx_dependent_pointer_constexpr_member_call.cpp
 	$(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host.exe
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-function-signature-wide-pack)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-function-signature-wide-pack,cxx_class_function_signature_wide_pack.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-class-function-signature-wide-pack/gcc-host.exe tests/cxx_class_function_signature_wide_pack.cpp
+	$(TEST_OUT)/cxx-class-function-signature-wide-pack/gcc-host.exe
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-function-template-overloads/gcc-symbols.s tests/cxx_function_template_overloads.cpp
 	$(GREP) -F -q "_Z7adl_tieIiElP13AdlTiePayloadT_" $(TEST_OUT)/cxx-function-template-overloads/gcc-symbols.s

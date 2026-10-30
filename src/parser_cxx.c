@@ -25017,10 +25017,19 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
             }
             actual_suffix = actual_suffix->next;
         }
+        Type** element_arguments = cxx_allocate_zeroed_array(
+            sizeof(*element_arguments), (size_t)tmpl->param_count);
+        if (!element_arguments) {
+            rcc_fatal(
+                "class template function-pack deduction state is too large");
+            return false;
+        }
         while (actual_parameter && actual_parameter != pack_end) {
-            Type* element_arguments[32] = { NULL };
             int element_specificity = 0;
-            if (*pack_count >= 32 - pack_parameter_index ||
+            memset(element_arguments, 0,
+                   sizeof(*element_arguments) * (size_t)tmpl->param_count);
+            if (*pack_count < 0 ||
+                *pack_count > INT_MAX - pack_parameter_index - 1 ||
                 !deduce_class_specialization_type(
                     tmpl, pack_pattern->type, actual_parameter->type,
                     element_arguments, &element_specificity, NULL) ||
@@ -27763,6 +27772,46 @@ static bool cxx_grow_dependent_class_argument_state(
     return true;
 }
 
+static bool cxx_accumulate_function_parameter_budget(
+    const Type* type, size_t* budget) {
+    if (!type) return true;
+    if (!budget) return false;
+    if (type->kind == TYPE_FUNC) {
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (*budget == SIZE_MAX) return false;
+            ++*budget;
+            if (!cxx_accumulate_function_parameter_budget(
+                    parameter->type, budget)) {
+                return false;
+            }
+        }
+        if (!cxx_accumulate_function_parameter_budget(
+                type->ret_type, budget)) {
+            return false;
+        }
+    } else if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+                type->kind == TYPE_VECTOR) &&
+               !cxx_accumulate_function_parameter_budget(
+                   type->base, budget)) {
+        return false;
+    }
+    if (type->cxx_template_arg_count > 0 && type->cxx_template_args) {
+        for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+            if (!cxx_accumulate_function_parameter_budget(
+                    type->cxx_template_args[index], budget)) {
+                return false;
+            }
+        }
+    }
+    if (type->cxx_is_member_pointer &&
+        !cxx_accumulate_function_parameter_budget(
+            type->cxx_member_pointer_owner, budget)) {
+        return false;
+    }
+    return true;
+}
+
 static Type* parse_class_template_specialization_with_owner_type(
     CxxTemplate* tmpl, CxxClass* owner_class, Type* owner_type,
     SourceLoc loc) {
@@ -28179,6 +28228,8 @@ static Type* parse_class_template_specialization_with_owner_type(
         return type_int;
     }
     size_t candidate_capacity = argument_capacity;
+    size_t function_type_parameter_budget = 0u;
+    bool has_function_type_pack_candidate = false;
     if (candidate_capacity < (size_t)tmpl->param_count) {
         candidate_capacity = (size_t)tmpl->param_count;
     }
@@ -28195,6 +28246,39 @@ static Type* parse_class_template_specialization_with_owner_type(
             candidate_capacity =
                 (size_t)specialization->specialization_arg_count;
         }
+        if (specialization->param_count > 0) {
+            for (int pattern_index = 0;
+                 pattern_index < specialization->specialization_arg_count;
+                 ++pattern_index) {
+                Type* pattern = specialization->specialization_args
+                    ? specialization->specialization_args[pattern_index]
+                    : NULL;
+                if (cxx_class_specialization_has_function_type_pack(
+                        specialization, pattern)) {
+                    has_function_type_pack_candidate = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (has_function_type_pack_candidate) {
+        for (int argument_index = 0; argument_index < argument_count;
+             ++argument_index) {
+            if (!cxx_accumulate_function_parameter_budget(
+                    arguments[argument_index],
+                    &function_type_parameter_budget)) {
+                rcc_error(loc,
+                          "class template function-pack type is too complex");
+                return type_int;
+            }
+        }
+        if (function_type_parameter_budget >
+            SIZE_MAX - candidate_capacity) {
+            rcc_error(loc,
+                      "class template function-pack deduction state is too large");
+            return type_int;
+        }
+        candidate_capacity += function_type_parameter_budget;
     }
     CxxTemplate* selected = NULL;
     Type** selected_arguments = cxx_allocate_zeroed_array(
