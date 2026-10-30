@@ -3,6 +3,7 @@
 #endif
 
 #include <complex.h>
+#include <fenv.h>
 
 typedef float complex RccComplexFloat;
 typedef double complex RccComplexDouble;
@@ -649,6 +650,70 @@ int rcc_complex_standard_api_all(void) {
         RccComplexFloat value_float;
         RccComplexDouble value_double;
         RccComplexLongDouble value_long_double;
+        int endpoint, side;
+
+        for (endpoint = 0; endpoint != 2; ++endpoint) {
+            float endpoint_float = endpoint ? -1.0f : 1.0f;
+            double endpoint_double = endpoint ? -1.0 : 1.0;
+            long double endpoint_long_double = endpoint ? -1.0L : 1.0L;
+            for (side = 0; side != 2; ++side) {
+                float zero_float = side ? -0.0f : 0.0f;
+                double zero_double = side ? -0.0 : 0.0;
+                long double zero_long_double = side ? -0.0L : 0.0L;
+
+                if (feclearexcept(FE_ALL_EXCEPT) != 0) return __LINE__;
+                value_float = catanhf(CMPLXF(endpoint_float, zero_float));
+                if (!__builtin_isinf(__real__ value_float) ||
+                    !!__builtin_signbit(__real__ value_float) != endpoint ||
+                    __imag__ value_float != 0.0f ||
+                    !!__builtin_signbit(__imag__ value_float) != side ||
+                    !(fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) ||
+                    (fetestexcept(FE_INVALID) & FE_INVALID)) return __LINE__;
+                if (feclearexcept(FE_ALL_EXCEPT) != 0) return __LINE__;
+                value_double = catanh(CMPLX(endpoint_double, zero_double));
+                if (!__builtin_isinf(__real__ value_double) ||
+                    !!__builtin_signbit(__real__ value_double) != endpoint ||
+                    __imag__ value_double != 0.0 ||
+                    !!__builtin_signbit(__imag__ value_double) != side ||
+                    !(fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) ||
+                    (fetestexcept(FE_INVALID) & FE_INVALID)) return __LINE__;
+                if (feclearexcept(FE_ALL_EXCEPT) != 0) return __LINE__;
+                value_long_double = catanhl(
+                    CMPLXL(endpoint_long_double, zero_long_double));
+                if (!__builtin_isinf(__real__ value_long_double) ||
+                    !!__builtin_signbit(__real__ value_long_double) != endpoint ||
+                    __imag__ value_long_double != 0.0L ||
+                    !!__builtin_signbit(__imag__ value_long_double) != side ||
+                    !(fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) ||
+                    (fetestexcept(FE_INVALID) & FE_INVALID)) return __LINE__;
+
+                if (feclearexcept(FE_ALL_EXCEPT) != 0) return __LINE__;
+                value_float = catanf(CMPLXF(zero_float, endpoint_float));
+                if (__real__ value_float != 0.0f ||
+                    !!__builtin_signbit(__real__ value_float) != side ||
+                    !__builtin_isinf(__imag__ value_float) ||
+                    !!__builtin_signbit(__imag__ value_float) != endpoint ||
+                    !(fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) ||
+                    (fetestexcept(FE_INVALID) & FE_INVALID)) return __LINE__;
+                if (feclearexcept(FE_ALL_EXCEPT) != 0) return __LINE__;
+                value_double = catan(CMPLX(zero_double, endpoint_double));
+                if (__real__ value_double != 0.0 ||
+                    !!__builtin_signbit(__real__ value_double) != side ||
+                    !__builtin_isinf(__imag__ value_double) ||
+                    !!__builtin_signbit(__imag__ value_double) != endpoint ||
+                    !(fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) ||
+                    (fetestexcept(FE_INVALID) & FE_INVALID)) return __LINE__;
+                if (feclearexcept(FE_ALL_EXCEPT) != 0) return __LINE__;
+                value_long_double = catanl(
+                    CMPLXL(zero_long_double, endpoint_long_double));
+                if (__real__ value_long_double != 0.0L ||
+                    !!__builtin_signbit(__real__ value_long_double) != side ||
+                    !__builtin_isinf(__imag__ value_long_double) ||
+                    !!__builtin_signbit(__imag__ value_long_double) != endpoint ||
+                    !(fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) ||
+                    (fetestexcept(FE_INVALID) & FE_INVALID)) return __LINE__;
+            }
+        }
 
         value_float = catanf(
             CMPLXF(__builtin_nanf(""), __builtin_huge_valf()));

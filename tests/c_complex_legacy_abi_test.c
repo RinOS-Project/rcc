@@ -1036,6 +1036,76 @@ static void check_complex_branch_cuts(void) {
         RccLegacyComplexFloat value_float;
         RccLegacyComplexDouble value_double;
         RccLegacyComplexBinary64Pair value_long_double;
+        int endpoint, side;
+
+        for (endpoint = 0; endpoint != 2; ++endpoint) {
+            float endpoint_float = endpoint ? -1.0f : 1.0f;
+            double endpoint_double = endpoint ? -1.0 : 1.0;
+            for (side = 0; side != 2; ++side) {
+                float zero_float = side ? -0.0f : 0.0f;
+                double zero_double = side ? -0.0 : 0.0;
+
+                assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+                value_float = rcc_legacy_complex_api_catanhf(
+                    __builtin_complex(endpoint_float, zero_float));
+                assert(isinf(__real__ value_float) &&
+                       !!__builtin_signbit(__real__ value_float) == endpoint &&
+                       __imag__ value_float == 0.0f &&
+                       !!__builtin_signbit(__imag__ value_float) == side);
+                assert((fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) != 0);
+                assert((fetestexcept(FE_INVALID) & FE_INVALID) == 0);
+
+                assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+                value_double = rcc_legacy_complex_api_catanh(
+                    __builtin_complex(endpoint_double, zero_double));
+                assert(isinf(__real__ value_double) &&
+                       !!__builtin_signbit(__real__ value_double) == endpoint &&
+                       __imag__ value_double == 0.0 &&
+                       !!__builtin_signbit(__imag__ value_double) == side);
+                assert((fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) != 0);
+                assert((fetestexcept(FE_INVALID) & FE_INVALID) == 0);
+
+                assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+                value_long_double = rcc_legacy_complex_api_catanhl(
+                    (ComplexBinary64Pair){endpoint_double, zero_double});
+                assert(isinf(value_long_double.real) &&
+                       !!__builtin_signbit(value_long_double.real) == endpoint &&
+                       value_long_double.imaginary == 0.0 &&
+                       !!__builtin_signbit(value_long_double.imaginary) == side);
+                assert((fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) != 0);
+                assert((fetestexcept(FE_INVALID) & FE_INVALID) == 0);
+
+                assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+                value_float = rcc_legacy_complex_api_catanf(
+                    __builtin_complex(zero_float, endpoint_float));
+                assert(__real__ value_float == 0.0f &&
+                       !!__builtin_signbit(__real__ value_float) == side &&
+                       isinf(__imag__ value_float) &&
+                       !!__builtin_signbit(__imag__ value_float) == endpoint);
+                assert((fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) != 0);
+                assert((fetestexcept(FE_INVALID) & FE_INVALID) == 0);
+
+                assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+                value_double = rcc_legacy_complex_api_catan(
+                    __builtin_complex(zero_double, endpoint_double));
+                assert(__real__ value_double == 0.0 &&
+                       !!__builtin_signbit(__real__ value_double) == side &&
+                       isinf(__imag__ value_double) &&
+                       !!__builtin_signbit(__imag__ value_double) == endpoint);
+                assert((fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) != 0);
+                assert((fetestexcept(FE_INVALID) & FE_INVALID) == 0);
+
+                assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+                value_long_double = rcc_legacy_complex_api_catanl(
+                    (ComplexBinary64Pair){zero_double, endpoint_double});
+                assert(value_long_double.real == 0.0 &&
+                       !!__builtin_signbit(value_long_double.real) == side &&
+                       isinf(value_long_double.imaginary) &&
+                       !!__builtin_signbit(value_long_double.imaginary) == endpoint);
+                assert((fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) != 0);
+                assert((fetestexcept(FE_INVALID) & FE_INVALID) == 0);
+            }
+        }
 
         value_float = rcc_legacy_complex_api_catanf(
             __builtin_complex(__builtin_nanf(""), __builtin_huge_valf()));
