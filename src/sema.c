@@ -26936,6 +26936,23 @@ static Type* sema_expr(Expr* expr) {
                     expr->call_func->ident_name, expr->call_func->loc);
                 if (!ordinary_lookup || ordinary_lookup->kind == SYM_FUNC) {
                     Symbol* adl_symbol;
+                    Decl* immediate_candidate =
+                        ordinary_lookup && ordinary_lookup->kind == SYM_FUNC
+                            ? ordinary_lookup->decl : NULL;
+                    bool arguments_are_immediate =
+                        immediate_candidate != NULL;
+                    bool saved_immediate_context =
+                        current_cxx_immediate_invocation_context;
+                    for (Decl* candidate = immediate_candidate; candidate;
+                         candidate = candidate->func_overload_next) {
+                        if (!candidate->func_is_consteval) {
+                            arguments_are_immediate = false;
+                            break;
+                        }
+                    }
+                    if (arguments_are_immediate) {
+                        current_cxx_immediate_invocation_context = true;
+                    }
                     for (argument = expr->call_args; argument;
                          argument = argument->next) {
                         if (!sema_cxx_is_function_overload_set(
@@ -26943,6 +26960,8 @@ static Type* sema_expr(Expr* expr) {
                             sema_expr(argument->expr);
                         }
                     }
+                    current_cxx_immediate_invocation_context =
+                        saved_immediate_context;
                     adl_symbol = sema_cxx_adl_lookup(
                         expr->call_func->ident_name, expr->call_args,
                         ordinary_lookup);
@@ -27091,6 +27110,11 @@ static Type* sema_expr(Expr* expr) {
                 : (ft && ft->kind == TYPE_FUNC &&
                    ft->function_is_noexcept);
 
+            bool saved_argument_immediate_context =
+                current_cxx_immediate_invocation_context;
+            if (call_declaration && call_declaration->func_is_consteval) {
+                current_cxx_immediate_invocation_context = true;
+            }
             parameter = ft->params;
             argument = expr->call_args;
             while (argument) {
@@ -27163,6 +27187,8 @@ static Type* sema_expr(Expr* expr) {
                               "too few arguments to function call");
                 }
             }
+            current_cxx_immediate_invocation_context =
+                saved_argument_immediate_context;
 
             sema_cxx_prepare_explicit_destructor_cleanup(
                 expr, call_declaration);

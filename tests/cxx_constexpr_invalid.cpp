@@ -18,6 +18,14 @@ consteval int immediate_address_target() {
 
 auto escaped_immediate_address = &immediate_address_target;
 
+int consume_immediate_address(int (*function)()) {
+    return function();
+}
+
+int invalid_runtime_immediate_pointer_argument() {
+    return consume_immediate_address(&immediate_address_target);
+}
+
 constexpr int invalid_constexpr_heap_read() {
     int* value = new int;
     return *value;

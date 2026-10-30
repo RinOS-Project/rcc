@@ -96,6 +96,11 @@ consteval int call_immediate_through_dereferenced_pointer(int value) {
     return (*pointer)(value);
 }
 
+consteval int call_immediate_pointer_parameter(int (*function)(int),
+                                              int value) {
+    return function(value);
+}
+
 constexpr float local_float(int value) {
     float result = static_cast<float>(value);
     result += 0.5f;
@@ -205,6 +210,8 @@ constexpr int constexpr_indirect_consteval =
     call_immediate_through_pointer(41);
 constexpr int constexpr_dereferenced_indirect_consteval =
     call_immediate_through_dereferenced_pointer(41);
+constexpr int constexpr_parameter_indirect_consteval =
+    call_immediate_pointer_parameter(&increment_immediate, 41);
 constexpr float constexpr_local_float = local_float(2);
 constexpr double constexpr_loop_float = loop_float(4);
 constexpr int constexpr_dynamic = dynamic_value();
@@ -253,6 +260,7 @@ static_assert(constexpr_nested_consteval == 42);
 static_assert(constexpr_address_consteval == 42);
 static_assert(constexpr_indirect_consteval == 42);
 static_assert(constexpr_dereferenced_indirect_consteval == 42);
+static_assert(constexpr_parameter_indirect_consteval == 42);
 static_assert(!constexpr_conditional_unsigned_comparison);
 static_assert(!constexpr_ull_max_less_than_one);
 static_assert(constexpr_ull_max_exceeds_signed_max);
@@ -277,6 +285,7 @@ int main(void) {
                    constexpr_address_consteval == 42 &&
                    constexpr_indirect_consteval == 42 &&
                    constexpr_dereferenced_indirect_consteval == 42 &&
+                   constexpr_parameter_indirect_consteval == 42 &&
                    constexpr_local_float == 5.0f &&
                    constexpr_loop_float == 2.0 &&
                    constexpr_dynamic == 42 &&
