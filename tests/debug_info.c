@@ -1114,6 +1114,34 @@ debug_inline_nonconstant_signed_long_long_atomic_local_constant_remainder_entry(
         -7ll);
 }
 
+long long
+debug_inline_nonconstant_signed_long_long_atomic_local_high_constant_divide_entry(
+    long long dividend)
+{
+    _Atomic long long
+        debug_inline_nonconstant_signed_long_long_atomic_local_high_constant_dividend =
+            dividend;
+    debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_high_constant_dividend;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_local_high_constant_dividend /
+        -9223372036854775807ll);
+}
+
+long long
+debug_inline_nonconstant_signed_long_long_atomic_local_high_constant_remainder_entry(
+    long long dividend)
+{
+    _Atomic long long
+        debug_inline_nonconstant_signed_long_long_atomic_local_high_constant_remainder_dividend =
+            dividend;
+    debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape =
+        &debug_inline_nonconstant_signed_long_long_atomic_local_high_constant_remainder_dividend;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_local_high_constant_remainder_dividend %
+        -9223372036854775807ll);
+}
+
 long long debug_inline_nonconstant_signed_long_long_atomic_constant_divide_entry(
     void)
 {

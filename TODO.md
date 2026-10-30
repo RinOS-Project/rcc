@@ -12496,3 +12496,11 @@ remains a separate open item.
         allocator metadata and test buffers. Final Windows runs measured
         63-76/4-6 ms for build+write/read. Probe counts and serialized order are
         asserted; timings are reported without flaky limits.
+
+## RCC continuation (2026-10-31, i686 signed atomic-local high constant divmod DWARF)
+
+- [x] Extend signed i686 constant-divisor division/remainder DWARF for escaped
+      automatic `_Atomic long long` locals to the high negative divisor
+      `-9223372036854775807`. Evaluate signed boundary inputs through frame
+      locations with no global relocations in legacy and verified C objects;
+      `test-debug-info-inline-expression` and the full `test-debug-info` pass.
