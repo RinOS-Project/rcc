@@ -46021,7 +46021,7 @@ static Type* parse_cxx_type_spec(void) {
             expect(TOK_LT, "template-template argument list");
             if (!check(TOK_GT)) {
                 do {
-                    if (nested_count >= 32 || !parameter ||
+                    if (!parameter ||
                         !parameter->template_signature ||
                         nested_count >=
                             parameter->template_signature->param_count) {

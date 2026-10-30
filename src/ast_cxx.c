@@ -9788,10 +9788,12 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         Type* template_argument;
         CxxTemplate* actual_template;
         TemplateParam* outer_parameter = NULL;
-        Type* nested_arguments[32] = { NULL };
-        int64_t nested_values[32] = { 0 };
-        bool nested_value_present[32] = { false };
+        Type** nested_arguments;
+        int64_t* nested_values;
+        bool* nested_value_present;
         int nested_count = type->cxx_template_arg_count;
+        size_t nested_capacity = nested_count > 0
+            ? (size_t)nested_count : 1u;
         if (type->cxx_template_param_index >= arg_count || !args)
             return type;
         template_argument = args[type->cxx_template_param_index];
@@ -9826,11 +9828,33 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                       type->cxx_template_param_index);
             return NULL;
         }
-        if (nested_count >
-            (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
+        if (nested_count < 0 ||
+            nested_capacity > SIZE_MAX / sizeof(*nested_arguments) ||
+            nested_capacity > SIZE_MAX / sizeof(*nested_values) ||
+            nested_capacity > SIZE_MAX / sizeof(*nested_value_present)) {
             rcc_error((SourceLoc){"<template>", 0, 0},
-                      "template-template argument list exceeds the supported "
-                      "limit");
+                      "template-template argument substitution state is too large");
+            return NULL;
+        }
+        nested_arguments = ast_arena_alloc(
+            sizeof(*nested_arguments) * nested_capacity);
+        nested_values = ast_arena_alloc(
+            sizeof(*nested_values) * nested_capacity);
+        nested_value_present = ast_arena_alloc(
+            sizeof(*nested_value_present) * nested_capacity);
+        if (!nested_arguments || !nested_values || !nested_value_present) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "template-template argument substitution state allocation failed");
+            return NULL;
+        }
+        memset(nested_arguments, 0,
+               sizeof(*nested_arguments) * nested_capacity);
+        memset(nested_values, 0, sizeof(*nested_values) * nested_capacity);
+        memset(nested_value_present, 0,
+               sizeof(*nested_value_present) * nested_capacity);
+        if (nested_count > 0 && !type->cxx_template_args) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "template-template argument types are missing");
             return NULL;
         }
         for (int nested_index = 0; nested_index < nested_count;
