@@ -2744,6 +2744,11 @@
       for the wide source, count, and addend, and evaluate boundary values in
       i686 legacy and verified `-g -O1` objects with
       `test-debug-info-inline-expression`.
+  - [x] Recursively compose those runtime shifts through bounded i686 64-bit
+      bitwise-OR inline-parameter trees. Preserve the wide source, count, and
+      right-hand frame slots and evaluate each word for the same shift-count
+      boundaries in legacy and verified `-g -O1` objects through
+      `test-debug-info-inline-expression`.
   - [ ] Other unsigned operands wider than the target address width (notably
         i686 `unsigned long long`) in computed expressions beyond the bounded
         pairwise add/subtract/multiply/bitwise operations above, arbitrary
@@ -12311,12 +12316,15 @@ remains a separate open item.
 
 ## RCC scalability follow-up (2026-10-31, direct-image relocation lookup)
 
-- [ ] `emit_rin.c`／`emit_drv.c`はrelocationごとに`module_resolve_image_relocation()`
-      を呼び、同関数は対象relocationを全件走査してからsymbol配列も線形検索する。
-      TLS解決も同様に全relocation／symbolを再走査し、relative relocationのpatch
-      もsymbol配列を毎回検索するため、直接RIN／NDRV出力はrelocation数R・symbol数Sに
-      対して最大O(R² + R×S)へ増える。大規模imageのcompile/package時間とメモリ負荷が
-      増大する。**受入:** section＋offsetで一意性・重複を保つrelocation indexと
-      name lookup indexをemission中に構築し、各relocationを償却O(1)またはO(log N)
-      で解決する。unresolved／重複relocationの診断と出力byte列を維持し、大小の
-      relocation／symbol数でlookup回数・出力時間を比較する。
+- [ ] `module_add_symbol()`は登録ごとにsymbol配列を線形走査し、
+      `module_set_symbol_source()`／`module_set_symbol_size()`も更新対象を線形検索する。
+      さらに`emit_rin.c`／`emit_drv.c`はrelocationごとに
+      `module_resolve_image_relocation()`を呼び、同関数は対象relocationを全件走査して
+      からsymbol配列も検索する。TLS解決も全relocation／symbolを再走査し、relative
+      relocationのpatchもsymbol配列を毎回検索するため、大規模object/imageではsymbol
+      登録O(S²)に加え、直接RIN／NDRV出力がrelocation数R・symbol数Sに対して最大
+      O(R² + R×S)へ増える。compile/package時間とメモリ負荷が増大する。
+      **受入:** module symbol名とsource-section＋offsetを索引化し、登録／更新と各
+      relocation解決を償却O(1)またはO(log N)にする。重複・未定義symbol／relocationの
+      診断、安定した出力順序・byte列を維持し、大小のobject/imageで探索回数・処理時間を
+      比較する。
