@@ -5699,6 +5699,7 @@ static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     const ExprList* placement_argument = expr && expr->call_args
         ? expr->call_args->next : NULL;
+    static const int argument_registers[] = {RSI, RDX, RCX, R8, R9};
     int done;
     if (!object_type || object_type->size <= 0 ||
         !expr || !expr->call_new_count) {
@@ -5706,17 +5707,53 @@ static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
     }
     gen64_expr(mod, expr->call_new_count);
     if (placement_argument) {
-        emit64_sub_reg_imm(mod, RSP, 32);
-        emit64_mov_mem_reg(mod, RSP, 0, RAX); /* evaluated element count */
+        const ExprList* argument;
+        size_t placement_count = 0u;
+        size_t stack_argument_count;
+        size_t outgoing_bytes;
+        size_t local_bytes;
+        size_t frame_bytes;
+        size_t local_base;
+        size_t index;
+        for (argument = placement_argument; argument;
+             argument = argument->next) {
+            ++placement_count;
+        }
+        stack_argument_count = placement_count > 5u
+            ? placement_count - 5u : 0u;
+        outgoing_bytes = stack_argument_count * 8u;
+        local_bytes = 16u + placement_count * 8u;
+        frame_bytes = (outgoing_bytes + local_bytes + 15u) & ~(size_t)15u;
+        local_base = outgoing_bytes;
+        emit64_sub_reg_imm(mod, RSP, (uint32_t)frame_bytes);
+        emit64_mov_mem_reg(mod, RSP, (int)local_base, RAX);
         emit64_mov_reg_reg(mod, RCX, RAX);
         emit64_mov_reg_imm32(mod, RAX, (uint32_t)object_type->size);
         emit64_imul_reg_reg(mod, RAX, RCX);
         emit64_add_reg_imm(mod, RAX, 8);
-        emit64_mov_mem_reg(mod, RSP, 8, RAX); /* cookie-inclusive size */
-        gen64_expr(mod, placement_argument->expr);
-        emit64_mov_mem_reg(mod, RSP, 16, RAX);
-        emit64_mov_reg_mem(mod, RDI, RSP, 8);
-        emit64_mov_reg_mem(mod, RSI, RSP, 16);
+        emit64_mov_mem_reg(mod, RSP, (int)(local_base + 8u), RAX);
+        index = 0u;
+        for (argument = placement_argument; argument;
+             argument = argument->next, ++index) {
+            gen64_expr(mod, argument->expr);
+            emit64_mov_mem_reg(
+                mod, RSP, (int)(local_base + 16u + index * 8u), RAX);
+        }
+        emit64_mov_reg_mem(mod, RDI, RSP, (int)(local_base + 8u));
+        index = 0u;
+        for (argument = placement_argument; argument && index < 5u;
+             argument = argument->next, ++index) {
+            emit64_mov_reg_mem(
+                mod, argument_registers[index], RSP,
+                (int)(local_base + 16u + index * 8u));
+        }
+        for (; argument; argument = argument->next, ++index) {
+            emit64_mov_reg_mem(
+                mod, RAX, RSP,
+                (int)(local_base + 16u + index * 8u));
+            emit64_mov_mem_reg(
+                mod, RSP, (int)(8u * (index - 5u)), RAX);
+        }
         emit_byte(mod, 0xE8);
         {
             uint32_t call_offset = code_offset(mod);
@@ -5727,11 +5764,11 @@ static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
         done = new_label64();
         emit64_cmp_reg_imm(mod, RAX, 0);
         emit64_jcc_label(mod, CC64_E, done);
-        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        emit64_mov_reg_mem(mod, RCX, RSP, (int)local_base);
         emit64_mov_mem_reg(mod, RAX, 0, RCX);
         emit64_add_reg_imm(mod, RAX, 8);
         emit64_label(mod, done);
-        emit64_add_reg_imm(mod, RSP, 32);
+        emit64_add_reg_imm(mod, RSP, (uint32_t)frame_bytes);
         return;
     }
     emit64_sub_reg_imm(mod, RSP, 16);

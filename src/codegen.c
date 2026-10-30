@@ -10186,20 +10186,36 @@ static void gen_cxx_alloc_array_cookie32(Module* mod, Expr* expr) {
         rcc_fatal("validated C++ array allocation has incomplete metadata");
     }
     if (placement_argument) {
-        /* Keep the bound in a callee-saved register while evaluating the
-         * placement expression.  The allocator receives [size, placement]
-         * in cdecl order; the private cookie is written after the call. */
-        emit_push_reg(mod, ESI);
-        emit_push_reg(mod, EDI);
-        gen_expr(mod, placement_argument->expr);
-        emit_mov_reg_reg(mod, EDI, EAX);
+        const ExprList* argument;
+        int placement_count = 0;
+        int temporary_bytes;
+        int index;
+        for (argument = placement_argument; argument;
+             argument = argument->next) {
+            ++placement_count;
+        }
+        temporary_bytes = (placement_count + 1) * 4;
         gen_expr(mod, expr->call_new_count);
-        emit_mov_reg_reg(mod, ESI, EAX);
-        emit_mov_reg_reg(mod, EAX, ESI);
+        emit_push_reg(mod, EAX); /* Preserve the evaluated element count. */
+        for (argument = placement_argument; argument;
+             argument = argument->next) {
+            gen_expr(mod, argument->expr);
+            emit_push_reg(mod, EAX);
+        }
+        emit_sub_reg_imm(mod, ESP, temporary_bytes);
+        emit_mov_reg_mem(mod, EAX, ESP,
+                         temporary_bytes + placement_count * 4);
         emit_scale_reg(mod, EAX, (uint32_t)object_type->size);
         emit_add_reg_imm(mod, EAX, cookie_size);
-        emit_push_reg(mod, EDI);
-        emit_push_reg(mod, EAX);
+        emit_mov_mem_reg(mod, ESP, 0, EAX);
+        argument = placement_argument;
+        for (index = 0; index < placement_count; ++index,
+             argument = argument->next) {
+            emit_mov_reg_mem(
+                mod, EAX, ESP,
+                temporary_bytes + (placement_count - index - 1) * 4);
+            emit_mov_mem_reg(mod, ESP, (index + 1) * 4, EAX);
+        }
         emit_byte(mod, 0xE8);
         {
             uint32_t call_offset = code_offset(mod);
@@ -10207,15 +10223,15 @@ static void gen_cxx_alloc_array_cookie32(Module* mod, Expr* expr) {
             add_func_call_ref(
                 gen_cxx_array_allocation_name(expr), call_offset);
         }
-        emit_add_reg_imm(mod, ESP, 8);
         allocated_label = new_label();
         emit_cmp_reg_imm(mod, EAX, 0);
         emit_jcc_label(mod, CC_E, allocated_label);
-        emit_mov_mem_reg(mod, EAX, 0, ESI);
+        emit_mov_reg_mem(mod, ECX, ESP,
+                         temporary_bytes + placement_count * 4);
+        emit_mov_mem_reg(mod, EAX, 0, ECX);
         emit_add_reg_imm(mod, EAX, cookie_size);
         emit_label(mod, allocated_label);
-        emit_pop_reg(mod, EDI);
-        emit_pop_reg(mod, ESI);
+        emit_add_reg_imm(mod, ESP, temporary_bytes * 2);
         return;
     }
     gen_expr(mod, expr->call_new_count);

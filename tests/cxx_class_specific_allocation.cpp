@@ -3,6 +3,8 @@ using allocation_size_type = __SIZE_TYPE__;
 alignas(8) static unsigned char class_storage[16];
 alignas(8) static unsigned char class_array_storage[32];
 static void* const class_array_placement_tag = &class_array_storage[24];
+static void* const class_array_second_placement_tag =
+    &class_array_storage[16];
 alignas(8) static unsigned char inherited_storage[16];
 alignas(8) static unsigned char inherited_array_storage[32];
 alignas(8) static unsigned char fallback_storage[16];
@@ -11,7 +13,10 @@ static int class_deallocation_calls;
 static int class_array_allocation_calls;
 static int class_array_deallocation_calls;
 static int class_array_placement_allocation_calls;
+static int class_array_multi_placement_allocation_calls;
+static int class_array_stack_placement_allocation_calls;
 static int class_array_placement_failure_deallocation_calls;
+static int class_array_multi_placement_failure_deallocation_calls;
 static int class_array_destructor_calls;
 static int inherited_allocation_calls;
 static int inherited_deallocation_calls;
@@ -52,8 +57,15 @@ struct ClassSpecificArrayAllocation {
     }
     void* operator new[](allocation_size_type size);
     void* operator new[](allocation_size_type size, void* placement);
+    void* operator new[](
+        allocation_size_type size, void* first, void* second);
+    void* operator new[](
+        allocation_size_type size, void* first, void* second,
+        void* third, void* fourth, void* fifth, void* sixth);
     void operator delete[](void* pointer) noexcept;
     void operator delete[](void* pointer, void* placement) noexcept;
+    void operator delete[](
+        void* pointer, void* first, void* second) noexcept;
 };
 
 struct ImplicitFallbackArrayAllocation {
@@ -134,6 +146,37 @@ void* ClassSpecificArrayAllocation::operator new[](
     return &class_array_storage[0];
 }
 
+void* ClassSpecificArrayAllocation::operator new[](
+    allocation_size_type size, void* first, void* second) {
+    class_array_allocation_size_valid = size ==
+        sizeof(ClassSpecificArrayAllocation) * 2 +
+        sizeof(allocation_size_type);
+    if (first != class_array_placement_tag ||
+        second != class_array_second_placement_tag) {
+        class_array_allocation_size_valid = false;
+    }
+    ++class_array_multi_placement_allocation_calls;
+    return &class_array_storage[0];
+}
+
+void* ClassSpecificArrayAllocation::operator new[](
+    allocation_size_type size, void* first, void* second,
+    void* third, void* fourth, void* fifth, void* sixth) {
+    class_array_allocation_size_valid = size ==
+        sizeof(ClassSpecificArrayAllocation) * 2 +
+        sizeof(allocation_size_type);
+    if (first != class_array_placement_tag ||
+        second != class_array_second_placement_tag ||
+        third != &class_array_storage[0] ||
+        fourth != &class_array_storage[4] ||
+        fifth != &class_array_storage[8] ||
+        sixth != &class_array_storage[12]) {
+        class_array_allocation_size_valid = false;
+    }
+    ++class_array_stack_placement_allocation_calls;
+    return &class_array_storage[0];
+}
+
 void ClassSpecificArrayAllocation::operator delete[](void* pointer) noexcept {
     if (pointer == &class_array_storage[0]) {
         ++class_array_deallocation_calls;
@@ -145,6 +188,15 @@ void ClassSpecificArrayAllocation::operator delete[](
     if (pointer == &class_array_storage[0] &&
         placement == class_array_placement_tag) {
         ++class_array_placement_failure_deallocation_calls;
+    }
+}
+
+void ClassSpecificArrayAllocation::operator delete[](
+    void* pointer, void* first, void* second) noexcept {
+    if (pointer == &class_array_storage[0] &&
+        first == class_array_placement_tag &&
+        second == class_array_second_placement_tag) {
+        ++class_array_multi_placement_failure_deallocation_calls;
     }
 }
 
@@ -201,6 +253,31 @@ int main() {
     delete[] placed_values;
     destroyed_class_array = destroyed_class_array &&
         class_array_destructor_calls == 4;
+    ClassSpecificArrayAllocation* multi_placed_values = new (
+        class_array_placement_tag,
+        class_array_second_placement_tag) ClassSpecificArrayAllocation[2];
+    bool selected_multi_placement_class_array_operator =
+        class_array_multi_placement_allocation_calls == 1 &&
+        class_array_allocation_size_valid &&
+        multi_placed_values[0].value == 0 &&
+        multi_placed_values[1].value == 0;
+    delete[] multi_placed_values;
+    destroyed_class_array = destroyed_class_array &&
+        class_array_destructor_calls == 6;
+    ClassSpecificArrayAllocation* stack_placed_values = new (
+        class_array_placement_tag,
+        class_array_second_placement_tag,
+        &class_array_storage[0], &class_array_storage[4],
+        &class_array_storage[8], &class_array_storage[12])
+        ClassSpecificArrayAllocation[2];
+    bool selected_stack_placement_class_array_operator =
+        class_array_stack_placement_allocation_calls == 1 &&
+        class_array_allocation_size_valid &&
+        stack_placed_values[0].value == 0 &&
+        stack_placed_values[1].value == 0;
+    delete[] stack_placed_values;
+    destroyed_class_array = destroyed_class_array &&
+        class_array_destructor_calls == 8;
     ImplicitFallbackArrayAllocation* fallback_values =
         new ImplicitFallbackArrayAllocation[2];
     fallback_values[0].value = 31;
@@ -287,11 +364,18 @@ int main() {
     if (!selected_class_operators) failure_mask |= 1;
     if (class_deallocation_calls != 1) failure_mask |= 2;
     if (!selected_class_array_operators) failure_mask |= 4;
-    if (class_array_deallocation_calls != 2) failure_mask |= 8;
+    if (class_array_deallocation_calls != 4) failure_mask |= 8;
     if (!destroyed_class_array) failure_mask |= 256;
     if (!selected_placement_class_array_operator ||
         class_array_placement_failure_deallocation_calls != 0) {
         failure_mask |= 512;
+    }
+    if (!selected_multi_placement_class_array_operator ||
+        class_array_multi_placement_failure_deallocation_calls != 0) {
+        failure_mask |= 1024;
+    }
+    if (!selected_stack_placement_class_array_operator) {
+        failure_mask |= 2048;
     }
     if (!selected_implicit_fallback) failure_mask |= 16;
     if (fallback_deallocation_calls != 1) failure_mask |= 32;
