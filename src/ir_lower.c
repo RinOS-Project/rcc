@@ -449,7 +449,7 @@ static bool lower_sysv_register_aggregate(
     if (sse_units_out) *sse_units_out = 0u;
     if (g_opts.target_arch != ARCH_X64 || !lower_abi_is_aggregate(type) ||
         type->size <= 0 || type->size > 16 ||
-        type->align <= 0 || type->align > 8 || !classification_out ||
+        type->align <= 0 || type->align > 16 || !classification_out ||
         !integer_units_out || !sse_units_out ||
         !lower_sysv_classify_aggregate(type, &classification) ||
         classification.memory || classification.count < 1 ||

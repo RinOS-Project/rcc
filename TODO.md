@@ -10290,6 +10290,13 @@ remains a separate open item.
         passes legacy i686/AMD64 runtime and verified i686/AMD64 generation
         with zero fallback at `-O0`/`-O2`; WSL executes all four verified
         objects, and strict GCC C++20 syntax plus the Windows gate pass.
+  - [x] Extend aggregate-by-value placement allocation and constructor-failure
+        cleanup to aggregates with explicit 16-byte alignment. Preserve the
+        aggregate's alignment in allocation temporaries and cleanup records.
+        `test-cxx-global-allocation-operators` passes legacy i686/AMD64 runtime,
+        verified i686/AMD64 output with zero fallback at `-O0`/`-O2`, verified
+        i686 and AMD64 runtime (including explicit AMD64 `-O2` execution), and
+        strict GCC C++20 syntax on Windows and POSIX hosts.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

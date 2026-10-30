@@ -35,7 +35,7 @@ static allocation_size_type aggregate_placement_last_size;
 alignas(8) static unsigned char aggregate_placement_slot[64];
 
 struct PlacementRegisterArguments {
-    double ratio;
+    alignas(16) double ratio;
     int marker;
     int trailer;
 };
