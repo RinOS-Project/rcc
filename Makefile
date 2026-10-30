@@ -19740,6 +19740,11 @@ test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 # test-signing because this target is about section/table/ABI conformance.
 test-format-validation: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/format-validation)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/format-validation/object-builder-index \
+		tests/object_builder_index_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/format-validation/object-builder-index \
+		$(TEST_OUT)/format-validation/object-builder-index.ro
 	$(RCC_TARGET) --target i686-unknown-rinos -g -c \
 		-o $(TEST_OUT)/format-validation/debug-x86.ro \
 		tests/c_global_initializers.c

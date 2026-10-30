@@ -107,6 +107,87 @@ static bool ro_section_policy(uint16_t arch, const RoSection* section) {
  * Object File Creation
  * ═══════════════════════════════════════ */
 
+static uint32_t objfile_string_hash(const char* string) {
+    uint32_t hash = 2166136261u;
+    const unsigned char* cursor = (const unsigned char*)string;
+    while (*cursor) {
+        hash ^= *cursor++;
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static void objfile_string_index_reserve(ObjectFile* obj,
+                                         size_t required_count) {
+    size_t new_capacity = obj->strtab_hash_capacity
+        ? obj->strtab_hash_capacity : 64u;
+    uint32_t* slots;
+    if (obj->strtab_hash_capacity &&
+        required_count <= obj->strtab_hash_capacity -
+                              obj->strtab_hash_capacity / 4u) {
+        return;
+    }
+    while (required_count > new_capacity - new_capacity / 4u) {
+        if (new_capacity > SIZE_MAX / 2u) {
+            rcc_fatal("object string index capacity overflow");
+            return;
+        }
+        new_capacity *= 2u;
+    }
+    if (new_capacity > SIZE_MAX / sizeof(*slots)) {
+        rcc_fatal("object string index capacity overflow");
+        return;
+    }
+    slots = rcc_alloc(new_capacity * sizeof(*slots));
+    for (size_t index = 0u; index < obj->strtab_hash_capacity; ++index) {
+        uint32_t encoded_offset = obj->strtab_hash_slots[index];
+        if (encoded_offset != 0u) {
+            const char* string = obj->strtab + encoded_offset - 1u;
+            size_t slot = (size_t)objfile_string_hash(string) &
+                          (new_capacity - 1u);
+            while (slots[slot] != 0u) {
+                slot = (slot + 1u) & (new_capacity - 1u);
+            }
+            slots[slot] = encoded_offset;
+        }
+    }
+    rcc_free(obj->strtab_hash_slots);
+    obj->strtab_hash_slots = slots;
+    obj->strtab_hash_capacity = new_capacity;
+}
+
+static void objfile_string_index_insert(ObjectFile* obj, uint32_t offset) {
+    const char* string = obj->strtab + offset;
+    size_t slot = (size_t)objfile_string_hash(string) &
+                  (obj->strtab_hash_capacity - 1u);
+    while (obj->strtab_hash_slots[slot] != 0u) {
+        uint32_t existing_offset = obj->strtab_hash_slots[slot] - 1u;
+        if (strcmp(obj->strtab + existing_offset, string) == 0) return;
+        slot = (slot + 1u) & (obj->strtab_hash_capacity - 1u);
+    }
+    obj->strtab_hash_slots[slot] = offset + 1u;
+    obj->strtab_hash_count++;
+}
+
+static bool objfile_string_index_build(ObjectFile* obj) {
+    uint32_t offset = 1u;
+    while (offset < obj->strtab_size) {
+        const char* string = obj->strtab + offset;
+        const char* end = (const char*)memchr(
+            string, '\0', (size_t)(obj->strtab_size - offset));
+        size_t length;
+        if (!end) return false;
+        length = (size_t)(end - string);
+        if (length != 0u) {
+            objfile_string_index_reserve(obj,
+                                         obj->strtab_hash_count + 1u);
+            objfile_string_index_insert(obj, offset);
+        }
+        offset += (uint32_t)length + 1u;
+    }
+    return true;
+}
+
 ObjectFile* objfile_new(const char* filename, uint16_t arch) {
     ObjectFile* obj = rcc_alloc(sizeof(ObjectFile));
     obj->filename = rcc_strdup(filename);
@@ -159,6 +240,7 @@ void objfile_free(ObjectFile* obj) {
 
     rcc_free(obj->strtab);
     rcc_free(obj->sections_by_index);
+    rcc_free(obj->strtab_hash_slots);
     rcc_free((void*)obj->filename);
     rcc_free(obj);
 }
@@ -381,25 +463,54 @@ void objfile_add_reloc(ObjectFile* obj, int section_idx, uint64_t offset,
 uint32_t objfile_add_string(ObjectFile* obj, const char* str) {
     if (!str || !str[0]) return 0;
 
-    /* Check if already exists */
-    uint32_t off = 1;
-    while (off < obj->strtab_size) {
-        if (strcmp(obj->strtab + off, str) == 0) {
-            return off;
+    if (obj->strtab_hash_capacity == 0u) {
+        objfile_string_index_reserve(obj, 1u);
+    }
+    size_t slot = (size_t)objfile_string_hash(str) &
+                  (obj->strtab_hash_capacity - 1u);
+    while (obj->strtab_hash_slots[slot] != 0u) {
+        uint32_t existing_offset = obj->strtab_hash_slots[slot] - 1u;
+        if (strcmp(obj->strtab + existing_offset, str) == 0) {
+            return existing_offset;
         }
-        off += strlen(obj->strtab + off) + 1;
+        slot = (slot + 1u) & (obj->strtab_hash_capacity - 1u);
     }
 
     /* Add new string */
     size_t len = strlen(str) + 1;
-    while (obj->strtab_size + len > obj->strtab_cap) {
-        obj->strtab_cap *= 2;
-        obj->strtab = rcc_realloc(obj->strtab, obj->strtab_cap);
+    if (len > UINT32_MAX - obj->strtab_size) {
+        rcc_fatal("object string table exceeds 32-bit format limits");
+        return 0u;
+    }
+    objfile_string_index_reserve(obj, obj->strtab_hash_count + 1u);
+    slot = (size_t)objfile_string_hash(str) &
+           (obj->strtab_hash_capacity - 1u);
+    while (obj->strtab_hash_slots[slot] != 0u) {
+        slot = (slot + 1u) & (obj->strtab_hash_capacity - 1u);
+    }
+    size_t required_size = (size_t)obj->strtab_size + len;
+    if (required_size > obj->strtab_cap) {
+        size_t new_capacity = obj->strtab_cap;
+        while (new_capacity < required_size) {
+            if (new_capacity > UINT32_MAX / 2u) {
+                new_capacity = UINT32_MAX;
+                break;
+            }
+            new_capacity *= 2u;
+        }
+        if (new_capacity < required_size) {
+            rcc_fatal("object string table capacity overflow");
+            return 0u;
+        }
+        obj->strtab = rcc_realloc(obj->strtab, new_capacity);
+        obj->strtab_cap = (uint32_t)new_capacity;
     }
 
     uint32_t offset = obj->strtab_size;
     memcpy(obj->strtab + offset, str, len);
     obj->strtab_size += len;
+    obj->strtab_hash_slots[slot] = offset + 1u;
+    obj->strtab_hash_count++;
 
     return offset;
 }
@@ -640,7 +751,9 @@ ObjectFile* objfile_read_memory(const void* data, uint64_t size,
     obj->strtab_cap = (uint32_t)hdr.strtab_size;
     memcpy(obj->strtab, bytes + (size_t)hdr.strtab_off,
            (size_t)hdr.strtab_size);
-    if (obj->strtab[0] != '\0') goto read_failed;
+    if (obj->strtab[0] != '\0' || !objfile_string_index_build(obj)) {
+        goto read_failed;
+    }
 
     if (hdr.section_count != 0u) {
         sections = rcc_alloc(sizeof(RoSection) * hdr.section_count);

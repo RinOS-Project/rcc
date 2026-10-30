@@ -12341,5 +12341,9 @@ remains a separate open item.
   - [x] Add symbol and per-section relocation append tails, plus a section-index
         side array for direct relocation ownership lookup. Preserve list and
         serialized order; `test-format-validation` passes.
-  - [ ] Add bounded string-table deduplication and scale fixtures/counters for
+  - [x] Add an open-addressed string-offset index while preserving first-match
+        offsets, insertion order, and serialized string-table bytes. Rebuild the
+        index when reading `.ro`; the regression round-trips 4096 unique strings
+        and 128 symbols/relocations through `test-format-validation`.
+  - [ ] Add traversal/probe counters and comparative scale measurements for
         symbol, relocation, and string insertion and object round trips.

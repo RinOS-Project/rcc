@@ -213,6 +213,9 @@ typedef struct ObjectFile {
     char* strtab;
     uint32_t strtab_size;
     uint32_t strtab_cap;
+    uint32_t* strtab_hash_slots; /* string offset + 1; zero marks empty */
+    size_t strtab_hash_capacity;
+    size_t strtab_hash_count;
 } ObjectFile;
 
 /* ═══════════════════════════════════════
