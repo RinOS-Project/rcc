@@ -5160,10 +5160,33 @@ static bool pointer_stride_is_dynamic(const Type* type) {
 
 static void gen_vla_alloc(Module* mod, Decl* decl) {
     int slot_index = 0;
+    int probe_loop_label;
+    int probe_partial_label;
+    int probe_done_label;
     gen_typeof_runtime_evaluations(mod, decl->type);
     gen_vla_extents(mod, decl->type, NULL, NULL, decl, &slot_index);
-    emit_sub_reg_reg(mod, ESP, EAX);
     emit_mov_mem_reg(mod, EBP, decl->var_vla_size_offset, EAX);
+
+    /* A single ESP adjustment can jump over the stack guard.  Keep the
+     * original size in its VLA slot and touch each 4 KiB step while moving
+     * the stack pointer.  The final byte store stays inside the allocation,
+     * including for one-byte VLAs. */
+    probe_loop_label = new_label();
+    probe_partial_label = new_label();
+    probe_done_label = new_label();
+    emit_label(mod, probe_loop_label);
+    emit_cmp_reg_imm(mod, EAX, 4096);
+    emit_jcc_label(mod, CC_BE, probe_partial_label);
+    emit_sub_reg_imm(mod, ESP, 4096);
+    emit_mov_mem_reg8(mod, ESP, 0, EAX);
+    emit_sub_reg_imm(mod, EAX, 4096);
+    emit_jmp_label(mod, probe_loop_label);
+    emit_label(mod, probe_partial_label);
+    emit_test_reg_reg(mod, EAX, EAX);
+    emit_jcc_label(mod, CC_E, probe_done_label);
+    emit_sub_reg_reg(mod, ESP, EAX);
+    emit_mov_mem_reg8(mod, ESP, 0, EAX);
+    emit_label(mod, probe_done_label);
     emit_mov_reg_reg(mod, EAX, ESP);
     emit_mov_mem_reg(mod, EBP, decl->var_offset, EAX);
 }

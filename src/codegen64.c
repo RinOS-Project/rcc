@@ -209,6 +209,32 @@ static void emit64_mov_mem_reg(Module* mod, int base, int32_t disp, int src) {
     }
 }
 
+/* MOV byte [base + disp], r8.  The stack probe only needs to touch the
+ * allocated byte; a wider store could cross below a small VLA's boundary. */
+static void emit64_mov_mem_reg8(Module* mod, int base, int32_t disp,
+                                int src) {
+    emit_rex(mod, false, src, 0, base);
+    emit_byte(mod, 0x88);
+    if (disp == 0 && (base & 7) != RBP) {
+        emit_byte(mod, modrm64(0, src, base));
+        if ((base & 7) == RSP) {
+            emit_byte(mod, 0x24);  /* SIB byte for RSP */
+        }
+    } else if (disp >= -128 && disp <= 127) {
+        emit_byte(mod, modrm64(1, src, base));
+        if ((base & 7) == RSP) {
+            emit_byte(mod, 0x24);
+        }
+        emit_byte(mod, (uint8_t)disp);
+    } else {
+        emit_byte(mod, modrm64(2, src, base));
+        if ((base & 7) == RSP) {
+            emit_byte(mod, 0x24);
+        }
+        emit_dword(mod, (uint32_t)disp);
+    }
+}
+
 /* ADD r64, imm32 */
 static void emit64_add_reg_imm(Module* mod, int reg, int32_t imm) {
     emit_rex_w(mod, 0, reg);
@@ -1753,10 +1779,31 @@ static bool gen64_pointer_stride_is_dynamic(const Type* type) {
 
 static void gen64_vla_alloc(Module* mod, Decl* decl) {
     int slot_index = 0;
+    int probe_loop_label;
+    int probe_partial_label;
+    int probe_done_label;
     gen64_typeof_runtime_evaluations(mod, decl->type);
     gen64_vla_extents(mod, decl->type, NULL, NULL, decl, &slot_index);
-    emit64_sub_reg_reg(mod, RSP, RAX);
     emit64_mov_mem_reg(mod, RBP, decl->var_vla_size_offset, RAX);
+
+    /* Probe downward in page-sized steps so a large VLA cannot jump over
+     * the stack guard.  Keep the original byte extent in its VLA slot. */
+    probe_loop_label = new_label64();
+    probe_partial_label = new_label64();
+    probe_done_label = new_label64();
+    emit64_label(mod, probe_loop_label);
+    emit64_cmp_reg_imm(mod, RAX, 4096);
+    emit64_jcc_label(mod, CC64_BE, probe_partial_label);
+    emit64_sub_reg_imm(mod, RSP, 4096);
+    emit64_mov_mem_reg8(mod, RSP, 0, RAX);
+    emit64_sub_reg_imm(mod, RAX, 4096);
+    emit64_jmp_label(mod, probe_loop_label);
+    emit64_label(mod, probe_partial_label);
+    emit64_test_reg_reg(mod, RAX, RAX);
+    emit64_jcc_label(mod, CC64_E, probe_done_label);
+    emit64_sub_reg_reg(mod, RSP, RAX);
+    emit64_mov_mem_reg8(mod, RSP, 0, RAX);
+    emit64_label(mod, probe_done_label);
     emit64_mov_reg_reg(mod, RAX, RSP);
     emit64_mov_mem_reg(mod, RBP, decl->var_offset, RAX);
 }

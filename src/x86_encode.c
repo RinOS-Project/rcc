@@ -32,6 +32,8 @@ static bool x86_emit_compare_zero(RccX86Encoder* encoder,
                                   RccX86Value value, uint16_t size);
 static bool x86_emit_indirect_modrm(
     RccX86Encoder* encoder, unsigned reg, RccX86HardwareGpr base);
+static bool x86_patch_rel32(
+    RccX86Encoder* encoder, uint32_t offset, uint32_t target);
 
 static bool x86_encode_error(RccX86Encoder* encoder,
                              const char* format, ...) {
@@ -1887,6 +1889,68 @@ static bool x86_emit_stack_restore(
         x86_stack_pointer_value(encoder), size);
 }
 
+/* Move SP downward while touching each 4 KiB page. AX contains the
+ * remaining extent; the byte store stays inside the allocation even when
+ * the last step is a one-byte VLA. */
+static bool x86_emit_dynamic_stack_probe(RccX86Encoder* encoder) {
+    uint16_t size = encoder->function->pointer_size;
+    uint32_t loop_target;
+    uint32_t partial_branch;
+    uint32_t back_branch;
+    uint32_t done_branch;
+    uint32_t partial_target;
+    uint32_t done_target;
+    loop_target = (uint32_t)encoder->output.code_size;
+    if (!x86_emit_prefix(
+            encoder, size, RCC_X86_GPR_DI, RCC_X86_GPR_AX, false) ||
+        !x86_emit_u8(encoder, 0x81u) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            3u, 7u, RCC_X86_GPR_AX)) ||
+        !x86_emit_u32(encoder, 4096u) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, 0x86u)) return false; /* JBE partial */
+    partial_branch = (uint32_t)encoder->output.code_size;
+    if (!x86_emit_u32(encoder, 0u) ||
+        !x86_emit_prefix(
+            encoder, size, RCC_X86_GPR_BP, RCC_X86_GPR_SP, false) ||
+        !x86_emit_u8(encoder, 0x81u) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            3u, 5u, RCC_X86_GPR_SP)) ||
+        !x86_emit_u32(encoder, 4096u) ||
+        !x86_emit_indirect_store(
+            encoder, RCC_X86_GPR_SP, RCC_X86_GPR_AX, 1u) ||
+        !x86_emit_prefix(
+            encoder, size, RCC_X86_GPR_BP, RCC_X86_GPR_AX, false) ||
+        !x86_emit_u8(encoder, 0x81u) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            3u, 5u, RCC_X86_GPR_AX)) ||
+        !x86_emit_u32(encoder, 4096u) ||
+        !x86_emit_u8(encoder, 0xe9u)) return false;
+    back_branch = (uint32_t)encoder->output.code_size;
+    if (!x86_emit_u32(encoder, 0u) ||
+        !x86_patch_rel32(encoder, back_branch, loop_target)) return false;
+    partial_target = (uint32_t)encoder->output.code_size;
+    if (!x86_patch_rel32(encoder, partial_branch, partial_target) ||
+        !x86_emit_prefix(
+            encoder, size, RCC_X86_GPR_AX, RCC_X86_GPR_AX, false) ||
+        !x86_emit_u8(encoder, 0x85u) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            3u, RCC_X86_GPR_AX, RCC_X86_GPR_AX)) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, 0x84u)) return false; /* JZ done */
+    done_branch = (uint32_t)encoder->output.code_size;
+    if (!x86_emit_u32(encoder, 0u) ||
+        !x86_emit_binary_register(
+            encoder, RCC_X86_SUB, RCC_X86_GPR_SP,
+            (RccX86Value){.kind = RCC_X86_VALUE_GPR,
+                          .gpr = RCC_X86_GPR_AX,
+                          .size = size, .alignment = size}, size) ||
+        !x86_emit_indirect_store(
+            encoder, RCC_X86_GPR_SP, RCC_X86_GPR_AX, 1u)) return false;
+    done_target = (uint32_t)encoder->output.code_size;
+    return x86_patch_rel32(encoder, done_branch, done_target);
+}
+
 static bool x86_emit_dynamic_stack_address(
     RccX86Encoder* encoder,
     const RccX86LegalInstruction* instruction) {
@@ -1920,18 +1984,37 @@ static bool x86_emit_dynamic_stack_address(
     scratch.alignment = size;
     if (!x86_emit_copy(
             encoder, instruction->operands[0], scratch, size) ||
-        !x86_emit_binary_register(
-            encoder, RCC_X86_SUB, RCC_X86_GPR_SP, scratch, size)) {
+        !x86_emit_dynamic_stack_probe(encoder)) {
         return false;
     }
-    if (alignment > 1u &&
-        (!x86_emit_prefix(
-             encoder, size, RCC_X86_GPR_AX, RCC_X86_GPR_SP, false) ||
-         !x86_emit_u8(encoder, 0x81u) ||
-         !x86_emit_u8(encoder, x86_modrm(
-             3u, 4u, RCC_X86_GPR_SP)) ||
-         !x86_emit_u32(encoder, 0u - alignment))) {
-        return false;
+    if (alignment > 1u) {
+        /* Save the pre-alignment SP, calculate its exact padding, and
+         * restore it before probing that padding a page at a time. */
+        if (!x86_emit_copy(
+                encoder, x86_stack_pointer_value(encoder),
+                (RccX86Value){.kind = RCC_X86_VALUE_GPR,
+                              .gpr = RCC_X86_GPR_DX,
+                              .size = size, .alignment = size}, size) ||
+            !x86_emit_prefix(
+                encoder, size, RCC_X86_GPR_AX, RCC_X86_GPR_SP, false) ||
+            !x86_emit_u8(encoder, 0x81u) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                3u, 4u, RCC_X86_GPR_SP)) ||
+            !x86_emit_u32(encoder, 0u - alignment) ||
+            !x86_emit_move_register_register(
+                encoder, RCC_X86_GPR_AX, RCC_X86_GPR_DX, size) ||
+            !x86_emit_binary_register(
+                encoder, RCC_X86_SUB, RCC_X86_GPR_AX,
+                x86_stack_pointer_value(encoder), size) ||
+            !x86_emit_copy(
+                encoder, (RccX86Value){.kind = RCC_X86_VALUE_GPR,
+                                       .gpr = RCC_X86_GPR_DX,
+                                       .size = size,
+                                       .alignment = size},
+                x86_stack_pointer_value(encoder), size) ||
+            !x86_emit_dynamic_stack_probe(encoder)) {
+            return false;
+        }
     }
     return x86_emit_copy(
         encoder, x86_stack_pointer_value(encoder),

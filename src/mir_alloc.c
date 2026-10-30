@@ -128,9 +128,13 @@ static uint64_t mir_alloc_fixed_mask(
             return policy->division_fixed_gpr_mask |
                 policy->shift_count_fixed_gpr_mask;
         case RCC_MIR_STACK_RESTORE:
-        case RCC_MIR_DYNAMIC_ALLOCA:
-            /* These instructions use AX as an encoder scratch register. */
+            /* Stack-restore may use AX to load a spilled pointer. */
             return UINT64_C(1);
+        case RCC_MIR_DYNAMIC_ALLOCA:
+            /* Dynamic alloca uses AX for the remaining extent and DX to
+             * preserve SP while probing any alignment padding. The x86
+             * division mask reserves both fixed registers. */
+            return policy->division_fixed_gpr_mask;
         default:
             return 0u;
     }
