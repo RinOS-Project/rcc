@@ -8888,6 +8888,7 @@ static bool lower_cxx_empty_noop_constructor_supported(
         if (!base) {
             return false;
         }
+        if (cls->bases[base_index].is_virtual) continue;
         base_initializer = lower_cxx_find_base_initializer(
             cls, constructor, base_index, &duplicate_initializer);
         if (duplicate_initializer) return false;
@@ -8919,8 +8920,43 @@ static bool lower_cxx_empty_noop_constructor_supported(
     for (virtual_base_index = 0;
          virtual_base_index < cls->virtual_base_count; ++virtual_base_index) {
         const CxxClass* base = cls->virtual_bases[virtual_base_index].base;
-        if (!base || !lower_cxx_empty_trivial_subobject(
-                         base->type, 0u)) {
+        const CxxConstructorInitializer* virtual_initializer = NULL;
+        if (!base) {
+            return false;
+        }
+        for (initializer = constructor->initializers; initializer;
+             initializer = initializer->next) {
+            if (!initializer->is_base_initializer ||
+                !initializer->is_virtual_base_initializer ||
+                !lower_cxx_base_name_matches(
+                    base, base->name, initializer)) {
+                continue;
+            }
+            if (virtual_initializer) return false;
+            virtual_initializer = initializer;
+        }
+        if (!virtual_initializer) {
+            if (!lower_cxx_implicit_default_subobject_supported(
+                    base->type, 0u)) {
+                return false;
+            }
+        } else if (!virtual_initializer->constructor) {
+            if (virtual_initializer->value ||
+                virtual_initializer->arguments ||
+                !lower_cxx_empty_trivial_subobject(base->type, 0u)) {
+                return false;
+            }
+        } else if (base->destructor_method ||
+                   base->virtual_base_count != 0 || base->vtable_size != 0 ||
+                   virtual_initializer->is_delegating_constructor ||
+                   virtual_initializer->is_default_member_initializer ||
+                   virtual_initializer->is_pack_expansion ||
+                   virtual_initializer->value !=
+                       (virtual_initializer->arguments
+                            ? virtual_initializer->arguments->expr : NULL) ||
+                   !lower_cxx_scalar_subobject_constructor_supported(
+                       base, virtual_initializer->constructor,
+                       virtual_initializer->arguments, constructor, 0u)) {
             return false;
         }
     }
@@ -8948,8 +8984,39 @@ static bool lower_cxx_empty_noop_constructor_supported(
                         break;
                     }
                 }
-                if (!found_base || initializer->constructor ||
-                    initializer->value || initializer->arguments) {
+                if (!found_base) {
+                    return false;
+                }
+                if (initializer->constructor) {
+                    const CxxClass* virtual_base = NULL;
+                    for (virtual_base_index = 0;
+                         virtual_base_index < cls->virtual_base_count;
+                         ++virtual_base_index) {
+                        const CxxClass* candidate =
+                            cls->virtual_bases[virtual_base_index].base;
+                        if (lower_cxx_base_name_matches(
+                                candidate,
+                                candidate ? candidate->name : NULL,
+                                initializer)) {
+                            virtual_base = candidate;
+                            break;
+                        }
+                    }
+                    if (!virtual_base || virtual_base->destructor_method ||
+                        virtual_base->virtual_base_count != 0 ||
+                        virtual_base->vtable_size != 0 ||
+                        initializer->is_delegating_constructor ||
+                        initializer->is_default_member_initializer ||
+                        initializer->is_pack_expansion ||
+                        initializer->value !=
+                            (initializer->arguments
+                                 ? initializer->arguments->expr : NULL) ||
+                        !lower_cxx_scalar_subobject_constructor_supported(
+                            virtual_base, initializer->constructor,
+                            initializer->arguments, constructor, 0u)) {
+                        return false;
+                    }
+                } else if (initializer->value || initializer->arguments) {
                     return false;
                 }
                 continue;
@@ -21079,10 +21146,9 @@ static bool lower_cxx_initialize_constructor_members(
         if (context) context->unsupported = true;
         return false;
     }
-    /* Empty, trivial virtual bases need no emitted initialization. Validate
-     * their placement and reject any initializer that invokes a constructor
-     * or carries arguments; non-trivial virtual-base construction remains
-     * outside this lowering path. */
+    /* Validate virtual-base placement and the narrow constructor form this
+     * path can emit.  A constructed virtual base must be a scalar-only leaf
+     * with no cleanup work. */
     if (cls->virtual_base_count != 0 && !cls->virtual_bases) {
         context->unsupported = true;
         return false;
@@ -21090,12 +21156,64 @@ static bool lower_cxx_initialize_constructor_members(
     for (int index = 0; index < cls->virtual_base_count; ++index) {
         const CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[index];
         const CxxClass* base = virtual_base->base;
+        const CxxConstructorInitializer* selected = NULL;
         if (!base || !base->type || virtual_base->offset < 0 ||
             base->type->size <= 0 || virtual_base->offset > cls->type->size ||
-            base->type->size > cls->type->size - virtual_base->offset ||
-            !lower_cxx_empty_trivial_subobject(base->type, 0u)) {
+            base->type->size > cls->type->size - virtual_base->offset) {
             context->unsupported = true;
             return false;
+        }
+        for (const CxxConstructorInitializer* initializer =
+                 constructor->initializers;
+             initializer; initializer = initializer->next) {
+            if (!initializer->is_base_initializer ||
+                !initializer->is_virtual_base_initializer ||
+                !lower_cxx_base_name_matches(
+                    base, base->name, initializer)) {
+                continue;
+            }
+            if (selected) {
+                context->unsupported = true;
+                return false;
+            }
+            selected = initializer;
+        }
+        if (!selected) {
+            if (!lower_cxx_empty_trivial_subobject(base->type, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+        } else if (!selected->constructor) {
+            if (selected->value || selected->arguments ||
+                !lower_cxx_empty_trivial_subobject(base->type, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+        } else {
+            Expr base_expression;
+            if (base->base_count != 0 || base->virtual_base_count != 0 ||
+                base->vtable_size != 0 || base->destructor_method) {
+                context->unsupported = true;
+                return false;
+            }
+            memset(&base_expression, 0, sizeof(base_expression));
+            base_expression.kind = EXPR_COMPOUND;
+            base_expression.type = base->type;
+            base_expression.compound_constructor = selected->constructor;
+            base_expression.compound_init = selected->arguments;
+            if (selected->is_delegating_constructor ||
+                selected->is_default_member_initializer ||
+                selected->is_pack_expansion ||
+                selected->value !=
+                    (selected->arguments
+                         ? selected->arguments->expr : NULL) ||
+                !lower_cxx_empty_noop_constructor_supported(
+                    &base_expression) ||
+                !lower_cxx_constructor_initializer_arguments_supported(
+                    context, selected->arguments)) {
+                context->unsupported = true;
+                return false;
+            }
         }
     }
     /* Check the complete initializer list before emitting IR so unsupported
@@ -21191,8 +21309,54 @@ static bool lower_cxx_initialize_constructor_members(
                         break;
                     }
                 }
-                if (!found_base || initializer->constructor ||
-                    initializer->value || initializer->arguments) {
+                if (!found_base) {
+                    context->unsupported = true;
+                    return false;
+                }
+                if (initializer->constructor) {
+                    const CxxClass* virtual_base = NULL;
+                    Expr base_expression;
+                    for (int virtual_base_index = 0;
+                         virtual_base_index < cls->virtual_base_count;
+                         ++virtual_base_index) {
+                        const CxxClass* candidate =
+                            cls->virtual_bases[virtual_base_index].base;
+                        if (lower_cxx_base_name_matches(
+                                candidate,
+                                candidate ? candidate->name : NULL,
+                                initializer)) {
+                            virtual_base = candidate;
+                            break;
+                        }
+                    }
+                    if (!virtual_base ||
+                        virtual_base->base_count != 0 ||
+                        virtual_base->virtual_base_count != 0 ||
+                        virtual_base->vtable_size != 0 ||
+                        virtual_base->destructor_method) {
+                        context->unsupported = true;
+                        return false;
+                    }
+                    memset(&base_expression, 0, sizeof(base_expression));
+                    base_expression.kind = EXPR_COMPOUND;
+                    base_expression.type = virtual_base->type;
+                    base_expression.compound_constructor =
+                        initializer->constructor;
+                    base_expression.compound_init = initializer->arguments;
+                    if (initializer->is_delegating_constructor ||
+                        initializer->is_default_member_initializer ||
+                        initializer->is_pack_expansion ||
+                        initializer->value !=
+                            (initializer->arguments
+                                 ? initializer->arguments->expr : NULL) ||
+                        !lower_cxx_empty_noop_constructor_supported(
+                            &base_expression) ||
+                        !lower_cxx_constructor_initializer_arguments_supported(
+                            context, initializer->arguments)) {
+                        context->unsupported = true;
+                        return false;
+                    }
+                } else if (initializer->value || initializer->arguments) {
                     context->unsupported = true;
                     return false;
                 }
@@ -21337,9 +21501,50 @@ static bool lower_cxx_initialize_constructor_members(
         context->unsupported = true;
         return false;
     }
+    /* C++ initializes virtual bases before direct non-virtual bases.  These
+     * constructor definitions are the complete-object entry points; classes
+     * used as non-virtual subobjects with virtual bases remain outside the
+     * verified subset. */
+    for (int virtual_base_index = 0;
+         virtual_base_index < cls->virtual_base_count;
+         ++virtual_base_index) {
+        const CxxVirtualBaseInfo* virtual_base =
+            &cls->virtual_bases[virtual_base_index];
+        const CxxConstructorInitializer* initializer = NULL;
+        RccIrLowerValue address;
+        Expr base_expression;
+        for (const CxxConstructorInitializer* candidate =
+                 constructor->initializers;
+             candidate; candidate = candidate->next) {
+            if (candidate->is_base_initializer &&
+                candidate->is_virtual_base_initializer &&
+                lower_cxx_base_name_matches(
+                    virtual_base->base,
+                    virtual_base->base ? virtual_base->base->name : NULL,
+                    candidate)) {
+                initializer = candidate;
+                break;
+            }
+        }
+        if (!initializer || !initializer->constructor) continue;
+        address = lower_byte_offset_address(
+            context, object, (uint64_t)virtual_base->offset);
+        memset(&base_expression, 0, sizeof(base_expression));
+        base_expression.kind = EXPR_COMPOUND;
+        base_expression.type = virtual_base->base->type;
+        base_expression.compound_constructor = initializer->constructor;
+        base_expression.compound_init = initializer->arguments;
+        if (!address.valid ||
+            !lower_cxx_emit_constructor_call(
+                context, &base_expression, address.value)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
     /* Invoke every explicit base constructor before initializing members;
      * the declaration-order loop also enforces the language's base order. */
     for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        if (cls->bases[base_index].is_virtual) continue;
         const CxxConstructorInitializer* base_initializer =
             lower_cxx_find_base_initializer(
                 cls, constructor, base_index, NULL);
@@ -25061,9 +25266,52 @@ static bool lower_struct_initializer(
                 const CxxClass* cls = type->cxx_class;
                 const CxxClass* base_class = NULL;
                 int base_index;
-                if (!cls->base_offsets ||
-                    member_initializer->is_virtual_base_initializer ||
-                    !member_initializer->constructor) {
+                if (!cls->base_offsets) {
+                    context->unsupported = true;
+                    goto constructor_lowering_failure;
+                }
+                if (member_initializer->is_virtual_base_initializer) {
+                    RccIrLowerValue object;
+                    RccIrLowerValue address;
+                    int virtual_base_index;
+                    if (!member_initializer->constructor) continue;
+                    for (virtual_base_index = 0;
+                         virtual_base_index < cls->virtual_base_count;
+                         ++virtual_base_index) {
+                        const CxxClass* candidate =
+                            cls->virtual_bases[virtual_base_index].base;
+                        if (lower_cxx_base_name_matches(
+                                candidate,
+                                candidate ? candidate->name : NULL,
+                                member_initializer)) {
+                            base_class = candidate;
+                            break;
+                        }
+                    }
+                    if (!base_class || virtual_base_index < 0 ||
+                        virtual_base_index >= cls->virtual_base_count ||
+                        cls->virtual_bases[virtual_base_index].offset < 0) {
+                        context->unsupported = true;
+                        goto constructor_lowering_failure;
+                    }
+                    object = lower_value(base, rcc_ir_type_pointer(0u), true);
+                    address = lower_byte_offset_address(
+                        context, object,
+                        (uint64_t)cls->virtual_bases[
+                            virtual_base_index].offset);
+                    if (!address.valid ||
+                        !lower_initialize_cxx_scalar_subobject_constructor(
+                            context, address.value, base_class,
+                            member_initializer->constructor,
+                            member_initializer->arguments,
+                            initializer->compound_constructor,
+                            constructor_arguments, 0u)) {
+                        context->unsupported = true;
+                        goto constructor_lowering_failure;
+                    }
+                    continue;
+                }
+                if (!member_initializer->constructor) {
                     continue;
                 }
                 for (base_index = 0; base_index < cls->base_count;

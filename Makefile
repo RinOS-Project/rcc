@@ -21563,12 +21563,14 @@ test-verified-cxx-automatic-array-cleanup: $(RCXX_TARGET) test-verified-cxx-refe
 
 test-verified-cxx-virtual-base-value: $(RCXX_TARGET) test-verified-cxx-reference-local
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/verified_backend_cxx_virtual_base_value.cpp
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-virtual-base-value-x86.ro \
 		tests/verified_backend_cxx_virtual_base_value.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x86.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x86.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -21576,15 +21578,37 @@ test-verified-cxx-virtual-base-value: $(RCXX_TARGET) test-verified-cxx-reference
 		-o $(TEST_OUT)/verified-backend/cxx-virtual-base-value-x64.ro \
 		tests/verified_backend_cxx_virtual_base_value.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x64.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x64.log,0)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-virtual-base-value-o0-x86.ro \
+		tests/verified_backend_cxx_virtual_base_value.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-virtual-base-value-o0-x86.log
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-o0-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-virtual-base-value-o0-x86.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-virtual-base-value-o0-x64.ro \
+		tests/verified_backend_cxx_virtual_base_value.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-virtual-base-value-o0-x64.log
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-o0-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-virtual-base-value-o0-x64.log,0)
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
 		--cxx-reference-object \
 		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x86.ro x86
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
 		--cxx-reference-object \
 		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x64.ro x64
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-o0-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-o0-x64.ro x64
 	$(call MKDIR_P,$(TEST_OUT)/cxx-virtual-base-value)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-virtual-base-value,verified_backend_cxx_virtual_base_value.cpp)
 

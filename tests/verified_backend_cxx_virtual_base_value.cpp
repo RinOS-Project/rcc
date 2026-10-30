@@ -32,6 +32,21 @@ struct VerifiedFloatingValueInitialization {
     double wide;
 };
 
+struct VerifiedConstructedVirtualBase {
+    int value;
+
+    explicit VerifiedConstructedVirtualBase(int initial) noexcept
+        : value(initial) {}
+};
+
+struct VerifiedConstructedVirtualDerived :
+    virtual VerifiedConstructedVirtualBase {
+    int derived_value;
+
+    explicit VerifiedConstructedVirtualDerived(int initial) noexcept
+        : VerifiedConstructedVirtualBase(initial), derived_value(initial) {}
+};
+
 struct VerifiedVirtualCleanupLeaf : virtual VerifiedVirtualCleanupRoot {
     int* cleanup_count;
     int cleanup_increment;
@@ -80,10 +95,15 @@ int main() {
     int argument_evaluations = 0;
     VerifiedFloatingValueInitialization zero_floating{};
     VerifiedVirtualValueLeaf value;
+    VerifiedConstructedVirtualDerived constructed_value(23);
     value.value = 101;
     value.leaf_value = 53;
     if (zero_floating.single != 0.0f || zero_floating.wide != 0.0) {
         return 5;
+    }
+    if (constructed_value.value != 23 ||
+        constructed_value.derived_value != 23) {
+        return 6;
     }
     if (consume_verified_virtual_value_root(value) != 101 ||
         value.read_leaf() != 53) {

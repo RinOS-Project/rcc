@@ -780,8 +780,8 @@
         `test-verified-backend`が成功。基底cleanup実装は`57f2d8d`、nested/fallthrough
         switchとbody-throwへの拡張は`6646bb8`。throwing scalar DMI拡張は`88e0aff`。
         throwing non-trivial leaf member constructorと完成memberのcleanup検証は本変更。
-  - [ ] virtual base construction、nontrivial/deleted target copy constructor、call引数以外の
-        full-expression cleanupと未検証の例外経路が残る。
+  - [ ] broader virtual-base constructor chains/cleanup、nontrivial/deleted target
+        copy constructor、call引数以外のfull-expression cleanupと未検証の例外経路が残る。
         標準conversion subsequenceと
         pointer-to-memberを含む全rank/partial orderingも未完了
   - [x] Namespace extension compatibility: verify reopened named and
@@ -12288,3 +12288,13 @@ remains a separate open item.
       hoisted load is folded to its dominating stored value and the dead load
       instruction is removed. `test-ir` passes both x86 and x64 IR/MIR and
       native encoder execution checks.
+
+## RCC continuation (2026-10-31, verified scalar virtual-base construction)
+
+- [x] Lower a complete-object C1 constructor that initializes a directly
+      virtual-inherited scalar-only leaf base from forwarded scalar
+      parameters. Require empty constructor bodies and no virtual-base
+      destructor/cleanup. Verify fallback-free i686/AMD64 O0/O2 object
+      execution, legacy i686/AMD64 object generation, AMD64 legacy runtime,
+      and strict GCC C++20 syntax. `test-verified-cxx-virtual-base-value`
+      passes on the Windows host.
