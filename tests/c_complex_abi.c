@@ -78,6 +78,30 @@ RccComplexDouble rcc_complex_double_divide(RccComplexDouble left,
     return left / right;
 }
 
+double rcc_complex_api_creal(RccComplexDouble value) {
+    return creal(value);
+}
+
+double rcc_complex_api_cimag(RccComplexDouble value) {
+    return cimag(value);
+}
+
+double rcc_complex_api_cabs(RccComplexDouble value) {
+    return cabs(value);
+}
+
+double rcc_complex_api_carg(RccComplexDouble value) {
+    return carg(value);
+}
+
+RccComplexDouble rcc_complex_api_conj(RccComplexDouble value) {
+    return conj(value);
+}
+
+RccComplexDouble rcc_complex_api_csqrt(RccComplexDouble value) {
+    return csqrt(value);
+}
+
 int rcc_complex_local_scalar_initializer(void) {
     RccComplexFloat value = 3.0f;
     return value != __builtin_complex(3.0f, 0.0f);

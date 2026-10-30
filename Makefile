@@ -17407,21 +17407,21 @@ test-complex: $(RCC_TARGET)
 		tests/c_complex_abi.c \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x86.log
-	$(GREP) -F -q 'Verified backend: 23 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 29 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x86.log
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 \
 		-fverified-backend -v -c -o $(TEST_OUT)/complex/complex-x64.ro \
 		tests/c_complex_abi.c \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x64.log
-	$(GREP) -F -q 'Verified backend: 23 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 29 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x64.log
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/complex/complex-x64-o2.ro \
 		tests/c_complex_abi.c -I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 23 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 29 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x64-o2.log
 	$(CC) $(CFLAGS) -I$(RINOS_ROOT)/RinOS-SDK/include \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
