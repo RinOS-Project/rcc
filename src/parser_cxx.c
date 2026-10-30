@@ -6381,9 +6381,9 @@ static bool cxx_using_starts_with_template_id_base(void) {
     return false;
 }
 
-/* A conversion-function-id ends in `:: operator type-id`, unlike ordinary
+/* An operator-function-id ends in `:: operator ...`, unlike ordinary
  * qualified names whose final component is always an identifier. */
-static bool cxx_using_starts_with_conversion_function_id(void) {
+static bool cxx_using_starts_with_operator_function_id(void) {
     Token* token = parser.cur;
     if (token && token->type == TOK_SCOPE) token = token->next;
     if (!token || token->type != TOK_IDENT) return false;
@@ -6400,7 +6400,7 @@ static bool cxx_using_starts_with_conversion_function_id(void) {
     return false;
 }
 
-static const char* parse_cxx_using_conversion_base_name(void) {
+static const char* parse_cxx_using_operator_base_name(void) {
     char* buffer = NULL;
     size_t capacity = 0u;
     size_t length = 0u;
@@ -13546,23 +13546,35 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                     expect(TOK_SEMICOLON, ";");
                     continue;
                 }
-                if (cxx_using_starts_with_conversion_function_id()) {
+                if (cxx_using_starts_with_operator_function_id()) {
                     const char* base_name =
-                        parse_cxx_using_conversion_base_name();
-                    Type* conversion_type = NULL;
+                        parse_cxx_using_operator_base_name();
                     expect(TOK_OPERATOR,
-                           "operator in conversion using-declaration");
-                    conversion_type = parse_cxx_type_spec();
-                    conversion_type = rcc_parser_parse_cxx_declarator(
-                        conversion_type, NULL, NULL);
-                    if (!base_name || !conversion_type) {
-                        rcc_error(using_loc,
-                                  "conversion using-declaration requires a base and conversion type");
+                           "operator in using-declaration");
+                    if (check(TOK_NEW) || check(TOK_DELETE)) {
+                        const char* member_name = parse_operator_name();
+                        if (!base_name || !member_name) {
+                            rcc_error(using_loc,
+                                      "allocation-function using-declaration requires a base and operator name");
+                        } else {
+                            cxx_class_add_using_base_member(
+                                cls, base_name, member_name, NULL, NULL,
+                                current_access, using_loc);
+                        }
                     } else {
-                        cxx_class_add_using_base_member(
-                            cls, base_name,
-                            rcc_intern("operator conversion"),
-                            conversion_type, NULL, current_access, using_loc);
+                        Type* conversion_type = parse_cxx_type_spec();
+                        conversion_type = rcc_parser_parse_cxx_declarator(
+                            conversion_type, NULL, NULL);
+                        if (!base_name || !conversion_type) {
+                            rcc_error(using_loc,
+                                      "conversion using-declaration requires a base and conversion type");
+                        } else {
+                            cxx_class_add_using_base_member(
+                                cls, base_name,
+                                rcc_intern("operator conversion"),
+                                conversion_type, NULL, current_access,
+                                using_loc);
+                        }
                     }
                     expect(TOK_SEMICOLON, ";");
                     continue;

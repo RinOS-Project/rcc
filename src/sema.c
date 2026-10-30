@@ -24676,6 +24676,44 @@ static const char* sema_cxx_allocation_member_name(
     return name;
 }
 
+static bool sema_cxx_allocation_using_base(
+    CxxClass* cls, CxxClass* base, const char* operator_name,
+    unsigned char* access) {
+    const char* operator_tail = sema_cxx_unqualified_name(operator_name);
+    if (!cls || !base || !operator_tail) return false;
+    for (int using_index = 0;
+         using_index < cls->using_base_member_count; ++using_index) {
+        const char* member_name =
+            cls->using_base_members[using_index].member_name;
+        const char* base_name = cls->using_base_members[using_index].base_name;
+        const char* member_tail = sema_cxx_unqualified_name(member_name);
+        const char* base_tail = sema_cxx_unqualified_name(base_name);
+        if (!member_tail || strcmp(member_tail, operator_tail) != 0 ||
+            !base_name || !base_tail) {
+            continue;
+        }
+        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+            CxxClass* direct_base = cls->bases[base_index].base;
+            const char* direct_tail = sema_cxx_unqualified_name(
+                direct_base ? direct_base->name : NULL);
+            const char* declared_direct = cls->bases[base_index].base_name;
+            bool matches = direct_base == base &&
+                ((direct_base->name &&
+                  strcmp(direct_base->name, base_name) == 0) ||
+                 (declared_direct &&
+                  strcmp(declared_direct, base_name) == 0) ||
+                 (direct_tail && strcmp(direct_tail, base_tail) == 0));
+            if (!matches) continue;
+            if (access) {
+                *access = (unsigned char)
+                    cls->using_base_members[using_index].access;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Class-scope allocation functions are not part of the ordinary method
  * lowering list when their definitions appear out of class.  Walk base
  * declarations directly, applying ordinary name hiding and using-declaration
@@ -24685,7 +24723,7 @@ static int sema_cxx_count_inherited_allocation_candidates(
     unsigned depth, CxxClass** declaring_owner, bool* ambiguous) {
     int direct_count = 0;
     int total_count = 0;
-    CxxClass* using_base;
+    bool has_using;
     if (!cls || !operator_name || !declaring_owner || !ambiguous) return 0;
     if (depth >= 64u) {
         rcc_error(loc,
@@ -24710,14 +24748,16 @@ static int sema_cxx_count_inherited_allocation_candidates(
         return direct_count;
     }
 
-    using_base = cls->type
-        ? sema_cxx_using_base_member_owner(cls->type, operator_name) : NULL;
+    has_using = sema_cxx_class_has_using_member(cls, operator_name);
     for (int base_index = 0; base_index < cls->base_count; ++base_index) {
         CxxClass* branch_owner = NULL;
         bool branch_ambiguous = false;
         CxxClass* base = cls->bases[base_index].base;
+        unsigned char using_access = ACCESS_PUBLIC;
+        bool selected_by_using = sema_cxx_allocation_using_base(
+            cls, base, operator_name, &using_access);
         int branch_count;
-        if (!base || (using_base && base != using_base)) continue;
+        if (!base || (has_using && !selected_by_using)) continue;
         branch_count = sema_cxx_count_inherited_allocation_candidates(
             base, operator_name, loc, depth + 1u, &branch_owner,
             &branch_ambiguous);
@@ -24725,13 +24765,12 @@ static int sema_cxx_count_inherited_allocation_candidates(
         if (branch_ambiguous) *ambiguous = true;
         if (branch_count == 0) continue;
         if (*declaring_owner && *declaring_owner != branch_owner) {
-            bool selected_by_using = cls->type &&
-                sema_cxx_class_has_using_member(cls, operator_name) &&
+            bool selected_overloads = has_using &&
                 sema_cxx_method_owner_selected_by_using(
                     cls, operator_name, *declaring_owner) &&
                 sema_cxx_method_owner_selected_by_using(
                     cls, operator_name, branch_owner);
-            if (!selected_by_using) *ambiguous = true;
+            if (!selected_overloads) *ambiguous = true;
         } else {
             *declaring_owner = branch_owner;
         }
@@ -24748,11 +24787,10 @@ static int sema_cxx_count_inherited_allocation_candidates(
 
 static void sema_cxx_collect_inherited_allocation_candidates(
     CxxClass* cls, const char* operator_name, unsigned depth,
-    unsigned char path_access, CxxClass* path_access_owner,
     SemaCxxAllocationCandidate* candidates, int capacity,
     int* candidate_count) {
     int direct_count = 0;
-    CxxClass* using_base;
+    bool has_using;
     if (!cls || !operator_name || !candidates || !candidate_count ||
         depth >= 64u) {
         return;
@@ -24772,61 +24810,52 @@ static void sema_cxx_collect_inherited_allocation_candidates(
             const char* name = sema_cxx_allocation_member_name(member);
             Decl* declaration = member->decl;
             unsigned char access = (unsigned char)member->access;
-            CxxClass* access_owner = cls;
-            bool duplicate = false;
             if (!name || strcmp(name, operator_name) != 0 || !declaration ||
                 declaration->kind != DECL_FUNC) {
                 continue;
             }
-            if (path_access == ACCESS_PRIVATE &&
-                access != ACCESS_PRIVATE) {
-                access = ACCESS_PRIVATE;
-                access_owner = path_access_owner;
-            } else if (path_access == ACCESS_PROTECTED &&
-                       access == ACCESS_PUBLIC) {
-                access = ACCESS_PROTECTED;
-                access_owner = path_access_owner;
-            }
-            for (int index = 0; index < *candidate_count; ++index) {
-                if (candidates[index].declaration == declaration) {
-                    duplicate = true;
-                    if (access == ACCESS_PUBLIC) {
-                        candidates[index].access = access;
-                        candidates[index].access_owner = access_owner;
-                    }
-                    break;
-                }
-            }
-            if (duplicate || *candidate_count >= capacity) continue;
+            if (*candidate_count >= capacity) continue;
             candidates[*candidate_count].declaration = declaration;
             candidates[*candidate_count].wrapper = NULL;
             candidates[*candidate_count].access = access;
-            candidates[*candidate_count].access_owner = access_owner;
+            candidates[*candidate_count].access_owner = cls;
             ++*candidate_count;
         }
         return;
     }
 
-    using_base = cls->type
-        ? sema_cxx_using_base_member_owner(cls->type, operator_name) : NULL;
+    has_using = sema_cxx_class_has_using_member(cls, operator_name);
     for (int base_index = 0; base_index < cls->base_count; ++base_index) {
         CxxClass* base = cls->bases[base_index].base;
-        unsigned char next_access = path_access;
-        CxxClass* next_access_owner = path_access_owner;
-        if (!base || (using_base && base != using_base)) continue;
-        if (cls->bases[base_index].access == ACCESS_PRIVATE &&
-            next_access != ACCESS_PRIVATE) {
-            next_access = ACCESS_PRIVATE;
-            next_access_owner = cls;
-        } else if (cls->bases[base_index].access == ACCESS_PROTECTED &&
-                   next_access == ACCESS_PUBLIC) {
-            next_access = ACCESS_PROTECTED;
-            next_access_owner = cls;
-        }
+        unsigned char using_access = ACCESS_PUBLIC;
+        bool selected_by_using = sema_cxx_allocation_using_base(
+            cls, base, operator_name, &using_access);
+        int branch_start = *candidate_count;
+        if (!base || (has_using && !selected_by_using)) continue;
         sema_cxx_collect_inherited_allocation_candidates(
-            base, operator_name, depth + 1u, next_access,
-            next_access_owner, candidates, capacity, candidate_count);
+            base, operator_name, depth + 1u, candidates, capacity,
+            candidate_count);
+        for (int index = branch_start; index < *candidate_count; ++index) {
+            if (selected_by_using) {
+                candidates[index].access = using_access;
+                candidates[index].access_owner = cls;
+            } else if (cls->bases[base_index].access == ACCESS_PRIVATE &&
+                       candidates[index].access != ACCESS_PRIVATE) {
+                candidates[index].access = ACCESS_PRIVATE;
+                candidates[index].access_owner = cls;
+            } else if (cls->bases[base_index].access == ACCESS_PROTECTED &&
+                       candidates[index].access == ACCESS_PUBLIC) {
+                candidates[index].access = ACCESS_PROTECTED;
+                candidates[index].access_owner = cls;
+            }
+        }
     }
+}
+
+static int sema_cxx_allocation_access_priority(unsigned char access) {
+    if (access == ACCESS_PUBLIC) return 3;
+    if (access == ACCESS_PROTECTED) return 2;
+    return 1;
 }
 
 static Decl* sema_cxx_resolve_class_allocation_function(
@@ -24907,8 +24936,38 @@ static Decl* sema_cxx_resolve_class_allocation_function(
     } else {
         candidate_count = 0;
         sema_cxx_collect_inherited_allocation_candidates(
-            owner, operator_name, 0u, ACCESS_PUBLIC, NULL,
-            candidates, candidate_capacity, &candidate_count);
+            owner, operator_name, 0u, candidates, candidate_capacity,
+            &candidate_count);
+        {
+            int unique_count = 0;
+            for (int index = 0; index < candidate_count; ++index) {
+                int duplicate = -1;
+                for (int prior = 0; prior < unique_count; ++prior) {
+                    if (candidates[prior].declaration ==
+                        candidates[index].declaration) {
+                        duplicate = prior;
+                        break;
+                    }
+                }
+                if (duplicate >= 0) {
+                    if (sema_cxx_allocation_access_priority(
+                            candidates[index].access) >
+                        sema_cxx_allocation_access_priority(
+                            candidates[duplicate].access)) {
+                        candidates[duplicate].access =
+                            candidates[index].access;
+                        candidates[duplicate].access_owner =
+                            candidates[index].access_owner;
+                    }
+                    continue;
+                }
+                if (unique_count != index) {
+                    candidates[unique_count] = candidates[index];
+                }
+                ++unique_count;
+            }
+            candidate_count = unique_count;
+        }
         for (int index = 0; index < candidate_count; ++index) {
             Decl* declaration = candidates[index].declaration;
             Decl* wrapper = ast_arena_alloc(sizeof(*wrapper));

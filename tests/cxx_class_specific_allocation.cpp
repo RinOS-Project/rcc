@@ -62,6 +62,18 @@ struct InheritedAllocationDerived : public InheritedAllocationBase {
     int value;
 };
 
+struct InheritedAllocationUsing : public InheritedAllocationBase {
+    using InheritedAllocationBase::operator new;
+    using InheritedAllocationBase::operator delete;
+    int value;
+};
+
+struct InheritedArrayAllocationUsing : public InheritedAllocationBase {
+    using InheritedAllocationBase::operator new[];
+    using InheritedAllocationBase::operator delete[];
+    int value;
+};
+
 void* ClassSpecificAllocation::operator new(allocation_size_type size) {
     class_allocation_size_valid =
         size == sizeof(ClassSpecificAllocation);
@@ -141,6 +153,14 @@ int main() {
         inherited_allocation_size_valid && inherited->base_value == 59 &&
         inherited->value == 61;
     delete inherited;
+    InheritedAllocationUsing* inherited_using =
+        new InheritedAllocationUsing;
+    inherited_using->base_value = 83;
+    inherited_using->value = 89;
+    bool selected_inherited_using_operator =
+        inherited_allocation_calls == 2 && inherited_allocation_size_valid &&
+        inherited_using->base_value == 83 && inherited_using->value == 89;
+    delete inherited_using;
     InheritedAllocationDerived* inherited_values =
         new InheritedAllocationDerived[2];
     inherited_values[0].base_value = 67;
@@ -155,6 +175,20 @@ int main() {
         inherited_values[1].base_value == 73 &&
         inherited_values[1].value == 79;
     delete[] inherited_values;
+    InheritedArrayAllocationUsing* inherited_using_values =
+        new InheritedArrayAllocationUsing[2];
+    inherited_using_values[0].base_value = 97;
+    inherited_using_values[0].value = 101;
+    inherited_using_values[1].base_value = 103;
+    inherited_using_values[1].value = 107;
+    bool selected_inherited_array_using_operator =
+        inherited_array_allocation_calls == 2 &&
+        inherited_array_allocation_size_valid &&
+        inherited_using_values[0].base_value == 97 &&
+        inherited_using_values[0].value == 101 &&
+        inherited_using_values[1].base_value == 103 &&
+        inherited_using_values[1].value == 107;
+    delete[] inherited_using_values;
     int failure_mask = 0;
     if (!selected_class_operators) failure_mask |= 1;
     if (class_deallocation_calls != 1) failure_mask |= 2;
@@ -163,8 +197,10 @@ int main() {
     if (!selected_implicit_fallback) failure_mask |= 16;
     if (fallback_deallocation_calls != 1) failure_mask |= 32;
     if (!selected_inherited_operators ||
-        !selected_inherited_array_operators) failure_mask |= 64;
-    if (inherited_deallocation_calls != 1 ||
-        inherited_array_deallocation_calls != 1) failure_mask |= 128;
+        !selected_inherited_array_operators ||
+        !selected_inherited_using_operator ||
+        !selected_inherited_array_using_operator) failure_mask |= 64;
+    if (inherited_deallocation_calls != 2 ||
+        inherited_array_deallocation_calls != 2) failure_mask |= 128;
     return failure_mask;
 }

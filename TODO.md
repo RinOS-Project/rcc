@@ -10190,7 +10190,8 @@ remains a separate open item.
         and legacy i686/AMD64 generation plus x64 execution pass; verified
         i686/AMD64 `-O0`/`-O2` emits 11 functions with zero fallback. Ambiguous
         multiple-base lookup and bases requiring constructor/destructor lowering
-        remain open.
+        remain open. Public using-declarations select inherited scalar/array
+        operators, and private using-declarations reject external allocation.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 
