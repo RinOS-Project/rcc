@@ -17006,7 +17006,7 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 		-fsyntax-only tests/cxx_class_specific_allocation.cpp
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,7)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,5)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,7)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-global-allocation-operators/x86.ro \
 		tests/cxx_global_allocation_operators.cpp

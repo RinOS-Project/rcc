@@ -21784,6 +21784,14 @@ static bool lower_cxx_register_array_element_cleanup(
     return true;
 }
 
+static bool lower_cxx_plain_class_array_element(const Type* type) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    return type && type->kind == TYPE_STRUCT && cls &&
+        !type->cxx_nontrivial && !cls->constructors &&
+        !cls->has_field_initializer && !cls->destructor_method &&
+        !type->cleanup_function && !type->cleanup_field;
+}
+
 static RccIrLowerValue lower_cxx_delete_array_expression(
     RccIrLowerContext* context, const Expr* expression,
     const ExprList* argument, RccIrLowerValue object,
@@ -22965,8 +22973,17 @@ static RccIrLowerValue lower_cxx_new_expression(
     CxxConstructorInfo* constructor;
     const Decl* constructor_decl;
     bool simple_scalar_array;
+    bool simple_class_array;
     bool register_free = false;
     bool initialized;
+    simple_class_array = expression && expression->call_new_is_array &&
+        expression->call_new_type &&
+        lower_cxx_plain_class_array_element(expression->call_new_type) &&
+        !expression->call_new_array_cookie &&
+        !expression->call_new_value_init &&
+        !expression->call_new_default_member_initializers &&
+        !expression->call_new_copy_init &&
+        !expression->call_new_args && !expression->call_new_constructor;
     simple_scalar_array = expression && expression->call_new_is_array &&
         expression->call_new_type &&
         !expression->call_new_type->cxx_class &&
@@ -22981,7 +22998,7 @@ static RccIrLowerValue lower_cxx_new_expression(
         !expression->call_new_args &&
         !expression->call_new_constructor;
     if (context && expression && expression->call_new_is_array &&
-        !simple_scalar_array) {
+        !simple_scalar_array && !simple_class_array) {
         return lower_cxx_new_array_expression(context, expression);
     }
     if (!context || !expression || !expression->call_func ||
@@ -23154,11 +23171,13 @@ static RccIrLowerValue lower_cxx_delete_expression(
     }
     if (expression->call_delete_is_array) {
         if (expression->call_delete_deallocation_function &&
-            object_type && !object_type->cxx_class &&
-            !object_type->cxx_nontrivial &&
-            object_type->kind != TYPE_STRUCT &&
-            object_type->kind != TYPE_UNION &&
-            object_type->kind != TYPE_ARRAY) {
+            object_type &&
+            ((!object_type->cxx_class &&
+              !object_type->cxx_nontrivial &&
+              object_type->kind != TYPE_STRUCT &&
+              object_type->kind != TYPE_UNION &&
+              object_type->kind != TYPE_ARRAY) ||
+             lower_cxx_plain_class_array_element(object_type))) {
             RccIrBlock* deallocate_block = rcc_ir_block_add(
                 context->function, "delete.array.deallocate");
             done_block = rcc_ir_block_add(

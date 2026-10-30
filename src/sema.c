@@ -24748,6 +24748,14 @@ static Decl* sema_cxx_resolve_class_allocation_function(
     return NULL;
 }
 
+static bool sema_cxx_plain_class_array_element(const Type* type) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    return type && type->kind == TYPE_STRUCT && cls &&
+        !type->cxx_nontrivial && !cls->constructors &&
+        !cls->has_field_initializer && !cls->destructor_method &&
+        !type->cleanup_function && !type->cleanup_field;
+}
+
 static Type* sema_expr(Expr* expr) {
     Expr* preanalyzed_binary_lhs = NULL;
     Type* preanalyzed_binary_lhs_type = NULL;
@@ -26844,14 +26852,17 @@ static Type* sema_expr(Expr* expr) {
                      !object_type->cxx_nontrivial &&
                      object_type->kind != TYPE_STRUCT &&
                      object_type->kind != TYPE_UNION &&
-                     object_type->kind != TYPE_ARRAY);
+                     object_type->kind != TYPE_ARRAY) ||
+                    (expr->call_delete_is_array &&
+                     sema_cxx_plain_class_array_element(object_type));
                 if (resolve_global_deallocator) {
                     deallocation_operator_name =
                         expr->call_delete_is_array
                             ? "operator delete[]" : "operator delete";
                     bool has_class_candidates = false;
                     Decl* deallocation_function =
-                        !expr->call_delete_is_array &&
+                        (!expr->call_delete_is_array ||
+                         sema_cxx_plain_class_array_element(object_type)) &&
                                 object_type->cxx_class
                             ? sema_cxx_resolve_class_allocation_function(
                                   expr, object_type->cxx_class,
@@ -26956,7 +26967,10 @@ static Type* sema_expr(Expr* expr) {
                      !object_type->cxx_nontrivial &&
                      object_type->kind != TYPE_STRUCT &&
                      object_type->kind != TYPE_UNION &&
-                     object_type->kind != TYPE_ARRAY);
+                     object_type->kind != TYPE_ARRAY) ||
+                    (expr->call_new_is_array &&
+                     !expr->call_new_value_init && !expr->call_new_args &&
+                     sema_cxx_plain_class_array_element(object_type));
                 /* Resolve scalar allocation and plain scalar array
                  * allocation against visible global overloads plus the
                  * implicit RinOS allocator candidate.  Array forms with
@@ -26980,7 +26994,7 @@ static Type* sema_expr(Expr* expr) {
                          argument = argument->next) {
                         sema_expr(argument->expr);
                     }
-                    allocation_function = cls && !expr->call_new_is_array
+                    allocation_function = cls
                         ? sema_cxx_resolve_class_allocation_function(
                               expr, cls, allocation_operator_name,
                               &has_class_allocator_candidates)
@@ -27012,7 +27026,7 @@ static Type* sema_expr(Expr* expr) {
                     {
                         bool has_class_deallocator_candidates = false;
                         expr->call_new_deallocation_function =
-                            cls && !expr->call_new_is_array
+                            cls
                                 ? sema_cxx_resolve_class_allocation_function(
                                       deallocation_probe, cls,
                                       deallocation_operator_name,

@@ -10167,15 +10167,22 @@ remains a separate open item.
         operators and the implicit RinOS fallback on i686 and AMD64, run the
         native x64 output, and verify both targets at `-O0`/`-O2` with no
         verified-backend fallback. Arrays with element initialization, cookies,
-        or class-specific operators remain open.
+        and class-specific forms that need constructors or cookies remain open.
   - [x] Resolve direct class-specific scalar `operator new`/`operator delete`
         before global replacements or the implicit RinOS allocator. Treat
         class-scope allocation functions as implicitly static, validate their
         signatures, and cover out-of-class definitions plus global-fallback
         suppression. `test-cxx-global-allocation-operators` passes GCC C++20,
         legacy i686/AMD64 generation and x64 execution, and verified backend
-        i686/AMD64 at `-O0`/`-O2` with zero fallback. Inherited and specialized
-        array lookup remain open.
+        i686/AMD64 at `-O0`/`-O2` with zero fallback.
+  - [x] Extend class-specific overload resolution to uninitialized arrays of
+        trivial class elements with no cookie or element initialization. Check
+        the passed byte extent, selected `operator new[]`/`operator delete[]`,
+        GCC C++20, legacy i686/AMD64 generation and x64 execution, and verified
+        i686/AMD64 at `-O0`/`-O2` with zero fallback. Inherited lookup and class
+        arrays requiring construction, destruction, or cookies remain open. The
+        same fixture confirms that a class without member allocation operators
+        uses the implicit RinOS allocator pair.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 
