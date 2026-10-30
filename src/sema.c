@@ -32546,6 +32546,95 @@ static void sema_merge_function_type_attributes(Type* destination,
     }
 }
 
+static const char* sema_cxx_decl_leaf_name(const char* name) {
+    const char* leaf = name;
+    const char* separator;
+    if (!name) return NULL;
+    while ((separator = strstr(leaf, "::")) != NULL) {
+        leaf = separator + 2;
+    }
+    return leaf;
+}
+
+static bool sema_cxx_is_void_pointer_type(const Type* type) {
+    return type && type->kind == TYPE_PTR &&
+        !type->cxx_is_member_pointer && type->base &&
+        type->base->kind == TYPE_VOID && !type->base->is_const &&
+        !type->base->is_volatile;
+}
+
+static void sema_validate_global_allocation_operator(Decl* declaration) {
+    const char* leaf_name;
+    bool is_allocation;
+    bool is_deallocation;
+    const char* operation_name;
+    DeclList* first_parameter;
+    Type* size_type;
+
+    if (!rcc_parser_is_cxx_mode() || !declaration ||
+        declaration->kind != DECL_FUNC || declaration->func_method_owner ||
+        !declaration->name || !declaration->type ||
+        declaration->type->kind != TYPE_FUNC) {
+        return;
+    }
+    leaf_name = sema_cxx_decl_leaf_name(declaration->name);
+    is_allocation = leaf_name &&
+        (strcmp(leaf_name, "operator new") == 0 ||
+         strcmp(leaf_name, "operator new[]") == 0);
+    is_deallocation = leaf_name &&
+        (strcmp(leaf_name, "operator delete") == 0 ||
+         strcmp(leaf_name, "operator delete[]") == 0);
+    if (!is_allocation && !is_deallocation) return;
+    operation_name = is_allocation ? "allocation" : "deallocation";
+
+    if (declaration->func_cxx_namespace_scope &&
+        declaration->func_cxx_namespace_scope != g_global_namespace) {
+        rcc_error(declaration->loc,
+                  "%s function '%s' must be declared at global namespace scope or in class scope",
+                  operation_name, leaf_name);
+    }
+    if (declaration->storage == STORAGE_STATIC) {
+        rcc_error(declaration->loc,
+                  "global allocation or deallocation function cannot be static");
+    }
+
+    if (is_allocation) {
+        Type* return_type = declaration->type->ret_type;
+        size_type = g_opts.target_arch == ARCH_X64 ? type_ullong : type_uint;
+        if (!sema_cxx_is_void_pointer_type(return_type)) {
+            rcc_error(declaration->loc,
+                      "allocation function '%s' must return void*",
+                      leaf_name);
+        }
+        first_parameter = declaration->func_params;
+        if (!first_parameter || !first_parameter->decl ||
+            !type_is_compatible(first_parameter->decl->type, size_type)) {
+            rcc_error(declaration->loc,
+                      "allocation function '%s' must take std::size_t as its first parameter",
+                      leaf_name);
+        } else if (first_parameter->decl->param_default) {
+            rcc_error(first_parameter->decl->loc,
+                      "allocation function '%s' first parameter cannot have a default argument",
+                      leaf_name);
+        }
+        return;
+    }
+
+    if (!declaration->type->ret_type ||
+        declaration->type->ret_type->kind != TYPE_VOID) {
+        rcc_error(declaration->loc,
+                  "deallocation function '%s' must return void",
+                  leaf_name);
+    }
+    first_parameter = declaration->func_params;
+    if (!first_parameter || !first_parameter->decl ||
+        !sema_cxx_is_void_pointer_type(first_parameter->decl->type)) {
+        rcc_error(declaration->loc,
+                  "deallocation function '%s' must take void* as its first parameter",
+                  leaf_name);
+    }
+}
+
 static void sema_decl(Decl* decl) {
     if (!decl) return;
     if (decl->type) decl->type = sema_resolve_typeof_type(decl->type);
@@ -32881,6 +32970,7 @@ static void sema_decl(Decl* decl) {
         case DECL_FUNC: {
             CxxNamespace* saved_cxx_namespace = current_cxx_namespace;
             bool saved_template_instance = current_func_template_instance;
+            sema_validate_global_allocation_operator(decl);
             if (rcc_parser_is_cxx_mode()) {
                 current_cxx_namespace = sema_decl_namespace(decl);
             }

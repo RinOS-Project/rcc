@@ -86,7 +86,7 @@ extern Stmt* rcc_parse_cxx_qualified_conversion_definition(
     bool is_inline, bool is_constexpr, bool is_consteval,
     SourceLoc loc) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_operator_declaration(
-    Type* return_type, SourceLoc loc) RCC_OPTIONAL_CXX;
+    Type* return_type, StorageClass storage, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_deduction_guide(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parser_cxx_capture_expression(
     const char* name, SourceLoc loc) RCC_OPTIONAL_CXX;
@@ -7664,7 +7664,7 @@ Stmt* parse_declaration(void) {
     if (parser_cxx_mode && rcc_parse_cxx_operator_declaration &&
         check(TOK_OPERATOR)) {
         Stmt* operator_declaration = rcc_parse_cxx_operator_declaration(
-            base_type, loc);
+            base_type, storage, loc);
         if (operator_declaration) {
             Decl* operator_decl = operator_declaration->kind == STMT_DECL
                 ? operator_declaration->decl : NULL;

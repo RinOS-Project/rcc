@@ -10150,6 +10150,12 @@ remains a separate open item.
 - [ ] Enforce all standard allocation-function signature restrictions and
       resolve user-defined allocation/deallocation overloads from `new` and
       `delete` expressions, including class-specific forms.
+  - [x] Validate global `operator new`/`new[]` return type, target `std::size_t`
+        first parameter, absence of a default on that parameter, and global
+        namespace/non-static placement. Validate global `operator delete`/
+        `delete[]` return and first-parameter types. The focused target rejects
+        each invalid declaration on i686 and AMD64, accepts the valid overload
+        set, and agrees with GCC C++20 diagnostics.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

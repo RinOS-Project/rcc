@@ -7391,7 +7391,9 @@ static Type* cxx_function_type_from_parameters(Type* return_type,
  * consumed its return type.  The resulting declaration is an ordinary C++
  * function, so namespace lookup/ADL and the existing overload resolver remain
  * the single source of truth for calls. */
-Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
+Stmt* rcc_parse_cxx_operator_declaration(Type* return_type,
+                                         StorageClass storage,
+                                         SourceLoc loc) {
     const char* name;
     DeclList* params;
     bool is_variadic = false;
@@ -7449,6 +7451,7 @@ Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
     declaration->type->variadic = is_variadic;
     declaration->func_has_explicit_variadic_ellipsis = is_variadic;
     declaration->func_has_cxx_linkage = true;
+    declaration->storage = storage;
     return stmt_decl(declaration, loc);
 }
 
