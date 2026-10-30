@@ -86,6 +86,16 @@ consteval int compose_immediate(int value) {
     return increment_immediate(value);
 }
 
+consteval int call_immediate_through_pointer(int value) {
+    auto pointer = &increment_immediate;
+    return pointer(value);
+}
+
+consteval int call_immediate_through_dereferenced_pointer(int value) {
+    auto pointer = &increment_immediate;
+    return (*pointer)(value);
+}
+
 constexpr float local_float(int value) {
     float result = static_cast<float>(value);
     result += 0.5f;
@@ -191,6 +201,10 @@ constexpr int constexpr_consteval = force_constant(3);
 constexpr int constexpr_nested_consteval = compose_immediate(41);
 constexpr int constexpr_address_consteval =
     (&increment_immediate)(41);
+constexpr int constexpr_indirect_consteval =
+    call_immediate_through_pointer(41);
+constexpr int constexpr_dereferenced_indirect_consteval =
+    call_immediate_through_dereferenced_pointer(41);
 constexpr float constexpr_local_float = local_float(2);
 constexpr double constexpr_loop_float = loop_float(4);
 constexpr int constexpr_dynamic = dynamic_value();
@@ -237,6 +251,8 @@ static_assert(constexpr_dynamic_aggregate_array == 5);
 static_assert(constexpr_dynamic_template_aggregate == 42);
 static_assert(constexpr_nested_consteval == 42);
 static_assert(constexpr_address_consteval == 42);
+static_assert(constexpr_indirect_consteval == 42);
+static_assert(constexpr_dereferenced_indirect_consteval == 42);
 static_assert(!constexpr_conditional_unsigned_comparison);
 static_assert(!constexpr_ull_max_less_than_one);
 static_assert(constexpr_ull_max_exceeds_signed_max);
@@ -259,6 +275,8 @@ int main(void) {
                    constexpr_truncated == 3 && constexpr_consteval == 7 &&
                    constexpr_nested_consteval == 42 &&
                    constexpr_address_consteval == 42 &&
+                   constexpr_indirect_consteval == 42 &&
+                   constexpr_dereferenced_indirect_consteval == 42 &&
                    constexpr_local_float == 5.0f &&
                    constexpr_loop_float == 2.0 &&
                    constexpr_dynamic == 42 &&

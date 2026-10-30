@@ -12887,15 +12887,39 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                     function, application->binary_lhs, explicit_arguments,
                     bindings, binding_count, value);
             }
-            if (!expression->call_func ||
-                expression->call_func->kind != EXPR_IDENT ||
-                !expression->call_func->ident_decl ||
-                expression->call_func->ident_decl->kind != DECL_FUNC) {
-                return false;
+            {
+                Decl* function = NULL;
+                if (expression->call_func &&
+                    expression->call_func->kind == EXPR_IDENT &&
+                    expression->call_func->ident_decl &&
+                    expression->call_func->ident_decl->kind == DECL_FUNC) {
+                    function = expression->call_func->ident_decl;
+                } else {
+                    Expr* function_pointer_expression =
+                        expression->call_func;
+                    SemaConstexprScalar function_pointer;
+                    if (function_pointer_expression &&
+                        function_pointer_expression->kind == EXPR_DEREF) {
+                        function_pointer_expression =
+                            function_pointer_expression->unary_operand;
+                    }
+                    if (!function_pointer_expression ||
+                        !sema_eval_constexpr_scalar_expr(
+                            function_pointer_expression, bindings,
+                            binding_count, &function_pointer) ||
+                        !function_pointer.is_pointer ||
+                        function_pointer.pointer_offset != 0 ||
+                        !function_pointer.pointer_declaration ||
+                        function_pointer.pointer_declaration->kind !=
+                            DECL_FUNC) {
+                        return false;
+                    }
+                    function = function_pointer.pointer_declaration;
+                }
+                return sema_eval_constexpr_scalar_function(
+                    function, NULL, expression->call_args, bindings,
+                    binding_count, value);
             }
-            return sema_eval_constexpr_scalar_function(
-                expression->call_func->ident_decl, NULL,
-                expression->call_args, bindings, binding_count, value);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
