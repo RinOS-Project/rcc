@@ -494,6 +494,38 @@ int main(void) {
         __builtin_complex(HUGE_VAL, HUGE_VAL),
         __builtin_complex(1.0, 0.0));
     assert(isinf(__real__ double_result) && isinf(__imag__ double_result));
+    {
+        RccLegacyComplexBinary64Pair long_double_result =
+            rcc_legacy_complex_long_double_multiply(
+                __builtin_complex(HUGE_VAL, HUGE_VAL),
+                __builtin_complex(1.0, 0.0));
+        assert(isinf(long_double_result.real) &&
+               isinf(long_double_result.imaginary));
+        assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+        long_double_result = rcc_legacy_complex_long_double_divide(
+            double_left, __builtin_complex(0.0, 0.0));
+        assert(isinf(long_double_result.real) &&
+               isinf(long_double_result.imaginary));
+        assert((fetestexcept(FE_ALL_EXCEPT) & FE_DIVBYZERO) != 0);
+        assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+        long_double_result = rcc_legacy_complex_long_double_divide(
+            __builtin_complex(0.0, 0.0), __builtin_complex(0.0, 0.0));
+        assert(isnan(long_double_result.real) &&
+               isnan(long_double_result.imaginary));
+        assert((fetestexcept(FE_ALL_EXCEPT) &
+                (FE_DIVBYZERO | FE_INVALID)) ==
+               (FE_DIVBYZERO | FE_INVALID));
+        long_double_result = rcc_legacy_complex_long_double_divide(
+            __builtin_complex(1.0, 2.0),
+            __builtin_complex(HUGE_VAL, HUGE_VAL));
+        assert(long_double_result.real == 0.0 &&
+               long_double_result.imaginary == 0.0);
+        long_double_result = rcc_legacy_complex_long_double_divide(
+            __builtin_complex(HUGE_VAL, HUGE_VAL),
+            __builtin_complex(1.0, 0.0));
+        assert(isinf(long_double_result.real) &&
+               isinf(long_double_result.imaginary));
+    }
     double_result = rcc_legacy_complex_double_add_integer(double_left, 3);
     assert(near_double(__real__ double_result, 5.0) &&
            near_double(__imag__ double_result, 3.0));
