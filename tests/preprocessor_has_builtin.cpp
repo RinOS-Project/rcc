@@ -26,6 +26,10 @@
 #error RCC must report the implemented legacy trivial-constructor builtin
 #endif
 
+#if !__has_builtin(__has_nothrow_constructor)
+#error RCC must report the implemented legacy nothrow-constructor builtin
+#endif
+
 #if !__has_builtin(__is_trivially_constructible)
 #error RCC must report the implemented trivial-constructible builtin
 #endif

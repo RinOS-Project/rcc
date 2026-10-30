@@ -618,6 +618,7 @@ endif
 .PHONY: test-cxx-libcxx-type-traits-direct
 .PHONY: test-cxx-union-member-functions
 .PHONY: test-cxx-constructible-builtin
+.PHONY: test-cxx-legacy-nothrow-constructor
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
 .PHONY: test-cxx-designated-initializer
@@ -742,6 +743,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-libcxx-type-traits-direct \
 	test-cxx-union-member-functions \
 	test-cxx-constructible-builtin \
+	test-cxx-legacy-nothrow-constructor \
 	test-cxx-predefined-function-identifiers \
 	test-universal-character-identifiers \
 	test-preprocessor-has-include \
@@ -17160,6 +17162,18 @@ test-cxx-constructible-builtin: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -ffreestanding -fsyntax-only \
 		tests/cxx_constructible_builtin.cpp
 	@echo "C++ constructible type-trait tests completed"
+
+test-cxx-legacy-nothrow-constructor: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-legacy-nothrow-constructor)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -ffreestanding -c \
+		-o $(TEST_OUT)/cxx-legacy-nothrow-constructor/x86.ro \
+		tests/cxx_has_nothrow_constructor.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -ffreestanding -c \
+		-o $(TEST_OUT)/cxx-legacy-nothrow-constructor/x64.ro \
+		tests/cxx_has_nothrow_constructor.cpp
+	$(CXX) -std=c++20 -ffreestanding -Wall -Wextra -pedantic-errors -fsyntax-only \
+		tests/cxx_has_nothrow_constructor.cpp
+	@echo "C++ legacy nothrow-constructor tests completed"
 
 test-cxx-decltype-dependent-function-reference: $(RCXX_TARGET)
 	$(call CXX_FRONTEND_ONLY_TEST,cxx-decltype-dependent-function-reference,cxx_decltype_dependent_function_reference.cpp)

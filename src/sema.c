@@ -19672,6 +19672,126 @@ bool rcc_sema_cxx_nothrow_constructible(
     return !cxx_type_trait_nothrow_evaluation_unknown;
 }
 
+static bool sema_cxx_has_nothrow_default_constructor_impl(
+    Type* type, unsigned depth, CxxClass* access_context);
+
+static bool sema_cxx_default_constructor_subobjects_are_nothrow(
+    Type* type, unsigned depth) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!type || depth > 64u) return false;
+    if (type->kind == TYPE_UNION) {
+        TypeParam* class_field = cls ? cls->fields : NULL;
+        TypeField* field = type->fields;
+        if (class_field && class_field->initializer) {
+            return sema_cxx_type_trait_expression_is_nothrow(
+                class_field->initializer, class_field->type, depth + 1u);
+        }
+        if (!class_field && field && field->initializer) {
+            return sema_cxx_type_trait_expression_is_nothrow(
+                field->initializer, field->type, depth + 1u);
+        }
+        return true;
+    }
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                !sema_cxx_has_nothrow_default_constructor_impl(
+                    base->type, depth + 1u, cls)) {
+                return false;
+            }
+        }
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            if (field->is_static) continue;
+            if (!field->type ||
+                (field->initializer
+                     ? !sema_cxx_type_trait_expression_is_nothrow(
+                           field->initializer, field->type, depth + 1u)
+                     : !sema_cxx_has_nothrow_default_constructor_impl(
+                           field->type, depth + 1u, cls))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!field->type ||
+            (field->initializer
+                 ? !sema_cxx_type_trait_expression_is_nothrow(
+                       field->initializer, field->type, depth + 1u)
+                 : !sema_cxx_has_nothrow_default_constructor_impl(
+                       field->type, depth + 1u, NULL))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sema_cxx_has_nothrow_default_constructor_impl(
+    Type* type, unsigned depth, CxxClass* access_context) {
+    CxxClass* cls;
+    if (!type || depth > 64u) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->base &&
+            sema_cxx_has_nothrow_default_constructor_impl(
+                type->base, depth + 1u, access_context);
+    }
+    if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC ||
+        (type->kind == TYPE_PTR && type->is_reference)) {
+        return false;
+    }
+    if (rcc_sema_cxx_has_trivial_constructor(type)) return true;
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (!type_is_complete(type) || type->size <= 0) return false;
+    cls = type->cxx_class;
+    if (cls && cls->constructors) {
+        bool ambiguous = false;
+        CxxConstructorInfo* constructor =
+            sema_cxx_select_type_trait_constructor_ex(
+                type, NULL, 0, true, true, true, true, &ambiguous);
+        CxxMethod* method = constructor ? constructor->method : NULL;
+        Decl* declaration = method ? method->decl : NULL;
+        bool has_explicit_exception_specification = method && declaration &&
+            (method->is_noexcept || declaration->func_is_noexcept ||
+             declaration->func_noexcept_expr ||
+             (declaration->type && declaration->type->kind == TYPE_FUNC &&
+              declaration->type->function_is_noexcept));
+        if (!constructor || ambiguous || constructor->is_deleted ||
+            !method || !declaration ||
+            (access_context &&
+             !sema_cxx_type_trait_constructor_accessible(
+                 constructor, access_context))) {
+            return false;
+        }
+        if ((constructor->is_defaulted || method->is_defaulted) &&
+            !has_explicit_exception_specification) {
+            return sema_cxx_default_constructor_subobjects_are_nothrow(
+                type, depth + 1u);
+        }
+        if (constructor->is_inherited) {
+            return sema_cxx_type_trait_constructor_is_nothrow(
+                type, constructor, NULL, depth + 1u);
+        }
+        return sema_cxx_type_trait_decl_is_nothrow(
+            declaration, method->is_noexcept);
+    }
+    return sema_cxx_default_constructor_subobjects_are_nothrow(
+        type, depth + 1u);
+}
+
+bool rcc_sema_cxx_has_nothrow_constructor(Type* type, bool* value) {
+    if (!type || !value) return false;
+    cxx_type_trait_nothrow_evaluation_unknown = false;
+    if (sema_cxx_type_trait_type_is_dependent(type, 0u)) {
+        cxx_type_trait_nothrow_evaluation_unknown = true;
+        *value = false;
+        return false;
+    }
+    *value = sema_cxx_has_nothrow_default_constructor_impl(
+        type, 0u, NULL);
+    return !cxx_type_trait_nothrow_evaluation_unknown;
+}
+
 static int sema_cxx_type_trait_assignable_impl(
     Type* target, Type* source, unsigned depth);
 static int sema_cxx_type_trait_assignable_impl_with_access(
@@ -25244,6 +25364,16 @@ static Type* sema_expr(Expr* expr) {
                 if (rcc_sema_cxx_nothrow_constructible(
                         expr->cxx_type_trait_type,
                         expr->cxx_type_trait_arguments, &value)) {
+                    expr->kind = EXPR_INT_LIT;
+                    expr->int_val = value ? 1 : 0;
+                    expr->type = type_bool;
+                }
+            } else if (expr->cxx_type_trait_kind ==
+                           CXX_TYPE_TRAIT_HAS_NOTHROW_CONSTRUCTOR &&
+                       expr->cxx_type_trait_type) {
+                bool value = false;
+                if (rcc_sema_cxx_has_nothrow_constructor(
+                        expr->cxx_type_trait_type, &value)) {
                     expr->kind = EXPR_INT_LIT;
                     expr->int_val = value ? 1 : 0;
                     expr->type = type_bool;

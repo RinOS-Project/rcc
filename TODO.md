@@ -10250,6 +10250,19 @@ remains a separate open item.
       intrinsics remain open; complete-header direct compilation is covered by
       the checked fixture.
 
+## RCC continuation (2026-10-30, GNU `__has_nothrow_constructor` builtin)
+
+- [x] Implement and advertise `__has_nothrow_constructor(T)` with dependent
+      type evaluation after substitution. Match GCC's legacy semantics for
+      arrays, inaccessible/deleted trivial constructors, defaulted
+      subobject/base constructors, default member initializers, and
+      potentially-throwing constructor exception specifications. Do not fold
+      destructor exceptions or evaluation of constructor default arguments
+      into this legacy query. The focused i686/AMD64 RCC gate and strict GCC
+      C++20 syntax oracle pass.
+- [ ] Broader GNU special-member, constructibility, and assignability
+      conformance remains open.
+
 ## RCC continuation (2026-10-23, class typedefs and function-type packs)
 
 - [x] Parse class-scope `typedef` declarations, including multiple declarators
