@@ -673,6 +673,7 @@ test-cxx-using-overload-namespaces \
 	test-cxx-noexcept-function-decay \
 	test-cxx-recursive-class-partial-specialization \
 	test-cxx-template-template-parameters \
+	test-cxx-template-template-wide-mangling \
 	test-cxx-trailing-return-noexcept
 .PHONY: test-cxx-abbreviated-function-template test-cxx-trailing-requires \
 	test-cxx-constrained-abbreviated test-cxx-constrained-class-template \
@@ -732,6 +733,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-noexcept-function-decay \
 	test-cxx-recursive-class-partial-specialization \
 	test-cxx-template-template-parameters \
+	test-cxx-template-template-wide-mangling \
 	test-cxx-trailing-return-noexcept \
 	test-cxx-global-allocation-operators \
 	test-cxx-defaulted-equality \
@@ -17032,6 +17034,28 @@ test-cxx-recursive-class-partial-specialization: $(RCXX_TARGET)
 
 test-cxx-template-template-parameters: $(RCXX_TARGET)
 	$(call CXX_FRONTEND_ONLY_TEST,cxx-template-template-parameters,cxx_template_template_parameters.cpp)
+
+test-cxx-template-template-wide-mangling: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template-wide-mangling)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -S \
+		-o $(TEST_OUT)/cxx-template-template-wide-mangling/gcc.s \
+		tests/cxx_template_template_wide_mangling.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-template-wide-mangling/rcc-x86.s \
+		tests/cxx_template_template_wide_mangling.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-template-wide-mangling/rcc-x64.s \
+		tests/cxx_template_template_wide_mangling.cpp
+	$(PYTHON) tests/compare_mangled_symbols.py \
+		wide_template_argumentI \
+		$(TEST_OUT)/cxx-template-template-wide-mangling/gcc.s \
+		$(TEST_OUT)/cxx-template-template-wide-mangling/rcc-x86.s \
+		$(TEST_OUT)/cxx-template-template-wide-mangling/rcc-x64.s
+	$(PYTHON) tests/compare_mangled_symbols.py \
+		wide_nontype_template_argumentI \
+		$(TEST_OUT)/cxx-template-template-wide-mangling/gcc.s \
+		$(TEST_OUT)/cxx-template-template-wide-mangling/rcc-x86.s \
+		$(TEST_OUT)/cxx-template-template-wide-mangling/rcc-x64.s
 
 test-cxx-trailing-return-noexcept: $(RCXX_TARGET)
 	$(call CXX_FRONTEND_ONLY_TEST,cxx-trailing-return-noexcept,cxx_trailing_return_noexcept.cpp)

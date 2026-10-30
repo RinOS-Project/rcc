@@ -3310,16 +3310,38 @@ static void cxx_mangle_template_type_append_impl(
         int parameter_index = type->cxx_template_param_index;
         CxxTemplate* signature = tmpl && parameter_index < tmpl->param_count
             ? tmpl->params[parameter_index].template_signature : NULL;
-        int64_t nested_values[32] = { 0 };
-        int nested_value_parameter_indices[32];
-        Expr* nested_value_expressions[32] = { NULL };
+        size_t nested_argument_count =
+            (size_t)type->cxx_template_arg_count;
+        int64_t* nested_values = NULL;
+        int* nested_value_parameter_indices = NULL;
+        Expr** nested_value_expressions = NULL;
         bool encodable = parameter_index >= 0 &&
             tmpl && parameter_index < tmpl->param_count &&
             tmpl->params[parameter_index].kind == TPARAM_TEMPLATE &&
-            signature && type->cxx_template_arg_count <= 32 &&
+            signature &&
             type->cxx_template_arg_count == signature->param_count;
-        for (int index = 0; index < 32; ++index) {
-            nested_value_parameter_indices[index] = -1;
+        if (encodable &&
+            (nested_argument_count > SIZE_MAX / sizeof(*nested_values) ||
+             nested_argument_count >
+                 SIZE_MAX / sizeof(*nested_value_parameter_indices) ||
+             nested_argument_count >
+                 SIZE_MAX / sizeof(*nested_value_expressions))) {
+            encodable = false;
+        }
+        if (encodable) {
+            nested_values = rcc_alloc(
+                sizeof(*nested_values) * nested_argument_count);
+            nested_value_parameter_indices = rcc_alloc(
+                sizeof(*nested_value_parameter_indices) *
+                nested_argument_count);
+            nested_value_expressions = rcc_alloc(
+                sizeof(*nested_value_expressions) * nested_argument_count);
+            for (int index = 0; index < type->cxx_template_arg_count;
+                 ++index) {
+                nested_values[index] = 0;
+                nested_value_parameter_indices[index] = -1;
+                nested_value_expressions[index] = NULL;
+            }
         }
         for (int index = 0; encodable &&
              index < type->cxx_template_arg_count; ++index) {
@@ -3460,21 +3482,35 @@ static void cxx_mangle_template_type_append_impl(
             return;
         }
     }
-    int64_t nested_value_arguments[32] = { 0 };
-    int nested_value_parameter_indices[32];
-    Expr* nested_value_expressions[32] = { NULL };
+    size_t nested_argument_count = type && type->cxx_template_arg_count > 0
+        ? (size_t)type->cxx_template_arg_count : 0u;
+    int64_t* nested_value_arguments = NULL;
+    int* nested_value_parameter_indices = NULL;
+    Expr** nested_value_expressions = NULL;
     int pack_expansion_start = -1;
-    for (int index = 0;
-         index < (int)(sizeof(nested_value_parameter_indices) /
-                       sizeof(nested_value_parameter_indices[0]));
-         ++index) {
-        nested_value_parameter_indices[index] = -1;
-    }
     bool nested_value_arguments_encodable = type && type->cxx_template &&
-        type->cxx_template_arg_count > 0 &&
-        type->cxx_template_arg_count <=
-            (int)(sizeof(nested_value_arguments) /
-                  sizeof(nested_value_arguments[0]));
+        nested_argument_count > 0;
+    if (nested_value_arguments_encodable &&
+        (nested_argument_count > SIZE_MAX / sizeof(*nested_value_arguments) ||
+         nested_argument_count >
+             SIZE_MAX / sizeof(*nested_value_parameter_indices) ||
+         nested_argument_count >
+             SIZE_MAX / sizeof(*nested_value_expressions))) {
+        nested_value_arguments_encodable = false;
+    }
+    if (nested_value_arguments_encodable) {
+        nested_value_arguments = rcc_alloc(
+            sizeof(*nested_value_arguments) * nested_argument_count);
+        nested_value_parameter_indices = rcc_alloc(
+            sizeof(*nested_value_parameter_indices) * nested_argument_count);
+        nested_value_expressions = rcc_alloc(
+            sizeof(*nested_value_expressions) * nested_argument_count);
+        for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+            nested_value_arguments[index] = 0;
+            nested_value_parameter_indices[index] = -1;
+            nested_value_expressions[index] = NULL;
+        }
+    }
     if (type && type->cxx_template_arg_pack_expansions) {
         for (int index = 0; index < type->cxx_template_arg_count; ++index) {
             if (type->cxx_template_arg_pack_expansions[index] &&

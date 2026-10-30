@@ -25049,8 +25049,7 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
     }
     if (pattern->kind == actual->kind &&
         (pattern->kind == TYPE_STRUCT || pattern->kind == TYPE_UNION) &&
-        pattern->cxx_template && pattern->cxx_template_arg_count > 0 &&
-        pattern->cxx_template_arg_count <= 32) {
+        pattern->cxx_template && pattern->cxx_template_arg_count > 0) {
         CxxClass* actual_class = actual->cxx_class;
         CxxTemplate* actual_template = actual_class &&
                 actual_class->template_identity_tmpl
