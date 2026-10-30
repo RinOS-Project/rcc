@@ -167,6 +167,13 @@ typedef struct StaticLocalCleanup {
     struct StaticLocalCleanup* next;
 } StaticLocalCleanup;
 
+typedef struct CxxArrayPlacementCleanupThunk {
+    const Expr* expression;
+    const char* callback_name;
+    const Decl* deallocation_function;
+    struct CxxArrayPlacementCleanupThunk* next;
+} CxxArrayPlacementCleanupThunk;
+
 typedef struct {
     const Decl* declaration;
     int64_t frame_offset;
@@ -220,6 +227,8 @@ typedef struct Module {
     GlobalFinalizer* global_finalizers;
     int global_finalizer_count;
     StaticLocalCleanup* static_local_cleanups;
+    CxxArrayPlacementCleanupThunk* cxx_array_placement_cleanup_thunks;
+    size_t cxx_array_placement_cleanup_thunk_count;
     uint32_t compound_literal_count;
     /* Translation-unit AST retained only while emitting relocatable debug
      * information.  The AST is owned by the frontend and is not freed here. */
@@ -242,6 +251,8 @@ struct CxxNamespace;
 /* Code generation functions */
 Module* codegen_new(void);
 void codegen_free(Module* mod);
+CxxArrayPlacementCleanupThunk* module_add_cxx_array_placement_cleanup_thunk(
+    Module* mod, const Expr* expression);
 size_t module_begin_debug_inline_call(
     Module* mod, const Decl* caller, const Decl* callee,
     const ExprList* arguments, SourceLoc call_location,

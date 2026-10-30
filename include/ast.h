@@ -997,6 +997,7 @@ struct Expr {
             Expr* call_new_count;
             ExprList* call_new_args;
             Decl* call_new_deallocation_function;
+            Decl* call_new_placement_deallocation_function;
             struct CxxConstructorInfo* call_new_constructor;
             struct CxxConstructorInfo* call_new_default_constructor;
             ExprList* call_new_default_args;

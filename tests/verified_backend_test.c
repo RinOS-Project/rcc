@@ -4118,6 +4118,48 @@ static void verify_cxx_delete_object(const char* path, uint16_t arch,
     objfile_free(object);
 }
 
+static void verify_cxx_global_array_placement_object(
+    const char* path, uint16_t arch, bool execute)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* entry_symbol;
+    ObjSymbol* cleanup_symbol = NULL;
+    size_t cleanup_symbol_count = 0u;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    entry_symbol = objfile_find_symbol(object, "main");
+    assert(text != NULL && entry_symbol != NULL &&
+           entry_symbol->type == SYM_GLOBAL &&
+           entry_symbol->binding == BIND_CODE && entry_symbol->section == 0);
+    for (ObjSymbol* symbol = object->symbols; symbol;
+         symbol = symbol->next) {
+        if (strncmp(symbol->name,
+                    "__rcc_array_placement_delete_",
+                    sizeof("__rcc_array_placement_delete_") - 1u) == 0) {
+            cleanup_symbol = symbol;
+            ++cleanup_symbol_count;
+        }
+    }
+    assert(cleanup_symbol_count == 2u && cleanup_symbol != NULL &&
+           cleanup_symbol->type == SYM_LOCAL &&
+           cleanup_symbol->binding == BIND_CODE &&
+           cleanup_symbol->section == 0);
+    if (execute) {
+        size_t mapping_size;
+        void* memory;
+        void* address;
+        int (RINOS_ABI *entry)(void);
+        assert(arch == ARCH_X64 && sizeof(void*) == 8u);
+        memory = map_text(object, text, &mapping_size);
+        address = symbol_address(memory, entry_symbol);
+        memcpy(&entry, &address, sizeof(entry));
+        assert(entry() == 0);
+        assert(verified_unmap(memory, mapping_size) == 0);
+    }
+    objfile_free(object);
+}
+
 static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
                                             bool execute)
 {
@@ -6478,6 +6520,25 @@ int main(int argc, char** argv)
         puts(arch == ARCH_X64 && sizeof(void*) == 8u
                  ? "Verified typed-SSA dynamic delete runtime passed"
                  : "Verified typed-SSA dynamic delete object passed");
+        return 0;
+    }
+    if (argc == 4 &&
+        strcmp(argv[1], "--cxx-global-array-placement-object") == 0) {
+        uint16_t arch;
+        bool execute;
+        if (strcmp(argv[3], "x86") == 0) {
+            arch = ARCH_X86;
+            execute = false;
+        } else {
+            assert(strcmp(argv[3], "x64") == 0);
+            arch = ARCH_X64;
+            execute = sizeof(void*) == 8u;
+        }
+        verify_cxx_global_array_placement_object(
+            argv[2], arch, execute);
+        puts(execute
+                 ? "Verified placement array cleanup runtime passed"
+                 : "Verified placement array cleanup object passed");
         return 0;
     }
     if (argc == 4 &&

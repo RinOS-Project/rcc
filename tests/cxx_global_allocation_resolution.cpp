@@ -9,6 +9,18 @@ static allocation_size_type array_allocation_last_size;
 alignas(8) static unsigned char array_allocation_slot[64];
 static int cookie_array_constructor_calls;
 static int cookie_array_destructor_calls;
+static int placement_array_constructor_calls;
+static int placement_array_default_constructor_calls;
+static int placement_array_destructor_calls;
+static int placement_array_destructor_order;
+static int placement_array_new_calls;
+static int placement_array_delete_calls;
+static int placement_array_regular_delete_calls;
+static int placement_array_delete_argument_matches;
+static int placement_array_marker;
+static allocation_size_type placement_array_last_size;
+static int placement_array_state;
+alignas(8) static unsigned char placement_array_slot[64];
 
 void* operator new(allocation_size_type size) {
     (void)size;
@@ -56,6 +68,55 @@ struct GlobalCookieArray {
     }
 };
 
+struct ThrowingPlacementArray {
+    int value;
+
+    static void* operator new[](
+        allocation_size_type size, int* state, int marker);
+    static void operator delete[](
+        void* pointer, int* state, int marker) noexcept;
+    static void operator delete[](void* pointer) noexcept;
+
+    ThrowingPlacementArray() : value(0) {
+        value = ++placement_array_default_constructor_calls;
+        if (value == 3) throw 89;
+    }
+    ThrowingPlacementArray(int initial_value) : value(initial_value) {
+        if (initial_value == 41) throw 73;
+        ++placement_array_constructor_calls;
+    }
+    ~ThrowingPlacementArray() noexcept {
+        ++placement_array_destructor_calls;
+        placement_array_destructor_order =
+            placement_array_destructor_order * 100 + value;
+    }
+};
+
+void* ThrowingPlacementArray::operator new[](
+    allocation_size_type size, int* state, int marker) {
+    placement_array_last_size = size;
+    if (state == &placement_array_state && marker == 0x1357) {
+        ++placement_array_new_calls;
+    }
+    return &placement_array_slot[0];
+}
+
+void ThrowingPlacementArray::operator delete[](
+    void* pointer, int* state, int marker) noexcept {
+    if (pointer == &placement_array_slot[0]) {
+        ++placement_array_delete_calls;
+        if (state == &placement_array_state && marker == 0x1357) {
+            ++placement_array_delete_argument_matches;
+        }
+    }
+}
+
+void ThrowingPlacementArray::operator delete[](void* pointer) noexcept {
+    if (pointer == &placement_array_slot[0]) {
+        ++placement_array_regular_delete_calls;
+    }
+}
+
 int main() {
     int* value = new int(73);
     bool initialized = allocation_calls == 1 && *value == 73;
@@ -91,10 +152,85 @@ int main() {
         initialized_objects[0].value == 31 &&
         initialized_objects[1].value == 41;
     delete[] initialized_objects;
-    return initialized && array_initialized &&
-            scalar_array_explicitly_initialized && deallocation_calls == 1 &&
-            cookie_array_initialized && cookie_array_explicitly_initialized &&
-            cookie_array_destructor_calls == 4 &&
-            array_deallocation_calls == 4
-        ? 0 : 1;
+    int placement_array_exception = 0;
+    placement_array_marker = 0x1357;
+    try {
+        ThrowingPlacementArray* throwing_objects =
+            new (&placement_array_state, placement_array_marker)
+                ThrowingPlacementArray[3]{
+                17, 31, 41};
+        delete[] throwing_objects;
+    } catch (int exception_value) {
+        placement_array_exception = exception_value;
+    }
+    bool explicit_placement_array_cleanup =
+        placement_array_exception == 73 &&
+        placement_array_new_calls == 1 &&
+        placement_array_last_size == sizeof(ThrowingPlacementArray) * 3 +
+            sizeof(allocation_size_type) &&
+        placement_array_constructor_calls == 2 &&
+        placement_array_destructor_calls == 2 &&
+        placement_array_destructor_order == 3117 &&
+        placement_array_delete_calls == 1 &&
+        placement_array_delete_argument_matches == 1 &&
+        placement_array_regular_delete_calls == 0;
+    if (!explicit_placement_array_cleanup) {
+        if (placement_array_exception != 73) return 21;
+        if (placement_array_new_calls != 1) return 22;
+        if (placement_array_last_size != sizeof(ThrowingPlacementArray) * 3 +
+                sizeof(allocation_size_type)) return 23;
+        if (placement_array_constructor_calls != 2) return 24;
+        if (placement_array_destructor_calls != 2 ||
+            placement_array_delete_calls != 1) {
+            return 30 + placement_array_destructor_calls * 10 +
+                placement_array_delete_calls;
+        }
+        if (placement_array_delete_argument_matches != 1) return 50;
+        if (placement_array_regular_delete_calls != 0) return 28;
+        return 29;
+    }
+    placement_array_new_calls = 0;
+    placement_array_default_constructor_calls = 0;
+    placement_array_destructor_calls = 0;
+    placement_array_destructor_order = 0;
+    placement_array_delete_calls = 0;
+    placement_array_regular_delete_calls = 0;
+    placement_array_delete_argument_matches = 0;
+    placement_array_exception = 0;
+    try {
+        ThrowingPlacementArray* throwing_default_objects =
+            new (&placement_array_state, placement_array_marker)
+                ThrowingPlacementArray[3];
+        delete[] throwing_default_objects;
+    } catch (int exception_value) {
+        placement_array_exception = exception_value;
+    }
+    bool default_placement_array_cleanup =
+        placement_array_exception == 89 &&
+        placement_array_new_calls == 1 &&
+        placement_array_last_size == sizeof(ThrowingPlacementArray) * 3 +
+            sizeof(allocation_size_type) &&
+        placement_array_default_constructor_calls == 3 &&
+        placement_array_destructor_calls == 2 &&
+        placement_array_destructor_order == 201 &&
+        placement_array_delete_calls == 1 &&
+        placement_array_delete_argument_matches == 1 &&
+        placement_array_regular_delete_calls == 0;
+    if (!default_placement_array_cleanup) {
+        if (placement_array_exception != 89) return 61;
+        if (placement_array_new_calls != 1) return 62;
+        if (placement_array_default_constructor_calls != 3) return 63;
+        if (placement_array_destructor_calls != 2 ||
+            placement_array_delete_calls != 1) return 64;
+        if (placement_array_delete_argument_matches != 1) return 65;
+        if (placement_array_regular_delete_calls != 0) return 66;
+        return 67;
+    }
+    bool existing_checks = initialized && array_initialized &&
+        scalar_array_explicitly_initialized && deallocation_calls == 1 &&
+        cookie_array_initialized && cookie_array_explicitly_initialized &&
+        cookie_array_destructor_calls == 4 && array_deallocation_calls == 4;
+    return (!existing_checks ? 2 : 0) |
+        (!explicit_placement_array_cleanup ||
+         !default_placement_array_cleanup ? 1 : 0);
 }

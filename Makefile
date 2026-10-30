@@ -17046,7 +17046,18 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_class_allocation_multiple_using_selection.cpp
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-parenthesized-new-type,cxx_parenthesized_new_type.cpp,,tests/cxx_language_core_host_no_allocator.c)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_parenthesized_new_type.cpp
-	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,10)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,18)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/cxx-global-allocation-operators/verified-run \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+	$(TEST_OUT)/cxx-global-allocation-operators/verified-run \
+		--cxx-global-array-placement-object \
+		$(TEST_OUT)/cxx-global-allocation-operators/verified-x86.ro x86
+	$(TEST_OUT)/cxx-global-allocation-operators/verified-run \
+		--cxx-global-array-placement-object \
+		$(TEST_OUT)/cxx-global-allocation-operators/verified-x64.ro x64
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,19)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-allocation-multiple-using-selection,cxx_class_allocation_multiple_using_selection.cpp,7)

@@ -10255,9 +10255,19 @@ remains a separate open item.
         strict GCC C++20, legacy i686/AMD64 generation and AMD64 execution, and
         verified i686/AMD64 output at `-O0`/`-O2` with zero fallback in
         `test-cxx-global-allocation-operators`.
-  - [ ] Preserve placement arguments through constructor-failure cleanup and
-        invoke the matching placement `operator delete[]` after destroying the
-        already-constructed elements.
+  - [x] For cookie-bearing class arrays with class-specific placement
+        allocation taking pointer/integer arguments, preserve the evaluated
+        values through constructor failure, destroy completed elements in
+        reverse order, then invoke the matching placement `operator delete[]`.
+        Cover both explicit per-element initializers and default construction;
+        the runtime checks the cookie-inclusive extent, both delete arguments,
+        destructor order, i686/AMD64 legacy generation and AMD64 execution,
+        plus verified i686/AMD64 `-O0`/`-O2` with zero fallback and x64 runtime
+        execution in `test-cxx-global-allocation-operators`.
+  - [ ] Extend placement allocation and failure-cleanup argument lowering to
+        floating-point register classes, wider-than-word i686 values, and
+        aggregate-by-value ABI parameters; current legacy cleanup thunks carry
+        each argument as one integer register/stack word.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

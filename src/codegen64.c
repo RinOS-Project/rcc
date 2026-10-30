@@ -5701,6 +5701,16 @@ static const char* gen64_cxx_array_deallocation_name(const Expr* expr) {
         ? decl_link_name(expr->call_new_deallocation_function) : "rin_free";
 }
 
+static const char* gen64_cxx_array_element_destructor_name(
+    const Expr* expr) {
+    Type* object_type = expr ? expr->call_new_type : NULL;
+    Decl* destructor = object_type && object_type->cxx_class &&
+            object_type->cxx_class->destructor_method
+        ? object_type->cxx_class->destructor_method->decl : NULL;
+    return destructor && destructor->link_name
+        ? decl_link_name(destructor) : NULL;
+}
+
 static void gen64_cxx_change_current_cleanup_pointer(
     Module* mod, const char* callback_name, int object_reg,
     bool unregister) {
@@ -5725,7 +5735,24 @@ static void gen64_cxx_change_current_cleanup_pointer(
     emit64_pop_reg(mod, RAX);
 }
 
-static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
+static size_t gen64_cxx_array_placement_cleanup_argument_count(
+    const CxxArrayPlacementCleanupThunk* thunk) {
+    const TypeParam* parameter = thunk && thunk->deallocation_function &&
+            thunk->deallocation_function->type &&
+            thunk->deallocation_function->type->kind == TYPE_FUNC
+        ? thunk->deallocation_function->type->params : NULL;
+    size_t count = 0u;
+    if (parameter) parameter = parameter->next;
+    while (parameter) {
+        ++count;
+        parameter = parameter->next;
+    }
+    return count;
+}
+
+static void gen64_cxx_alloc_array_cookie(
+    Module* mod, Expr* expr,
+    const CxxArrayPlacementCleanupThunk* cleanup_thunk) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     const ExprList* placement_argument = expr && expr->call_args
         ? expr->call_args->next : NULL;
@@ -5734,6 +5761,26 @@ static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
     if (!object_type || object_type->size <= 0 ||
         !expr || !expr->call_new_count) {
         rcc_fatal("validated C++ array allocation has incomplete metadata");
+    }
+    size_t cleanup_argument_count =
+        gen64_cxx_array_placement_cleanup_argument_count(cleanup_thunk);
+    size_t cleanup_record_size = cleanup_thunk
+        ? (cleanup_argument_count + 1u) * 8u : 0u;
+    if (cleanup_thunk &&
+        (cleanup_argument_count == 0u ||
+         cleanup_argument_count > (size_t)(INT_MAX / 8) - 1u)) {
+        rcc_fatal("C++ placement delete has invalid cleanup parameters");
+    }
+    if (cleanup_thunk) {
+        size_t source_argument_count = 0u;
+        for (const ExprList* argument = placement_argument; argument;
+             argument = argument->next) {
+            ++source_argument_count;
+        }
+        if (source_argument_count != cleanup_argument_count) {
+            rcc_fatal("C++ placement delete does not match allocation arguments");
+        }
+        emit64_sub_reg_imm(mod, RSP, (uint32_t)cleanup_record_size);
     }
     gen64_expr(mod, expr->call_new_count);
     if (placement_argument) {
@@ -5798,8 +5845,27 @@ static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
         emit64_mov_mem_reg(mod, RAX, 0, RCX);
         emit64_add_reg_imm(mod, RAX, 8);
         emit64_label(mod, done);
+        if (cleanup_thunk) {
+            size_t record_offset = frame_bytes;
+            emit64_mov_reg_reg(mod, R11, RAX);
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_sub_reg_imm(mod, RCX, 8);
+            emit64_mov_mem_reg(mod, RSP, (int)record_offset, RCX);
+            for (index = 0u; index < placement_count; ++index) {
+                emit64_mov_reg_mem(
+                    mod, RAX, RSP,
+                    (int)(local_base + 16u + index * 8u));
+                emit64_mov_mem_reg(
+                    mod, RSP,
+                    (int)(record_offset + 8u + index * 8u), RAX);
+            }
+            emit64_mov_reg_reg(mod, RAX, R11);
+        }
         emit64_add_reg_imm(mod, RSP, (uint32_t)frame_bytes);
         return;
+    }
+    if (cleanup_thunk) {
+        rcc_fatal("C++ placement cleanup requires allocation arguments");
     }
     emit64_sub_reg_imm(mod, RSP, 16);
     emit64_mov_mem_reg(mod, RSP, 0, RAX); /* evaluated element count */
@@ -5833,7 +5899,7 @@ static void gen64_cxx_zero_array(Module* mod, Expr* expr) {
     if (expr && expr->call_new_array_cookie) {
         int cookie_loop = new_label64();
         int cookie_done = new_label64();
-        gen64_cxx_alloc_array_cookie(mod, expr);
+        gen64_cxx_alloc_array_cookie(mod, expr, NULL);
         emit64_push_reg(mod, RAX);
         emit64_mov_reg_reg(mod, RCX, RAX);
         emit64_sub_reg_imm(mod, RCX, 8);
@@ -8080,6 +8146,14 @@ static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     TypeField* field = object_type ? object_type->fields : NULL;
     ExprList* argument;
+    size_t initialized_count = 0u;
+    const char* destructor_name =
+        gen64_cxx_array_element_destructor_name(expr);
+    const char* deallocation_name = gen64_cxx_array_deallocation_name(expr);
+    bool register_deallocation = expr && expr->call_new_array_cookie &&
+        !(expr->call_args && expr->call_args->next);
+    CxxArrayPlacementCleanupThunk* cleanup_thunk;
+    size_t cleanup_record_size = 0u;
 
     if (!object_type || !field || object_type->size <= 0 ||
         !expr || !expr->call_new_count || !expr->call_new_constructor) {
@@ -8089,8 +8163,24 @@ static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
                   "array new constructor has invalid element storage");
         return;
     }
+    cleanup_thunk = module_add_cxx_array_placement_cleanup_thunk(mod, expr);
+    if (cleanup_thunk) {
+        size_t cleanup_argument_count =
+            gen64_cxx_array_placement_cleanup_argument_count(cleanup_thunk);
+        cleanup_record_size = (cleanup_argument_count + 1u) * 8u;
+    }
     if (expr->call_new_array_cookie) {
-        gen64_cxx_alloc_array_cookie(mod, expr);
+        gen64_cxx_alloc_array_cookie(mod, expr, cleanup_thunk);
+        if (register_deallocation) {
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_sub_reg_imm(mod, RCX, 8);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, deallocation_name, RCX, false);
+        } else if (cleanup_thunk) {
+            emit64_mov_reg_reg(mod, RCX, RSP);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, cleanup_thunk->callback_name, RCX, false);
+        }
         emit64_push_reg(mod, RAX);           /* user base */
         emit64_push_reg(mod, RAX);           /* current */
     } else {
@@ -8118,19 +8208,59 @@ static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
                                      argument);
         emit64_mov_reg_mem(mod, RCX, RSP,
                            expr->call_new_array_cookie ? 0 : 16);
+        if (expr->call_new_array_cookie && destructor_name) {
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, destructor_name, RCX, false);
+        }
         emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
         emit64_mov_mem_reg(mod, RSP,
                            expr->call_new_array_cookie ? 0 : 16, RCX);
+        ++initialized_count;
+    }
+    if (expr->call_new_array_cookie) {
+        if (destructor_name) {
+            emit64_mov_reg_mem(mod, RCX, RSP, 0);
+            while (initialized_count > 0u) {
+                emit64_sub_reg_imm(
+                    mod, RCX, (uint32_t)object_type->size);
+                gen64_cxx_change_current_cleanup_pointer(
+                    mod, destructor_name, RCX, true);
+                --initialized_count;
+            }
+        }
+        if (register_deallocation) {
+            emit64_mov_reg_mem(mod, RCX, RSP, 8);
+            emit64_sub_reg_imm(mod, RCX, 8);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, deallocation_name, RCX, true);
+        } else if (cleanup_thunk) {
+            emit64_mov_reg_reg(mod, RCX, RSP);
+            emit64_add_reg_imm(mod, RCX, 16);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, cleanup_thunk->callback_name, RCX, true);
+        }
     }
     emit64_mov_reg_mem(mod, RAX, RSP, 8);
     emit64_add_reg_imm(mod, RSP,
                        expr->call_new_array_cookie ? 16 : 24);
+    if (cleanup_thunk && expr->call_new_array_cookie) {
+        emit64_add_reg_imm(mod, RSP, (uint32_t)cleanup_record_size);
+    }
 }
 
 static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
+    const char* destructor_name =
+        gen64_cxx_array_element_destructor_name(expr);
+    const char* deallocation_name = gen64_cxx_array_deallocation_name(expr);
+    CxxArrayPlacementCleanupThunk* cleanup_thunk;
+    size_t cleanup_record_size = 0u;
+    bool register_deallocation = expr && expr->call_new_array_cookie &&
+        !(expr->call_args && expr->call_args->next);
     int loop;
     int done;
+    int cleanup_loop;
+    int cleanup_done;
 
     if (!object_type || object_type->size <= 0 ||
         !expr || !expr->call_new_count || !expr->call_new_constructor) {
@@ -8143,7 +8273,24 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
     if (expr->call_new_array_cookie) {
         int cookie_loop = new_label64();
         int cookie_done = new_label64();
-        gen64_cxx_alloc_array_cookie(mod, expr);
+        cleanup_thunk = module_add_cxx_array_placement_cleanup_thunk(
+            mod, expr);
+        if (cleanup_thunk) {
+            cleanup_record_size =
+                (gen64_cxx_array_placement_cleanup_argument_count(
+                    cleanup_thunk) + 1u) * 8u;
+        }
+        gen64_cxx_alloc_array_cookie(mod, expr, cleanup_thunk);
+        if (register_deallocation) {
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_sub_reg_imm(mod, RCX, 8);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, deallocation_name, RCX, false);
+        } else if (cleanup_thunk) {
+            emit64_mov_reg_reg(mod, RCX, RSP);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, cleanup_thunk->callback_name, RCX, false);
+        }
         emit64_push_reg(mod, RAX);           /* user base */
         emit64_push_reg(mod, RAX);           /* current */
         emit64_mov_reg_reg(mod, RCX, RAX);
@@ -8156,6 +8303,11 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
         emit64_mov_reg_mem(mod, RCX, RSP, 8);
         gen64_cxx_initialize_object(mod, object_type,
                                      expr->call_new_constructor, NULL);
+        if (destructor_name) {
+            emit64_mov_reg_mem(mod, RCX, RSP, 8);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, destructor_name, RCX, false);
+        }
         emit64_mov_reg_mem(mod, RCX, RSP, 8);
         emit64_add_reg_imm(mod, RCX, (uint32_t)object_type->size);
         emit64_mov_mem_reg(mod, RSP, 8, RCX);
@@ -8165,8 +8317,44 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
         emit64_cmp_reg_imm(mod, RDX, 0);
         emit64_jcc_label(mod, CC64_NE, cookie_loop);
         emit64_label(mod, cookie_done);
+        if (destructor_name) {
+            emit64_mov_reg_mem(mod, RCX, RSP, 16);
+            emit64_sub_reg_imm(mod, RCX, 8);
+            emit64_mov_reg_mem(mod, RDX, RCX, 0);
+            emit64_mov_mem_reg(mod, RSP, 0, RDX);
+            cleanup_loop = new_label64();
+            cleanup_done = new_label64();
+            emit64_label(mod, cleanup_loop);
+            emit64_mov_reg_mem(mod, RDX, RSP, 0);
+            emit64_cmp_reg_imm(mod, RDX, 0);
+            emit64_jcc_label(mod, CC64_E, cleanup_done);
+            emit64_mov_reg_mem(mod, RCX, RSP, 8);
+            emit64_sub_reg_imm(mod, RCX, (uint32_t)object_type->size);
+            emit64_mov_mem_reg(mod, RSP, 8, RCX);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, destructor_name, RCX, true);
+            emit64_mov_reg_mem(mod, RDX, RSP, 0);
+            emit64_sub_reg_imm(mod, RDX, 1);
+            emit64_mov_mem_reg(mod, RSP, 0, RDX);
+            emit64_jmp_label(mod, cleanup_loop);
+            emit64_label(mod, cleanup_done);
+        }
+        if (register_deallocation) {
+            emit64_mov_reg_mem(mod, RCX, RSP, 16);
+            emit64_sub_reg_imm(mod, RCX, 8);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, deallocation_name, RCX, true);
+        } else if (cleanup_thunk) {
+            emit64_mov_reg_reg(mod, RCX, RSP);
+            emit64_add_reg_imm(mod, RCX, 24);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, cleanup_thunk->callback_name, RCX, true);
+        }
         emit64_mov_reg_mem(mod, RAX, RSP, 16);
         emit64_add_reg_imm(mod, RSP, 24);
+        if (cleanup_thunk) {
+            emit64_add_reg_imm(mod, RSP, (uint32_t)cleanup_record_size);
+        }
         return;
     }
     gen64_expr(mod, expr->call_new_count);
@@ -8238,7 +8426,7 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         return;
     }
     if (expr->call_new_is_array && expr->call_new_array_cookie) {
-        gen64_cxx_alloc_array_cookie(mod, expr);
+        gen64_cxx_alloc_array_cookie(mod, expr, NULL);
         return;
     }
     saved_is_new = expr->call_is_new;
@@ -13073,6 +13261,72 @@ static void codegen_emit_static_local_cleanups64(Module* mod) {
     }
 }
 
+static void codegen_emit_cxx_array_placement_cleanup_thunks64(Module* mod) {
+    static const int argument_registers[] = {RSI, RDX, RCX, R8, R9};
+    for (CxxArrayPlacementCleanupThunk* thunk =
+             mod ? mod->cxx_array_placement_cleanup_thunks : NULL;
+         thunk; thunk = thunk->next) {
+        const TypeParam* parameter = thunk->deallocation_function &&
+                thunk->deallocation_function->type &&
+                thunk->deallocation_function->type->kind == TYPE_FUNC
+            ? thunk->deallocation_function->type->params : NULL;
+        size_t argument_count = 0u;
+        size_t stack_argument_count;
+        size_t outgoing_bytes;
+        uint32_t start;
+        while (parameter) {
+            ++argument_count;
+            parameter = parameter->next;
+        }
+        if (argument_count == 0u || argument_count > (size_t)INT_MAX / 8u - 1u) {
+            rcc_fatal("C++ placement cleanup thunk has invalid parameters");
+        }
+        stack_argument_count = argument_count > 5u
+            ? argument_count - 5u : 0u;
+        outgoing_bytes = (uint32_t)((stack_argument_count * 8u + 15u) &
+                                    ~(size_t)15u);
+        if ((code_offset(mod) & 1u) != 0u) emit_byte(mod, 0x90);
+        start = code_offset(mod);
+        add_func_def64(thunk->callback_name, start);
+        emit64_push_reg(mod, RBP);
+        emit64_mov_reg_reg(mod, RBP, RSP);
+        if (outgoing_bytes != 0u) {
+            emit64_sub_reg_imm(mod, RSP, (uint32_t)outgoing_bytes);
+        }
+        emit64_mov_reg_reg(mod, R10, RDI);
+        for (size_t index = 5u; index < argument_count; ++index) {
+            emit64_mov_reg_mem(
+                mod, RAX, R10, (int)((index + 1u) * 8u));
+            emit64_mov_mem_reg(
+                mod, RSP, (int)((index - 5u) * 8u), RAX);
+        }
+        for (size_t index = 0u;
+             index < argument_count && index < 5u; ++index) {
+            emit64_mov_reg_mem(
+                mod, argument_registers[index], R10,
+                (int)((index + 1u) * 8u));
+        }
+        emit64_mov_reg_mem(mod, RDI, R10, 0);
+        emit_byte(mod, 0xE8);
+        {
+            uint32_t call_offset = code_offset(mod);
+            emit_dword(mod, 0u);
+            add_func_call_ref64(
+                decl_link_name((Decl*)thunk->deallocation_function),
+                call_offset);
+        }
+        if (outgoing_bytes != 0u) {
+            emit64_add_reg_imm(mod, RSP, (uint32_t)outgoing_bytes);
+        }
+        emit64_leave(mod);
+        emit64_ret(mod);
+        module_add_symbol(mod, thunk->callback_name, start, true,
+                          MODULE_SYMBOL_CODE, false);
+        module_set_symbol_size(mod, thunk->callback_name,
+                               code_offset(mod) - start);
+    }
+}
+
 static void codegen_emit_global_fini64(Module* mod) {
     const char* name = "__rcc_global_fini";
     GlobalFinalizer* finalizer;
@@ -16657,6 +16911,7 @@ Module* rcc_codegen64(AST* ast) {
     codegen_emit_static_local_cleanups64(mod);
     codegen_emit_global_init64(mod);
     codegen_emit_global_fini64(mod);
+    codegen_emit_cxx_array_placement_cleanup_thunks64(mod);
 
     codegen_emit_cxx_vtables(mod);
 

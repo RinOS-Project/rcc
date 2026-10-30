@@ -14,6 +14,7 @@
 #include "x86_legalize.h"
 #include "cxx_exception_type.h"
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 
 typedef struct {
@@ -177,6 +178,7 @@ typedef struct {
     const Decl* conditional_xvalue_owner;
     RccIrValue active_exception_frame;
     RccIrValue wide_phi_zero;
+    size_t cxx_array_cleanup_thunk_count;
     /* While a local C++ object is being initialized, successfully completed
      * direct class members are registered individually.  If a later member
      * constructor throws, the active exception frame then destroys only the
@@ -21715,6 +21717,211 @@ static RccIrLowerValue lower_cxx_array_slot(
     return lower_value(allocation->result, rcc_ir_type_pointer(0u), true);
 }
 
+typedef struct {
+    const Type* type;
+    RccIrType ir_type;
+    size_t offset;
+} RccIrCxxPlacementCleanupField;
+
+typedef struct {
+    const char* callback_name;
+    RccIrLowerValue record;
+    RccIrCxxPlacementCleanupField* fields;
+    size_t field_count;
+    size_t record_size;
+    size_t record_alignment;
+} RccIrCxxPlacementCleanup;
+
+static bool lower_cxx_make_array_placement_cleanup(
+    RccIrLowerContext* context, const Decl* deallocation,
+    const ExprList* placement_arguments,
+    RccIrCxxPlacementCleanup* cleanup) {
+    const TypeParam* parameter;
+    const ExprList* argument;
+    RccIrType callback_parameter = rcc_ir_type_pointer(0u);
+    RccIrFunction* callback_function;
+    RccIrBlock* entry;
+    RccIrLowerContext callback_context;
+    RccIrLowerValue record;
+    RccIrLowerValue allocation_address;
+    RccIrInstruction* load;
+    RccIrValue* call_operands = NULL;
+    char* callback_name;
+    size_t callback_name_capacity;
+    size_t field_count = 0u;
+    size_t pointer_size;
+    size_t offset;
+    size_t alignment;
+    size_t index;
+    const char* parent_name;
+    if (!context || !deallocation || !deallocation->type ||
+        deallocation->type->kind != TYPE_FUNC ||
+        !deallocation->type->params || !placement_arguments || !cleanup) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    memset(cleanup, 0, sizeof(*cleanup));
+    parameter = deallocation->type->params->next;
+    for (argument = placement_arguments; argument;
+         argument = argument->next) {
+        if (!parameter || !parameter->type || !argument->expr ||
+            argument->designator_kind != INIT_DESIGNATOR_NONE ||
+            !lower_type(parameter->type, &(RccIrType){0}) ||
+            parameter->type->size <= 0 || parameter->type->align <= 0) {
+            context->unsupported = true;
+            return false;
+        }
+        ++field_count;
+        parameter = parameter->next;
+    }
+    if (parameter || field_count == 0u ||
+        field_count > SIZE_MAX / sizeof(*cleanup->fields)) {
+        context->unsupported = true;
+        return false;
+    }
+    cleanup->fields = rcc_alloc(field_count * sizeof(*cleanup->fields));
+    if (!cleanup->fields) {
+        context->unsupported = true;
+        return false;
+    }
+    cleanup->field_count = field_count;
+    pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    alignment = pointer_size;
+    offset = pointer_size;
+    parameter = deallocation->type->params->next;
+    for (index = 0u; index < field_count; ++index,
+         parameter = parameter->next) {
+        size_t field_alignment = (size_t)parameter->type->align;
+        size_t field_size = (size_t)parameter->type->size;
+        size_t remainder;
+        if (field_alignment > 8u ||
+            (field_alignment & (field_alignment - 1u)) != 0u ||
+            !lower_type(parameter->type,
+                        &cleanup->fields[index].ir_type) ||
+            cleanup->fields[index].ir_type.kind == RCC_IR_TYPE_VOID ||
+            field_size > 8u) {
+            context->unsupported = true;
+            return false;
+        }
+        if (field_alignment > alignment) alignment = field_alignment;
+        remainder = offset & (field_alignment - 1u);
+        if (remainder != 0u) {
+            size_t padding = field_alignment - remainder;
+            if (offset > SIZE_MAX - padding) {
+                context->unsupported = true;
+                return false;
+            }
+            offset += padding;
+        }
+        if (offset > SIZE_MAX - field_size) {
+            context->unsupported = true;
+            return false;
+        }
+        cleanup->fields[index].type = parameter->type;
+        cleanup->fields[index].offset = offset;
+        offset += field_size;
+    }
+    if (alignment > 8u) {
+        context->unsupported = true;
+        return false;
+    }
+    {
+        size_t remainder = offset & (alignment - 1u);
+        if (remainder != 0u) {
+            size_t padding = alignment - remainder;
+            if (offset > SIZE_MAX - padding) {
+                context->unsupported = true;
+                return false;
+            }
+            offset += padding;
+        }
+    }
+    cleanup->record_size = offset;
+    cleanup->record_alignment = alignment;
+    cleanup->record = lower_cxx_array_slot(
+        context, cleanup->record_size, cleanup->record_alignment);
+    if (!cleanup->record.valid) return false;
+    parent_name = context->declaration && context->declaration->link_name
+        ? decl_link_name(context->declaration) : "function";
+    callback_name_capacity = strlen(parent_name) + 80u;
+    callback_name = rcc_alloc(callback_name_capacity);
+    if (!callback_name) {
+        context->unsupported = true;
+        return false;
+    }
+    (void)snprintf(callback_name, callback_name_capacity,
+                   "__rcc_array_placement_delete_%s_%zu", parent_name,
+                   context->cxx_array_cleanup_thunk_count++);
+    callback_function = rcc_ir_function_add(
+        context->module, callback_name, rcc_ir_type_void(),
+        &callback_parameter, 1u);
+    rcc_free(callback_name);
+    entry = callback_function
+        ? rcc_ir_block_add(callback_function, "entry") : NULL;
+    if (!callback_function || !entry) {
+        context->unsupported = true;
+        return false;
+    }
+    cleanup->callback_name = callback_function->name;
+    memset(&callback_context, 0, sizeof(callback_context));
+    callback_context.module = context->module;
+    callback_context.function = callback_function;
+    callback_context.current = entry;
+    callback_context.sysv_varargs_gpr_save_area = RCC_IR_VALUE_NONE;
+    record = lower_value(callback_function->parameters[0],
+                         callback_parameter, true);
+    load = lower_append(&callback_context, RCC_IR_LOAD,
+                        callback_parameter, &record.value, 1u, NULL, 0u);
+    if (!load) {
+        context->unsupported = true;
+        return false;
+    }
+    allocation_address = lower_value(load->result, callback_parameter, true);
+    call_operands = rcc_alloc((field_count + 1u) * sizeof(*call_operands));
+    if (!call_operands) {
+        context->unsupported = true;
+        return false;
+    }
+    call_operands[0] = allocation_address.value;
+    for (index = 0u; index < field_count; ++index) {
+        RccIrLowerValue field_address = lower_byte_offset_address(
+            &callback_context, record, (uint64_t)cleanup->fields[index].offset);
+        RccIrInstruction* field_load;
+        if (!field_address.valid) {
+            rcc_free(call_operands);
+            context->unsupported = true;
+            return false;
+        }
+        field_load = lower_append(
+            &callback_context, RCC_IR_LOAD,
+            cleanup->fields[index].ir_type,
+            &field_address.value, 1u, NULL, 0u);
+        if (!field_load) {
+            rcc_free(call_operands);
+            context->unsupported = true;
+            return false;
+        }
+        call_operands[index + 1u] = field_load->result;
+    }
+    {
+        RccIrInstruction* call = lower_append(
+            &callback_context, RCC_IR_CALL, rcc_ir_type_void(),
+            call_operands, field_count + 1u, NULL, 0u);
+        rcc_free(call_operands);
+        if (!call) {
+            context->unsupported = true;
+            return false;
+        }
+        rcc_ir_set_callee(call, decl_link_name(deallocation));
+    }
+    if (!lower_append(&callback_context, RCC_IR_RETURN,
+                      rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
+        context->unsupported = true;
+        return false;
+    }
+    return true;
+}
+
 static RccIrLowerValue lower_cxx_array_element_address(
     RccIrLowerContext* context, RccIrLowerValue base,
     RccIrLowerValue index, size_t element_size) {
@@ -22515,6 +22722,9 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     RccIrValue operands[2];
     RccIrValue* allocation_operands;
     RccIrInstruction* arithmetic;
+    RccIrCxxPlacementCleanup placement_cleanup;
+    RccIrLowerValue allocation_cleanup_object;
+    const char* allocation_cleanup_name = NULL;
     size_t word_size;
     size_t initialized_count = 0u;
     size_t default_argument_count = 0u;
@@ -22523,6 +22733,8 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     int64_t constant_count;
     bool dynamic_count;
     bool register_cleanups;
+    bool register_allocation_cleanup;
+    bool has_placement_arguments;
     bool implicit_empty_default_constructor;
     bool implicit_default_member_initializers;
     const char* allocation_name = "rin_malloc";
@@ -22741,18 +22953,91 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         }
         allocation_operands[allocation_operand_index] = placement_value.value;
     }
+    memset(&placement_cleanup, 0, sizeof(placement_cleanup));
+    has_placement_arguments = expression->call_args &&
+        expression->call_args->next;
+    register_allocation_cleanup = !has_placement_arguments ||
+        expression->call_new_placement_deallocation_function != NULL;
+    allocation_cleanup_name =
+        expression->call_new_deallocation_function &&
+                expression->call_new_deallocation_function->link_name
+            ? decl_link_name(expression->call_new_deallocation_function)
+            : "rin_free";
+    allocation_cleanup_object = lower_invalid_value();
+    if (register_cleanups && has_placement_arguments &&
+        expression->call_new_placement_deallocation_function) {
+        if (!lower_cxx_make_array_placement_cleanup(
+                context,
+                expression->call_new_placement_deallocation_function,
+                expression->call_args->next, &placement_cleanup)) {
+            rcc_free(allocation_operands);
+            return lower_invalid_value();
+        }
+        allocation_cleanup_name = placement_cleanup.callback_name;
+        allocation_cleanup_object = placement_cleanup.record;
+    }
     allocator_address = lower_cxx_runtime_call(
         context, allocation_name, rcc_ir_type_pointer(0u),
         allocation_operands, allocation_operand_count);
-    rcc_free(allocation_operands);
-    if (!allocator_address.valid) return lower_invalid_value();
+    if (!allocator_address.valid) {
+        rcc_free(allocation_operands);
+        rcc_free(placement_cleanup.fields);
+        return lower_invalid_value();
+    }
     if (!lower_conditional_branch(
             context, allocator_address,
             initialize_block->id, failed_block->id)) {
+        rcc_free(allocation_operands);
+        rcc_free(placement_cleanup.fields);
         return lower_invalid_value();
     }
     context->current = initialize_block;
     context->terminated = false;
+    if (placement_cleanup.callback_name) {
+        RccIrLowerValue field_address;
+        const ExprList* placement_argument = expression->call_args->next;
+        RccIrValue allocator_value = allocator_address.value;
+        if (!lower_store_address(context, placement_cleanup.record,
+                lower_value(allocator_value,
+                            rcc_ir_type_pointer(0u), true))) {
+            rcc_free(allocation_operands);
+            rcc_free(placement_cleanup.fields);
+            return lower_invalid_value();
+        }
+        for (size_t field_index = 0u;
+             field_index < placement_cleanup.field_count;
+             ++field_index, placement_argument = placement_argument->next) {
+            RccIrType source_type;
+            RccIrLowerValue source_value;
+            RccIrLowerValue converted_value;
+            if (!placement_argument || !placement_argument->expr ||
+                !lower_type(placement_argument->expr->type, &source_type)) {
+                context->unsupported = true;
+                rcc_free(allocation_operands);
+                rcc_free(placement_cleanup.fields);
+                return lower_invalid_value();
+            }
+            source_value = lower_value(
+                allocation_operands[field_index + 1u], source_type,
+                placement_argument->expr->type->is_unsigned);
+            converted_value = lower_cast(
+                context, source_value,
+                placement_cleanup.fields[field_index].type);
+            field_address = lower_byte_offset_address(
+                context, placement_cleanup.record,
+                (uint64_t)placement_cleanup.fields[field_index].offset);
+            if (!converted_value.valid || !field_address.valid ||
+                !lower_store_address(
+                    context, field_address, converted_value)) {
+                rcc_free(allocation_operands);
+                rcc_free(placement_cleanup.fields);
+                return lower_invalid_value();
+            }
+        }
+    }
+    rcc_free(allocation_operands);
+    rcc_free(placement_cleanup.fields);
+    placement_cleanup.fields = NULL;
     if (!lower_store_address(context, allocator_address, count)) {
         return lower_invalid_value();
     }
@@ -22762,14 +23047,12 @@ static RccIrLowerValue lower_cxx_new_array_expression(
             context, result_slot, user_address)) {
         return lower_invalid_value();
     }
-    if (register_cleanups && !lower_cxx_change_current_cleanup(
-            context,
-            expression->call_new_deallocation_function &&
-                    expression->call_new_deallocation_function->link_name
-                ? decl_link_name(
-                      expression->call_new_deallocation_function)
-                : "rin_free",
-            allocator_address, true)) {
+    if (register_cleanups && register_allocation_cleanup &&
+        !lower_cxx_change_current_cleanup(
+            context, allocation_cleanup_name,
+            placement_cleanup.callback_name
+                ? allocation_cleanup_object : allocator_address,
+            true)) {
         return lower_invalid_value();
     }
     size_t element_index = 0u;
@@ -22992,8 +23275,12 @@ static RccIrLowerValue lower_cxx_new_array_expression(
                 return lower_invalid_value();
             }
         }
-        if (!lower_cxx_change_current_cleanup(
-                context, "rin_free", allocator_address, false)) {
+        if (register_allocation_cleanup &&
+            !lower_cxx_change_current_cleanup(
+                context, allocation_cleanup_name,
+                placement_cleanup.callback_name
+                    ? allocation_cleanup_object : allocator_address,
+                false)) {
             return lower_invalid_value();
         }
     }

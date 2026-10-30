@@ -1326,118 +1326,138 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
                 "function '%s' failed typed SSA validation: %s",
                 declaration->name, pipeline_error);
         }
-        if (!module || !module->first_function ||
-            module->first_function != module->last_function ||
-            !rcc_x86_encode_ir_function(
-                module->first_function, target, &encoded,
-                pipeline_error, sizeof(pipeline_error))) {
+        if (!module || !module->first_function) {
             rcc_free(debug_variable_locations);
-            rcc_ir_module_destroy(module);
-            codegen_free(data_module);
-            objfile_free(object);
-            rcc_x86_encoded_function_release(&encoded);
-            verified_clear_ast_debug_ranges(ast);
-            return verified_reason(
-                RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
-                "function '%s' is not encoded yet: %s",
-                declaration->name, pipeline_error);
-        }
-        verified_collect_debug_variable_locations(
-            &debug_variable_locations,
-            &debug_variable_location_count,
-            &debug_variable_location_capacity, &encoded);
-        if (!verified_add_constants(
-                object, module, translation_unit,
-                decl_link_name(declaration), &encoded,
-                pipeline_error, sizeof(pipeline_error))) {
-            rcc_free(debug_variable_locations);
-            rcc_x86_encoded_function_release(&encoded);
             rcc_ir_module_destroy(module);
             codegen_free(data_module);
             objfile_free(object);
             verified_clear_ast_debug_ranges(ast);
             return verified_reason(
-                RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
-                "function '%s' constant emission failed: %s",
-                declaration->name, pipeline_error);
+                RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
+                "function '%s' produced no typed SSA functions",
+                declaration->name);
         }
-        verified_scope_static_relocations(
-            ast, data_module, translation_unit, &encoded);
-        object_name = decl_link_name(declaration);
-        if (declaration->storage == STORAGE_STATIC) {
-            scoped_name = verified_scoped_symbol(
-                translation_unit, object_name);
-            object_name = scoped_name;
-            symbol_type = SYM_LOCAL;
-        } else if (declaration->is_weak ||
-                   (declaration->func_is_inline &&
-                    declaration->func_has_cxx_linkage)) {
-            symbol_type = SYM_WEAK;
-        } else {
-            symbol_type = SYM_GLOBAL;
-        }
-        if (!rcc_x86_object_add_function(
-                object, object_name, symbol_type, &encoded,
-                pipeline_error, sizeof(pipeline_error))) {
-            rcc_free(debug_variable_locations);
+        for (RccIrFunction* ir_function = module->first_function;
+             ir_function; ir_function = ir_function->next) {
+            bool source_function = ir_function == module->first_function;
+            const char* function_name = ir_function->name;
+            memset(&encoded, 0, sizeof(encoded));
+            scoped_name = NULL;
+            if (!rcc_x86_encode_ir_function(
+                    ir_function, target, &encoded,
+                    pipeline_error, sizeof(pipeline_error))) {
+                rcc_free(debug_variable_locations);
+                rcc_ir_module_destroy(module);
+                codegen_free(data_module);
+                objfile_free(object);
+                rcc_x86_encoded_function_release(&encoded);
+                verified_clear_ast_debug_ranges(ast);
+                return verified_reason(
+                    RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
+                    "function '%s' is not encoded yet: %s",
+                    function_name, pipeline_error);
+            }
+            verified_collect_debug_variable_locations(
+                &debug_variable_locations,
+                &debug_variable_location_count,
+                &debug_variable_location_capacity, &encoded);
+            if (!verified_add_constants(
+                    object, module, translation_unit, function_name,
+                    &encoded, pipeline_error, sizeof(pipeline_error))) {
+                rcc_free(debug_variable_locations);
+                rcc_ir_module_destroy(module);
+                codegen_free(data_module);
+                objfile_free(object);
+                rcc_x86_encoded_function_release(&encoded);
+                verified_clear_ast_debug_ranges(ast);
+                return verified_reason(
+                    RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
+                    "function '%s' constant emission failed: %s",
+                    function_name, pipeline_error);
+            }
+            verified_scope_static_relocations(
+                ast, data_module, translation_unit, &encoded);
+            if (source_function) {
+                object_name = decl_link_name(declaration);
+                if (declaration->storage == STORAGE_STATIC) {
+                    scoped_name = verified_scoped_symbol(
+                        translation_unit, object_name);
+                    object_name = scoped_name;
+                    symbol_type = SYM_LOCAL;
+                } else if (declaration->is_weak ||
+                           (declaration->func_is_inline &&
+                            declaration->func_has_cxx_linkage)) {
+                    symbol_type = SYM_WEAK;
+                } else {
+                    symbol_type = SYM_GLOBAL;
+                }
+            } else {
+                object_name = function_name;
+                symbol_type = SYM_LOCAL;
+            }
+            if (!object_name || !rcc_x86_object_add_function(
+                    object, object_name, symbol_type, &encoded,
+                    pipeline_error, sizeof(pipeline_error))) {
+                rcc_free(debug_variable_locations);
+                rcc_free(scoped_name);
+                rcc_ir_module_destroy(module);
+                codegen_free(data_module);
+                objfile_free(object);
+                rcc_x86_encoded_function_release(&encoded);
+                verified_clear_ast_debug_ranges(ast);
+                return verified_reason(
+                    RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
+                    "function '%s' object emission failed: %s",
+                    function_name, pipeline_error);
+            }
+            if (g_opts.debug_info &&
+                !verified_append_debug_inline_calls(
+                    data_module, module, &encoded,
+                    objfile_find_symbol(object, object_name),
+                    pipeline_error, sizeof(pipeline_error))) {
+                rcc_free(debug_variable_locations);
+                rcc_free(scoped_name);
+                rcc_ir_module_destroy(module);
+                codegen_free(data_module);
+                objfile_free(object);
+                rcc_x86_encoded_function_release(&encoded);
+                verified_clear_ast_debug_ranges(ast);
+                return verified_reason(
+                    RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
+                    "function '%s' debug inline recording failed: %s",
+                    function_name, pipeline_error);
+            }
+            if (g_opts.debug_info &&
+                (!verified_record_debug_frame_epilogues(
+                     data_module, objfile_find_symbol(object, object_name),
+                     &encoded, pipeline_error, sizeof(pipeline_error)) ||
+                 !verified_record_debug_frame_saves(
+                     data_module, objfile_find_symbol(object, object_name),
+                     &encoded, pipeline_error, sizeof(pipeline_error)))) {
+                rcc_free(debug_variable_locations);
+                rcc_free(scoped_name);
+                rcc_ir_module_destroy(module);
+                codegen_free(data_module);
+                objfile_free(object);
+                rcc_x86_encoded_function_release(&encoded);
+                verified_clear_ast_debug_ranges(ast);
+                return verified_reason(
+                    RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
+                    "function '%s' debug epilogue recording failed: %s",
+                    function_name, pipeline_error);
+            }
+            if (g_opts.debug_info && source_function) {
+                verified_apply_statement_debug_ranges(
+                    object, object_name, &encoded);
+                verified_propagate_block_debug_ranges(declaration->func_body);
+                verified_anchor_empty_declaration_locations(
+                    declaration->func_body);
+            }
             rcc_free(scoped_name);
             rcc_x86_encoded_function_release(&encoded);
-            rcc_ir_module_destroy(module);
-            codegen_free(data_module);
-            objfile_free(object);
-            verified_clear_ast_debug_ranges(ast);
-            return verified_reason(
-                RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
-                "function '%s' object emission failed: %s",
-                declaration->name, pipeline_error);
+            ++emitted;
         }
-        if (g_opts.debug_info &&
-            !verified_append_debug_inline_calls(
-                data_module, module, &encoded,
-                objfile_find_symbol(object, object_name),
-                pipeline_error, sizeof(pipeline_error))) {
-            rcc_free(debug_variable_locations);
-            rcc_free(scoped_name);
-            rcc_x86_encoded_function_release(&encoded);
-            rcc_ir_module_destroy(module);
-            codegen_free(data_module);
-            objfile_free(object);
-            verified_clear_ast_debug_ranges(ast);
-            return verified_reason(
-                RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
-                "function '%s' debug inline recording failed: %s",
-                declaration->name, pipeline_error);
-        }
-        if (g_opts.debug_info &&
-            (!verified_record_debug_frame_epilogues(
-                 data_module, objfile_find_symbol(object, object_name),
-                 &encoded, pipeline_error, sizeof(pipeline_error)) ||
-             !verified_record_debug_frame_saves(
-                 data_module, objfile_find_symbol(object, object_name),
-                 &encoded, pipeline_error, sizeof(pipeline_error)))) {
-            rcc_free(debug_variable_locations);
-            rcc_free(scoped_name);
-            rcc_x86_encoded_function_release(&encoded);
-            rcc_ir_module_destroy(module);
-            codegen_free(data_module);
-            objfile_free(object);
-            verified_clear_ast_debug_ranges(ast);
-            return verified_reason(
-                RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
-                "function '%s' debug epilogue recording failed: %s",
-                declaration->name, pipeline_error);
-        }
-        if (g_opts.debug_info) {
-            verified_apply_statement_debug_ranges(
-                object, object_name, &encoded);
-            verified_propagate_block_debug_ranges(declaration->func_body);
-            verified_anchor_empty_declaration_locations(
-                declaration->func_body);
-        }
-        rcc_free(scoped_name);
-        rcc_x86_encoded_function_release(&encoded);
         rcc_ir_module_destroy(module);
-        ++emitted;
     }
     if (emitted == 0u) {
         rcc_free(debug_variable_locations);

@@ -20870,7 +20870,8 @@ static bool sema_append_cxx_default_arguments(
 }
 
 static Decl* sema_select_cxx_overload_candidates(
-    Expr* call, Decl* candidate_root, Decl* extra_candidate) {
+    Expr* call, Decl* candidate_root, Decl* extra_candidate,
+    bool diagnose_failure) {
     Decl* candidate;
     Decl* best = NULL;
     int argument_count;
@@ -21083,13 +21084,17 @@ static Decl* sema_select_cxx_overload_candidates(
         }
     }
     if (!best) {
-        rcc_error(call->loc, "no matching overload for '%s'",
-                  call->call_func->ident_name);
+        if (diagnose_failure) {
+            rcc_error(call->loc, "no matching overload for '%s'",
+                      call->call_func->ident_name);
+        }
         return NULL;
     }
     if (ambiguous) {
-        rcc_error(call->loc, "ambiguous overload for '%s'",
-                  call->call_func->ident_name);
+        if (diagnose_failure) {
+            rcc_error(call->loc, "ambiguous overload for '%s'",
+                      call->call_func->ident_name);
+        }
         return NULL;
     }
     return best;
@@ -21099,7 +21104,7 @@ static Decl* sema_select_cxx_overload(Expr* call) {
     return sema_select_cxx_overload_candidates(
         call, call && call->call_func
             ? call->call_func->ident_decl : NULL,
-        NULL);
+        NULL, true);
 }
 
 /* The cv-qualification of a non-static member function belongs to its
@@ -24738,7 +24743,8 @@ static bool sema_cxx_has_single_parameter_allocation_replacement(
 
 static Decl* sema_cxx_resolve_global_allocation_function(
     Expr* call, const char* operator_name, const char* runtime_name,
-    Type* parameter_type, bool is_deallocation) {
+    Type* parameter_type, bool is_deallocation,
+    bool diagnose_failure) {
     Symbol* symbol;
     Decl* candidates;
     Decl* implicit_candidate;
@@ -24773,7 +24779,7 @@ static Decl* sema_cxx_resolve_global_allocation_function(
         ? designator->ident_decl->type : NULL;
     call->call_func = designator;
     selected = sema_select_cxx_overload_candidates(
-        call, candidates, extra_candidate);
+        call, candidates, extra_candidate, diagnose_failure);
     if (!selected) return NULL;
 
     /* The selected declaration is already known.  Clear the lookup spelling
@@ -24986,7 +24992,7 @@ static int sema_cxx_allocation_access_priority(unsigned char access) {
 
 static Decl* sema_cxx_resolve_class_allocation_function(
     Expr* call, CxxClass* owner, const char* operator_name,
-    bool* has_candidates) {
+    bool* has_candidates, bool diagnose_failure) {
     struct CxxMember* member;
     SemaCxxAllocationCandidate* candidates;
     Decl* wrapper_head = NULL;
@@ -25109,7 +25115,7 @@ static Decl* sema_cxx_resolve_class_allocation_function(
     call->call_func->ident_decl = wrapper_head;
     call->call_func->type = wrapper_head ? wrapper_head->type : NULL;
     selected_wrapper = sema_select_cxx_overload_candidates(
-        call, wrapper_head, NULL);
+        call, wrapper_head, NULL, diagnose_failure);
     if (!selected_wrapper) return NULL;
     for (int index = 0; index < candidate_count; ++index) {
         if (candidates[index].wrapper != selected_wrapper) continue;
@@ -25131,6 +25137,30 @@ static Decl* sema_cxx_resolve_class_allocation_function(
               "selected class allocation function '%s' was not retained",
               operator_name);
     return NULL;
+}
+
+static bool sema_cxx_placement_deallocation_matches(
+    const Decl* allocation, const Decl* deallocation) {
+    const TypeParam* allocation_parameter;
+    const TypeParam* deallocation_parameter;
+    if (!allocation || !deallocation || !allocation->type ||
+        allocation->type->kind != TYPE_FUNC || !allocation->type->params ||
+        !deallocation->type || deallocation->type->kind != TYPE_FUNC ||
+        !deallocation->type->params) {
+        return false;
+    }
+    allocation_parameter = allocation->type->params->next;
+    deallocation_parameter = deallocation->type->params->next;
+    while (allocation_parameter && deallocation_parameter) {
+        if (!type_is_compatible(allocation_parameter->type,
+                                deallocation_parameter->type)) {
+            return false;
+        }
+        allocation_parameter = allocation_parameter->next;
+        deallocation_parameter = deallocation_parameter->next;
+    }
+    return !allocation_parameter && !deallocation_parameter &&
+        allocation->type->variadic == deallocation->type->variadic;
 }
 
 static bool sema_cxx_plain_class_array_element(const Type* type) {
@@ -27262,13 +27292,13 @@ static Type* sema_expr(Expr* expr) {
                             ? sema_cxx_resolve_class_allocation_function(
                                   expr, object_type->cxx_class,
                                   deallocation_operator_name,
-                                  &has_class_candidates)
+                                  &has_class_candidates, true)
                             : NULL;
                     if (!has_class_candidates) {
                         deallocation_function =
                             sema_cxx_resolve_global_allocation_function(
                                 expr, deallocation_operator_name, "rin_free",
-                                type_ptr(type_void), true);
+                                type_ptr(type_void), true, true);
                     }
                     TypeParam* parameter = deallocation_function &&
                             deallocation_function->type &&
@@ -27404,7 +27434,7 @@ static Type* sema_expr(Expr* expr) {
                     allocation_function = cls
                         ? sema_cxx_resolve_class_allocation_function(
                               expr, cls, allocation_operator_name,
-                              &has_class_allocator_candidates)
+                              &has_class_allocator_candidates, true)
                         : NULL;
                     if (!has_class_allocator_candidates) {
                         allocation_function =
@@ -27412,7 +27442,7 @@ static Type* sema_expr(Expr* expr) {
                                 expr, allocation_operator_name, "rin_malloc",
                                 g_opts.target_arch == ARCH_X64
                                     ? type_ullong : type_uint,
-                                false);
+                                false, true);
                     }
                     if (!allocation_function) {
                         expr->type = object_type
@@ -27437,14 +27467,57 @@ static Type* sema_expr(Expr* expr) {
                                 ? sema_cxx_resolve_class_allocation_function(
                                       deallocation_probe, cls,
                                       deallocation_operator_name,
-                                      &has_class_deallocator_candidates)
+                                      &has_class_deallocator_candidates,
+                                      true)
                                 : NULL;
                         if (!has_class_deallocator_candidates) {
                             expr->call_new_deallocation_function =
                                 sema_cxx_resolve_global_allocation_function(
                                     deallocation_probe,
                                     deallocation_operator_name, "rin_free",
-                                    type_ptr(type_void), true);
+                                    type_ptr(type_void), true, true);
+                        }
+                    }
+                    if (expr->call_args && expr->call_args->next) {
+                        ExprList* placement_deallocation_arguments = NULL;
+                        ExprList* placement_argument;
+                        Expr* placement_deallocation_pointer =
+                            expr_int(0, expr->loc);
+                        Expr* placement_deallocation_probe;
+                        Decl* placement_deallocation_function;
+                        bool has_class_placement_deallocator = false;
+                        placement_deallocation_pointer->type =
+                            type_ptr(type_void);
+                        exprlist_append(&placement_deallocation_arguments,
+                                        placement_deallocation_pointer);
+                        for (placement_argument =
+                                 expr->call_args->next;
+                             placement_argument;
+                             placement_argument = placement_argument->next) {
+                            exprlist_append(
+                                &placement_deallocation_arguments,
+                                placement_argument->expr);
+                        }
+                        placement_deallocation_probe = expr_call(
+                            expr_ident(deallocation_operator_name, expr->loc),
+                            placement_deallocation_arguments, expr->loc);
+                        placement_deallocation_function =
+                            has_class_allocator_candidates
+                                ? sema_cxx_resolve_class_allocation_function(
+                                      placement_deallocation_probe, cls,
+                                      deallocation_operator_name,
+                                      &has_class_placement_deallocator,
+                                      false)
+                                : sema_cxx_resolve_global_allocation_function(
+                                      placement_deallocation_probe,
+                                      deallocation_operator_name, "rin_free",
+                                      type_ptr(type_void), true, false);
+                        if (placement_deallocation_function &&
+                            sema_cxx_placement_deallocation_matches(
+                                allocation_function,
+                                placement_deallocation_function)) {
+                            expr->call_new_placement_deallocation_function =
+                                placement_deallocation_function;
                         }
                     }
                 } else {
@@ -28071,7 +28144,7 @@ static Type* sema_expr(Expr* expr) {
                 arguments_analyzed = true;
                 selected_overload = sema_select_cxx_overload_candidates(
                     expr, ordinary_candidates,
-                    expr->cxx_template_overload_candidate);
+                    expr->cxx_template_overload_candidate, true);
                 if (!selected_overload) {
                     expr->type = type_int;
                     break;

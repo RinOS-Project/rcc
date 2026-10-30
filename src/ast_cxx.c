@@ -13089,6 +13089,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->call_new_args, args, arg_count,
                 value_args, value_present);
             copy->call_new_deallocation_function = NULL;
+            copy->call_new_placement_deallocation_function = NULL;
             /* Constructor selection is semantic and must be redone for the
              * substituted class specialization. */
             copy->call_new_constructor = NULL;
