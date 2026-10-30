@@ -183,44 +183,51 @@ static bool sema_decltype_auto_expression_is_xvalue(Expr* expression) {
             expression->cxx_member_xvalue);
 }
 
-static bool sema_cxx_class_qualified_name(const CxxClass* cls,
-                                          char* buffer, size_t capacity) {
-    const CxxNamespace* stack[32];
-    int count = 0;
-    size_t length = 0u;
-    if (!cls || !cls->name || !buffer || capacity == 0u) return false;
-    for (const CxxNamespace* ns = cls->ns;
-         ns && ns->name;
-         ns = ns->parent) {
-        if (count >= (int)(sizeof(stack) / sizeof(stack[0]))) return false;
-        stack[count++] = ns;
+static const char* sema_cxx_class_qualified_name(const CxxClass* cls) {
+    const char* namespace_name = NULL;
+    size_t namespace_length = 0u;
+    size_t class_length;
+    size_t total_length;
+    char* qualified_name;
+    if (!cls || !cls->name) return NULL;
+#if defined(__GNUC__) || defined(__clang__)
+    if (cls->ns && cxx_namespace_qualified_name) {
+        namespace_name = cxx_namespace_qualified_name((CxxNamespace*)cls->ns);
     }
-    for (int index = count - 1; index >= 0; --index) {
-        size_t part_length = strlen(stack[index]->name);
-        if (length != 0u) {
-            if (length + 2u >= capacity) return false;
-            memcpy(buffer + length, "::", 2u);
-            length += 2u;
-        }
-        if (part_length > capacity - length - 1u) return false;
-        memcpy(buffer + length, stack[index]->name, part_length);
-        length += part_length;
+#else
+    if (cls->ns) {
+        namespace_name = cxx_namespace_qualified_name((CxxNamespace*)cls->ns);
     }
-    if (strlen(cls->name) > capacity - length - 1u) return false;
-    memcpy(buffer + length, cls->name, strlen(cls->name));
-    length += strlen(cls->name);
-    buffer[length] = '\0';
-    return true;
+#endif
+    if (namespace_name) namespace_length = strlen(namespace_name);
+    class_length = strlen(cls->name);
+    if (namespace_length > SIZE_MAX - class_length -
+            (namespace_length ? 3u : 0u)) {
+        rcc_fatal("qualified C++ class name is too large");
+    }
+    total_length = namespace_length +
+        (namespace_length ? 2u : 0u) + class_length;
+    qualified_name = rcc_alloc(total_length + 1u);
+    if (namespace_length) {
+        memcpy(qualified_name, namespace_name, namespace_length);
+        memcpy(qualified_name + namespace_length, "::", 2u);
+    }
+    memcpy(qualified_name + namespace_length +
+               (namespace_length ? 2u : 0u),
+           cls->name, class_length + 1u);
+    {
+        const char* interned = rcc_intern(qualified_name);
+        rcc_free(qualified_name);
+        return interned;
+    }
 }
 
 static bool sema_cxx_class_is_friend(const CxxClass* target,
                                      const CxxClass* candidate) {
-    char candidate_name[512];
+    const char* candidate_name;
     if (!target || !candidate || !candidate->name) return false;
-    if (!sema_cxx_class_qualified_name(candidate, candidate_name,
-                                       sizeof(candidate_name))) {
-        return false;
-    }
+    candidate_name = sema_cxx_class_qualified_name(candidate);
+    if (!candidate_name) return false;
     for (int index = 0; index < target->friend_class_count; ++index) {
         const char* friend_name = target->friend_class_names[index];
         const char* normalized = friend_name;
@@ -536,7 +543,8 @@ static bool sema_cxx_check_qualified_member_access(const char* name,
                                                    Decl* declaration,
                                                    SourceLoc loc) {
     const char* separator;
-    char owner_name[512];
+    char* owner_name;
+    size_t owner_length;
     const char* member_name;
     CxxClass* owner;
 
@@ -544,14 +552,16 @@ static bool sema_cxx_check_qualified_member_access(const char* name,
     if (!name || !declaration || !rcc_parser_cxx_find_class) return true;
     separator = strrchr(name, ':');
     if (!separator || separator <= name || separator[-1] != ':') return true;
-    if ((size_t)(separator - name - 1u) >= sizeof(owner_name)) {
-        rcc_error(loc, "qualified member owner exceeds compiler limit");
-        return false;
+    owner_length = (size_t)(separator - name - 1u);
+    if (owner_length == SIZE_MAX) {
+        rcc_fatal("qualified C++ member owner is too large");
     }
-    memcpy(owner_name, name, (size_t)(separator - name - 1u));
-    owner_name[separator - name - 1u] = '\0';
+    owner_name = rcc_alloc(owner_length + 1u);
+    memcpy(owner_name, name, owner_length);
+    owner_name[owner_length] = '\0';
     member_name = separator + 1;
     owner = rcc_parser_cxx_find_class(owner_name);
+    rcc_free(owner_name);
     if (!owner) return true;
     for (struct CxxMember* member = owner->members; member;
          member = member->next) {
@@ -1746,31 +1756,53 @@ static bool sema_cxx_namespace_has_inline_child(const CxxNamespace* ns) {
     return false;
 }
 
+typedef struct SemaCxxNamespacePath {
+    CxxNamespace** items;
+    size_t count;
+    size_t capacity;
+} SemaCxxNamespacePath;
+
 static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
                                           const char* name,
-                                          CxxNamespace** visited,
-                                          int visited_count,
+                                          SemaCxxNamespacePath* visited,
                                           SourceLoc use_loc) {
-    char qualified[512];
     Symbol* result = NULL;
     Symbol* non_function = NULL;
     SemaCxxAdlCandidates function_candidates = {0};
     const char* namespace_name;
+    size_t entry_count;
 
-    if (!ns || !name || !*name || visited_count >= 32) return NULL;
-    for (int index = 0; index < visited_count; ++index) {
-        if (visited[index] == ns) return NULL;
+    if (!ns || !name || !*name || !visited) return NULL;
+    for (size_t index = 0u; index < visited->count; ++index) {
+        if (visited->items[index] == ns) return NULL;
     }
-    visited[visited_count++] = ns;
+    entry_count = visited->count;
+    if (visited->count == visited->capacity) {
+        size_t new_capacity;
+        if (visited->capacity > SIZE_MAX / 2u / sizeof(*visited->items)) {
+            rcc_fatal("C++ namespace lookup path is too large");
+        }
+        new_capacity = visited->capacity ? visited->capacity * 2u : 8u;
+        visited->items = rcc_realloc(
+            visited->items, new_capacity * sizeof(*visited->items));
+        visited->capacity = new_capacity;
+    }
+    visited->items[visited->count++] = ns;
     namespace_name = cxx_namespace_qualified_name(ns);
     if (namespace_name && *namespace_name) {
-        if (strlen(namespace_name) + 2u + strlen(name) < sizeof(qualified)) {
-            strcpy(qualified, namespace_name);
-            strcat(qualified, "::");
-            strcat(qualified, name);
-            result = sema_cxx_visible_symbol(
-                symtab_lookup(g_symtab, qualified), use_loc);
+        size_t namespace_length = strlen(namespace_name);
+        size_t name_length = strlen(name);
+        char* qualified;
+        if (namespace_length > SIZE_MAX - name_length - 3u) {
+            rcc_fatal("qualified C++ lookup name is too large");
         }
+        qualified = rcc_alloc(namespace_length + 2u + name_length + 1u);
+        memcpy(qualified, namespace_name, namespace_length);
+        memcpy(qualified + namespace_length, "::", 2u);
+        memcpy(qualified + namespace_length + 2u, name, name_length + 1u);
+        result = sema_cxx_visible_symbol(
+            symtab_lookup(g_symtab, qualified), use_loc);
+        rcc_free(qualified);
     } else {
         result = sema_cxx_visible_symbol(symtab_lookup(g_symtab, name),
                                          use_loc);
@@ -1781,6 +1813,7 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
          * child needs the merged overload set below. */
         if (result->kind != SYM_FUNC ||
             !sema_cxx_namespace_has_inline_child(ns)) {
+            visited->count = entry_count;
             return result;
         }
         sema_cxx_adl_collect_symbol(result, &function_candidates, NULL);
@@ -1802,7 +1835,7 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
     }
     for (int index = 0; index < ns->using_namespace_count; ++index) {
         result = sema_cxx_lookup_namespace(ns->using_namespaces[index], name,
-                                           visited, visited_count, use_loc);
+                                           visited, use_loc);
         if (!result) continue;
         if (result->kind == SYM_FUNC) {
             sema_cxx_adl_collect_symbol(result, &function_candidates, NULL);
@@ -1813,7 +1846,7 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
     for (CxxNamespace* child = ns->children; child; child = child->next) {
         if (!child->is_inline_namespace) continue;
         result = sema_cxx_lookup_namespace(child, name, visited,
-                                           visited_count, use_loc);
+                                           use_loc);
         if (!result) continue;
         if (result->kind == SYM_FUNC) {
             sema_cxx_adl_collect_symbol(result, &function_candidates, NULL);
@@ -1821,10 +1854,11 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
             non_function = result;
         }
     }
-    if (function_candidates.count > 0) {
-        return sema_cxx_make_function_symbol(name, &function_candidates);
-    }
-    return non_function;
+    result = function_candidates.count > 0
+        ? sema_cxx_make_function_symbol(name, &function_candidates)
+        : non_function;
+    visited->count = entry_count;
+    return result;
 }
 
 /* Resolve a namespace-qualified expression such as `api::make_value` before
@@ -1834,42 +1868,51 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
  * below `api`; route the final component through the namespace lookup logic. */
 static Symbol* sema_cxx_lookup_qualified_name(const char* name,
                                                SourceLoc use_loc) {
-    char buffer[512];
+    char* buffer;
     char* separator;
     char* cursor;
     const char* final_name;
+    const char* normalized_name;
     CxxNamespace* global_namespace = sema_cxx_global_namespace();
     CxxNamespace* namespace;
-    CxxNamespace* visited[32] = { 0 };
+    SemaCxxNamespacePath visited = {0};
+    Symbol* result = NULL;
+    size_t name_length;
 
-    if (!global_namespace || !name || strlen(name) >= sizeof(buffer)) {
-        return NULL;
+    if (!global_namespace || !name) return NULL;
+    normalized_name = name;
+    while (normalized_name[0] == ':' && normalized_name[1] == ':') {
+        normalized_name += 2;
     }
-    strcpy(buffer, name);
-    while (buffer[0] == ':' && buffer[1] == ':') {
-        memmove(buffer, buffer + 2, strlen(buffer + 2) + 1u);
+    name_length = strlen(normalized_name);
+    if (name_length == SIZE_MAX) {
+        rcc_fatal("qualified C++ lookup name is too large");
     }
+    buffer = rcc_alloc(name_length + 1u);
+    memcpy(buffer, normalized_name, name_length + 1u);
     separator = NULL;
     for (cursor = buffer; (cursor = strstr(cursor, "::")) != NULL;
          cursor += 2) {
         separator = cursor;
     }
-    if (!separator || separator == buffer) {
-        return NULL;
-    }
+    if (!separator || separator == buffer) goto done;
     *separator = '\0';
     final_name = separator + 2;
-    if (!*final_name) return NULL;
+    if (!*final_name) goto done;
     namespace = cxx_namespace_find(global_namespace, buffer);
-    if (!namespace) return NULL;
-    return sema_cxx_lookup_namespace(namespace, final_name, visited, 0,
-                                     use_loc);
+    if (!namespace) goto done;
+    result = sema_cxx_lookup_namespace(namespace, final_name, &visited,
+                                       use_loc);
+done:
+    rcc_free(visited.items);
+    rcc_free(buffer);
+    return result;
 }
 
 static Symbol* sema_cxx_lookup_name(const char* name, SourceLoc use_loc) {
     Symbol* symbol;
     Symbol* direct_symbol;
-    CxxNamespace* visited[32] = { 0 };
+    SemaCxxNamespacePath visited = {0};
     CxxNamespace* ns;
 
     if (!name) return NULL;
@@ -1892,9 +1935,13 @@ static Symbol* sema_cxx_lookup_name(const char* name, SourceLoc use_loc) {
     for (ns = current_cxx_namespace ? current_cxx_namespace
                                     : sema_cxx_global_namespace();
          ns; ns = ns->parent) {
-        symbol = sema_cxx_lookup_namespace(ns, name, visited, 0, use_loc);
-        if (symbol) return symbol;
+        symbol = sema_cxx_lookup_namespace(ns, name, &visited, use_loc);
+        if (symbol) {
+            rcc_free(visited.items);
+            return symbol;
+        }
     }
+    rcc_free(visited.items);
     return direct_symbol;
 }
 

@@ -1716,10 +1716,13 @@ static const char* debug_template_argument_name(const Type* argument) {
     CxxTemplate* actual_template = argument
         ? argument->cxx_template : NULL;
     const char* spelling = argument ? argument->tag : NULL;
-    CxxNamespace* namespace_stack[32];
-    int namespace_count = 0;
-    char qualified_name[512];
-    size_t length = 0u;
+    CxxNamespace** namespaces = NULL;
+    CxxNamespace* current;
+    size_t namespace_count = 0u;
+    size_t namespace_length = 0u;
+    size_t template_length;
+    size_t total_length;
+    char* qualified_name;
     if (!actual_template || !actual_template->name ||
         actual_template->name[0] == '\0') {
         return NULL;
@@ -1727,44 +1730,59 @@ static const char* debug_template_argument_name(const Type* argument) {
     if (spelling && strstr(spelling, "::")) {
         return spelling;
     }
-    for (CxxNamespace* current = actual_template->ns;
-         current && current->name; current = current->parent) {
-        if (namespace_count >= (int)(sizeof(namespace_stack) /
-                                     sizeof(namespace_stack[0]))) {
-            rcc_fatal("DWARF template-template namespace is too deep");
-            return NULL;
+    for (current = actual_template->ns; current && current->name;
+         current = current->parent) {
+        if (namespace_count == SIZE_MAX / sizeof(*namespaces)) {
+            rcc_fatal("DWARF template-template namespace is too large");
         }
-        namespace_stack[namespace_count++] = current;
+        ++namespace_count;
     }
-    if (namespace_count == 0) {
+    if (namespace_count == 0u) {
         return spelling && spelling[0] != '\0'
             ? spelling : actual_template->name;
     }
-    for (int index = namespace_count - 1; index >= 0; --index) {
-        size_t component_length = strlen(namespace_stack[index]->name);
-        size_t separator_length = length == 0u ? 0u : 2u;
-        if (separator_length + component_length >=
-            sizeof(qualified_name) - length) {
-            rcc_fatal("DWARF template-template argument name is too long");
-            return NULL;
+    namespaces = rcc_alloc(namespace_count * sizeof(*namespaces));
+    current = actual_template->ns;
+    for (size_t index = 0u; index < namespace_count; ++index) {
+        size_t component_length = strlen(current->name);
+        size_t separator_length = index == 0u ? 0u : 2u;
+        if (component_length > SIZE_MAX - namespace_length ||
+            separator_length > SIZE_MAX - namespace_length -
+                component_length) {
+            rcc_fatal("DWARF template-template namespace is too large");
         }
-        if (separator_length) {
-            memcpy(qualified_name + length, "::", separator_length);
-            length += separator_length;
-        }
-        memcpy(qualified_name + length, namespace_stack[index]->name,
-               component_length);
-        length += component_length;
+        namespaces[index] = current;
+        namespace_length += component_length + separator_length;
+        current = current->parent;
     }
-    if (length + 2u + strlen(actual_template->name) >=
-        sizeof(qualified_name)) {
+    template_length = strlen(actual_template->name);
+    if (namespace_length > SIZE_MAX - template_length - 3u) {
         rcc_fatal("DWARF template-template argument name is too long");
-        return NULL;
     }
-    memcpy(qualified_name + length, "::", 2u);
-    length += 2u;
-    strcpy(qualified_name + length, actual_template->name);
-    return rcc_intern(qualified_name);
+    total_length = namespace_length + 2u + template_length;
+    qualified_name = rcc_alloc(total_length + 1u);
+    namespace_length = 0u;
+    for (size_t index = namespace_count; index > 0u; --index) {
+        const char* component = namespaces[index - 1u]->name;
+        size_t component_length = strlen(component);
+        if (namespace_length != 0u) {
+            memcpy(qualified_name + namespace_length, "::", 2u);
+            namespace_length += 2u;
+        }
+        memcpy(qualified_name + namespace_length, component,
+               component_length);
+        namespace_length += component_length;
+    }
+    memcpy(qualified_name + namespace_length, "::", 2u);
+    namespace_length += 2u;
+    memcpy(qualified_name + namespace_length,
+           actual_template->name, template_length + 1u);
+    {
+        const char* interned = rcc_intern(qualified_name);
+        rcc_free(namespaces);
+        rcc_free(qualified_name);
+        return interned;
+    }
 }
 
 static uint8_t debug_type_encoding(const Type* type) {

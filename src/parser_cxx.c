@@ -925,9 +925,9 @@ static void cxx_complete_pending_member_pointer_forms(CxxClass* cls) {
  * each call site. */
 Expr* rcc_parse_cxx_member_pointer_address(void) {
     Token* cursor = parser.cur;
-    Token* segments[32];
+    Token* member_token;
     size_t segment_count = 0u;
-    char owner_name[256];
+    char* owner_name;
     size_t owner_length = 0u;
     Type* owner;
     CxxClass* owner_class;
@@ -949,11 +949,10 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     int matching_fields = 0;
 
     if (!cursor || cursor->type != TOK_IDENT) return NULL;
+    member_token = cursor;
     while (cursor && cursor->type == TOK_IDENT) {
-        if (segment_count >= sizeof(segments) / sizeof(segments[0])) {
-            return NULL;
-        }
-        segments[segment_count++] = cursor;
+        member_token = cursor;
+        ++segment_count;
         if (!cursor->next || cursor->next->type != TOK_SCOPE ||
             !cursor->next->next ||
             cursor->next->next->type != TOK_IDENT) {
@@ -963,19 +962,35 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     }
     if (segment_count < 2u) return NULL;
 
+    cursor = parser.cur;
     for (size_t index = 0u; index + 1u < segment_count; ++index) {
-        size_t length = strlen(segments[index]->value.str_val);
+        size_t length = strlen(cursor->value.str_val);
         size_t separator = index + 2u < segment_count ? 2u : 0u;
-        if (owner_length + length + separator >= sizeof(owner_name)) {
-            return NULL;
+        if (length > SIZE_MAX - owner_length ||
+            separator > SIZE_MAX - owner_length - length) {
+            rcc_fatal("qualified member-pointer owner name is too large");
         }
-        memcpy(owner_name + owner_length, segments[index]->value.str_val,
-               length);
+        owner_length += length + separator;
+        cursor = cursor->next->next;
+    }
+    if (owner_length == SIZE_MAX) {
+        rcc_fatal("qualified member-pointer owner name is too large");
+    }
+    owner_name = cxx_allocate_zeroed_array(sizeof(*owner_name),
+                                           owner_length + 1u);
+    if (!owner_name) rcc_fatal("out of memory");
+    owner_length = 0u;
+    cursor = parser.cur;
+    for (size_t index = 0u; index + 1u < segment_count; ++index) {
+        size_t length = strlen(cursor->value.str_val);
+        size_t separator = index + 2u < segment_count ? 2u : 0u;
+        memcpy(owner_name + owner_length, cursor->value.str_val, length);
         owner_length += length;
         if (separator) {
             memcpy(owner_name + owner_length, "::", 2u);
             owner_length += 2u;
         }
+        cursor = cursor->next->next;
     }
     owner_name[owner_length] = '\0';
     owner = rcc_parser_lookup_type(owner_name);
@@ -995,8 +1010,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     owner_class = owner_is_active_class ? active_class : owner->cxx_class;
 
     if (owner_class) {
-        const char* member_name =
-            segments[segment_count - 1u]->value.str_val;
+        const char* member_name = member_token->value.str_val;
         for (TypeParam* declared = owner_class->fields;
              declared; declared = declared->next) {
             if (declared->name && strcmp(declared->name, member_name) == 0) {
@@ -1045,8 +1059,8 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     if (owner_is_active_class && !direct_static_name) {
         CxxPendingMemberPointerForm* pending;
         Expr* deferred;
-        loc = segments[segment_count - 1u]->loc;
-        parser.prev = segments[segment_count - 1u];
+        loc = member_token->loc;
+        parser.prev = member_token;
         parser.cur = parser.prev->next;
         deferred = expr_int(0, loc);
         deferred->type = type_int;
@@ -1054,7 +1068,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         pending->expression = deferred;
         pending->owner = owner_class;
         pending->member_name = rcc_intern(
-            segments[segment_count - 1u]->value.str_val);
+            member_token->value.str_val);
         pending->location = loc;
         pending->next = pending_member_pointer_forms;
         pending_member_pointer_forms = pending;
@@ -1065,12 +1079,12 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     if (!direct_static_name && !direct_nonstatic_method &&
         owner_class) {
         field = cxx_class_lookup_data_field(
-            owner_class, segments[segment_count - 1u]->value.str_val,
+            owner_class, member_token->value.str_val,
             &inherited_lookup_ambiguous, &lookup_access,
             &lookup_access_owner, &used_base_member);
         if (inherited_lookup_ambiguous) {
-            loc = segments[segment_count - 1u]->loc;
-            parser.prev = segments[segment_count - 1u];
+            loc = member_token->loc;
+            parser.prev = member_token;
             parser.cur = parser.prev->next;
             rcc_error(loc,
                       "inherited data-member pointer form requires one unambiguous declaration");
@@ -1080,8 +1094,8 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         }
     } else if (!direct_static_name && !direct_nonstatic_method) {
         field = owner->fields;
-        while (field && strcmp(field->name, segments[segment_count - 1u]
-                                               ->value.str_val) != 0) {
+        while (field && strcmp(field->name,
+                               member_token->value.str_val) != 0) {
             field = field->next;
         }
     }
@@ -1099,7 +1113,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
             Decl* function_decl = NULL;
             int matching_methods = 0;
             const char* member_name =
-                segments[segment_count - 1u]->value.str_val;
+                member_token->value.str_val;
             for (TypeMethod* candidate = owner->methods; candidate;
                  candidate = candidate->next) {
                 if (candidate->kind != TYPE_METHOD_FUNCTION ||
@@ -1114,8 +1128,8 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
                 function_decl = candidate->function_decl;
             }
             method = selected_method;
-            loc = segments[segment_count - 1u]->loc;
-            parser.prev = segments[segment_count - 1u];
+            loc = member_token->loc;
+            parser.prev = member_token;
             parser.cur = parser.prev->next;
             if (matching_methods > 1) {
                 value = expr_unary(
@@ -1187,8 +1201,8 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         return NULL;
     }
     if (!direct_member && direct_nonstatic_method) {
-        loc = segments[segment_count - 1u]->loc;
-        parser.prev = segments[segment_count - 1u];
+        loc = member_token->loc;
+        parser.prev = member_token;
         parser.cur = parser.prev->next;
         rcc_error(loc,
                   "pointer-to-member function name could not be resolved");
@@ -1206,7 +1220,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
                  candidate = candidate->next) {
                 if (!candidate->name ||
                     strcmp(candidate->name,
-                           segments[segment_count - 1u]->value.str_val) != 0) {
+                           member_token->value.str_val) != 0) {
                     continue;
                 }
                 field = candidate;
@@ -1215,8 +1229,8 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         }
         if (matching_fields != 1 || !field ||
             !field->cxx_declaring_class) {
-            loc = segments[segment_count - 1u]->loc;
-            parser.prev = segments[segment_count - 1u];
+            loc = member_token->loc;
+            parser.prev = member_token;
             parser.cur = parser.prev->next;
             rcc_error(loc,
                       "inherited data-member pointer form requires one unambiguous declaration");
@@ -1229,15 +1243,15 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
              declaring_field; declaring_field = declaring_field->next) {
             if (declaring_field->name &&
                 strcmp(declaring_field->name,
-                       segments[segment_count - 1u]->value.str_val) == 0 &&
+                       member_token->value.str_val) == 0 &&
                 declaring_field->cxx_declaring_class ==
                     field->cxx_declaring_class) {
                 break;
             }
         }
         if (!member_owner || !declaring_field) {
-            loc = segments[segment_count - 1u]->loc;
-            parser.prev = segments[segment_count - 1u];
+            loc = member_token->loc;
+            parser.prev = member_token;
             parser.cur = parser.prev->next;
             rcc_error(loc,
                       "inherited data-member pointer declaration metadata is incomplete");
@@ -1251,8 +1265,8 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     }
     if (declaring_field->is_bitfield || !field->type ||
         field->type->is_reference) {
-        loc = segments[segment_count - 1u]->loc;
-        parser.prev = segments[segment_count - 1u];
+        loc = member_token->loc;
+        parser.prev = member_token;
         parser.cur = parser.prev->next;
         rcc_error(loc,
                   "this data-member pointer form is unsupported");
@@ -1261,8 +1275,8 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         return value;
     }
 
-    loc = segments[segment_count - 1u]->loc;
-    parser.prev = segments[segment_count - 1u];
+    loc = member_token->loc;
+    parser.prev = member_token;
     parser.cur = parser.prev->next;
     value = expr_int(declaring_field->offset, loc);
     member_pointer_type = type_ptr(field->type);
@@ -6169,33 +6183,67 @@ static bool cxx_inline_starts_function(void) {
  * ═══════════════════════════════════════ */
 
 /* Parse qualified name: ns::ns::name */
+static void cxx_qualified_name_append(
+    char** buffer, size_t* capacity, size_t* length, const char* text) {
+    size_t text_length = strlen(text);
+    size_t required;
+    if (text_length > SIZE_MAX - *length - 1u) {
+        rcc_fatal("qualified C++ name is too large");
+    }
+    required = *length + text_length + 1u;
+    if (*capacity < required) {
+        size_t new_capacity = *capacity ? *capacity : 32u;
+        while (new_capacity < required) {
+            if (new_capacity > SIZE_MAX / 2u) {
+                new_capacity = required;
+                break;
+            }
+            new_capacity *= 2u;
+        }
+        *buffer = rcc_realloc(*buffer, new_capacity);
+        *capacity = new_capacity;
+    }
+    memcpy(*buffer + *length, text, text_length);
+    *length += text_length;
+    (*buffer)[*length] = '\0';
+}
+
 static const char* parse_qualified_name(void) {
-    char buffer[512] = "";
+    char* buffer = NULL;
+    size_t capacity = 0u;
+    size_t length = 0u;
+    const char* interned;
 
     /* Global scope? */
     if (match(TOK_SCOPE)) {
-        strcat(buffer, "::");
+        cxx_qualified_name_append(&buffer, &capacity, &length, "::");
     }
 
     if (!check(TOK_IDENT)) {
         rcc_error(peek()->loc, "expected identifier");
-        return rcc_intern("");
+        interned = rcc_intern(buffer ? buffer : "");
+        rcc_free(buffer);
+        return interned;
     }
 
     Token* name = advance();
-    strcat(buffer, name->value.str_val);
+    cxx_qualified_name_append(&buffer, &capacity, &length,
+                              name->value.str_val);
 
     while (match(TOK_SCOPE)) {
-        strcat(buffer, "::");
+        cxx_qualified_name_append(&buffer, &capacity, &length, "::");
         if (!check(TOK_IDENT)) {
             rcc_error(peek()->loc, "expected identifier after ::");
             break;
         }
         name = advance();
-        strcat(buffer, name->value.str_val);
+        cxx_qualified_name_append(&buffer, &capacity, &length,
+                                  name->value.str_val);
     }
 
-    return rcc_intern(buffer);
+    interned = rcc_intern(buffer);
+    rcc_free(buffer);
+    return interned;
 }
 
 /* ═══════════════════════════════════════
@@ -11090,51 +11138,57 @@ static void register_inline_class_move_assignment(CxxClass* cls) {
  * are retained as one identifier, so a static member needs a symbol-table key
  * such as api::Counter::add while its link name remains the Itanium spelling
  * produced by cxx_mangle_function(). */
+static const char* cxx_compose_qualified_name(
+    const char* namespace_name, const char* component, const char* member,
+    SourceLoc loc) {
+    size_t namespace_length = namespace_name ? strlen(namespace_name) : 0u;
+    size_t component_length = component ? strlen(component) : 0u;
+    size_t member_length = member ? strlen(member) : 0u;
+    size_t length = namespace_length;
+    char* buffer;
+    size_t offset = 0u;
+    (void)loc;
+    if (!component ||
+        (namespace_length > 0u && length > SIZE_MAX - 2u) ||
+        component_length > SIZE_MAX - length -
+            (namespace_length > 0u ? 2u : 0u)) {
+        rcc_fatal("qualified C++ name is too large");
+    }
+    if (namespace_length > 0u) length += 2u;
+    length += component_length;
+    if (member) {
+        if (length > SIZE_MAX - 2u ||
+            member_length > SIZE_MAX - length - 2u) {
+            rcc_fatal("qualified C++ name is too large");
+        }
+        length += 2u + member_length;
+    }
+    if (length == SIZE_MAX) rcc_fatal("qualified C++ name is too large");
+    buffer = cxx_allocate_zeroed_array(sizeof(*buffer), length + 1u);
+    if (!buffer) rcc_fatal("out of memory");
+    if (namespace_length > 0u) {
+        memcpy(buffer + offset, namespace_name, namespace_length);
+        offset += namespace_length;
+        memcpy(buffer + offset, "::", 2u);
+        offset += 2u;
+    }
+    memcpy(buffer + offset, component, component_length);
+    offset += component_length;
+    if (member) {
+        memcpy(buffer + offset, "::", 2u);
+        offset += 2u;
+        memcpy(buffer + offset, member, member_length);
+    }
+    return rcc_intern(buffer);
+}
+
 static const char* cxx_class_method_source_name(CxxClass* cls,
                                                  const char* method_name,
                                                  SourceLoc loc) {
-    CxxNamespace* stack[32];
-    int count = 0;
-    size_t length = 0u;
-    char buffer[512] = "";
-
     if (!cls || !cls->name || !method_name) return rcc_intern("");
-    for (CxxNamespace* ns = active_namespace;
-         ns && ns->name;
-         ns = ns->parent) {
-        if (count == (int)(sizeof(stack) / sizeof(stack[0]))) {
-            rcc_error(loc, "namespace nesting exceeds compiler limit");
-            break;
-        }
-        stack[count++] = ns;
-    }
-    for (int index = count - 1; index >= 0; --index) {
-        size_t part_length = strlen(stack[index]->name);
-        if (part_length > sizeof(buffer) - 1u - length) {
-            rcc_error(loc, "qualified member name exceeds compiler limit");
-            return rcc_intern(buffer);
-        }
-        memcpy(buffer + length, stack[index]->name, part_length);
-        length += part_length;
-        if (length > sizeof(buffer) - 3u) {
-            rcc_error(loc, "qualified member name exceeds compiler limit");
-            return rcc_intern(buffer);
-        }
-        memcpy(buffer + length, "::", 2u);
-        length += 2u;
-    }
-    if (strlen(cls->name) > sizeof(buffer) - 3u - length ||
-        strlen(method_name) > sizeof(buffer) - 1u - length -
-            strlen(cls->name) - 2u) {
-        rcc_error(loc, "qualified member name exceeds compiler limit");
-        return rcc_intern(buffer);
-    }
-    memcpy(buffer + length, cls->name, strlen(cls->name));
-    length += strlen(cls->name);
-    memcpy(buffer + length, "::", 2u);
-    length += 2u;
-    strcpy(buffer + length, method_name);
-    return rcc_intern(buffer);
+    return cxx_compose_qualified_name(
+        cxx_namespace_qualified_name(active_namespace), cls->name,
+        method_name, loc);
 }
 
 static const char* cxx_method_source_name(CxxMethod* method) {
@@ -13631,41 +13685,8 @@ CxxClass* parse_cxx_class(void) {
 static const char* namespace_qualified_decl_name(CxxNamespace* ns,
                                                  const char* name,
                                                  SourceLoc loc) {
-    CxxNamespace* stack[32];
-    int count = 0;
-    char buffer[512] = "";
-    size_t length = 0u;
-
-    for (CxxNamespace* current = ns;
-         current && current->name;
-         current = current->parent) {
-        if (count == (int)(sizeof(stack) / sizeof(stack[0]))) {
-            rcc_error(loc, "namespace nesting exceeds compiler limit");
-            break;
-        }
-        stack[count++] = current;
-    }
-    for (int index = count - 1; index >= 0; --index) {
-        size_t part_length = strlen(stack[index]->name);
-        if (part_length > sizeof(buffer) - 1u - length) {
-            rcc_error(loc, "qualified declaration name exceeds compiler limit");
-            return rcc_intern(buffer);
-        }
-        memcpy(buffer + length, stack[index]->name, part_length);
-        length += part_length;
-        if (length > sizeof(buffer) - 3u) {
-            rcc_error(loc, "qualified declaration name exceeds compiler limit");
-            return rcc_intern(buffer);
-        }
-        memcpy(buffer + length, "::", 2u);
-        length += 2u;
-    }
-    if (strlen(name) > sizeof(buffer) - 1u - length) {
-        rcc_error(loc, "qualified declaration name exceeds compiler limit");
-        return rcc_intern(buffer);
-    }
-    strcpy(buffer + length, name);
-    return rcc_intern(buffer);
+    return cxx_compose_qualified_name(
+        cxx_namespace_qualified_name(ns), name, NULL, loc);
 }
 
 static void set_cxx_link_name(Decl* declaration, CxxNamespace* ns,
@@ -17938,7 +17959,7 @@ static CxxClass* namespace_class(CxxNamespace* ns, const char* name) {
 }
 
 static CxxClass* find_class(const char* qualified_name) {
-    char buffer[512];
+    char* buffer;
     char* component;
     char* next;
     CxxNamespace* ns;
@@ -17952,9 +17973,10 @@ static CxxClass* find_class(const char* qualified_name) {
         const char* separator = strrchr(name, ':');
         if (separator && separator > name && separator[-1] == ':') {
             size_t owner_length = (size_t)(separator - name - 1);
-            if (owner_length > 0u && owner_length < sizeof(buffer)) {
+            if (owner_length > 0u) {
                 CxxClass* owner;
                 CxxNestedClassTemplate* nested;
+                buffer = ast_arena_alloc(owner_length + 1u);
                 memcpy(buffer, name, owner_length);
                 buffer[owner_length] = '\0';
                 owner = find_class(buffer);
@@ -17982,7 +18004,7 @@ static CxxClass* find_class(const char* qualified_name) {
         }
         return namespace_class(g_global_namespace, name);
     }
-    if (strlen(name) >= sizeof(buffer)) return NULL;
+    buffer = ast_arena_alloc(strlen(name) + 1u);
     strcpy(buffer, name);
     ns = g_global_namespace;
     component = buffer;
@@ -40339,6 +40361,9 @@ static bool prepare_cxx_function_template_match_impl(
                     int pack_element_count = explicit_pack_count;
                     bool value_pack =
                         tmpl->params[pack_index].kind == TPARAM_NONTYPE;
+                    bool explicit_pack_uses_variadic_tail =
+                        explicit_pack_count > 0 &&
+                        tmpl->func_def->func_has_explicit_variadic_ellipsis;
                     int function_pack_count = explicit_pack_count;
                     if (explicit_pack_count == 0) {
                         match->pack_offsets[pack_index] = match->pack_count;
@@ -40361,9 +40386,11 @@ static bool prepare_cxx_function_template_match_impl(
                             argument = argument->next;
                         }
                     }
-                    for (ExprList* remaining = argument; remaining;
-                         remaining = remaining->next) {
-                        ++function_pack_count;
+                    if (!explicit_pack_uses_variadic_tail) {
+                        for (ExprList* remaining = argument; remaining;
+                             remaining = remaining->next) {
+                            ++function_pack_count;
+                        }
                     }
                     bool has_dependent_pack_size = pack_index >= 0 &&
                         pack_index < tmpl->param_count &&
@@ -40371,7 +40398,7 @@ static bool prepare_cxx_function_template_match_impl(
                         cxx_type_uses_sizeof_pack_name(
                             parameter->decl->type,
                             tmpl->params[pack_index].name);
-                    while (argument) {
+                    while (argument && !explicit_pack_uses_variadic_tail) {
                         Type* actual =
                             cxx_parser_expression_type(argument->expr);
                         int element_specificity = 0;

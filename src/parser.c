@@ -8,6 +8,7 @@
 #include "ast.h"
 #include "ast_cxx.h"
 #include <limits.h>
+#include <stdint.h>
 
 #if defined(__GNUC__) || defined(__clang__)
 extern void rcc_parser_cxx_set_expression_template_context(
@@ -2848,56 +2849,66 @@ static Expr* parse_builtin_vararg(SourceLoc loc) {
     return expr_vararg(kind, list, second, argument_type, loc);
 }
 
-static bool qualified_name_append(char* buffer, size_t capacity,
-                                  size_t* length, const char* text,
-                                  SourceLoc loc) {
+static void qualified_name_append(char** buffer, size_t* capacity,
+                                  size_t* length, const char* text) {
     size_t text_length = strlen(text);
-    if (*length > capacity - 1u ||
-        text_length > capacity - 1u - *length) {
-        rcc_error(loc, "qualified identifier exceeds compiler limit");
-        return false;
+    size_t required;
+    if (text_length > SIZE_MAX - *length - 1u) {
+        rcc_fatal("qualified C++ identifier is too large");
     }
-    memcpy(buffer + *length, text, text_length);
+    required = *length + text_length + 1u;
+    if (*capacity < required) {
+        size_t new_capacity = *capacity ? *capacity : 32u;
+        while (new_capacity < required) {
+            if (new_capacity > SIZE_MAX / 2u) {
+                new_capacity = required;
+                break;
+            }
+            new_capacity *= 2u;
+        }
+        *buffer = rcc_realloc(*buffer, new_capacity);
+        *capacity = new_capacity;
+    }
+    memcpy(*buffer + *length, text, text_length);
     *length += text_length;
-    buffer[*length] = '\0';
-    return true;
+    (*buffer)[*length] = '\0';
 }
 
 /* C++ expression parsing shares the mature C precedence parser.  Preserve a
  * qualified-id as one lookup key before the postfix/call layers consume it. */
 static const char* parse_expression_qualified_name(SourceLoc loc) {
-    char buffer[512] = "";
+    char* buffer = NULL;
+    size_t capacity = 0u;
     size_t length = 0u;
+    const char* interned;
 
     /* Keep a leading global-scope operator in the lookup key.  Semantic
      * lookup must not reinterpret `::name` as an unqualified name in the
      * current namespace. */
-    if (match(TOK_SCOPE) &&
-        !qualified_name_append(buffer, sizeof(buffer), &length, "::", loc)) {
-        return rcc_intern(buffer);
+    if (match(TOK_SCOPE)) {
+        qualified_name_append(&buffer, &capacity, &length, "::");
     }
     if (!check(TOK_IDENT)) {
         rcc_error(peek()->loc, "expected identifier in qualified name");
-        return rcc_intern(buffer);
+        interned = rcc_intern(buffer ? buffer : "");
+        rcc_free(buffer);
+        return interned;
     }
-    if (!qualified_name_append(buffer, sizeof(buffer), &length,
-                               advance()->value.str_val, loc)) {
-        return rcc_intern(buffer);
-    }
+    qualified_name_append(&buffer, &capacity, &length,
+                          advance()->value.str_val);
     while (match(TOK_SCOPE)) {
-        if (!qualified_name_append(buffer, sizeof(buffer), &length, "::", loc)) {
-            return rcc_intern(buffer);
-        }
+        qualified_name_append(&buffer, &capacity, &length, "::");
         if (!check(TOK_IDENT)) {
             rcc_error(peek()->loc, "expected identifier after ::");
             break;
         }
-        if (!qualified_name_append(buffer, sizeof(buffer), &length,
-                                   advance()->value.str_val, loc)) {
-            break;
-        }
+        qualified_name_append(&buffer, &capacity, &length,
+                              advance()->value.str_val);
     }
-    return rcc_intern(buffer);
+    (void)loc;
+    interned = rcc_intern(buffer);
+    rcc_free(buffer);
+    return interned;
 }
 
 static Expr* parse_cxx_user_literal_call(const char* suffix,

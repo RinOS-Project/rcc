@@ -43,6 +43,36 @@ static CxxStructuralClassValueRecord* cxx_structural_class_value_records;
 static size_t cxx_structural_class_value_record_count;
 static size_t cxx_structural_class_value_record_capacity;
 
+static CxxNamespace** cxx_collect_namespace_components(
+    CxxNamespace* ns, bool include_anonymous, size_t* count_out) {
+    size_t count = 0u;
+    CxxNamespace** components;
+    if (!count_out) return NULL;
+    for (CxxNamespace* current = ns; current; current = current->parent) {
+        if (!current->name &&
+            !(include_anonymous && current->is_anonymous_namespace)) {
+            break;
+        }
+        if (count == SIZE_MAX / sizeof(*components)) {
+            rcc_fatal("C++ namespace component list is too large");
+        }
+        ++count;
+    }
+    *count_out = count;
+    if (count == 0u) return NULL;
+    components = rcc_alloc(sizeof(*components) * count);
+    if (!components) rcc_fatal("out of memory");
+    count = 0u;
+    for (CxxNamespace* current = ns; current; current = current->parent) {
+        if (!current->name &&
+            !(include_anonymous && current->is_anonymous_namespace)) {
+            break;
+        }
+        components[count++] = current;
+    }
+    return components;
+}
+
 bool cxx_structural_pointer_value_register(
     Decl* declaration, int64_t byte_offset, bool has_subobject_path,
     bool one_past, bool array_decay,
@@ -623,28 +653,22 @@ static void cxx_mangle_template_value_suffix(
  * In particular, namespace-qualified names use Itanium's nested-name form. */
 static void mangle_template_argument_name(char* buf, size_t* pos,
                                           Type* argument) {
-    CxxNamespace* namespace_stack[32];
+    CxxNamespace** namespace_stack;
     CxxTemplate* actual_template = argument ? argument->cxx_template : NULL;
-    int namespace_count = 0;
+    size_t namespace_count = 0u;
     if (!actual_template || !actual_template->name) {
         rcc_fatal("C++ template-template argument is missing its template name");
     }
-    for (CxxNamespace* current = actual_template->ns;
-         current && current->name; current = current->parent) {
-        if (namespace_count >=
-            (int)(sizeof(namespace_stack) / sizeof(namespace_stack[0]))) {
-            rcc_fatal("C++ template-template namespace is too deep to mangle");
-        }
-        namespace_stack[namespace_count++] = current;
-    }
-    if (namespace_count > 0) {
+    namespace_stack = cxx_collect_namespace_components(
+        actual_template->ns, false, &namespace_count);
+    if (namespace_count > 0u) {
         cxx_mangle_type_char(buf, pos, 'N');
-        for (int index = namespace_count - 1; index >= 0; --index) {
-            mangle_name(buf, pos, namespace_stack[index]->name);
+        for (size_t index = namespace_count; index > 0u; --index) {
+            mangle_name(buf, pos, namespace_stack[index - 1u]->name);
         }
     }
     mangle_name(buf, pos, actual_template->name);
-    if (namespace_count > 0) cxx_mangle_type_char(buf, pos, 'E');
+    if (namespace_count > 0u) cxx_mangle_type_char(buf, pos, 'E');
 }
 
 static size_t cxx_mangle_find_template_name_substitution(
@@ -694,21 +718,16 @@ static bool cxx_mangle_has_nested_scope(CxxNamespace* ns, CxxClass* cls) {
 
 static void mangle_nested_prefix(char* buf, size_t* pos,
                                   CxxNamespace* ns, CxxClass* cls) {
-    CxxNamespace* ns_stack[32];
-    int ns_count = 0;
+    size_t ns_count = 0u;
+    CxxNamespace** ns_stack;
 
     buf[(*pos)++] = '_';
     buf[(*pos)++] = 'Z';
     if (!cxx_mangle_has_nested_scope(ns, cls)) return;
     buf[(*pos)++] = 'N';
-    for (CxxNamespace* current = ns; current && current->name;
-         current = current->parent) {
-        if (ns_count < (int)(sizeof(ns_stack) / sizeof(ns_stack[0]))) {
-            ns_stack[ns_count++] = current;
-        }
-    }
-    for (int index = ns_count - 1; index >= 0; --index) {
-        mangle_name(buf, pos, ns_stack[index]->name);
+    ns_stack = cxx_collect_namespace_components(ns, false, &ns_count);
+    for (size_t index = ns_count; index > 0u; --index) {
+        mangle_name(buf, pos, ns_stack[index - 1u]->name);
     }
     if (cls) mangle_class_name(buf, pos, cls);
 }
@@ -720,8 +739,8 @@ static void mangle_nested_method_prefix(char* buf, size_t* pos,
                                         bool is_const,
                                         bool is_volatile,
                                         CxxRefQualifier ref_qualifier) {
-    CxxNamespace* ns_stack[32];
-    int ns_count = 0;
+    size_t ns_count = 0u;
+    CxxNamespace** ns_stack;
     buf[(*pos)++] = '_';
     buf[(*pos)++] = 'Z';
     if (!cxx_mangle_has_nested_scope(ns, cls)) return;
@@ -730,14 +749,9 @@ static void mangle_nested_method_prefix(char* buf, size_t* pos,
     if (is_const) buf[(*pos)++] = 'K';
     if (ref_qualifier == CXX_REF_QUAL_LVALUE) buf[(*pos)++] = 'R';
     else if (ref_qualifier == CXX_REF_QUAL_RVALUE) buf[(*pos)++] = 'O';
-    for (CxxNamespace* current = ns; current && current->name;
-         current = current->parent) {
-        if (ns_count < (int)(sizeof(ns_stack) / sizeof(ns_stack[0]))) {
-            ns_stack[ns_count++] = current;
-        }
-    }
-    for (int index = ns_count - 1; index >= 0; --index) {
-        mangle_name(buf, pos, ns_stack[index]->name);
+    ns_stack = cxx_collect_namespace_components(ns, false, &ns_count);
+    for (size_t index = ns_count; index > 0u; --index) {
+        mangle_name(buf, pos, ns_stack[index - 1u]->name);
     }
     if (cls) mangle_class_name(buf, pos, cls);
 }
@@ -780,8 +794,8 @@ static bool cxx_mangle_structural_member_function_designator(
     Decl* function = method ? method->function_decl : NULL;
     CxxClass* owner = function && function->func_method_owner
         ? function->func_method_owner->cxx_class : NULL;
-    CxxNamespace* namespaces[32];
-    int namespace_count = 0;
+    size_t namespace_count = 0u;
+    CxxNamespace** namespaces;
     bool is_const;
     bool is_volatile;
     CxxRefQualifier ref_qualifier;
@@ -803,15 +817,10 @@ static bool cxx_mangle_structural_member_function_designator(
         cxx_mangle_type_char(buf, pos, 'R');
     else if (ref_qualifier == CXX_REF_QUAL_RVALUE)
         cxx_mangle_type_char(buf, pos, 'O');
-    for (CxxNamespace* current = owner->ns;
-         current && current->name; current = current->parent) {
-        if (namespace_count <
-            (int)(sizeof(namespaces) / sizeof(namespaces[0]))) {
-            namespaces[namespace_count++] = current;
-        }
-    }
-    for (int index = namespace_count - 1; index >= 0; --index) {
-        mangle_name(buf, pos, namespaces[index]->name);
+    namespaces = cxx_collect_namespace_components(
+        owner->ns, false, &namespace_count);
+    for (size_t index = namespace_count; index > 0u; --index) {
+        mangle_name(buf, pos, namespaces[index - 1u]->name);
     }
     owner_substitution = cxx_mangle_find_class_substitution(
         context, owner->type);
@@ -889,18 +898,13 @@ static bool cxx_mangle_structural_member_pointer_value(
     cxx_mangle_type_char(buf, pos, 'Z');
     cxx_mangle_type_char(buf, pos, 'N');
     {
-        CxxNamespace* namespaces[32];
-        int namespace_count = 0;
+        size_t namespace_count = 0u;
+        CxxNamespace** namespaces;
         size_t owner_substitution;
-        for (CxxNamespace* current = owner->ns;
-             current && current->name; current = current->parent) {
-            if (namespace_count <
-                (int)(sizeof(namespaces) / sizeof(namespaces[0]))) {
-                namespaces[namespace_count++] = current;
-            }
-        }
-        for (int index = namespace_count - 1; index >= 0; --index) {
-            mangle_name(buf, pos, namespaces[index]->name);
+        namespaces = cxx_collect_namespace_components(
+            owner->ns, false, &namespace_count);
+        for (size_t index = namespace_count; index > 0u; --index) {
+            mangle_name(buf, pos, namespaces[index - 1u]->name);
         }
         owner_substitution = cxx_mangle_find_class_substitution(
             context, owner->type);
@@ -3591,23 +3595,16 @@ static void cxx_mangle_template_type_append_impl(
     if (type->kind == TYPE_STRUCT && type->cxx_template &&
         type->cxx_template_arg_count > 0 && type->cxx_template_args &&
         nested_value_arguments_encodable) {
-        CxxNamespace* namespace_stack[32];
-        int namespace_count = 0;
-        for (CxxNamespace* current = type->cxx_template->ns;
-             current && current->name; current = current->parent) {
-            if (namespace_count >=
-                (int)(sizeof(namespace_stack) / sizeof(namespace_stack[0]))) {
-                rcc_fatal("C++ member template namespace is too deep to mangle");
-            }
-            namespace_stack[namespace_count++] = current;
-        }
+        size_t namespace_count = 0u;
+        CxxNamespace** namespace_stack = cxx_collect_namespace_components(
+            type->cxx_template->ns, false, &namespace_count);
         bool template_name_is_substitution =
             cxx_mangle_member_template_name_substitution(
                 buf, pos, type->cxx_template, context);
         if (!template_name_is_substitution) {
-            if (namespace_count > 0) CXX_MANGLE_TEMPLATE_APPEND('N');
-            for (int index = namespace_count - 1; index >= 0; --index) {
-                mangle_name(buf, pos, namespace_stack[index]->name);
+            if (namespace_count > 0u) CXX_MANGLE_TEMPLATE_APPEND('N');
+            for (size_t index = namespace_count; index > 0u; --index) {
+                mangle_name(buf, pos, namespace_stack[index - 1u]->name);
             }
             mangle_name(buf, pos, type->cxx_template->name);
             cxx_mangle_member_template_name_record(
@@ -6000,17 +5997,12 @@ static void cxx_typeinfo_identity_append_text(
 
 static void cxx_typeinfo_identity_append_namespace(
     CxxTypeInfoIdentityBuilder* builder, CxxNamespace* ns) {
-    CxxNamespace* stack[32];
     size_t count = 0u;
+    CxxNamespace** stack = cxx_collect_namespace_components(
+        ns, true, &count);
     bool has_anonymous = false;
-    for (CxxNamespace* current = ns; current;
-         current = current->parent) {
-        if (!current->name && !current->is_anonymous_namespace) break;
-        if (count == sizeof(stack) / sizeof(stack[0])) {
-            rcc_fatal("C++ typeinfo namespace nesting is too deep");
-        }
-        if (current->is_anonymous_namespace) has_anonymous = true;
-        stack[count++] = current;
+    for (size_t index = 0u; index < count; ++index) {
+        if (stack[index]->is_anonymous_namespace) has_anonymous = true;
     }
     cxx_typeinfo_identity_append_char(builder, 'N');
     cxx_typeinfo_identity_append_number(builder, (uint64_t)count);
@@ -14356,7 +14348,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
  * global-scope qualification is accepted, while an empty spelling denotes
  * the supplied root. */
 CxxNamespace* cxx_namespace_find(CxxNamespace* root, const char* qualified_name) {
-    char buffer[512];
+    char* buffer;
     char* component;
     char* next;
     CxxNamespace* current = root;
@@ -14366,8 +14358,7 @@ CxxNamespace* cxx_namespace_find(CxxNamespace* root, const char* qualified_name)
         qualified_name += 2;
     }
     if (*qualified_name == '\0') return root;
-    if (strlen(qualified_name) >= sizeof(buffer)) return NULL;
-    strcpy(buffer, qualified_name);
+    buffer = rcc_strdup(qualified_name);
     component = buffer;
     for (;;) {
         next = strstr(component, "::");
@@ -14482,7 +14473,7 @@ bool rcc_cxx_complete_function_template_body(Decl* instance) {
 
 CxxNamespace* cxx_namespace_for_decl_name(CxxNamespace* root,
                                            const char* qualified_name) {
-    char buffer[512];
+    char* buffer;
     char* component;
     char* next;
     CxxNamespace* current;
@@ -14492,8 +14483,7 @@ CxxNamespace* cxx_namespace_for_decl_name(CxxNamespace* root,
     while (qualified_name[0] == ':' && qualified_name[1] == ':') {
         qualified_name += 2;
     }
-    if (strlen(qualified_name) >= sizeof(buffer)) return root;
-    strcpy(buffer, qualified_name);
+    buffer = rcc_strdup(qualified_name);
     current = root;
     last = root;
     component = buffer;
@@ -14511,23 +14501,35 @@ CxxNamespace* cxx_namespace_for_decl_name(CxxNamespace* root,
 }
 
 const char* cxx_namespace_qualified_name(CxxNamespace* ns) {
-    CxxNamespace* stack[32];
-    char buffer[512] = "";
+    CxxNamespace** stack;
+    char* buffer;
+    size_t count = 0u;
     size_t length = 0u;
-    int count = 0;
     if (!ns) return NULL;
-    for (; ns && ns->name; ns = ns->parent) {
-        if (count == (int)(sizeof(stack) / sizeof(stack[0]))) return NULL;
-        stack[count++] = ns;
-    }
-    for (int index = count - 1; index >= 0; --index) {
+    stack = cxx_collect_namespace_components(ns, false, &count);
+    for (size_t index = 0u; index < count; ++index) {
         size_t part_length = strlen(stack[index]->name);
-        if (part_length > sizeof(buffer) - 1u - length) return NULL;
+        size_t separator_length = index + 1u < count ? 2u : 0u;
+        if (part_length > SIZE_MAX - length ||
+            separator_length > SIZE_MAX - length - part_length) {
+            rcc_fatal("C++ namespace qualified name is too long");
+        }
+        length += part_length + separator_length;
+    }
+    if (length == SIZE_MAX) {
+        rcc_fatal("C++ namespace qualified name is too long");
+    }
+    buffer = rcc_alloc(length + 1u);
+    if (!buffer) rcc_fatal("out of memory");
+    length = 0u;
+    for (size_t index = count; index > 0u; --index) {
+        const char* component = stack[index - 1u]->name;
+        size_t part_length = strlen(component);
         if (length != 0u) {
             memcpy(buffer + length, "::", 2u);
             length += 2u;
         }
-        memcpy(buffer + length, stack[index]->name, part_length);
+        memcpy(buffer + length, component, part_length);
         length += part_length;
     }
     buffer[length] = '\0';
@@ -14535,22 +14537,19 @@ const char* cxx_namespace_qualified_name(CxxNamespace* ns) {
 }
 
 const char* cxx_namespace_typeinfo_identity(CxxNamespace* ns) {
-    CxxNamespace* stack[32];
+    CxxNamespace** stack;
     CxxTypeInfoIdentityBuilder builder = {0};
     size_t count = 0u;
     bool has_anonymous = false;
     const char* identity;
     if (!ns) return NULL;
-    for (CxxNamespace* current = ns; current;
-         current = current->parent) {
-        if (!current->name && !current->is_anonymous_namespace) break;
-        if (count == sizeof(stack) / sizeof(stack[0])) {
-            rcc_fatal("C++ typeinfo namespace nesting is too deep");
-        }
-        if (current->is_anonymous_namespace) has_anonymous = true;
-        stack[count++] = current;
+    stack = cxx_collect_namespace_components(ns, true, &count);
+    for (size_t index = 0u; index < count; ++index) {
+        if (stack[index]->is_anonymous_namespace) has_anonymous = true;
     }
-    if (!has_anonymous) return cxx_namespace_qualified_name(ns);
+    if (!has_anonymous) {
+        return cxx_namespace_qualified_name(ns);
+    }
     cxx_typeinfo_identity_append_char(&builder, 'Q');
     cxx_typeinfo_identity_append_number(&builder, (uint64_t)count);
     while (count != 0u) {
