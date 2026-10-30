@@ -52,6 +52,8 @@ struct ClassSpecificArrayAllocation {
     int value;
 
     ClassSpecificArrayAllocation() noexcept : value(0) {}
+    ClassSpecificArrayAllocation(int initial_value) noexcept
+        : value(initial_value) {}
     ~ClassSpecificArrayAllocation() noexcept {
         ++class_array_destructor_calls;
     }
@@ -278,6 +280,16 @@ int main() {
     delete[] stack_placed_values;
     destroyed_class_array = destroyed_class_array &&
         class_array_destructor_calls == 8;
+    ClassSpecificArrayAllocation* initialized_values =
+        new ClassSpecificArrayAllocation[2]{17, 29};
+    bool selected_explicit_class_array_operator =
+        class_array_allocation_calls == 2 &&
+        class_array_allocation_size_valid &&
+        initialized_values[0].value == 17 &&
+        initialized_values[1].value == 29;
+    delete[] initialized_values;
+    destroyed_class_array = destroyed_class_array &&
+        class_array_destructor_calls == 10;
     ImplicitFallbackArrayAllocation* fallback_values =
         new ImplicitFallbackArrayAllocation[2];
     fallback_values[0].value = 31;
@@ -364,8 +376,9 @@ int main() {
     if (!selected_class_operators) failure_mask |= 1;
     if (class_deallocation_calls != 1) failure_mask |= 2;
     if (!selected_class_array_operators) failure_mask |= 4;
-    if (class_array_deallocation_calls != 4) failure_mask |= 8;
+    if (class_array_deallocation_calls != 5) failure_mask |= 8;
     if (!destroyed_class_array) failure_mask |= 256;
+    if (!selected_explicit_class_array_operator) failure_mask |= 4096;
     if (!selected_placement_class_array_operator ||
         class_array_placement_failure_deallocation_calls != 0) {
         failure_mask |= 512;

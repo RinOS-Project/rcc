@@ -10244,6 +10244,12 @@ remains a separate open item.
         GCC C++20, legacy i686/AMD64 generation and AMD64 execution, plus
         verified i686/AMD64 output at `-O0`/`-O2` with zero fallback in
         `test-cxx-global-allocation-operators`.
+  - [x] Resolve class-specific `operator new[]`/`operator delete[]` for cookie-
+        bearing class arrays with explicit per-element constructor arguments.
+        Verify constructor values, destructor count, cookie-inclusive size,
+        strict GCC C++20, legacy i686/AMD64 generation and AMD64 execution, and
+        verified i686/AMD64 output at `-O0`/`-O2` with zero fallback in
+        `test-cxx-global-allocation-operators`.
   - [ ] Preserve placement arguments through constructor-failure cleanup and
         invoke the matching placement `operator delete[]` after destroying the
         already-constructed elements.
