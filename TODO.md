@@ -11833,6 +11833,13 @@ remains a separate open item.
       including remaining built-in conversion candidates, function-template
       ordering, and hidden-friend/ADL corner cases; retain the broader C++20
       overload conformance item as open.
+- [x] Apply C++20 derived-class visibility and using-declaration hiding to
+      ordinary member overload candidate collection. A direct declaration
+      hides base overloads without `using`; with `using`, only the selected
+      base overload set is added and a same-signature derived declaration
+      hides its base counterpart. `test-cxx-function-template-overloads`
+      passes GCC C++20 `-Wall -Wextra -Werror`, i686/AMD64 code generation, and
+      generated i686/AMD64 runtime execution.
 
 ## RCC continuation (2026-10-28, hidden-friend ADL candidate identity)
 

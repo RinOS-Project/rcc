@@ -21480,6 +21480,103 @@ static bool sema_cxx_class_declares_method_name(Type* aggregate,
     return false;
 }
 
+static bool sema_cxx_method_same_overload_signature(TypeMethod* left,
+                                                    TypeMethod* right) {
+    Decl* left_declaration = left
+        ? (left->source_decl ? left->source_decl : left->function_decl)
+        : NULL;
+    Decl* right_declaration = right
+        ? (right->source_decl ? right->source_decl : right->function_decl)
+        : NULL;
+    TypeParam* left_parameter;
+    TypeParam* right_parameter;
+    Type* left_object;
+    Type* right_object;
+    bool left_object_const;
+    bool right_object_const;
+    bool left_object_volatile;
+    bool right_object_volatile;
+
+    if (!left || !right || !left->name || !right->name ||
+        strcmp(left->name, right->name) != 0 ||
+        left->ref_qualifier != right->ref_qualifier ||
+        !left_declaration || !right_declaration ||
+        !left_declaration->type || !right_declaration->type ||
+        left_declaration->type->kind != TYPE_FUNC ||
+        right_declaration->type->kind != TYPE_FUNC ||
+        left_declaration->type->variadic !=
+            right_declaration->type->variadic) {
+        return false;
+    }
+    left_object = left_declaration->func_this_param
+        ? left_declaration->func_this_param->type : NULL;
+    right_object = right_declaration->func_this_param
+        ? right_declaration->func_this_param->type : NULL;
+    left_object = left_object && left_object->kind == TYPE_PTR
+        ? left_object->base : NULL;
+    right_object = right_object && right_object->kind == TYPE_PTR
+        ? right_object->base : NULL;
+    left_object_const = left_object && left_object->is_const;
+    right_object_const = right_object && right_object->is_const;
+    left_object_volatile = left_object && left_object->is_volatile;
+    right_object_volatile = right_object && right_object->is_volatile;
+    if (left_object_const != right_object_const ||
+        left_object_volatile != right_object_volatile) {
+        return false;
+    }
+
+    left_parameter = left_declaration->type->params;
+    right_parameter = right_declaration->type->params;
+    if (left_declaration->func_this_param && left_parameter) {
+        left_parameter = left_parameter->next;
+    }
+    if (right_declaration->func_this_param && right_parameter) {
+        right_parameter = right_parameter->next;
+    }
+    while (left_parameter && right_parameter) {
+        if (!cxx_same_parameter_type(left_parameter->type,
+                                    right_parameter->type, true)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return left_parameter == NULL && right_parameter == NULL;
+}
+
+/* A using-declaration contributes only the named base overloads. A direct
+ * declaration in the derived class hides inherited declarations with the
+ * same function signature, while other selected base overloads remain
+ * candidates. */
+static bool sema_cxx_method_is_overload_candidate(
+    Type* aggregate, const char* name, TypeMethod* method) {
+    CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
+    CxxClass* owner = sema_cxx_declaring_method_owner(method);
+    bool has_using;
+
+    if (!aggregate || !cls || !name || !method || !owner) return false;
+    if (owner == cls) return true;
+    has_using = sema_cxx_class_has_using_member(cls, name);
+    if (has_using) {
+        if (!sema_cxx_method_owner_selected_by_using(cls, name, owner)) {
+            return false;
+        }
+    } else if (sema_cxx_class_declares_method_name(aggregate, name)) {
+        return false;
+    }
+    for (TypeMethod* derived = aggregate->methods; derived;
+         derived = derived->next) {
+        CxxClass* derived_owner =
+            sema_cxx_declaring_method_owner(derived);
+        if (derived_owner == cls && derived->function_decl &&
+            !derived->function_decl->func_is_template_instance &&
+            sema_cxx_method_same_overload_signature(derived, method)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* A call whose postfix member expression resolves to a data member is an
  * indirect call when that member has function-pointer type, not a member
  * function overload lookup.  Keep the test aligned with ordinary member
@@ -21537,7 +21634,6 @@ static TypeMethod* sema_select_cxx_member_method(
     TypeMethod** overload_methods;
     int overload_method_count = 0;
     int argument_count;
-    bool restrict_to_using_set;
     typedef struct {
         TypeMethod* method;
         int* ranks;
@@ -21553,9 +21649,6 @@ static TypeMethod* sema_select_cxx_member_method(
         if (ambiguous_lookup) *ambiguous_lookup = true;
         return NULL;
     }
-    restrict_to_using_set =
-        sema_cxx_class_has_using_member(aggregate->cxx_class, name) &&
-        !sema_cxx_class_declares_method_name(aggregate, name);
     argument_count = sema_cxx_argument_count(call->call_args);
     if (argument_count < 0 || argument_count == INT_MAX) {
         rcc_error(call->loc, "too many arguments for member overload '%s'",
@@ -21567,10 +21660,7 @@ static TypeMethod* sema_select_cxx_member_method(
             method->name && strcmp(method->name, name) == 0 &&
             !method->function_decl->func_is_template_instance &&
             !template_arguments_specified &&
-            (!restrict_to_using_set ||
-             sema_cxx_method_owner_selected_by_using(
-                 aggregate->cxx_class, name,
-                 sema_cxx_declaring_method_owner(method)))) {
+            sema_cxx_method_is_overload_candidate(aggregate, name, method)) {
             ++overload_method_count;
         }
     }
@@ -21588,10 +21678,8 @@ static TypeMethod* sema_select_cxx_member_method(
                 strcmp(method->name, name) == 0 &&
                 !method->function_decl->func_is_template_instance &&
                 !template_arguments_specified &&
-                (!restrict_to_using_set ||
-                 sema_cxx_method_owner_selected_by_using(
-                     aggregate->cxx_class, name,
-                     sema_cxx_declaring_method_owner(method)))) {
+                sema_cxx_method_is_overload_candidate(aggregate, name,
+                                                      method)) {
                 overload_methods[overload_index++] = method;
             }
         }
@@ -22223,6 +22311,7 @@ static bool sema_cxx_collect_member_binary_operator_candidate(
 
         if (method->kind != TYPE_METHOD_FUNCTION || !function ||
             !method->name || strcmp(method->name, name) != 0 ||
+            !sema_cxx_method_is_overload_candidate(aggregate, name, method) ||
             !function->type || function->type->kind != TYPE_FUNC) {
             continue;
         }
@@ -22689,6 +22778,7 @@ static bool sema_cxx_member_operator_has_viable_candidate(
         if (method->kind != TYPE_METHOD_FUNCTION || !function ||
             !method->name || strcmp(method->name, name) != 0 ||
             !function->type || function->type->kind != TYPE_FUNC ||
+            !sema_cxx_method_is_overload_candidate(aggregate, name, method) ||
             cxx_member_object_conversion_rank(aggregate, method) < 0 ||
             cxx_member_ref_qualifier_rank(probe_call, method) < 0) {
             continue;

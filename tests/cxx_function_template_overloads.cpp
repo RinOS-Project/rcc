@@ -817,6 +817,22 @@ struct FunctionTemplateMemberCallInheritedBase {
 struct FunctionTemplateMemberCallInheritedDerived
     : FunctionTemplateMemberCallInheritedBase {};
 
+struct InheritedMemberUsingRankBase {
+    int choose(int) { return 401; }
+    int choose(short) { return 402; }
+};
+
+struct InheritedMemberUsingRankDerived : InheritedMemberUsingRankBase {
+    using InheritedMemberUsingRankBase::choose;
+
+    int choose(int) { return 403; }
+    int choose(long) { return 404; }
+};
+
+struct InheritedMemberHidingRankDerived : InheritedMemberUsingRankBase {
+    int choose(int) { return 405; }
+};
+
 struct FunctionTemplateMemberCallInheritedTemplateBase {
     int base_value;
 
@@ -3892,6 +3908,13 @@ int main(void) {
     if (using_inherited_template.adjust(3) != 5) {
         return 133;
     }
+    InheritedMemberUsingRankDerived inherited_rank;
+    short inherited_short_argument = 1;
+    if (inherited_rank.choose(1) != 403) return 137;
+    if (inherited_rank.choose(inherited_short_argument) != 402) return 138;
+    if (inherited_rank.choose(1L) != 404) return 139;
+    InheritedMemberHidingRankDerived hiding_rank;
+    if (hiding_rank.choose(inherited_short_argument) != 405) return 140;
     const int explicit_double_result =
         using_inherited_template.adjust<double>(3);
     if (explicit_double_result != 5) return 135;
