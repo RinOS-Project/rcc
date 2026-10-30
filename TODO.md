@@ -12308,3 +12308,15 @@ remains a separate open item.
       constructor into separate virtual-base and derived fields; verify the
       argument-to-field mapping with fallback-free i686/AMD64 O0/O2 execution.
       `test-verified-cxx-virtual-base-value` passes.
+
+## RCC scalability follow-up (2026-10-31, direct-image relocation lookup)
+
+- [ ] `emit_rin.c`／`emit_drv.c`はrelocationごとに`module_resolve_image_relocation()`
+      を呼び、同関数は対象relocationを全件走査してからsymbol配列も線形検索する。
+      TLS解決も同様に全relocation／symbolを再走査し、relative relocationのpatch
+      もsymbol配列を毎回検索するため、直接RIN／NDRV出力はrelocation数R・symbol数Sに
+      対して最大O(R² + R×S)へ増える。大規模imageのcompile/package時間とメモリ負荷が
+      増大する。**受入:** section＋offsetで一意性・重複を保つrelocation indexと
+      name lookup indexをemission中に構築し、各relocationを償却O(1)またはO(log N)
+      で解決する。unresolved／重複relocationの診断と出力byte列を維持し、大小の
+      relocation／symbol数でlookup回数・出力時間を比較する。
