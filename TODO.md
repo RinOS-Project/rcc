@@ -3,10 +3,10 @@
 ## RCC continuation (2026-10-31, Annex G exceptional values)
 
 - [x] Exercise C99 Annex G G.6.3.3 `catanh` with positive/negative
-  infinities and quiet NaNs, finite nonzero real inputs with NaN imaginary
-  parts, finite nonzero real inputs with signed infinite imaginary parts, NaN
-  paired with either signed infinity, signed zero paired with NaN, and NaN/NaN.
-  Check float, double, and RinOS binary64 `long double` results and specified
+  infinities paired with finite, infinite, or NaN imaginary parts; finite
+  nonzero real inputs with signed infinite or NaN imaginary parts; NaN real
+  inputs paired with finite, infinite, zero, or NaN imaginary parts. Check
+  float, double, and RinOS binary64 `long double` results and specified
   signed-zero behavior through both legacy and verified generated callers.
   `test-complex-legacy` passes with verified i686/AMD64 generation, verified
   AMD64 O0/O2 execution, and legacy i686/AMD64 execution.
