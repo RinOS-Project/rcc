@@ -124,6 +124,27 @@ __RIN_STDBIT_DEFINE_TYPE(ui, unsigned int)
 __RIN_STDBIT_DEFINE_TYPE(ul, unsigned long)
 __RIN_STDBIT_DEFINE_TYPE(ull, unsigned long long)
 
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+#define __RIN_STDBIT_DEFINE_BITINT_TYPE(width) \
+    __RIN_STDBIT_DEFINE_TYPE(ub##width, unsigned _BitInt(width))
+__RIN_STDBIT_DEFINE_BITINT_TYPE(8)
+__RIN_STDBIT_DEFINE_BITINT_TYPE(16)
+__RIN_STDBIT_DEFINE_BITINT_TYPE(32)
+__RIN_STDBIT_DEFINE_BITINT_TYPE(64)
+#undef __RIN_STDBIT_DEFINE_BITINT_TYPE
+
+#define __RIN_STDBIT_GENERIC(name, value) \
+    _Generic((value), \
+        unsigned char: name##_uc, \
+        unsigned short: name##_us, \
+        unsigned int: name##_ui, \
+        unsigned long: name##_ul, \
+        unsigned long long: name##_ull, \
+        unsigned _BitInt(8): name##_ub8, \
+        unsigned _BitInt(16): name##_ub16, \
+        unsigned _BitInt(32): name##_ub32, \
+        unsigned _BitInt(64): name##_ub64)(value)
+#else
 #define __RIN_STDBIT_GENERIC(name, value) \
     _Generic((value), \
         unsigned char: name##_uc, \
@@ -131,6 +152,7 @@ __RIN_STDBIT_DEFINE_TYPE(ull, unsigned long long)
         unsigned int: name##_ui, \
         unsigned long: name##_ul, \
         unsigned long long: name##_ull)(value)
+#endif
 
 #define stdc_leading_zeros(value) __RIN_STDBIT_GENERIC(stdc_leading_zeros, value)
 #define stdc_leading_ones(value) __RIN_STDBIT_GENERIC(stdc_leading_ones, value)
