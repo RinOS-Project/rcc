@@ -12040,6 +12040,11 @@ remains a separate open item.
         `long long` pairs. Preserve four global relocations and verify each
         source's initialized value plus `&`/`|`/`^` results in legacy and
         verified C objects.
+  - [x] Extend signed i686 bitwise expressions to namespace-scope
+        `_Thread_local _Atomic long long` pairs. Emit `TLSOFF32S` relocations
+        and `DW_OP_form_tls_address`, then verify both TLS template values and
+        all three operations in legacy and verified C objects. Focused and
+        full DWARF gates pass.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 

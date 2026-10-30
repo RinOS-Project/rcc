@@ -15003,9 +15003,10 @@ static void verify_inline_i686_global_unsigned_nested_expression(
 static void verify_inline_i686_global_pair_bitwise_expression(
     const char* path, const char* call_site_name, const char* left_name,
     const char* right_name, uint8_t bitwise_operation, bool is_unsigned,
-    uint64_t expected_left_value, uint64_t expected_right_value) {
+    bool tls_sources, uint64_t expected_left_value,
+    uint64_t expected_right_value) {
     verify_inline_i686_global_nested_expression_impl(
-        path, call_site_name, left_name, right_name, false, false,
+        path, call_site_name, left_name, right_name, tls_sources, false,
         is_unsigned, bitwise_operation, expected_left_value,
         expected_right_value);
 }
@@ -18414,6 +18415,7 @@ int main(int argc, char** argv)
                     atomic_bitwise_cases[index].right,
                     atomic_bitwise_cases[index].opcode,
                     atomic_bitwise_cases[index].is_unsigned,
+                    false,
                     atomic_bitwise_cases[index].left_value,
                     atomic_bitwise_cases[index].right_value);
                 verify_inline_i686_global_pair_bitwise_expression(
@@ -18422,8 +18424,38 @@ int main(int argc, char** argv)
                     atomic_bitwise_cases[index].right,
                     atomic_bitwise_cases[index].opcode,
                     atomic_bitwise_cases[index].is_unsigned,
+                    false,
                     atomic_bitwise_cases[index].left_value,
                     atomic_bitwise_cases[index].right_value);
+            }
+            static const struct {
+                const char* entry;
+                uint8_t opcode;
+            } tls_atomic_bitwise_cases[] = {
+                {"debug_inline_nonconstant_signed_long_long_tls_atomic_bitand_entry",
+                 0x1au},
+                {"debug_inline_nonconstant_signed_long_long_tls_atomic_bitor_entry",
+                 0x21u},
+                {"debug_inline_nonconstant_signed_long_long_tls_atomic_bitxor_entry",
+                 0x27u}
+            };
+            for (size_t index = 0u;
+                 index < sizeof(tls_atomic_bitwise_cases) /
+                     sizeof(tls_atomic_bitwise_cases[0]); ++index) {
+                verify_inline_i686_global_pair_bitwise_expression(
+                    argv[2], tls_atomic_bitwise_cases[index].entry,
+                    "debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_lhs",
+                    "debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_rhs",
+                    tls_atomic_bitwise_cases[index].opcode, false, true,
+                    UINT64_C(0x8123456789abcdef),
+                    UINT64_C(0xfedcba9876543210));
+                verify_inline_i686_global_pair_bitwise_expression(
+                    argv[4], tls_atomic_bitwise_cases[index].entry,
+                    "debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_lhs",
+                    "debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_rhs",
+                    tls_atomic_bitwise_cases[index].opcode, false, true,
+                    UINT64_C(0x8123456789abcdef),
+                    UINT64_C(0xfedcba9876543210));
             }
         }
         verify_inline_i686_global_u64_constant_division_expression_for_inline(

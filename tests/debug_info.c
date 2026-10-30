@@ -41,6 +41,12 @@ volatile long long
 volatile long long
     debug_inline_nonconstant_signed_long_long_volatile_bitwise_rhs =
         -0x0123456789abcdf0ll;
+_Thread_local _Atomic long long
+    debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_lhs =
+        -0x7edcba9876543211ll;
+_Thread_local _Atomic long long
+    debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_rhs =
+        -0x0123456789abcdf0ll;
 _Atomic unsigned long long
     debug_inline_nonconstant_unsigned_long_long_atomic_mixed_bitwise_lhs =
         0xfedcba9876543210ull;
@@ -572,6 +578,30 @@ long long debug_inline_nonconstant_signed_long_long_volatile_bitxor_entry(
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_volatile_bitwise_lhs ^
         debug_inline_nonconstant_signed_long_long_volatile_bitwise_rhs);
+}
+
+long long debug_inline_nonconstant_signed_long_long_tls_atomic_bitand_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_lhs &
+        debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_rhs);
+}
+
+long long debug_inline_nonconstant_signed_long_long_tls_atomic_bitor_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_lhs |
+        debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_rhs);
+}
+
+long long debug_inline_nonconstant_signed_long_long_tls_atomic_bitxor_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_lhs ^
+        debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_rhs);
 }
 
 unsigned long long
