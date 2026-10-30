@@ -17442,6 +17442,30 @@ test-complex: $(RCC_TARGET)
 		$(TEST_OUT)/complex/complex-x64-o2.ro \
 		$(TEST_OUT)/complex/complex-x86.ro
 
+RCC_COMPLEX_LEGACY_LONG_DOUBLE_HOST_API = \
+	-Dcreall=rcc_host_native_creall \
+	-Dcimagl=rcc_host_native_cimagl \
+	-Dcabsl=rcc_host_native_cabsl \
+	-Dcargl=rcc_host_native_cargl \
+	-Dconjl=rcc_host_native_conjl \
+	-Dcprojl=rcc_host_native_cprojl \
+	-Dcexpl=rcc_host_native_cexpl \
+	-Dclogl=rcc_host_native_clogl \
+	-Dcpowl=rcc_host_native_cpowl \
+	-Dcsqrtl=rcc_host_native_csqrtl \
+	-Dcacosl=rcc_host_native_cacosl \
+	-Dcasinl=rcc_host_native_casinl \
+	-Dcatanl=rcc_host_native_catanl \
+	-Dccosl=rcc_host_native_ccosl \
+	-Dcsinl=rcc_host_native_csinl \
+	-Dctanl=rcc_host_native_ctanl \
+	-Dcacoshl=rcc_host_native_cacoshl \
+	-Dcasinhl=rcc_host_native_casinhl \
+	-Dcatanhl=rcc_host_native_catanhl \
+	-Dccoshl=rcc_host_native_ccoshl \
+	-Dcsinhl=rcc_host_native_csinhl \
+	-Dctanhl=rcc_host_native_ctanhl
+
 test-complex-legacy: test-complex $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/complex)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -S -v \
@@ -17474,12 +17498,7 @@ test-complex-legacy: test-complex $(RCC_TARGET)
 		-D__rin_cmul_f64=rcc_host_complex_mul_f64 \
 		-D__rin_cdiv_f32=rcc_host_complex_div_f32 \
 		-D__rin_cdiv_f64=rcc_host_complex_div_f64 \
-		-Dcreall=rcc_host_native_creall \
-		-Dcimagl=rcc_host_native_cimagl \
-		-Dcabsl=rcc_host_native_cabsl \
-		-Dcargl=rcc_host_native_cargl \
-		-Dconjl=rcc_host_native_conjl \
-		-Dcsqrtl=rcc_host_native_csqrtl \
+		$(RCC_COMPLEX_LEGACY_LONG_DOUBLE_HOST_API) \
 		-c -o $(TEST_OUT)/complex/complex_runtime_legacy.o \
 		$(RINOS_ROOT)/public-base/libs/libc/complex_runtime.c
 	$(CC) $(CFLAGS) -Werror -pthread \
@@ -17494,12 +17513,7 @@ test-complex-legacy: test-complex $(RCC_TARGET)
 		-D__rin_cmul_f64=rcc_host_complex_mul_f64 \
 		-D__rin_cdiv_f32=rcc_host_complex_div_f32 \
 		-D__rin_cdiv_f64=rcc_host_complex_div_f64 \
-		-Dcreall=rcc_host_native_creall \
-		-Dcimagl=rcc_host_native_cimagl \
-		-Dcabsl=rcc_host_native_cabsl \
-		-Dcargl=rcc_host_native_cargl \
-		-Dconjl=rcc_host_native_conjl \
-		-Dcsqrtl=rcc_host_native_csqrtl \
+		$(RCC_COMPLEX_LEGACY_LONG_DOUBLE_HOST_API) \
 		-c -o $(TEST_OUT)/complex/complex_runtime_legacy_i686.o \
 		$(RINOS_ROOT)/public-base/libs/libc/complex_runtime.c
 # Match RinOS i686's hidden complex-result pointer in the host test driver.

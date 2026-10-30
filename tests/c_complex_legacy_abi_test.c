@@ -10,6 +10,7 @@ typedef struct RccLegacyComplexBinary64Pair {
     double real;
     double imaginary;
 } RccLegacyComplexBinary64Pair;
+typedef RccLegacyComplexBinary64Pair ComplexBinary64Pair;
 typedef long double _Complex RccLegacyHostLongDoubleComplex;
 
 extern long double rcc_host_native_creall(RccLegacyHostLongDoubleComplex);
@@ -34,6 +35,28 @@ static RccLegacyComplexBinary64Pair rcc_legacy_host_to_pair(
     result.imaginary = (double)__imag__ value;
     return result;
 }
+
+#define RCC_DECLARE_HOST_COMPLEX_UNARY_API(name) \
+    extern RccLegacyHostLongDoubleComplex rcc_host_native_##name##l( \
+        RccLegacyHostLongDoubleComplex)
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(cacos);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(casin);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(catan);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(ccos);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(csin);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(ctan);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(cacosh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(casinh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(catanh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(ccosh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(csinh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(ctanh);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(cexp);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(clog);
+RCC_DECLARE_HOST_COMPLEX_UNARY_API(cproj);
+#undef RCC_DECLARE_HOST_COMPLEX_UNARY_API
+extern RccLegacyHostLongDoubleComplex rcc_host_native_cpowl(
+    RccLegacyHostLongDoubleComplex, RccLegacyHostLongDoubleComplex);
 
 #if defined(_WIN64)
 #define RINOS_ABI __attribute__((sysv_abi))
@@ -268,6 +291,36 @@ extern RccLegacyComplexBinary64Pair RINOS_ABI
 rcc_legacy_complex_api_conjl(RccLegacyComplexBinary64Pair);
 extern RccLegacyComplexBinary64Pair RINOS_ABI
 rcc_legacy_complex_api_csqrtl(RccLegacyComplexBinary64Pair);
+#define RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(name) \
+    extern RccLegacyComplexFloat RINOS_ABI \
+    rcc_legacy_complex_api_##name##f(RccLegacyComplexFloat); \
+    extern RccLegacyComplexDouble RINOS_ABI \
+    rcc_legacy_complex_api_##name(RccLegacyComplexDouble); \
+    extern RccLegacyComplexBinary64Pair RINOS_ABI \
+    rcc_legacy_complex_api_##name##l(RccLegacyComplexBinary64Pair)
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(cacos);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(casin);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(catan);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(ccos);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(csin);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(ctan);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(cacosh);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(casinh);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(catanh);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(ccosh);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(csinh);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(ctanh);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(cexp);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(clog);
+RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(cproj);
+#undef RCC_DECLARE_LEGACY_COMPLEX_UNARY_API
+extern RccLegacyComplexFloat RINOS_ABI rcc_legacy_complex_api_cpowf(
+    RccLegacyComplexFloat, RccLegacyComplexFloat);
+extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_api_cpow(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_api_cpowl(RccLegacyComplexBinary64Pair,
+                             RccLegacyComplexBinary64Pair);
 
 double RINOS_ABI rcc_legacy_bridge_creall(
     RccLegacyComplexBinary64Pair value) __asm__("creall");
@@ -311,6 +364,43 @@ RccLegacyComplexBinary64Pair RINOS_ABI rcc_legacy_bridge_csqrtl(
     RccLegacyComplexBinary64Pair value) {
     return rcc_legacy_host_to_pair(
         rcc_host_native_csqrtl(rcc_legacy_pair_to_host(value)));
+}
+
+#define RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(name) \
+    RccLegacyComplexBinary64Pair RINOS_ABI \
+    rcc_legacy_bridge_##name##l( \
+        RccLegacyComplexBinary64Pair value) __asm__(#name "l"); \
+    RccLegacyComplexBinary64Pair RINOS_ABI \
+    rcc_legacy_bridge_##name##l( \
+        RccLegacyComplexBinary64Pair value) { \
+        return rcc_legacy_host_to_pair( \
+            rcc_host_native_##name##l(rcc_legacy_pair_to_host(value))); \
+    }
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(cacos)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(casin)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(catan)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(ccos)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(csin)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(ctan)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(cacosh)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(casinh)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(catanh)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(ccosh)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(csinh)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(ctanh)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(cexp)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(clog)
+RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE(cproj)
+#undef RCC_DEFINE_LONG_DOUBLE_COMPLEX_API_BRIDGE
+
+RccLegacyComplexBinary64Pair RINOS_ABI rcc_legacy_bridge_cpowl(
+    RccLegacyComplexBinary64Pair base,
+    RccLegacyComplexBinary64Pair exponent) __asm__("cpowl");
+RccLegacyComplexBinary64Pair RINOS_ABI rcc_legacy_bridge_cpowl(
+    RccLegacyComplexBinary64Pair base,
+    RccLegacyComplexBinary64Pair exponent) {
+    return rcc_legacy_host_to_pair(rcc_host_native_cpowl(
+        rcc_legacy_pair_to_host(base), rcc_legacy_pair_to_host(exponent)));
 }
 
 typedef struct RccLegacyComplexTlsCase {
@@ -389,6 +479,143 @@ static int near_double(double actual, double expected) {
     return fabs(actual - expected) < 0.0000001;
 }
 
+#define RCC_ASSERT_FLOAT_COMPLEX_API(name, input, expected_real, expected_imag) \
+    do { \
+        RccLegacyComplexFloat result = \
+            rcc_legacy_complex_api_##name##f(input); \
+        assert(near_float(__real__ result, expected_real) && \
+               near_float(__imag__ result, expected_imag)); \
+    } while (0)
+#define RCC_ASSERT_DOUBLE_COMPLEX_API(name, input, expected_real, expected_imag) \
+    do { \
+        RccLegacyComplexDouble result = \
+            rcc_legacy_complex_api_##name(input); \
+        assert(near_double(__real__ result, expected_real) && \
+               near_double(__imag__ result, expected_imag)); \
+    } while (0)
+#define RCC_ASSERT_LONG_DOUBLE_COMPLEX_API( \
+    name, input, expected_real, expected_imag) \
+    do { \
+        RccLegacyComplexBinary64Pair result = \
+            rcc_legacy_complex_api_##name##l(input); \
+        assert(near_double(result.real, expected_real) && \
+               near_double(result.imaginary, expected_imag)); \
+    } while (0)
+
+static void check_remaining_complex_api(void) {
+    RCC_ASSERT_FLOAT_COMPLEX_API(cacos, __builtin_complex(1.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(cacos, __builtin_complex(1.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(cacos, ((ComplexBinary64Pair){1.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(casin, __builtin_complex(0.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(casin, __builtin_complex(0.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(casin, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(catan, __builtin_complex(0.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(catan, __builtin_complex(0.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(catan, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(ccos, __builtin_complex(0.0f, 0.0f),
+                                 1.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(ccos, __builtin_complex(0.0, 0.0),
+                                  1.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(ccos, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       1.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(csin, __builtin_complex(0.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(csin, __builtin_complex(0.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(csin, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(ctan, __builtin_complex(0.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(ctan, __builtin_complex(0.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(ctan, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(cacosh, __builtin_complex(1.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(cacosh, __builtin_complex(1.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(cacosh, ((ComplexBinary64Pair){1.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(casinh, __builtin_complex(0.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(casinh, __builtin_complex(0.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(casinh, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(catanh, __builtin_complex(0.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(catanh, __builtin_complex(0.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(catanh, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(ccosh, __builtin_complex(0.0f, 0.0f),
+                                 1.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(ccosh, __builtin_complex(0.0, 0.0),
+                                  1.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(ccosh, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       1.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(csinh, __builtin_complex(0.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(csinh, __builtin_complex(0.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(csinh, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(ctanh, __builtin_complex(0.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(ctanh, __builtin_complex(0.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(ctanh, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(cexp, __builtin_complex(0.0f, 0.0f),
+                                 1.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(cexp, __builtin_complex(0.0, 0.0),
+                                  1.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(cexp, ((ComplexBinary64Pair){0.0, 0.0}),
+                                       1.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(clog, __builtin_complex(1.0f, 0.0f),
+                                 0.0f, 0.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(clog, __builtin_complex(1.0, 0.0),
+                                  0.0, 0.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(clog, ((ComplexBinary64Pair){1.0, 0.0}),
+                                       0.0, 0.0);
+    RCC_ASSERT_FLOAT_COMPLEX_API(cproj, __builtin_complex(1.0f, 2.0f),
+                                 1.0f, 2.0f);
+    RCC_ASSERT_DOUBLE_COMPLEX_API(cproj, __builtin_complex(1.0, 2.0),
+                                  1.0, 2.0);
+    RCC_ASSERT_LONG_DOUBLE_COMPLEX_API(cproj, ((ComplexBinary64Pair){1.0, 2.0}),
+                                       1.0, 2.0);
+    {
+        RccLegacyComplexFloat float_result = rcc_legacy_complex_api_cpowf(
+            __builtin_complex(2.0f, 0.0f),
+            __builtin_complex(3.0f, 0.0f));
+        RccLegacyComplexDouble double_result = rcc_legacy_complex_api_cpow(
+            __builtin_complex(2.0, 0.0), __builtin_complex(3.0, 0.0));
+        RccLegacyComplexBinary64Pair long_double_result =
+            rcc_legacy_complex_api_cpowl(
+                (ComplexBinary64Pair){2.0, 0.0},
+                (ComplexBinary64Pair){3.0, 0.0});
+        assert(near_float(__real__ float_result, 8.0f) &&
+               near_float(__imag__ float_result, 0.0f));
+        assert(near_double(__real__ double_result, 8.0) &&
+               near_double(__imag__ double_result, 0.0));
+        assert(near_double(long_double_result.real, 8.0) &&
+               near_double(long_double_result.imaginary, 0.0));
+    }
+}
+
+#undef RCC_ASSERT_FLOAT_COMPLEX_API
+#undef RCC_ASSERT_DOUBLE_COMPLEX_API
+#undef RCC_ASSERT_LONG_DOUBLE_COMPLEX_API
+
 int main(void) {
     pthread_t tls_thread;
     RccLegacyComplexTlsCase tls_case = {0};
@@ -466,6 +693,7 @@ int main(void) {
         long_double_api_input);
     assert(near_double(long_double_result.real, 2.0) &&
            near_double(long_double_result.imaginary, 1.0));
+    check_remaining_complex_api();
 
     float_result = rcc_legacy_complex_float_add(float_left, float_right);
     assert(near_float(__real__ float_result, 6.0f) &&

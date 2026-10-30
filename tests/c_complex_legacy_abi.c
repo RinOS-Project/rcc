@@ -105,6 +105,47 @@ RccLegacyComplexLongDouble rcc_legacy_complex_api_csqrtl(
     return csqrtl(value);
 }
 
+#define RCC_LEGACY_COMPLEX_UNARY_API(name) \
+    RccLegacyComplexFloat rcc_legacy_complex_api_##name##f( \
+        RccLegacyComplexFloat value) { return name##f(value); } \
+    RccLegacyComplexDouble rcc_legacy_complex_api_##name( \
+        RccLegacyComplexDouble value) { return name(value); } \
+    RccLegacyComplexLongDouble rcc_legacy_complex_api_##name##l( \
+        RccLegacyComplexLongDouble value) { return name##l(value); }
+RCC_LEGACY_COMPLEX_UNARY_API(cacos)
+RCC_LEGACY_COMPLEX_UNARY_API(casin)
+RCC_LEGACY_COMPLEX_UNARY_API(catan)
+RCC_LEGACY_COMPLEX_UNARY_API(ccos)
+RCC_LEGACY_COMPLEX_UNARY_API(csin)
+RCC_LEGACY_COMPLEX_UNARY_API(ctan)
+RCC_LEGACY_COMPLEX_UNARY_API(cacosh)
+RCC_LEGACY_COMPLEX_UNARY_API(casinh)
+RCC_LEGACY_COMPLEX_UNARY_API(catanh)
+RCC_LEGACY_COMPLEX_UNARY_API(ccosh)
+RCC_LEGACY_COMPLEX_UNARY_API(csinh)
+RCC_LEGACY_COMPLEX_UNARY_API(ctanh)
+RCC_LEGACY_COMPLEX_UNARY_API(cexp)
+RCC_LEGACY_COMPLEX_UNARY_API(clog)
+RCC_LEGACY_COMPLEX_UNARY_API(cproj)
+#undef RCC_LEGACY_COMPLEX_UNARY_API
+
+#define RCC_LEGACY_COMPLEX_BINARY_API(name) \
+    RccLegacyComplexFloat rcc_legacy_complex_api_##name##f( \
+        RccLegacyComplexFloat base, RccLegacyComplexFloat exponent) { \
+        return name##f(base, exponent); \
+    } \
+    RccLegacyComplexDouble rcc_legacy_complex_api_##name( \
+        RccLegacyComplexDouble base, RccLegacyComplexDouble exponent) { \
+        return name(base, exponent); \
+    } \
+    RccLegacyComplexLongDouble rcc_legacy_complex_api_##name##l( \
+        RccLegacyComplexLongDouble base, \
+        RccLegacyComplexLongDouble exponent) { \
+        return name##l(base, exponent); \
+    }
+RCC_LEGACY_COMPLEX_BINARY_API(cpow)
+#undef RCC_LEGACY_COMPLEX_BINARY_API
+
 #define RCC_ASSERT_COMPLEX_PROMOTION_OPERATOR( \
     complex_type, real_type, result_type, operator) \
     _Static_assert(_Generic( \
