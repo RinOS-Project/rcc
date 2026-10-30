@@ -594,6 +594,11 @@ static CxxClass* sema_cxx_method_owner(Type* object_type,
         declaration->func_method_owner->cxx_class) {
         return declaration->func_method_owner->cxx_class;
     }
+    if (method && method->function_decl &&
+        method->function_decl->func_method_owner &&
+        method->function_decl->func_method_owner->cxx_class) {
+        return method->function_decl->func_method_owner->cxx_class;
+    }
     return object_type ? object_type->cxx_class : NULL;
 }
 
@@ -21231,11 +21236,19 @@ static bool sema_cxx_method_owner_selected_by_using(
 }
 
 static CxxClass* sema_cxx_declaring_method_owner(TypeMethod* method) {
-    Decl* declaration = method
-        ? (method->source_decl ? method->source_decl : method->function_decl)
-        : NULL;
-    return declaration && declaration->func_method_owner
-        ? declaration->func_method_owner->cxx_class : NULL;
+    if (!method) return NULL;
+    if (method->cxx_access_owner) return method->cxx_access_owner;
+    if (method->source_decl &&
+        method->source_decl->func_method_owner &&
+        method->source_decl->func_method_owner->cxx_class) {
+        return method->source_decl->func_method_owner->cxx_class;
+    }
+    if (method->function_decl &&
+        method->function_decl->func_method_owner &&
+        method->function_decl->func_method_owner->cxx_class) {
+        return method->function_decl->func_method_owner->cxx_class;
+    }
+    return method->this_owner ? method->this_owner->cxx_class : NULL;
 }
 
 static bool sema_cxx_member_method_lookup_ambiguous(
@@ -21246,7 +21259,6 @@ static bool sema_cxx_member_method_lookup_ambiguous(
     if (!aggregate || !name) return false;
     for (TypeMethod* method = aggregate->methods; method;
          method = method->next) {
-        Decl* declaration;
         CxxClass* owner;
         CxxClass* first_owner;
         if (method->kind != TYPE_METHOD_FUNCTION ||
@@ -21254,10 +21266,7 @@ static bool sema_cxx_member_method_lookup_ambiguous(
             strcmp(method->name, name) != 0) {
             continue;
         }
-        declaration = method->source_decl
-            ? method->source_decl : method->function_decl;
-        owner = declaration->func_method_owner
-            ? declaration->func_method_owner->cxx_class : NULL;
+        owner = sema_cxx_declaring_method_owner(method);
         if (has_using && owner != aggregate_class &&
             !sema_cxx_method_owner_selected_by_using(
                 aggregate_class, name, owner)) {
@@ -21272,10 +21281,7 @@ static bool sema_cxx_member_method_lookup_ambiguous(
             first = method;
             continue;
         }
-        Decl* first_declaration = first->source_decl
-            ? first->source_decl : first->function_decl;
-        first_owner = first_declaration->func_method_owner
-            ? first_declaration->func_method_owner->cxx_class : NULL;
+        first_owner = sema_cxx_declaring_method_owner(first);
         if (owner != first_owner && has_using &&
             sema_cxx_method_owner_selected_by_using(
                 aggregate_class, name, first_owner) &&

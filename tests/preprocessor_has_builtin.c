@@ -2,6 +2,10 @@
 #error RCC must expose the __has_builtin preprocessing operator
 #endif
 
+#if !defined(__DBL_MIN__)
+#error RCC must define the minimum normal double value for libc math headers
+#endif
+
 #if !__has_builtin(__builtin_expect)
 #error RCC must report implemented builtins
 #endif

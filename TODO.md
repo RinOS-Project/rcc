@@ -25,6 +25,9 @@
   `rintf`, `rint`, and RinOS binary64 `rintl`; verify negative zero and
   `FE_INEXACT` when the result is discarded. Legacy runtime coverage remains
   on both targets.
+- [x] Define the GCC-compatible `__DBL_MIN__` preprocessing value required by
+  RinOS math headers. Check C/C++ builtin-macro fixtures and run
+  `test-preprocessor-has-builtin` plus `test-floating-math-builtins`.
 
 ## RCC continuation (2026-10-29, command-line include search order)
 
@@ -10209,6 +10212,10 @@ remains a separate open item.
   - [x] Distinguish parenthesized type-id new forms such as new (int)(value)
         from placement argument lists; verify GCC C++20, x64 execution, and
         verified i686/AMD64 -O0/-O2 with zero fallback.
+  - [x] Add an allocator-free Windows entry harness for allocation fixtures
+        that define strong `rin_malloc`/`rin_free` hooks, while retaining the
+        generic harness's allocator defaults for other tests. The complete
+        `test-cxx-global-allocation-operators` target passes.
   - [ ] Extend placement allocation to class arrays requiring constructors,
         cookies, or constructor-failure matching placement-delete handling.
 
@@ -10569,6 +10576,12 @@ remains a separate open item.
       class can assign its private base. Copy and move cases cover public and
       private inheritance. Direct `__is_assignable` and libcxx
       `std::is_assignable` fixtures agree with GCC C++20 on i686 and AMD64.
+- [x] Resolve the declaring class from the lowered function declaration when
+      a declaration-only member's source declaration does not yet carry owner
+      metadata. Keep overload hiding and access checks correct for declaration-
+      only copy assignments and defaulted protected/private base subobjects;
+      `test-cxx-constructible-builtin` passes on i686/AMD64 and strict GCC
+      C++20.
 - [ ] Complete implicit copy/move deletion/access rules beyond this tested
       matrix and broader type-trait conformance.
 

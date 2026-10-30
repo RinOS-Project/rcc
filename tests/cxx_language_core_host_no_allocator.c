@@ -1,0 +1,16 @@
+#if defined(_WIN32) && defined(__x86_64__)
+#define RIN_SYSV __attribute__((sysv_abi))
+#else
+#define RIN_SYSV
+#endif
+
+extern int RIN_SYSV _rcc_entry(void);
+extern void RIN_SYSV __rcc_global_init(void) __attribute__((weak));
+
+int main(void)
+{
+#if defined(_WIN32)
+    if (__rcc_global_init) __rcc_global_init();
+#endif
+    return _rcc_entry();
+}

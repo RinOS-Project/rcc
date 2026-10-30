@@ -98,7 +98,7 @@ CHECK_TEXTS = $(PYTHON) "$(CURDIR)/scripts/rcc_check_texts.py" "$(2)" $(foreach 
 
 ifeq ($(OS),Windows_NT)
 define CXX_PORTABLE_ENTRY_TEST
-$(call CXX_WINDOWS_ENTRY_TEST,$(1),$(2))
+$(call CXX_WINDOWS_ENTRY_TEST,$(1),$(2),$(3),$(4))
 endef
 else
 define CXX_PORTABLE_ENTRY_TEST
@@ -304,7 +304,7 @@ $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 $(3) -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
 $(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/$(1)/x64.o
-$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host $(if $(4),$(4),tests/cxx_language_core_host.c) $(TEST_OUT)/$(1)/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 $(TEST_OUT)/$(1)/x64-host
 endef
 
@@ -17001,8 +17001,8 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-allocation-diamond-lookup)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-parenthesized-new-type)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp)
-	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp)
-	$(call CXX_PORTABLE_ENTRY_TEST,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,,tests/cxx_language_core_host_no_allocator.c)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,,tests/cxx_language_core_host_no_allocator.c)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-fsyntax-only tests/cxx_global_allocation_resolution.cpp
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
@@ -17044,7 +17044,7 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_class_allocation_diamond_lookup.cpp
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-class-allocation-multiple-using-selection,cxx_class_allocation_multiple_using_selection.cpp)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_class_allocation_multiple_using_selection.cpp
-	$(call CXX_PORTABLE_ENTRY_TEST,cxx-parenthesized-new-type,cxx_parenthesized_new_type.cpp)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-parenthesized-new-type,cxx_parenthesized_new_type.cpp,,tests/cxx_language_core_host_no_allocator.c)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only tests/cxx_parenthesized_new_type.cpp
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,7)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)

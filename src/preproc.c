@@ -220,6 +220,8 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__SHRT_MAX__", "32767");
     pp_define(pp, "__INT_MAX__", "2147483647");
     pp_define(pp, "__LONG_LONG_MAX__", "9223372036854775807LL");
+    pp_define(pp, "__DBL_MIN__",
+              "((double)2.22507385850720138309023271733240406e-308L)");
     pp_define(pp, "__INT8_MAX__", "127");
     pp_define(pp, "__UINT8_MAX__", "255");
     pp_define(pp, "__INT16_MAX__", "32767");
