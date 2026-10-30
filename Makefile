@@ -608,6 +608,7 @@ endif
 .PHONY: test-cxx-dependent-array-unsigned64-bound
 .PHONY: test-cxx-dependent-array-unsigned64-expressions
 .PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix test-cxx-nested-class-template-specializations test-cxx-nested-class-template-template-owner-specialization test-cxx-nested-class-template-owner-partial-specialization test-cxx-nested-class-template-owner test-cxx-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner test-cxx-dependent-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner-chain test-cxx-dependent-nested-class-template-owner-chain-posix
+.PHONY: test-cxx-nested-class-template-wide-owner-partial-specialization
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-type-trait-builtins
@@ -6097,6 +6098,20 @@ test-cxx-dependent-nested-class-template-owner-chain-posix: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc-host
 
 ifeq ($(OS),Windows_NT)
+test-cxx-nested-class-template-wide-owner-partial-specialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-wide-owner-partial-specialization)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nested-class-template-wide-owner-partial-specialization,cxx_nested_class_template_wide_owner_partial_specialization.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-wide-owner-partial-specialization/gcc-host$(EXE_SUFFIX) tests/cxx_nested_class_template_wide_owner_partial_specialization.cpp
+	$(TEST_OUT)/cxx-nested-class-template-wide-owner-partial-specialization/gcc-host$(EXE_SUFFIX)
+else
+test-cxx-nested-class-template-wide-owner-partial-specialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-wide-owner-partial-specialization)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-nested-class-template-wide-owner-partial-specialization,cxx_nested_class_template_wide_owner_partial_specialization.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-wide-owner-partial-specialization/gcc-host tests/cxx_nested_class_template_wide_owner_partial_specialization.cpp
+	$(TEST_OUT)/cxx-nested-class-template-wide-owner-partial-specialization/gcc-host
+endif
+
+ifeq ($(OS),Windows_NT)
 test-cxx-variable-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-variable-templates)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-variable-templates,cxx_variable_templates.cpp)
@@ -6875,6 +6890,7 @@ test-cxx-nested-class-templates: $(RCXX_TARGET)
 test-cxx-nested-class-templates: test-cxx-nested-class-template-specializations
 test-cxx-nested-class-templates: test-cxx-nested-class-template-template-owner-specialization
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-partial-specialization
+test-cxx-nested-class-templates: test-cxx-nested-class-template-wide-owner-partial-specialization
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-invalid
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-explicit-chain-10
 test-cxx-nested-class-templates: test-cxx-structural-computed-pointer-nttp
@@ -7579,6 +7595,7 @@ test-cxx-friend-requires-forms: test-cxx-friend-requires-forms-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix
 test-cxx-nested-class-templates: test-cxx-nested-class-templates-posix
+test-cxx-nested-class-templates: test-cxx-nested-class-template-wide-owner-partial-specialization
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-structural-value-pack-invalid
 test-cxx-nested-class-template-owner: test-cxx-nested-class-template-owner-posix
 test-cxx-dependent-nested-class-template-owner: test-cxx-dependent-nested-class-template-owner-posix

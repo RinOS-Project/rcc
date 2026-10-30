@@ -26847,8 +26847,7 @@ cxx_find_nested_template_for_dependent_owner_pattern(
     int best_specificity = -1;
 
     if (!owner_template || !owner_pattern || !name ||
-        owner_pattern->cxx_template_arg_count < 0 ||
-        owner_pattern->cxx_template_arg_count > 32) {
+        owner_pattern->cxx_template_arg_count < 0) {
         return NULL;
     }
     for (int specialization_index = 0;
@@ -26860,11 +26859,11 @@ cxx_find_nested_template_for_dependent_owner_pattern(
             ? specialization->specialization_owner_pattern : NULL;
         Type* lexical_owner_actual =
             owner_pattern->cxx_dependent_class_template_owner;
-        Type* deduced_arguments[32] = { NULL };
-        Expr* deduced_values[32] = { NULL };
-        bool deduced_value_present[32] = { false };
-        Type* deduced_template_arguments[32] = { NULL };
-        bool deduced_template_present[32] = { false };
+        Type** deduced_arguments = NULL;
+        Expr** deduced_values = NULL;
+        bool* deduced_value_present = NULL;
+        Type** deduced_template_arguments = NULL;
+        bool* deduced_template_present = NULL;
         int specificity = 0;
         int argument_count = owner_pattern->cxx_template_arg_count;
         bool matches = specialization && specialization->templated_class &&
@@ -26873,6 +26872,26 @@ cxx_find_nested_template_for_dependent_owner_pattern(
             owner_template->param_count == argument_count;
 
         if (!matches) continue;
+        {
+            size_t deduced_count = (size_t)specialization->param_count;
+            deduced_arguments = cxx_allocate_zeroed_array(
+                sizeof(*deduced_arguments), deduced_count);
+            deduced_values = cxx_allocate_zeroed_array(
+                sizeof(*deduced_values), deduced_count);
+            deduced_value_present = cxx_allocate_zeroed_array(
+                sizeof(*deduced_value_present), deduced_count);
+            deduced_template_arguments = cxx_allocate_zeroed_array(
+                sizeof(*deduced_template_arguments), deduced_count);
+            deduced_template_present = cxx_allocate_zeroed_array(
+                sizeof(*deduced_template_present), deduced_count);
+            if (!deduced_arguments || !deduced_values ||
+                !deduced_value_present || !deduced_template_arguments ||
+                !deduced_template_present) {
+                rcc_fatal(
+                    "nested class-template deduction state is too large");
+                return NULL;
+            }
+        }
         if (lexical_owner_pattern &&
             (!lexical_owner_actual ||
              !cxx_class_specialization_type_equal(
@@ -26959,8 +26978,7 @@ static int cxx_nested_specialization_owner_matches(
 
     if (!pattern) return 1;
     if (!owner_class || !pattern->cxx_template ||
-        pattern->cxx_template_arg_count < 0 ||
-        pattern->cxx_template_arg_count > 32) {
+        pattern->cxx_template_arg_count < 0) {
         return 0;
     }
     owner_template = pattern->cxx_template;
