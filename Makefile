@@ -16993,6 +16993,15 @@ test-cxx-is-function-builtin: $(RCXX_TARGET)
 
 test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-global-allocation-operators)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-global-allocation-fallback)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-fsyntax-only tests/cxx_global_allocation_resolution.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-fsyntax-only tests/cxx_global_allocation_fallback.cpp
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,4)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-global-allocation-operators/x86.ro \
 		tests/cxx_global_allocation_operators.cpp

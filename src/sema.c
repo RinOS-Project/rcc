@@ -24563,6 +24563,100 @@ static void sema_warn_deprecated_use(Expr* expression, const char* kind,
     }
 }
 
+static Decl* sema_cxx_default_global_allocation_function(
+    const char* operator_name, const char* runtime_name,
+    Type* parameter_type, bool is_deallocation, SourceLoc loc) {
+    TypeParam* type_parameter = ast_arena_alloc(sizeof(*type_parameter));
+    Decl* parameter = decl_param("value", parameter_type, 0, loc);
+    DeclList* parameters = ast_arena_alloc(sizeof(*parameters));
+    Type* function_type;
+    Decl* declaration;
+
+    type_parameter->name = "value";
+    type_parameter->type = parameter_type;
+    type_parameter->next = NULL;
+    parameters->decl = parameter;
+    parameters->next = NULL;
+    function_type = type_func(
+        is_deallocation ? type_void : type_ptr(type_void),
+        type_parameter, false);
+    function_type->has_prototype = true;
+    function_type->function_is_noexcept = is_deallocation;
+    declaration = decl_func(operator_name, function_type, parameters,
+                            NULL, loc);
+    declaration->storage = STORAGE_EXTERN;
+    declaration->func_has_cxx_linkage = true;
+    declaration->func_is_noexcept = is_deallocation;
+    declaration->link_name = rcc_intern(runtime_name);
+    return declaration;
+}
+
+static bool sema_cxx_has_single_parameter_allocation_replacement(
+    Decl* candidates, Type* parameter_type) {
+    for (Decl* candidate = candidates; candidate;
+         candidate = candidate->func_overload_next) {
+        TypeParam* parameter;
+        if (candidate->kind != DECL_FUNC || !candidate->type ||
+            candidate->type->kind != TYPE_FUNC ||
+            candidate->type->variadic) {
+            continue;
+        }
+        parameter = candidate->type->params;
+        if (parameter && !parameter->next &&
+            type_is_compatible(parameter->type, parameter_type)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Decl* sema_cxx_resolve_global_allocation_function(
+    Expr* call, const char* operator_name, const char* runtime_name,
+    Type* parameter_type, bool is_deallocation) {
+    Symbol* symbol;
+    Decl* candidates;
+    Decl* implicit_candidate;
+    Decl* extra_candidate;
+    Decl* selected;
+    Expr* designator;
+    bool explicitly_replaced;
+
+    if (!call || !operator_name || !runtime_name || !parameter_type ||
+        !call->call_args) {
+        return NULL;
+    }
+    symbol = sema_cxx_lookup_name(
+        is_deallocation ? "::operator delete" : "::operator new",
+        call->loc);
+    candidates = symbol && symbol->kind == SYM_FUNC
+        ? symbol->decl : NULL;
+    implicit_candidate = sema_cxx_default_global_allocation_function(
+        operator_name, runtime_name, parameter_type, is_deallocation,
+        call->loc);
+    explicitly_replaced = sema_cxx_has_single_parameter_allocation_replacement(
+        candidates, parameter_type);
+    extra_candidate = explicitly_replaced ? NULL : implicit_candidate;
+
+    designator = expr_ident(operator_name, call->loc);
+    designator->ident_decl = candidates ? candidates : implicit_candidate;
+    designator->type = designator->ident_decl
+        ? designator->ident_decl->type : NULL;
+    call->call_func = designator;
+    selected = sema_select_cxx_overload_candidates(
+        call, candidates, extra_candidate);
+    if (!selected) return NULL;
+
+    /* The selected declaration is already known.  Clear the lookup spelling
+     * so ordinary call analysis applies its parameter conversions and
+     * default arguments without repeating lookup against an incomplete
+     * declaration set that omits the implicit RinOS runtime candidate. */
+    call->call_func = expr_ident(
+        rcc_intern("__rcc_selected_allocation_operator"), call->loc);
+    call->call_func->ident_decl = selected;
+    call->call_func->type = selected->type;
+    return selected;
+}
+
 static Type* sema_expr(Expr* expr) {
     Expr* preanalyzed_binary_lhs = NULL;
     Type* preanalyzed_binary_lhs_type = NULL;
@@ -26631,7 +26725,9 @@ static Type* sema_expr(Expr* expr) {
                 Type* object_type;
                 Decl* cleanup_function;
 
-                sema_expr(expr->call_func);
+                if (expr->call_delete_is_array) {
+                    sema_expr(expr->call_func);
+                }
                 if (!expr->call_args || expr->call_args->next ||
                     !expr->call_args->expr) {
                     rcc_error(expr->loc,
@@ -26652,6 +26748,33 @@ static Type* sema_expr(Expr* expr) {
                     rcc_error(expr->loc,
                               "delete expression requires a complete object type");
                     return expr->type;
+                }
+                if (!expr->call_delete_is_array) {
+                    Decl* deallocation_function =
+                        sema_cxx_resolve_global_allocation_function(
+                            expr, "operator delete", "rin_free",
+                            type_ptr(type_void), true);
+                    TypeParam* parameter = deallocation_function &&
+                            deallocation_function->type &&
+                            deallocation_function->type->kind == TYPE_FUNC
+                        ? deallocation_function->type->params : NULL;
+                    if (!deallocation_function) return expr->type;
+                    expr->call_delete_deallocation_function =
+                        deallocation_function;
+                    if (deallocation_function->func_is_deleted) {
+                        rcc_error(expr->loc,
+                                  "use of deleted deallocation function '%s'",
+                                  deallocation_function->name
+                                      ? deallocation_function->name
+                                      : "operator delete");
+                        return expr->type;
+                    }
+                    if (parameter && !implicit_cast(
+                            expr->call_args->expr, parameter->type)) {
+                        rcc_error(expr->call_args->expr->loc,
+                                  "delete operand cannot be converted to the selected deallocation parameter");
+                        return expr->type;
+                    }
                 }
                 if (object_type->cxx_nontrivial &&
                     !sema_cxx_trivially_destructible(object_type)) {
@@ -26713,18 +26836,59 @@ static Type* sema_expr(Expr* expr) {
                 int argument_count;
                 CxxConstructorInfo* constructor = NULL;
 
-                /* Analyze the allocator size through the normal call path;
-                 * this preserves the declared RinOS allocation ABI and also
-                 * validates dynamic array bounds. */
-                sema_expr(expr->call_func);
+                /* Resolve scalar allocation functions as an overload set
+                 * containing both visible global declarations and the
+                 * implicit RinOS allocator candidate.  Array allocation is
+                 * still lowered by its cookie-aware runtime path. */
+                if (!expr->call_new_is_array) {
+                    Decl* allocation_function;
+                    Expr* deallocation_probe;
+                    Expr* deallocation_pointer;
+                    ExprList* deallocation_arguments = NULL;
+
+                    for (argument = expr->call_args; argument;
+                         argument = argument->next) {
+                        sema_expr(argument->expr);
+                    }
+                    allocation_function =
+                        sema_cxx_resolve_global_allocation_function(
+                            expr, "operator new", "rin_malloc",
+                            g_opts.target_arch == ARCH_X64
+                                ? type_ullong : type_uint,
+                            false);
+                    if (!allocation_function) {
+                        expr->type = object_type
+                            ? type_ptr(object_type) : type_int;
+                        return expr->type;
+                    }
+                    expr->call_is_new = false;
+                    (void)sema_expr(expr);
+                    expr->call_is_new = true;
+
+                    deallocation_pointer = expr_int(0, expr->loc);
+                    deallocation_pointer->type = type_ptr(type_void);
+                    exprlist_append(&deallocation_arguments,
+                                    deallocation_pointer);
+                    deallocation_probe = expr_call(
+                        expr_ident("operator delete", expr->loc),
+                        deallocation_arguments, expr->loc);
+                    expr->call_new_deallocation_function =
+                        sema_cxx_resolve_global_allocation_function(
+                            deallocation_probe, "operator delete", "rin_free",
+                            type_ptr(type_void), true);
+                } else {
+                    /* Analyze the runtime allocator size through the normal
+                     * call path, including dynamic array bounds. */
+                    sema_expr(expr->call_func);
+                    for (argument = expr->call_args; argument;
+                         argument = argument->next) {
+                        sema_expr(argument->expr);
+                    }
+                }
                 if (sema_cxx_class_is_abstract(cls)) {
                     rcc_error(expr->loc,
                               "cannot allocate abstract class '%s'",
                               cls->name ? cls->name : "<anonymous>");
-                }
-                for (argument = expr->call_args; argument;
-                     argument = argument->next) {
-                    sema_expr(argument->expr);
                 }
                 for (argument = expr->call_new_args; argument;
                      argument = argument->next) {

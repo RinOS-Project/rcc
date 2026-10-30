@@ -995,6 +995,7 @@ struct Expr {
             Type* call_new_type;
             Expr* call_new_count;
             ExprList* call_new_args;
+            Decl* call_new_deallocation_function;
             struct CxxConstructorInfo* call_new_constructor;
             struct CxxConstructorInfo* call_new_default_constructor;
             ExprList* call_new_default_args;
@@ -1003,6 +1004,7 @@ struct Expr {
              * scalar destructor cleanup that must run before freeing. */
             bool call_is_delete;
             bool call_delete_is_array;
+            Decl* call_delete_deallocation_function;
             Decl* call_delete_cleanup;
             Decl* call_delete_destructor;
             Decl* call_delete_array_cleanup;

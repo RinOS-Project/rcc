@@ -13086,6 +13086,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->call_new_args = template_clone_expr_list(
                 tmpl, expression->call_new_args, args, arg_count,
                 value_args, value_present);
+            copy->call_new_deallocation_function = NULL;
             /* Constructor selection is semantic and must be redone for the
              * substituted class specialization. */
             copy->call_new_constructor = NULL;
@@ -13093,6 +13094,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->call_new_default_args = NULL;
             copy->call_is_delete = expression->call_is_delete;
             copy->call_delete_is_array = expression->call_delete_is_array;
+            copy->call_delete_deallocation_function = NULL;
             copy->call_delete_destructor = NULL;
             /* Destructor lookup is semantic and must be redone for the
              * substituted class specialization. */

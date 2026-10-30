@@ -10156,6 +10156,13 @@ remains a separate open item.
         `delete[]` return and first-parameter types. The focused target rejects
         each invalid declaration on i686 and AMD64, accepts the valid overload
         set, and agrees with GCC C++20 diagnostics.
+  - [x] Resolve scalar global `operator new` and `operator delete` from
+        `new`/`delete` expressions alongside the implicit RinOS allocator
+        candidate. Carry the selected deallocator through scalar destruction
+        and exception cleanup. The regression executes replacement operators
+        with both native code generation paths and checks the verified backend
+        for i686/AMD64 at `-O0` and `-O2`; array and class-specific selection
+        remain open.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

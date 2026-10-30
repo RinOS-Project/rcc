@@ -12898,6 +12898,10 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
     Decl* destructor = expr ? expr->call_delete_destructor : NULL;
     Decl* cleanup = expr ? expr->call_delete_cleanup : NULL;
     TypeField* field = expr ? expr->call_delete_cleanup_field : NULL;
+    const char* deallocation_name = expr &&
+            expr->call_delete_deallocation_function
+        ? decl_link_name(expr->call_delete_deallocation_function)
+        : "rin_free";
     int skip_cleanup;
     int done;
 
@@ -12939,7 +12943,7 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
         {
             uint32_t free_offset = code_offset(mod);
             emit_dword(mod, 0);
-            add_func_call_ref("rin_free", free_offset);
+            add_func_call_ref(deallocation_name, free_offset);
         }
         emit_add_reg_imm(mod, ESP, 4);
         emit_mov_reg_imm(mod, EAX, 0);
@@ -12973,7 +12977,7 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
             {
                 uint32_t free_offset = code_offset(mod);
                 emit_dword(mod, 0u);
-                add_func_call_ref("rin_free", free_offset);
+                add_func_call_ref(deallocation_name, free_offset);
             }
             emit_add_reg_imm(mod, ESP, 4);
             emit_add_reg_imm(mod, ESP, 4);
@@ -13037,7 +13041,7 @@ static void gen_cxx_delete32(Module* mod, Expr* expr) {
     emit_byte(mod, 0xE8);
     uint32_t free_offset = code_offset(mod);
     emit_dword(mod, 0);
-    add_func_call_ref("rin_free", free_offset);
+    add_func_call_ref(deallocation_name, free_offset);
     emit_add_reg_imm(mod, ESP, 4);
     emit_add_reg_imm(mod, ESP, 4);
     emit_mov_reg_imm(mod, EAX, 0);

@@ -22959,6 +22959,7 @@ static RccIrLowerValue lower_cxx_new_expression(
     RccIrLowerContext* context, const Expr* expression) {
     Expr allocation_expression;
     Type* allocator_result_type;
+    const char* deallocation_name = "rin_free";
     RccIrLowerValue storage;
     RccIrLowerValue result;
     CxxConstructorInfo* constructor;
@@ -22977,6 +22978,11 @@ static RccIrLowerValue lower_cxx_new_expression(
         expression->call_new_copy_init) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
+    }
+    if (expression->call_new_deallocation_function &&
+        expression->call_new_deallocation_function->link_name) {
+        deallocation_name =
+            expression->call_new_deallocation_function->link_name;
     }
     if (expression->call_func->kind == EXPR_IDENT &&
         expression->call_func->ident_decl &&
@@ -23023,7 +23029,7 @@ static RccIrLowerValue lower_cxx_new_expression(
         register_free = true;
     }
     if (register_free && !lower_cxx_change_current_cleanup(
-            context, "rin_free", result, true)) {
+            context, deallocation_name, result, true)) {
         return lower_invalid_value();
     }
 
@@ -23093,7 +23099,7 @@ static RccIrLowerValue lower_cxx_new_expression(
     }
     if (!initialized || context->unsupported) return lower_invalid_value();
     if (register_free && !lower_cxx_change_current_cleanup(
-            context, "rin_free", result, false)) {
+            context, deallocation_name, result, false)) {
         return lower_invalid_value();
     }
     return result;
@@ -23106,6 +23112,7 @@ static RccIrLowerValue lower_cxx_delete_expression(
     const Decl* destructor;
     RccIrLowerValue object;
     RccIrLowerValue void_result = lower_invalid_value();
+    const char* deallocation_name = "rin_free";
     RccIrBlock* destroy_block;
     RccIrBlock* done_block;
     bool register_free = false;
@@ -23125,6 +23132,11 @@ static RccIrLowerValue lower_cxx_delete_expression(
     }
     object_type = expression->call_delete_object_type
         ? expression->call_delete_object_type : argument->expr->type->base;
+    if (expression->call_delete_deallocation_function &&
+        expression->call_delete_deallocation_function->link_name) {
+        deallocation_name =
+            expression->call_delete_deallocation_function->link_name;
+    }
     if (expression->call_delete_is_array) {
         return lower_cxx_delete_array_expression(
             context, expression, argument, object, object_type);
@@ -23168,7 +23180,7 @@ static RccIrLowerValue lower_cxx_delete_expression(
         }
         register_free = !destructor->func_is_noexcept;
         if (register_free && !lower_cxx_change_current_cleanup(
-                context, "rin_free", object, true)) {
+                context, deallocation_name, object, true)) {
             return lower_invalid_value();
         }
         if (handle_subobjects &&
@@ -23187,7 +23199,7 @@ static RccIrLowerValue lower_cxx_delete_expression(
             }
         }
         if (register_free && !lower_cxx_change_current_cleanup(
-                context, "rin_free", object, false)) {
+                context, deallocation_name, object, false)) {
             return lower_invalid_value();
         }
     } else if (expression->call_delete_object_type) {
@@ -23197,7 +23209,7 @@ static RccIrLowerValue lower_cxx_delete_expression(
         }
     }
     (void)lower_cxx_runtime_call(
-        context, "rin_free", rcc_ir_type_void(), &object.value, 1u);
+        context, deallocation_name, rcc_ir_type_void(), &object.value, 1u);
     if (context->unsupported || context->terminated ||
         !lower_branch(context, done_block->id)) {
         return lower_invalid_value();
