@@ -1195,6 +1195,30 @@ int debug_inline_nonconstant_unsigned_long_long_nested_rshift_add_entry(
         debug_inline_nonconstant_unsigned_long_long_nested_rshift_addend);
 }
 
+int debug_inline_nonconstant_unsigned_long_long_nested_shift_or_entry(
+    unsigned int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_nested_shift_or_source =
+            ((unsigned long long)(value + 0x31415927u) << 32u) | 0xdeadbeefu;
+    unsigned int
+        debug_inline_nonconstant_unsigned_long_long_nested_shift_or_count =
+            value & 63u;
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_nested_shift_or_rhs =
+            ((unsigned long long)(value ^ 0x27182818u) << 21u) | 0x1234u;
+    debug_inline_nonconstant_unsigned_long_long_escape =
+        &debug_inline_nonconstant_unsigned_long_long_nested_shift_or_source;
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+        &debug_inline_nonconstant_unsigned_long_long_nested_shift_or_rhs;
+    debug_inline_nonconstant_shift_count_escape =
+        &debug_inline_nonconstant_unsigned_long_long_nested_shift_or_count;
+    return (int)debug_nonconstant_unsigned_long_long_or_two_variables_inline(
+        (debug_inline_nonconstant_unsigned_long_long_nested_shift_or_source <<
+         debug_inline_nonconstant_unsigned_long_long_nested_shift_or_count) |
+        debug_inline_nonconstant_unsigned_long_long_nested_shift_or_rhs);
+}
+
 int debug_inline_nonconstant_unsigned_long_long_scope_mul_two_variables_entry(
     unsigned int value)
 {

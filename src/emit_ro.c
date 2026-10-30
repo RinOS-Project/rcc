@@ -7517,6 +7517,52 @@ static bool debug_inline_parameter_i686_u64_variables_expression(
         return true;
     }
 
+    /* A bitwise result is independent per 32-bit word, so recursively
+       compose nontrivial operands such as a runtime-wide-shift subtree. */
+    if ((source_expression->kind == EXPR_BITAND ||
+         source_expression->kind == EXPR_BITOR ||
+         source_expression->kind == EXPR_BITXOR) &&
+        source_expression->type && source_expression->type->size == 8u &&
+        source_expression->binary_lhs->type &&
+        source_expression->binary_rhs->type &&
+        source_expression->binary_lhs->type->size == 8u &&
+        source_expression->binary_rhs->type->size == 8u &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source_expression->type, parameter_type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source_expression->binary_lhs->type, parameter_type, 0u) &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            source_expression->binary_rhs->type, parameter_type, 0u) &&
+        !debug_inline_integer_literal_bits(
+            source_expression->binary_lhs, &ignored_literal, 0u) &&
+        !debug_inline_integer_literal_bits(
+            source_expression->binary_rhs, &ignored_literal, 0u) &&
+        (source_expression->binary_lhs->kind != EXPR_IDENT ||
+         source_expression->binary_rhs->kind != EXPR_IDENT)) {
+        uint8_t operation = source_expression->kind == EXPR_BITAND ? 0x1au :
+            source_expression->kind == EXPR_BITOR ? 0x21u : 0x27u;
+        for (unsigned int word = 0u; word < 2u; ++word) {
+            if (!debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, source_expression->binary_lhs, word != 0u,
+                    expression, capacity, &size, 0u) ||
+                !debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, source_expression->binary_rhs, word != 0u,
+                    expression, capacity, &size, 0u) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, operation) ||
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x9fu) || /* stack_value */
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 0x93u) || /* DW_OP_piece */
+                !debug_inline_integer_expression_append_byte(
+                    expression, capacity, &size, 4u)) {
+                return false;
+            }
+        }
+        *expression_size = size;
+        return true;
+    }
+
     is_subtract = source_expression->kind == EXPR_SUB;
     switch (source_expression->kind) {
     case EXPR_BITAND: bitwise_operation = 0x1au; break; /* DW_OP_and */

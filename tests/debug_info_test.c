@@ -10943,12 +10943,12 @@ static void verify_inline_u64_variable_shift_expression(
     }
 }
 
-static void verify_inline_u64_nested_shift_add_expression(
+static void verify_inline_u64_nested_shift_binary_expression(
     const uint8_t* data, uint64_t expression_end, uint64_t expression_start,
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, const char* source_name,
     const char* shift_count_source_name, const char* addend_source_name,
-    bool is_left_shift) {
+    bool is_left_shift, uint8_t combination_operation) {
     static const uint64_t source_values[] = {
         0u, 1u, UINT64_C(0xffffffff), UINT64_C(0x100000000),
         UINT64_C(0x80000000ffffffff), UINT64_C(0x7fffffffffffffff),
@@ -10999,8 +10999,15 @@ static void verify_inline_u64_nested_shift_add_expression(
                     &add_opcode_count);
                 uint64_t shifted = is_left_shift ? source << count
                                                  : source >> count;
-                assert(add_opcode_count >= 2u);
-                assert(actual == shifted + addend);
+                uint64_t expected = combination_operation == 0x22u
+                    ? shifted + addend : shifted | addend;
+                if (combination_operation == 0x22u) {
+                    assert(add_opcode_count >= 2u);
+                } else {
+                    assert(combination_operation == 0x21u &&
+                           add_opcode_count == 0u);
+                }
+                assert(actual == expected);
             }
         }
     }
@@ -12250,6 +12257,10 @@ static void verify_inline_integer_expression_parameter(
               strcmp(source_name,
                      "debug_inline_nonconstant_unsigned_long_long_nested_rshift_source") == 0
             ? "debug_inline_nonconstant_unsigned_long_long_nested_rshift_add_entry"
+        : expected_operation == 0xffu && source_name &&
+              strcmp(source_name,
+                     "debug_inline_nonconstant_unsigned_long_long_nested_shift_or_source") == 0
+            ? "debug_inline_nonconstant_unsigned_long_long_nested_shift_or_entry"
         : expected_operation == 0xffu
             ? "debug_inline_nonconstant_unsigned_long_long_nested_shift_add_entry"
                                 : expected_operation == 0xf7u
@@ -12634,18 +12645,24 @@ static void verify_inline_integer_expression_parameter(
     expression_end = expression_offset + expression_size;
     assert(expression_end <= info->size && expression_size > 0u);
     if (expected_operation == 0xffu) {
+        bool is_shift_or = strcmp(
+            source_name,
+            "debug_inline_nonconstant_unsigned_long_long_nested_shift_or_source") == 0;
         bool is_left_shift = strcmp(
             source_name,
             "debug_inline_nonconstant_unsigned_long_long_nested_rshift_source") != 0;
         assert(architecture == ARCH_X86 && is_unsigned && value_size == 8u &&
                divisor_source_name && expected_constant == 0);
-        verify_inline_u64_nested_shift_add_expression(
+        verify_inline_u64_nested_shift_binary_expression(
             info->data, expression_end, expression_start, info, strings,
             locations, source_name,
-            is_left_shift
-                ? "debug_inline_nonconstant_unsigned_long_long_nested_shift_count"
-                : "debug_inline_nonconstant_unsigned_long_long_nested_rshift_count",
-            divisor_source_name, is_left_shift);
+            is_shift_or
+                ? "debug_inline_nonconstant_unsigned_long_long_nested_shift_or_count"
+                : is_left_shift
+                    ? "debug_inline_nonconstant_unsigned_long_long_nested_shift_count"
+                    : "debug_inline_nonconstant_unsigned_long_long_nested_rshift_count",
+            divisor_source_name, is_left_shift,
+            is_shift_or ? 0x21u : 0x22u);
         objfile_free(object);
         return;
     }
@@ -17430,6 +17447,11 @@ static void verify_inline_integer_expression_cases(
          "debug_inline_nonconstant_unsigned_long_long_nested_rshift_source",
          true, 8u, 0xffu, 0,
          "debug_inline_nonconstant_unsigned_long_long_nested_rshift_addend",
+         false},
+        {"debug_nonconstant_unsigned_long_long_or_two_variables_inline",
+         "debug_inline_nonconstant_unsigned_long_long_nested_shift_or_source",
+         true, 8u, 0xffu, 0,
+         "debug_inline_nonconstant_unsigned_long_long_nested_shift_or_rhs",
          false},
         {"debug_nonconstant_unsigned_long_long_sub_two_variables_inline",
          "debug_inline_nonconstant_unsigned_long_long_sub_left_source",
