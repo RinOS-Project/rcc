@@ -41287,14 +41287,14 @@ static bool cxx_parse_explicit_function_template_specialization(
     Token* saved_prev = parser.prev;
     CxxNamespace* saved_namespace = active_namespace;
     CxxTemplate* saved_template = active_template;
-    CxxTemplate* candidates[32] = { NULL };
+    CxxTemplate** candidates = NULL;
     CxxTemplate* selected_template = NULL;
     Decl* selected_instance = NULL;
     DeclList* parameters;
     ExprList* signature_arguments = NULL;
-    CxxParsedTemplateArgument* candidate_arguments[32] = { NULL };
-    int candidate_argument_counts[32] = { 0 };
-    bool candidate_arguments_valid[32] = { false };
+    CxxParsedTemplateArgument** candidate_arguments = NULL;
+    int* candidate_argument_counts = NULL;
+    bool* candidate_arguments_valid = NULL;
     const char* name;
     bool is_variadic = false;
     bool is_noexcept = false;
@@ -41305,6 +41305,7 @@ static bool cxx_parse_explicit_function_template_specialization(
     Expr* noexcept_expression = NULL;
     int64_t noexcept_value = 0;
     int candidate_count;
+    int candidate_capacity;
     Token* argument_list_start;
     Token* argument_list_start_prev;
     Token* argument_list_end = NULL;
@@ -41318,14 +41319,35 @@ static bool cxx_parse_explicit_function_template_specialization(
     name = strrchr(qualified_name, ':');
     name = name ? name + 1 : qualified_name;
     active_namespace = saved_namespace ? saved_namespace : g_global_namespace;
-    candidate_count = find_function_template_candidates(
-        qualified_name, candidates,
-        (int)(sizeof(candidates) / sizeof(candidates[0])));
-    if (candidate_count > (int)(sizeof(candidates) / sizeof(candidates[0]))) {
+    if (!cxx_collect_function_template_candidates(
+            qualified_name, &candidates, &candidate_count,
+            &candidate_capacity, loc)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        active_namespace = saved_namespace;
+        active_template = saved_template;
+        return false;
+    }
+    if (candidate_capacity > 0) {
+        candidate_arguments = cxx_allocate_zeroed_array(
+            sizeof(*candidate_arguments), (size_t)candidate_capacity);
+        candidate_argument_counts = cxx_allocate_zeroed_array(
+            sizeof(*candidate_argument_counts), (size_t)candidate_capacity);
+        candidate_arguments_valid = cxx_allocate_zeroed_array(
+            sizeof(*candidate_arguments_valid),
+            (size_t)candidate_capacity);
+    }
+    if (candidate_capacity > 0 &&
+        (!candidate_arguments || !candidate_argument_counts ||
+         !candidate_arguments_valid)) {
         rcc_error(loc,
-                  "too many function-template candidates for explicit specialization '%s'",
+                  "explicit function-template candidate state is too large for '%s'",
                   name);
-        candidate_count = (int)(sizeof(candidates) / sizeof(candidates[0]));
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        active_namespace = saved_namespace;
+        active_template = saved_template;
+        return false;
     }
     argument_list_start = parser.cur;
     argument_list_start_prev = parser.prev;

@@ -4294,6 +4294,10 @@ test-cxx-function-templates: $(RCXX_TARGET)
 test-cxx-function-template-explicit-specialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-explicit-specialization)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-function-template-explicit-specialization,cxx_function_template_explicit_specialization.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-explicit-specialization-wide-candidates)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-function-template-explicit-specialization-wide-candidates,cxx_function_template_explicit_specialization_wide_candidates.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-explicit-specialization-wide-candidates/gcc-host$(EXE_SUFFIX) tests/cxx_function_template_explicit_specialization_wide_candidates.cpp
+	$(TEST_OUT)/cxx-function-template-explicit-specialization-wide-candidates/gcc-host$(EXE_SUFFIX)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -fsyntax-only \
 		tests/cxx_function_template_explicit_specialization.cpp
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S \
