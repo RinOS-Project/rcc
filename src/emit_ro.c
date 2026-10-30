@@ -5532,6 +5532,10 @@ static bool debug_inline_parameter_i686_u64_comparison_expression(
     const Module* mod, ExprKind kind, const Expr* left, const Expr* right,
     const Type* comparison_type, uint8_t* expression, size_t capacity,
     size_t* expression_size, unsigned int depth);
+static bool debug_inline_parameter_i686_u64_shift_dynamic_word_expression(
+    const Module* mod, const Expr* shift_expression, bool high_word,
+    uint8_t* expression, size_t capacity, size_t* expression_size,
+    unsigned int depth);
 static bool debug_inline_parameter_i686_u64_append_word_expression(
     const Module* mod, const Expr* value, bool high_word,
     uint8_t* expression, size_t capacity, size_t* expression_size,
@@ -6419,6 +6423,15 @@ static bool debug_inline_parameter_i686_u64_append_word_expression(
                 expression, capacity, expression_size, shift - 32u) &&
             debug_inline_integer_expression_append_byte(
                 expression, capacity, expression_size, right_shift_opcode);
+    }
+    if ((value->kind == EXPR_LSHIFT || value->kind == EXPR_RSHIFT) &&
+        value->binary_lhs && value->binary_rhs && value->type->size == 8 &&
+        !debug_inline_integer_literal_bits(
+            value->binary_rhs, &literal_bits, 0u) &&
+        debug_inline_parameter_i686_u64_shift_dynamic_word_expression(
+            mod, value, high_word, expression, capacity, expression_size,
+            depth + 1u)) {
+        return true;
     }
     if (debug_inline_integer_literal_bits(value, &literal_bits, 0u)) {
         uint32_t word = high_word
@@ -8842,6 +8855,258 @@ static bool debug_inline_parameter_i686_u64_append_shift_count(
         (unsigned int)count_expression->type->size <= 4u &&
         debug_build_inline_integer_value_expression(
             mod, ARCH_X86, count_expression, expression, capacity, size, 0u);
+}
+
+static bool debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+    const Module* mod, const Expr* count_expression, uint8_t* expression,
+    size_t capacity, size_t* size, unsigned int depth) {
+    const Decl* count_source;
+    int64_t count_frame_offset = 0;
+    if (!mod || !count_expression || !count_expression->type || !expression ||
+        !size || depth >= 32u ||
+        !debug_inline_integer_expression_type(count_expression->type) ||
+        count_expression->type->size <= 0 || count_expression->type->size > 8) {
+        return false;
+    }
+    count_source = count_expression->kind == EXPR_IDENT
+        ? count_expression->ident_decl : NULL;
+    if (count_source) {
+        if ((count_source->kind != DECL_VAR &&
+             count_source->kind != DECL_PARAM) ||
+            count_source->var_is_global || count_source->var_is_static_local ||
+            count_source->var_is_thread_local || count_source->var_is_vla ||
+            !count_source->type ||
+            (count_source->type->size != 4u &&
+             count_source->type->size != 8u) ||
+            !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                count_source->type, count_expression->type, 0u) ||
+            !debug_inline_parameter_frame_offset(
+                mod, count_source, &count_frame_offset)) {
+            return false;
+        }
+    }
+    if (count_expression->type->size == 8u && !count_source) {
+        return debug_inline_parameter_i686_u64_append_low_word_expression(
+            mod, count_expression, expression, capacity, size, depth + 1u);
+    }
+    return debug_inline_parameter_i686_u64_append_shift_count(
+        mod, count_expression, count_source, count_frame_offset, expression,
+        capacity, size, NULL);
+}
+
+static bool debug_inline_parameter_i686_u64_append_dynamic_shift_word_case(
+    const Module* mod, const Expr* shift_expression, bool high_word,
+    unsigned int path, uint8_t* expression, size_t capacity, size_t* size,
+    unsigned int depth) {
+    const Expr* value_expression = shift_expression->binary_lhs;
+    const Expr* count_expression = shift_expression->binary_rhs;
+    bool is_left_shift = shift_expression->kind == EXPR_LSHIFT;
+    bool is_unsigned = shift_expression->type->is_unsigned;
+    uint8_t right_shift_opcode = is_unsigned ? 0x25u : 0x26u;
+    if (path == 0u) {
+        return debug_inline_parameter_i686_u64_append_word_expression(
+            mod, value_expression, high_word, expression, capacity, size,
+            depth + 1u);
+    }
+
+    if (path == 1u) {
+        if (is_left_shift) {
+            if (!high_word) {
+                return debug_inline_parameter_i686_u64_append_word_expression(
+                           mod, value_expression, false, expression, capacity,
+                           size, depth + 1u) &&
+                    debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+                        mod, count_expression, expression, capacity, size,
+                        depth + 1u) &&
+                    debug_inline_integer_expression_append_byte(
+                        expression, capacity, size, 0x24u);
+            }
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, value_expression, true, expression, capacity,
+                       size, depth + 1u) &&
+                debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+                    mod, count_expression, expression, capacity, size,
+                    depth + 1u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, size, 0x24u) &&
+                debug_inline_parameter_i686_u64_append_word_expression(
+                    mod, value_expression, false, expression, capacity, size,
+                    depth + 1u) &&
+                debug_inline_integer_expression_append_constu(
+                    expression, capacity, size, 32u) &&
+                debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+                    mod, count_expression, expression, capacity, size,
+                    depth + 1u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, size, 0x1cu) && /* 32-count */
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, size, 0x25u) && /* DW_OP_shr */
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, size, 0x21u); /* DW_OP_or */
+        }
+        if (high_word) {
+            return debug_inline_parameter_i686_u64_append_word_expression(
+                       mod, value_expression, true, expression, capacity,
+                       size, depth + 1u) &&
+                debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+                    mod, count_expression, expression, capacity, size,
+                    depth + 1u) &&
+                debug_inline_integer_expression_append_byte(
+                    expression, capacity, size, right_shift_opcode);
+        }
+        return debug_inline_parameter_i686_u64_append_word_expression(
+                   mod, value_expression, false, expression, capacity, size,
+                   depth + 1u) &&
+            debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+                mod, count_expression, expression, capacity, size,
+                depth + 1u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x25u) && /* logical right */
+            debug_inline_parameter_i686_u64_append_word_expression(
+                mod, value_expression, true, expression, capacity, size,
+                depth + 1u) &&
+            debug_inline_integer_expression_append_constu(
+                expression, capacity, size, 32u) &&
+            debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+                mod, count_expression, expression, capacity, size,
+                depth + 1u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x1cu) && /* 32-count */
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x24u) && /* DW_OP_shl */
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x21u); /* DW_OP_or */
+    }
+
+    if (path != 2u) return false;
+    if (is_left_shift) {
+        if (!high_word) {
+            return debug_inline_integer_expression_append_constu(
+                expression, capacity, size, 0u);
+        }
+        return debug_inline_parameter_i686_u64_append_word_expression(
+                   mod, value_expression, false, expression, capacity, size,
+                   depth + 1u) &&
+            debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+                mod, count_expression, expression, capacity, size,
+                depth + 1u) &&
+            debug_inline_integer_expression_append_constu(
+                expression, capacity, size, 32u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x1cu) && /* count-32 */
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x24u);
+    }
+    if (!high_word) {
+        return debug_inline_parameter_i686_u64_append_word_expression(
+                   mod, value_expression, true, expression, capacity, size,
+                   depth + 1u) &&
+            debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+                mod, count_expression, expression, capacity, size,
+                depth + 1u) &&
+            debug_inline_integer_expression_append_constu(
+                expression, capacity, size, 32u) &&
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, 0x1cu) && /* count-32 */
+            debug_inline_integer_expression_append_byte(
+                expression, capacity, size, right_shift_opcode);
+    }
+    if (is_unsigned) {
+        return debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 0u);
+    }
+    return debug_inline_parameter_i686_u64_append_word_expression(
+               mod, value_expression, true, expression, capacity, size,
+               depth + 1u) &&
+        debug_inline_integer_expression_append_constu(
+            expression, capacity, size, 31u) &&
+        debug_inline_integer_expression_append_byte(
+            expression, capacity, size, 0x26u); /* DW_OP_shra */
+}
+
+static bool debug_inline_parameter_i686_u64_shift_dynamic_word_expression(
+    const Module* mod, const Expr* shift_expression, bool high_word,
+    uint8_t* expression, size_t capacity, size_t* expression_size,
+    unsigned int depth) {
+    size_t size = expression_size ? *expression_size : 0u;
+    size_t zero_count_branch_operand;
+    size_t high_count_branch_operand;
+    size_t low_count_path_end_operand;
+    size_t high_count_path_end_operand;
+    size_t high_count_path_offset;
+    size_t zero_count_path_offset;
+    const Expr* count_expression;
+    if (!mod || !shift_expression || !expression || !expression_size ||
+        depth >= 32u ||
+        (shift_expression->kind != EXPR_LSHIFT &&
+         shift_expression->kind != EXPR_RSHIFT) ||
+        !shift_expression->binary_lhs || !shift_expression->binary_rhs ||
+        !shift_expression->type || shift_expression->type->size != 8u ||
+        !shift_expression->binary_lhs->type ||
+        shift_expression->binary_lhs->type->size != 8u ||
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+            shift_expression->binary_lhs->type, shift_expression->type, 0u) ||
+        !shift_expression->binary_rhs->type ||
+        shift_expression->binary_rhs->type->size <= 0 ||
+        (unsigned int)shift_expression->binary_rhs->type->size > 8u) {
+        return false;
+    }
+    count_expression = shift_expression->binary_rhs;
+    if (!debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+            mod, count_expression, expression, capacity, &size, depth + 1u) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, 0u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x29u) || /* DW_OP_eq */
+        !debug_inline_integer_expression_append_branch(
+            expression, capacity, &size, 0x28u,
+            &zero_count_branch_operand) || /* DW_OP_bra */
+        !debug_inline_parameter_i686_u64_append_dynamic_shift_count(
+            mod, count_expression, expression, capacity, &size, depth + 1u) ||
+        !debug_inline_integer_expression_append_constu(
+            expression, capacity, &size, 32u) ||
+        !debug_inline_integer_expression_append_byte(
+            expression, capacity, &size, 0x2au) || /* DW_OP_ge */
+        !debug_inline_integer_expression_append_branch(
+            expression, capacity, &size, 0x28u,
+            &high_count_branch_operand)) { /* DW_OP_bra */
+        return false;
+    }
+    if (!debug_inline_parameter_i686_u64_append_dynamic_shift_word_case(
+            mod, shift_expression, high_word, 1u, expression, capacity,
+            &size, depth + 1u) ||
+        !debug_inline_integer_expression_append_branch(
+            expression, capacity, &size, 0x2fu,
+            &low_count_path_end_operand)) { /* DW_OP_skip */
+        return false;
+    }
+    high_count_path_offset = size;
+    if (!debug_inline_integer_expression_patch_branch(
+            expression, size, high_count_branch_operand,
+            high_count_path_offset) ||
+        !debug_inline_parameter_i686_u64_append_dynamic_shift_word_case(
+            mod, shift_expression, high_word, 2u, expression, capacity,
+            &size, depth + 1u) ||
+        !debug_inline_integer_expression_append_branch(
+            expression, capacity, &size, 0x2fu,
+            &high_count_path_end_operand)) { /* DW_OP_skip */
+        return false;
+    }
+    zero_count_path_offset = size;
+    if (!debug_inline_integer_expression_patch_branch(
+            expression, size, zero_count_branch_operand,
+            zero_count_path_offset) ||
+        !debug_inline_parameter_i686_u64_append_dynamic_shift_word_case(
+            mod, shift_expression, high_word, 0u, expression, capacity,
+            &size, depth + 1u) ||
+        !debug_inline_integer_expression_patch_branch(
+            expression, size, low_count_path_end_operand, size) ||
+        !debug_inline_integer_expression_patch_branch(
+            expression, size, high_count_path_end_operand, size)) {
+        return false;
+    }
+    *expression_size = size;
+    return true;
 }
 
 static bool debug_inline_parameter_i686_u64_shift_variable_expression(

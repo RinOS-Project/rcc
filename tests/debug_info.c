@@ -1147,6 +1147,54 @@ int debug_inline_nonconstant_unsigned_long_long_nested_mul_two_variables_entry(
          0x100000001ull));
 }
 
+int debug_inline_nonconstant_unsigned_long_long_nested_shift_add_entry(
+    unsigned int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_nested_shift_source =
+            ((unsigned long long)value << 32u) | 0x13579bdfu;
+    unsigned int
+        debug_inline_nonconstant_unsigned_long_long_nested_shift_count =
+            value & 63u;
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_nested_shift_addend =
+            ((unsigned long long)(value ^ 0xa5a5a5a5u) << 17u) | 0x2468u;
+    debug_inline_nonconstant_unsigned_long_long_escape =
+        &debug_inline_nonconstant_unsigned_long_long_nested_shift_source;
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+        &debug_inline_nonconstant_unsigned_long_long_nested_shift_addend;
+    debug_inline_nonconstant_shift_count_escape =
+        &debug_inline_nonconstant_unsigned_long_long_nested_shift_count;
+    return (int)debug_nonconstant_unsigned_long_long_add_two_variables_inline(
+        (debug_inline_nonconstant_unsigned_long_long_nested_shift_source <<
+         debug_inline_nonconstant_unsigned_long_long_nested_shift_count) +
+        debug_inline_nonconstant_unsigned_long_long_nested_shift_addend);
+}
+
+int debug_inline_nonconstant_unsigned_long_long_nested_rshift_add_entry(
+    unsigned int value)
+{
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_nested_rshift_source =
+            ((unsigned long long)(value ^ 0x5a5a5a5au) << 32u) | 0xfdb97531u;
+    unsigned int
+        debug_inline_nonconstant_unsigned_long_long_nested_rshift_count =
+            value & 63u;
+    unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_nested_rshift_addend =
+            ((unsigned long long)value << 19u) | 0x1357u;
+    debug_inline_nonconstant_unsigned_long_long_escape =
+        &debug_inline_nonconstant_unsigned_long_long_nested_rshift_source;
+    debug_inline_nonconstant_unsigned_long_long_rhs_escape =
+        &debug_inline_nonconstant_unsigned_long_long_nested_rshift_addend;
+    debug_inline_nonconstant_shift_count_escape =
+        &debug_inline_nonconstant_unsigned_long_long_nested_rshift_count;
+    return (int)debug_nonconstant_unsigned_long_long_add_two_variables_inline(
+        (debug_inline_nonconstant_unsigned_long_long_nested_rshift_source >>
+         debug_inline_nonconstant_unsigned_long_long_nested_rshift_count) +
+        debug_inline_nonconstant_unsigned_long_long_nested_rshift_addend);
+}
+
 int debug_inline_nonconstant_unsigned_long_long_scope_mul_two_variables_entry(
     unsigned int value)
 {

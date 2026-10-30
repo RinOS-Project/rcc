@@ -2738,6 +2738,12 @@
       exact frame slots when they are declared two lexical blocks below the
       entry function. Verify the evaluated expression in legacy and verified
       i686/AMD64 `-g -O1` objects through `test-debug-info-inline-expression`.
+  - [x] Compose runtime i686 64-bit left and logical-right shifts inside
+      bounded two-operand inline-parameter addition trees. Split each result
+      word across 0, 1, 31, 32, 33, and 63-bit counts, preserve the frame slots
+      for the wide source, count, and addend, and evaluate boundary values in
+      i686 legacy and verified `-g -O1` objects with
+      `test-debug-info-inline-expression`.
   - [ ] Other unsigned operands wider than the target address width (notably
         i686 `unsigned long long`) in computed expressions beyond the bounded
         pairwise add/subtract/multiply/bitwise operations above, arbitrary
