@@ -2,13 +2,21 @@ using allocation_size_type = __SIZE_TYPE__;
 
 alignas(8) static unsigned char class_storage[16];
 alignas(8) static unsigned char class_array_storage[32];
+alignas(8) static unsigned char inherited_storage[16];
+alignas(8) static unsigned char inherited_array_storage[32];
 alignas(8) static unsigned char fallback_storage[16];
 static int class_allocation_calls;
 static int class_deallocation_calls;
 static int class_array_allocation_calls;
 static int class_array_deallocation_calls;
+static int inherited_allocation_calls;
+static int inherited_deallocation_calls;
+static int inherited_array_allocation_calls;
+static int inherited_array_deallocation_calls;
 static bool class_allocation_size_valid;
 static bool class_array_allocation_size_valid;
+static bool inherited_allocation_size_valid;
+static bool inherited_array_allocation_size_valid;
 static int fallback_allocation_calls;
 static int fallback_deallocation_calls;
 
@@ -41,6 +49,19 @@ struct ImplicitFallbackArrayAllocation {
     int value;
 };
 
+struct InheritedAllocationBase {
+    int base_value;
+
+    void* operator new(allocation_size_type size);
+    void operator delete(void* pointer) noexcept;
+    void* operator new[](allocation_size_type size);
+    void operator delete[](void* pointer) noexcept;
+};
+
+struct InheritedAllocationDerived : public InheritedAllocationBase {
+    int value;
+};
+
 void* ClassSpecificAllocation::operator new(allocation_size_type size) {
     class_allocation_size_valid =
         size == sizeof(ClassSpecificAllocation);
@@ -62,6 +83,30 @@ void* ClassSpecificArrayAllocation::operator new[](allocation_size_type size) {
 void ClassSpecificArrayAllocation::operator delete[](void* pointer) noexcept {
     if (pointer == &class_array_storage[0]) {
         ++class_array_deallocation_calls;
+    }
+}
+
+void* InheritedAllocationBase::operator new(allocation_size_type size) {
+    inherited_allocation_size_valid =
+        size == sizeof(InheritedAllocationDerived);
+    ++inherited_allocation_calls;
+    return &inherited_storage[0];
+}
+
+void InheritedAllocationBase::operator delete(void* pointer) noexcept {
+    if (pointer == &inherited_storage[0]) ++inherited_deallocation_calls;
+}
+
+void* InheritedAllocationBase::operator new[](allocation_size_type size) {
+    inherited_array_allocation_size_valid =
+        size == sizeof(InheritedAllocationDerived) * 2;
+    ++inherited_array_allocation_calls;
+    return &inherited_array_storage[0];
+}
+
+void InheritedAllocationBase::operator delete[](void* pointer) noexcept {
+    if (pointer == &inherited_array_storage[0]) {
+        ++inherited_array_deallocation_calls;
     }
 }
 
@@ -88,9 +133,38 @@ int main() {
     bool selected_implicit_fallback = fallback_allocation_calls == 1 &&
         fallback_values[0].value == 31 && fallback_values[1].value == 47;
     delete[] fallback_values;
-    return selected_class_operators && class_deallocation_calls == 1 &&
-            selected_class_array_operators &&
-            class_array_deallocation_calls == 1 &&
-            selected_implicit_fallback && fallback_deallocation_calls == 1
-        ? 0 : 1;
+    InheritedAllocationDerived* inherited =
+        new InheritedAllocationDerived;
+    inherited->base_value = 59;
+    inherited->value = 61;
+    bool selected_inherited_operators = inherited_allocation_calls == 1 &&
+        inherited_allocation_size_valid && inherited->base_value == 59 &&
+        inherited->value == 61;
+    delete inherited;
+    InheritedAllocationDerived* inherited_values =
+        new InheritedAllocationDerived[2];
+    inherited_values[0].base_value = 67;
+    inherited_values[0].value = 71;
+    inherited_values[1].base_value = 73;
+    inherited_values[1].value = 79;
+    bool selected_inherited_array_operators =
+        inherited_array_allocation_calls == 1 &&
+        inherited_array_allocation_size_valid &&
+        inherited_values[0].base_value == 67 &&
+        inherited_values[0].value == 71 &&
+        inherited_values[1].base_value == 73 &&
+        inherited_values[1].value == 79;
+    delete[] inherited_values;
+    int failure_mask = 0;
+    if (!selected_class_operators) failure_mask |= 1;
+    if (class_deallocation_calls != 1) failure_mask |= 2;
+    if (!selected_class_array_operators) failure_mask |= 4;
+    if (class_array_deallocation_calls != 1) failure_mask |= 8;
+    if (!selected_implicit_fallback) failure_mask |= 16;
+    if (fallback_deallocation_calls != 1) failure_mask |= 32;
+    if (!selected_inherited_operators ||
+        !selected_inherited_array_operators) failure_mask |= 64;
+    if (inherited_deallocation_calls != 1 ||
+        inherited_array_deallocation_calls != 1) failure_mask |= 128;
+    return failure_mask;
 }

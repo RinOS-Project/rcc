@@ -10179,10 +10179,18 @@ remains a separate open item.
         trivial class elements with no cookie or element initialization. Check
         the passed byte extent, selected `operator new[]`/`operator delete[]`,
         GCC C++20, legacy i686/AMD64 generation and x64 execution, and verified
-        i686/AMD64 at `-O0`/`-O2` with zero fallback. Inherited lookup and class
-        arrays requiring construction, destruction, or cookies remain open. The
-        same fixture confirms that a class without member allocation operators
-        uses the implicit RinOS allocator pair.
+        i686/AMD64 at `-O0`/`-O2` with zero fallback. Class arrays requiring
+        construction, destruction, or cookies remain open. The same fixture
+        confirms that a class without member allocation operators uses the
+        implicit RinOS allocator pair.
+  - [x] Resolve public class-specific scalar and array allocation/deallocation
+        operators inherited by an unambiguous derived class. Preserve triviality
+        when a base is trivial and propagate nontrivial base lifetime state;
+        verify derived byte extents and selected operators at runtime. GCC C++20
+        and legacy i686/AMD64 generation plus x64 execution pass; verified
+        i686/AMD64 `-O0`/`-O2` emits 11 functions with zero fallback. Ambiguous
+        multiple-base lookup and bases requiring constructor/destructor lowering
+        remain open.
 
 ## RCC continuation (2026-10-23, C++ declaration attributes in linkage blocks)
 

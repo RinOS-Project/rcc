@@ -5439,8 +5439,7 @@ void cxx_class_compute_layout(CxxClass* cls) {
     unsigned bitfield_used = 0u;
     TypeField** field_tail;
     int* base_offsets = NULL;
-    bool nontrivial = cls->has_user_constructor || cls->has_field_initializer ||
-                      cls->base_count > 0;
+    bool nontrivial = cls->has_user_constructor || cls->has_field_initializer;
 
     cls->type->fields = NULL;
     field_tail = &cls->type->fields;
@@ -5554,6 +5553,9 @@ void cxx_class_compute_layout(CxxClass* cls) {
      * hiding when a derived class declares a member with the same name. */
     for (int i = 0; i < cls->base_count; i++) {
         CxxClass* base = cls->bases[i].base;
+        if (base && base->type && base->type->cxx_nontrivial) {
+            nontrivial = true;
+        }
         if (base && !cls->bases[i].is_virtual) {
             if (base == primary_vtable_base) {
                 base_offsets[i] = 0;

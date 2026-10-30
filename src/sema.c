@@ -24661,17 +24661,187 @@ static Decl* sema_cxx_resolve_global_allocation_function(
     return selected;
 }
 
+typedef struct SemaCxxAllocationCandidate {
+    Decl* declaration;
+    Decl* wrapper;
+    unsigned char access;
+    CxxClass* access_owner;
+} SemaCxxAllocationCandidate;
+
+static const char* sema_cxx_allocation_member_name(
+    const struct CxxMember* member) {
+    const char* name = member && member->method
+        ? member->method->source_name : NULL;
+    if (!name && member && member->decl) name = member->decl->name;
+    return name;
+}
+
+/* Class-scope allocation functions are not part of the ordinary method
+ * lowering list when their definitions appear out of class.  Walk base
+ * declarations directly, applying ordinary name hiding and using-declaration
+ * selection, to resolve the inherited allocation overload set. */
+static int sema_cxx_count_inherited_allocation_candidates(
+    CxxClass* cls, const char* operator_name, SourceLoc loc,
+    unsigned depth, CxxClass** declaring_owner, bool* ambiguous) {
+    int direct_count = 0;
+    int total_count = 0;
+    CxxClass* using_base;
+    if (!cls || !operator_name || !declaring_owner || !ambiguous) return 0;
+    if (depth >= 64u) {
+        rcc_error(loc,
+                  "class allocation lookup exceeds the supported inheritance depth");
+        return -1;
+    }
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        if (sema_cxx_allocation_member_name(member) && member->decl &&
+            member->decl->kind == DECL_FUNC &&
+            strcmp(sema_cxx_allocation_member_name(member),
+                   operator_name) == 0) {
+            ++direct_count;
+        }
+    }
+    if (direct_count > 0) {
+        if (*declaring_owner && *declaring_owner != cls) {
+            *ambiguous = true;
+        } else {
+            *declaring_owner = cls;
+        }
+        return direct_count;
+    }
+
+    using_base = cls->type
+        ? sema_cxx_using_base_member_owner(cls->type, operator_name) : NULL;
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* branch_owner = NULL;
+        bool branch_ambiguous = false;
+        CxxClass* base = cls->bases[base_index].base;
+        int branch_count;
+        if (!base || (using_base && base != using_base)) continue;
+        branch_count = sema_cxx_count_inherited_allocation_candidates(
+            base, operator_name, loc, depth + 1u, &branch_owner,
+            &branch_ambiguous);
+        if (branch_count < 0) return -1;
+        if (branch_ambiguous) *ambiguous = true;
+        if (branch_count == 0) continue;
+        if (*declaring_owner && *declaring_owner != branch_owner) {
+            bool selected_by_using = cls->type &&
+                sema_cxx_class_has_using_member(cls, operator_name) &&
+                sema_cxx_method_owner_selected_by_using(
+                    cls, operator_name, *declaring_owner) &&
+                sema_cxx_method_owner_selected_by_using(
+                    cls, operator_name, branch_owner);
+            if (!selected_by_using) *ambiguous = true;
+        } else {
+            *declaring_owner = branch_owner;
+        }
+        if (branch_count > INT_MAX - total_count) {
+            rcc_error(loc,
+                      "too many inherited class allocation candidates for '%s'",
+                      operator_name);
+            return -1;
+        }
+        total_count += branch_count;
+    }
+    return total_count;
+}
+
+static void sema_cxx_collect_inherited_allocation_candidates(
+    CxxClass* cls, const char* operator_name, unsigned depth,
+    unsigned char path_access, CxxClass* path_access_owner,
+    SemaCxxAllocationCandidate* candidates, int capacity,
+    int* candidate_count) {
+    int direct_count = 0;
+    CxxClass* using_base;
+    if (!cls || !operator_name || !candidates || !candidate_count ||
+        depth >= 64u) {
+        return;
+    }
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        if (sema_cxx_allocation_member_name(member) && member->decl &&
+            member->decl->kind == DECL_FUNC &&
+            strcmp(sema_cxx_allocation_member_name(member),
+                   operator_name) == 0) {
+            ++direct_count;
+        }
+    }
+    if (direct_count > 0) {
+        for (struct CxxMember* member = cls->members; member;
+             member = member->next) {
+            const char* name = sema_cxx_allocation_member_name(member);
+            Decl* declaration = member->decl;
+            unsigned char access = (unsigned char)member->access;
+            CxxClass* access_owner = cls;
+            bool duplicate = false;
+            if (!name || strcmp(name, operator_name) != 0 || !declaration ||
+                declaration->kind != DECL_FUNC) {
+                continue;
+            }
+            if (path_access == ACCESS_PRIVATE &&
+                access != ACCESS_PRIVATE) {
+                access = ACCESS_PRIVATE;
+                access_owner = path_access_owner;
+            } else if (path_access == ACCESS_PROTECTED &&
+                       access == ACCESS_PUBLIC) {
+                access = ACCESS_PROTECTED;
+                access_owner = path_access_owner;
+            }
+            for (int index = 0; index < *candidate_count; ++index) {
+                if (candidates[index].declaration == declaration) {
+                    duplicate = true;
+                    if (access == ACCESS_PUBLIC) {
+                        candidates[index].access = access;
+                        candidates[index].access_owner = access_owner;
+                    }
+                    break;
+                }
+            }
+            if (duplicate || *candidate_count >= capacity) continue;
+            candidates[*candidate_count].declaration = declaration;
+            candidates[*candidate_count].wrapper = NULL;
+            candidates[*candidate_count].access = access;
+            candidates[*candidate_count].access_owner = access_owner;
+            ++*candidate_count;
+        }
+        return;
+    }
+
+    using_base = cls->type
+        ? sema_cxx_using_base_member_owner(cls->type, operator_name) : NULL;
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        unsigned char next_access = path_access;
+        CxxClass* next_access_owner = path_access_owner;
+        if (!base || (using_base && base != using_base)) continue;
+        if (cls->bases[base_index].access == ACCESS_PRIVATE &&
+            next_access != ACCESS_PRIVATE) {
+            next_access = ACCESS_PRIVATE;
+            next_access_owner = cls;
+        } else if (cls->bases[base_index].access == ACCESS_PROTECTED &&
+                   next_access == ACCESS_PUBLIC) {
+            next_access = ACCESS_PROTECTED;
+            next_access_owner = cls;
+        }
+        sema_cxx_collect_inherited_allocation_candidates(
+            base, operator_name, depth + 1u, next_access,
+            next_access_owner, candidates, capacity, candidate_count);
+    }
+}
+
 static Decl* sema_cxx_resolve_class_allocation_function(
     Expr* call, CxxClass* owner, const char* operator_name,
     bool* has_candidates) {
     struct CxxMember* member;
-    struct CxxMember** candidate_members;
-    Decl** candidate_declarations;
-    Decl** candidate_wrappers;
+    SemaCxxAllocationCandidate* candidates;
     Decl* wrapper_head = NULL;
     Decl** wrapper_tail = &wrapper_head;
     Decl* selected_wrapper;
+    bool use_inherited_candidates;
+    CxxClass* inherited_declaring_owner = NULL;
+    bool inherited_lookup_ambiguous = false;
     int candidate_count = 0;
+    int candidate_capacity;
 
     if (has_candidates) *has_candidates = false;
     if (!call || !owner || !operator_name || !call->call_args) return NULL;
@@ -24691,34 +24861,63 @@ static Decl* sema_cxx_resolve_class_allocation_function(
         }
         ++candidate_count;
     }
+    use_inherited_candidates = candidate_count == 0;
+    if (use_inherited_candidates) {
+        candidate_count = sema_cxx_count_inherited_allocation_candidates(
+            owner, operator_name, call->loc, 0u,
+            &inherited_declaring_owner, &inherited_lookup_ambiguous);
+        if (candidate_count < 0) return NULL;
+        if (inherited_lookup_ambiguous) {
+            if (has_candidates) *has_candidates = true;
+            rcc_error(call->loc,
+                      "inherited class allocation function lookup for '%s' is ambiguous",
+                      operator_name);
+            return NULL;
+        }
+    }
     if (candidate_count == 0) return NULL;
     if (has_candidates) *has_candidates = true;
 
-    candidate_members = ast_arena_alloc(
-        sizeof(*candidate_members) * (size_t)candidate_count);
-    candidate_declarations = ast_arena_alloc(
-        sizeof(*candidate_declarations) * (size_t)candidate_count);
-    candidate_wrappers = ast_arena_alloc(
-        sizeof(*candidate_wrappers) * (size_t)candidate_count);
+    candidate_capacity = candidate_count;
+    candidates = ast_arena_alloc(
+        sizeof(*candidates) * (size_t)candidate_count);
     candidate_count = 0;
-    for (member = owner->members; member; member = member->next) {
-        CxxMethod* method = member->method;
-        const char* name = method ? method->source_name : NULL;
-        Decl* wrapper;
-        if (!name && member->decl) name = member->decl->name;
-        if (!name || strcmp(name, operator_name) != 0 ||
-            !member->decl || member->decl->kind != DECL_FUNC) {
-            continue;
+    if (!use_inherited_candidates) {
+        for (member = owner->members; member; member = member->next) {
+            CxxMethod* method = member->method;
+            const char* name = method ? method->source_name : NULL;
+            Decl* wrapper;
+            if (!name && member->decl) name = member->decl->name;
+            if (!name || strcmp(name, operator_name) != 0 ||
+                !member->decl || member->decl->kind != DECL_FUNC) {
+                continue;
+            }
+            wrapper = ast_arena_alloc(sizeof(*wrapper));
+            *wrapper = *member->decl;
+            wrapper->func_overload_next = NULL;
+            *wrapper_tail = wrapper;
+            wrapper_tail = &wrapper->func_overload_next;
+            candidates[candidate_count].declaration = member->decl;
+            candidates[candidate_count].wrapper = wrapper;
+            candidates[candidate_count].access =
+                (unsigned char)member->access;
+            candidates[candidate_count].access_owner = owner;
+            ++candidate_count;
         }
-        wrapper = ast_arena_alloc(sizeof(*wrapper));
-        *wrapper = *member->decl;
-        wrapper->func_overload_next = NULL;
-        *wrapper_tail = wrapper;
-        wrapper_tail = &wrapper->func_overload_next;
-        candidate_members[candidate_count] = member;
-        candidate_declarations[candidate_count] = member->decl;
-        candidate_wrappers[candidate_count] = wrapper;
-        ++candidate_count;
+    } else {
+        candidate_count = 0;
+        sema_cxx_collect_inherited_allocation_candidates(
+            owner, operator_name, 0u, ACCESS_PUBLIC, NULL,
+            candidates, candidate_capacity, &candidate_count);
+        for (int index = 0; index < candidate_count; ++index) {
+            Decl* declaration = candidates[index].declaration;
+            Decl* wrapper = ast_arena_alloc(sizeof(*wrapper));
+            *wrapper = *declaration;
+            wrapper->func_overload_next = NULL;
+            *wrapper_tail = wrapper;
+            wrapper_tail = &wrapper->func_overload_next;
+            candidates[index].wrapper = wrapper;
+        }
     }
 
     call->call_func = expr_ident(operator_name, call->loc);
@@ -24728,9 +24927,10 @@ static Decl* sema_cxx_resolve_class_allocation_function(
         call, wrapper_head, NULL);
     if (!selected_wrapper) return NULL;
     for (int index = 0; index < candidate_count; ++index) {
-        if (candidate_wrappers[index] != selected_wrapper) continue;
-        member = candidate_members[index];
-        if (!sema_cxx_member_accessible(owner, (unsigned char)member->access)) {
+        if (candidates[index].wrapper != selected_wrapper) continue;
+        if (!sema_cxx_member_accessible(
+                candidates[index].access_owner,
+                candidates[index].access)) {
             rcc_error(call->loc,
                       "selected class allocation function '%s' is inaccessible",
                       operator_name);
@@ -24738,9 +24938,9 @@ static Decl* sema_cxx_resolve_class_allocation_function(
         }
         call->call_func = expr_ident(
             rcc_intern("__rcc_selected_allocation_operator"), call->loc);
-        call->call_func->ident_decl = candidate_declarations[index];
-        call->call_func->type = candidate_declarations[index]->type;
-        return candidate_declarations[index];
+        call->call_func->ident_decl = candidates[index].declaration;
+        call->call_func->type = candidates[index].declaration->type;
+        return candidates[index].declaration;
     }
     rcc_error(call->loc,
               "selected class allocation function '%s' was not retained",
