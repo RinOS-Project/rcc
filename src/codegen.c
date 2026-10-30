@@ -18970,6 +18970,11 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
         return true;
     }
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
+    if (type_is_complex(type)) {
+        gen_complex_component_from_operand32(
+            mod, initializer, type->complex_component_type, displacement);
+        return true;
+    }
     if (type_is_cxx_member_function_pointer(type) &&
         (initializer->is_cxx_nullptr ||
          (initializer->type &&

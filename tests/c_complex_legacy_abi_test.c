@@ -80,6 +80,31 @@ extern RccLegacyComplexDouble RINOS_ABI
 rcc_legacy_complex_float_add_double(RccLegacyComplexFloat, double);
 extern RccLegacyComplexBinary64Pair RINOS_ABI
 rcc_legacy_complex_double_add_long_double(RccLegacyComplexDouble, double);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_identity(RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_add(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_subtract(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_multiply(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_divide(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_add_assign(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_multiply_assign(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_divide_assign(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_negate(RccLegacyComplexDouble);
 extern RccLegacyComplexFloat RINOS_ABI rcc_legacy_complex_float_add_assign(
     RccLegacyComplexFloat, RccLegacyComplexFloat);
 extern RccLegacyComplexFloat RINOS_ABI
@@ -601,6 +626,43 @@ int main(void) {
             rcc_legacy_complex_double_add_long_double(double_left, 0.5);
         assert(near_double(wide_result.real, 2.5) &&
                near_double(wide_result.imaginary, 3.0));
+    }
+    {
+        RccLegacyComplexBinary64Pair wide_result =
+            rcc_legacy_complex_long_double_identity(double_left);
+        assert(near_double(wide_result.real, 2.0) &&
+               near_double(wide_result.imaginary, 3.0));
+        wide_result = rcc_legacy_complex_long_double_add(
+            double_left, double_right);
+        assert(near_double(wide_result.real, 6.0) &&
+               near_double(wide_result.imaginary, 2.0));
+        wide_result = rcc_legacy_complex_long_double_subtract(
+            double_left, double_right);
+        assert(near_double(wide_result.real, -2.0) &&
+               near_double(wide_result.imaginary, 4.0));
+        wide_result = rcc_legacy_complex_long_double_multiply(
+            double_left, double_right);
+        assert(near_double(wide_result.real, 11.0) &&
+               near_double(wide_result.imaginary, 10.0));
+        wide_result = rcc_legacy_complex_long_double_divide(
+            double_left, __builtin_complex(1.0, 1.0));
+        assert(near_double(wide_result.real, 2.5) &&
+               near_double(wide_result.imaginary, 0.5));
+        wide_result = rcc_legacy_complex_long_double_add_assign(
+            double_left, double_right);
+        assert(near_double(wide_result.real, 6.0) &&
+               near_double(wide_result.imaginary, 2.0));
+        wide_result = rcc_legacy_complex_long_double_multiply_assign(
+            double_left, double_right);
+        assert(near_double(wide_result.real, 11.0) &&
+               near_double(wide_result.imaginary, 10.0));
+        wide_result = rcc_legacy_complex_long_double_divide_assign(
+            double_left, __builtin_complex(1.0, 1.0));
+        assert(near_double(wide_result.real, 2.5) &&
+               near_double(wide_result.imaginary, 0.5));
+        wide_result = rcc_legacy_complex_long_double_negate(double_left);
+        assert(near_double(wide_result.real, -2.0) &&
+               near_double(wide_result.imaginary, -3.0));
     }
     return 0;
 }

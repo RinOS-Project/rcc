@@ -222,6 +222,64 @@ RccLegacyComplexLongDouble rcc_legacy_complex_double_add_long_double(
     return left + right;
 }
 
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_identity(
+    RccLegacyComplexDouble value) {
+    return (RccLegacyComplexLongDouble)value;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_add(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    return (RccLegacyComplexLongDouble)left +
+           (RccLegacyComplexLongDouble)right;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_subtract(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    return (RccLegacyComplexLongDouble)left -
+           (RccLegacyComplexLongDouble)right;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_multiply(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    return (RccLegacyComplexLongDouble)left *
+           (RccLegacyComplexLongDouble)right;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_divide(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    return (RccLegacyComplexLongDouble)left /
+           (RccLegacyComplexLongDouble)right;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_add_assign(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    RccLegacyComplexLongDouble result =
+        (RccLegacyComplexLongDouble)left;
+    result += (RccLegacyComplexLongDouble)right;
+    return result;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_multiply_assign(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    RccLegacyComplexLongDouble result =
+        (RccLegacyComplexLongDouble)left;
+    result *= (RccLegacyComplexLongDouble)right;
+    return result;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_divide_assign(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    RccLegacyComplexLongDouble result =
+        (RccLegacyComplexLongDouble)left;
+    result /= (RccLegacyComplexLongDouble)right;
+    return result;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_negate(
+    RccLegacyComplexDouble value) {
+    return -(RccLegacyComplexLongDouble)value;
+}
+
 RccLegacyComplexFloat rcc_legacy_complex_float_add_assign(
     RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
     left += right;

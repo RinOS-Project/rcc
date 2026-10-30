@@ -4265,6 +4265,9 @@ static void gen64_cxx_exception_change_local_subobject(
 static bool gen64_local_initializer(Module* mod, Type* type,
                                     Expr* initializer,
                                     int32_t displacement);
+static bool gen64_complex_store_operand(Module* mod, Expr* expression,
+                                        Type* component_type,
+                                        int32_t destination_offset);
 static void gen64_push_call_temporary_cleanup(
     Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
 
@@ -4350,6 +4353,10 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         return true;
     }
     if (gen64_aggregate_zero_initializer(type, initializer)) return true;
+    if (type_is_complex(type)) {
+        return gen64_complex_store_operand(
+            mod, initializer, type->complex_component_type, displacement);
+    }
     if (type_is_cxx_member_function_pointer(type) &&
         (initializer->is_cxx_nullptr ||
          (initializer->type &&
