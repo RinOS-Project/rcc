@@ -6,9 +6,21 @@ typedef long double _Complex RccLegacyComplexLongDouble;
 
 _Thread_local RccLegacyComplexDouble rcc_legacy_complex_tls =
     CMPLX(9.0, 10.0);
+_Thread_local RccLegacyComplexLongDouble
+    rcc_legacy_complex_long_double_tls = CMPLXL(11.0L, 12.0L);
+static RccLegacyComplexLongDouble rcc_legacy_complex_long_double_static =
+    CMPLXL(5.0L, 6.0L);
 
 RccLegacyComplexDouble rcc_legacy_complex_tls_read(void) {
     return rcc_legacy_complex_tls;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_tls_read(void) {
+    return rcc_legacy_complex_long_double_tls;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_static_read(void) {
+    return rcc_legacy_complex_long_double_static;
 }
 
 float rcc_legacy_complex_api_crealf(RccLegacyComplexFloat value) {
@@ -93,13 +105,25 @@ RccLegacyComplexLongDouble rcc_legacy_complex_api_csqrtl(
     return csqrtl(value);
 }
 
+#define RCC_ASSERT_COMPLEX_PROMOTION_OPERATOR( \
+    complex_type, real_type, result_type, operator) \
+    _Static_assert(_Generic( \
+        (complex_type)0 operator (real_type)0, \
+        result_type: 1, default: 0), \
+        "complex promotion mismatch: complex " #operator " real"); \
+    _Static_assert(_Generic( \
+        (real_type)0 operator (complex_type)0, \
+        result_type: 1, default: 0), \
+        "complex promotion mismatch: real " #operator " complex")
 #define RCC_ASSERT_COMPLEX_PROMOTION(complex_type, real_type, result_type) \
-    _Static_assert(_Generic( \
-        (complex_type)0 + (real_type)0, result_type: 1, default: 0), \
-        "complex promotion mismatch: complex + real"); \
-    _Static_assert(_Generic( \
-        (real_type)0 + (complex_type)0, result_type: 1, default: 0), \
-        "complex promotion mismatch: real + complex")
+    RCC_ASSERT_COMPLEX_PROMOTION_OPERATOR( \
+        complex_type, real_type, result_type, +); \
+    RCC_ASSERT_COMPLEX_PROMOTION_OPERATOR( \
+        complex_type, real_type, result_type, -); \
+    RCC_ASSERT_COMPLEX_PROMOTION_OPERATOR( \
+        complex_type, real_type, result_type, *); \
+    RCC_ASSERT_COMPLEX_PROMOTION_OPERATOR( \
+        complex_type, real_type, result_type, /)
 RCC_ASSERT_COMPLEX_PROMOTION(
     RccLegacyComplexFloat, float, RccLegacyComplexFloat);
 RCC_ASSERT_COMPLEX_PROMOTION(
@@ -119,6 +143,7 @@ RCC_ASSERT_COMPLEX_PROMOTION(
 RCC_ASSERT_COMPLEX_PROMOTION(
     RccLegacyComplexLongDouble, long double, RccLegacyComplexLongDouble);
 #undef RCC_ASSERT_COMPLEX_PROMOTION
+#undef RCC_ASSERT_COMPLEX_PROMOTION_OPERATOR
 
 RccLegacyComplexFloat rcc_legacy_complex_float_add(
     RccLegacyComplexFloat left, RccLegacyComplexFloat right) {
@@ -217,6 +242,41 @@ RccLegacyComplexDouble rcc_legacy_complex_float_add_double(
     return left + right;
 }
 
+RccLegacyComplexDouble rcc_legacy_complex_double_add_float(
+    double left, RccLegacyComplexFloat right) {
+    return left + right;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_float_subtract_double(
+    RccLegacyComplexFloat left, double right) {
+    return left - right;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_double_subtract_float(
+    double left, RccLegacyComplexFloat right) {
+    return left - right;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_float_multiply_double(
+    RccLegacyComplexFloat left, double right) {
+    return left * right;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_double_multiply_float(
+    double left, RccLegacyComplexFloat right) {
+    return left * right;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_float_divide_double(
+    RccLegacyComplexFloat left, double right) {
+    return left / right;
+}
+
+RccLegacyComplexDouble rcc_legacy_complex_double_divide_float(
+    double left, RccLegacyComplexFloat right) {
+    return left / right;
+}
+
 RccLegacyComplexLongDouble rcc_legacy_complex_double_add_long_double(
     RccLegacyComplexDouble left, long double right) {
     return left + right;
@@ -275,9 +335,94 @@ RccLegacyComplexLongDouble rcc_legacy_complex_long_double_divide_assign(
     return result;
 }
 
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_subtract_assign(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    RccLegacyComplexLongDouble result =
+        (RccLegacyComplexLongDouble)left;
+    result -= (RccLegacyComplexLongDouble)right;
+    return result;
+}
+
 RccLegacyComplexLongDouble rcc_legacy_complex_long_double_negate(
     RccLegacyComplexDouble value) {
     return -(RccLegacyComplexLongDouble)value;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_prefix_increment(
+    RccLegacyComplexDouble value) {
+    RccLegacyComplexLongDouble result =
+        (RccLegacyComplexLongDouble)value;
+    return ++result;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_postfix_increment(
+    RccLegacyComplexDouble value) {
+    RccLegacyComplexLongDouble result =
+        (RccLegacyComplexLongDouble)value;
+    return result++;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_prefix_decrement(
+    RccLegacyComplexDouble value) {
+    RccLegacyComplexLongDouble result =
+        (RccLegacyComplexLongDouble)value;
+    return --result;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_postfix_decrement(
+    RccLegacyComplexDouble value) {
+    RccLegacyComplexLongDouble result =
+        (RccLegacyComplexLongDouble)value;
+    return result--;
+}
+
+void rcc_legacy_complex_long_double_prefix_increment_pointer(
+    RccLegacyComplexLongDouble* value,
+    RccLegacyComplexLongDouble* observed) {
+    *observed = ++*value;
+}
+
+void rcc_legacy_complex_long_double_postfix_increment_pointer(
+    RccLegacyComplexLongDouble* value,
+    RccLegacyComplexLongDouble* observed) {
+    *observed = (*value)++;
+}
+
+void rcc_legacy_complex_long_double_prefix_decrement_pointer(
+    RccLegacyComplexLongDouble* value,
+    RccLegacyComplexLongDouble* observed) {
+    *observed = --*value;
+}
+
+void rcc_legacy_complex_long_double_postfix_decrement_pointer(
+    RccLegacyComplexLongDouble* value,
+    RccLegacyComplexLongDouble* observed) {
+    *observed = (*value)--;
+}
+
+int rcc_legacy_complex_long_double_equal(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    return (RccLegacyComplexLongDouble)left ==
+           (RccLegacyComplexLongDouble)right;
+}
+
+int rcc_legacy_complex_long_double_not_equal(
+    RccLegacyComplexDouble left, RccLegacyComplexDouble right) {
+    return (RccLegacyComplexLongDouble)left !=
+           (RccLegacyComplexLongDouble)right;
+}
+
+int rcc_legacy_complex_long_double_truth(RccLegacyComplexDouble value) {
+    return (RccLegacyComplexLongDouble)value != 0.0L;
+}
+
+int rcc_legacy_complex_long_double_to_int(RccLegacyComplexDouble value) {
+    return (int)(RccLegacyComplexLongDouble)value;
+}
+
+RccLegacyComplexLongDouble rcc_legacy_complex_long_double_from_real(
+    double value) {
+    return (RccLegacyComplexLongDouble)value;
 }
 
 RccLegacyComplexFloat rcc_legacy_complex_float_add_assign(

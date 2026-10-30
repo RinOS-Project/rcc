@@ -17458,6 +17458,8 @@ test-complex-legacy: test-complex $(RCC_TARGET)
 		>$(TEST_OUT)/complex/legacy-x86-reloc.log
 	$(GREP) -E -q 'R_386_TLS_(LE|IE).*rcc_legacy_complex_tls' \
 		$(TEST_OUT)/complex/legacy-x86-reloc.log
+	$(GREP) -E -q 'R_386_TLS_(LE|IE).*rcc_legacy_complex_long_double_tls' \
+		$(TEST_OUT)/complex/legacy-x86-reloc.log
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -S -v \
 		-o $(TEST_OUT)/complex/legacy-x64.s \
 		tests/c_complex_legacy_abi.c \

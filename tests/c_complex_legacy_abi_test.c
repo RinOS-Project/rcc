@@ -78,6 +78,20 @@ extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_double_add_integer(
     RccLegacyComplexDouble, int);
 extern RccLegacyComplexDouble RINOS_ABI
 rcc_legacy_complex_float_add_double(RccLegacyComplexFloat, double);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_double_add_float(double, RccLegacyComplexFloat);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_float_subtract_double(RccLegacyComplexFloat, double);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_double_subtract_float(double, RccLegacyComplexFloat);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_float_multiply_double(RccLegacyComplexFloat, double);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_double_multiply_float(double, RccLegacyComplexFloat);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_float_divide_double(RccLegacyComplexFloat, double);
+extern RccLegacyComplexDouble RINOS_ABI
+rcc_legacy_complex_double_divide_float(double, RccLegacyComplexFloat);
 extern RccLegacyComplexBinary64Pair RINOS_ABI
 rcc_legacy_complex_double_add_long_double(RccLegacyComplexDouble, double);
 extern RccLegacyComplexBinary64Pair RINOS_ABI
@@ -104,7 +118,40 @@ extern RccLegacyComplexBinary64Pair RINOS_ABI
 rcc_legacy_complex_long_double_divide_assign(
     RccLegacyComplexDouble, RccLegacyComplexDouble);
 extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_subtract_assign(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
 rcc_legacy_complex_long_double_negate(RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_prefix_increment(RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_postfix_increment(RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_prefix_decrement(RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_postfix_decrement(RccLegacyComplexDouble);
+extern void RINOS_ABI
+rcc_legacy_complex_long_double_prefix_increment_pointer(
+    RccLegacyComplexBinary64Pair*, RccLegacyComplexBinary64Pair*);
+extern void RINOS_ABI
+rcc_legacy_complex_long_double_postfix_increment_pointer(
+    RccLegacyComplexBinary64Pair*, RccLegacyComplexBinary64Pair*);
+extern void RINOS_ABI
+rcc_legacy_complex_long_double_prefix_decrement_pointer(
+    RccLegacyComplexBinary64Pair*, RccLegacyComplexBinary64Pair*);
+extern void RINOS_ABI
+rcc_legacy_complex_long_double_postfix_decrement_pointer(
+    RccLegacyComplexBinary64Pair*, RccLegacyComplexBinary64Pair*);
+extern int RINOS_ABI rcc_legacy_complex_long_double_equal(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern int RINOS_ABI rcc_legacy_complex_long_double_not_equal(
+    RccLegacyComplexDouble, RccLegacyComplexDouble);
+extern int RINOS_ABI rcc_legacy_complex_long_double_truth(
+    RccLegacyComplexDouble);
+extern int RINOS_ABI rcc_legacy_complex_long_double_to_int(
+    RccLegacyComplexDouble);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_from_real(double);
 extern RccLegacyComplexFloat RINOS_ABI rcc_legacy_complex_float_add_assign(
     RccLegacyComplexFloat, RccLegacyComplexFloat);
 extern RccLegacyComplexFloat RINOS_ABI
@@ -178,6 +225,12 @@ rcc_legacy_complex_float_postfix_increment_once(RccLegacyComplexFloat*);
 extern int RINOS_ABI rcc_legacy_complex_lvalue_evaluation_count(void);
 extern _Thread_local RccLegacyComplexDouble rcc_legacy_complex_tls;
 extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_tls_read(void);
+extern _Thread_local RccLegacyComplexBinary64Pair
+    rcc_legacy_complex_long_double_tls;
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_tls_read(void);
+extern RccLegacyComplexBinary64Pair RINOS_ABI
+rcc_legacy_complex_long_double_static_read(void);
 extern float RINOS_ABI rcc_legacy_complex_api_crealf(
     RccLegacyComplexFloat);
 extern float RINOS_ABI rcc_legacy_complex_api_cimagf(
@@ -279,6 +332,22 @@ static void* rcc_legacy_complex_tls_worker(void* opaque) {
         fabs(__imag__ value - 8.0) > 0.0000001) {
         test_case->failed = 1;
     }
+    {
+        RccLegacyComplexBinary64Pair wide =
+            rcc_legacy_complex_long_double_tls_read();
+        if (fabs(wide.real - 11.0) > 0.0000001 ||
+            fabs(wide.imaginary - 12.0) > 0.0000001) {
+            test_case->failed = 1;
+            return NULL;
+        }
+        rcc_legacy_complex_long_double_tls.real = -5.0;
+        rcc_legacy_complex_long_double_tls.imaginary = 7.0;
+        wide = rcc_legacy_complex_long_double_tls_read();
+        if (fabs(wide.real + 5.0) > 0.0000001 ||
+            fabs(wide.imaginary - 7.0) > 0.0000001) {
+            test_case->failed = 1;
+        }
+    }
     return NULL;
 }
 
@@ -336,8 +405,16 @@ int main(void) {
     double_result = rcc_legacy_complex_tls_read();
     assert(fabs(__real__ double_result - 9.0) < 0.0000001 &&
            fabs(__imag__ double_result - 10.0) < 0.0000001);
+    long_double_result = rcc_legacy_complex_long_double_static_read();
+    assert(near_double(long_double_result.real, 5.0) &&
+           near_double(long_double_result.imaginary, 6.0));
+    long_double_result = rcc_legacy_complex_long_double_tls_read();
+    assert(near_double(long_double_result.real, 11.0) &&
+           near_double(long_double_result.imaginary, 12.0));
     __real__ rcc_legacy_complex_tls = 2.0;
     __imag__ rcc_legacy_complex_tls = -3.0;
+    rcc_legacy_complex_long_double_tls.real = 2.0;
+    rcc_legacy_complex_long_double_tls.imaginary = -3.0;
     assert(pthread_create(&tls_thread, NULL, rcc_legacy_complex_tls_worker,
                           &tls_case) == 0);
     assert(pthread_join(tls_thread, NULL) == 0);
@@ -345,6 +422,9 @@ int main(void) {
     double_result = rcc_legacy_complex_tls_read();
     assert(fabs(__real__ double_result - 2.0) < 0.0000001 &&
            fabs(__imag__ double_result + 3.0) < 0.0000001);
+    long_double_result = rcc_legacy_complex_long_double_tls_read();
+    assert(near_double(long_double_result.real, 2.0) &&
+           near_double(long_double_result.imaginary, -3.0));
 
     assert(near_float(rcc_legacy_complex_api_crealf(float_api_input), 3.0f));
     assert(near_float(rcc_legacy_complex_api_cimagf(float_api_input), 4.0f));
@@ -653,6 +733,27 @@ int main(void) {
     double_result = rcc_legacy_complex_float_add_double(float_left, 0.5);
     assert(near_double(__real__ double_result, 2.5) &&
            near_double(__imag__ double_result, 3.0));
+    double_result = rcc_legacy_complex_double_add_float(0.5, float_left);
+    assert(near_double(__real__ double_result, 2.5) &&
+           near_double(__imag__ double_result, 3.0));
+    double_result = rcc_legacy_complex_float_subtract_double(float_left, 0.5);
+    assert(near_double(__real__ double_result, 1.5) &&
+           near_double(__imag__ double_result, 3.0));
+    double_result = rcc_legacy_complex_double_subtract_float(0.5, float_left);
+    assert(near_double(__real__ double_result, -1.5) &&
+           near_double(__imag__ double_result, -3.0));
+    double_result = rcc_legacy_complex_float_multiply_double(float_left, 0.5);
+    assert(near_double(__real__ double_result, 1.0) &&
+           near_double(__imag__ double_result, 1.5));
+    double_result = rcc_legacy_complex_double_multiply_float(0.5, float_left);
+    assert(near_double(__real__ double_result, 1.0) &&
+           near_double(__imag__ double_result, 1.5));
+    double_result = rcc_legacy_complex_float_divide_double(float_left, 0.5);
+    assert(near_double(__real__ double_result, 4.0) &&
+           near_double(__imag__ double_result, 6.0));
+    double_result = rcc_legacy_complex_double_divide_float(0.5, float_left);
+    assert(near_double(__real__ double_result, 1.0 / 13.0) &&
+           near_double(__imag__ double_result, -3.0 / 26.0));
     {
         RccLegacyComplexBinary64Pair wide_result =
             rcc_legacy_complex_double_add_long_double(double_left, 0.5);
@@ -692,9 +793,77 @@ int main(void) {
             double_left, __builtin_complex(1.0, 1.0));
         assert(near_double(wide_result.real, 2.5) &&
                near_double(wide_result.imaginary, 0.5));
+        wide_result = rcc_legacy_complex_long_double_subtract_assign(
+            double_left, __builtin_complex(1.0, -1.0));
+        assert(near_double(wide_result.real, 1.0) &&
+               near_double(wide_result.imaginary, 4.0));
         wide_result = rcc_legacy_complex_long_double_negate(double_left);
         assert(near_double(wide_result.real, -2.0) &&
                near_double(wide_result.imaginary, -3.0));
+        wide_result = rcc_legacy_complex_long_double_prefix_increment(
+            double_left);
+        assert(near_double(wide_result.real, 3.0) &&
+               near_double(wide_result.imaginary, 3.0));
+        wide_result = rcc_legacy_complex_long_double_postfix_increment(
+            double_left);
+        assert(near_double(wide_result.real, 2.0) &&
+               near_double(wide_result.imaginary, 3.0));
+        wide_result = rcc_legacy_complex_long_double_prefix_decrement(
+            double_left);
+        assert(near_double(wide_result.real, 1.0) &&
+               near_double(wide_result.imaginary, 3.0));
+        wide_result = rcc_legacy_complex_long_double_postfix_decrement(
+            double_left);
+        assert(near_double(wide_result.real, 2.0) &&
+               near_double(wide_result.imaginary, 3.0));
+        assert(rcc_legacy_complex_long_double_equal(
+            double_left, double_left));
+        assert(rcc_legacy_complex_long_double_not_equal(
+            double_left, double_right));
+        assert(!rcc_legacy_complex_long_double_equal(
+            __builtin_complex((double)NAN, 0.0), double_left));
+        assert(rcc_legacy_complex_long_double_not_equal(
+            __builtin_complex((double)NAN, 0.0), double_left));
+        assert(!rcc_legacy_complex_long_double_truth(
+            __builtin_complex(0.0, 0.0)));
+        assert(rcc_legacy_complex_long_double_truth(
+            __builtin_complex(0.0, -1.0)));
+        assert(rcc_legacy_complex_long_double_to_int(
+            __builtin_complex(7.75, 9.0)) == 7);
+        wide_result = rcc_legacy_complex_long_double_from_real(4.5);
+        assert(near_double(wide_result.real, 4.5) &&
+               near_double(wide_result.imaginary, 0.0));
+    }
+    {
+        RccLegacyComplexBinary64Pair value = {2.0, 3.0};
+        RccLegacyComplexBinary64Pair observed = {0.0, 0.0};
+        rcc_legacy_complex_long_double_prefix_increment_pointer(
+            &value, &observed);
+        assert(near_double(value.real, 3.0) &&
+               near_double(value.imaginary, 3.0));
+        assert(near_double(observed.real, 3.0) &&
+               near_double(observed.imaginary, 3.0));
+        value = (RccLegacyComplexBinary64Pair){2.0, 3.0};
+        rcc_legacy_complex_long_double_postfix_increment_pointer(
+            &value, &observed);
+        assert(near_double(value.real, 3.0) &&
+               near_double(value.imaginary, 3.0));
+        assert(near_double(observed.real, 2.0) &&
+               near_double(observed.imaginary, 3.0));
+        value = (RccLegacyComplexBinary64Pair){2.0, 3.0};
+        rcc_legacy_complex_long_double_prefix_decrement_pointer(
+            &value, &observed);
+        assert(near_double(value.real, 1.0) &&
+               near_double(value.imaginary, 3.0));
+        assert(near_double(observed.real, 1.0) &&
+               near_double(observed.imaginary, 3.0));
+        value = (RccLegacyComplexBinary64Pair){2.0, 3.0};
+        rcc_legacy_complex_long_double_postfix_decrement_pointer(
+            &value, &observed);
+        assert(near_double(value.real, 1.0) &&
+               near_double(value.imaginary, 3.0));
+        assert(near_double(observed.real, 2.0) &&
+               near_double(observed.imaginary, 3.0));
     }
     return 0;
 }
