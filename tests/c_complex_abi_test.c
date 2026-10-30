@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <fenv.h>
+#include <float.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -667,6 +668,23 @@ int main(int argc, char** argv) {
         __builtin_complex(HUGE_VALF, HUGE_VALF),
         __builtin_complex(1.0f, 0.0f));
     assert(isinf(__real__ value_float) && isinf(__imag__ value_float));
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    value_float = float_multiply(
+        __builtin_complex(FLT_MAX, 0.0f),
+        __builtin_complex(2.0f, 0.0f));
+    assert(isinf(__real__ value_float));
+    assert((fetestexcept(FE_ALL_EXCEPT) &
+            (FE_OVERFLOW | FE_INEXACT)) ==
+           (FE_OVERFLOW | FE_INEXACT));
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    value_float = float_multiply(
+        __builtin_complex(FLT_MIN * FLT_EPSILON, 0.0f),
+        __builtin_complex(0.5f, 0.0f));
+    assert(__real__ value_float == 0.0f &&
+           __imag__ value_float == 0.0f);
+    assert((fetestexcept(FE_ALL_EXCEPT) &
+            (FE_UNDERFLOW | FE_INEXACT)) ==
+           (FE_UNDERFLOW | FE_INEXACT));
     value_float = float_negate(a);
     assert(close_float(__real__ value_float, -2.0f) &&
            close_float(__imag__ value_float, -3.0f));
@@ -705,6 +723,23 @@ int main(int argc, char** argv) {
         value = long_double_divide(lhs, rhs);
         assert(close_double(value.real, 2.5) &&
                close_double(value.imaginary, 0.5));
+        assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+        lhs.real = DBL_MAX;
+        lhs.imaginary = 0.0;
+        rhs.real = 2.0;
+        rhs.imaginary = 0.0;
+        value = long_double_multiply(lhs, rhs);
+        assert(isinf(value.real));
+        assert((fetestexcept(FE_ALL_EXCEPT) &
+                (FE_OVERFLOW | FE_INEXACT)) ==
+               (FE_OVERFLOW | FE_INEXACT));
+        assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+        lhs.real = DBL_MIN * DBL_EPSILON;
+        value = long_double_multiply(lhs, (ComplexBinary64Pair){0.5, 0.0});
+        assert(value.real == 0.0 && value.imaginary == 0.0);
+        assert((fetestexcept(FE_ALL_EXCEPT) &
+                (FE_UNDERFLOW | FE_INEXACT)) ==
+               (FE_UNDERFLOW | FE_INEXACT));
     }
 
     value_double = double_identity(x);
@@ -782,6 +817,23 @@ int main(int argc, char** argv) {
         __builtin_complex(HUGE_VAL, HUGE_VAL),
         __builtin_complex(1.0, 0.0));
     assert(isinf(__real__ value_double) && isinf(__imag__ value_double));
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    value_double = double_multiply(
+        __builtin_complex(DBL_MAX, 0.0),
+        __builtin_complex(2.0, 0.0));
+    assert(isinf(__real__ value_double));
+    assert((fetestexcept(FE_ALL_EXCEPT) &
+            (FE_OVERFLOW | FE_INEXACT)) ==
+           (FE_OVERFLOW | FE_INEXACT));
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    value_double = double_multiply(
+        __builtin_complex(DBL_MIN * DBL_EPSILON, 0.0),
+        __builtin_complex(0.5, 0.0));
+    assert(__real__ value_double == 0.0 &&
+           __imag__ value_double == 0.0);
+    assert((fetestexcept(FE_ALL_EXCEPT) &
+            (FE_UNDERFLOW | FE_INEXACT)) ==
+           (FE_UNDERFLOW | FE_INEXACT));
 
     unmap_object(mapped);
     objfile_free(object);
