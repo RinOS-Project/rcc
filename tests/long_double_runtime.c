@@ -26,13 +26,13 @@ static long double return_long_double(long double value) {
     return value;
 }
 
-static long double rounding_tie = 0x1.00000000000008p+0L;
-
 int main(void) {
     long double value = return_long_double(
         read_long_double(2.25, 7, 3.5L, 4.5));
+    long double rounding_tie = 0x1.00000000000008p+0L;
     long double integral = 0.0L;
     int exponent = 0;
+    int original_round = fegetround();
 
     if (value != 3.5L)
         return 1;
@@ -69,5 +69,25 @@ int main(void) {
         !near_long_double(cosl(0.5L), 0.877582561890373L) ||
         !near_long_double(atan2l(1.0L, 0.0L), 1.570796326794897L))
         return 9;
+    if (original_round == -1 ||
+        fesetround(FE_DOWNWARD) != 0 ||
+        fegetround() != FE_DOWNWARD || rintl(2.5L) != 2.0L ||
+        fesetround(FE_UPWARD) != 0 ||
+        fegetround() != FE_UPWARD || rintl(2.5L) != 3.0L ||
+        fesetround(original_round) != 0)
+        return 10;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        !__builtin_isnan(sqrtl(-1.0L)) ||
+        (fetestexcept(FE_INVALID) & FE_INVALID) == 0)
+        return 11;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        !__builtin_isnan(fmodl(1.0L, 0.0L)) ||
+        (fetestexcept(FE_INVALID) & FE_INVALID) == 0)
+        return 12;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0) return 13;
+    value = logl(0.0L);
+    if (!__builtin_isinf(value) || !__builtin_signbit(value) ||
+        (fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) == 0)
+        return 14;
     return 0;
 }

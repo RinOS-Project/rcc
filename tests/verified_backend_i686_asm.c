@@ -212,6 +212,8 @@ static bool emit_section(FILE* output, ObjectFile* object,
         if (fputs("\t.text\n", output) == EOF) goto done;
     } else if (section->type == SECT_RODATA) {
         if (fputs("\t.section .rodata\n", output) == EOF) goto done;
+    } else if (section->type == SECT_DATA) {
+        if (fputs("\t.data\n", output) == EOF) goto done;
     } else {
         goto done;
     }
@@ -268,9 +270,11 @@ static bool emit_object(FILE* output, ObjectFile* object)
 {
     ObjSection* text = objfile_get_section(object, ".text");
     ObjSection* rodata = objfile_get_section(object, ".rodata");
+    ObjSection* data = objfile_get_section(object, ".data");
     ObjSection* unwind = objfile_get_section(object, ".unwind");
     int text_index = section_index(object, text);
     int rodata_index = rodata ? section_index(object, rodata) : -1;
+    int data_index = data ? section_index(object, data) : -1;
     size_t unwind_count = 0u;
 
     if (!text || text->size == 0u ||
@@ -279,7 +283,12 @@ static bool emit_object(FILE* output, ObjectFile* object)
         (rodata &&
          (rodata->type != SECT_RODATA || rodata->size == 0u ||
           (rodata->flags & SECT_FLAG_ALLOC) == 0u ||
-          (rodata->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) != 0u))) {
+          (rodata->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) != 0u)) ||
+        (data &&
+         (data->type != SECT_DATA ||
+          (data->flags & (SECT_FLAG_ALLOC | SECT_FLAG_WRITE)) !=
+              (SECT_FLAG_ALLOC | SECT_FLAG_WRITE) ||
+          (data->flags & SECT_FLAG_EXEC) != 0u))) {
         return false;
     }
     if (unwind &&
@@ -294,13 +303,15 @@ static bool emit_object(FILE* output, ObjectFile* object)
             ++unwind_count;
             continue;
         }
-        if (section != text && section != rodata &&
+        if (section != text && section != rodata && section != data &&
             (section->size != 0u || section->relocs != NULL)) return false;
     }
     if (unwind_count > 1u) return false;
     return emit_section(output, object, text, text_index) &&
         (!rodata || emit_section(
             output, object, rodata, rodata_index)) &&
+        (!data || data->size == 0u || emit_section(
+            output, object, data, data_index)) &&
         ferror(output) == 0;
 }
 

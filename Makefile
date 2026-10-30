@@ -17500,6 +17500,38 @@ test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/long_double_abi.c >$(TEST_OUT)/long-double/verified-cxx-x64.log
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/long-double/verified-cxx-x64.log
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double/verified-math-c-x86.ro \
+		tests/long_double_runtime.c \
+		>$(TEST_OUT)/long-double/verified-math-c-x86.log 2>&1
+	$(GREP) -F -q "Verified backend fallback: function '__rin_x87_getenv' is outside the typed SSA subset" \
+		$(TEST_OUT)/long-double/verified-math-c-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-c-x86.log,1)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double/verified-math-c-x64.ro \
+		tests/long_double_runtime.c \
+		>$(TEST_OUT)/long-double/verified-math-c-x64.log 2>&1
+	$(GREP) -F -q "Verified backend fallback: function '__rin_x87_getenv' is outside the typed SSA subset" \
+		$(TEST_OUT)/long-double/verified-math-c-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-c-x64.log,1)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double/verified-math-cxx-x86.ro \
+		tests/long_double_runtime.c \
+		>$(TEST_OUT)/long-double/verified-math-cxx-x86.log 2>&1
+	$(GREP) -F -q "Verified backend fallback: function '__rin_x87_getenv' is outside the typed SSA subset" \
+		$(TEST_OUT)/long-double/verified-math-cxx-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-cxx-x86.log,1)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-I$(RINOS_ROOT)/public-base/libs/libc -fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double/verified-math-cxx-x64.ro \
+		tests/long_double_runtime.c \
+		>$(TEST_OUT)/long-double/verified-math-cxx-x64.log 2>&1
+	$(GREP) -F -q "Verified backend fallback: function '__rin_x87_getenv' is outside the typed SSA subset" \
+		$(TEST_OUT)/long-double/verified-math-cxx-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double/verified-math-cxx-x64.log,1)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-o $(TEST_OUT)/long-double/runtime-c-x86.s \
@@ -17520,6 +17552,26 @@ test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/long-double/runtime-c-x64$(EXE_SUFFIX),$(TEST_OUT)/long-double/runtime-c-x64.s)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double/runtime-cxx-x86.exe,$(TEST_OUT)/long-double/runtime-cxx-x86.s)
 	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/long-double/runtime-cxx-x64$(EXE_SUFFIX),$(TEST_OUT)/long-double/runtime-cxx-x64.s)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/long-double/run-verified-entry \
+		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c -lm
+	$(TEST_OUT)/long-double/run-verified-entry --entry \
+		$(TEST_OUT)/long-double/verified-math-c-x64.ro
+	$(TEST_OUT)/long-double/run-verified-entry --entry \
+		$(TEST_OUT)/long-double/verified-math-cxx-x64.ro
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/long-double/verified-i686-asm \
+		tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/long-double/verified-i686-asm \
+		$(TEST_OUT)/long-double/verified-math-c-x86.ro \
+		$(TEST_OUT)/long-double/verified-math-c-x86.s
+	$(TEST_OUT)/long-double/verified-i686-asm \
+		$(TEST_OUT)/long-double/verified-math-cxx-x86.ro \
+		$(TEST_OUT)/long-double/verified-math-cxx-x86.s
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double/verified-math-c-x86.exe,$(TEST_OUT)/long-double/verified-math-c-x86.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double/verified-math-cxx-x86.exe,$(TEST_OUT)/long-double/verified-math-cxx-x86.s)
 
 test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/language-boundaries)
