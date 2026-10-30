@@ -98,6 +98,7 @@ typedef struct Linker {
     /* Input object files */
     ObjectFile** objects;
     int object_count;
+    size_t object_capacity;
 
     /* Linked sections */
     LinkedSection* sections;

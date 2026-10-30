@@ -26,6 +26,7 @@ Linker* linker_new(void) {
     Linker* ld = rcc_alloc(sizeof(Linker));
     ld->objects = NULL;
     ld->object_count = 0;
+    ld->object_capacity = 0u;
     ld->sections = NULL;
     ld->section_count = 0;
     ld->symbols = NULL;
@@ -115,8 +116,25 @@ static bool linker_append_object(Linker* ld, ObjectFile* obj) {
         }
     }
 
-    /* Expand object array */
-    ld->objects = rcc_realloc(ld->objects, sizeof(ObjectFile*) * (ld->object_count + 1));
+    /* Grow geometrically so large archive/object lists do not copy the
+     * complete pointer array for every input file. */
+    if ((size_t)ld->object_count >= ld->object_capacity) {
+        const size_t maximum_capacity = (size_t)INT_MAX;
+        size_t new_capacity;
+        if (ld->object_capacity == 0u) {
+            new_capacity = 16u;
+        } else if (ld->object_capacity > maximum_capacity / 2u) {
+            new_capacity = maximum_capacity;
+        } else {
+            new_capacity = ld->object_capacity * 2u;
+        }
+        if (new_capacity <= ld->object_capacity ||
+            new_capacity > SIZE_MAX / sizeof(*ld->objects))
+            rcc_fatal("too many linker input objects");
+        ld->objects = rcc_realloc(
+            ld->objects, new_capacity * sizeof(*ld->objects));
+        ld->object_capacity = new_capacity;
+    }
     ld->objects[ld->object_count++] = obj;
 
     if (g_linker_opts.verbose) {
@@ -435,16 +453,6 @@ bool linker_merge_sections(Linker* ld) {
         printf("Merging sections...\n");
     }
 
-    /* Track offsets for relocations */
-    typedef struct {
-        int obj_idx;
-        int sect_idx;
-        uint64_t offset;  /* Offset in linked section */
-    } SectionOffset;
-
-    SectionOffset* offsets = NULL;
-    int offset_count = 0;
-
     /* Process each object file */
     for (int obj_idx = 0; obj_idx < ld->object_count; obj_idx++) {
         ObjectFile* obj = ld->objects[obj_idx];
@@ -472,29 +480,24 @@ bool linker_merge_sections(Linker* ld) {
             LinkedSection* linked = find_or_create_section(ld, sect->name,
                                                            sect->type,
                                                            output_flags);
-            if (!linked) {
-                rcc_free(offsets);
-                return false;
-            }
+            if (!linked) return false;
 
-            /* Record offset for relocation adjustment */
-            offsets = rcc_realloc(offsets, sizeof(SectionOffset) * (offset_count + 1));
-            offsets[offset_count].obj_idx = obj_idx;
-            offsets[offset_count].sect_idx = sect_idx;
-            offsets[offset_count].offset =
+            /* The section offset is consumed immediately by this section's
+             * relocations; retaining every prior offset only caused one
+             * exact-size allocation per section. */
+            const uint64_t section_offset =
                 linked_section_add_object_section(linked, sect);
-            offset_count++;
 
             if (g_linker_opts.verbose) {
                 printf("    %s:%s -> %s (+%" PRIu64 " bytes at %" PRIu64 ")\n",
                        obj->filename, sect->name, linked->name,
-                       sect->size, offsets[offset_count-1].offset);
+                       sect->size, section_offset);
             }
 
             /* Copy relocations with adjusted offsets */
             for (ObjReloc* r = sect->relocs; r; r = r->next) {
                 PendingReloc* pr = rcc_alloc(sizeof(PendingReloc));
-                pr->offset = offsets[offset_count-1].offset + r->offset;
+                pr->offset = section_offset + r->offset;
                 pr->symbol = rcc_strdup(r->symbol_name);
                 pr->type = r->type;
                 pr->addend = r->addend;
@@ -519,8 +522,6 @@ bool linker_merge_sections(Linker* ld) {
             }
         }
     }
-
-    rcc_free(offsets);
 
     if (g_linker_opts.verbose) {
         printf("  %d linked sections\n", ld->section_count);
