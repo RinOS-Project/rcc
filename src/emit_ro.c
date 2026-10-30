@@ -11924,12 +11924,22 @@ static bool debug_inline_parameter_integer_expression(
 
     if (architecture == ARCH_X86 && parameter_type->size == 8u &&
         (source_expression->kind == EXPR_DIV ||
-         source_expression->kind == EXPR_MOD) &&
-        debug_inline_parameter_i686_u64_div_constant_expression(
-            mod, parameter_type, !parameter_type->is_unsigned,
-            source_expression, expression,
-            expression_capacity, expression_size, NULL)) {
-        return true;
+         source_expression->kind == EXPR_MOD)) {
+        size_t relocation_offsets[128];
+        const ModuleSymbol* relocation_symbols[128];
+        size_t relocation_count = 0u;
+        DebugInlineI686ExpressionRelocations constant_relocations = {
+            relocation_offsets, relocation_symbols,
+            sizeof(relocation_offsets) / sizeof(relocation_offsets[0]),
+            &relocation_count, false, false, false
+        };
+        if (debug_inline_parameter_i686_u64_div_constant_expression(
+                mod, parameter_type, !parameter_type->is_unsigned,
+                source_expression, expression, expression_capacity,
+                expression_size, &constant_relocations) &&
+            relocation_count == 0u) {
+            return true;
+        }
     }
 
     /* A generic DWARF stack entry is only address-sized. On i686, preserve

@@ -12087,6 +12087,12 @@ remains a separate open item.
         full-width input matrix for `/` and `%` in legacy and verified C
         objects. Focused `test-debug-info-inline-expression` and full
         `test-debug-info` gates pass.
+  - [x] Extend unsigned i686 constant-divisor division/remainder DWARF for
+        high divisor `0x8000000000000001` to escaped automatic
+        `_Atomic unsigned long long` locals. Resolve the frame location, emit
+        no global relocations, and verify full-width input boundaries in legacy
+        and verified C objects. Focused `test-debug-info-inline-expression`
+        and full `test-debug-info` gates pass.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 
