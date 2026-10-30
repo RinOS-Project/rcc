@@ -11843,7 +11843,8 @@ remains a separate open item.
 - [x] Apply using-declaration hiding to inherited member-function-template
       candidates using declaration patterns before specialization. A derived
       `choose(T)` hides the matching base template while a distinct base
-      `choose(T*)` remains eligible. GCC C++20 and
+      `choose(T*)` and a same-pattern base template with a different
+      constraint remain eligible. GCC C++20 and
       `test-cxx-function-template-overloads` pass for i686/AMD64 generation and
       execution.
 

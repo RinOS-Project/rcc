@@ -849,6 +849,20 @@ struct InheritedMemberTemplateUsingHidingDerived
     int choose(T) { return 503; }
 };
 
+struct InheritedMemberTemplateConstraintBase {
+    template<typename T>
+    int select(T) { return 511; }
+};
+
+struct InheritedMemberTemplateConstraintDerived
+    : InheritedMemberTemplateConstraintBase {
+    using InheritedMemberTemplateConstraintBase::select;
+
+    template<typename T>
+        requires (sizeof(T) > 1)
+    int select(T) { return 512; }
+};
+
 struct FunctionTemplateMemberCallInheritedTemplateBase {
     int base_value;
 
@@ -3361,6 +3375,9 @@ int main(void) {
     if (inherited_template_hiding.choose(1) != 503 ||
         inherited_template_hiding.choose(&inherited_template_hiding_value) !=
             502) return 260;
+    InheritedMemberTemplateConstraintDerived constrained_template_hiding;
+    if (constrained_template_hiding.select(1) != 512 ||
+        constrained_template_hiding.select(char{}) != 511) return 261;
     if (choose_fixed_nontype_prefix_pack<2>(1, 2) != 22) return 250;
     if (choose_defaulted_fixed_prefix_pack<>(0, 'x') != 431) return 251;
     if (choose_defaulted_fixed_prefix_pack<long>(0L, 'x') !=
