@@ -13166,7 +13166,7 @@ static bool debug_inline_parameter_i686_global_add_sub_source(
     if (value_expression->kind != EXPR_IDENT ||
         !value_expression->ident_decl || !value_expression->type ||
         value_expression->type->size != 8u ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             source_expression->type, value_expression->type, 0u)) {
         return false;
     }
@@ -13176,8 +13176,8 @@ static bool debug_inline_parameter_i686_global_add_sub_source(
         !(*source)->var_is_vla && (*source)->type &&
         (*source)->type->size == 8u &&
         (!(*source)->type->is_volatile || (*source)->var_is_global) &&
-        !(*source)->type->is_reference && !(*source)->type->is_atomic &&
-        debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !(*source)->type->is_reference &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             source_expression->type, (*source)->type, 0u);
 }
 
@@ -13266,6 +13266,7 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
         tls_relocations = *relocations;
         tls_relocations.allow_tls = true;
         tls_relocations.allow_volatile = true;
+        tls_relocations.allow_atomic = true;
         relocations = &tls_relocations;
     }
 
@@ -13282,7 +13283,7 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
         (source_expression->kind != EXPR_ADD &&
          source_expression->kind != EXPR_SUB) ||
         !source_expression->binary_lhs || !source_expression->binary_rhs ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             parameter_type, source_expression->type, 0u)) {
         return false;
     }
@@ -13293,9 +13294,9 @@ static bool debug_inline_parameter_i686_u64_global_add_sub_expression(
             mod, source_expression);
     if (!left_expression->type || left_expression->type->size != 8u ||
         !right_expression->type || right_expression->type->size != 8u ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             parameter_type, left_expression->type, 0u) ||
-        !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+        !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             parameter_type, right_expression->type, 0u)) {
         return false;
     }

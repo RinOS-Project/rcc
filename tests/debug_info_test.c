@@ -14862,6 +14862,7 @@ static void verify_inline_i686_global_nested_expression_impl(
     uint64_t expression_size;
     uint64_t left_value;
     uint64_t right_value;
+    size_t expression_relocations = 0u;
     assert(path && call_site_name && left_name && right_name &&
            (!is_unsigned || !is_subtract) &&
            object && object->arch == ARCH_X86);
@@ -14918,6 +14919,14 @@ static void verify_inline_i686_global_nested_expression_impl(
     expression_size = read_uleb(
         info->data, info->size, &expression_offset);
     assert(expression_size && expression_offset + expression_size <= info->size);
+    for (const ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset >= expression_offset &&
+            relocation->offset < expression_offset + expression_size) {
+            ++expression_relocations;
+        }
+    }
+    assert(expression_relocations == (is_subtract ? 7u : 8u));
     left_value = verify_inline_global_storage(object, left_name, 8u);
     right_value = verify_inline_global_storage(object, right_name, 8u);
     assert(left_value == (is_unsigned
@@ -18258,6 +18267,30 @@ int main(int argc, char** argv)
         verify_inline_integer_expression_cases(argv[3], ARCH_X64);
         verify_inline_integer_expression_cases(argv[4], ARCH_X86);
         verify_inline_integer_expression_cases(argv[5], ARCH_X64);
+        verify_inline_i686_global_nested_expression(
+            argv[2],
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_add_entry",
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_add_rhs",
+            false, false);
+        verify_inline_i686_global_nested_expression(
+            argv[4],
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_add_entry",
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_add_lhs",
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_add_rhs",
+            false, false);
+        verify_inline_i686_global_nested_expression(
+            argv[2],
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_sub_rhs",
+            false, true);
+        verify_inline_i686_global_nested_expression(
+            argv[4],
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_sub_entry",
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_sub_lhs",
+            "debug_inline_nonconstant_signed_long_long_atomic_nested_sub_rhs",
+            false, true);
         verify_inline_i686_global_u64_constant_division_expression_for_inline(
             argv[2],
             "debug_inline_nonconstant_unsigned_long_long_atomic_divide_entry",

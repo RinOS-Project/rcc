@@ -12016,9 +12016,15 @@ remains a separate open item.
       relocations; interpret signed-boundary results in legacy and verified
       C++20 objects; focused `test-debug-info-inline-expression` and full
       `test-debug-info` pass.
-- [ ] Atomic reads, volatile operands outside this bounded global/TLS form,
-      more general computed division/remainder operands, and optimized
-      multi-piece locations remain open.
+- [x] Extend bounded signed i686 nested add/sub expressions to namespace-scope
+      `_Atomic long long` operands. Permit atomic-backed DWARF dereferences and
+      verify exact relocation counts plus carry/borrow boundary results in
+      legacy and verified C objects. Focused `test-debug-info-inline-expression`
+      and full `test-debug-info` pass.
+- [ ] Atomic operands beyond the bounded global nested add/sub and divmod
+      forms, volatile operands outside the bounded global/TLS forms, more
+      general computed division/remainder operands, and optimized multi-piece
+      locations remain open.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 

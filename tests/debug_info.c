@@ -20,6 +20,17 @@ _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_dividend =
     -0x7123456789abcdefll;
 _Atomic long long debug_inline_nonconstant_signed_long_long_atomic_divisor =
     -0x100000001ll;
+_Atomic long long
+    debug_inline_nonconstant_signed_long_long_atomic_nested_add_lhs =
+        0x1ffffffffll;
+_Atomic long long
+    debug_inline_nonconstant_signed_long_long_atomic_nested_add_rhs = 1ll;
+_Atomic long long
+    debug_inline_nonconstant_signed_long_long_atomic_nested_sub_lhs =
+        0x100000000ll;
+_Atomic long long
+    debug_inline_nonconstant_signed_long_long_atomic_nested_sub_rhs =
+        0x100000001ll;
 _Atomic long long* debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape;
 _Atomic long long* debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape;
 long long* debug_inline_nonconstant_signed_long_long_runtime_local_escape;
@@ -472,6 +483,24 @@ long long debug_inline_nonconstant_signed_long_long_atomic_runtime_remainder_ent
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_atomic_dividend %
         debug_inline_nonconstant_signed_long_long_atomic_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_nested_add_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_nested_add_lhs +
+        (debug_inline_nonconstant_signed_long_long_atomic_nested_add_rhs *
+         2ll));
+}
+
+long long debug_inline_nonconstant_signed_long_long_atomic_nested_sub_entry(
+    void)
+{
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_atomic_nested_sub_lhs -
+        (debug_inline_nonconstant_signed_long_long_atomic_nested_sub_rhs *
+         2ll));
 }
 
 long long debug_inline_nonconstant_signed_long_long_atomic_local_pair_divide_entry(
