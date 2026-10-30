@@ -12053,6 +12053,11 @@ remains a separate open item.
         `long long` pairs. Resolve both frame offsets, emit no global
         relocations, and verify frame-backed `&`/`|`/`^` values in legacy and
         verified C objects. Focused and full DWARF gates pass.
+  - [x] Extend signed i686 variable division/remainder DWARF to escaped
+        automatic volatile `long long` pairs. Resolve both frame offsets,
+        emit no global relocations, and verify the signed boundary matrix for
+        `/` and `%` in legacy and verified C objects. Focused and full DWARF
+        gates pass.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 

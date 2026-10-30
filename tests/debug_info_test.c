@@ -12438,6 +12438,14 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_signed_long_long_atomic_local_pair_remainder_entry";
+    } else if (expected_constant == INT64_MIN + 54 &&
+               expected_operation == 0x1bu) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_volatile_local_pair_divide_entry";
+    } else if (expected_constant == INT64_MIN + 55 &&
+               expected_operation == 0x1du) {
+        call_site_name =
+            "debug_inline_nonconstant_signed_long_long_volatile_local_pair_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -12824,7 +12832,9 @@ static void verify_inline_integer_expression_parameter(
     if (architecture == ARCH_X86 && !is_unsigned && value_size == 8u &&
         divisor_source_name &&
         (expected_constant == INT64_MIN + 52 ||
-         expected_constant == INT64_MIN + 53) &&
+         expected_constant == INT64_MIN + 53 ||
+         expected_constant == INT64_MIN + 54 ||
+         expected_constant == INT64_MIN + 55) &&
         (expected_operation == 0x1bu || expected_operation == 0x1du)) {
         verify_inline_i686_u64_global_variable_division_expression(
             object, info->data, expression_end, expression_start, info,
@@ -18646,6 +18656,34 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_signed_long_long_atomic_local_dividend",
             false, 0x1du, 8u, INT64_MIN + 53,
             "debug_inline_nonconstant_signed_long_long_atomic_local_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_volatile_local_division_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 54,
+            "debug_inline_nonconstant_signed_long_long_volatile_local_division_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_volatile_local_division_dividend",
+            false, 0x1bu, 8u, INT64_MIN + 54,
+            "debug_inline_nonconstant_signed_long_long_volatile_local_division_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_volatile_local_remainder_dividend",
+            false, 0x1du, 8u, INT64_MIN + 55,
+            "debug_inline_nonconstant_signed_long_long_volatile_local_remainder_divisor",
+            false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_signed_long_long_parameter_inline",
+            "debug_inline_nonconstant_signed_long_long_volatile_local_remainder_dividend",
+            false, 0x1du, 8u, INT64_MIN + 55,
+            "debug_inline_nonconstant_signed_long_long_volatile_local_remainder_divisor",
             false);
         for (size_t path_index = 0u;
              path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);

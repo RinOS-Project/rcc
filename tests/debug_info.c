@@ -45,6 +45,10 @@ volatile long long*
     debug_inline_nonconstant_signed_long_long_volatile_local_lhs_escape;
 volatile long long*
     debug_inline_nonconstant_signed_long_long_volatile_local_rhs_escape;
+volatile long long*
+    debug_inline_nonconstant_signed_long_long_volatile_local_division_dividend_escape;
+volatile long long*
+    debug_inline_nonconstant_signed_long_long_volatile_local_division_divisor_escape;
 _Thread_local _Atomic long long
     debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_lhs =
         -0x7edcba9876543211ll;
@@ -722,6 +726,42 @@ long long debug_inline_nonconstant_signed_long_long_atomic_local_pair_remainder_
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_atomic_local_dividend %
         debug_inline_nonconstant_signed_long_long_atomic_local_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_volatile_local_pair_divide_entry(
+    long long dividend, long long divisor)
+{
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_division_dividend =
+            dividend;
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_division_divisor =
+            divisor;
+    debug_inline_nonconstant_signed_long_long_volatile_local_division_dividend_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_division_dividend;
+    debug_inline_nonconstant_signed_long_long_volatile_local_division_divisor_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_division_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_local_division_dividend /
+        debug_inline_nonconstant_signed_long_long_volatile_local_division_divisor);
+}
+
+long long debug_inline_nonconstant_signed_long_long_volatile_local_pair_remainder_entry(
+    long long dividend, long long divisor)
+{
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_remainder_dividend =
+            dividend;
+    volatile long long
+        debug_inline_nonconstant_signed_long_long_volatile_local_remainder_divisor =
+            divisor;
+    debug_inline_nonconstant_signed_long_long_volatile_local_division_dividend_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_remainder_dividend;
+    debug_inline_nonconstant_signed_long_long_volatile_local_division_divisor_escape =
+        &debug_inline_nonconstant_signed_long_long_volatile_local_remainder_divisor;
+    return debug_nonconstant_signed_long_long_parameter_inline(
+        debug_inline_nonconstant_signed_long_long_volatile_local_remainder_dividend %
+        debug_inline_nonconstant_signed_long_long_volatile_local_remainder_divisor);
 }
 
 long long debug_inline_nonconstant_signed_long_long_atomic_local_bitand_entry(

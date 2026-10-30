@@ -11704,8 +11704,6 @@ static bool debug_inline_parameter_i686_u64_div_variable_expression(
         (divisor->var_is_thread_local && !divisor_is_address_backed) ||
         dividend->var_is_vla || divisor->var_is_vla ||
         !dividend->type || !divisor->type ||
-        (dividend->type->is_volatile && !dividend_is_address_backed) ||
-        (divisor->type->is_volatile && !divisor_is_address_backed) ||
         dividend->type->is_reference || divisor->type->is_reference ||
         !debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
             dividend->type, parameter_type, 0u) ||
