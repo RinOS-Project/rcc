@@ -52,6 +52,11 @@ jobs:
       - name: Verify selected host compiler
         run: test "$(make --no-print-directory print-host-cc)" = "$CC"
 
+      - name: Install i686 runtime test support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+
       - name: Build rcc, rcc++, rld and rar
         run: make -j2 all
 
@@ -130,6 +135,11 @@ jobs:
 
       - name: Verify selected host compiler
         run: test "$(make --no-print-directory print-host-cc)" = "$CC"
+
+      - name: Install i686 runtime test support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
 
       - name: Build complete host toolchain
         run: make -j2 all

@@ -5919,23 +5919,23 @@ static void gen_complex_increment32(Module* mod, Expr* expression) {
      * value in the frame slot while the object itself receives the update. */
     gen_lvalue(mod, expression->unary_operand);
     emit_push_reg(mod, EAX);
+    emit_mov_reg_mem(mod, EDX, ESP, 0);
     if (postfix) {
         for (component_offset = 0;
              component_offset < complex_type->size;
              component_offset += 4) {
-            emit_mov_reg_mem(mod, EDX, ESP, 0);
             emit_mov_reg_mem(mod, EAX, EDX, component_offset);
             emit_mov_mem_reg(mod, EBP, result_offset + component_offset,
                              EAX);
         }
     }
 
-    emit_x87_load_memory(mod, gen_float_width(component_type), ESP, 0);
+    emit_x87_load_memory(mod, gen_float_width(component_type), EDX, 0);
     emit_x87_fld_one(mod);
     if (decrement) emit_x87_fsubp_st1(mod);
     else emit_x87_faddp_st1(mod);
     emit_x87_store_pop_memory(
-        mod, gen_float_width(component_type), ESP, 0);
+        mod, gen_float_width(component_type), EDX, 0);
 
     emit_pop_reg(mod, EDX);
     if (postfix) {
@@ -9146,6 +9146,7 @@ static void emit_test_scalar_value(Module* mod, const Type* type) {
         emit_pop_reg(mod, ECX);
         emit_or_reg_reg(mod, EAX, ECX);
         emit_add_reg_imm(mod, ESP, 4);
+        emit_test_reg_reg(mod, EAX, EAX);
         return;
     }
     if (gen_is_floating(type)) {

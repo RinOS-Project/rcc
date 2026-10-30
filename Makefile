@@ -17486,6 +17486,28 @@ test-complex-legacy: test-complex $(RCC_TARGET)
 		$(TEST_OUT)/complex/legacy-x64.s \
 		$(TEST_OUT)/complex/complex_runtime_legacy.o -lm
 	$(TEST_OUT)/complex/run-legacy$(EXE_SUFFIX)
+	gcc -m32 -Wall -Wextra -std=c11 -g -O2 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-D__rin_cmul_f32=rcc_host_complex_mul_f32 \
+		-D__rin_cmul_f64=rcc_host_complex_mul_f64 \
+		-D__rin_cdiv_f32=rcc_host_complex_div_f32 \
+		-D__rin_cdiv_f64=rcc_host_complex_div_f64 \
+		-Dcreall=rcc_host_native_creall \
+		-Dcimagl=rcc_host_native_cimagl \
+		-Dcabsl=rcc_host_native_cabsl \
+		-Dcargl=rcc_host_native_cargl \
+		-Dconjl=rcc_host_native_conjl \
+		-Dcsqrtl=rcc_host_native_csqrtl \
+		-c -o $(TEST_OUT)/complex/complex_runtime_legacy_i686.o \
+		$(RINOS_ROOT)/public-base/libs/libc/complex_runtime.c
+# Match RinOS i686's hidden complex-result pointer in the host test driver.
+	gcc -m32 -fpcc-struct-return -Wall -Wextra -std=c11 -g -O0 \
+		-Werror -pthread \
+		-o $(TEST_OUT)/complex/run-legacy-i686 \
+		tests/c_complex_legacy_abi_test.c \
+		$(TEST_OUT)/complex/legacy-x86.s \
+		$(TEST_OUT)/complex/complex_runtime_legacy_i686.o -lm
+	$(TEST_OUT)/complex/run-legacy-i686
 
 test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/long-double)
