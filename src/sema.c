@@ -1949,8 +1949,14 @@ static Symbol* sema_cxx_lookup_name(const char* name, SourceLoc use_loc) {
 static Decl* sema_cxx_immediate_function_designator(Expr* expression) {
     Decl* declaration = NULL;
     Symbol* symbol;
+    while (expression && expression->kind == EXPR_CAST) {
+        expression = expression->cast_expr;
+    }
     if (expression && expression->kind == EXPR_ADDR) {
         expression = expression->unary_operand;
+        while (expression && expression->kind == EXPR_CAST) {
+            expression = expression->cast_expr;
+        }
     }
     if (!expression || expression->kind != EXPR_IDENT) return NULL;
     declaration = expression->ident_decl;
@@ -26161,6 +26167,7 @@ static Type* sema_expr(Expr* expr) {
             int argument_index = 1;
             bool reported_too_many = false;
             bool arguments_analyzed = false;
+            bool adl_arguments_in_speculative_immediate_context = false;
             if (expr->cxx_dependent_function_template_call) {
                 for (argument = expr->call_args; argument;
                      argument = argument->next) {
@@ -26943,6 +26950,10 @@ static Type* sema_expr(Expr* expr) {
                         immediate_candidate != NULL;
                     bool saved_immediate_context =
                         current_cxx_immediate_invocation_context;
+                    adl_arguments_in_speculative_immediate_context =
+                        !ordinary_lookup && !saved_immediate_context &&
+                        !(current_cxx_function_decl &&
+                          current_cxx_function_decl->func_is_consteval);
                     for (Decl* candidate = immediate_candidate; candidate;
                          candidate = candidate->func_overload_next) {
                         if (!candidate->func_is_consteval) {
@@ -26950,7 +26961,8 @@ static Type* sema_expr(Expr* expr) {
                             break;
                         }
                     }
-                    if (arguments_are_immediate) {
+                    if (arguments_are_immediate ||
+                        adl_arguments_in_speculative_immediate_context) {
                         current_cxx_immediate_invocation_context = true;
                     }
                     for (argument = expr->call_args; argument;
@@ -27091,6 +27103,18 @@ static Type* sema_expr(Expr* expr) {
                 call_declaration =
                     sema_cxx_immediate_function_designator(
                         expr->call_func);
+            }
+            if (adl_arguments_in_speculative_immediate_context &&
+                (!call_declaration ||
+                 !call_declaration->func_is_consteval)) {
+                for (argument = expr->call_args; argument;
+                     argument = argument->next) {
+                    if (sema_cxx_immediate_function_designator(
+                            argument->expr)) {
+                        rcc_error(argument->expr->loc,
+                                  "cannot take address of an immediate function outside an immediate context");
+                    }
+                }
             }
             if (call_declaration && call_declaration->func_is_deleted) {
                 rcc_error(expr->loc,
