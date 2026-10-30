@@ -233,6 +233,31 @@ int rcc_complex_standard_api_all(void) {
             !!__builtin_signbit(__imag__ result) != \
                 (negative_imaginary)) return __LINE__; \
     } while (0)
+#define RCC_COMPLEX_API_PROJECTION_FLOAT(call, negative_imaginary) \
+    do { \
+        RccComplexFloat result = (call); \
+        if (__real__ result != __builtin_huge_valf() || \
+            __imag__ result != 0.0f || \
+            !!__builtin_signbit(__imag__ result) != \
+                (negative_imaginary)) return __LINE__; \
+    } while (0)
+#define RCC_COMPLEX_API_PROJECTION_DOUBLE(call, negative_imaginary) \
+    do { \
+        RccComplexDouble result = (call); \
+        if (__real__ result != __builtin_huge_val() || \
+            __imag__ result != 0.0 || \
+            !!__builtin_signbit(__imag__ result) != \
+                (negative_imaginary)) return __LINE__; \
+    } while (0)
+#define RCC_COMPLEX_API_PROJECTION_LONG_DOUBLE( \
+    call, negative_imaginary) \
+    do { \
+        RccComplexLongDouble result = (call); \
+        if (__real__ result != (long double)__builtin_huge_val() || \
+            __imag__ result != 0.0L || \
+            !!__builtin_signbit(__imag__ result) != \
+                (negative_imaginary)) return __LINE__; \
+    } while (0)
 
     RCC_COMPLEX_API_CHECK_FLOAT(cacosf(CMPLXF(1.0f, 0.0f)), 0.0f, 0.0f);
     RCC_COMPLEX_API_CHECK_DOUBLE(cacos(CMPLX(1.0, 0.0)), 0.0, 0.0);
@@ -280,6 +305,44 @@ int rcc_complex_standard_api_all(void) {
     RCC_COMPLEX_API_CHECK_FLOAT(cprojf(CMPLXF(1.0f, 2.0f)), 1.0f, 2.0f);
     RCC_COMPLEX_API_CHECK_DOUBLE(cproj(CMPLX(1.0, 2.0)), 1.0, 2.0);
     RCC_COMPLEX_API_CHECK_LONG_DOUBLE(cprojl(CMPLXL(1.0L, 2.0L)), 1.0L, 2.0L);
+    RCC_COMPLEX_API_PROJECTION_FLOAT(
+        cprojf(CMPLXF(-__builtin_huge_valf(), 3.0f)), 0);
+    RCC_COMPLEX_API_PROJECTION_FLOAT(
+        cprojf(CMPLXF(-__builtin_huge_valf(), -3.0f)), 1);
+    RCC_COMPLEX_API_PROJECTION_FLOAT(
+        cprojf(CMPLXF(3.0f, __builtin_huge_valf())), 0);
+    RCC_COMPLEX_API_PROJECTION_FLOAT(
+        cprojf(CMPLXF(3.0f, -__builtin_huge_valf())), 1);
+    RCC_COMPLEX_API_PROJECTION_FLOAT(
+        cprojf(CMPLXF(__builtin_huge_valf(), __builtin_nanf(""))), 0);
+    RCC_COMPLEX_API_PROJECTION_FLOAT(
+        cprojf(CMPLXF(__builtin_nanf(""), __builtin_huge_valf())), 0);
+    RCC_COMPLEX_API_PROJECTION_DOUBLE(
+        cproj(CMPLX(-__builtin_huge_val(), 3.0)), 0);
+    RCC_COMPLEX_API_PROJECTION_DOUBLE(
+        cproj(CMPLX(-__builtin_huge_val(), -3.0)), 1);
+    RCC_COMPLEX_API_PROJECTION_DOUBLE(
+        cproj(CMPLX(3.0, __builtin_huge_val())), 0);
+    RCC_COMPLEX_API_PROJECTION_DOUBLE(
+        cproj(CMPLX(3.0, -__builtin_huge_val())), 1);
+    RCC_COMPLEX_API_PROJECTION_DOUBLE(
+        cproj(CMPLX(__builtin_huge_val(), __builtin_nan(""))), 0);
+    RCC_COMPLEX_API_PROJECTION_DOUBLE(
+        cproj(CMPLX(__builtin_nan(""), __builtin_huge_val())), 0);
+    RCC_COMPLEX_API_PROJECTION_LONG_DOUBLE(
+        cprojl(CMPLXL(-(long double)__builtin_huge_val(), 3.0L)), 0);
+    RCC_COMPLEX_API_PROJECTION_LONG_DOUBLE(
+        cprojl(CMPLXL(-(long double)__builtin_huge_val(), -3.0L)), 1);
+    RCC_COMPLEX_API_PROJECTION_LONG_DOUBLE(
+        cprojl(CMPLXL(3.0L, (long double)__builtin_huge_val())), 0);
+    RCC_COMPLEX_API_PROJECTION_LONG_DOUBLE(
+        cprojl(CMPLXL(3.0L, -(long double)__builtin_huge_val())), 1);
+    RCC_COMPLEX_API_PROJECTION_LONG_DOUBLE(
+        cprojl(CMPLXL((long double)__builtin_huge_val(),
+                      (long double)__builtin_nan(""))), 0);
+    RCC_COMPLEX_API_PROJECTION_LONG_DOUBLE(
+        cprojl(CMPLXL((long double)__builtin_nan(""),
+                      (long double)__builtin_huge_val())), 0);
     RCC_COMPLEX_API_CHECK_FLOAT(
         cpowf(CMPLXF(1.0f, 0.0f), CMPLXF(2.0f, 0.0f)), 1.0f, 0.0f);
     RCC_COMPLEX_API_CHECK_DOUBLE(
@@ -405,5 +468,8 @@ int rcc_complex_standard_api_all(void) {
 #undef RCC_COMPLEX_API_BRANCH_FLOAT
 #undef RCC_COMPLEX_API_BRANCH_DOUBLE
 #undef RCC_COMPLEX_API_BRANCH_LONG_DOUBLE
+#undef RCC_COMPLEX_API_PROJECTION_FLOAT
+#undef RCC_COMPLEX_API_PROJECTION_DOUBLE
+#undef RCC_COMPLEX_API_PROJECTION_LONG_DOUBLE
     return 0;
 }

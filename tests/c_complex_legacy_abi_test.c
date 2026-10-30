@@ -778,6 +778,76 @@ static void check_complex_branch_cuts(void) {
         assert(__builtin_signbit(__imag__ value_double));
         assert(__builtin_signbit(value_long_double.imaginary));
     }
+    {
+        RccLegacyComplexFloat projected_float;
+        RccLegacyComplexDouble projected_double;
+        RccLegacyComplexBinary64Pair projected_long_double;
+
+        projected_float = rcc_legacy_complex_api_cprojf(
+            __builtin_complex(-__builtin_huge_valf(), 3.0f));
+        assert(__real__ projected_float == INFINITY &&
+               __imag__ projected_float == 0.0f &&
+               !__builtin_signbit(__imag__ projected_float));
+        projected_float = rcc_legacy_complex_api_cprojf(
+            __builtin_complex(3.0f, -__builtin_huge_valf()));
+        assert(__real__ projected_float == INFINITY &&
+               __imag__ projected_float == 0.0f &&
+               __builtin_signbit(__imag__ projected_float));
+        projected_float = rcc_legacy_complex_api_cprojf(
+            __builtin_complex(__builtin_huge_valf(), __builtin_nanf("")));
+        assert(__real__ projected_float == INFINITY &&
+               __imag__ projected_float == 0.0f &&
+               !__builtin_signbit(__imag__ projected_float));
+        projected_float = rcc_legacy_complex_api_cprojf(
+            __builtin_complex(__builtin_nanf(""), __builtin_huge_valf()));
+        assert(__real__ projected_float == INFINITY &&
+               __imag__ projected_float == 0.0f &&
+               !__builtin_signbit(__imag__ projected_float));
+
+        projected_double = rcc_legacy_complex_api_cproj(
+            __builtin_complex(-__builtin_huge_val(), 3.0));
+        assert(__real__ projected_double == INFINITY &&
+               __imag__ projected_double == 0.0 &&
+               !__builtin_signbit(__imag__ projected_double));
+        projected_double = rcc_legacy_complex_api_cproj(
+            __builtin_complex(3.0, -__builtin_huge_val()));
+        assert(__real__ projected_double == INFINITY &&
+               __imag__ projected_double == 0.0 &&
+               __builtin_signbit(__imag__ projected_double));
+        projected_double = rcc_legacy_complex_api_cproj(
+            __builtin_complex(__builtin_huge_val(), __builtin_nan("")));
+        assert(__real__ projected_double == INFINITY &&
+               __imag__ projected_double == 0.0 &&
+               !__builtin_signbit(__imag__ projected_double));
+        projected_double = rcc_legacy_complex_api_cproj(
+            __builtin_complex(__builtin_nan(""), __builtin_huge_val()));
+        assert(__real__ projected_double == INFINITY &&
+               __imag__ projected_double == 0.0 &&
+               !__builtin_signbit(__imag__ projected_double));
+
+        projected_long_double = rcc_legacy_complex_api_cprojl(
+            (ComplexBinary64Pair){-(double)__builtin_huge_val(), 3.0});
+        assert(projected_long_double.real == INFINITY &&
+               projected_long_double.imaginary == 0.0 &&
+               !__builtin_signbit(projected_long_double.imaginary));
+        projected_long_double = rcc_legacy_complex_api_cprojl(
+            (ComplexBinary64Pair){3.0, -(double)__builtin_huge_val()});
+        assert(projected_long_double.real == INFINITY &&
+               projected_long_double.imaginary == 0.0 &&
+               __builtin_signbit(projected_long_double.imaginary));
+        projected_long_double = rcc_legacy_complex_api_cprojl(
+            (ComplexBinary64Pair){(double)__builtin_huge_val(),
+                                  __builtin_nan("")});
+        assert(projected_long_double.real == INFINITY &&
+               projected_long_double.imaginary == 0.0 &&
+               !__builtin_signbit(projected_long_double.imaginary));
+        projected_long_double = rcc_legacy_complex_api_cprojl(
+            (ComplexBinary64Pair){__builtin_nan(""),
+                                  (double)__builtin_huge_val()});
+        assert(projected_long_double.real == INFINITY &&
+               projected_long_double.imaginary == 0.0 &&
+               !__builtin_signbit(projected_long_double.imaginary));
+    }
 
 #undef RCC_ASSERT_FLOAT_BRANCH
 #undef RCC_ASSERT_DOUBLE_BRANCH
