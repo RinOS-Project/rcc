@@ -35,16 +35,72 @@
             tag##_object.value == tag##_desired.value ? 0 : 1; \
     }
 
+#define DEFINE_UNALIGNED_AGGREGATE_ATOMIC_SUITE( \
+    tag, member_type, initial_value, source_value, desired_value) \
+    typedef struct __attribute__((packed)) { \
+        member_type value; \
+    } tag##_unaligned_aggregate; \
+    typedef struct __attribute__((packed)) { \
+        unsigned char prefix; \
+        tag##_unaligned_aggregate value; \
+    } tag##_unaligned_storage; \
+    static volatile tag##_unaligned_storage \
+        tag##_unaligned_object_storage = {0u, {initial_value}}; \
+    static tag##_unaligned_aggregate tag##_unaligned_source = {source_value}; \
+    static tag##_unaligned_aggregate tag##_unaligned_result = {0}; \
+    static tag##_unaligned_aggregate tag##_unaligned_previous = {0}; \
+    static tag##_unaligned_aggregate tag##_unaligned_expected = {0}; \
+    static tag##_unaligned_aggregate tag##_unaligned_desired = {desired_value}; \
+    __attribute__((noinline)) int tag##_unaligned_atomic_suite(void) \
+    { \
+        volatile tag##_unaligned_aggregate* object = \
+            (volatile tag##_unaligned_aggregate*)( \
+                (volatile unsigned char*)&tag##_unaligned_object_storage + 1); \
+        int failed; \
+        int succeeded; \
+        object->value = (member_type)(initial_value); \
+        __atomic_store(object, &tag##_unaligned_source, __ATOMIC_RELEASE); \
+        __atomic_load(object, &tag##_unaligned_result, __ATOMIC_ACQUIRE); \
+        if (object->value != tag##_unaligned_source.value || \
+            tag##_unaligned_result.value != tag##_unaligned_source.value) \
+            return 1; \
+        object->value = (member_type)(initial_value); \
+        __atomic_exchange(object, &tag##_unaligned_source, \
+                          &tag##_unaligned_previous, __ATOMIC_ACQ_REL); \
+        if (object->value != tag##_unaligned_source.value || \
+            tag##_unaligned_previous.value != (member_type)(initial_value)) \
+            return 1; \
+        object->value = (member_type)(initial_value); \
+        tag##_unaligned_expected.value = (member_type)(source_value); \
+        tag##_unaligned_desired.value = (member_type)(desired_value); \
+        failed = __atomic_compare_exchange( \
+            object, &tag##_unaligned_expected, &tag##_unaligned_desired, 0, \
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE); \
+        succeeded = __atomic_compare_exchange( \
+            object, &tag##_unaligned_expected, &tag##_unaligned_desired, 0, \
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE); \
+        return !failed && succeeded && \
+            tag##_unaligned_expected.value == (member_type)(initial_value) && \
+            object->value == tag##_unaligned_desired.value ? 0 : 1; \
+    }
+
 DEFINE_AGGREGATE_ATOMIC_SUITE(byte, unsigned char, 0x19u, 0x53u, 0xa7u)
 DEFINE_AGGREGATE_ATOMIC_SUITE(half, unsigned short, 0x1937u, 0x5261u,
                               0xa7c5u)
 DEFINE_AGGREGATE_ATOMIC_SUITE(word, unsigned int, 0x10293847u, 0x50617283u,
                               0x94a5b6c7u)
+DEFINE_UNALIGNED_AGGREGATE_ATOMIC_SUITE(
+    packed_half, unsigned short, 0x1937u, 0x5261u, 0xa7c5u)
+DEFINE_UNALIGNED_AGGREGATE_ATOMIC_SUITE(
+    packed_word, unsigned int, 0x10293847u, 0x50617283u, 0x94a5b6c7u)
 #if defined(__x86_64__)
 DEFINE_AGGREGATE_ATOMIC_SUITE(wide, unsigned long long,
                               0x1029384750617283ULL,
                               0x94a5b6c713579bdfULL,
                               0x5061728394a5b6c7ULL)
+DEFINE_UNALIGNED_AGGREGATE_ATOMIC_SUITE(
+    packed_wide, unsigned long long, 0x1029384750617283ULL,
+    0x94a5b6c713579bdfULL, 0x5061728394a5b6c7ULL)
 #endif
 
 typedef union { unsigned int value; } word_union_aggregate;
@@ -377,6 +433,8 @@ int main(void)
         byte_aggregate_atomic_suite() == 0 &&
         half_aggregate_atomic_suite() == 0 &&
         word_aggregate_atomic_suite() == 0 &&
+        packed_half_unaligned_atomic_suite() == 0 &&
+        packed_word_unaligned_atomic_suite() == 0 &&
         local_volatile_aggregate_atomic() == 0 &&
         local_volatile_union_atomic() == 0 &&
         local_volatile_aggregate_initialized() == 0 &&
@@ -384,6 +442,7 @@ int main(void)
         static_volatile_aggregate_copy() == 0 &&
 #if defined(__x86_64__)
         wide_aggregate_atomic_suite() == 0 &&
+        packed_wide_unaligned_atomic_suite() == 0 &&
 #endif
         object_address_evaluations == 2u &&
         value_address_evaluations == 2u &&

@@ -20724,28 +20724,28 @@ test-verified-atomic-fetch-add: $(RCC_TARGET)
 		-o $(TEST_OUT)/verified-backend/atomic-generic-load-store-x86.ro \
 		tests/verified_backend_atomic_generic_load_store.c \
 		>$(TEST_OUT)/verified-backend/atomic-generic-load-store-x86.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 11 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/atomic-generic-load-store-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-generic-load-store-x86.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/atomic-generic-load-store-x86-o2.ro \
 		tests/verified_backend_atomic_generic_load_store.c \
 		>$(TEST_OUT)/verified-backend/atomic-generic-load-store-x86-o2.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 11 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/atomic-generic-load-store-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-generic-load-store-x86-o2.log,0)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/atomic-generic-load-store-x64.ro \
 		tests/verified_backend_atomic_generic_load_store.c \
 		>$(TEST_OUT)/verified-backend/atomic-generic-load-store-x64.log
-	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/atomic-generic-load-store-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-generic-load-store-x64.log,0)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/atomic-generic-load-store-x64-o2.ro \
 		tests/verified_backend_atomic_generic_load_store.c \
 		>$(TEST_OUT)/verified-backend/atomic-generic-load-store-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/atomic-generic-load-store-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-generic-load-store-x64-o2.log,0)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \

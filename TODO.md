@@ -12255,13 +12255,15 @@ remains a separate open item.
 ## RCC continuation (2026-10-30, typed-SSA generic aggregate atomics)
 
 - [x] Lower generic `__atomic_load`, `__atomic_store`, `__atomic_exchange`,
-      and `__atomic_compare_exchange` for complete, naturally aligned 1/2/4/8-
-      byte struct/union objects using a same-width integer object
-      representation. Require trivial copyability for C++ classes and limit
+      and `__atomic_compare_exchange` for complete 1/2/4/8-byte struct/union
+      objects, including packed under-aligned objects, using a same-width
+      integer representation. Require trivial copyability for C++ classes and limit
       8-byte operations to AMD64; preserve scalar-only `_n` and legacy `__sync`
       forms. The implementation reads and writes the full object
       representation, including padding, and uses the existing observable
-      atomic load, exchange, and compare-exchange IR operations.
+      atomic load, exchange, and compare-exchange IR operations. For packed
+      aggregate loads, locked zero-to-zero compare-exchange returns the
+      observed bytes atomically without changing the representation.
 - [x] Add runtime coverage for successful and failed aggregate compare-exchange
       plus aggregate load/store/exchange. `test-verified-atomic-fetch-add`
       passes i686/AMD64 compilation at `-O0`/`-O2` with zero fallback, AMD64
@@ -12292,13 +12294,23 @@ remains a separate open item.
       pointer-based whole-object copies. The aggregate gate passes i686/AMD64
       at `-O0`/`-O2` with zero fallback, AMD64 object execution, and GCC C17
       comparison; `test-verified-volatile` and `test-ir` pass.
-- [ ] Extend typed-SSA aggregate atomics to wider or under-aligned objects,
-      non-trivial C++ objects, and the full `std::atomic<T>` API/concurrency
-      model. Volatile aggregate TLS setup remains a separate typed-SSA gap.
 - [x] Update the LICM local-load regression for the valid case where a
       hoisted load is folded to its dominating stored value and the dead load
       instruction is removed. `test-ir` passes both x86 and x64 IR/MIR and
       native encoder execution checks.
+
+## RCC continuation (2026-10-31, typed-SSA under-aligned aggregate atomics)
+
+- [x] Lower generic aggregate load/store/exchange/compare-exchange for packed
+      2/4-byte objects on i686 and AMD64, plus packed 8-byte objects on AMD64.
+      Test objects are deliberately placed at offset one. The verified backend
+      compiles with zero fallback at `-O0`/`-O2`, executes AMD64 outputs, and
+      matches the GCC C17 fixture oracle via `test-verified-atomic-fetch-add`;
+      `test-ir` also passes.
+- [ ] Support aggregate widths outside 1/2/4/8 bytes and 8-byte objects on
+      i686, non-trivial C++ objects, and the full `std::atomic<T>` API and
+      concurrency model. Volatile aggregate TLS setup remains a separate
+      typed-SSA gap.
 
 ## RCC continuation (2026-10-31, verified scalar virtual-base construction)
 

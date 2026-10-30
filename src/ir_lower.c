@@ -11900,10 +11900,12 @@ static RccIrLowerValue lower_atomic_representation_cast(
 
 static bool lower_atomic_object_representation_type(
     Type* object_type, RccIrType* object_ir_type,
-    RccIrType* operation_type, bool* aggregate_representation) {
+    RccIrType* operation_type, bool* aggregate_representation,
+    bool* under_aligned_aggregate) {
     if (!object_type || !object_ir_type || !operation_type ||
         !aggregate_representation) return false;
     *aggregate_representation = false;
+    if (under_aligned_aggregate) *under_aligned_aggregate = false;
     if (lower_type(object_type, object_ir_type)) {
         return lower_atomic_representation_type(
             *object_ir_type, operation_type);
@@ -11913,7 +11915,6 @@ static bool lower_atomic_object_representation_type(
         !type_is_complete(object_type) || object_type->size <= 0 ||
         (object_type->size != 1 && object_type->size != 2 &&
          object_type->size != 4 && object_type->size != 8) ||
-        object_type->align < object_type->size ||
         object_type->cleanup_function || object_type->cleanup_field ||
         (object_type->cxx_class &&
          !rcc_sema_cxx_trivially_copyable(object_type)) ||
@@ -11924,14 +11925,19 @@ static bool lower_atomic_object_representation_type(
     *operation_type = rcc_ir_type_integer(
         (uint16_t)(object_type->size * 8));
     *aggregate_representation = true;
+    if (under_aligned_aggregate) {
+        *under_aligned_aggregate = object_type->align < object_type->size;
+    }
     return true;
 }
 
 static RccIrLowerValue lower_atomic_value_load(
     RccIrLowerContext* context, RccIrLowerValue address,
     const Type* object_type, RccIrType operation_type,
-    bool aggregate_representation) {
+    bool aggregate_representation, bool under_aligned_atomic_object) {
     RccIrInstruction* load;
+    RccIrLowerValue zero;
+    RccIrValue operands[3];
     if (!aggregate_representation) {
         return lower_load_address(context, address, object_type);
     }
@@ -11940,6 +11946,21 @@ static RccIrLowerValue lower_atomic_value_load(
         operation_type.kind != RCC_IR_TYPE_INTEGER) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
+    }
+    if (under_aligned_atomic_object) {
+        /* A plain load is not atomic when a packed aggregate is under-aligned.
+         * Locked CMPXCHG 0->0 returns the observed representation while
+         * providing an indivisible, sequentially consistent load. */
+        zero = lower_integer_constant(context, operation_type, true, 0u);
+        if (!zero.valid) return lower_invalid_value();
+        operands[0] = address.value;
+        operands[1] = zero.value;
+        operands[2] = zero.value;
+        load = lower_append(
+            context, RCC_IR_ATOMIC_COMPARE_EXCHANGE, operation_type,
+            operands, 3u, NULL, 0u);
+        if (!load) return lower_invalid_value();
+        return lower_value(load->result, operation_type, true);
     }
     load = lower_append(
         context, RCC_IR_LOAD, operation_type, &address.value, 1u,
@@ -12008,7 +12029,7 @@ static RccIrLowerValue lower_atomic_exchange_call(
     }
     if (!object_type || !lower_atomic_object_representation_type(
             object_type, &object_ir_type, &exchange_type,
-            &aggregate_representation) ||
+            &aggregate_representation, NULL) ||
         (aggregate_representation && !generic_builtin) ||
         (generic_builtin && (!desired_type || !result_type ||
          !type_is_compatible(object_type, desired_type) ||
@@ -12042,7 +12063,7 @@ static RccIrLowerValue lower_atomic_exchange_call(
         }
         desired = lower_atomic_value_load(
             context, desired_address, desired_type, exchange_type,
-            aggregate_representation);
+            aggregate_representation, false);
     }
     if (!object_address.valid ||
         object_address.type.kind != RCC_IR_TYPE_POINTER ||
@@ -12167,7 +12188,7 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
          !type_is_compatible(object_type, desired_type))) ||
         !lower_atomic_object_representation_type(
             object_type, &object_ir_type, &atomic_type,
-            &aggregate_representation) ||
+            &aggregate_representation, NULL) ||
         (aggregate_representation && !generic_builtin)) {
         context->unsupported = true;
         return lower_invalid_value();
@@ -12201,11 +12222,11 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
      * evaluated before either pointed-to value is loaded. */
     expected = lower_atomic_value_load(
         context, expected_address, expected_type, atomic_type,
-        aggregate_representation);
+        aggregate_representation, false);
     if (generic_builtin) {
         desired = lower_atomic_value_load(
             context, desired_address, desired_type, atomic_type,
-            aggregate_representation);
+            aggregate_representation, false);
     }
     if (!object_address.valid ||
         object_address.type.kind != RCC_IR_TYPE_POINTER ||
@@ -12386,6 +12407,7 @@ static RccIrLowerValue lower_atomic_load_store_call(
     RccIrLowerValue value = lower_invalid_value();
     RccIrLowerValue order;
     bool aggregate_representation = false;
+    bool under_aligned_aggregate = false;
     bool is_store = strcmp(name, "__atomic_store_n") == 0 ||
         strcmp(name, "__atomic_store") == 0;
 
@@ -12416,7 +12438,7 @@ static RccIrLowerValue lower_atomic_load_store_call(
     }
     if (!object_type || !lower_atomic_object_representation_type(
             object_type, &object_ir_type, &atomic_type,
-            &aggregate_representation) ||
+            &aggregate_representation, &under_aligned_aggregate) ||
         (aggregate_representation && !generic_builtin) ||
         (generic_builtin && (!value_type ||
          !type_is_compatible(object_type, value_type)))) {
@@ -12457,7 +12479,7 @@ static RccIrLowerValue lower_atomic_load_store_call(
         if (is_store) {
             value = lower_atomic_value_load(
                 context, value_address, value_type, atomic_type,
-                aggregate_representation);
+                aggregate_representation, false);
             if (!value.valid) return lower_invalid_value();
         }
     }
@@ -12465,7 +12487,7 @@ static RccIrLowerValue lower_atomic_load_store_call(
     if (!is_store) {
         value = lower_atomic_value_load(
             context, object_address, object_type, atomic_type,
-            aggregate_representation);
+            aggregate_representation, under_aligned_aggregate);
         if (!value.valid) return lower_invalid_value();
         if (!generic_builtin) return value;
         if (!lower_store_address(context, value_address, value)) {
