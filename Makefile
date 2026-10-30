@@ -17020,6 +17020,13 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(GREP) -F -q 'operator new' $(TEST_OUT)/cxx-class-specific-allocation/multiple-base-gcc.log
 	$(GREP) -F -q 'operator new[]' $(TEST_OUT)/cxx-class-specific-allocation/multiple-base-gcc.log
 	$(GREP) -F -q 'ambiguous' $(TEST_OUT)/cxx-class-specific-allocation/multiple-base-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-specific-allocation/multiple-using-x86.ro tests/cxx_class_allocation_multiple_using.cpp,$(TEST_OUT)/cxx-class-specific-allocation/multiple-using-x86.log)
+	$(GREP) -F -q "ambiguous overload for 'operator new'" $(TEST_OUT)/cxx-class-specific-allocation/multiple-using-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-specific-allocation/multiple-using-x64.ro tests/cxx_class_allocation_multiple_using.cpp,$(TEST_OUT)/cxx-class-specific-allocation/multiple-using-x64.log)
+	$(GREP) -F -q "ambiguous overload for 'operator new'" $(TEST_OUT)/cxx-class-specific-allocation/multiple-using-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_class_allocation_multiple_using.cpp,$(TEST_OUT)/cxx-class-specific-allocation/multiple-using-gcc.log)
+	$(GREP) -F -q 'ambiguous' $(TEST_OUT)/cxx-class-specific-allocation/multiple-using-gcc.log
+	$(GREP) -F -q 'operator new' $(TEST_OUT)/cxx-class-specific-allocation/multiple-using-gcc.log
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,7)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,11)
