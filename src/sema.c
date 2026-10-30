@@ -1972,6 +1972,102 @@ static Decl* sema_cxx_immediate_function_designator(Expr* expression) {
         ? declaration : NULL;
 }
 
+static bool sema_cxx_expression_has_immediate_function_designator(
+    Expr* expression) {
+    ExprList* item;
+    if (!expression) return false;
+    if ((expression->kind == EXPR_ADDR ||
+         expression->kind == EXPR_IDENT) &&
+        sema_cxx_immediate_function_designator(expression)) {
+        return true;
+    }
+    if ((expression->kind >= EXPR_ADD &&
+         expression->kind <= EXPR_OR) ||
+        (expression->kind >= EXPR_ASSIGN &&
+         expression->kind <= EXPR_RSHIFT_ASSIGN)) {
+        return sema_cxx_expression_has_immediate_function_designator(
+                   expression->binary_lhs) ||
+               sema_cxx_expression_has_immediate_function_designator(
+                   expression->binary_rhs);
+    }
+    switch (expression->kind) {
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return sema_cxx_expression_has_immediate_function_designator(
+                expression->unary_operand);
+        case EXPR_CAST:
+            return sema_cxx_expression_has_immediate_function_designator(
+                expression->cast_expr);
+        case EXPR_COND:
+            return sema_cxx_expression_has_immediate_function_designator(
+                       expression->cond_test) ||
+                   sema_cxx_expression_has_immediate_function_designator(
+                       expression->cond_then) ||
+                   sema_cxx_expression_has_immediate_function_designator(
+                       expression->cond_else);
+        case EXPR_COMMA:
+            return sema_cxx_expression_has_immediate_function_designator(
+                       expression->binary_lhs) ||
+                   sema_cxx_expression_has_immediate_function_designator(
+                       expression->binary_rhs);
+        case EXPR_CALL:
+            if (sema_cxx_immediate_function_designator(
+                    expression->call_func)) {
+                return false;
+            }
+            if (sema_cxx_expression_has_immediate_function_designator(
+                    expression->call_func)) {
+                return true;
+            }
+            for (item = expression->call_args; item; item = item->next) {
+                if (sema_cxx_expression_has_immediate_function_designator(
+                        item->expr)) {
+                    return true;
+                }
+            }
+            return false;
+        case EXPR_INDEX:
+            return sema_cxx_expression_has_immediate_function_designator(
+                       expression->index_base) ||
+                   sema_cxx_expression_has_immediate_function_designator(
+                       expression->index_expr);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return sema_cxx_expression_has_immediate_function_designator(
+                expression->member_base);
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return sema_cxx_expression_has_immediate_function_designator(
+                       expression->binary_lhs) ||
+                   sema_cxx_expression_has_immediate_function_designator(
+                       expression->binary_rhs);
+        case EXPR_COMPOUND:
+            for (item = expression->compound_init; item; item = item->next) {
+                if (sema_cxx_expression_has_immediate_function_designator(
+                        item->expr)) {
+                    return true;
+                }
+            }
+            return false;
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+        case EXPR_CXX_TYPEID:
+            /* These operands are unevaluated for function-pointer values. */
+            return false;
+        default:
+            return false;
+    }
+}
+
 static CxxNamespace* sema_decl_namespace(Decl* decl) {
     CxxNamespace* global_namespace = sema_cxx_global_namespace();
     if (!global_namespace || !decl) return global_namespace;
@@ -27109,7 +27205,7 @@ static Type* sema_expr(Expr* expr) {
                  !call_declaration->func_is_consteval)) {
                 for (argument = expr->call_args; argument;
                      argument = argument->next) {
-                    if (sema_cxx_immediate_function_designator(
+                    if (sema_cxx_expression_has_immediate_function_designator(
                             argument->expr)) {
                         rcc_error(argument->expr->loc,
                                   "cannot take address of an immediate function outside an immediate context");

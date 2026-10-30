@@ -111,6 +111,15 @@ consteval int invoke(int (*function)(tag*, int), int value) {
 consteval int increment(tag*, int value) {
     return value + 1;
 }
+
+int consume(int value, tag*) {
+    return value;
+}
+}
+
+int runtime_adl_consumer_call() {
+    return consume(immediate_adl::invoke(&immediate_adl::increment, 41),
+                   static_cast<immediate_adl::tag*>(nullptr));
 }
 
 constexpr float local_float(int value) {
@@ -302,6 +311,7 @@ int main(void) {
                    constexpr_dereferenced_indirect_consteval == 42 &&
                    constexpr_parameter_indirect_consteval == 42 &&
                    constexpr_adl_parameter_indirect_consteval == 42 &&
+                   runtime_adl_consumer_call() == 42 &&
                    constexpr_local_float == 5.0f &&
                    constexpr_loop_float == 2.0 &&
                    constexpr_dynamic == 42 &&

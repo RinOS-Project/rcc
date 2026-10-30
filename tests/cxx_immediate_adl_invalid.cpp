@@ -11,5 +11,5 @@ int consume(int (*function)(tag*)) {
 }
 
 int invalid_runtime_adl_immediate_pointer_argument() {
-    return consume(&immediate_adl_runtime::target);
+    return consume(true ? &immediate_adl_runtime::target : nullptr);
 }
