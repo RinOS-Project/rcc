@@ -12471,7 +12471,21 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
     /* Is this a method or a field? */
     if (match(TOK_LPAREN)) {
+        bool is_allocation_operator = name &&
+            (strcmp(name, "operator new") == 0 ||
+             strcmp(name, "operator new[]") == 0 ||
+             strcmp(name, "operator delete") == 0 ||
+             strcmp(name, "operator delete[]") == 0);
         /* Method */
+        /* Allocation and deallocation functions declared in class scope are
+         * static even when the source omits the `static` specifier. */
+        if (is_allocation_operator) {
+            is_static = true;
+            if (is_virtual) {
+                rcc_error(loc,
+                          "a class allocation or deallocation function cannot be virtual");
+            }
+        }
         if (has_explicit_alignment) {
             rcc_error(loc, "alignas cannot apply to a member function");
         }

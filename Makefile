@@ -16994,14 +16994,19 @@ test-cxx-is-function-builtin: $(RCXX_TARGET)
 test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-global-allocation-operators)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-global-allocation-fallback)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-specific-allocation)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-fsyntax-only tests/cxx_global_allocation_resolution.cpp
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-fsyntax-only tests/cxx_global_allocation_fallback.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-fsyntax-only tests/cxx_class_specific_allocation.cpp
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-operators,cxx_global_allocation_resolution.cpp,7)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)
+	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,5)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-global-allocation-operators/x86.ro \
 		tests/cxx_global_allocation_operators.cpp
@@ -17011,7 +17016,7 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_global_allocation_operators.cpp
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.ro tests/cxx_global_allocation_operator_signatures_invalid.cpp,$(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log)
-	$(GREP) -F -q "allocation function 'operator new' must return void*" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log
+	$(GREP) -F -q "class allocation function 'operator new' must return void*" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log
 	$(GREP) -F -q "allocation function 'operator new' must take std::size_t as its first parameter" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log
 	$(GREP) -F -q "allocation function 'operator new[]' first parameter cannot have a default argument" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log
 	$(GREP) -F -q "deallocation function 'operator delete' must return void" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log
@@ -17019,8 +17024,10 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(GREP) -F -q "must be declared at global namespace scope or in class scope" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log
 	$(GREP) -F -q "allocation function 'operator new[]' must take std::size_t as its first parameter" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log
 	$(GREP) -F -q "global allocation or deallocation function cannot be static" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log
+	$(GREP) -F -q "allocation function 'operator new' must return void*" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log
+	$(GREP) -F -q "class deallocation function 'operator delete' must take void* as its first parameter" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.ro tests/cxx_global_allocation_operator_signatures_invalid.cpp,$(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log)
-	$(GREP) -F -q "allocation function 'operator new' must return void*" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log
+	$(GREP) -F -q "class allocation function 'operator new' must return void*" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log
 	$(GREP) -F -q "allocation function 'operator new' must take std::size_t as its first parameter" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log
 	$(GREP) -F -q "allocation function 'operator new[]' first parameter cannot have a default argument" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log
 	$(GREP) -F -q "deallocation function 'operator delete' must return void" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log
@@ -17028,6 +17035,8 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(GREP) -F -q "must be declared at global namespace scope or in class scope" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log
 	$(GREP) -F -q "allocation function 'operator new[]' must take std::size_t as its first parameter" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log
 	$(GREP) -F -q "global allocation or deallocation function cannot be static" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log
+	$(GREP) -F -q "allocation function 'operator new' must return void*" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log
+	$(GREP) -F -q "class deallocation function 'operator delete' must take void* as its first parameter" $(TEST_OUT)/cxx-global-allocation-operators/invalid-x64.log
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_global_allocation_operator_signatures_invalid.cpp,$(TEST_OUT)/cxx-global-allocation-operators/invalid-gcc.log)
 	$(GREP) -F -q "operator new" $(TEST_OUT)/cxx-global-allocation-operators/invalid-gcc.log
 	$(GREP) -F -q "operator delete" $(TEST_OUT)/cxx-global-allocation-operators/invalid-gcc.log

@@ -24661,6 +24661,93 @@ static Decl* sema_cxx_resolve_global_allocation_function(
     return selected;
 }
 
+static Decl* sema_cxx_resolve_class_allocation_function(
+    Expr* call, CxxClass* owner, const char* operator_name,
+    bool* has_candidates) {
+    struct CxxMember* member;
+    struct CxxMember** candidate_members;
+    Decl** candidate_declarations;
+    Decl** candidate_wrappers;
+    Decl* wrapper_head = NULL;
+    Decl** wrapper_tail = &wrapper_head;
+    Decl* selected_wrapper;
+    int candidate_count = 0;
+
+    if (has_candidates) *has_candidates = false;
+    if (!call || !owner || !operator_name || !call->call_args) return NULL;
+    for (member = owner->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        const char* name = method ? method->source_name : NULL;
+        if (!name && member->decl) name = member->decl->name;
+        if (!name || strcmp(name, operator_name) != 0 ||
+            !member->decl || member->decl->kind != DECL_FUNC) {
+            continue;
+        }
+        if (candidate_count == INT_MAX) {
+            rcc_error(call->loc,
+                      "too many class allocation candidates for '%s'",
+                      operator_name);
+            return NULL;
+        }
+        ++candidate_count;
+    }
+    if (candidate_count == 0) return NULL;
+    if (has_candidates) *has_candidates = true;
+
+    candidate_members = ast_arena_alloc(
+        sizeof(*candidate_members) * (size_t)candidate_count);
+    candidate_declarations = ast_arena_alloc(
+        sizeof(*candidate_declarations) * (size_t)candidate_count);
+    candidate_wrappers = ast_arena_alloc(
+        sizeof(*candidate_wrappers) * (size_t)candidate_count);
+    candidate_count = 0;
+    for (member = owner->members; member; member = member->next) {
+        CxxMethod* method = member->method;
+        const char* name = method ? method->source_name : NULL;
+        Decl* wrapper;
+        if (!name && member->decl) name = member->decl->name;
+        if (!name || strcmp(name, operator_name) != 0 ||
+            !member->decl || member->decl->kind != DECL_FUNC) {
+            continue;
+        }
+        wrapper = ast_arena_alloc(sizeof(*wrapper));
+        *wrapper = *member->decl;
+        wrapper->func_overload_next = NULL;
+        *wrapper_tail = wrapper;
+        wrapper_tail = &wrapper->func_overload_next;
+        candidate_members[candidate_count] = member;
+        candidate_declarations[candidate_count] = member->decl;
+        candidate_wrappers[candidate_count] = wrapper;
+        ++candidate_count;
+    }
+
+    call->call_func = expr_ident(operator_name, call->loc);
+    call->call_func->ident_decl = wrapper_head;
+    call->call_func->type = wrapper_head ? wrapper_head->type : NULL;
+    selected_wrapper = sema_select_cxx_overload_candidates(
+        call, wrapper_head, NULL);
+    if (!selected_wrapper) return NULL;
+    for (int index = 0; index < candidate_count; ++index) {
+        if (candidate_wrappers[index] != selected_wrapper) continue;
+        member = candidate_members[index];
+        if (!sema_cxx_member_accessible(owner, (unsigned char)member->access)) {
+            rcc_error(call->loc,
+                      "selected class allocation function '%s' is inaccessible",
+                      operator_name);
+            return NULL;
+        }
+        call->call_func = expr_ident(
+            rcc_intern("__rcc_selected_allocation_operator"), call->loc);
+        call->call_func->ident_decl = candidate_declarations[index];
+        call->call_func->type = candidate_declarations[index]->type;
+        return candidate_declarations[index];
+    }
+    rcc_error(call->loc,
+              "selected class allocation function '%s' was not retained",
+              operator_name);
+    return NULL;
+}
+
 static Type* sema_expr(Expr* expr) {
     Expr* preanalyzed_binary_lhs = NULL;
     Type* preanalyzed_binary_lhs_type = NULL;
@@ -26762,10 +26849,21 @@ static Type* sema_expr(Expr* expr) {
                     deallocation_operator_name =
                         expr->call_delete_is_array
                             ? "operator delete[]" : "operator delete";
+                    bool has_class_candidates = false;
                     Decl* deallocation_function =
-                        sema_cxx_resolve_global_allocation_function(
-                            expr, deallocation_operator_name, "rin_free",
-                            type_ptr(type_void), true);
+                        !expr->call_delete_is_array &&
+                                object_type->cxx_class
+                            ? sema_cxx_resolve_class_allocation_function(
+                                  expr, object_type->cxx_class,
+                                  deallocation_operator_name,
+                                  &has_class_candidates)
+                            : NULL;
+                    if (!has_class_candidates) {
+                        deallocation_function =
+                            sema_cxx_resolve_global_allocation_function(
+                                expr, deallocation_operator_name, "rin_free",
+                                type_ptr(type_void), true);
+                    }
                     TypeParam* parameter = deallocation_function &&
                             deallocation_function->type &&
                             deallocation_function->type->kind == TYPE_FUNC
@@ -26870,6 +26968,7 @@ static Type* sema_expr(Expr* expr) {
                     Expr* deallocation_probe;
                     Expr* deallocation_pointer;
                     ExprList* deallocation_arguments = NULL;
+                    bool has_class_allocator_candidates = false;
                     const char* allocation_operator_name =
                         expr->call_new_is_array
                             ? "operator new[]" : "operator new";
@@ -26881,12 +26980,19 @@ static Type* sema_expr(Expr* expr) {
                          argument = argument->next) {
                         sema_expr(argument->expr);
                     }
-                    allocation_function =
-                        sema_cxx_resolve_global_allocation_function(
-                            expr, allocation_operator_name, "rin_malloc",
-                            g_opts.target_arch == ARCH_X64
-                                ? type_ullong : type_uint,
-                            false);
+                    allocation_function = cls && !expr->call_new_is_array
+                        ? sema_cxx_resolve_class_allocation_function(
+                              expr, cls, allocation_operator_name,
+                              &has_class_allocator_candidates)
+                        : NULL;
+                    if (!has_class_allocator_candidates) {
+                        allocation_function =
+                            sema_cxx_resolve_global_allocation_function(
+                                expr, allocation_operator_name, "rin_malloc",
+                                g_opts.target_arch == ARCH_X64
+                                    ? type_ullong : type_uint,
+                                false);
+                    }
                     if (!allocation_function) {
                         expr->type = object_type
                             ? type_ptr(object_type) : type_int;
@@ -26903,11 +27009,23 @@ static Type* sema_expr(Expr* expr) {
                     deallocation_probe = expr_call(
                         expr_ident(deallocation_operator_name, expr->loc),
                         deallocation_arguments, expr->loc);
-                    expr->call_new_deallocation_function =
-                        sema_cxx_resolve_global_allocation_function(
-                            deallocation_probe, deallocation_operator_name,
-                            "rin_free",
-                            type_ptr(type_void), true);
+                    {
+                        bool has_class_deallocator_candidates = false;
+                        expr->call_new_deallocation_function =
+                            cls && !expr->call_new_is_array
+                                ? sema_cxx_resolve_class_allocation_function(
+                                      deallocation_probe, cls,
+                                      deallocation_operator_name,
+                                      &has_class_deallocator_candidates)
+                                : NULL;
+                        if (!has_class_deallocator_candidates) {
+                            expr->call_new_deallocation_function =
+                                sema_cxx_resolve_global_allocation_function(
+                                    deallocation_probe,
+                                    deallocation_operator_name, "rin_free",
+                                    type_ptr(type_void), true);
+                        }
+                    }
                 } else {
                     /* Analyze the runtime allocator size through the normal
                      * call path, including dynamic array bounds. */
@@ -32763,16 +32881,19 @@ static void sema_validate_global_allocation_operator(Decl* declaration) {
     const char* leaf_name;
     bool is_allocation;
     bool is_deallocation;
+    bool is_class_member;
     const char* operation_name;
+    const char* function_kind;
     DeclList* first_parameter;
     Type* size_type;
 
     if (!rcc_parser_is_cxx_mode() || !declaration ||
-        declaration->kind != DECL_FUNC || declaration->func_method_owner ||
-        !declaration->name || !declaration->type ||
+        declaration->kind != DECL_FUNC || !declaration->name ||
+        !declaration->type ||
         declaration->type->kind != TYPE_FUNC) {
         return;
     }
+    is_class_member = declaration->func_method_owner != NULL;
     leaf_name = sema_cxx_decl_leaf_name(declaration->name);
     is_allocation = leaf_name &&
         (strcmp(leaf_name, "operator new") == 0 ||
@@ -32782,16 +32903,23 @@ static void sema_validate_global_allocation_operator(Decl* declaration) {
          strcmp(leaf_name, "operator delete[]") == 0);
     if (!is_allocation && !is_deallocation) return;
     operation_name = is_allocation ? "allocation" : "deallocation";
+    function_kind = is_class_member
+        ? (is_allocation ? "class allocation" : "class deallocation")
+        : operation_name;
 
-    if (declaration->func_cxx_namespace_scope &&
+    if (!is_class_member && declaration->func_cxx_namespace_scope &&
         declaration->func_cxx_namespace_scope != g_global_namespace) {
         rcc_error(declaration->loc,
                   "%s function '%s' must be declared at global namespace scope or in class scope",
                   operation_name, leaf_name);
     }
-    if (declaration->storage == STORAGE_STATIC) {
+    if (!is_class_member && declaration->storage == STORAGE_STATIC) {
         rcc_error(declaration->loc,
                   "global allocation or deallocation function cannot be static");
+    }
+    if (is_class_member && declaration->func_this_param) {
+        rcc_error(declaration->loc,
+                  "class allocation or deallocation function must be static");
     }
 
     if (is_allocation) {
@@ -32799,18 +32927,20 @@ static void sema_validate_global_allocation_operator(Decl* declaration) {
         size_type = g_opts.target_arch == ARCH_X64 ? type_ullong : type_uint;
         if (!sema_cxx_is_void_pointer_type(return_type)) {
             rcc_error(declaration->loc,
-                      "allocation function '%s' must return void*",
+                      "%s function '%s' must return void*", function_kind,
                       leaf_name);
         }
         first_parameter = declaration->func_params;
         if (!first_parameter || !first_parameter->decl ||
             !type_is_compatible(first_parameter->decl->type, size_type)) {
             rcc_error(declaration->loc,
-                      "allocation function '%s' must take std::size_t as its first parameter",
+                      "%s function '%s' must take std::size_t as its first parameter",
+                      function_kind,
                       leaf_name);
         } else if (first_parameter->decl->param_default) {
             rcc_error(first_parameter->decl->loc,
-                      "allocation function '%s' first parameter cannot have a default argument",
+                      "%s function '%s' first parameter cannot have a default argument",
+                      function_kind,
                       leaf_name);
         }
         return;
@@ -32819,14 +32949,15 @@ static void sema_validate_global_allocation_operator(Decl* declaration) {
     if (!declaration->type->ret_type ||
         declaration->type->ret_type->kind != TYPE_VOID) {
         rcc_error(declaration->loc,
-                  "deallocation function '%s' must return void",
+                  "%s function '%s' must return void", function_kind,
                   leaf_name);
     }
     first_parameter = declaration->func_params;
     if (!first_parameter || !first_parameter->decl ||
         !sema_cxx_is_void_pointer_type(first_parameter->decl->type)) {
         rcc_error(declaration->loc,
-                  "deallocation function '%s' must take void* as its first parameter",
+                  "%s function '%s' must take void* as its first parameter",
+                  function_kind,
                   leaf_name);
     }
 }

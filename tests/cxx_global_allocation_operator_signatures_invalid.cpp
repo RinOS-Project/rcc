@@ -12,3 +12,8 @@ void operator delete[](int*);
 namespace invalid_allocation_scope {
 void* operator new(size_type);
 }
+
+struct InvalidClassAllocationSignatures {
+    int operator new(size_type) { return 0; }
+    void operator delete(int*) noexcept {}
+};
