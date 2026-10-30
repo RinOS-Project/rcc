@@ -12470,6 +12470,18 @@ static void verify_inline_integer_expression_parameter(
                expected_operation == 0x1du) {
         call_site_name =
             "debug_inline_nonconstant_signed_long_long_volatile_local_pair_remainder_entry";
+    } else if (expected_constant == 7 &&
+               expected_operation == 0x1bu && source_name &&
+               strcmp(source_name,
+                      "debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_dividend") == 0) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_divide_entry";
+    } else if (expected_constant == 7 &&
+               expected_operation == 0x1du && source_name &&
+               strcmp(source_name,
+                      "debug_inline_nonconstant_unsigned_long_long_volatile_local_remainder_dividend") == 0) {
+        call_site_name =
+            "debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_remainder_entry";
     } else if (expected_constant == INT64_MIN + 3 &&
                expected_operation == 0x1bu) {
         call_site_name =
@@ -20565,6 +20577,26 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_unsigned_long_long_volatile_tls_constant_remainder_entry",
             "debug_inline_nonconstant_unsigned_long_long_volatile_tls_dividend",
             7u, true);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_dividend",
+            true, 0x1bu, 8u, 7, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_dividend",
+            true, 0x1bu, 8u, 7, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[2], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "debug_inline_nonconstant_unsigned_long_long_volatile_local_remainder_dividend",
+            true, 0x1du, 8u, 7, NULL, false);
+        verify_inline_integer_expression_parameter(
+            argv[4], ARCH_X86,
+            "debug_nonconstant_unsigned_long_long_parameter_inline",
+            "debug_inline_nonconstant_unsigned_long_long_volatile_local_remainder_dividend",
+            true, 0x1du, 8u, 7, NULL, false);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4du);
         verify_inline_global_wide_parameter(argv[9], ARCH_X64, 0x4du);
         verify_inline_global_wide_parameter(argv[7], ARCH_X64, 0x4eu);

@@ -12063,6 +12063,11 @@ remains a separate open item.
         emit no global relocations, and verify the signed boundary matrix for
         `/` and `%` in legacy and verified C objects. Focused and full DWARF
         gates pass.
+  - [x] Extend i686 unsigned constant-divisor division/remainder DWARF for
+        divisor 7 to escaped automatic volatile `unsigned long long` locals.
+        Resolve the frame location, emit no global relocations, and verify the
+        full-width input matrix for `/` and `%` in legacy and verified C
+        objects. Focused and full DWARF gates pass.
 
 ## RCC continuation (2026-10-28, C++20 relational rewrite candidate ranking)
 

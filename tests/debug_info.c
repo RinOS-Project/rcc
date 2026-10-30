@@ -49,6 +49,8 @@ volatile long long*
     debug_inline_nonconstant_signed_long_long_volatile_local_division_dividend_escape;
 volatile long long*
     debug_inline_nonconstant_signed_long_long_volatile_local_division_divisor_escape;
+volatile unsigned long long*
+    debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_escape;
 _Thread_local _Atomic long long
     debug_inline_nonconstant_signed_long_long_tls_atomic_bitwise_lhs =
         -0x7edcba9876543211ll;
@@ -968,6 +970,34 @@ long long debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_entry(
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_lhs ^
         debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_divide_entry(
+    unsigned long long dividend)
+{
+    volatile unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_dividend =
+            dividend;
+    debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_escape =
+        &debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_dividend;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_dividend /
+        7ull);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_remainder_entry(
+    unsigned long long dividend)
+{
+    volatile unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_volatile_local_remainder_dividend =
+            dividend;
+    debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_escape =
+        &debug_inline_nonconstant_unsigned_long_long_volatile_local_remainder_dividend;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_volatile_local_remainder_dividend %
+        7ull);
 }
 
 long long debug_inline_nonconstant_signed_long_long_atomic_constant_divide_entry(

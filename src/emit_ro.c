@@ -11209,8 +11209,6 @@ static bool debug_inline_parameter_i686_u64_div_constant_expression(
          !(dividend->var_is_global || dividend->var_is_static_local)) ||
         dividend->var_is_vla ||
         !dividend->type ||
-        (dividend->type->is_volatile &&
-         !(dividend->var_is_global || dividend->var_is_static_local)) ||
         dividend->type->is_reference ||
         (dividend->type->is_atomic &&
          !(dividend->var_is_global || dividend->var_is_static_local)) ||
