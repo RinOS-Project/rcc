@@ -9826,9 +9826,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             emit64_test_reg_reg(mod, RAX, RAX);
             emit64_jcc_label(mod, CC64_E, else_label);
             gen64_expr(mod, expr->cond_then);
+            gen64_convert_to_float(mod, expr->cond_then->type, expr->type);
             emit64_jmp_label(mod, end_label);
             emit64_label(mod, else_label);
             gen64_expr(mod, expr->cond_else);
+            gen64_convert_to_float(mod, expr->cond_else->type, expr->type);
             emit64_label(mod, end_label);
             break;
         }

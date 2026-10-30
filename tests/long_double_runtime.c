@@ -30,6 +30,11 @@ int main(void) {
     long double value = return_long_double(
         read_long_double(2.25, 7, 3.5L, 4.5));
     long double rounding_tie = 0x1.00000000000008p+0L;
+    volatile long double zero_base = 0.0L;
+    volatile long double negative_exponent = -1.0L;
+    volatile int select_positive_infinity = 1;
+    long double zero_negative_power;
+    double conditional_infinity;
     long double integral = 0.0L;
     int exponent = 0;
     int original_round = fegetround();
@@ -89,5 +94,57 @@ int main(void) {
     if (!__builtin_isinf(value) || !__builtin_signbit(value) ||
         (fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) == 0)
         return 14;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        !__builtin_isnan(asinl(2.0L)) ||
+        (fetestexcept(FE_INVALID) & FE_INVALID) == 0)
+        return 15;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        !__builtin_isnan(acoshl(0.5L)) ||
+        (fetestexcept(FE_INVALID) & FE_INVALID) == 0)
+        return 16;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        !__builtin_isnan(powl(-2.0L, 0.5L)) ||
+        (fetestexcept(FE_INVALID) & FE_INVALID) == 0)
+        return 17;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0) return 18;
+    zero_negative_power = powl(zero_base, negative_exponent);
+    if (!__builtin_isinf(zero_negative_power)) return 24;
+    if ((fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) == 0) return 23;
+    conditional_infinity = select_positive_infinity ? INFINITY : 0.0;
+    if (!__builtin_isinf(conditional_infinity)) return 25;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        !__builtin_isinf(expl(1000.0L)) ||
+        (fetestexcept(FE_OVERFLOW | FE_INEXACT) &
+         (FE_OVERFLOW | FE_INEXACT)) != (FE_OVERFLOW | FE_INEXACT))
+        return 19;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 || expl(-1000.0L) != 0.0L ||
+        (fetestexcept(FE_UNDERFLOW | FE_INEXACT) &
+         (FE_UNDERFLOW | FE_INEXACT)) != (FE_UNDERFLOW | FE_INEXACT))
+        return 20;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 || log1pl(-1.0L) != -INFINITY ||
+        (fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) == 0)
+        return 21;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        !__builtin_isnan(log1pl(-2.0L)) ||
+        (fetestexcept(FE_INVALID) & FE_INVALID) == 0)
+        return 22;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        !__builtin_isnan(logl(-1.0L)) ||
+        (fetestexcept(FE_INVALID) & FE_INVALID) == 0)
+        return 26;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0) return 27;
+    value = atanhl(1.0L);
+    if (!__builtin_isinf(value) || __builtin_signbit(value) ||
+        (fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) == 0)
+        return 28;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0) return 29;
+    value = atanhl(-1.0L);
+    if (!__builtin_isinf(value) || !__builtin_signbit(value) ||
+        (fetestexcept(FE_DIVBYZERO) & FE_DIVBYZERO) == 0)
+        return 30;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        !__builtin_isnan(atanhl(2.0L)) ||
+        (fetestexcept(FE_INVALID) & FE_INVALID) == 0)
+        return 31;
     return 0;
 }

@@ -15737,10 +15737,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             gen_expr(mod, expr->cond_test);
             emit_test_scalar_value(mod, expr->cond_test->type);
             emit_jcc_label(mod, CC_E, else_label);
-            gen_expr(mod, expr->cond_then);
+            gen_expr_as_type(mod, expr->cond_then, expr->type);
             emit_jmp_label(mod, end_label);
             emit_label(mod, else_label);
-            gen_expr(mod, expr->cond_else);
+            gen_expr_as_type(mod, expr->cond_else, expr->type);
             emit_label(mod, end_label);
             break;
         }
