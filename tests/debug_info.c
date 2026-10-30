@@ -1002,6 +1002,34 @@ debug_inline_nonconstant_unsigned_long_long_volatile_local_constant_remainder_en
         7ull);
 }
 
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_atomic_local_constant_divide_entry(
+    unsigned long long dividend)
+{
+    _Atomic unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_atomic_local_constant_dividend =
+            dividend;
+    debug_inline_nonconstant_unsigned_long_long_atomic_local_bitwise_escape =
+        &debug_inline_nonconstant_unsigned_long_long_atomic_local_constant_dividend;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_atomic_local_constant_dividend /
+        7ull);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_atomic_local_constant_remainder_entry(
+    unsigned long long dividend)
+{
+    _Atomic unsigned long long
+        debug_inline_nonconstant_unsigned_long_long_atomic_local_constant_remainder_dividend =
+            dividend;
+    debug_inline_nonconstant_unsigned_long_long_atomic_local_bitwise_escape =
+        &debug_inline_nonconstant_unsigned_long_long_atomic_local_constant_remainder_dividend;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_atomic_local_constant_remainder_dividend %
+        7ull);
+}
+
 long long
 debug_inline_nonconstant_signed_long_long_volatile_local_constant_divide_entry(
     long long dividend)
