@@ -433,7 +433,7 @@ static int rcc_complex_annex_g_hyperbolic(void) {
     return 0;
 }
 
-static int rcc_complex_catanh_annexg(void) {
+static int rcc_complex_annexg_exceptional_values(void) {
     RccComplexFloat value_float;
     RccComplexDouble value_double;
     RccComplexLongDouble value_long_double;
@@ -551,6 +551,65 @@ static int rcc_complex_catanh_annexg(void) {
             !__builtin_isnan(__imag__ value_double) ||
             !__builtin_isnan(__real__ value_long_double) ||
             !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+
+        value_float = ccoshf(CMPLXF(0.0f, __builtin_nanf("")));
+        value_double = ccosh(CMPLX(0.0, __builtin_nan("")));
+        value_long_double = ccoshl(
+            CMPLXL(0.0L, (long double)__builtin_nan("")));
+        if (!__builtin_isnan(__real__ value_float) ||
+            __imag__ value_float != 0.0f ||
+            !__builtin_isnan(__real__ value_double) ||
+            __imag__ value_double != 0.0 ||
+            !__builtin_isnan(__real__ value_long_double) ||
+            __imag__ value_long_double != 0.0L) return __LINE__;
+
+        value_float = csinhf(CMPLXF(0.0f, __builtin_nanf("")));
+        value_double = csinh(CMPLX(0.0, __builtin_nan("")));
+        value_long_double = csinhl(
+            CMPLXL(0.0L, (long double)__builtin_nan("")));
+        if (__real__ value_float != 0.0f ||
+            !__builtin_isnan(__imag__ value_float) ||
+            __real__ value_double != 0.0 ||
+            !__builtin_isnan(__imag__ value_double) ||
+            __real__ value_long_double != 0.0L ||
+            !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+
+        {
+            int sign;
+            for (sign = 0; sign != 2; ++sign) {
+                float finite_float = sign ? -1.0f : 1.0f;
+                double finite_double = sign ? -1.0 : 1.0;
+                long double finite_long_double = sign ? -1.0L : 1.0L;
+
+                value_float = ccoshf(CMPLXF(
+                    finite_float, __builtin_nanf("")));
+                value_double = ccosh(CMPLX(
+                    finite_double, __builtin_nan("")));
+                value_long_double = ccoshl(CMPLXL(
+                    finite_long_double, (long double)__builtin_nan("")));
+                if (!__builtin_isnan(__real__ value_float) ||
+                    !__builtin_isnan(__imag__ value_float) ||
+                    !__builtin_isnan(__real__ value_double) ||
+                    !__builtin_isnan(__imag__ value_double) ||
+                    !__builtin_isnan(__real__ value_long_double) ||
+                    !__builtin_isnan(__imag__ value_long_double))
+                    return __LINE__;
+
+                value_float = csinhf(CMPLXF(
+                    finite_float, __builtin_nanf("")));
+                value_double = csinh(CMPLX(
+                    finite_double, __builtin_nan("")));
+                value_long_double = csinhl(CMPLXL(
+                    finite_long_double, (long double)__builtin_nan("")));
+                if (!__builtin_isnan(__real__ value_float) ||
+                    !__builtin_isnan(__imag__ value_float) ||
+                    !__builtin_isnan(__real__ value_double) ||
+                    !__builtin_isnan(__imag__ value_double) ||
+                    !__builtin_isnan(__real__ value_long_double) ||
+                    !__builtin_isnan(__imag__ value_long_double))
+                    return __LINE__;
+            }
+        }
     return 0;
 }
 
@@ -1334,7 +1393,7 @@ int rcc_complex_standard_api_all(void) {
 
     }
 
-    if (rcc_complex_catanh_annexg() != 0) return __LINE__;
+    if (rcc_complex_annexg_exceptional_values() != 0) return __LINE__;
 
 #undef RCC_COMPLEX_API_CHECK_FLOAT
 #undef RCC_COMPLEX_API_CHECK_DOUBLE

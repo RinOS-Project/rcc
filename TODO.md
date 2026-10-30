@@ -1,6 +1,6 @@
 # rcc v3 実装状況
 
-## RCC continuation (2026-10-31, Annex G catanh exceptional values)
+## RCC continuation (2026-10-31, Annex G exceptional values)
 
 - [x] Exercise C99 Annex G G.6.3.3 `catanh` with positive/negative
   infinities and quiet NaNs, NaN paired with either signed infinity, signed
@@ -9,6 +9,12 @@
   legacy and verified generated callers. `test-complex-legacy` passes with
   verified i686/AMD64 generation, verified AMD64 O0/O2 execution, and legacy
   i686/AMD64 execution.
+- [x] Cover Annex G G.6.3.4/.5 `ccosh`/`csinh` NaN cases at zero and both
+  signs of finite nonzero real input for float, double, and RinOS binary64
+  `long double`. Check the specified zero/NaN result classifications through
+  legacy and verified generated callers without requiring the optional
+  `FE_INVALID` flag. `test-complex-legacy` passes on i686/AMD64 generation and
+  execution paths.
 
 ## RCC continuation (2026-10-30, floating math builtins)
 
