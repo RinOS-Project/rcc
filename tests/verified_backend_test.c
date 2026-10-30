@@ -320,18 +320,27 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
                     relocation->offset;
                 if (relocation->type == RELOC_REL32) {
                     if (symbol->section < 0) {
-                        static const uint8_t trampoline_prefix[] = {
-                            0x48u, 0xb8u
-                        };
                         uint8_t* trampoline =
                             (uint8_t*)memory + trampoline_offset;
-                        uint64_t absolute_target = (uint64_t)target_address;
-                        memcpy(trampoline, trampoline_prefix,
-                               sizeof(trampoline_prefix));
-                        memcpy(trampoline + 2u, &absolute_target,
-                               sizeof(absolute_target));
-                        trampoline[10] = 0xffu;
-                        trampoline[11] = 0xe0u;
+                        if (object->arch == ARCH_X86) {
+                            uint32_t absolute_target;
+                            assert(target_address <= UINT32_MAX);
+                            absolute_target = (uint32_t)target_address;
+                            trampoline[0] = 0xb8u;
+                            memcpy(trampoline + 1u, &absolute_target,
+                                   sizeof(absolute_target));
+                            trampoline[5] = 0xffu;
+                            trampoline[6] = 0xe0u;
+                        } else {
+                            uint64_t absolute_target =
+                                (uint64_t)target_address;
+                            trampoline[0] = 0x48u;
+                            trampoline[1] = 0xb8u;
+                            memcpy(trampoline + 2u, &absolute_target,
+                                   sizeof(absolute_target));
+                            trampoline[10] = 0xffu;
+                            trampoline[11] = 0xe0u;
+                        }
                         target = (int64_t)(uintptr_t)trampoline +
                             relocation->addend;
                         trampoline_offset += 16u;
@@ -4150,7 +4159,8 @@ static void verify_cxx_global_array_placement_object(
         void* memory;
         void* address;
         int (RINOS_ABI *entry)(void);
-        assert(arch == ARCH_X64 && sizeof(void*) == 8u);
+        assert((arch == ARCH_X64 && sizeof(void*) == 8u) ||
+               (arch == ARCH_X86 && sizeof(void*) == 4u));
         memory = map_text(object, text, &mapping_size);
         address = symbol_address(memory, entry_symbol);
         memcpy(&entry, &address, sizeof(entry));
@@ -6528,7 +6538,7 @@ int main(int argc, char** argv)
         bool execute;
         if (strcmp(argv[3], "x86") == 0) {
             arch = ARCH_X86;
-            execute = false;
+            execute = sizeof(void*) == 4u;
         } else {
             assert(strcmp(argv[3], "x64") == 0);
             arch = ARCH_X64;

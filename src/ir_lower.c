@@ -21721,6 +21721,7 @@ typedef struct {
     const Type* type;
     RccIrType ir_type;
     size_t offset;
+    size_t word_count;
 } RccIrCxxPlacementCleanupField;
 
 typedef struct {
@@ -21731,6 +21732,35 @@ typedef struct {
     size_t record_size;
     size_t record_alignment;
 } RccIrCxxPlacementCleanup;
+
+static Type* lower_cxx_array_allocation_function_type(
+    const Expr* expression) {
+    Type* function_type = expression && expression->call_abi_function_type
+        ? expression->call_abi_function_type
+        : expression && expression->call_func
+            ? expression->call_func->type : NULL;
+    if (function_type && function_type->kind == TYPE_PTR) {
+        function_type = function_type->base;
+    }
+    return function_type && function_type->kind == TYPE_FUNC
+        ? function_type : NULL;
+}
+
+static bool lower_cxx_placement_argument_ir_type(
+    const Type* type, RccIrType* ir_type, size_t* word_count) {
+    if (!type || !ir_type || !word_count) return false;
+    if (g_opts.target_arch == ARCH_X86 && !type->is_reference &&
+        lower_i686_wide_scalar_type(type)) {
+        *ir_type = rcc_ir_type_integer(32u);
+        *word_count = 2u;
+        return true;
+    }
+    if (!lower_type(type, ir_type) || ir_type->kind == RCC_IR_TYPE_VOID) {
+        return false;
+    }
+    *word_count = 1u;
+    return true;
+}
 
 static bool lower_cxx_make_array_placement_cleanup(
     RccIrLowerContext* context, const Decl* deallocation,
@@ -21764,9 +21794,12 @@ static bool lower_cxx_make_array_placement_cleanup(
     parameter = deallocation->type->params->next;
     for (argument = placement_arguments; argument;
          argument = argument->next) {
+        RccIrType field_type;
+        size_t field_word_count;
         if (!parameter || !parameter->type || !argument->expr ||
             argument->designator_kind != INIT_DESIGNATOR_NONE ||
-            !lower_type(parameter->type, &(RccIrType){0}) ||
+            !lower_cxx_placement_argument_ir_type(
+                parameter->type, &field_type, &field_word_count) ||
             parameter->type->size <= 0 || parameter->type->align <= 0) {
             context->unsupported = true;
             return false;
@@ -21793,12 +21826,13 @@ static bool lower_cxx_make_array_placement_cleanup(
          parameter = parameter->next) {
         size_t field_alignment = (size_t)parameter->type->align;
         size_t field_size = (size_t)parameter->type->size;
+        size_t field_word_count;
         size_t remainder;
         if (field_alignment > 8u ||
             (field_alignment & (field_alignment - 1u)) != 0u ||
-            !lower_type(parameter->type,
-                        &cleanup->fields[index].ir_type) ||
-            cleanup->fields[index].ir_type.kind == RCC_IR_TYPE_VOID ||
+            !lower_cxx_placement_argument_ir_type(
+                parameter->type, &cleanup->fields[index].ir_type,
+                &field_word_count) ||
             field_size > 8u) {
             context->unsupported = true;
             return false;
@@ -21819,6 +21853,7 @@ static bool lower_cxx_make_array_placement_cleanup(
         }
         cleanup->fields[index].type = parameter->type;
         cleanup->fields[index].offset = offset;
+        cleanup->fields[index].word_count = field_word_count;
         offset += field_size;
     }
     if (alignment > 8u) {
@@ -21877,36 +21912,64 @@ static bool lower_cxx_make_array_placement_cleanup(
         return false;
     }
     allocation_address = lower_value(load->result, callback_parameter, true);
-    call_operands = rcc_alloc((field_count + 1u) * sizeof(*call_operands));
+    size_t call_operand_count = 1u;
+    for (index = 0u; index < field_count; ++index) {
+        if (cleanup->fields[index].word_count >
+            SIZE_MAX - call_operand_count) {
+            context->unsupported = true;
+            return false;
+        }
+        call_operand_count += cleanup->fields[index].word_count;
+    }
+    if (call_operand_count > SIZE_MAX / sizeof(*call_operands)) {
+        context->unsupported = true;
+        return false;
+    }
+    call_operands = rcc_alloc(call_operand_count * sizeof(*call_operands));
     if (!call_operands) {
         context->unsupported = true;
         return false;
     }
     call_operands[0] = allocation_address.value;
+    size_t call_operand_index = 1u;
     for (index = 0u; index < field_count; ++index) {
         RccIrLowerValue field_address = lower_byte_offset_address(
             &callback_context, record, (uint64_t)cleanup->fields[index].offset);
-        RccIrInstruction* field_load;
         if (!field_address.valid) {
             rcc_free(call_operands);
             context->unsupported = true;
             return false;
         }
-        field_load = lower_append(
-            &callback_context, RCC_IR_LOAD,
-            cleanup->fields[index].ir_type,
-            &field_address.value, 1u, NULL, 0u);
-        if (!field_load) {
-            rcc_free(call_operands);
-            context->unsupported = true;
-            return false;
+        for (size_t word = 0u;
+             word < cleanup->fields[index].word_count; ++word) {
+            RccIrLowerValue word_address = field_address;
+            RccIrInstruction* field_load;
+            if (word != 0u) {
+                word_address = lower_byte_offset_address(
+                    &callback_context, field_address,
+                    (uint64_t)(word * 4u));
+            }
+            if (!word_address.valid) {
+                rcc_free(call_operands);
+                context->unsupported = true;
+                return false;
+            }
+            field_load = lower_append(
+                &callback_context, RCC_IR_LOAD,
+                cleanup->fields[index].ir_type,
+                &word_address.value, 1u, NULL, 0u);
+            if (!field_load) {
+                rcc_free(call_operands);
+                context->unsupported = true;
+                return false;
+            }
+            call_operands[call_operand_index++] = field_load->result;
         }
-        call_operands[index + 1u] = field_load->result;
     }
     {
         RccIrInstruction* call = lower_append(
             &callback_context, RCC_IR_CALL, rcc_ir_type_void(),
-            call_operands, field_count + 1u, NULL, 0u);
+            call_operands, call_operand_count, NULL, 0u);
         rcc_free(call_operands);
         if (!call) {
             context->unsupported = true;
@@ -22723,6 +22786,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     RccIrValue* allocation_operands;
     RccIrInstruction* arithmetic;
     RccIrCxxPlacementCleanup placement_cleanup;
+    Type* allocation_function_type;
     RccIrLowerValue allocation_cleanup_object;
     const char* allocation_cleanup_name = NULL;
     size_t word_size;
@@ -22757,6 +22821,8 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         allocation_name = decl_link_name(
             expression->call_func->ident_decl);
     }
+    allocation_function_type =
+        lower_cxx_array_allocation_function_type(expression);
     cls = expression->call_new_type->cxx_class;
     default_constructor = expression->call_new_default_constructor;
     constructor_decl = expression->call_new_constructor &&
@@ -22922,10 +22988,32 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         if (!arithmetic) return lower_invalid_value();
         allocation_size = lower_value(arithmetic->result, word_type, true);
     }
+    TypeParam* allocation_parameter = allocation_function_type
+        ? allocation_function_type->params : NULL;
+    if (allocation_parameter) allocation_parameter = allocation_parameter->next;
     for (const ExprList* placement_argument =
              expression->call_args ? expression->call_args->next : NULL;
          placement_argument; placement_argument = placement_argument->next) {
-        ++allocation_operand_count;
+        RccIrType ignored_type;
+        size_t argument_word_count;
+        const Type* argument_type = allocation_parameter
+            ? allocation_parameter->type
+            : placement_argument->expr ? placement_argument->expr->type : NULL;
+        if (!lower_cxx_placement_argument_ir_type(
+                argument_type, &ignored_type, &argument_word_count) ||
+            argument_word_count > SIZE_MAX - allocation_operand_count) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        allocation_operand_count += argument_word_count;
+        if (allocation_parameter) {
+            allocation_parameter = allocation_parameter->next;
+        }
+    }
+    if (allocation_parameter ||
+        allocation_operand_count > SIZE_MAX / sizeof(*allocation_operands)) {
+        context->unsupported = true;
+        return lower_invalid_value();
     }
     allocation_operands = rcc_alloc(
         allocation_operand_count * sizeof(*allocation_operands));
@@ -22935,23 +23023,60 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     }
     allocation_operands[0] = allocation_size.value;
     size_t allocation_operand_index = 1u;
+    allocation_parameter = allocation_function_type
+        ? allocation_function_type->params : NULL;
+    if (allocation_parameter) allocation_parameter = allocation_parameter->next;
     for (const ExprList* placement_argument =
              expression->call_args ? expression->call_args->next : NULL;
          placement_argument;
-         placement_argument = placement_argument->next,
-         ++allocation_operand_index) {
-        RccIrLowerValue placement_value;
+         placement_argument = placement_argument->next) {
+        const Type* argument_type = allocation_parameter
+            ? allocation_parameter->type
+            : placement_argument->expr ? placement_argument->expr->type : NULL;
+        RccIrType ignored_type;
+        size_t argument_word_count;
         if (!placement_argument->expr) {
             rcc_free(allocation_operands);
             context->unsupported = true;
             return lower_invalid_value();
         }
-        placement_value = lower_expression(context, placement_argument->expr);
-        if (!placement_value.valid) {
+        if (!lower_cxx_placement_argument_ir_type(
+                argument_type, &ignored_type, &argument_word_count)) {
             rcc_free(allocation_operands);
+            context->unsupported = true;
             return lower_invalid_value();
         }
-        allocation_operands[allocation_operand_index] = placement_value.value;
+        if (argument_word_count == 2u) {
+            RccIrLowerWideValue wide_value;
+            if (!lower_i686_wide_scalar_type(argument_type) ||
+                !lower_wide_scalar_expression(
+                    context, placement_argument->expr, &wide_value)) {
+                rcc_free(allocation_operands);
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            allocation_operands[allocation_operand_index++] =
+                wide_value.low.value;
+            allocation_operands[allocation_operand_index++] =
+                wide_value.high.value;
+        } else {
+            RccIrLowerValue placement_value = lower_expression(
+                context, placement_argument->expr);
+            if (!placement_value.valid) {
+                rcc_free(allocation_operands);
+                return lower_invalid_value();
+            }
+            allocation_operands[allocation_operand_index++] =
+                placement_value.value;
+        }
+        if (allocation_parameter) {
+            allocation_parameter = allocation_parameter->next;
+        }
+    }
+    if (allocation_operand_index != allocation_operand_count) {
+        rcc_free(allocation_operands);
+        context->unsupported = true;
+        return lower_invalid_value();
     }
     memset(&placement_cleanup, 0, sizeof(placement_cleanup));
     has_placement_arguments = expression->call_args &&
@@ -22997,6 +23122,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         RccIrLowerValue field_address;
         const ExprList* placement_argument = expression->call_args->next;
         RccIrValue allocator_value = allocator_address.value;
+        size_t placement_operand_index = 1u;
         if (!lower_store_address(context, placement_cleanup.record,
                 lower_value(allocator_value,
                             rcc_ir_type_pointer(0u), true))) {
@@ -23007,6 +23133,29 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         for (size_t field_index = 0u;
              field_index < placement_cleanup.field_count;
              ++field_index, placement_argument = placement_argument->next) {
+            if (placement_cleanup.fields[field_index].word_count == 2u) {
+                RccIrType word_type = rcc_ir_type_integer(32u);
+                RccIrLowerValue low = lower_value(
+                    allocation_operands[placement_operand_index++],
+                    word_type, true);
+                RccIrLowerValue high = lower_value(
+                    allocation_operands[placement_operand_index++],
+                    word_type, true);
+                RccIrLowerValue high_address;
+                field_address = lower_byte_offset_address(
+                    context, placement_cleanup.record,
+                    (uint64_t)placement_cleanup.fields[field_index].offset);
+                high_address = lower_byte_offset_address(
+                    context, field_address, 4u);
+                if (!field_address.valid || !high_address.valid ||
+                    !lower_store_address(context, field_address, low) ||
+                    !lower_store_address(context, high_address, high)) {
+                    rcc_free(allocation_operands);
+                    rcc_free(placement_cleanup.fields);
+                    return lower_invalid_value();
+                }
+                continue;
+            }
             RccIrType source_type;
             RccIrLowerValue source_value;
             RccIrLowerValue converted_value;
@@ -23018,7 +23167,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
                 return lower_invalid_value();
             }
             source_value = lower_value(
-                allocation_operands[field_index + 1u], source_type,
+                allocation_operands[placement_operand_index], source_type,
                 placement_argument->expr->type->is_unsigned);
             converted_value = lower_cast(
                 context, source_value,
@@ -23033,6 +23182,13 @@ static RccIrLowerValue lower_cxx_new_array_expression(
                 rcc_free(placement_cleanup.fields);
                 return lower_invalid_value();
             }
+            ++placement_operand_index;
+        }
+        if (placement_operand_index != allocation_operand_count) {
+            rcc_free(allocation_operands);
+            rcc_free(placement_cleanup.fields);
+            context->unsupported = true;
+            return lower_invalid_value();
         }
     }
     rcc_free(allocation_operands);

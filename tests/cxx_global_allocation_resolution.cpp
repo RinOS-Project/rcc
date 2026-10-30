@@ -17,6 +17,7 @@ static int placement_array_new_calls;
 static int placement_array_delete_calls;
 static int placement_array_regular_delete_calls;
 static int placement_array_delete_argument_matches;
+static unsigned int placement_array_delete_argument_mismatch;
 static int placement_array_marker;
 static allocation_size_type placement_array_last_size;
 static int placement_array_state;
@@ -76,12 +77,14 @@ struct ThrowingPlacementArray {
         float narrow_ratio,
         double factor_a, double factor_b, double factor_c, double factor_d,
         double factor_e, double factor_f, double factor_g, double factor_h,
+        unsigned long long cookie,
         int spill_a, int spill_b, int spill_c, int spill_d);
     static void operator delete[](
         void* pointer, int* state, int marker, double ratio,
         float narrow_ratio,
         double factor_a, double factor_b, double factor_c, double factor_d,
         double factor_e, double factor_f, double factor_g, double factor_h,
+        unsigned long long cookie,
         int spill_a, int spill_b, int spill_c, int spill_d) noexcept;
     static void operator delete[](void* pointer) noexcept;
 
@@ -105,6 +108,7 @@ void* ThrowingPlacementArray::operator new[](
     float narrow_ratio,
     double factor_a, double factor_b, double factor_c, double factor_d,
     double factor_e, double factor_f, double factor_g, double factor_h,
+    unsigned long long cookie,
     int spill_a, int spill_b, int spill_c, int spill_d) {
     placement_array_last_size = size;
     if (state == &placement_array_state && marker == 0x1357 &&
@@ -112,6 +116,7 @@ void* ThrowingPlacementArray::operator new[](
         factor_a == 1.5 && factor_b == 3.5 &&
         factor_c == 4.5 && factor_d == 5.5 && factor_e == 6.5 &&
         factor_f == 7.5 && factor_g == 8.5 && factor_h == 9.5 &&
+        cookie == 0x1122334455667788ULL &&
         spill_a == 11 && spill_b == 13 &&
         spill_c == 17 && spill_d == 19) {
         ++placement_array_new_calls;
@@ -124,16 +129,30 @@ void ThrowingPlacementArray::operator delete[](
     float narrow_ratio,
     double factor_a, double factor_b, double factor_c, double factor_d,
     double factor_e, double factor_f, double factor_g, double factor_h,
+    unsigned long long cookie,
     int spill_a, int spill_b, int spill_c, int spill_d) noexcept {
     if (pointer == &placement_array_slot[0]) {
+        unsigned int mismatch = 0u;
         ++placement_array_delete_calls;
-        if (state == &placement_array_state && marker == 0x1357 &&
-            ratio == 2.5 && narrow_ratio == 1.25f &&
-            factor_a == 1.5 && factor_b == 3.5 &&
-            factor_c == 4.5 && factor_d == 5.5 && factor_e == 6.5 &&
-            factor_f == 7.5 && factor_g == 8.5 && factor_h == 9.5 &&
-            spill_a == 11 && spill_b == 13 &&
-            spill_c == 17 && spill_d == 19) {
+        if (state != &placement_array_state) mismatch |= 1u << 0;
+        if (marker != 0x1357) mismatch |= 1u << 1;
+        if (ratio != 2.5) mismatch |= 1u << 2;
+        if (narrow_ratio != 1.25f) mismatch |= 1u << 3;
+        if (factor_a != 1.5) mismatch |= 1u << 4;
+        if (factor_b != 3.5) mismatch |= 1u << 5;
+        if (factor_c != 4.5) mismatch |= 1u << 6;
+        if (factor_d != 5.5) mismatch |= 1u << 7;
+        if (factor_e != 6.5) mismatch |= 1u << 8;
+        if (factor_f != 7.5) mismatch |= 1u << 9;
+        if (factor_g != 8.5) mismatch |= 1u << 10;
+        if (factor_h != 9.5) mismatch |= 1u << 11;
+        if (cookie != 0x1122334455667788ULL) mismatch |= 1u << 12;
+        if (spill_a != 11) mismatch |= 1u << 13;
+        if (spill_b != 13) mismatch |= 1u << 14;
+        if (spill_c != 17) mismatch |= 1u << 15;
+        if (spill_d != 19) mismatch |= 1u << 16;
+        placement_array_delete_argument_mismatch |= mismatch;
+        if (mismatch == 0u) {
             ++placement_array_delete_argument_matches;
         }
     }
@@ -186,6 +205,7 @@ int main() {
         ThrowingPlacementArray* throwing_objects =
             new (&placement_array_state, placement_array_marker, 2.5,
                  1.25f, 1.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5,
+                 0x1122334455667788ULL,
                  11, 13, 17, 19)
                 ThrowingPlacementArray[3]{
                 17, 31, 41};
@@ -215,6 +235,14 @@ int main() {
             return 30 + placement_array_destructor_calls * 10 +
                 placement_array_delete_calls;
         }
+        if (placement_array_delete_argument_mismatch != 0u) {
+            for (unsigned int index = 0u; index < 17u; ++index) {
+                if ((placement_array_delete_argument_mismatch &
+                     (1u << index)) != 0u) {
+                    return 70 + (int)index;
+                }
+            }
+        }
         if (placement_array_delete_argument_matches != 1) return 50;
         if (placement_array_regular_delete_calls != 0) return 28;
         return 29;
@@ -226,11 +254,13 @@ int main() {
     placement_array_delete_calls = 0;
     placement_array_regular_delete_calls = 0;
     placement_array_delete_argument_matches = 0;
+    placement_array_delete_argument_mismatch = 0u;
     placement_array_exception = 0;
     try {
         ThrowingPlacementArray* throwing_default_objects =
             new (&placement_array_state, placement_array_marker, 2.5,
                  1.25f, 1.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5,
+                 0x1122334455667788ULL,
                  11, 13, 17, 19)
                 ThrowingPlacementArray[3];
         delete[] throwing_default_objects;
@@ -254,6 +284,14 @@ int main() {
         if (placement_array_default_constructor_calls != 3) return 63;
         if (placement_array_destructor_calls != 2 ||
             placement_array_delete_calls != 1) return 64;
+        if (placement_array_delete_argument_mismatch != 0u) {
+            for (unsigned int index = 0u; index < 17u; ++index) {
+                if ((placement_array_delete_argument_mismatch &
+                     (1u << index)) != 0u) {
+                    return 90 + (int)index;
+                }
+            }
+        }
         if (placement_array_delete_argument_matches != 1) return 65;
         if (placement_array_regular_delete_calls != 0) return 66;
         return 67;

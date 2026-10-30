@@ -16993,7 +16993,13 @@ test-cxx-is-function-builtin: $(RCXX_TARGET)
 		tests/cxx_is_function_builtin.cpp
 	@echo "C++ __is_function builtin tests completed"
 
-test-cxx-global-allocation-operators: $(RCXX_TARGET)
+test-cxx-global-allocation-operators: $(RCXX_TARGET) \
+	$(CXX_HOST_EXCEPTION_RUNTIME) $(CXX_STATIC_REFERENCE_GUARD_RUNTIME)
+ifneq ($(OS),Windows_NT)
+test-cxx-global-allocation-operators: \
+	$(CXX_HOST_EXCEPTION_RUNTIME_I686) \
+	$(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686)
+endif
 	$(call MKDIR_P,$(TEST_OUT)/cxx-global-allocation-operators)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-global-allocation-fallback)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-specific-allocation)
@@ -17058,6 +17064,20 @@ test-cxx-global-allocation-operators: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-global-allocation-operators/verified-run \
 		--cxx-global-array-placement-object \
 		$(TEST_OUT)/cxx-global-allocation-operators/verified-x64.ro x64
+ifneq ($(OS),Windows_NT)
+	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) \
+		$(VERIFIED_BACKEND_X86_HOST_LINK_FLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/cxx-global-allocation-operators/verified-run-x86 \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME_I686) \
+		$(CXX_STATIC_REFERENCE_GUARD_RUNTIME_I686)
+	$(TEST_OUT)/cxx-global-allocation-operators/verified-run-x86 \
+		--cxx-global-array-placement-object \
+		$(TEST_OUT)/cxx-global-allocation-operators/verified-x86.ro x86
+	$(TEST_OUT)/cxx-global-allocation-operators/verified-run-x86 \
+		--cxx-global-array-placement-object \
+		$(TEST_OUT)/cxx-global-allocation-operators/verified-x86-o2.ro x86
+endif
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-global-allocation-fallback,cxx_global_allocation_fallback.cpp,3)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-specific-allocation,cxx_class_specific_allocation.cpp,19)
 	$(call CXX_VERIFIED_BACKEND_CXX_MATRIX,cxx-class-allocation-multiple-using-selection,cxx_class_allocation_multiple_using_selection.cpp,7)

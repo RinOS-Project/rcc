@@ -10271,10 +10271,16 @@ remains a separate open item.
         runtime, i686/AMD64 verified output at `-O0`/`-O2` with zero fallback,
         i686 legacy object generation, and strict GCC C++20 in
         `test-cxx-global-allocation-operators`.
-  - [ ] Complete i686 64-bit integer placement argument support across the
-        verified backend and runtime validation. Legacy i686 now reserves and
-        copies two-word scalar slots, but this ABI path is not covered by the
-        verified backend test.
+  - [x] Lower i686 signed/unsigned 64-bit placement arguments as low/high
+        32-bit ABI words in both the allocation call and matching constructor-
+        failure cleanup thunk. The regression preserves `0x1122334455667788`
+        among floating and integer register/stack arguments. The full
+        `test-cxx-global-allocation-operators` gate passes with verified i686
+        and AMD64 output at `-O0`/`-O2`, zero fallback, verified AMD64 runtime,
+        and strict GCC C++20. The 32-bit verified runner executes the i686
+        objects at `-O0` and `-O2` under WSL; legacy i686 execution also links
+        and runs there with the existing i686 exception runtime. The legacy
+        AMD64 runtime passes as well.
   - [ ] Add aggregate-by-value placement allocation and matching cleanup ABI
         lowering for i686 and AMD64, with constructor-failure runtime coverage.
 
