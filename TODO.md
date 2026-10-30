@@ -12022,9 +12022,10 @@ remains a separate open item.
       legacy and verified C objects. Focused `test-debug-info-inline-expression`
       and full `test-debug-info` pass.
 - [ ] Atomic operands beyond the bounded global nested add/sub, divmod, and
-      bitwise forms, volatile operands outside the bounded global/TLS forms, more
-      general computed division/remainder operands, and optimized multi-piece
-      locations remain open.
+      bitwise forms, volatile operands outside the bounded global/TLS and
+      escaped automatic bitwise/divmod forms, more general computed
+      division/remainder operands, and optimized multi-piece locations remain
+      open.
   - [x] Extend bounded signed i686 inline parameter bitwise `&`, `|`, and `^`
         expressions to namespace-scope `_Atomic long long` operand pairs.
         Emit four global relocations and two 32-bit `DW_OP_piece` values per
@@ -12036,6 +12037,10 @@ remains a separate open item.
         global relocations, and verify the two frame-backed 32-bit pieces and
         all three operations in legacy and verified C objects. The focused and
         full DWARF gates pass.
+  - [x] Extend i686 64-bit atomic bitwise DWARF to automatic signed/unsigned
+        operand pairs in both orders. Resolve both frame offsets, emit no
+        global relocations, and verify `&`/`|`/`^` in legacy and verified C
+        objects. Focused and full DWARF gates pass.
   - [x] Extend signed i686 bitwise expressions to volatile namespace-scope
         `long long` pairs. Preserve four global relocations and verify each
         source's initialized value plus `&`/`|`/`^` results in legacy and

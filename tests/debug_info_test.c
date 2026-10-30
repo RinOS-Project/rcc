@@ -12273,6 +12273,30 @@ static void verify_inline_integer_expression_parameter(
                   strcmp(source_name,
                          "debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_lhs") == 0
                 ? "debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_entry"
+            : expected_operation == 0xf6u && source_name &&
+                  strcmp(source_name,
+                         "debug_inline_atomic_local_mixed_signed_bitand_lhs") == 0
+                ? "debug_inline_nonconstant_signed_long_long_atomic_local_mixed_bitand_unsigned_rhs_entry"
+            : expected_operation == 0xf5u && source_name &&
+                  strcmp(source_name,
+                         "debug_inline_atomic_local_mixed_signed_bitor_lhs") == 0
+                ? "debug_inline_nonconstant_signed_long_long_atomic_local_mixed_bitor_unsigned_rhs_entry"
+            : expected_operation == 0xf4u && source_name &&
+                  strcmp(source_name,
+                         "debug_inline_atomic_local_mixed_signed_bitxor_lhs") == 0
+                ? "debug_inline_nonconstant_signed_long_long_atomic_local_mixed_bitxor_unsigned_rhs_entry"
+            : expected_operation == 0xf6u && source_name &&
+                  strcmp(source_name,
+                         "debug_inline_atomic_local_mixed_unsigned_bitand_lhs") == 0
+                ? "debug_inline_nonconstant_unsigned_long_long_atomic_local_mixed_bitand_signed_rhs_entry"
+            : expected_operation == 0xf5u && source_name &&
+                  strcmp(source_name,
+                         "debug_inline_atomic_local_mixed_unsigned_bitor_lhs") == 0
+                ? "debug_inline_nonconstant_unsigned_long_long_atomic_local_mixed_bitor_signed_rhs_entry"
+            : expected_operation == 0xf4u && source_name &&
+                  strcmp(source_name,
+                         "debug_inline_atomic_local_mixed_unsigned_bitxor_lhs") == 0
+                ? "debug_inline_nonconstant_unsigned_long_long_atomic_local_mixed_bitxor_signed_rhs_entry"
             : expected_operation == 0xe7u
                 ? "debug_inline_nonconstant_signed_long_long_and_two_variables_entry"
                 : expected_operation == 0xe6u
@@ -19967,6 +19991,40 @@ int main(int argc, char** argv)
             false, 0xe5u, 8u, 0,
             "debug_inline_nonconstant_signed_long_long_volatile_local_bitxor_rhs",
             false);
+        static const struct {
+            const char* left_name;
+            uint8_t operation;
+            const char* right_name;
+        } atomic_local_mixed_bitwise_cases[] = {
+            {"debug_inline_atomic_local_mixed_signed_bitand_lhs", 0xf6u,
+             "debug_inline_atomic_local_mixed_unsigned_bitand_rhs"},
+            {"debug_inline_atomic_local_mixed_signed_bitor_lhs", 0xf5u,
+             "debug_inline_atomic_local_mixed_unsigned_bitor_rhs"},
+            {"debug_inline_atomic_local_mixed_signed_bitxor_lhs", 0xf4u,
+             "debug_inline_atomic_local_mixed_unsigned_bitxor_rhs"},
+            {"debug_inline_atomic_local_mixed_unsigned_bitand_lhs", 0xf6u,
+             "debug_inline_atomic_local_mixed_signed_bitand_rhs"},
+            {"debug_inline_atomic_local_mixed_unsigned_bitor_lhs", 0xf5u,
+             "debug_inline_atomic_local_mixed_signed_bitor_rhs"},
+            {"debug_inline_atomic_local_mixed_unsigned_bitxor_lhs", 0xf4u,
+             "debug_inline_atomic_local_mixed_signed_bitxor_rhs"}
+        };
+        for (size_t case_index = 0u;
+             case_index < sizeof(atomic_local_mixed_bitwise_cases) /
+                 sizeof(atomic_local_mixed_bitwise_cases[0]);
+             ++case_index) {
+            for (size_t path_index = 0u; path_index < 2u; ++path_index) {
+                verify_inline_integer_expression_parameter(
+                    argv[path_index == 0u ? 2 : 4], ARCH_X86,
+                    "debug_nonconstant_unsigned_long_long_parameter_inline",
+                    atomic_local_mixed_bitwise_cases[case_index].left_name,
+                    true,
+                    atomic_local_mixed_bitwise_cases[case_index].operation,
+                    8u, 0,
+                    atomic_local_mixed_bitwise_cases[case_index].right_name,
+                    false);
+            }
+        }
         verify_inline_integer_expression_parameter(
             argv[2], ARCH_X86,
             "debug_nonconstant_signed_long_long_parameter_inline",

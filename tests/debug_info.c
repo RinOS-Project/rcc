@@ -69,6 +69,8 @@ _Atomic unsigned long long
         0xfedcba9876543210ull;
 _Atomic long long* debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape;
 _Atomic long long* debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape;
+_Atomic unsigned long long*
+    debug_inline_nonconstant_unsigned_long_long_atomic_local_bitwise_escape;
 long long* debug_inline_nonconstant_signed_long_long_runtime_local_escape;
 static int debug_file_static;
 const int debug_const_data = 4;
@@ -810,6 +812,108 @@ long long debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_entry(
     return debug_nonconstant_signed_long_long_parameter_inline(
         debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_lhs ^
         debug_inline_nonconstant_signed_long_long_atomic_local_bitxor_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_signed_long_long_atomic_local_mixed_bitand_unsigned_rhs_entry(
+    long long signed_value, unsigned long long unsigned_value)
+{
+    _Atomic long long
+        debug_inline_atomic_local_mixed_signed_bitand_lhs = signed_value;
+    _Atomic unsigned long long
+        debug_inline_atomic_local_mixed_unsigned_bitand_rhs = unsigned_value;
+    debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape =
+        &debug_inline_atomic_local_mixed_signed_bitand_lhs;
+    debug_inline_nonconstant_unsigned_long_long_atomic_local_bitwise_escape =
+        &debug_inline_atomic_local_mixed_unsigned_bitand_rhs;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_atomic_local_mixed_signed_bitand_lhs &
+        debug_inline_atomic_local_mixed_unsigned_bitand_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_signed_long_long_atomic_local_mixed_bitor_unsigned_rhs_entry(
+    long long signed_value, unsigned long long unsigned_value)
+{
+    _Atomic long long
+        debug_inline_atomic_local_mixed_signed_bitor_lhs = signed_value;
+    _Atomic unsigned long long
+        debug_inline_atomic_local_mixed_unsigned_bitor_rhs = unsigned_value;
+    debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape =
+        &debug_inline_atomic_local_mixed_signed_bitor_lhs;
+    debug_inline_nonconstant_unsigned_long_long_atomic_local_bitwise_escape =
+        &debug_inline_atomic_local_mixed_unsigned_bitor_rhs;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_atomic_local_mixed_signed_bitor_lhs |
+        debug_inline_atomic_local_mixed_unsigned_bitor_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_signed_long_long_atomic_local_mixed_bitxor_unsigned_rhs_entry(
+    long long signed_value, unsigned long long unsigned_value)
+{
+    _Atomic long long
+        debug_inline_atomic_local_mixed_signed_bitxor_lhs = signed_value;
+    _Atomic unsigned long long
+        debug_inline_atomic_local_mixed_unsigned_bitxor_rhs = unsigned_value;
+    debug_inline_nonconstant_signed_long_long_atomic_local_dividend_escape =
+        &debug_inline_atomic_local_mixed_signed_bitxor_lhs;
+    debug_inline_nonconstant_unsigned_long_long_atomic_local_bitwise_escape =
+        &debug_inline_atomic_local_mixed_unsigned_bitxor_rhs;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_atomic_local_mixed_signed_bitxor_lhs ^
+        debug_inline_atomic_local_mixed_unsigned_bitxor_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_atomic_local_mixed_bitand_signed_rhs_entry(
+    unsigned long long unsigned_value, long long signed_value)
+{
+    _Atomic unsigned long long
+        debug_inline_atomic_local_mixed_unsigned_bitand_lhs = unsigned_value;
+    _Atomic long long
+        debug_inline_atomic_local_mixed_signed_bitand_rhs = signed_value;
+    debug_inline_nonconstant_unsigned_long_long_atomic_local_bitwise_escape =
+        &debug_inline_atomic_local_mixed_unsigned_bitand_lhs;
+    debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape =
+        &debug_inline_atomic_local_mixed_signed_bitand_rhs;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_atomic_local_mixed_unsigned_bitand_lhs &
+        debug_inline_atomic_local_mixed_signed_bitand_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_atomic_local_mixed_bitor_signed_rhs_entry(
+    unsigned long long unsigned_value, long long signed_value)
+{
+    _Atomic unsigned long long
+        debug_inline_atomic_local_mixed_unsigned_bitor_lhs = unsigned_value;
+    _Atomic long long
+        debug_inline_atomic_local_mixed_signed_bitor_rhs = signed_value;
+    debug_inline_nonconstant_unsigned_long_long_atomic_local_bitwise_escape =
+        &debug_inline_atomic_local_mixed_unsigned_bitor_lhs;
+    debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape =
+        &debug_inline_atomic_local_mixed_signed_bitor_rhs;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_atomic_local_mixed_unsigned_bitor_lhs |
+        debug_inline_atomic_local_mixed_signed_bitor_rhs);
+}
+
+unsigned long long
+debug_inline_nonconstant_unsigned_long_long_atomic_local_mixed_bitxor_signed_rhs_entry(
+    unsigned long long unsigned_value, long long signed_value)
+{
+    _Atomic unsigned long long
+        debug_inline_atomic_local_mixed_unsigned_bitxor_lhs = unsigned_value;
+    _Atomic long long
+        debug_inline_atomic_local_mixed_signed_bitxor_rhs = signed_value;
+    debug_inline_nonconstant_unsigned_long_long_atomic_local_bitwise_escape =
+        &debug_inline_atomic_local_mixed_unsigned_bitxor_lhs;
+    debug_inline_nonconstant_signed_long_long_atomic_local_divisor_escape =
+        &debug_inline_atomic_local_mixed_signed_bitxor_rhs;
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_atomic_local_mixed_unsigned_bitxor_lhs ^
+        debug_inline_atomic_local_mixed_signed_bitxor_rhs);
 }
 
 long long debug_inline_nonconstant_signed_long_long_volatile_local_bitand_entry(
