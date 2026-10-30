@@ -9083,6 +9083,11 @@ remains a separate open item.
       `test-debug-info` pass.
 - [ ] General i686 unsigned 64-bit arithmetic, nonconstant operands, and other
       optimized multi-piece locations remain open.
+  - [x] Verify a nonconstant global expression `left + right * 2ULL` passed to
+        an inline unsigned 64-bit parameter. Evaluate i686 carry/wrap boundary
+        patterns and check AMD64 global relocations plus the emitted shift
+        operation in legacy and verified objects. `make
+        test-debug-info-inline-expression` passes.
 
 ## RCC continuation (2026-10-22, i686 unsigned 64-bit inline bitwise DWARF)
 

@@ -1285,6 +1285,14 @@ debug_inline_nonconstant_unsigned_long_long_global_pair_add_entry(void)
 }
 
 extern "C" unsigned long long
+debug_inline_nonconstant_unsigned_long_long_global_nested_add_entry(void)
+{
+    return debug_nonconstant_unsigned_long_long_parameter_inline(
+        debug_inline_nonconstant_unsigned_long_long_global_add_source +
+        debug_inline_nonconstant_unsigned_long_long_global_mod_source * 2ULL);
+}
+
+extern "C" unsigned long long
 debug_inline_nonconstant_unsigned_long_long_global_pair_mul_entry(void)
 {
     return debug_nonconstant_unsigned_long_long_parameter_inline(

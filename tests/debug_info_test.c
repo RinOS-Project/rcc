@@ -14056,12 +14056,14 @@ static uint64_t verify_inline_global_expression_tree(
     return stack[0].value;
 }
 
-static void verify_inline_x64_global_integer_expression(
+static void verify_inline_x64_global_integer_expression_impl(
     const char* path, const char* call_site_name, const char* source_name,
     const char* second_source_name, uint8_t required_operator,
-    size_t expected_relocations, uint64_t expected_value) {
-    const char* inline_name =
-        "debug_nonconstant_signed_long_long_parameter_inline";
+    size_t expected_relocations, uint64_t expected_value,
+    bool unsigned_parameter) {
+    const char* inline_name = unsigned_parameter
+        ? "debug_nonconstant_unsigned_long_long_parameter_inline"
+        : "debug_nonconstant_signed_long_long_parameter_inline";
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -14131,6 +14133,24 @@ static void verify_inline_x64_global_integer_expression(
         expected_relocations, required_operator);
     assert(actual_value == expected_value);
     objfile_free(object);
+}
+
+static void verify_inline_x64_global_integer_expression(
+    const char* path, const char* call_site_name, const char* source_name,
+    const char* second_source_name, uint8_t required_operator,
+    size_t expected_relocations, uint64_t expected_value) {
+    verify_inline_x64_global_integer_expression_impl(
+        path, call_site_name, source_name, second_source_name,
+        required_operator, expected_relocations, expected_value, false);
+}
+
+static void verify_inline_x64_global_unsigned_integer_expression(
+    const char* path, const char* call_site_name, const char* source_name,
+    const char* second_source_name, uint8_t required_operator,
+    size_t expected_relocations, uint64_t expected_value) {
+    verify_inline_x64_global_integer_expression_impl(
+        path, call_site_name, source_name, second_source_name,
+        required_operator, expected_relocations, expected_value, true);
 }
 
 static void verify_inline_i686_global_bitwise_parameter(
@@ -14796,9 +14816,10 @@ static uint64_t verify_inline_i686_global_shift_expression(
         source_value, count_name, count_value, false);
 }
 
-static void verify_inline_i686_global_nested_expression(
+static void verify_inline_i686_global_nested_expression_impl(
     const char* path, const char* call_site_name, const char* left_name,
-    const char* right_name, bool tls_sources, bool is_subtract) {
+    const char* right_name, bool tls_sources, bool is_subtract,
+    bool is_unsigned) {
     static const InlineU64Pair add_pairs[] = {
         {0u, 0u},
         {1u, 2u},
@@ -14815,12 +14836,22 @@ static void verify_inline_i686_global_nested_expression(
         {(uint64_t)INT64_MIN + 1u, UINT64_MAX},
         {UINT64_C(0x100000001), UINT64_C(0x20000000)}
     };
-    const char* inline_name =
-        "debug_nonconstant_signed_long_long_parameter_inline";
-    const InlineU64Pair* pairs = is_subtract ? sub_pairs : add_pairs;
-    size_t pair_count = is_subtract
-        ? sizeof(sub_pairs) / sizeof(sub_pairs[0])
-        : sizeof(add_pairs) / sizeof(add_pairs[0]);
+    static const InlineU64Pair unsigned_add_pairs[] = {
+        {0u, 0u}, {1u, 2u}, {UINT32_MAX, 1u},
+        {UINT64_MAX, UINT64_MAX},
+        {UINT64_C(0x8000000000000000), 1u},
+        {UINT64_C(0x100000001), UINT64_C(0x20000000)}
+    };
+    const char* inline_name = is_unsigned
+        ? "debug_nonconstant_unsigned_long_long_parameter_inline"
+        : "debug_nonconstant_signed_long_long_parameter_inline";
+    const InlineU64Pair* pairs = is_unsigned
+        ? unsigned_add_pairs : is_subtract ? sub_pairs : add_pairs;
+    size_t pair_count = is_unsigned
+        ? sizeof(unsigned_add_pairs) / sizeof(unsigned_add_pairs[0])
+        : is_subtract
+            ? sizeof(sub_pairs) / sizeof(sub_pairs[0])
+            : sizeof(add_pairs) / sizeof(add_pairs[0]);
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -14832,6 +14863,7 @@ static void verify_inline_i686_global_nested_expression(
     uint64_t left_value;
     uint64_t right_value;
     assert(path && call_site_name && left_name && right_name &&
+           (!is_unsigned || !is_subtract) &&
            object && object->arch == ARCH_X86);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -14888,12 +14920,16 @@ static void verify_inline_i686_global_nested_expression(
     assert(expression_size && expression_offset + expression_size <= info->size);
     left_value = verify_inline_global_storage(object, left_name, 8u);
     right_value = verify_inline_global_storage(object, right_name, 8u);
-    assert(left_value == (is_subtract
-        ? tls_sources ? (uint64_t)INT64_MIN : UINT64_C(0x100000000)
-        : UINT64_C(0x1ffffffff)));
-    assert(right_value == (is_subtract
-        ? tls_sources ? UINT64_MAX : UINT64_C(0x100000001)
-        : 1u));
+    assert(left_value == (is_unsigned
+        ? UINT64_C(0x7ffffffffffffff0)
+        : is_subtract
+            ? tls_sources ? (uint64_t)INT64_MIN : UINT64_C(0x100000000)
+            : UINT64_C(0x1ffffffff)));
+    assert(right_value == (is_unsigned
+        ? UINT64_C(0xfedcba9876543217)
+        : is_subtract
+            ? tls_sources ? UINT64_MAX : UINT64_C(0x100000001)
+            : 1u));
     for (size_t index = 0u; index < pair_count; ++index) {
         uint64_t doubled_right = pairs[index].right * 2u;
         uint64_t expected = is_subtract
@@ -14905,6 +14941,21 @@ static void verify_inline_i686_global_nested_expression(
         assert(actual == expected);
     }
     objfile_free(object);
+}
+
+static void verify_inline_i686_global_nested_expression(
+    const char* path, const char* call_site_name, const char* left_name,
+    const char* right_name, bool tls_sources, bool is_subtract) {
+    verify_inline_i686_global_nested_expression_impl(
+        path, call_site_name, left_name, right_name, tls_sources,
+        is_subtract, false);
+}
+
+static void verify_inline_i686_global_unsigned_nested_expression(
+    const char* path, const char* call_site_name, const char* left_name,
+    const char* right_name) {
+    verify_inline_i686_global_nested_expression_impl(
+        path, call_site_name, left_name, right_name, false, false, true);
 }
 
 static void verify_inline_i686_global_shift_parameter(
@@ -18803,6 +18854,16 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_signed_long_long_global_add_lhs",
             "debug_inline_nonconstant_signed_long_long_global_add_rhs",
             0x1eu, 2u, UINT64_C(0x200000001));
+        verify_inline_x64_global_unsigned_integer_expression(
+            argv[7], "debug_inline_nonconstant_unsigned_long_long_global_nested_add_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            0x24u, 2u, UINT64_C(0x7db97530eca8641e));
+        verify_inline_x64_global_unsigned_integer_expression(
+            argv[9], "debug_inline_nonconstant_unsigned_long_long_global_nested_add_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source",
+            0x24u, 2u, UINT64_C(0x7db97530eca8641e));
         verify_inline_x64_global_integer_expression(
             argv[7], "debug_inline_nonconstant_signed_long_long_global_dynamic_rshift_entry",
             "debug_inline_nonconstant_signed_long_long_global_shift_source",
@@ -18911,6 +18972,16 @@ int main(int argc, char** argv)
             "debug_inline_nonconstant_signed_long_long_global_add_lhs",
             "debug_inline_nonconstant_signed_long_long_global_add_rhs",
             false, false);
+        verify_inline_i686_global_unsigned_nested_expression(
+            argv[6],
+            "debug_inline_nonconstant_unsigned_long_long_global_nested_add_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source");
+        verify_inline_i686_global_unsigned_nested_expression(
+            argv[8],
+            "debug_inline_nonconstant_unsigned_long_long_global_nested_add_entry",
+            "debug_inline_nonconstant_unsigned_long_long_global_add_source",
+            "debug_inline_nonconstant_unsigned_long_long_global_mod_source");
         verify_inline_i686_global_nested_expression(
             argv[6],
             "debug_inline_nonconstant_signed_long_long_global_nested_sub_entry",
