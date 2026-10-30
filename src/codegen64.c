@@ -5686,6 +5686,15 @@ static bool gen64_cxx_move_assignment(Module* mod, Expr* expr) {
 /* Allocate a non-trivial array with a target-width element-count cookie.
  * The returned pointer addresses the first element and the cookie address is
  * retained for the matching delete[] operation. */
+static const char* gen64_cxx_array_allocation_name(const Expr* expr) {
+    const Decl* allocation = expr && expr->call_func &&
+            expr->call_func->kind == EXPR_IDENT
+        ? expr->call_func->ident_decl : NULL;
+    return allocation && allocation->kind == DECL_FUNC &&
+            allocation->link_name
+        ? decl_link_name((Decl*)allocation) : "rin_malloc";
+}
+
 static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     int done;
@@ -5705,7 +5714,8 @@ static void gen64_cxx_alloc_array_cookie(Module* mod, Expr* expr) {
     {
         uint32_t call_offset = code_offset(mod);
         emit_dword(mod, 0u);
-        add_func_call_ref64("rin_malloc", call_offset);
+        add_func_call_ref64(
+            gen64_cxx_array_allocation_name(expr), call_offset);
     }
     done = new_label64();
     emit64_cmp_reg_imm(mod, RAX, 0);
@@ -8190,6 +8200,7 @@ static void gen64_cxx_array_destructor(Module* mod, Expr* expr) {
     Decl* destructor;
     Decl* cleanup;
     TypeField* field;
+    const char* deallocation_name;
     int loop;
     int free_label;
     int done;
@@ -8203,6 +8214,9 @@ static void gen64_cxx_array_destructor(Module* mod, Expr* expr) {
     destructor = expr->call_delete_array_destructor;
     cleanup = expr->call_delete_array_cleanup;
     field = expr->call_delete_array_cleanup_field;
+    deallocation_name = expr->call_delete_deallocation_function
+        ? decl_link_name(expr->call_delete_deallocation_function)
+        : "rin_free";
     if (!object_type || object_type->size <= 0 ||
         (!destructor && (!cleanup || !field) &&
          !object_type->cxx_class)) {
@@ -8300,7 +8314,7 @@ static void gen64_cxx_array_destructor(Module* mod, Expr* expr) {
     {
         uint32_t free_offset = code_offset(mod);
         emit_dword(mod, 0u);
-        add_func_call_ref64("rin_free", free_offset);
+        add_func_call_ref64(deallocation_name, free_offset);
     }
     emit64_add_reg_imm(mod, RSP, 32);
     emit64_mov_reg_imm32(mod, RAX, 0u);

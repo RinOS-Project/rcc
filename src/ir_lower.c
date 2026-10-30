@@ -21799,6 +21799,11 @@ static RccIrLowerValue lower_cxx_delete_array_expression(
     const CxxClass* cls = object_type ? object_type->cxx_class : NULL;
     const Decl* destructor = expression
         ? expression->call_delete_array_destructor : NULL;
+    const char* deallocation_name = expression &&
+            expression->call_delete_deallocation_function &&
+            expression->call_delete_deallocation_function->link_name
+        ? decl_link_name(expression->call_delete_deallocation_function)
+        : "rin_free";
     Type* word_language_type;
     RccIrType word_type;
     RccIrLowerValue allocator_address;
@@ -21901,7 +21906,7 @@ static RccIrLowerValue lower_cxx_delete_array_expression(
         return lower_invalid_value();
     }
     if (register_cleanups && !lower_cxx_change_current_cleanup(
-            context, "rin_free", allocator_address, true)) {
+            context, deallocation_name, allocator_address, true)) {
         return lower_invalid_value();
     }
     if (!lower_store_address(context, index_slot, zero) ||
@@ -22034,13 +22039,13 @@ static RccIrLowerValue lower_cxx_delete_array_expression(
     context->current = destroy_done;
     context->terminated = false;
     if (register_cleanups && !lower_cxx_change_current_cleanup(
-            context, "rin_free", allocator_address, false)) {
+            context, deallocation_name, allocator_address, false)) {
         return lower_invalid_value();
     }
     {
         RccIrValue free_operand = allocator_address.value;
         (void)lower_cxx_runtime_call(
-            context, "rin_free", rcc_ir_type_void(),
+            context, deallocation_name, rcc_ir_type_void(),
             &free_operand, 1u);
         if (context->unsupported || !lower_branch(context, done_block->id)) {
             return lower_invalid_value();
@@ -22518,6 +22523,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     bool register_cleanups;
     bool implicit_empty_default_constructor;
     bool implicit_default_member_initializers;
+    const char* allocation_name = "rin_malloc";
     if (!context || !expression || !expression->call_new_is_array ||
         !expression->call_new_array_cookie || !expression->call_new_count ||
         !expression->call_new_type ||
@@ -22528,6 +22534,14 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         expression->call_new_copy_init) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
+    }
+    if (expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_decl &&
+        expression->call_func->ident_decl->kind == DECL_FUNC &&
+        expression->call_func->ident_decl->link_name) {
+        allocation_name = decl_link_name(
+            expression->call_func->ident_decl);
     }
     cls = expression->call_new_type->cxx_class;
     default_constructor = expression->call_new_default_constructor;
@@ -22696,7 +22710,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     }
     operands[0] = allocation_size.value;
     allocator_address = lower_cxx_runtime_call(
-        context, "rin_malloc", rcc_ir_type_pointer(0u),
+        context, allocation_name, rcc_ir_type_pointer(0u),
         operands, 1u);
     if (!allocator_address.valid) return lower_invalid_value();
     if (!lower_conditional_branch(
@@ -22716,7 +22730,13 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         return lower_invalid_value();
     }
     if (register_cleanups && !lower_cxx_change_current_cleanup(
-            context, "rin_free", allocator_address, true)) {
+            context,
+            expression->call_new_deallocation_function &&
+                    expression->call_new_deallocation_function->link_name
+                ? decl_link_name(
+                      expression->call_new_deallocation_function)
+                : "rin_free",
+            allocator_address, true)) {
         return lower_invalid_value();
     }
     size_t element_index = 0u;

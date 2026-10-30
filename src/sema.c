@@ -27249,16 +27249,16 @@ static Type* sema_expr(Expr* expr) {
                      object_type->kind != TYPE_UNION &&
                      object_type->kind != TYPE_ARRAY) ||
                     (expr->call_delete_is_array &&
-                     sema_cxx_plain_class_array_element(object_type));
+                     sema_cxx_plain_class_array_element(object_type)) ||
+                    (expr->call_delete_is_array &&
+                     object_type->kind == TYPE_STRUCT &&
+                     object_type->cxx_class);
                 if (resolve_global_deallocator) {
                     deallocation_operator_name =
                         expr->call_delete_is_array
                             ? "operator delete[]" : "operator delete";
                     bool has_class_candidates = false;
-                    Decl* deallocation_function =
-                        (!expr->call_delete_is_array ||
-                         sema_cxx_plain_class_array_element(object_type)) &&
-                                object_type->cxx_class
+                    Decl* deallocation_function = object_type->cxx_class
                             ? sema_cxx_resolve_class_allocation_function(
                                   expr, object_type->cxx_class,
                                   deallocation_operator_name,
@@ -27365,13 +27365,16 @@ static Type* sema_expr(Expr* expr) {
                      object_type->kind != TYPE_ARRAY) ||
                     (expr->call_new_is_array &&
                      !expr->call_new_value_init && !expr->call_new_args &&
-                     sema_cxx_plain_class_array_element(object_type));
-                /* Resolve scalar allocation and plain scalar array
-                 * allocation against visible global overloads plus the
-                 * implicit RinOS allocator candidate.  Array forms with
-                 * cookies or element initialization keep their specialized
-                 * allocation path until it can pass the computed extent to
-                 * the selected function without reevaluating the bound. */
+                     sema_cxx_plain_class_array_element(object_type)) ||
+                    (expr->call_new_is_array &&
+                     !expr->call_new_args && expr->call_args &&
+                     !expr->call_args->next && object_type &&
+                     object_type->kind != TYPE_ARRAY);
+                /* Cookie-bearing arrays evaluate their count in the
+                 * specialized lowering path, which also computes the final
+                 * allocation extent. Resolve the ordinary one-argument
+                 * allocation function here; lowering passes that computed
+                 * extent directly instead of reevaluating the bound. */
                 if (resolve_global_allocator) {
                     Decl* allocation_function;
                     Expr* deallocation_probe;

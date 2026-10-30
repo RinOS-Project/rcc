@@ -10163,6 +10163,15 @@ static int gen_cxx_array_cookie_size(void) {
     return g_opts.target_arch == ARCH_X64 ? 8 : 4;
 }
 
+static const char* gen_cxx_array_allocation_name(const Expr* expr) {
+    const Decl* allocation = expr && expr->call_func &&
+            expr->call_func->kind == EXPR_IDENT
+        ? expr->call_func->ident_decl : NULL;
+    return allocation && allocation->kind == DECL_FUNC &&
+            allocation->link_name
+        ? decl_link_name((Decl*)allocation) : "rin_malloc";
+}
+
 /* Allocate a non-trivial array with a target-width element-count cookie.
  * The returned pointer addresses the first element; the allocator pointer is
  * the cookie address and is therefore the value passed to rin_free. */
@@ -10183,7 +10192,7 @@ static void gen_cxx_alloc_array_cookie32(Module* mod, Expr* expr) {
     {
         uint32_t call_offset = code_offset(mod);
         emit_dword(mod, 0u);
-        add_func_call_ref("rin_malloc", call_offset);
+        add_func_call_ref(gen_cxx_array_allocation_name(expr), call_offset);
     }
     emit_add_reg_imm(mod, ESP, 4);
     allocated_label = new_label();
@@ -12770,6 +12779,7 @@ static void gen_cxx_array_destructor32(Module* mod, Expr* expr) {
     Decl* destructor;
     Decl* cleanup;
     TypeField* field;
+    const char* deallocation_name;
     int cookie_size;
     int loop;
     int free_label;
@@ -12784,6 +12794,9 @@ static void gen_cxx_array_destructor32(Module* mod, Expr* expr) {
     destructor = expr->call_delete_array_destructor;
     cleanup = expr->call_delete_array_cleanup;
     field = expr->call_delete_array_cleanup_field;
+    deallocation_name = expr->call_delete_deallocation_function
+        ? decl_link_name(expr->call_delete_deallocation_function)
+        : "rin_free";
     cookie_size = gen_cxx_array_cookie_size();
     if (!object_type || object_type->size <= 0 ||
         (!destructor && (!cleanup || !field) &&
@@ -12909,7 +12922,7 @@ static void gen_cxx_array_destructor32(Module* mod, Expr* expr) {
     {
         uint32_t free_offset = code_offset(mod);
         emit_dword(mod, 0u);
-        add_func_call_ref("rin_free", free_offset);
+        add_func_call_ref(deallocation_name, free_offset);
     }
     emit_add_reg_imm(mod, ESP, 4);
     emit_add_reg_imm(mod, ESP, 16);

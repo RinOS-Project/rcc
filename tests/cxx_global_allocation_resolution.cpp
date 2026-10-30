@@ -5,6 +5,10 @@ static int allocation_calls;
 static int deallocation_calls;
 static int array_allocation_calls;
 static int array_deallocation_calls;
+static allocation_size_type array_allocation_last_size;
+alignas(8) static unsigned char array_allocation_slot[64];
+static int cookie_array_constructor_calls;
+static int cookie_array_destructor_calls;
 
 void* operator new(allocation_size_type size) {
     (void)size;
@@ -22,13 +26,13 @@ void operator delete(void* pointer, allocation_size_type size) noexcept {
 }
 
 void* operator new[](allocation_size_type size) {
-    (void)size;
+    array_allocation_last_size = size;
     ++array_allocation_calls;
-    return &allocation_slot;
+    return &array_allocation_slot[0];
 }
 
 void operator delete[](void* pointer) noexcept {
-    if (pointer == &allocation_slot) ++array_deallocation_calls;
+    if (pointer == &array_allocation_slot[0]) ++array_deallocation_calls;
 }
 
 void operator delete[](void* pointer,
@@ -36,6 +40,17 @@ void operator delete[](void* pointer,
     (void)pointer;
     (void)size;
 }
+
+struct GlobalCookieArray {
+    int value;
+
+    GlobalCookieArray() noexcept : value(67) {
+        ++cookie_array_constructor_calls;
+    }
+    ~GlobalCookieArray() noexcept {
+        ++cookie_array_destructor_calls;
+    }
+};
 
 int main() {
     int* value = new int(73);
@@ -45,9 +60,18 @@ int main() {
     values[0] = 19;
     values[1] = 23;
     bool array_initialized = array_allocation_calls == 1 &&
+        array_allocation_last_size == sizeof(int) * 2 &&
         values[0] == 19 && values[1] == 23;
     delete[] values;
+    GlobalCookieArray* objects = new GlobalCookieArray[2];
+    bool cookie_array_initialized = array_allocation_calls == 2 &&
+        array_allocation_last_size == sizeof(GlobalCookieArray) * 2 +
+            sizeof(allocation_size_type) &&
+        cookie_array_constructor_calls == 2 &&
+        objects[0].value == 67 && objects[1].value == 67;
+    delete[] objects;
     return initialized && array_initialized && deallocation_calls == 1 &&
-            array_deallocation_calls == 1
+            cookie_array_initialized && cookie_array_destructor_calls == 2 &&
+            array_deallocation_calls == 2
         ? 0 : 1;
 }

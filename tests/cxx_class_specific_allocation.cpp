@@ -9,6 +9,7 @@ static int class_allocation_calls;
 static int class_deallocation_calls;
 static int class_array_allocation_calls;
 static int class_array_deallocation_calls;
+static int class_array_destructor_calls;
 static int inherited_allocation_calls;
 static int inherited_deallocation_calls;
 static int inherited_array_allocation_calls;
@@ -42,6 +43,10 @@ struct ClassSpecificAllocation {
 struct ClassSpecificArrayAllocation {
     int value;
 
+    ClassSpecificArrayAllocation() noexcept : value(0) {}
+    ~ClassSpecificArrayAllocation() noexcept {
+        ++class_array_destructor_calls;
+    }
     void* operator new[](allocation_size_type size);
     void operator delete[](void* pointer) noexcept;
 };
@@ -106,7 +111,8 @@ void ClassSpecificAllocation::operator delete(void* pointer) noexcept {
 
 void* ClassSpecificArrayAllocation::operator new[](allocation_size_type size) {
     class_array_allocation_size_valid = size ==
-        sizeof(ClassSpecificArrayAllocation) * 2;
+        sizeof(ClassSpecificArrayAllocation) * 2 +
+        sizeof(allocation_size_type);
     ++class_array_allocation_calls;
     return &class_array_storage[0];
 }
@@ -160,6 +166,7 @@ int main() {
         class_array_allocation_size_valid && values[0].value == 37 &&
         values[1].value == 41;
     delete[] values;
+    bool destroyed_class_array = class_array_destructor_calls == 2;
     ImplicitFallbackArrayAllocation* fallback_values =
         new ImplicitFallbackArrayAllocation[2];
     fallback_values[0].value = 31;
@@ -247,6 +254,7 @@ int main() {
     if (class_deallocation_calls != 1) failure_mask |= 2;
     if (!selected_class_array_operators) failure_mask |= 4;
     if (class_array_deallocation_calls != 1) failure_mask |= 8;
+    if (!destroyed_class_array) failure_mask |= 256;
     if (!selected_implicit_fallback) failure_mask |= 16;
     if (fallback_deallocation_calls != 1) failure_mask |= 32;
     if (!selected_inherited_operators ||
