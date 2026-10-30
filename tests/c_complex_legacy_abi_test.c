@@ -224,6 +224,10 @@ int main(void) {
     float_result = rcc_legacy_complex_float_multiply(float_left, float_right);
     assert(near_float(__real__ float_result, 11.0f) &&
            near_float(__imag__ float_result, 10.0f));
+    float_result = rcc_legacy_complex_float_multiply(
+        __builtin_complex(HUGE_VALF, HUGE_VALF),
+        __builtin_complex(1.0f, 0.0f));
+    assert(isinf(__real__ float_result) && isinf(__imag__ float_result));
     float_result = rcc_legacy_complex_float_divide(
         float_left, __builtin_complex(1.0f, 1.0f));
     assert(near_float(__real__ float_result, 2.5f) &&
@@ -268,6 +272,10 @@ int main(void) {
         double_left, double_right);
     assert(near_double(__real__ double_result, 11.0) &&
            near_double(__imag__ double_result, 10.0));
+    double_result = rcc_legacy_complex_double_multiply(
+        __builtin_complex(HUGE_VAL, HUGE_VAL),
+        __builtin_complex(1.0, 0.0));
+    assert(isinf(__real__ double_result) && isinf(__imag__ double_result));
     double_result = rcc_legacy_complex_double_divide(
         double_left, __builtin_complex(1.0, 1.0));
     assert(near_double(__real__ double_result, 2.5) &&

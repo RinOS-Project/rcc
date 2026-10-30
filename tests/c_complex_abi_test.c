@@ -642,6 +642,10 @@ int main(int argc, char** argv) {
     value_float = float_multiply(a, b);
     assert(close_float(__real__ value_float, 11.0f) &&
            close_float(__imag__ value_float, 10.0f));
+    value_float = float_multiply(
+        __builtin_complex(HUGE_VALF, HUGE_VALF),
+        __builtin_complex(1.0f, 0.0f));
+    assert(isinf(__real__ value_float) && isinf(__imag__ value_float));
     value_float = float_divide(a, __builtin_complex(1.0f, 1.0f));
     assert(close_float(__real__ value_float, 2.5f) &&
            close_float(__imag__ value_float, 0.5f));
@@ -712,6 +716,10 @@ int main(int argc, char** argv) {
     value_double = double_multiply(x, y);
     assert(close_double(__real__ value_double, 11.0) &&
            close_double(__imag__ value_double, 10.0));
+    value_double = double_multiply(
+        __builtin_complex(HUGE_VAL, HUGE_VAL),
+        __builtin_complex(1.0, 0.0));
+    assert(isinf(__real__ value_double) && isinf(__imag__ value_double));
     value_double = double_divide(x, __builtin_complex(1.0, 1.0));
     assert(close_double(__real__ value_double, 2.5) &&
            close_double(__imag__ value_double, 0.5));
