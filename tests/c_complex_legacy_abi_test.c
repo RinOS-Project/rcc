@@ -228,6 +228,25 @@ int main(void) {
         float_left, __builtin_complex(1.0f, 1.0f));
     assert(near_float(__real__ float_result, 2.5f) &&
            near_float(__imag__ float_result, 0.5f));
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    float_result = rcc_legacy_complex_float_divide(
+        float_left, __builtin_complex(0.0f, 0.0f));
+    assert(isinf(__real__ float_result) && isinf(__imag__ float_result));
+    assert((fetestexcept(FE_ALL_EXCEPT) & FE_DIVBYZERO) != 0);
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    float_result = rcc_legacy_complex_float_divide(
+        __builtin_complex(0.0f, 0.0f), __builtin_complex(0.0f, 0.0f));
+    assert(isnan(__real__ float_result) && isnan(__imag__ float_result));
+    assert((fetestexcept(FE_ALL_EXCEPT) & (FE_DIVBYZERO | FE_INVALID)) ==
+           (FE_DIVBYZERO | FE_INVALID));
+    float_result = rcc_legacy_complex_float_divide(
+        __builtin_complex(1.0f, 2.0f),
+        __builtin_complex(HUGE_VALF, HUGE_VALF));
+    assert(__real__ float_result == 0.0f && __imag__ float_result == 0.0f);
+    float_result = rcc_legacy_complex_float_divide(
+        __builtin_complex(HUGE_VALF, HUGE_VALF),
+        __builtin_complex(1.0f, 0.0f));
+    assert(isinf(__real__ float_result) && isinf(__imag__ float_result));
     float_result = rcc_legacy_complex_float_add_real(float_left, 2.0f);
     assert(near_float(__real__ float_result, 4.0f) &&
            near_float(__imag__ float_result, 3.0f));
@@ -264,6 +283,14 @@ int main(void) {
     assert(isnan(__real__ double_result) && isnan(__imag__ double_result));
     assert((fetestexcept(FE_ALL_EXCEPT) & (FE_DIVBYZERO | FE_INVALID)) ==
            (FE_DIVBYZERO | FE_INVALID));
+    double_result = rcc_legacy_complex_double_divide(
+        __builtin_complex(1.0, 2.0),
+        __builtin_complex(HUGE_VAL, HUGE_VAL));
+    assert(__real__ double_result == 0.0 && __imag__ double_result == 0.0);
+    double_result = rcc_legacy_complex_double_divide(
+        __builtin_complex(HUGE_VAL, HUGE_VAL),
+        __builtin_complex(1.0, 0.0));
+    assert(isinf(__real__ double_result) && isinf(__imag__ double_result));
     double_result = rcc_legacy_complex_double_add_integer(double_left, 3);
     assert(near_double(__real__ double_result, 5.0) &&
            near_double(__imag__ double_result, 3.0));
