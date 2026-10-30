@@ -17,6 +17,9 @@
   through legacy and verified generated callers without requiring optional
   `FE_INVALID` flags. `test-complex-legacy` passes on i686/AMD64 generation
   and execution paths.
+- [x] Cover Annex G G.6.3.6 `ctanh` for `±∞+iy` with both signs of `y` and
+  `sin(2y)` result-zero signs, plus `NaN+iy` and `NaN+iNaN`, across float,
+  double, and RinOS binary64 `long double` through legacy and verified callers.
 
 ## RCC continuation (2026-10-30, floating math builtins)
 

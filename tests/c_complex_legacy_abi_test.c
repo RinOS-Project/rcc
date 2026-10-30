@@ -891,6 +891,85 @@ static void check_annex_g_hyperbolic_nan_real(void) {
     }
 }
 
+static void check_annex_g_ctanh_infinity_nan_matrix(void) {
+    int real_sign;
+    int imaginary_sign;
+    int magnitude_sign;
+
+    for (real_sign = 0; real_sign != 2; ++real_sign) {
+        for (imaginary_sign = 0; imaginary_sign != 2; ++imaginary_sign) {
+            for (magnitude_sign = 0; magnitude_sign != 2; ++magnitude_sign) {
+                float real_float = real_sign
+                    ? -__builtin_huge_valf() : __builtin_huge_valf();
+                double real_double = real_sign
+                    ? -__builtin_huge_val() : __builtin_huge_val();
+                float imaginary_float = magnitude_sign ? 2.0f : 1.0f;
+                double imaginary_double = magnitude_sign ? 2.0 : 1.0;
+                RccLegacyComplexFloat value_float;
+                RccLegacyComplexDouble value_double;
+                RccLegacyComplexBinary64Pair value_long_double;
+                int expected_imaginary_sign = imaginary_sign ^ magnitude_sign;
+
+                if (imaginary_sign) {
+                    imaginary_float = -imaginary_float;
+                    imaginary_double = -imaginary_double;
+                }
+                value_float = rcc_legacy_complex_api_ctanhf(
+                    __builtin_complex(real_float, imaginary_float));
+                value_double = rcc_legacy_complex_api_ctanh(
+                    __builtin_complex(real_double, imaginary_double));
+                value_long_double = rcc_legacy_complex_api_ctanhl(
+                    (ComplexBinary64Pair){real_double, imaginary_double});
+                assert(__real__ value_float == (real_sign ? -1.0f : 1.0f));
+                assert(__imag__ value_float == 0.0f &&
+                       !!__builtin_signbit(__imag__ value_float) ==
+                           expected_imaginary_sign);
+                assert(__real__ value_double == (real_sign ? -1.0 : 1.0));
+                assert(__imag__ value_double == 0.0 &&
+                       !!__builtin_signbit(__imag__ value_double) ==
+                           expected_imaginary_sign);
+                assert(value_long_double.real ==
+                       (real_sign ? -1.0 : 1.0));
+                assert(value_long_double.imaginary == 0.0 &&
+                       !!__builtin_signbit(value_long_double.imaginary) ==
+                           expected_imaginary_sign);
+            }
+        }
+    }
+
+    for (imaginary_sign = 0; imaginary_sign != 2; ++imaginary_sign) {
+        float imaginary_float = imaginary_sign ? -1.0f : 1.0f;
+        double imaginary_double = imaginary_sign ? -1.0 : 1.0;
+        RccLegacyComplexFloat value_float = rcc_legacy_complex_api_ctanhf(
+            __builtin_complex(__builtin_nanf(""), imaginary_float));
+        RccLegacyComplexDouble value_double = rcc_legacy_complex_api_ctanh(
+            __builtin_complex(__builtin_nan(""), imaginary_double));
+        RccLegacyComplexBinary64Pair value_long_double =
+            rcc_legacy_complex_api_ctanhl((ComplexBinary64Pair){
+                __builtin_nan(""), imaginary_double});
+
+        assert(isnan(__real__ value_float) && isnan(__imag__ value_float));
+        assert(isnan(__real__ value_double) && isnan(__imag__ value_double));
+        assert(isnan(value_long_double.real) &&
+               isnan(value_long_double.imaginary));
+    }
+
+    {
+        RccLegacyComplexFloat value_float = rcc_legacy_complex_api_ctanhf(
+            __builtin_complex(__builtin_nanf(""), __builtin_nanf("")));
+        RccLegacyComplexDouble value_double = rcc_legacy_complex_api_ctanh(
+            __builtin_complex(__builtin_nan(""), __builtin_nan("")));
+        RccLegacyComplexBinary64Pair value_long_double =
+            rcc_legacy_complex_api_ctanhl((ComplexBinary64Pair){
+                __builtin_nan(""), __builtin_nan("")});
+
+        assert(isnan(__real__ value_float) && isnan(__imag__ value_float));
+        assert(isnan(__real__ value_double) && isnan(__imag__ value_double));
+        assert(isnan(value_long_double.real) &&
+               isnan(value_long_double.imaginary));
+    }
+}
+
 #undef RCC_ASSERT_FLOAT_COMPLEX_API
 #undef RCC_ASSERT_DOUBLE_COMPLEX_API
 #undef RCC_ASSERT_LONG_DOUBLE_COMPLEX_API
@@ -2048,6 +2127,7 @@ int main(void) {
     check_annex_g_nan_inputs();
     check_annex_g_catanh_infinity_nan_matrix();
     check_annex_g_hyperbolic_nan_real();
+    check_annex_g_ctanh_infinity_nan_matrix();
     check_complex_branch_cuts();
 
     float_result = rcc_legacy_complex_float_add(float_left, float_right);
