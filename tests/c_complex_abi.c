@@ -815,6 +815,65 @@ static int rcc_complex_annexg_catanh_infinity_nan_matrix(void) {
     return 0;
 }
 
+static int rcc_complex_annexg_hyperbolic_nan_real(void) {
+    int sign;
+    RccComplexFloat value_float;
+    RccComplexDouble value_double;
+    RccComplexLongDouble value_long_double;
+
+    for (sign = 0; sign != 2; ++sign) {
+        float imaginary_float = sign ? -1.0f : 1.0f;
+        double imaginary_double = sign ? -1.0 : 1.0;
+        long double imaginary_long_double = sign ? -1.0L : 1.0L;
+
+        value_float = ccoshf(CMPLXF(__builtin_nanf(""), imaginary_float));
+        value_double = ccosh(CMPLX(__builtin_nan(""), imaginary_double));
+        value_long_double = ccoshl(CMPLXL(
+            (long double)__builtin_nan(""), imaginary_long_double));
+        if (!__builtin_isnan(__real__ value_float) ||
+            !__builtin_isnan(__imag__ value_float) ||
+            !__builtin_isnan(__real__ value_double) ||
+            !__builtin_isnan(__imag__ value_double) ||
+            !__builtin_isnan(__real__ value_long_double) ||
+            !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+
+        value_float = csinhf(CMPLXF(__builtin_nanf(""), imaginary_float));
+        value_double = csinh(CMPLX(__builtin_nan(""), imaginary_double));
+        value_long_double = csinhl(CMPLXL(
+            (long double)__builtin_nan(""), imaginary_long_double));
+        if (!__builtin_isnan(__real__ value_float) ||
+            !__builtin_isnan(__imag__ value_float) ||
+            !__builtin_isnan(__real__ value_double) ||
+            !__builtin_isnan(__imag__ value_double) ||
+            !__builtin_isnan(__real__ value_long_double) ||
+            !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+    }
+
+    value_float = ccoshf(CMPLXF(__builtin_nanf(""), __builtin_nanf("")));
+    value_double = ccosh(CMPLX(__builtin_nan(""), __builtin_nan("")));
+    value_long_double = ccoshl(CMPLXL(
+        (long double)__builtin_nan(""), (long double)__builtin_nan("")));
+    if (!__builtin_isnan(__real__ value_float) ||
+        !__builtin_isnan(__imag__ value_float) ||
+        !__builtin_isnan(__real__ value_double) ||
+        !__builtin_isnan(__imag__ value_double) ||
+        !__builtin_isnan(__real__ value_long_double) ||
+        !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+
+    value_float = csinhf(CMPLXF(__builtin_nanf(""), __builtin_nanf("")));
+    value_double = csinh(CMPLX(__builtin_nan(""), __builtin_nan("")));
+    value_long_double = csinhl(CMPLXL(
+        (long double)__builtin_nan(""), (long double)__builtin_nan("")));
+    if (!__builtin_isnan(__real__ value_float) ||
+        !__builtin_isnan(__imag__ value_float) ||
+        !__builtin_isnan(__real__ value_double) ||
+        !__builtin_isnan(__imag__ value_double) ||
+        !__builtin_isnan(__real__ value_long_double) ||
+        !__builtin_isnan(__imag__ value_long_double)) return __LINE__;
+
+    return 0;
+}
+
 int rcc_complex_standard_api_all(void) {
 #define RCC_COMPLEX_API_CHECK_FLOAT(call, expected_real, expected_imaginary) \
     do { \
@@ -1597,6 +1656,8 @@ int rcc_complex_standard_api_all(void) {
 
     if (rcc_complex_annexg_exceptional_values() != 0) return __LINE__;
     if (rcc_complex_annexg_catanh_infinity_nan_matrix() != 0)
+        return __LINE__;
+    if (rcc_complex_annexg_hyperbolic_nan_real() != 0)
         return __LINE__;
 
 #undef RCC_COMPLEX_API_CHECK_FLOAT

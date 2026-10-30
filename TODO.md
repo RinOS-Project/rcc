@@ -12,10 +12,11 @@
   AMD64 O0/O2 execution, and legacy i686/AMD64 execution.
 - [x] Cover Annex G G.6.3.4/.5 `ccosh`/`csinh` NaN cases at zero and both
   signs of finite nonzero real input for float, double, and RinOS binary64
-  `long double`. Check the specified zero/NaN result classifications through
-  legacy and verified generated callers without requiring the optional
-  `FE_INVALID` flag. `test-complex-legacy` passes on i686/AMD64 generation and
-  execution paths.
+  `long double`, plus NaN real inputs paired with finite nonzero and NaN
+  imaginary parts. Check the specified zero/NaN result classifications
+  through legacy and verified generated callers without requiring optional
+  `FE_INVALID` flags. `test-complex-legacy` passes on i686/AMD64 generation
+  and execution paths.
 
 ## RCC continuation (2026-10-30, floating math builtins)
 
