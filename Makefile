@@ -5035,7 +5035,8 @@ test-cxx-function-template-references-posix: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid.ro)
 	@echo "RCC++ function-template reference and function-pointer deduction tests completed"
 
-test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
+test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET) \
+	$(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-temporaries)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-fsyntax-only -DRCC_STATIC_REFERENCE_TLS_TEST \
@@ -5045,6 +5046,8 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-static-reference-temporaries/x86.s \
 		tests/cxx_static_reference_temporaries.cpp
 	$(GREP) -F -q "__cxa_thread_atexit" \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
+	$(GREP) -F -q "__cxa_guard_abort" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
 	$(GREP) -F -q "_Z28thread_local_block_referencei" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
@@ -5066,6 +5069,8 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 		tests/cxx_static_reference_temporaries.cpp
 	$(GREP) -F -q "__cxa_thread_atexit" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
+	$(GREP) -F -q "__cxa_guard_abort" \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
 	$(GREP) -F -q "_Z28thread_local_block_referencei" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
 	$(GREP) -F -q "_Z40thread_local_conditional_block_referenceii" \
@@ -5081,7 +5086,8 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 	$(CC) $(CFLAGS) -DRCC_STATIC_REFERENCE_TLS_TEST -pthread -no-pie \
 		-o $(TEST_OUT)/cxx-static-reference-temporaries/x64-host \
 		tests/cxx_static_reference_host.c \
-		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o -lstdc++
+		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o \
+		$(CXX_HOST_EXCEPTION_RUNTIME) -lstdc++
 	$(TEST_OUT)/cxx-static-reference-temporaries/x64-host
 
 test-cxx-static-reference-retry-posix: $(RCXX_TARGET)

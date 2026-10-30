@@ -18,6 +18,11 @@ int cxx_static_reference_tls_member_pointer_owner_destructions = 0;
 int cxx_static_reference_tls_member_pointer_derived_constructions = 0;
 int cxx_static_reference_tls_member_pointer_derived_destructions = 0;
 int cxx_static_reference_tls_comma_evaluations = 0;
+int cxx_static_reference_tls_retry_attempts = 0;
+int cxx_static_reference_tls_retry_constructions = 0;
+int cxx_static_reference_tls_retry_destructions = 0;
+int cxx_static_reference_tls_retry_guard_aborts = 0;
+unsigned long long cxx_static_reference_tls_retry_destruction_order = 0;
 #endif
 }
 
@@ -63,6 +68,30 @@ struct ThreadLocalReferenceBase {
             cxx_static_reference_tls_destruction_order * 10 + 1;
     }
 };
+
+struct ThreadLocalRetryReference {
+    int value;
+
+    explicit ThreadLocalRetryReference(int initial_value)
+        : value(initial_value) {
+        ++cxx_static_reference_tls_retry_attempts;
+        if (cxx_static_reference_tls_retry_attempts == 1) throw 73;
+        ++cxx_static_reference_tls_retry_constructions;
+    }
+
+    ~ThreadLocalRetryReference() {
+        ++cxx_static_reference_tls_retry_destructions;
+        cxx_static_reference_tls_retry_destruction_order =
+            cxx_static_reference_tls_retry_destruction_order * 100 + value;
+    }
+};
+
+static const ThreadLocalRetryReference* thread_local_retry_reference(
+    int initial_value) {
+    static thread_local const ThreadLocalRetryReference& reference =
+        ThreadLocalRetryReference{initial_value};
+    return &reference;
+}
 
 static const ThreadLocalReferenceBase* thread_local_block_reference(
     int initial_value) {
@@ -194,6 +223,21 @@ thread_local const int& thread_local_selected_member_reference =
 
 extern "C" int cxx_static_reference_tls_worker(int value) {
     cxx_static_reference_thread_value = value;
+    if (value == 3) {
+        try {
+            (void)thread_local_retry_reference(value + 90);
+            return 11;
+        } catch (int exception_value) {
+            if (exception_value != 73) return 12;
+        }
+    }
+    const ThreadLocalRetryReference* retry_first =
+        thread_local_retry_reference(value + 91);
+    const ThreadLocalRetryReference* retry_second =
+        thread_local_retry_reference(value + 92);
+    if (retry_first != retry_second || retry_first->value != value + 91) {
+        return 13;
+    }
     const ThreadLocalReferenceLifetime* first = &thread_local_reference;
     const ThreadLocalReferenceLifetime* second = &thread_local_reference;
     if (first != second || first->value != value) return 1;

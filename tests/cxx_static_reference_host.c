@@ -20,17 +20,21 @@ typedef struct CxxExitEntry {
     int active;
 } CxxExitEntry;
 
+#ifndef RCC_STATIC_REFERENCE_TLS_TEST
 typedef struct CxxExceptionCleanupEntry {
     CxxExitCallback callback;
     void* object;
     int active;
 } CxxExceptionCleanupEntry;
+#endif
 
 static CxxExitEntry cxx_exit_entries[16];
 static size_t cxx_exit_count;
+#ifndef RCC_STATIC_REFERENCE_TLS_TEST
 static CxxExceptionCleanupEntry cxx_exception_cleanups[16];
 static size_t cxx_exception_cleanup_count;
 static int cxx_exception_cleanup_error;
+#endif
 #if defined(__ELF__)
 extern void* __dso_handle;
 #else
@@ -55,6 +59,11 @@ extern int cxx_static_reference_tls_member_pointer_owner_constructions;
 extern int cxx_static_reference_tls_member_pointer_owner_destructions;
 extern int cxx_static_reference_tls_member_pointer_derived_constructions;
 extern int cxx_static_reference_tls_member_pointer_derived_destructions;
+extern int cxx_static_reference_tls_retry_attempts;
+extern int cxx_static_reference_tls_retry_constructions;
+extern int cxx_static_reference_tls_retry_destructions;
+extern int cxx_static_reference_tls_retry_guard_aborts;
+extern unsigned long long cxx_static_reference_tls_retry_destruction_order;
 extern int RIN_SYSV cxx_static_reference_tls_worker(int value);
 #endif
 extern int RIN_SYSV rcc_generated_main(void);
@@ -113,6 +122,9 @@ void RIN_SYSV __cxa_guard_release(long long* guard)
 void RIN_SYSV __cxa_guard_abort(long long* guard)
 {
     __atomic_store_n(&((unsigned char*)guard)[1], 0u, __ATOMIC_RELEASE);
+#ifdef RCC_STATIC_REFERENCE_TLS_TEST
+    ++cxx_static_reference_tls_retry_guard_aborts;
+#endif
 }
 
 int RIN_SYSV __cxa_atexit(CxxExitCallback callback, void* argument, void* dso)
@@ -140,6 +152,7 @@ void RIN_SYSV __cxa_finalize(void* dso)
     }
 }
 
+#ifndef RCC_STATIC_REFERENCE_TLS_TEST
 void RIN_SYSV rin_cpp_exception_register_current_cleanup(
     CxxExitCallback callback, void* object)
 {
@@ -182,6 +195,7 @@ void RIN_SYSV rin_cpp_exception_unregister_current_cleanup(
     }
     cxx_exception_cleanup_error = 3;
 }
+#endif
 
 int main(void)
 {
@@ -213,7 +227,12 @@ int main(void)
         cxx_static_reference_tls_member_pointer_owner_constructions != 0 ||
         cxx_static_reference_tls_member_pointer_owner_destructions != 0 ||
         cxx_static_reference_tls_member_pointer_derived_constructions != 0 ||
-        cxx_static_reference_tls_member_pointer_derived_destructions != 0) {
+        cxx_static_reference_tls_member_pointer_derived_destructions != 0 ||
+        cxx_static_reference_tls_retry_attempts != 0 ||
+        cxx_static_reference_tls_retry_constructions != 0 ||
+        cxx_static_reference_tls_retry_destructions != 0 ||
+        cxx_static_reference_tls_retry_guard_aborts != 0 ||
+        cxx_static_reference_tls_retry_destruction_order != 0) {
         return 92;
     }
     tls_result = cxx_static_reference_run_tls_thread(3);
@@ -232,10 +251,16 @@ int main(void)
         cxx_static_reference_tls_member_pointer_owner_destructions != 1 ||
         cxx_static_reference_tls_member_pointer_derived_constructions != 1 ||
         cxx_static_reference_tls_member_pointer_derived_destructions != 1 ||
-        cxx_static_reference_tls_destruction_order != 21212115212143ULL) {
+        cxx_static_reference_tls_destruction_order != 21212115212143ULL ||
+        cxx_static_reference_tls_retry_attempts != 2 ||
+        cxx_static_reference_tls_retry_constructions != 1 ||
+        cxx_static_reference_tls_retry_destructions != 1 ||
+        cxx_static_reference_tls_retry_guard_aborts != 1 ||
+        cxx_static_reference_tls_retry_destruction_order != 94ULL) {
         fprintf(stderr,
                 "TLS reference first-thread state: worker %d, direct %d/%d, "
-                "base %d/%d, derived %d/%d, conversions %d, order %llu\n",
+                "base %d/%d, derived %d/%d, conversions %d, order %llu, "
+                "retry %d/%d/%d aborts %d order %llu\n",
                 tls_result, cxx_static_reference_tls_constructions,
                 cxx_static_reference_tls_destructions,
                 cxx_static_reference_tls_base_constructions,
@@ -243,7 +268,12 @@ int main(void)
                 cxx_static_reference_tls_derived_constructions,
                 cxx_static_reference_tls_derived_destructions,
                 cxx_static_reference_tls_conversions,
-                cxx_static_reference_tls_destruction_order);
+                cxx_static_reference_tls_destruction_order,
+                cxx_static_reference_tls_retry_attempts,
+                cxx_static_reference_tls_retry_constructions,
+                cxx_static_reference_tls_retry_destructions,
+                cxx_static_reference_tls_retry_guard_aborts,
+                cxx_static_reference_tls_retry_destruction_order);
         return 93;
     }
     cxx_static_reference_tls_destruction_order = 0;
@@ -263,10 +293,16 @@ int main(void)
         cxx_static_reference_tls_member_pointer_owner_destructions != 2 ||
         cxx_static_reference_tls_member_pointer_derived_constructions != 2 ||
         cxx_static_reference_tls_member_pointer_derived_destructions != 2 ||
-        cxx_static_reference_tls_destruction_order != 21212115212154ULL) {
+        cxx_static_reference_tls_destruction_order != 21212115212154ULL ||
+        cxx_static_reference_tls_retry_attempts != 3 ||
+        cxx_static_reference_tls_retry_constructions != 2 ||
+        cxx_static_reference_tls_retry_destructions != 2 ||
+        cxx_static_reference_tls_retry_guard_aborts != 1 ||
+        cxx_static_reference_tls_retry_destruction_order != 9495ULL) {
         fprintf(stderr,
                 "TLS reference second-thread state: worker %d, direct %d/%d, "
-                "base %d/%d, derived %d/%d, conversions %d, order %llu\n",
+                "base %d/%d, derived %d/%d, conversions %d, order %llu, "
+                "retry %d/%d/%d aborts %d order %llu\n",
                 tls_result, cxx_static_reference_tls_constructions,
                 cxx_static_reference_tls_destructions,
                 cxx_static_reference_tls_base_constructions,
@@ -274,16 +310,23 @@ int main(void)
                 cxx_static_reference_tls_derived_constructions,
                 cxx_static_reference_tls_derived_destructions,
                 cxx_static_reference_tls_conversions,
-                cxx_static_reference_tls_destruction_order);
+                cxx_static_reference_tls_destruction_order,
+                cxx_static_reference_tls_retry_attempts,
+                cxx_static_reference_tls_retry_constructions,
+                cxx_static_reference_tls_retry_destructions,
+                cxx_static_reference_tls_retry_guard_aborts,
+                cxx_static_reference_tls_retry_destruction_order);
         return 94;
     }
 #endif
+#ifndef RCC_STATIC_REFERENCE_TLS_TEST
     if (cxx_exception_cleanup_error || cxx_exception_cleanup_count != 0u) {
         fprintf(stderr,
                 "static-reference exception cleanup state: error %d, active %zu\n",
                 cxx_exception_cleanup_error, cxx_exception_cleanup_count);
         return 91;
     }
+#endif
     __cxa_finalize(&__dso_handle);
     __rcc_global_fini();
     if (cxx_static_reference_events != cxx_static_reference_expected_events) {

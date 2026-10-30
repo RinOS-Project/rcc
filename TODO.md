@@ -1021,6 +1021,12 @@
         TSD destructors. Host thread-exit regressions exist. Keep open until
         RinOS target execution and broader initializer/lifetime forms are
         verified.
+  - [x] Verify a block-scope `static thread_local const T&` whose temporary
+        constructor throws once: exception cleanup must abort the per-thread
+        guard, a later access in the same thread must construct and reuse the
+        reference, and thread exit must destroy the successful object once.
+        `test-cxx-static-reference-temporaries-posix` checks guard-abort code
+        in i686/AMD64 output and passes the x64 pthread assertions in WSL.
   - [x] Cover a namespace-scope thread-local reference temporary initialized
         by a built-in comma expression. The POSIX regression checks one left-
         operand evaluation per thread, stable repeated reference identity,
