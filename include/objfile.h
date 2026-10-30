@@ -188,6 +188,7 @@ typedef struct ObjSection {
     uint64_t capacity;
     uint32_t align;
     ObjReloc* relocs;
+    ObjReloc* relocs_tail;
     struct ObjSection* next;
 } ObjSection;
 
@@ -198,10 +199,14 @@ typedef struct ObjectFile {
 
     /* Sections */
     ObjSection* sections;
+    ObjSection* sections_tail;
+    ObjSection** sections_by_index;
     int section_count;
+    size_t sections_by_index_capacity;
 
     /* Symbols */
     ObjSymbol* symbols;
+    ObjSymbol* symbols_tail;
     int symbol_count;
 
     /* String table */

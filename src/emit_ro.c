@@ -112,8 +112,12 @@ ObjectFile* objfile_new(const char* filename, uint16_t arch) {
     obj->filename = rcc_strdup(filename);
     obj->arch = arch;
     obj->sections = NULL;
+    obj->sections_tail = NULL;
+    obj->sections_by_index = NULL;
     obj->section_count = 0;
+    obj->sections_by_index_capacity = 0;
     obj->symbols = NULL;
+    obj->symbols_tail = NULL;
     obj->symbol_count = 0;
     obj->strtab = rcc_alloc(256);
     obj->strtab[0] = '\0';  /* First byte is null */
@@ -154,6 +158,7 @@ void objfile_free(ObjectFile* obj) {
     }
 
     rcc_free(obj->strtab);
+    rcc_free(obj->sections_by_index);
     rcc_free((void*)obj->filename);
     rcc_free(obj);
 }
@@ -176,16 +181,39 @@ ObjSection* objfile_add_section(ObjectFile* obj, const char* name, SectionType t
     sect->capacity = 256;
     sect->align = 1;
     sect->relocs = NULL;
+    sect->relocs_tail = NULL;
     sect->next = NULL;
 
-    /* Append to list */
-    if (!obj->sections) {
+    if ((size_t)obj->section_count ==
+        obj->sections_by_index_capacity) {
+        size_t new_capacity;
+        if (obj->sections_by_index_capacity == 0) {
+            new_capacity = 8u;
+        } else if (obj->sections_by_index_capacity > SIZE_MAX / 2u) {
+            rcc_fatal("object section index capacity overflow");
+            return NULL;
+        } else {
+            new_capacity = obj->sections_by_index_capacity * 2u;
+        }
+        if ((size_t)new_capacity >
+            SIZE_MAX / sizeof(*obj->sections_by_index)) {
+            rcc_fatal("object section index capacity overflow");
+            return NULL;
+        }
+        obj->sections_by_index = rcc_realloc(
+            obj->sections_by_index,
+            (size_t)new_capacity * sizeof(*obj->sections_by_index));
+        obj->sections_by_index_capacity = new_capacity;
+    }
+
+    /* Keep serialized/list order while supporting constant-time indexing. */
+    if (!obj->sections_tail) {
         obj->sections = sect;
     } else {
-        ObjSection* s = obj->sections;
-        while (s->next) s = s->next;
-        s->next = sect;
+        obj->sections_tail->next = sect;
     }
+    obj->sections_tail = sect;
+    obj->sections_by_index[obj->section_count] = sect;
     obj->section_count++;
 
     return sect;
@@ -296,14 +324,13 @@ ObjSymbol* objfile_add_symbol(ObjectFile* obj, const char* name, SymbolType type
     sym->section = section;
     sym->next = NULL;
 
-    /* Append to list */
-    if (!obj->symbols) {
+    /* Keep symbol order stable without walking the list on every append. */
+    if (!obj->symbols_tail) {
         obj->symbols = sym;
     } else {
-        ObjSymbol* s = obj->symbols;
-        while (s->next) s = s->next;
-        s->next = sym;
+        obj->symbols_tail->next = sym;
     }
+    obj->symbols_tail = sym;
     obj->symbol_count++;
 
     return sym;
@@ -324,13 +351,9 @@ ObjSymbol* objfile_find_symbol(ObjectFile* obj, const char* name) {
 
 void objfile_add_reloc(ObjectFile* obj, int section_idx, uint64_t offset,
                        const char* symbol, RelocType type, int64_t addend) {
-    /* Find section */
-    int idx = 0;
-    ObjSection* sect = obj->sections;
-    while (sect && idx < section_idx) {
-        sect = sect->next;
-        idx++;
-    }
+    /* Section indices are assigned in append order and kept in a side index. */
+    if (section_idx < 0 || section_idx >= obj->section_count) return;
+    ObjSection* sect = obj->sections_by_index[section_idx];
     if (!sect) return;
 
     ObjReloc* r = rcc_alloc(sizeof(ObjReloc));
@@ -342,14 +365,13 @@ void objfile_add_reloc(ObjectFile* obj, int section_idx, uint64_t offset,
     r->section = section_idx;
     r->next = NULL;
 
-    /* Append to section's reloc list */
-    if (!sect->relocs) {
+    /* Keep relocation order stable without walking the section list. */
+    if (!sect->relocs_tail) {
         sect->relocs = r;
     } else {
-        ObjReloc* rp = sect->relocs;
-        while (rp->next) rp = rp->next;
-        rp->next = r;
+        sect->relocs_tail->next = r;
     }
+    sect->relocs_tail = r;
 }
 
 /* ═══════════════════════════════════════

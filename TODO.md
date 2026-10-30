@@ -12338,3 +12338,8 @@ remains a separate open item.
       relocation／string tableの決定的な順序と`.ro` byte列を維持する。多数symbol・relocation・
       重複stringを持つfixtureでappend traversal／comparison回数とobject生成・読み込み時間を
       計測し、各件数に対する二次増加を解消する。
+  - [x] Add symbol and per-section relocation append tails, plus a section-index
+        side array for direct relocation ownership lookup. Preserve list and
+        serialized order; `test-format-validation` passes.
+  - [ ] Add bounded string-table deduplication and scale fixtures/counters for
+        symbol, relocation, and string insertion and object round trips.
