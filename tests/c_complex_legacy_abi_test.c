@@ -1061,6 +1061,76 @@ static void check_complex_branch_cuts(void) {
         assert(isnan(value_long_double.real) &&
                value_long_double.imaginary == 0.0);
 
+        value_float = rcc_legacy_complex_api_cacosf(
+            __builtin_complex(0.0f, __builtin_nanf("")));
+        value_double = rcc_legacy_complex_api_cacos(
+            __builtin_complex(0.0, __builtin_nan("")));
+        value_long_double = rcc_legacy_complex_api_cacosl(
+            (ComplexBinary64Pair){0.0, __builtin_nan("")});
+        assert(__real__ value_float > 1.5707f &&
+               __real__ value_float < 1.5709f && isnan(__imag__ value_float));
+        assert(__real__ value_double > 1.5707 &&
+               __real__ value_double < 1.5709 && isnan(__imag__ value_double));
+        assert(value_long_double.real > 1.5707 &&
+               value_long_double.real < 1.5709 &&
+               isnan(value_long_double.imaginary));
+
+        value_float = rcc_legacy_complex_api_cacosf(
+            __builtin_complex(__builtin_nanf(""), __builtin_huge_valf()));
+        value_double = rcc_legacy_complex_api_cacos(
+            __builtin_complex(__builtin_nan(""), __builtin_huge_val()));
+        value_long_double = rcc_legacy_complex_api_cacosl(
+            (ComplexBinary64Pair){__builtin_nan(""),
+                                  (double)__builtin_huge_val()});
+        assert(isnan(__real__ value_float) &&
+               isinf(__imag__ value_float) && __imag__ value_float < 0.0f);
+        assert(isnan(__real__ value_double) &&
+               isinf(__imag__ value_double) && __imag__ value_double < 0.0);
+        assert(isnan(value_long_double.real) &&
+               isinf(value_long_double.imaginary) &&
+               value_long_double.imaginary < 0.0);
+
+        value_float = rcc_legacy_complex_api_cexpf(
+            __builtin_complex(__builtin_huge_valf(), __builtin_nanf("")));
+        value_double = rcc_legacy_complex_api_cexp(
+            __builtin_complex(__builtin_huge_val(), __builtin_nan("")));
+        value_long_double = rcc_legacy_complex_api_cexpl(
+            (ComplexBinary64Pair){(double)__builtin_huge_val(),
+                                  __builtin_nan("")});
+        assert(isinf(__real__ value_float) && isnan(__imag__ value_float));
+        assert(isinf(__real__ value_double) && isnan(__imag__ value_double));
+        assert(isinf(value_long_double.real) &&
+               isnan(value_long_double.imaginary));
+
+        value_float = rcc_legacy_complex_api_clogf(
+            __builtin_complex(__builtin_nanf(""), __builtin_huge_valf()));
+        value_double = rcc_legacy_complex_api_clog(
+            __builtin_complex(__builtin_nan(""), __builtin_huge_val()));
+        value_long_double = rcc_legacy_complex_api_clogl(
+            (ComplexBinary64Pair){__builtin_nan(""),
+                                  (double)__builtin_huge_val()});
+        assert(isinf(__real__ value_float) && __real__ value_float > 0.0f &&
+               isnan(__imag__ value_float));
+        assert(isinf(__real__ value_double) && __real__ value_double > 0.0 &&
+               isnan(__imag__ value_double));
+        assert(isinf(value_long_double.real) && value_long_double.real > 0.0 &&
+               isnan(value_long_double.imaginary));
+
+        value_float = rcc_legacy_complex_api_csqrtf(
+            __builtin_complex(__builtin_nanf(""), __builtin_huge_valf()));
+        value_double = rcc_legacy_complex_api_csqrt(
+            __builtin_complex(__builtin_nan(""), __builtin_huge_val()));
+        value_long_double = rcc_legacy_complex_api_csqrtl(
+            (ComplexBinary64Pair){__builtin_nan(""),
+                                  (double)__builtin_huge_val()});
+        assert(isinf(__real__ value_float) && __real__ value_float > 0.0f &&
+               isinf(__imag__ value_float) && __imag__ value_float > 0.0f);
+        assert(isinf(__real__ value_double) && __real__ value_double > 0.0 &&
+               isinf(__imag__ value_double) && __imag__ value_double > 0.0);
+        assert(isinf(value_long_double.real) && value_long_double.real > 0.0 &&
+               isinf(value_long_double.imaginary) &&
+               value_long_double.imaginary > 0.0);
+
         value_float = rcc_legacy_complex_api_casinhf(
             __builtin_complex(0.0f, __builtin_nanf("")));
         value_double = rcc_legacy_complex_api_casinh(
