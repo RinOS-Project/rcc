@@ -12632,6 +12632,11 @@ remains a separate open item.
       dependency validation. The WSL host regression checks widths 1/2/4/8
       and unsupported widths 3/16, plus the `std::atomic_ref<char>`
       load/store/exchange path.
+- [x] Make the C++ atomic verified-backend gate count every fallback in the full
+      header translation unit and pin the current first unsupported function
+      per target at `-O0`/`-O2`. This prevents a zero count for an unrelated
+      symbol from masking the actual legacy-backend fallback. The focused
+      Windows and WSL gates pass.
 - [ ] Broader typed-SSA C++ atomic coverage remains open. The same header still
       exposes unrelated fallback functions (`__rcc_atomic_supported_fetch_add`
       on i686 and a `std::atomic_ref<signed char>` constructor on AMD64 in the

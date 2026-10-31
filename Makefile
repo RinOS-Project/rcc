@@ -18042,24 +18042,32 @@ test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET
 		tests/verified_backend_cxx_atomic_concurrency.cpp \
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log
 	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_ops::store_impl' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log,0)
+	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_supported_fetch_add' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log,1)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.ro \
 		tests/verified_backend_cxx_atomic_concurrency.cpp \
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_ops::store_impl' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log,0)
+	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_supported_fetch_add' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log,1)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.ro \
 		tests/verified_backend_cxx_atomic_concurrency.cpp \
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log
 	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_ops::store_impl' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log,0)
+	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std10atomic_refIaEC1Ra' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log,1)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.ro \
 		tests/verified_backend_cxx_atomic_concurrency.cpp \
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_ops::store_impl' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log,0)
+	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std10atomic_refIaEC1Ra' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log,1)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-I$(RINOS_SDK_ROOT)/include -c \
