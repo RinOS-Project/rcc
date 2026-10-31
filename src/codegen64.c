@@ -9164,6 +9164,25 @@ static bool gen64_complex_store_operand(Module* mod, Expr* expression,
             mod, expression->cast_expr, component_type,
             destination_offset);
     }
+    if (expression->kind == EXPR_COMPOUND &&
+        expression->is_complex_constructor) {
+        ExprList* real = expression->compound_init;
+        ExprList* imaginary = real ? real->next : NULL;
+        if (!real || !real->expr || !imaginary || !imaginary->expr ||
+            imaginary->next) {
+            return false;
+        }
+        gen64_expr(mod, real->expr);
+        gen64_convert_to_float(mod, real->expr->type, component_type);
+        emit64_store_typed(mod, RBP, destination_offset, RAX,
+                           component_type);
+        gen64_expr(mod, imaginary->expr);
+        gen64_convert_to_float(mod, imaginary->expr->type, component_type);
+        emit64_store_typed(mod, RBP,
+                           destination_offset + component_type->size,
+                           RAX, component_type);
+        return true;
+    }
     if (type_is_complex(expression->type)) {
         Type* source_component = expression->type->complex_component_type;
         if (!source_component) return false;

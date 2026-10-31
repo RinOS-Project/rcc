@@ -5980,6 +5980,25 @@ static void gen_complex_component_from_operand32(
             mod, operand->cast_expr, component_type, destination_offset);
         return;
     }
+    if (operand && operand->kind == EXPR_COMPOUND &&
+        operand->is_complex_constructor) {
+        ExprList* real = operand->compound_init;
+        ExprList* imaginary = real ? real->next : NULL;
+        if (real && real->expr && imaginary && imaginary->expr &&
+            !imaginary->next) {
+            gen_expr_as_type(mod, real->expr, component_type);
+            emit_store_floating_raw(mod, component_type, EBP,
+                                    destination_offset);
+            gen_expr_as_type(mod, imaginary->expr, component_type);
+            emit_store_floating_raw(
+                mod, component_type, EBP,
+                destination_offset + component_type->size);
+            return;
+        }
+        rcc_error(operand->loc,
+                  "complex constructor requires real and imaginary components");
+        return;
+    }
     if (type_is_complex(operand->type)) {
         Type* source_component = operand->type->complex_component_type;
         gen_expr(mod, operand);

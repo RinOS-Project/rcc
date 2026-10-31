@@ -314,6 +314,8 @@ RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(cexp);
 RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(clog);
 RCC_DECLARE_LEGACY_COMPLEX_UNARY_API(cproj);
 #undef RCC_DECLARE_LEGACY_COMPLEX_UNARY_API
+extern RccLegacyComplexFloat RINOS_ABI
+rcc_legacy_complex_call_local_initializer(void);
 extern RccLegacyComplexFloat RINOS_ABI rcc_legacy_complex_api_cpowf(
     RccLegacyComplexFloat, RccLegacyComplexFloat);
 extern RccLegacyComplexDouble RINOS_ABI rcc_legacy_complex_api_cpow(
@@ -2536,6 +2538,9 @@ int main(void) {
     RccLegacyComplexBinary64Pair long_double_result;
 
     check_annexg_cacos_cacosh_infinity_matrix();
+    float_result = rcc_legacy_complex_call_local_initializer();
+    assert(near_float(__real__ float_result, 0.9045569f));
+    assert(near_float(__imag__ float_result, -1.0612751f));
     double_result = rcc_legacy_complex_tls_read();
     assert(fabs(__real__ double_result - 9.0) < 0.0000001 &&
            fabs(__imag__ double_result - 10.0) < 0.0000001);

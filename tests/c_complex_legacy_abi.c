@@ -129,6 +129,11 @@ RCC_LEGACY_COMPLEX_UNARY_API(clog)
 RCC_LEGACY_COMPLEX_UNARY_API(cproj)
 #undef RCC_LEGACY_COMPLEX_UNARY_API
 
+RccLegacyComplexFloat rcc_legacy_complex_call_local_initializer(void) {
+    RccLegacyComplexFloat value = cacosf(CMPLXF(1.0f, 1.0f));
+    return value;
+}
+
 #define RCC_LEGACY_COMPLEX_BINARY_API(name) \
     RccLegacyComplexFloat rcc_legacy_complex_api_##name##f( \
         RccLegacyComplexFloat base, RccLegacyComplexFloat exponent) { \
