@@ -358,6 +358,7 @@ void codegen_emit_cxx_vtable_thunks32(Module* mod,
 void codegen_emit_cxx_vtable_thunks64(Module* mod,
                                       struct CxxNamespace* ns);
 void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol);
+bool codegen_cxx_new_initializer_may_throw(const Expr* expression);
 void module_add_tls_relocation(Module* mod,
                                ModuleSymbolSection source_section,
                                uint32_t offset, const char* symbol_name);

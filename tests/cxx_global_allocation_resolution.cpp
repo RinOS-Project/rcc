@@ -7,6 +7,9 @@ static int array_allocation_calls;
 static int array_deallocation_calls;
 static allocation_size_type array_allocation_last_size;
 alignas(8) static unsigned char array_allocation_slot[64];
+static int scalar_constructor_allocation_calls;
+static int scalar_constructor_deallocation_calls;
+alignas(8) static unsigned char scalar_constructor_allocation_slot[64];
 static int cookie_array_constructor_calls;
 static int cookie_array_destructor_calls;
 static int placement_array_constructor_calls;
@@ -82,6 +85,26 @@ void operator delete[](void* pointer,
                        allocation_size_type size) noexcept {
     (void)pointer;
     (void)size;
+}
+
+struct ThrowingScalarAllocation {
+    static void* operator new(allocation_size_type size);
+    static void operator delete(void* pointer) noexcept;
+
+    ThrowingScalarAllocation() { throw 103; }
+};
+
+void* ThrowingScalarAllocation::operator new(allocation_size_type size) {
+    if (size == sizeof(ThrowingScalarAllocation)) {
+        ++scalar_constructor_allocation_calls;
+    }
+    return &scalar_constructor_allocation_slot[0];
+}
+
+void ThrowingScalarAllocation::operator delete(void* pointer) noexcept {
+    if (pointer == &scalar_constructor_allocation_slot[0]) {
+        ++scalar_constructor_deallocation_calls;
+    }
 }
 
 struct GlobalCookieArray {
@@ -265,6 +288,15 @@ int main() {
     int* value = new int(73);
     bool initialized = allocation_calls == 1 && *value == 73;
     delete value;
+    int scalar_constructor_exception = 0;
+    try {
+        (void)new ThrowingScalarAllocation;
+    } catch (int exception_value) {
+        scalar_constructor_exception = exception_value;
+    }
+    bool scalar_constructor_cleanup = scalar_constructor_exception == 103 &&
+        scalar_constructor_allocation_calls == 1 &&
+        scalar_constructor_deallocation_calls == 1;
     int* values = new int[2];
     values[0] = 19;
     values[1] = 23;
@@ -453,6 +485,7 @@ int main() {
     }
     bool existing_checks = initialized && array_initialized &&
         scalar_array_explicitly_initialized && deallocation_calls == 1 &&
+        scalar_constructor_cleanup &&
         cookie_array_initialized && cookie_array_explicitly_initialized &&
         cookie_array_destructor_calls == 4 && array_deallocation_calls == 4;
     if (!existing_checks) return 100;

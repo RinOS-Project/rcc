@@ -13642,12 +13642,158 @@ static void gen_cxx_destroy_complete32(Module* mod, Type* object_type) {
     emit_pop_reg(mod, EAX);
 }
 
+static bool codegen_cxx_expression_may_throw(const Expr* expression);
+
+static bool codegen_cxx_expression_list_may_throw(
+    const ExprList* arguments) {
+    for (; arguments; arguments = arguments->next) {
+        if (arguments->cxx_temporary_cleanups ||
+            codegen_cxx_expression_may_throw(arguments->expr)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool codegen_cxx_expression_may_throw(const Expr* expression) {
+    if (!expression) return false;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_IDENT:
+        case EXPR_CXX_THIS:
+        case EXPR_NOEXCEPT:
+        case EXPR_CXX_TYPEID:
+        case EXPR_CXX_TYPE_TRAIT:
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
+            return false;
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF: {
+            int64_t constant;
+            return !expr_eval_integer_constant((Expr*)expression, &constant);
+        }
+        case EXPR_CALL:
+            return !expression->cxx_call_is_noexcept ||
+                codegen_cxx_expression_may_throw(expression->call_func) ||
+                codegen_cxx_expression_list_may_throw(
+                    expression->call_args);
+        case EXPR_COMPOUND:
+            if (expression->compound_constructor) {
+                const CxxConstructorInfo* constructor =
+                    expression->compound_constructor;
+                const Decl* declaration = constructor->method
+                    ? constructor->method->decl : NULL;
+                if (!declaration || !declaration->func_is_noexcept) {
+                    return true;
+                }
+            }
+            return codegen_cxx_expression_list_may_throw(
+                expression->compound_init);
+        case EXPR_COMMA:
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            return codegen_cxx_expression_may_throw(
+                       expression->binary_lhs) ||
+                codegen_cxx_expression_may_throw(expression->binary_rhs);
+        case EXPR_COND:
+            return codegen_cxx_expression_may_throw(
+                       expression->cond_test) ||
+                codegen_cxx_expression_may_throw(expression->cond_then) ||
+                codegen_cxx_expression_may_throw(expression->cond_else);
+        case EXPR_CAST:
+            return codegen_cxx_expression_may_throw(expression->cast_expr);
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return codegen_cxx_expression_may_throw(
+                expression->unary_operand);
+        case EXPR_INDEX:
+            return codegen_cxx_expression_may_throw(
+                       expression->index_base) ||
+                codegen_cxx_expression_may_throw(expression->index_expr);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return codegen_cxx_expression_may_throw(
+                expression->member_base);
+        default:
+            return true;
+    }
+}
+
+bool codegen_cxx_new_initializer_may_throw(const Expr* expression) {
+    const CxxConstructorInfo* constructor;
+    const Decl* declaration;
+    const TypeField* field;
+    if (!expression) return false;
+    constructor = expression->call_new_constructor;
+    declaration = constructor && constructor->method
+        ? constructor->method->decl : NULL;
+    if (constructor && (!declaration || !declaration->func_is_noexcept)) {
+        return true;
+    }
+    if (codegen_cxx_expression_list_may_throw(expression->call_new_args) ||
+        codegen_cxx_expression_list_may_throw(
+            expression->call_new_default_args)) {
+        return true;
+    }
+    if (expression->call_new_default_member_initializers &&
+        expression->call_new_type) {
+        for (field = expression->call_new_type->fields; field;
+             field = field->next) {
+            if (field->initializer &&
+                codegen_cxx_expression_may_throw(field->initializer)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static void gen_cxx_new32(Module* mod, Expr* expr) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     TypeField* field;
     ExprList* argument;
     bool saved_is_new;
     bool initialize;
+    bool register_deallocation;
+    const char* deallocation_name = gen_cxx_array_deallocation_name(expr);
 
     if (!object_type || object_type->size <= 0) {
         SourceLoc location;
@@ -13697,6 +13843,17 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
                  argument != NULL;
     if (!initialize) return;
 
+    /* A throwing scalar initializer releases ordinary new-expression storage
+     * through the selected deallocator. Placement new has a different
+     * deallocation signature and is tracked separately. */
+    register_deallocation =
+        !(expr->call_args && expr->call_args->next) &&
+        codegen_cxx_new_initializer_may_throw(expr);
+    if (register_deallocation) {
+        gen_cxx_change_current_cleanup_pointer32(
+            mod, deallocation_name, EAX, false);
+    }
+
     emit_push_reg(mod, EAX); /* retain the allocation across initializers */
     emit_mov_reg_mem(mod, ECX, ESP, 0);
     if (expr->call_new_default_member_initializers) {
@@ -13704,6 +13861,11 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
             gen_cxx_zero_object32(mod, object_type, ECX);
         }
         gen_cxx_initialize_default_members32(mod, object_type);
+        if (register_deallocation) {
+            emit_mov_reg_mem(mod, ECX, ESP, 0);
+            gen_cxx_change_current_cleanup_pointer32(
+                mod, deallocation_name, ECX, true);
+        }
         emit_pop_reg(mod, EAX);
         return;
     }
@@ -13711,6 +13873,11 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
         gen_cxx_initialize_object32(mod, object_type,
                                      expr->call_new_constructor,
                                      argument);
+        if (register_deallocation) {
+            emit_mov_reg_mem(mod, ECX, ESP, 0);
+            gen_cxx_change_current_cleanup_pointer32(
+                mod, deallocation_name, ECX, true);
+        }
         emit_pop_reg(mod, EAX);
         return;
     }
@@ -13731,6 +13898,11 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
              offset < object_type->size; ++offset) {
             emit_load_typed32(mod, EAX, EDX, offset, type_uchar);
             emit_mov_mem_reg8(mod, ECX, offset, EAX);
+        }
+        if (register_deallocation) {
+            emit_mov_reg_mem(mod, ECX, ESP, 0);
+            gen_cxx_change_current_cleanup_pointer32(
+                mod, deallocation_name, ECX, true);
         }
         emit_pop_reg(mod, EAX);
         return;
@@ -13770,6 +13942,11 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
     } else {
         emit_mov_reg_mem(mod, ECX, ESP, 0);
         emit_store_typed32(mod, ECX, 0, EAX, object_type);
+    }
+    if (register_deallocation) {
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        gen_cxx_change_current_cleanup_pointer32(
+            mod, deallocation_name, ECX, true);
     }
     emit_pop_reg(mod, EAX);
 }

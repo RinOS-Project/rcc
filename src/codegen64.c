@@ -8975,6 +8975,8 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
     ExprList* argument;
     bool saved_is_new;
     bool initialize;
+    bool register_deallocation;
+    const char* deallocation_name = gen64_cxx_array_deallocation_name(expr);
 
     if (!object_type || object_type->size <= 0) {
         SourceLoc location;
@@ -9024,6 +9026,17 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
                  argument != NULL;
     if (!initialize) return;
 
+    /* A throwing scalar initializer releases ordinary new-expression storage
+     * through the selected deallocator. Placement new has a different
+     * deallocation signature and is tracked separately. */
+    register_deallocation =
+        !(expr->call_args && expr->call_args->next) &&
+        codegen_cxx_new_initializer_may_throw(expr);
+    if (register_deallocation) {
+        gen64_cxx_change_current_cleanup_pointer(
+            mod, deallocation_name, RAX, false);
+    }
+
     emit64_push_reg(mod, RAX);
     emit64_mov_reg_mem(mod, RCX, RSP, 0);
     if (expr->call_new_default_member_initializers) {
@@ -9031,6 +9044,11 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
             gen64_cxx_zero_object(mod, object_type, RCX);
         }
         gen64_cxx_initialize_default_members(mod, object_type);
+        if (register_deallocation) {
+            emit64_mov_reg_mem(mod, RCX, RSP, 0);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, deallocation_name, RCX, true);
+        }
         emit64_pop_reg(mod, RAX);
         return;
     }
@@ -9038,6 +9056,11 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         gen64_cxx_initialize_object(mod, object_type,
                                      expr->call_new_constructor,
                                      argument);
+        if (register_deallocation) {
+            emit64_mov_reg_mem(mod, RCX, RSP, 0);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, deallocation_name, RCX, true);
+        }
         emit64_pop_reg(mod, RAX);
         return;
     }
@@ -9064,6 +9087,11 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
             emit64_load_typed(mod, RAX, RDX, offset, type_uchar);
             emit64_store_typed(mod, RCX, offset, RAX, type_uchar);
             ++offset;
+        }
+        if (register_deallocation) {
+            emit64_mov_reg_mem(mod, RCX, RSP, 0);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, deallocation_name, RCX, true);
         }
         emit64_pop_reg(mod, RAX);
         return;
@@ -9098,6 +9126,11 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
     } else {
         emit64_mov_reg_mem(mod, RCX, RSP, 0);
         emit64_store_typed(mod, RCX, 0, RAX, object_type);
+    }
+    if (register_deallocation) {
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        gen64_cxx_change_current_cleanup_pointer(
+            mod, deallocation_name, RCX, true);
     }
     emit64_pop_reg(mod, RAX);
 }
