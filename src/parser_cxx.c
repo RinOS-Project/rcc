@@ -31061,10 +31061,11 @@ static Type* deduce_class_template_from_guides(
             for (int index = 0; index < owner->param_count; ++index) {
                 TemplateParam* template_parameter = &owner->params[index];
                 if (template_parameter->kind != TPARAM_TYPE &&
-                    template_parameter->kind != TPARAM_NONTYPE) {
+                    template_parameter->kind != TPARAM_NONTYPE &&
+                    template_parameter->kind != TPARAM_TEMPLATE) {
                     rcc_error(loc,
-                              "RCC++ deduction guides require type or "
-                              "integral non-type template parameters");
+                              "RCC++ deduction guides require type, non-type, "
+                              "or template-template parameters");
                     viable = false;
                     break;
                 }
