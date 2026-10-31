@@ -140,6 +140,15 @@ struct MoveConstructorDeletesImplicitCopyBesideTemplate {
         const MoveConstructorDeletesImplicitCopyBesideTemplate&) noexcept {}
 };
 
+struct MoveAssignmentDeletesImplicitCopyBesideTemplate {
+    MoveAssignmentDeletesImplicitCopyBesideTemplate& operator=(
+        MoveAssignmentDeletesImplicitCopyBesideTemplate&&) = default;
+
+    template <typename Marker = void>
+    MoveAssignmentDeletesImplicitCopyBesideTemplate(
+        const MoveAssignmentDeletesImplicitCopyBesideTemplate&) noexcept {}
+};
+
 struct PartialOrderTemplateConstructorValue {
     template <typename T>
     PartialOrderTemplateConstructorValue(T*) = delete;
@@ -874,6 +883,18 @@ static_assert(!__is_nothrow_constructible(
                   MoveConstructorDeletesImplicitCopyBesideTemplate,
                   const MoveConstructorDeletesImplicitCopyBesideTemplate&),
               "a deleted implicit copy is not nothrow-constructible beside a template");
+static_assert(!__is_constructible(
+                  MoveAssignmentDeletesImplicitCopyBesideTemplate,
+                  const MoveAssignmentDeletesImplicitCopyBesideTemplate&),
+              "a move assignment deletes the implicit copy that ties with a constructor template");
+static_assert(!__is_nothrow_constructible(
+                  MoveAssignmentDeletesImplicitCopyBesideTemplate,
+                  const MoveAssignmentDeletesImplicitCopyBesideTemplate&),
+              "a deleted implicit copy after move assignment is not nothrow-constructible");
+static_assert(!__is_trivially_constructible(
+                  MoveAssignmentDeletesImplicitCopyBesideTemplate,
+                  const MoveAssignmentDeletesImplicitCopyBesideTemplate&),
+              "a deleted implicit copy after move assignment is not trivially constructible");
 static_assert(__is_assignable(int&, int), "scalar lvalue assignment");
 static_assert(!__is_assignable(int, int), "a scalar prvalue is not assignable");
 static_assert(!__is_assignable(const int&, int),
