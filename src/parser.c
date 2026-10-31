@@ -7426,18 +7426,19 @@ static Decl* parser_make_variable_decl(const char* name, Type* type,
     return declaration;
 }
 
-static const char* parser_parse_register_asm_name(StorageClass storage,
-                                                  Type* type,
-                                                  SourceLoc loc) {
+static const char* parser_parse_declarator_asm_name(StorageClass storage,
+                                                    Type* type,
+                                                    SourceLoc loc) {
     Token* name;
     if (!match(TOK_ASM)) return NULL;
-    if (storage != STORAGE_REGISTER) {
-        rcc_error(loc,
-                  "GNU asm names on declarators are supported for register variables only");
-    }
-    if (type && type->kind == TYPE_FUNC) {
+    if (storage == STORAGE_REGISTER && type && type->kind == TYPE_FUNC) {
         rcc_error(loc,
                   "GNU register asm name cannot be applied to a function");
+    }
+    if (storage != STORAGE_REGISTER &&
+        (!type || type->kind != TYPE_FUNC)) {
+        rcc_error(loc,
+                  "GNU asm names on declarations are supported for functions and register variables only");
     }
     expect(TOK_LPAREN, "(");
     name = expect(TOK_STRING_LIT, "register name string literal");
@@ -8048,7 +8049,7 @@ Stmt* parse_declaration(void) {
 
     type = parse_declarator(base_type, &declaration_name, &parameters);
     type = parse_declarator_attributes(type);
-    register_asm_name = parser_parse_register_asm_name(storage, type, loc);
+    register_asm_name = parser_parse_declarator_asm_name(storage, type, loc);
     is_weak = is_weak || take_weak_attribute();
     type = apply_explicit_alignment(type, explicit_alignment, loc);
     if (parser_cxx_mode && type && type->kind == TYPE_FUNC &&
@@ -8300,6 +8301,9 @@ Stmt* parse_declaration(void) {
                 is_inline, is_constexpr,
                 is_noreturn || declarator_is_noreturn, is_noexcept,
                 noexcept_expr, is_consteval);
+            if (register_asm_name) {
+                declaration->link_name = register_asm_name;
+            }
             parser_apply_cxx_declaration_attributes(
                 declaration, cxx_is_nodiscard, cxx_is_deprecated,
                 cxx_deprecated_message);
@@ -8355,7 +8359,7 @@ Stmt* parse_declaration(void) {
                 parser_accumulate_c_deprecated_attribute(
                     &next_is_deprecated, &next_deprecated_message);
                 const char* next_register_asm_name =
-                    parser_parse_register_asm_name(storage, next_type, loc);
+                    parser_parse_declarator_asm_name(storage, next_type, loc);
                 next_is_weak = next_is_weak || take_weak_attribute();
                 next_type = apply_explicit_alignment(
                     next_type, explicit_alignment, loc);
@@ -8390,6 +8394,9 @@ Stmt* parse_declaration(void) {
                         next_name, next_type, next_parameters, NULL, loc,
                         storage, is_inline, is_constexpr, next_is_noreturn,
                         is_noexcept, noexcept_expr, is_consteval);
+                    if (next_register_asm_name) {
+                        next_declaration->link_name = next_register_asm_name;
+                    }
                     parser_apply_cxx_declaration_attributes(
                         next_declaration, cxx_is_nodiscard,
                         cxx_is_deprecated, cxx_deprecated_message);
@@ -8444,6 +8451,9 @@ Stmt* parse_declaration(void) {
             is_inline, is_constexpr,
             is_noreturn || declarator_is_noreturn, is_noexcept,
             noexcept_expr, is_consteval);
+        if (register_asm_name) {
+            declaration->link_name = register_asm_name;
+        }
         parser_apply_cxx_declaration_attributes(
             declaration, cxx_is_nodiscard, cxx_is_deprecated,
             cxx_deprecated_message);
@@ -8521,7 +8531,7 @@ Stmt* parse_declaration(void) {
             parser_accumulate_c_deprecated_attribute(
                 &next_is_deprecated, &next_deprecated_message);
             const char* next_register_asm_name =
-                parser_parse_register_asm_name(storage, next_type, loc);
+                parser_parse_declarator_asm_name(storage, next_type, loc);
             next_is_weak = next_is_weak || take_weak_attribute();
             next_type = apply_explicit_alignment(
                 next_type, explicit_alignment, loc);
@@ -8538,6 +8548,9 @@ Stmt* parse_declaration(void) {
                 }
                 next_declaration = decl_func(next_name, next_type,
                                              next_parameters, NULL, loc);
+                if (next_register_asm_name) {
+                    next_declaration->link_name = next_register_asm_name;
+                }
                 parser_apply_cxx_declaration_attributes(
                     next_declaration, cxx_is_nodiscard, cxx_is_deprecated,
                     cxx_deprecated_message);

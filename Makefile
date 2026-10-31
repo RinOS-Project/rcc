@@ -18028,6 +18028,27 @@ test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
 		--exact-dependencies \
 		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64.rin
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/i686-atomic-fetch-arithmetic.ro \
+		tests/verified_backend_i686_atomic_fetch_arithmetic.c \
+		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/i686-atomic-fetch-arithmetic.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/i686-atomic-fetch-arithmetic.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/i686-atomic-fetch-arithmetic.log,0)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-runtime-i686-x86.ro \
+		$(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_i686.c
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e verified_i686_atomic_fetch_add \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/i686-atomic-fetch-arithmetic.rin \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/i686-atomic-fetch-arithmetic.ro \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-runtime-i686-x86.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		--exact-dependencies \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/i686-atomic-fetch-arithmetic.rin
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x86.ro \
 		tests/verified_backend_cxx_atomic_concurrency.cpp \
@@ -18042,16 +18063,18 @@ test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET
 		tests/verified_backend_cxx_atomic_concurrency.cpp \
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log
 	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_ops::store_impl' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log,0)
-	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_supported_fetch_add' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log,1)
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log,1)
+	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std10atomic_refIcEC1Rc' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log,0)
+	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std17__rcc_atomic_baseIbEC1v' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log,0)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o0.log,0)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.ro \
 		tests/verified_backend_cxx_atomic_concurrency.cpp \
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_ops::store_impl' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log,0)
-	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_supported_fetch_add' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log,1)
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log,1)
+	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std10atomic_refIcEC1Rc' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log,0)
+	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std17__rcc_atomic_baseIbEC1v' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log,0)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.ro \
@@ -18059,8 +18082,9 @@ test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log
 	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_ops::store_impl' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log,0)
 	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std10atomic_refIaEC1Ra' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log,0)
-	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std17__rcc_atomic_baseIbEC1v' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log,1)
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log,1)
+	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std10atomic_refIcEC1Rc' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log,0)
+	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std17__rcc_atomic_baseIbEC1v' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log,0)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o0.log,0)
 	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.ro \
@@ -18068,8 +18092,9 @@ test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET
 		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback: function 'std::__rcc_atomic_ops::store_impl' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log,0)
 	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std10atomic_refIaEC1Ra' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log,0)
-	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std17__rcc_atomic_baseIbEC1v' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log,1)
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log,1)
+	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std10atomic_refIcEC1Rc' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log,0)
+	$(call CHECK_COUNT,Verified backend fallback: function '_ZN3std17__rcc_atomic_baseIbEC1v' is outside the typed SSA subset,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log,0)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.log,0)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		-I$(RINOS_SDK_ROOT)/include -c \
@@ -18105,7 +18130,8 @@ test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET
 		-e verified_atomic_double_store_load \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-verified-x86.rin \
 		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.ro \
-		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-x86.ro
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-x86.ro \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-runtime-i686-x86.ro
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
 		--exact-dependencies --require-dependency rincrt.rll \
 		--exact-imports --require-import rincrt.rll:__errno_location@function \
@@ -18125,7 +18151,8 @@ test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET
 		-e verified_atomic_ref_char \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-ref-verified-x86.rin \
 		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.ro \
-		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-x86.ro
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-x86.ro \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-runtime-i686-x86.ro
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
 		--exact-dependencies --require-dependency rincrt.rll \
 		--exact-imports --require-import rincrt.rll:__errno_location@function \

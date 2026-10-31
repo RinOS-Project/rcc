@@ -6392,6 +6392,134 @@ static bool lower_wide_scalar_conditional_expression(
     return true;
 }
 
+static bool lower_i686_wide_scalar_atomic_fetch_call(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result) {
+    const char* name;
+    const char* runtime_name;
+    const ExprList* object_argument;
+    const ExprList* operand_argument;
+    const ExprList* order_argument;
+    Type* object_pointer_type;
+    Type* object_type;
+    RccIrLowerValue object_address;
+    RccIrLowerValue order;
+    RccIrLowerWideValue operand;
+    RccIrLowerWideValue previous;
+    RccIrValue call_operands[4];
+    RccIrInstruction* allocation;
+    RccIrInstruction* call;
+    RccIrInstruction* capture;
+    RccIrLowerValue result_address;
+    bool sync_builtin;
+    bool subtract;
+    bool return_new;
+
+    if (!context || !expression || !result ||
+        expression->kind != EXPR_CALL ||
+        !lower_i686_wide_scalar_type(expression->type) ||
+        !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        !expression->call_func->ident_name) {
+        return false;
+    }
+    name = expression->call_func->ident_name;
+    sync_builtin = strncmp(name, "__sync_", 7u) == 0;
+    subtract = strcmp(name, "__atomic_fetch_sub") == 0 ||
+        strcmp(name, "__atomic_sub_fetch") == 0 ||
+        strcmp(name, "__sync_fetch_and_sub") == 0 ||
+        strcmp(name, "__sync_sub_and_fetch") == 0;
+    return_new = strcmp(name, "__atomic_add_fetch") == 0 ||
+        strcmp(name, "__atomic_sub_fetch") == 0 ||
+        strcmp(name, "__sync_add_and_fetch") == 0 ||
+        strcmp(name, "__sync_sub_and_fetch") == 0;
+    if (strcmp(name, "__atomic_fetch_add") != 0 &&
+        strcmp(name, "__atomic_fetch_sub") != 0 &&
+        strcmp(name, "__atomic_add_fetch") != 0 &&
+        strcmp(name, "__atomic_sub_fetch") != 0 &&
+        strcmp(name, "__sync_fetch_and_add") != 0 &&
+        strcmp(name, "__sync_fetch_and_sub") != 0 &&
+        strcmp(name, "__sync_add_and_fetch") != 0 &&
+        strcmp(name, "__sync_sub_and_fetch") != 0) {
+        return false;
+    }
+    runtime_name = subtract ? "__atomic_fetch_sub_8"
+                            : "__atomic_fetch_add_8";
+    object_argument = expression->call_args;
+    operand_argument = object_argument ? object_argument->next : NULL;
+    order_argument = operand_argument ? operand_argument->next : NULL;
+    if (!object_argument || !object_argument->expr ||
+        !operand_argument || !operand_argument->expr ||
+        (sync_builtin
+             ? order_argument != NULL
+             : !order_argument || !order_argument->expr ||
+                   order_argument->next != NULL)) {
+        return false;
+    }
+    object_pointer_type = object_argument->expr->type;
+    object_type = object_pointer_type &&
+            object_pointer_type->kind == TYPE_PTR
+        ? object_pointer_type->base : NULL;
+    if (!object_type || !type_is_integer(object_type) ||
+        object_type->size != 8 ||
+        !type_is_compatible(object_type, expression->type) ||
+        !operand_argument->expr->type ||
+        !type_is_integer(operand_argument->expr->type)) {
+        return false;
+    }
+
+    object_address = lower_expression(context, object_argument->expr);
+    if (sync_builtin) {
+        order = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 5u);
+    } else {
+        order = lower_expression(context, order_argument->expr);
+    }
+    if (!object_address.valid ||
+        object_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !lower_wide_scalar_expression(
+            context, operand_argument->expr, &operand) ||
+        !order.valid || order.type.kind != RCC_IR_TYPE_INTEGER ||
+        order.type.bit_width > 32u) {
+        return false;
+    }
+
+    allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!allocation) return false;
+    rcc_ir_set_immediate(allocation, 8u);
+    allocation->alignment = 4u;
+    result_address = lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
+    call_operands[0] = object_address.value;
+    call_operands[1] = operand.low.value;
+    call_operands[2] = operand.high.value;
+    call_operands[3] = order.value;
+    call = lower_append(
+        context, RCC_IR_CALL, rcc_ir_type_void(),
+        call_operands, 4u, NULL, 0u);
+    if (!call) return false;
+    rcc_ir_set_callee(call, runtime_name);
+    capture = lower_append(
+        context, RCC_IR_CAPTURE_RETURN_PAIR, rcc_ir_type_void(),
+        &result_address.value, 1u, NULL, 0u);
+    if (!capture) return false;
+    rcc_ir_set_immediate(capture, 8u);
+    if (!lower_wide_scalar_load(
+            context, result_address, expression->type->is_unsigned,
+            &previous)) {
+        return false;
+    }
+    if (return_new) {
+        return lower_wide_scalar_binary(
+            context, subtract ? EXPR_SUB : EXPR_ADD,
+            previous, operand, expression->type->is_unsigned, result);
+    }
+    *result = previous;
+    return true;
+}
+
 static bool lower_wide_scalar_expression_impl(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result) {
@@ -6676,6 +6804,12 @@ static bool lower_wide_scalar_expression_impl(
         lower_i686_wide_scalar_type(expression->type)) {
         return lower_wide_scalar_conditional_expression(
             context, expression, result);
+    }
+    if (expression->kind == EXPR_CALL &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        lower_i686_wide_scalar_atomic_fetch_call(
+            context, expression, result)) {
+        return true;
     }
     if (expression->kind == EXPR_CALL &&
         lower_i686_wide_scalar_type(expression->type) &&
@@ -9668,18 +9802,29 @@ static bool lower_cleanup_constructor_call_supported(
     argument = initializer->compound_init;
     while (parameter || parameter_declaration || argument) {
         RccIrType ir_type;
+        bool aggregate_parameter = parameter && parameter->type &&
+            lower_abi_is_aggregate(parameter->type);
+        bool indirect_aggregate = parameter && parameter->type &&
+            lower_abi_indirect_class_parameter(parameter->type);
         if (++count > (unsigned)constructor->parameter_count ||
             !parameter || !parameter->type ||
-            !lower_abi_native_scalar_type(parameter->type, &ir_type) ||
+            (!indirect_aggregate && !aggregate_parameter &&
+             !lower_i686_wide_scalar_type(parameter->type) &&
+             !lower_abi_native_scalar_type(parameter->type, &ir_type)) ||
             parameter->type->cxx_is_member_pointer ||
-            lower_i686_wide_scalar_type(parameter->type) ||
             !parameter_declaration || !parameter_declaration->decl ||
             !type_is_compatible(parameter->type,
                                 parameter_declaration->decl->type) ||
             !abi_parameter || !abi_parameter->type ||
             !type_is_compatible(parameter->type, abi_parameter->type) ||
             !argument || argument->designator_kind != INIT_DESIGNATOR_NONE ||
-            !argument->expr || !type_is_scalar(argument->expr->type)) {
+            !argument->expr ||
+            (aggregate_parameter
+                 ? (!type_is_compatible(
+                        parameter->type, argument->expr->type) ||
+                    (!indirect_aggregate &&
+                     !lower_abi_aggregate_supported(parameter->type)))
+                 : !type_is_scalar(argument->expr->type))) {
             return false;
         }
         parameter = parameter->next;
@@ -21489,12 +21634,25 @@ static bool lower_cxx_constructor_initializer_expression_supported(
         case EXPR_STRING_LIT:
             return true;
         case EXPR_IDENT:
-            return expression->ident_decl &&
-                expression->ident_decl->kind == DECL_PARAM &&
-                expression->ident_decl->type &&
+            if (!expression->ident_decl ||
+                expression->ident_decl->kind != DECL_PARAM ||
+                !expression->ident_decl->type ||
+                !lower_find_local(context, expression->ident_decl)) {
+                return false;
+            }
+            if (type_is_scalar(expression->ident_decl->type)) {
+                return !expression->ident_decl->type->is_volatile &&
+                    !expression->ident_decl->type->is_atomic;
+            }
+            return (expression->ident_decl->type->kind == TYPE_STRUCT ||
+                    expression->ident_decl->type->kind == TYPE_UNION) &&
                 !expression->ident_decl->type->is_volatile &&
                 !expression->ident_decl->type->is_atomic &&
-                lower_find_local(context, expression->ident_decl) != NULL;
+                !expression->ident_decl->type->cxx_nontrivial &&
+                !expression->ident_decl->type->cleanup_function &&
+                !expression->ident_decl->type->cleanup_field &&
+                lower_storage_type_supported_ignoring_volatile_internal(
+                    expression->ident_decl->type, 0u);
         case EXPR_POS:
         case EXPR_NEG:
         case EXPR_NOT:
@@ -21679,6 +21837,84 @@ static bool lower_cxx_throwing_constructor_with_bases_supported(
     return true;
 }
 
+static bool lower_cxx_zero_value_initialized_subobject(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    const Type* type, unsigned depth) {
+    if (!context || !address.valid || address.type.kind != RCC_IR_TYPE_POINTER ||
+        !type || type->size <= 0 || depth >= 64u) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len <= 0 ||
+            type->array_len > 4096 || type->size > 65536) {
+            return false;
+        }
+        for (int index = 0; index < type->array_len; ++index) {
+            RccIrLowerValue element = lower_array_element_address(
+                context, address.value, type->base, (uint64_t)index);
+            if (!element.valid) return false;
+            if (address.volatile_access || type->is_volatile ||
+                type->base->is_volatile) {
+                element.volatile_access = true;
+            }
+            if (!lower_cxx_zero_value_initialized_subobject(
+                    context, element, type->base, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (type->kind == TYPE_STRUCT) {
+        const TypeField* field;
+        const CxxClass* cls = type->cxx_class;
+        Type unqualified_type = *type;
+        unqualified_type.is_volatile = false;
+        if (!lower_struct_type_supported(&unqualified_type) || !cls ||
+            cls->base_count != 0 || cls->virtual_base_count != 0 ||
+            cls->has_user_constructor || cls->has_field_initializer ||
+            cls->destructor_method || cls->vtable_size != 0 ||
+            type->cleanup_function || type->cleanup_field) {
+            return false;
+        }
+        for (field = type->fields; field; field = field->next) {
+            RccIrLowerValue member;
+            if (!field->type || field->is_bitfield || field->offset < 0) {
+                return false;
+            }
+            member = lower_byte_offset_address(
+                context, address, (uint64_t)field->offset);
+            if (!member.valid) return false;
+            if (address.volatile_access || type->is_volatile ||
+                field->type->is_volatile) {
+                member.volatile_access = true;
+            }
+            if (!lower_cxx_zero_value_initialized_subobject(
+                    context, member, field->type, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (!type_is_scalar((Type*)type) || type->is_reference ||
+        type->is_atomic || type_is_cxx_member_function_pointer(type)) {
+        return false;
+    }
+    if (lower_i686_wide_scalar_type(type)) {
+        RccIrLowerWideValue zero;
+        zero.low = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 0u);
+        zero.high = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, 0u);
+        zero.is_unsigned = type->is_unsigned;
+        zero.valid = zero.low.valid && zero.high.valid;
+        return zero.valid && lower_wide_scalar_store(context, address, zero);
+    }
+    {
+        RccIrLowerValue zero = lower_zero_initializer(context, type);
+        return zero.valid && lower_store_address(context, address, zero);
+    }
+}
+
 static bool lower_cxx_initialize_constructor_members(
     RccIrLowerContext* context, const Decl* declaration) {
     const CxxClass* cls;
@@ -21791,7 +22027,7 @@ static bool lower_cxx_initialize_constructor_members(
         bool duplicate_initializer = false;
         if (cls->bases[base_index].is_virtual) continue;
         if (!base || cls->base_offsets[base_index] < 0 ||
-            base->base_count != 0 || base->virtual_base_count != 0 ||
+            base->virtual_base_count != 0 ||
             base->vtable_size != 0 || !base->type) {
             context->unsupported = true;
             return false;
@@ -21858,6 +22094,7 @@ static bool lower_cxx_initialize_constructor_members(
         const Expr* source;
         int64_t ignored_constant;
         bool constant_initializer;
+        bool value_initialize;
         if (initializer->is_base_initializer) {
             bool found_base = false;
             if (initializer->is_virtual_base_initializer) {
@@ -21970,6 +22207,29 @@ static bool lower_cxx_initialize_constructor_members(
                 return false;
             }
         }
+        value_initialize = !initializer->is_default_member_initializer &&
+            !initializer->constructor && !initializer->value && !argument;
+        if (field->type->kind == TYPE_STRUCT && !value_initialize &&
+            !initializer->constructor) {
+            Type unqualified_type = *field->type;
+            unqualified_type.is_const = false;
+            unqualified_type.is_volatile = false;
+            source = argument && !argument->next
+                ? argument->expr : NULL;
+            if (initializer->is_default_member_initializer || !source ||
+                source->kind != EXPR_IDENT || !source->ident_decl ||
+                source->ident_decl->kind != DECL_PARAM ||
+                !source->type || source->type->kind != TYPE_STRUCT ||
+                !type_is_compatible(&unqualified_type, source->type) ||
+                !lower_find_local(context, source->ident_decl) ||
+                !lower_storage_type_supported_ignoring_volatile_internal(
+                    field->type, 0u) || field->type->cxx_nontrivial ||
+                field->type->cleanup_function || field->type->cleanup_field) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
         if (field->type->kind == TYPE_STRUCT && initializer->constructor) {
             Expr member_expression;
             const Decl* member_constructor =
@@ -22024,9 +22284,23 @@ static bool lower_cxx_initialize_constructor_members(
             }
             continue;
         }
-        if (initializer->constructor || field->type->kind == TYPE_STRUCT) {
+        if (initializer->constructor ||
+            (field->type->kind == TYPE_STRUCT && !value_initialize)) {
             context->unsupported = true;
             return false;
+        }
+        if (value_initialize && field->type->kind == TYPE_STRUCT) {
+            Type unqualified_type = *field->type;
+            unqualified_type.is_const = false;
+            unqualified_type.is_volatile = false;
+            if (!field->type->cxx_class ||
+                field->type->cxx_class->base_count != 0 ||
+                !lower_cxx_implicit_default_subobject_supported(
+                    &unqualified_type, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
         }
         if (initializer->is_default_member_initializer) {
             if (argument || !field->initializer ||
@@ -22035,17 +22309,20 @@ static bool lower_cxx_initialize_constructor_members(
                 context->unsupported = true;
                 return false;
             }
+        } else if (value_initialize) {
+            source = NULL;
         } else if (!argument || argument->next ||
                    !(source = argument->expr)) {
             context->unsupported = true;
             return false;
         }
-        constant_initializer = expr_eval_integer_constant(
-            (Expr*)source, &ignored_constant);
+        constant_initializer = value_initialize ||
+            expr_eval_integer_constant((Expr*)source, &ignored_constant);
+
         if (!type_is_scalar(field->type) ||
+            (value_initialize && field->type->is_reference) ||
             field->type->cxx_is_member_pointer ||
-            field->type->is_volatile || field->type->is_atomic ||
-            lower_i686_wide_scalar_type(field->type) ||
+            field->type->is_atomic ||
             (!constant_initializer &&
              (initializer->is_default_member_initializer
                   ? !lower_cxx_throwing_scalar_default_member_initializer_supported(
@@ -22142,7 +22419,9 @@ static bool lower_cxx_initialize_constructor_members(
         const TypeField* field;
         const Expr* source;
         RccIrLowerValue address;
+        RccIrLowerValue source_address;
         RccIrLowerValue value;
+        bool value_initialize;
         if (member->is_static || !member->name) continue;
         for (const CxxConstructorInitializer* candidate =
                  constructor->initializers;
@@ -22158,6 +22437,12 @@ static bool lower_cxx_initialize_constructor_members(
             cls->type, cls, initializer->field);
         address = lower_byte_offset_address(
             context, object, (uint64_t)field->offset);
+        if (address.valid && field->type->is_volatile) {
+            address.volatile_access = true;
+        }
+        value_initialize = !initializer->is_default_member_initializer &&
+            !initializer->constructor && !initializer->arguments &&
+            !initializer->value;
         if (field->type->kind == TYPE_STRUCT && initializer->constructor) {
             Expr member_expression;
             memset(&member_expression, 0, sizeof(member_expression));
@@ -22172,6 +22457,25 @@ static bool lower_cxx_initialize_constructor_members(
                 (field->type->cxx_nontrivial &&
                  !lower_cxx_delete_subobject_cleanup_change(
                      context, field->type, address, true, 0u))) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
+        if (field->type->kind == TYPE_STRUCT && !value_initialize) {
+            source = initializer->arguments &&
+                    !initializer->arguments->next
+                ? initializer->arguments->expr : NULL;
+            if (!source || !source->type || !address.valid) {
+                context->unsupported = true;
+                return false;
+            }
+            source_address = lower_lvalue_address(context, source);
+            if (!source_address.valid ||
+                !lower_copy_volatile_aggregate_storage(
+                    context, address, source_address, field->type,
+                    address.volatile_access,
+                    source->type->is_volatile)) {
                 context->unsupported = true;
                 return false;
             }
@@ -22196,13 +22500,50 @@ static bool lower_cxx_initialize_constructor_members(
             }
             continue;
         }
-        source = initializer->is_default_member_initializer
-            ? initializer->value : initializer->arguments->expr;
-        if (field->type->is_reference) {
-            value = lower_lvalue_address(context, source);
+        if (value_initialize && field->type->kind == TYPE_STRUCT) {
+            if (!lower_cxx_zero_value_initialized_subobject(
+                    context, address, field->type, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        } else if (lower_i686_wide_scalar_type(field->type)) {
+            RccIrLowerWideValue wide_value;
+            if (value_initialize) {
+                wide_value.low = lower_integer_constant(
+                    context, rcc_ir_type_integer(32u), true, 0u);
+                wide_value.high = lower_integer_constant(
+                    context, rcc_ir_type_integer(32u), true, 0u);
+                wide_value.is_unsigned = field->type->is_unsigned;
+                wide_value.valid = wide_value.low.valid &&
+                    wide_value.high.valid;
+            } else {
+                source = initializer->is_default_member_initializer
+                    ? initializer->value : initializer->arguments->expr;
+                if (!lower_wide_scalar_expression(
+                        context, source, &wide_value)) {
+                    context->unsupported = true;
+                    return false;
+                }
+            }
+            if (!address.valid || !wide_value.valid ||
+                !lower_wide_scalar_store(
+                    context, address, wide_value)) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        } else if (value_initialize) {
+            value = lower_zero_initializer(context, field->type);
         } else {
-            value = lower_expression(context, source);
-            value = lower_cast(context, value, field->type);
+            source = initializer->is_default_member_initializer
+                ? initializer->value : initializer->arguments->expr;
+            if (field->type->is_reference) {
+                value = lower_lvalue_address(context, source);
+            } else {
+                value = lower_expression(context, source);
+                value = lower_cast(context, value, field->type);
+            }
         }
         if (!address.valid || !value.valid ||
             !lower_store_address(context, address, value)) {
@@ -24969,14 +25310,38 @@ static bool lower_cxx_emit_constructor_call(
     const ExprList* argument;
     RccIrValue* operands;
     RccIrInstruction* call;
-    size_t operand_count;
+    size_t word_size = lower_abi_chunk_size();
+    size_t operand_count = 1u;
     size_t index = 1u;
     if (!context || !lower_cleanup_constructor_call_supported(initializer) ||
         object == RCC_IR_VALUE_NONE) {
         if (context) context->unsupported = true;
         return false;
     }
-    operand_count = (size_t)constructor->parameter_count + 1u;
+    for (parameter = constructor->parameters; parameter;
+         parameter = parameter->next) {
+        size_t units;
+        if (lower_abi_indirect_class_parameter(parameter->type)) {
+            units = 1u;
+        } else if (lower_abi_is_aggregate(parameter->type)) {
+            if (!lower_abi_aggregate_supported(parameter->type) ||
+                parameter->type->size <= 0 ||
+                (size_t)parameter->type->size > SIZE_MAX - (word_size - 1u)) {
+                context->unsupported = true;
+                return false;
+            }
+            units = ((size_t)parameter->type->size + word_size - 1u) /
+                word_size;
+        } else {
+            units = lower_i686_wide_scalar_type(parameter->type)
+                ? 2u : 1u;
+        }
+        if (units > SIZE_MAX - operand_count) {
+            context->unsupported = true;
+            return false;
+        }
+        operand_count += units;
+    }
     if (operand_count > SIZE_MAX / sizeof(*operands)) {
         context->unsupported = true;
         return false;
@@ -24986,17 +25351,61 @@ static bool lower_cxx_emit_constructor_call(
     parameter = constructor->parameters;
     argument = initializer->compound_init;
     while (parameter && argument) {
-        RccIrLowerValue value = parameter->type &&
-                parameter->type->is_reference
-            ? lower_lvalue_address(context, argument->expr)
-            : lower_expression(context, argument->expr);
-        value = lower_cast(context, value, parameter->type);
-        if (!value.valid || index >= operand_count) {
-            rcc_free(operands);
-            context->unsupported = true;
-            return false;
+        if (lower_abi_indirect_class_parameter(parameter->type)) {
+            RccIrLowerValue value = lower_lvalue_address(
+                context, argument->expr);
+            if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER ||
+                index >= operand_count) {
+                rcc_free(operands);
+                context->unsupported = true;
+                return false;
+            }
+            operands[index++] = value.value;
+        } else if (lower_abi_is_aggregate(parameter->type)) {
+            RccIrLowerValue aggregate = lower_expression(
+                context, argument->expr);
+            size_t units = ((size_t)parameter->type->size + word_size - 1u) /
+                word_size;
+            if (!aggregate.valid ||
+                aggregate.type.kind != RCC_IR_TYPE_POINTER ||
+                units > operand_count - index) {
+                rcc_free(operands);
+                context->unsupported = true;
+                return false;
+            }
+            for (size_t unit = 0u; unit < units; ++unit) {
+                RccIrLowerValue chunk = lower_load_aggregate_chunk(
+                    context, aggregate, parameter->type, unit * word_size);
+                if (!chunk.valid) {
+                    rcc_free(operands);
+                    return false;
+                }
+                operands[index++] = chunk.value;
+            }
+        } else if (lower_i686_wide_scalar_type(parameter->type)) {
+            RccIrLowerWideValue value;
+            if (!lower_wide_scalar_expression(
+                    context, argument->expr, &value) ||
+                index > operand_count || operand_count - index < 2u) {
+                rcc_free(operands);
+                context->unsupported = true;
+                return false;
+            }
+            operands[index++] = value.low.value;
+            operands[index++] = value.high.value;
+        } else {
+            RccIrLowerValue value = parameter->type &&
+                    parameter->type->is_reference
+                ? lower_lvalue_address(context, argument->expr)
+                : lower_expression(context, argument->expr);
+            value = lower_cast(context, value, parameter->type);
+            if (!value.valid || index >= operand_count) {
+                rcc_free(operands);
+                context->unsupported = true;
+                return false;
+            }
+            operands[index++] = value.value;
         }
-        operands[index++] = value.value;
         parameter = parameter->next;
         argument = argument->next;
     }

@@ -34233,6 +34233,18 @@ static void sema_decl(Decl* decl) {
             } else {
                 sym = symtab_define(g_symtab, decl->name, SYM_FUNC, decl->type, decl->loc);
             }
+            if (!rcc_parser_is_cxx_mode() && redeclaration_prior &&
+                decl->name && decl->link_name == decl->name &&
+                redeclaration_prior->name &&
+                redeclaration_prior->link_name &&
+                strcmp(redeclaration_prior->link_name,
+                       redeclaration_prior->name) != 0) {
+                /* GNU asm labels belong to the function entity.  A later
+                 * definition that omits the label keeps the ABI name from
+                 * the earlier prototype instead of reverting to source
+                 * spelling. */
+                decl->link_name = redeclaration_prior->link_name;
+            }
             if (!cxx_overload_set) sym->decl = decl;
             if (!cxx_defaults_merged) {
                 sema_validate_cxx_default_suffix(decl);

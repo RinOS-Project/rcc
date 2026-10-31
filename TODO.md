@@ -12644,10 +12644,15 @@ remains a separate open item.
 - [x] Lower generic atomic builtins on `bool` objects with their byte-sized
       memory representation while preserving the logical `i1` value. The
       C++20 atomic bool store/load/exchange/compare-exchange fixture has no
-      atomic-operation fallback on either target. AMD64 currently retains one
-      fallback for `std::__rcc_atomic_base<bool>`'s default constructor.
-- [ ] Broader typed-SSA C++ atomic coverage remains open. The same header still
-      exposes `__rcc_atomic_supported_fetch_add` on i686 and the default
-      constructor for `std::__rcc_atomic_base<bool>` on AMD64 in the full
-      header translation unit; expand remaining fetch operations and constructor
-      lowering before closing this item.
+      atomic-operation fallback on either target. Header-wide constructor
+      fallback coverage is recorded in the following item.
+- [x] Extend typed-SSA C++ atomic coverage through the full C++20 atomic header:
+      lower i686 64-bit `__atomic_fetch_{add,sub}`, `__atomic_{add,sub}_fetch`,
+      and the corresponding `__sync` add/sub forms through the production libc
+      runtime; add GNU function asm-label parsing so RCC can compile that real
+      runtime. Lower value-initialized scalar/trivial aggregate members,
+      volatile stores, direct base constructors, and aggregate/wide constructor
+      arguments. The full header fixture has zero fallback on i686/AMD64 at
+      `-O0`/`-O2`; emitted i686 RINs link the runtime and pass `rinvalidate`.
+      The Windows and WSL `test-cxx-atomic-aggregate-concurrency` gates pass,
+      including the host concurrency regression.
