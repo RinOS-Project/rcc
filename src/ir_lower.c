@@ -11931,6 +11931,49 @@ static bool lower_atomic_object_representation_type(
     return true;
 }
 
+static bool lower_atomic_uses_outlined_fallback(
+    const char* name, const Type* object_type) {
+    return object_type && object_type->size > 8 &&
+        (strcmp(name, "__atomic_load") == 0 ||
+         strcmp(name, "__atomic_store") == 0 ||
+         strcmp(name, "__atomic_exchange") == 0 ||
+         strcmp(name, "__atomic_compare_exchange") == 0);
+}
+
+static RccIrLowerValue lower_atomic_outlined_call(
+    RccIrLowerContext* context, const char* callee, RccIrType result_type,
+    const RccIrValue* operands, size_t operand_count) {
+    RccIrInstruction* call;
+    if (!context || !callee || !operands || operand_count == 0u) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    call = lower_append(context, RCC_IR_CALL, result_type, operands,
+                        operand_count, NULL, 0u);
+    if (!call) return lower_invalid_value();
+    rcc_ir_set_callee(call, callee);
+    if (result_type.kind == RCC_IR_TYPE_VOID) {
+        RccIrLowerValue result = lower_invalid_value();
+        result.type = result_type;
+        result.valid = true;
+        return result;
+    }
+    return lower_value(call->result, result_type,
+                       result_type.kind == RCC_IR_TYPE_INTEGER);
+}
+
+static RccIrLowerValue lower_atomic_outlined_size(
+    RccIrLowerContext* context, const Type* object_type) {
+    RccIrType size_type = rcc_ir_type_integer(
+        (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
+    if (!object_type || object_type->size <= 8) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    return lower_integer_constant(context, size_type, true,
+                                  (uint64_t)object_type->size);
+}
+
 static RccIrLowerValue lower_atomic_value_load(
     RccIrLowerContext* context, RccIrLowerValue address,
     const Type* object_type, RccIrType operation_type,
@@ -12026,6 +12069,39 @@ static RccIrLowerValue lower_atomic_exchange_call(
         result_type = result_pointer_type &&
                 result_pointer_type->kind == TYPE_PTR
             ? result_pointer_type->base : NULL;
+    }
+    if (generic_builtin && lower_atomic_uses_outlined_fallback(
+            expression->call_func->ident_name, object_type)) {
+        RccIrValue operands[5];
+        RccIrLowerValue size;
+        if (!desired_type || !result_type ||
+            !type_is_compatible(object_type, desired_type) ||
+            !type_is_compatible(object_type, result_type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        object_address = lower_expression(context, object_argument->expr);
+        desired_address = lower_expression(context, desired_argument->expr);
+        result_address = lower_expression(context, result_argument->expr);
+        order = lower_expression(context, order_argument->expr);
+        size = lower_atomic_outlined_size(context, object_type);
+        if (!object_address.valid || !desired_address.valid ||
+            !result_address.valid || !order.valid || !size.valid ||
+            object_address.type.kind != RCC_IR_TYPE_POINTER ||
+            desired_address.type.kind != RCC_IR_TYPE_POINTER ||
+            result_address.type.kind != RCC_IR_TYPE_POINTER ||
+            order.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        operands[0] = object_address.value;
+        operands[1] = desired_address.value;
+        operands[2] = result_address.value;
+        operands[3] = size.value;
+        operands[4] = order.value;
+        return lower_atomic_outlined_call(
+            context, "__rin_atomic_exchange_v1", rcc_ir_type_void(),
+            operands, 5u);
     }
     if (!object_type || !lower_atomic_object_representation_type(
             object_type, &object_ir_type, &exchange_type,
@@ -12181,6 +12257,50 @@ static RccIrLowerValue lower_atomic_compare_exchange_call(
         desired_type = desired_pointer_type &&
                 desired_pointer_type->kind == TYPE_PTR
             ? desired_pointer_type->base : NULL;
+    }
+    if (generic_builtin && lower_atomic_uses_outlined_fallback(
+            expression->call_func->ident_name, object_type)) {
+        RccIrValue operands[7];
+        RccIrLowerValue size;
+        RccIrLowerValue call_result;
+        if (!expected_type || !desired_type ||
+            !type_is_compatible(object_type, expected_type) ||
+            !type_is_compatible(object_type, desired_type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        object_address = lower_expression(context, object_argument->expr);
+        expected_address = lower_expression(context, expected_argument->expr);
+        desired_address = lower_expression(context, desired_argument->expr);
+        weak = lower_expression(context, weak_argument->expr);
+        success_order = lower_expression(context,
+                                         success_order_argument->expr);
+        failure_order = lower_expression(context,
+                                         failure_order_argument->expr);
+        size = lower_atomic_outlined_size(context, object_type);
+        if (!object_address.valid || !expected_address.valid ||
+            !desired_address.valid || !weak.valid || !success_order.valid ||
+            !failure_order.valid || !size.valid ||
+            object_address.type.kind != RCC_IR_TYPE_POINTER ||
+            expected_address.type.kind != RCC_IR_TYPE_POINTER ||
+            desired_address.type.kind != RCC_IR_TYPE_POINTER ||
+            weak.type.kind != RCC_IR_TYPE_INTEGER ||
+            success_order.type.kind != RCC_IR_TYPE_INTEGER ||
+            failure_order.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        operands[0] = object_address.value;
+        operands[1] = expected_address.value;
+        operands[2] = desired_address.value;
+        operands[3] = size.value;
+        operands[4] = weak.value;
+        operands[5] = success_order.value;
+        operands[6] = failure_order.value;
+        call_result = lower_atomic_outlined_call(
+            context, "__rin_atomic_compare_exchange_v1",
+            rcc_ir_type_integer(32u), operands, 7u);
+        return lower_cast(context, call_result, expression->type);
     }
     if (!object_type || !expected_type ||
         !type_is_compatible(object_type, expected_type) ||
@@ -12435,6 +12555,35 @@ static RccIrLowerValue lower_atomic_load_store_call(
         value_type = value_pointer_type &&
                 value_pointer_type->kind == TYPE_PTR
             ? value_pointer_type->base : NULL;
+    }
+    if (generic_builtin && lower_atomic_uses_outlined_fallback(
+            name, object_type)) {
+        RccIrValue operands[4];
+        RccIrLowerValue size;
+        if (!value_type || !type_is_compatible(object_type, value_type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        object_address = lower_expression(context, object_argument->expr);
+        value_address = lower_expression(context, value_argument->expr);
+        order = lower_expression(context, order_argument->expr);
+        size = lower_atomic_outlined_size(context, object_type);
+        if (!object_address.valid || !value_address.valid ||
+            !order.valid || !size.valid ||
+            object_address.type.kind != RCC_IR_TYPE_POINTER ||
+            value_address.type.kind != RCC_IR_TYPE_POINTER ||
+            order.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        operands[0] = object_address.value;
+        operands[1] = value_address.value;
+        operands[2] = size.value;
+        operands[3] = order.value;
+        return lower_atomic_outlined_call(
+            context, is_store ? "__rin_atomic_store_v1"
+                              : "__rin_atomic_load_v1",
+            rcc_ir_type_void(), operands, 4u);
     }
     if (!object_type || !lower_atomic_object_representation_type(
             object_type, &object_ir_type, &atomic_type,

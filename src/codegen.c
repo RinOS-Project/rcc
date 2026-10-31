@@ -7864,6 +7864,74 @@ static bool gen_atomic_lock_free_query32(Module* mod, Expr* call) {
     return true;
 }
 
+static bool gen_atomic_outlined_fallback32(Module* mod, Expr* call,
+                                           const char* name) {
+    const Type* object_type = atomic_value_type(call);
+    int argument_count;
+    uint32_t call_offset;
+    bool is_load = strcmp(name, "__atomic_load") == 0;
+    bool is_store = strcmp(name, "__atomic_store") == 0;
+    bool is_exchange = strcmp(name, "__atomic_exchange") == 0;
+    bool is_compare_exchange =
+        strcmp(name, "__atomic_compare_exchange") == 0;
+    if (g_opts.target_arch != ARCH_X86 || !object_type ||
+        object_type->size <= 8 ||
+        (!is_load && !is_store && !is_exchange && !is_compare_exchange)) {
+        return false;
+    }
+
+    if (is_load || is_store) {
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EAX); /* Memory order. */
+        emit_mov_reg_imm(mod, EAX, (uint32_t)object_type->size);
+        emit_push_reg(mod, EAX); /* Object size. */
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX); /* Result/value buffer. */
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX); /* Atomic object. */
+        argument_count = 4;
+    } else if (is_exchange) {
+        gen_expr(mod, call_argument(call, 3));
+        emit_push_reg(mod, EAX); /* Memory order. */
+        emit_mov_reg_imm(mod, EAX, (uint32_t)object_type->size);
+        emit_push_reg(mod, EAX); /* Object size. */
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EAX); /* Previous-value buffer. */
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX); /* Desired-value buffer. */
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX); /* Atomic object. */
+        argument_count = 5;
+    } else {
+        gen_expr(mod, call_argument(call, 5));
+        emit_push_reg(mod, EAX); /* Failure order. */
+        gen_expr(mod, call_argument(call, 4));
+        emit_push_reg(mod, EAX); /* Success order. */
+        gen_expr(mod, call_argument(call, 3));
+        emit_push_reg(mod, EAX); /* Weak flag. */
+        emit_mov_reg_imm(mod, EAX, (uint32_t)object_type->size);
+        emit_push_reg(mod, EAX); /* Object size. */
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EAX); /* Desired-value buffer. */
+        gen_expr(mod, call_argument(call, 1));
+        emit_push_reg(mod, EAX); /* Expected-value buffer. */
+        gen_expr(mod, call_argument(call, 0));
+        emit_push_reg(mod, EAX); /* Atomic object. */
+        argument_count = 7;
+    }
+
+    emit_byte(mod, 0xE8);
+    call_offset = code_offset(mod);
+    emit_dword(mod, 0u);
+    add_func_call_ref(is_load ? "__rin_atomic_load_v1"
+                       : is_store ? "__rin_atomic_store_v1"
+                       : is_exchange ? "__rin_atomic_exchange_v1"
+                                     : "__rin_atomic_compare_exchange_v1",
+                     call_offset);
+    emit_add_reg_imm(mod, ESP, argument_count * 4);
+    return true;
+}
+
 static bool gen_atomic_builtin(Module* mod, Expr* call) {
     Expr* function = call->call_func;
     const char* name;
@@ -7881,6 +7949,7 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
     minmax_operation = atomic_minmax_operation(name);
     wrap_operation = atomic_wrap_operation(name);
     if (gen_atomic_lock_free_query32(mod, call)) return true;
+    if (gen_atomic_outlined_fallback32(mod, call, name)) return true;
     if (gen_atomic_builtin64_i686(mod, call, name)) return true;
     if (wrap_operation != ATOMIC_WRAP_NONE) {
         int retry_label = new_label();

@@ -2307,6 +2307,13 @@ static bool atomic_allows_aggregate_value(const char* name) {
            strcmp(name, "__atomic_compare_exchange") == 0;
 }
 
+static bool atomic_uses_generic_value_pointer(const char* name) {
+    return strcmp(name, "__atomic_load") == 0 ||
+           strcmp(name, "__atomic_store") == 0 ||
+           strcmp(name, "__atomic_exchange") == 0 ||
+           strcmp(name, "__atomic_compare_exchange") == 0;
+}
+
 static bool sema_is_opencl_scoped_atomic(const char* name,
                                         int argument_count) {
     if (!name) return false;
@@ -31045,7 +31052,9 @@ static bool sema_atomic_builtin_call(Expr* expr) {
             atomic_allows_pointer_value(name);
         integer_value = pointer_type && pointer_type->kind == TYPE_PTR &&
             pointer_type->base && type_is_integer(pointer_type->base) &&
-            (pointer_type->base->size == 1u ||
+            pointer_type->base->size > 0 &&
+            (atomic_uses_generic_value_pointer(name) ||
+             pointer_type->base->size == 1u ||
              pointer_type->base->size == 2u ||
              pointer_type->base->size == 4u ||
              pointer_type->base->size == 8u);
@@ -31054,17 +31063,21 @@ static bool sema_atomic_builtin_call(Expr* expr) {
             (pointer_type->base->kind == TYPE_FLOAT ||
              pointer_type->base->kind == TYPE_DOUBLE) &&
             atomic_allows_floating_value(name) &&
-            (pointer_type->base->size == 4u ||
+            pointer_type->base->size > 0 &&
+            (atomic_uses_generic_value_pointer(name) ||
+             pointer_type->base->size == 4u ||
              pointer_type->base->size == 8u);
         aggregate_value = pointer_type && pointer_type->kind == TYPE_PTR &&
             pointer_type->base &&
             (pointer_type->base->kind == TYPE_STRUCT ||
              pointer_type->base->kind == TYPE_UNION) &&
-            (pointer_type->base->size == 1u ||
-             pointer_type->base->size == 2u ||
-             pointer_type->base->size == 4u ||
-             pointer_type->base->size == 8u) &&
-            atomic_allows_aggregate_value(name);
+            type_is_complete(pointer_type->base) &&
+            pointer_type->base->size > 0 &&
+            atomic_allows_aggregate_value(name) &&
+            !pointer_type->base->cleanup_function &&
+            !pointer_type->base->cleanup_field &&
+            (!pointer_type->base->cxx_class ||
+             rcc_sema_cxx_trivially_copyable(pointer_type->base));
         if (!pointer_type || pointer_type->kind != TYPE_PTR ||
             (!integer_value && !pointer_value && !floating_value &&
              !aggregate_value)) {

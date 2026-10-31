@@ -3942,6 +3942,93 @@ static bool gen64_atomic_lock_free_query(Module* mod, Expr* call) {
     return true;
 }
 
+static void add_func_call_ref64(const char* name, uint32_t call_offset);
+
+static bool gen64_atomic_outlined_fallback(Module* mod, Expr* call,
+                                            const char* name) {
+    const Type* object_type = atomic64_value_type(call);
+    bool is_load = strcmp(name, "__atomic_load") == 0;
+    bool is_store = strcmp(name, "__atomic_store") == 0;
+    bool is_exchange = strcmp(name, "__atomic_exchange") == 0;
+    bool is_compare_exchange =
+        strcmp(name, "__atomic_compare_exchange") == 0;
+    uint32_t call_offset;
+    int frame_size;
+    int first_slot;
+    if (!object_type || object_type->size <= 8 ||
+        (!is_load && !is_store && !is_exchange && !is_compare_exchange)) {
+        return false;
+    }
+
+    frame_size = is_compare_exchange ? 80 : 48;
+    first_slot = is_compare_exchange ? 16 : 0;
+    emit64_sub_reg_imm(mod, RSP, frame_size);
+    if (is_load || is_store) {
+        gen64_expr(mod, call64_argument(call, 2));
+        emit64_mov_mem_reg(mod, RSP, first_slot + 24, RAX);
+        emit64_mov_reg_imm64(mod, RAX, (uint64_t)object_type->size);
+        emit64_mov_mem_reg(mod, RSP, first_slot + 16, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_mov_mem_reg(mod, RSP, first_slot + 8, RAX);
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_mov_mem_reg(mod, RSP, first_slot, RAX);
+        emit64_mov_reg_mem(mod, RDI, RSP, first_slot);
+        emit64_mov_reg_mem(mod, RSI, RSP, first_slot + 8);
+        emit64_mov_reg_mem(mod, RDX, RSP, first_slot + 16);
+        emit64_mov_reg_mem(mod, RCX, RSP, first_slot + 24);
+    } else if (is_exchange) {
+        gen64_expr(mod, call64_argument(call, 3));
+        emit64_mov_mem_reg(mod, RSP, first_slot + 32, RAX);
+        emit64_mov_reg_imm64(mod, RAX, (uint64_t)object_type->size);
+        emit64_mov_mem_reg(mod, RSP, first_slot + 24, RAX);
+        gen64_expr(mod, call64_argument(call, 2));
+        emit64_mov_mem_reg(mod, RSP, first_slot + 16, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_mov_mem_reg(mod, RSP, first_slot + 8, RAX);
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_mov_mem_reg(mod, RSP, first_slot, RAX);
+        emit64_mov_reg_mem(mod, RDI, RSP, first_slot);
+        emit64_mov_reg_mem(mod, RSI, RSP, first_slot + 8);
+        emit64_mov_reg_mem(mod, RDX, RSP, first_slot + 16);
+        emit64_mov_reg_mem(mod, RCX, RSP, first_slot + 24);
+        emit64_mov_reg_mem(mod, R8, RSP, first_slot + 32);
+    } else {
+        gen64_expr(mod, call64_argument(call, 5));
+        emit64_mov_mem_reg(mod, RSP, first_slot + 48, RAX);
+        gen64_expr(mod, call64_argument(call, 4));
+        emit64_mov_mem_reg(mod, RSP, first_slot + 40, RAX);
+        gen64_expr(mod, call64_argument(call, 3));
+        emit64_mov_mem_reg(mod, RSP, first_slot + 32, RAX);
+        emit64_mov_reg_imm64(mod, RAX, (uint64_t)object_type->size);
+        emit64_mov_mem_reg(mod, RSP, first_slot + 24, RAX);
+        gen64_expr(mod, call64_argument(call, 2));
+        emit64_mov_mem_reg(mod, RSP, first_slot + 16, RAX);
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_mov_mem_reg(mod, RSP, first_slot + 8, RAX);
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_mov_mem_reg(mod, RSP, first_slot, RAX);
+        emit64_mov_reg_mem(mod, RDI, RSP, first_slot);
+        emit64_mov_reg_mem(mod, RSI, RSP, first_slot + 8);
+        emit64_mov_reg_mem(mod, RDX, RSP, first_slot + 16);
+        emit64_mov_reg_mem(mod, RCX, RSP, first_slot + 24);
+        emit64_mov_reg_mem(mod, R8, RSP, first_slot + 32);
+        emit64_mov_reg_mem(mod, R9, RSP, first_slot + 40);
+        emit64_mov_reg_mem(mod, RAX, RSP, first_slot + 48);
+        emit64_mov_mem_reg(mod, RSP, 0, RAX);
+    }
+
+    emit_byte(mod, 0xE8);
+    call_offset = code_offset(mod);
+    emit_dword(mod, 0u);
+    add_func_call_ref64(is_load ? "__rin_atomic_load_v1"
+                          : is_store ? "__rin_atomic_store_v1"
+                          : is_exchange ? "__rin_atomic_exchange_v1"
+                                        : "__rin_atomic_compare_exchange_v1",
+                        call_offset);
+    emit64_add_reg_imm(mod, RSP, frame_size);
+    return true;
+}
+
 static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     Expr* function = call->call_func;
     const char* name;
@@ -3959,6 +4046,7 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     minmax_operation = atomic64_minmax_operation(name);
     wrap_operation = atomic64_wrap_operation(name);
     if (gen64_atomic_lock_free_query(mod, call)) return true;
+    if (gen64_atomic_outlined_fallback(mod, call, name)) return true;
     if (minmax_operation != ATOMIC64_MINMAX_NONE) {
         int retry_label = new_label64();
         int failed_compare_exchange_label = new_label64();
