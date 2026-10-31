@@ -28884,6 +28884,7 @@ bool rcc_parse_cxx_deduction_guide(void) {
     if (!check(TOK_RPAREN)) {
         do {
             const char* parameter_name = NULL;
+            Expr* default_argument = NULL;
             Type* parameter_type = parse_cxx_type_spec();
             parameter_type = rcc_parser_parse_cxx_declarator(
                 parameter_type, &parameter_name, NULL);
@@ -28892,14 +28893,13 @@ bool rcc_parse_cxx_deduction_guide(void) {
                           "deduction guide parameter packs are not supported");
             }
             if (match(TOK_ASSIGN)) {
-                rcc_error(previous()->loc,
-                          "deduction guide default arguments are not supported");
-                (void)parse_assignment_expression();
+                default_argument = parse_assignment_expression();
             }
             {
                 Decl* parameter = decl_param(
                     parameter_name, parameter_type, parameter_index++,
                     peek()->loc);
+                parameter->param_default = default_argument;
                 decllist_append(&parameters, parameter);
             }
         } while (match(TOK_COMMA));
@@ -31075,7 +31075,14 @@ static Type* deduce_class_template_from_guides(
             argument = argument->next;
             parameter = parameter->next;
         }
-        if (argument || parameter) viable = false;
+        if (argument) viable = false;
+        while (parameter) {
+            if (!parameter->decl || !parameter->decl->param_default) {
+                viable = false;
+                break;
+            }
+            parameter = parameter->next;
+        }
         if (!viable) continue;
 
         if (owner) {
