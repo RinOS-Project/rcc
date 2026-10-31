@@ -21310,6 +21310,49 @@ test-verified-atomic-fetch-add: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/atomic-floating-x64-o2.ro
 	@echo "Verified atomic floating-point and generic/_n load-store/exchange/compare-exchange, bitwise/NAND/min/max/uinc/udec, legacy sync RMW/CAS/lock operations, fences, and test-and-set/clear tests completed"
 
+.PHONY: test-verified-atomic-aggregate-widths
+test-verified-backend: test-verified-atomic-aggregate-widths
+
+test-verified-atomic-aggregate-widths: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -I$(RINOS_SDK_ROOT)/include -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.ro \
+		tests/verified_backend_atomic_generic_outlined.c \
+		>$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.log,0)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -O2 -I$(RINOS_SDK_ROOT)/include -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86-o2.ro \
+		tests/verified_backend_atomic_generic_outlined.c \
+		>$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86-o2.log,0)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -I$(RINOS_SDK_ROOT)/include -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/atomic-aggregate-widths-x64.ro \
+		tests/verified_backend_atomic_generic_outlined.c \
+		>$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x64.log,0)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -I$(RINOS_SDK_ROOT)/include -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/atomic-aggregate-widths-x64-o2.ro \
+		tests/verified_backend_atomic_generic_outlined.c \
+		>$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x64-o2.log,0)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -Dmain=rcc_test_main -S \
+		-I$(RINOS_SDK_ROOT)/include -o $(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s \
+		tests/verified_backend_atomic_generic_outlined.c
+	$(call CHECK_COUNT,__rin_atomic_load_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,2)
+	$(call CHECK_COUNT,__rin_atomic_store_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,4)
+	$(call CHECK_COUNT,__rin_atomic_exchange_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,3)
+	$(call CHECK_COUNT,__rin_atomic_compare_exchange_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,4)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -Dmain=rcc_test_main -S \
+		-I$(RINOS_SDK_ROOT)/include -o $(TEST_OUT)/verified-backend/atomic-aggregate-widths-x64.s \
+		tests/verified_backend_atomic_generic_outlined.c
+	$(GCC) -std=c17 -Wall -Wextra -Werror -I$(RINOS_SDK_ROOT)/include \
+		-o $(TEST_OUT)/verified-backend/atomic-aggregate-widths-run$(EXE_SUFFIX) \
+		$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x64.s \
+		tests/verified_backend_atomic_sysv_entry.c \
+		tests/verified_backend_atomic_sysv_bridge.c
+	$(TEST_OUT)/verified-backend/atomic-aggregate-widths-run$(EXE_SUFFIX)
+	@echo "Verified generic aggregate atomics with outlined widths completed"
+
 test-verified-vla-local-bound: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \

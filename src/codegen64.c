@@ -4003,6 +4003,16 @@ static bool gen64_atomic_lock_free_query(Module* mod, Expr* call) {
     return true;
 }
 
+static bool atomic64_requires_outlined_fallback(const Type* object_type) {
+    if (!object_type) return false;
+    if (object_type->size > 8) return true;
+    if (object_type->kind != TYPE_STRUCT &&
+        object_type->kind != TYPE_UNION) return false;
+    if (object_type->size <= 0 || object_type->size == 1 ||
+        object_type->size == 2 || object_type->size == 4) return false;
+    return object_type->size != 8 || g_opts.target_arch != ARCH_X64;
+}
+
 static bool gen64_atomic_outlined_fallback(Module* mod, Expr* call,
                                             const char* name) {
     const Type* object_type = atomic64_value_type(call);
@@ -4014,7 +4024,7 @@ static bool gen64_atomic_outlined_fallback(Module* mod, Expr* call,
     uint32_t call_offset;
     int frame_size;
     int first_slot;
-    if (!object_type || object_type->size <= 8 ||
+    if (!object_type || !atomic64_requires_outlined_fallback(object_type) ||
         (!is_load && !is_store && !is_exchange && !is_compare_exchange)) {
         return false;
     }

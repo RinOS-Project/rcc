@@ -7864,6 +7864,16 @@ static bool gen_atomic_lock_free_query32(Module* mod, Expr* call) {
     return true;
 }
 
+static bool atomic32_requires_outlined_fallback(const Type* object_type) {
+    if (!object_type) return false;
+    if (object_type->size > 8) return true;
+    if (object_type->kind != TYPE_STRUCT &&
+        object_type->kind != TYPE_UNION) return false;
+    if (object_type->size <= 0 || object_type->size == 1 ||
+        object_type->size == 2 || object_type->size == 4) return false;
+    return object_type->size != 8 || g_opts.target_arch == ARCH_X86;
+}
+
 static bool gen_atomic_outlined_fallback32(Module* mod, Expr* call,
                                            const char* name) {
     const Type* object_type = atomic_value_type(call);
@@ -7875,7 +7885,7 @@ static bool gen_atomic_outlined_fallback32(Module* mod, Expr* call,
     bool is_compare_exchange =
         strcmp(name, "__atomic_compare_exchange") == 0;
     if (g_opts.target_arch != ARCH_X86 || !object_type ||
-        object_type->size <= 8 ||
+        !atomic32_requires_outlined_fallback(object_type) ||
         (!is_load && !is_store && !is_exchange && !is_compare_exchange)) {
         return false;
     }

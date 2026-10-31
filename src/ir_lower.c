@@ -12027,12 +12027,21 @@ static bool lower_atomic_object_representation_type(
 }
 
 static bool lower_atomic_uses_outlined_fallback(
-    const char* name, const Type* object_type) {
-    return object_type && object_type->size > 8 &&
-        (strcmp(name, "__atomic_load") == 0 ||
-         strcmp(name, "__atomic_store") == 0 ||
-         strcmp(name, "__atomic_exchange") == 0 ||
-         strcmp(name, "__atomic_compare_exchange") == 0);
+    const char* name, Type* object_type) {
+    bool generic_builtin = strcmp(name, "__atomic_load") == 0 ||
+        strcmp(name, "__atomic_store") == 0 ||
+        strcmp(name, "__atomic_exchange") == 0 ||
+        strcmp(name, "__atomic_compare_exchange") == 0;
+    if (!object_type || !generic_builtin) return false;
+    if (object_type->size > 8) return true;
+    if ((object_type->kind != TYPE_STRUCT &&
+         object_type->kind != TYPE_UNION) ||
+        !type_is_complete(object_type) || object_type->size <= 0) {
+        return false;
+    }
+    return object_type->size != 1 && object_type->size != 2 &&
+        object_type->size != 4 &&
+        (object_type->size != 8 || g_opts.target_arch != ARCH_X64);
 }
 
 static RccIrLowerValue lower_atomic_outlined_call(
@@ -12061,7 +12070,7 @@ static RccIrLowerValue lower_atomic_outlined_size(
     RccIrLowerContext* context, const Type* object_type) {
     RccIrType size_type = rcc_ir_type_integer(
         (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
-    if (!object_type || object_type->size <= 8) {
+    if (!object_type || object_type->size <= 0) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
