@@ -28869,6 +28869,7 @@ bool rcc_parse_cxx_deduction_guide(void) {
     Type* return_type = NULL;
     CxxDeductionGuide* guide;
     int parameter_index = 0;
+    bool saw_default_argument = false;
 
     if (!cxx_deduction_guide_starts()) return false;
     if (!rcc_parser_cxx_standard_at_least(17)) {
@@ -28894,6 +28895,11 @@ bool rcc_parse_cxx_deduction_guide(void) {
             }
             if (match(TOK_ASSIGN)) {
                 default_argument = parse_assignment_expression();
+                saw_default_argument = true;
+            } else if (saw_default_argument) {
+                rcc_error(
+                    peek()->loc,
+                    "parameter without a default follows a default argument");
             }
             {
                 Decl* parameter = decl_param(

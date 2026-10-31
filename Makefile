@@ -10371,6 +10371,11 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-deduction/default-guide-x64.o \
 		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-class-template-deduction/default-guide-x64-host
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x86.ro tests/cxx_class_template_deduction_guide_default_order_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x86.log)
+	$(GREP) -F -q "parameter without a default follows a default argument" $(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x64.ro tests/cxx_class_template_deduction_guide_default_order_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x64.log)
+	$(GREP) -F -q "parameter without a default follows a default argument" $(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++17 -pedantic-errors -fsyntax-only tests/cxx_class_template_deduction_guide_default_order_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-gcc.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-class-template-deduction/old-x86.ro tests/cxx_class_template_deduction_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/old-x86.log)
 	$(GREP) -F -q "class template argument deduction requires C++17 or newer" $(TEST_OUT)/cxx-class-template-deduction/old-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-class-template-deduction/old-x64.ro tests/cxx_class_template_deduction_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/old-x64.log)
