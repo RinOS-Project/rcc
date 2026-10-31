@@ -5028,6 +5028,22 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-type-pattern/gcc-host tests/cxx_function_template_type_pattern_partial_order.cpp
+	$(TEST_OUT)/cxx-function-template-type-pattern/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.ro \
+		tests/cxx_function_template_type_pattern_partial_order.cpp \
+		>$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.ro \
+		tests/cxx_function_template_type_pattern_partial_order.cpp \
+		>$(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.log,0)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-dependent-pointer-constexpr-member-call,cxx_dependent_pointer_constexpr_member_call.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/gcc-host tests/cxx_dependent_pointer_constexpr_member_call.cpp
@@ -6561,6 +6577,22 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-type-pattern/gcc-host.exe tests/cxx_function_template_type_pattern_partial_order.cpp
+	$(TEST_OUT)/cxx-function-template-type-pattern/gcc-host.exe
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.ro \
+		tests/cxx_function_template_type_pattern_partial_order.cpp \
+		>$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-type-pattern/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.ro \
+		tests/cxx_function_template_type_pattern_partial_order.cpp \
+		>$(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-type-pattern/verified-x64.log,0)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-dependent-pointer-constexpr-member-call/rinos-x86.ro \
