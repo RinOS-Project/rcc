@@ -149,6 +149,60 @@ ArithmeticGuidePackBox(GuideValueList<Values...>,
                        GuideValueTag<(Values + 1)>...)
     -> ArithmeticGuidePackBox<GuideValueList<Values...>>;
 
+template <typename Pack>
+struct CompositeConstantGuideBox {
+    Pack value;
+
+    CompositeConstantGuideBox(GuideValueList<2, 4>, GuideValueTag<9>,
+                              GuideValueTag<25>) {}
+    CompositeConstantGuideBox(GuideValueList<2, 4>, GuideValueTag<9>,
+                              GuideValueTag<26>) {}
+};
+
+template <int... Values>
+CompositeConstantGuideBox(GuideValueList<Values...>,
+                          GuideValueTag<(Values * Values +
+                                         (Values << 1) + 1)>...)
+    -> CompositeConstantGuideBox<GuideValueList<Values...>>;
+
+template <typename Pack>
+struct DependentArrayGuideBox {
+    Pack value;
+
+    DependentArrayGuideBox(GuideValueList<2, 4>, char const*, char const*) {}
+};
+
+template <int... Extents>
+DependentArrayGuideBox(
+    GuideValueList<Extents...>,
+    char const (&... arrays)[(Extents * 2 + 1)])
+    -> DependentArrayGuideBox<GuideValueList<Extents...>>;
+
+struct InvalidBoundGuideResult {
+    char value;
+};
+
+struct FallbackBoundGuideResult {
+    char values[2];
+};
+
+template <typename Result>
+struct BoundSubstitutionGuideBox {
+    Result result;
+
+    BoundSubstitutionGuideBox(GuideValueList<2, 4>, char const*, char const*) {}
+};
+
+template <int... Extents>
+BoundSubstitutionGuideBox(
+    GuideValueList<Extents...>,
+    char const (&... arrays)[(16 / (Extents - 2))])
+    -> BoundSubstitutionGuideBox<InvalidBoundGuideResult>;
+
+template <int... Extents>
+BoundSubstitutionGuideBox(GuideValueList<Extents...>, char const*, char const*)
+    -> BoundSubstitutionGuideBox<FallbackBoundGuideResult>;
+
 template <typename Types, typename Counts>
 struct MixedIndependentGuidePackBox {
     Types first;
@@ -239,6 +293,20 @@ int main() {
     ArithmeticGuidePackBox invalid{GuideValueList<2, 4>{}, GuideValueTag<3>{}};
     return sizeof(invalid.value.values);
 }
+#elif defined(RCC_COMPOSITE_CONSTANT_GUIDE_BAD_VALUE)
+int main() {
+    CompositeConstantGuideBox invalid{
+        GuideValueList<2, 4>{}, GuideValueTag<9>{}, GuideValueTag<26>{}};
+    return sizeof(invalid.value.values);
+}
+#elif defined(RCC_DEPENDENT_ARRAY_GUIDE_BAD_BOUND)
+int main() {
+    char first[5]{};
+    char second[8]{};
+    DependentArrayGuideBox invalid{
+        GuideValueList<2, 4>{}, first, second};
+    return sizeof(invalid.value.value);
+}
 #else
 int main() {
 #ifdef RCC_NESTED_GUIDE_BAD_ZIPPED_LENGTH
@@ -292,6 +360,18 @@ int main() {
         GuideValuePair<int, 3>{}, GuideValuePair<char, 5>{}};
     ArithmeticGuidePackBox selected_arithmetic_pack{
         GuideValueList<2, 4>{}, GuideValueTag<3>{}, GuideValueTag<5>{}};
+    CompositeConstantGuideBox selected_composite_constant{
+        GuideValueList<2, 4>{}, GuideValueTag<9>{}, GuideValueTag<25>{}};
+    char dependent_array_first[5]{};
+    char dependent_array_second[9]{};
+    DependentArrayGuideBox selected_dependent_arrays{
+        GuideValueList<2, 4>{}, dependent_array_first,
+        dependent_array_second};
+    char substitution_failure_first[1]{};
+    char substitution_failure_second[1]{};
+    BoundSubstitutionGuideBox selected_substitution_failure{
+        GuideValueList<2, 4>{}, substitution_failure_first,
+        substitution_failure_second};
     TemplateTemplateMultiGuideBox multi{pair};
     TemplateTemplateMultiGuideBox<GuidePair, long, int>* exact_multi = &multi;
     TemplateTemplateNontypeGuideBox nontype{array};
@@ -304,7 +384,10 @@ int main() {
     TemplateTemplateValueGuideBox<
         GuidePackList<GuideValuePair<int, 3>, GuideArray<char, 5>>>*
         exact_mixed_template_value = &mixed_template_value;
-    if (sizeof(selected_arithmetic_pack.value.values) != 3) return 3;
+    if (sizeof(selected_arithmetic_pack.value.values) != 3 ||
+        sizeof(selected_composite_constant.value.values) != 3 ||
+        sizeof(selected_dependent_arrays.value.values) != 3 ||
+        sizeof(selected_substitution_failure.result.values) != 2) return 3;
     return exact->value.value == 17 &&
                    exact_defaulted->value.value == 19 &&
                    exact_pack_signature->value.value == 17 &&
