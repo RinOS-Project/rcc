@@ -517,54 +517,71 @@ void module_end_debug_inline_call(Module* mod, size_t call_index,
     mod->debug_inline_calls[call_index].code_end = code_end;
 }
 
+static void module_add_debug_inline_scope_range_to_call(
+    Module* mod, size_t call_index, const Decl* function,
+    const Stmt* scope, uint32_t code_start, uint32_t code_end) {
+    ModuleDebugInlineCall* call;
+    ModuleDebugInlineScope* entry;
+    if (!mod || !function || !scope || code_end <= code_start ||
+        call_index >= mod->debug_inline_call_count) return;
+    call = &mod->debug_inline_calls[call_index];
+    if (call->callee != function) return;
+    for (entry = call->lexical_scopes; entry; entry = entry->next) {
+        if (entry->scope == scope) break;
+    }
+    if (!entry) {
+        entry = rcc_alloc(sizeof(*entry));
+        entry->scope = scope;
+        entry->code_ranges = NULL;
+        entry->next = call->lexical_scopes;
+        call->lexical_scopes = entry;
+    }
+    StmtDebugRange** insertion = &entry->code_ranges;
+    while (*insertion && (*insertion)->end < code_start) {
+        insertion = &(*insertion)->next;
+    }
+    if (!*insertion || (*insertion)->start > code_end) {
+        StmtDebugRange* range = rcc_alloc(sizeof(*range));
+        range->start = code_start;
+        range->end = code_end;
+        range->next = *insertion;
+        *insertion = range;
+    } else {
+        StmtDebugRange* range = *insertion;
+        if (code_start < range->start) range->start = code_start;
+        if (code_end > range->end) range->end = code_end;
+        while (range->next && range->next->start <= range->end) {
+            StmtDebugRange* next = range->next;
+            if (next->end > range->end) range->end = next->end;
+            range->next = next->next;
+            rcc_free(next);
+        }
+    }
+}
+
+void module_add_debug_inline_scope_range_from_call(
+    Module* mod, size_t active_call_index_plus_one, const Decl* function,
+    const Stmt* scope, uint32_t code_start, uint32_t code_end) {
+    size_t active_plus_one = active_call_index_plus_one;
+    if (!mod || !function || !scope || code_end <= code_start) return;
+    while (active_plus_one != 0u) {
+        size_t call_index = active_plus_one - 1u;
+        if (call_index >= mod->debug_inline_call_count) break;
+        module_add_debug_inline_scope_range_to_call(
+            mod, call_index, function, scope, code_start, code_end);
+        active_plus_one =
+            mod->debug_inline_calls[call_index].parent_index_plus_one;
+    }
+}
+
 void module_add_debug_inline_scope_range(Module* mod, const Decl* function,
                                          const Stmt* scope,
                                          uint32_t code_start,
                                          uint32_t code_end) {
-    size_t active_plus_one;
-    if (!mod || !function || !scope || code_end <= code_start) return;
-    active_plus_one = mod->debug_inline_active_call_plus_one;
-    while (active_plus_one != 0u) {
-        size_t call_index = active_plus_one - 1u;
-        ModuleDebugInlineCall* call;
-        ModuleDebugInlineScope* entry;
-        if (call_index >= mod->debug_inline_call_count) break;
-        call = &mod->debug_inline_calls[call_index];
-        if (call->callee == function) {
-            for (entry = call->lexical_scopes; entry; entry = entry->next) {
-                if (entry->scope == scope) break;
-            }
-            if (!entry) {
-                entry = rcc_alloc(sizeof(*entry));
-                entry->scope = scope;
-                entry->code_ranges = NULL;
-                entry->next = call->lexical_scopes;
-                call->lexical_scopes = entry;
-            }
-            StmtDebugRange** insertion = &entry->code_ranges;
-            while (*insertion && (*insertion)->end < code_start) {
-                insertion = &(*insertion)->next;
-            }
-            if (!*insertion || (*insertion)->start > code_end) {
-                StmtDebugRange* range = rcc_alloc(sizeof(*range));
-                range->start = code_start;
-                range->end = code_end;
-                range->next = *insertion;
-                *insertion = range;
-            } else {
-                StmtDebugRange* range = *insertion;
-                if (code_start < range->start) range->start = code_start;
-                if (code_end > range->end) range->end = code_end;
-                while (range->next && range->next->start <= range->end) {
-                    StmtDebugRange* next = range->next;
-                    if (next->end > range->end) range->end = next->end;
-                    range->next = next->next;
-                    rcc_free(next);
-                }
-            }
-        }
-        active_plus_one = call->parent_index_plus_one;
-    }
+    if (!mod) return;
+    module_add_debug_inline_scope_range_from_call(
+        mod, mod->debug_inline_active_call_plus_one, function, scope,
+        code_start, code_end);
 }
 
 void codegen_free(Module* mod) {

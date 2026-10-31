@@ -113,6 +113,9 @@ static bool x86_add_source_range(
         (uint32_t)(encoder->output.code_size - offset);
     ranges[encoder->output.source_range_count].source_statement =
         instruction->source_statement;
+    ranges[encoder->output.source_range_count]
+        .source_inline_call_index_plus_one =
+            instruction->source_inline_call_index_plus_one;
     ++encoder->output.source_range_count;
     return true;
 }

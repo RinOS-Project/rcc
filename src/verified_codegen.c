@@ -1032,7 +1032,8 @@ static void verified_apply_statement_debug_ranges(
         Stmt* statement = (Stmt*)range->source_statement;
         uint64_t start;
         uint64_t end;
-        if (!statement || range->offset > UINT32_MAX -
+        if (!statement || range->source_inline_call_index_plus_one != 0u ||
+            range->offset > UINT32_MAX -
                 (uint32_t)object_symbol->value ||
             range->size > UINT32_MAX -
                 ((uint32_t)object_symbol->value + range->offset)) {
@@ -1057,13 +1058,185 @@ static bool verified_inline_is_within(
     return false;
 }
 
+typedef struct VerifiedInlineScopePath {
+    const Decl* function;
+    const Stmt* target;
+    const Stmt** scopes;
+    size_t scope_count;
+    bool found;
+    struct VerifiedInlineScopePath* next;
+} VerifiedInlineScopePath;
+
+typedef struct VerifiedInlineScopePathBuilder {
+    const Stmt** scopes;
+    size_t count;
+    size_t capacity;
+} VerifiedInlineScopePathBuilder;
+
+static bool verified_inline_scope_path_push(
+    VerifiedInlineScopePathBuilder* builder, const Stmt* scope) {
+    size_t capacity;
+    if (builder->count == builder->capacity) {
+        capacity = builder->capacity < 8u
+            ? 8u : builder->capacity * 2u;
+        if (capacity < builder->capacity ||
+            capacity > SIZE_MAX / sizeof(*builder->scopes)) {
+            rcc_fatal("verified inline lexical-scope path is too large");
+            return false;
+        }
+        builder->scopes = rcc_realloc(
+            builder->scopes, capacity * sizeof(*builder->scopes));
+        builder->capacity = capacity;
+    }
+    builder->scopes[builder->count++] = scope;
+    return true;
+}
+
+static bool verified_inline_scope_path_find_stmt(
+    const Stmt* statement, const Stmt* target, bool function_body,
+    VerifiedInlineScopePathBuilder* builder) {
+    bool lexical_scope;
+    if (!statement || !target || !builder) return false;
+    lexical_scope = !function_body &&
+        ((statement->kind == STMT_BLOCK && !statement->block_no_scope) ||
+         statement->kind == STMT_FOR);
+    if (lexical_scope &&
+        !verified_inline_scope_path_push(builder, statement)) {
+        return false;
+    }
+    if (statement == target) return true;
+#define RCC_TRY_INLINE_SCOPE_CHILD(child) \
+    do { \
+        if (verified_inline_scope_path_find_stmt( \
+                (child), target, false, builder)) { \
+            return true; \
+        } \
+    } while (0)
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                RCC_TRY_INLINE_SCOPE_CHILD(item->stmt);
+            }
+            break;
+        case STMT_IF:
+            RCC_TRY_INLINE_SCOPE_CHILD(statement->if_then);
+            RCC_TRY_INLINE_SCOPE_CHILD(statement->if_else);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            RCC_TRY_INLINE_SCOPE_CHILD(statement->while_body);
+            break;
+        case STMT_FOR:
+            RCC_TRY_INLINE_SCOPE_CHILD(statement->for_init);
+            RCC_TRY_INLINE_SCOPE_CHILD(statement->for_body);
+            break;
+        case STMT_SWITCH:
+            RCC_TRY_INLINE_SCOPE_CHILD(statement->switch_body);
+            break;
+        case STMT_CASE:
+            RCC_TRY_INLINE_SCOPE_CHILD(statement->case_stmt);
+            break;
+        case STMT_DEFAULT:
+            RCC_TRY_INLINE_SCOPE_CHILD(statement->default_stmt);
+            break;
+        case STMT_LABEL:
+            RCC_TRY_INLINE_SCOPE_CHILD(statement->label_stmt);
+            break;
+        case STMT_TRY:
+            RCC_TRY_INLINE_SCOPE_CHILD(statement->try_body);
+            for (const CxxCatch* handler = statement->try_catches;
+                 handler; handler = handler->next) {
+                RCC_TRY_INLINE_SCOPE_CHILD(handler->body);
+            }
+            break;
+        default:
+            break;
+    }
+#undef RCC_TRY_INLINE_SCOPE_CHILD
+    if (lexical_scope && builder->count != 0u) --builder->count;
+    return false;
+}
+
+static const VerifiedInlineScopePath* verified_inline_scope_path_get(
+    VerifiedInlineScopePath** paths, const Decl* function,
+    const Stmt* target) {
+    VerifiedInlineScopePath* path;
+    VerifiedInlineScopePathBuilder builder = {0};
+    if (!paths || !function || !function->func_body || !target) return NULL;
+    for (path = *paths; path; path = path->next) {
+        if (path->function == function && path->target == target) return path;
+    }
+    path = rcc_alloc(sizeof(*path));
+    path->function = function;
+    path->target = target;
+    path->scopes = NULL;
+    path->scope_count = 0u;
+    path->found = verified_inline_scope_path_find_stmt(
+        function->func_body, target, true, &builder);
+    if (path->found) {
+        path->scopes = builder.scopes;
+        path->scope_count = builder.count;
+    } else {
+        rcc_free(builder.scopes);
+    }
+    path->next = *paths;
+    *paths = path;
+    return path;
+}
+
+static bool verified_add_inline_scope_path_ranges(
+    Module* destination, VerifiedInlineScopePath** paths,
+    const Decl* function, const Stmt* statement,
+    size_t call_index_plus_one, uint32_t code_start, uint32_t code_end,
+    char* error, size_t error_size) {
+    const VerifiedInlineScopePath* path;
+    if (!destination || !paths || !function || !statement ||
+        call_index_plus_one == 0u || code_end <= code_start) {
+        if (error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "verified inline lexical-scope metadata is incomplete");
+        }
+        return false;
+    }
+    path = verified_inline_scope_path_get(paths, function, statement);
+    if (!path) {
+        if (error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "verified inline lexical-scope path is unavailable");
+        }
+        return false;
+    }
+    /* Optimized single-statement inline bodies can retain the caller's source
+     * statement; that range has no lexical block in this callee to describe. */
+    if (!path->found) return true;
+    for (size_t index = 0u; index < path->scope_count; ++index) {
+        module_add_debug_inline_scope_range_from_call(
+            destination, call_index_plus_one, function, path->scopes[index],
+            code_start, code_end);
+    }
+    return true;
+}
+
+static void verified_inline_scope_paths_free(
+    VerifiedInlineScopePath* paths) {
+    while (paths) {
+        VerifiedInlineScopePath* next = paths->next;
+        rcc_free((void*)paths->scopes);
+        rcc_free(paths);
+        paths = next;
+    }
+}
+
 static bool verified_append_debug_inline_calls(
     Module* destination, const RccIrModule* source,
     const RccX86EncodedFunction* encoded, const ObjSymbol* function_symbol,
     char* error, size_t error_size) {
     size_t* global_index_plus_one = NULL;
+    VerifiedInlineScopePath* scope_paths = NULL;
     if (!destination || !source || !encoded || !function_symbol ||
-        (source->inline_call_count != 0u && !source->inline_calls)) {
+        (source->inline_call_count != 0u && !source->inline_calls) ||
+        (encoded->inline_range_count != 0u && !encoded->inline_ranges)) {
         if (error && error_size != 0u) {
             snprintf(error, error_size,
                      "verified inline debug metadata is incomplete");
@@ -1133,7 +1306,8 @@ static bool verified_append_debug_inline_calls(
             !call->filename[0] || call->line == 0u ||
             call->parent_index_plus_one > call_index ||
             (call->parent_index_plus_one != 0u &&
-             global_index_plus_one[call->parent_index_plus_one - 1u] == 0u)) {
+             (global_index_plus_one[call->parent_index_plus_one - 1u] == 0u ||
+              !call->caller_statement))) {
             if (error && error_size != 0u) {
                 snprintf(error, error_size,
                          "verified inline call tree is inconsistent");
@@ -1158,6 +1332,106 @@ static bool verified_append_debug_inline_calls(
             global_index_plus_one[call_index] = global_index + 1u;
         }
     }
+    if (encoded->source_range_count != 0u && !encoded->source_ranges) {
+        if (error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "verified source-range metadata is incomplete");
+        }
+        rcc_free(global_index_plus_one);
+        return false;
+    }
+    for (size_t range_index = 0u;
+         range_index < encoded->source_range_count; ++range_index) {
+        const RccX86CodeSourceRange* range =
+            &encoded->source_ranges[range_index];
+        size_t local_call_plus_one =
+            range->source_inline_call_index_plus_one;
+        size_t local_call_index;
+        uint32_t code_start;
+        uint32_t code_end;
+        const RccIrInlineCall* call;
+        if (local_call_plus_one == 0u) continue;
+        if (local_call_plus_one > source->inline_call_count ||
+            !range->source_statement || range->size == 0u ||
+            range->offset > function_symbol->size ||
+            range->size > function_symbol->size - range->offset ||
+            function_symbol->value > UINT32_MAX - range->offset ||
+            function_symbol->value + range->offset > UINT32_MAX - range->size) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "verified inline source range is invalid");
+            }
+            verified_inline_scope_paths_free(scope_paths);
+            rcc_free(global_index_plus_one);
+            return false;
+        }
+        local_call_index = local_call_plus_one - 1u;
+        if (global_index_plus_one[local_call_index] == 0u) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "verified inline source range has no emitted call");
+            }
+            verified_inline_scope_paths_free(scope_paths);
+            rcc_free(global_index_plus_one);
+            return false;
+        }
+        call = &source->inline_calls[local_call_index];
+        code_start = (uint32_t)(function_symbol->value + range->offset);
+        code_end = code_start + range->size;
+        if (!verified_add_inline_scope_path_ranges(
+                destination, &scope_paths, (const Decl*)call->callee,
+                (const Stmt*)range->source_statement,
+                global_index_plus_one[local_call_index], code_start, code_end,
+                error, error_size)) {
+            verified_inline_scope_paths_free(scope_paths);
+            rcc_free(global_index_plus_one);
+            return false;
+        }
+    }
+    for (size_t call_index = 0u;
+         call_index < source->inline_call_count; ++call_index) {
+        const RccIrInlineCall* call = &source->inline_calls[call_index];
+        uint32_t local_start = UINT32_MAX;
+        uint32_t local_end = 0u;
+        size_t parent_plus_one = call->parent_index_plus_one;
+        if (parent_plus_one == 0u ||
+            global_index_plus_one[call_index] == 0u) continue;
+        for (size_t range_index = 0u;
+             range_index < encoded->inline_range_count; ++range_index) {
+            const RccX86CodeInlineRange* range =
+                &encoded->inline_ranges[range_index];
+            size_t range_call_index = range->call_index_plus_one - 1u;
+            uint32_t range_end = range->offset + range->size;
+            if (verified_inline_is_within(
+                    source, range_call_index, call_index)) {
+                if (range->offset < local_start) local_start = range->offset;
+                if (range_end > local_end) local_end = range_end;
+            }
+        }
+        if (local_start == UINT32_MAX || local_end <= local_start ||
+            function_symbol->value > UINT32_MAX - local_start ||
+            function_symbol->value > UINT32_MAX - local_end) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "verified nested inline range is invalid");
+            }
+            verified_inline_scope_paths_free(scope_paths);
+            rcc_free(global_index_plus_one);
+            return false;
+        }
+        if (!verified_add_inline_scope_path_ranges(
+                destination, &scope_paths, (const Decl*)call->caller,
+                (const Stmt*)call->caller_statement,
+                global_index_plus_one[parent_plus_one - 1u],
+                (uint32_t)(function_symbol->value + local_start),
+                (uint32_t)(function_symbol->value + local_end),
+                error, error_size)) {
+            verified_inline_scope_paths_free(scope_paths);
+            rcc_free(global_index_plus_one);
+            return false;
+        }
+    }
+    verified_inline_scope_paths_free(scope_paths);
     rcc_free(global_index_plus_one);
     return true;
 }
@@ -1209,6 +1483,15 @@ static void verified_emit_debug_sections(
             call->parent_index_plus_one);
         module_end_debug_inline_call(
             debug_module, debug_index, call->code_end);
+        for (const ModuleDebugInlineScope* scope = call->lexical_scopes;
+             scope; scope = scope->next) {
+            for (const StmtDebugRange* range = scope->code_ranges;
+                 range; range = range->next) {
+                module_add_debug_inline_scope_range_from_call(
+                    debug_module, debug_index + 1u, call->callee,
+                    scope->scope, range->start, range->end);
+            }
+        }
     }
     for (int index = 0; index < data_module->symbol_count; ++index) {
         verified_copy_debug_symbol(debug_module, &data_module->symbols[index]);

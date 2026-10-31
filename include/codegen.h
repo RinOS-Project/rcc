@@ -300,6 +300,9 @@ void module_add_debug_inline_scope_range(Module* mod, const Decl* function,
                                          const Stmt* scope,
                                          uint32_t code_start,
                                          uint32_t code_end);
+void module_add_debug_inline_scope_range_from_call(
+    Module* mod, size_t active_call_index_plus_one, const Decl* function,
+    const Stmt* scope, uint32_t code_start, uint32_t code_end);
 
 /* Emit functions */
 void emit_byte(Module* mod, uint8_t b);

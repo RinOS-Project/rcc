@@ -146,6 +146,8 @@ typedef struct {
     uint32_t line;
     uint32_t column;
     size_t parent_index_plus_one;
+    /* Borrowed caller statement for nested inline lexical-scope ranges. */
+    const void* caller_statement;
 } RccIrInlineCall;
 
 typedef struct {
@@ -262,7 +264,7 @@ size_t rcc_ir_module_add_inline_call(
     RccIrModule* module, const void* caller, const void* callee,
     const struct ExprList* arguments, const char* filename,
     uint32_t line, uint32_t column,
-    size_t parent_index_plus_one);
+    size_t parent_index_plus_one, const void* caller_statement);
 RccIrFunction* rcc_ir_function_add(RccIrModule* module, const char* name,
                                   RccIrType return_type,
                                   const RccIrType* parameter_types,

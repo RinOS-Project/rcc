@@ -16586,7 +16586,7 @@ static void debug_emit_inline_call_tree(
         obj, info, info_section, mod, filename,
         g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86,
         parameter_origins, call);
-    if (mod->debug_verified_backend) {
+    if (mod->debug_verified_backend && !call->lexical_scopes) {
         debug_emit_inline_local_instances(
             info, local_origins, call->callee);
     } else {

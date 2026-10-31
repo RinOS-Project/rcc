@@ -18626,7 +18626,7 @@ int main(int argc, char** argv)
              ++path_index) {
             verify_cxx_inline_nested_local_constants(
                 wide_paths[path_index], wide_architectures[path_index],
-                path_index < 2u);
+                true);
         }
         verify_inline_integer_expression_cases(argv[2], ARCH_X86);
         verify_inline_integer_expression_cases(argv[3], ARCH_X64);

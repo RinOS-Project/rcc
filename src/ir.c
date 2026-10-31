@@ -169,7 +169,7 @@ size_t rcc_ir_module_add_inline_call(
     RccIrModule* module, const void* caller, const void* callee,
     const struct ExprList* arguments, const char* filename,
     uint32_t line, uint32_t column,
-    size_t parent_index_plus_one) {
+    size_t parent_index_plus_one, const void* caller_statement) {
     size_t capacity;
     size_t index;
     if (!module || !caller || !callee || !filename || !filename[0] ||
@@ -197,6 +197,7 @@ size_t rcc_ir_module_add_inline_call(
     module->inline_calls[index].column = column;
     module->inline_calls[index].parent_index_plus_one =
         parent_index_plus_one;
+    module->inline_calls[index].caller_statement = caller_statement;
     return index;
 }
 

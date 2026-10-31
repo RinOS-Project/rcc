@@ -29,6 +29,8 @@ typedef struct {
     /* Borrowed AST statement; valid only while the encoded function's
      * originating AST remains alive. */
     const void* source_statement;
+    /* One-based RccIrModule inline-call index, or zero outside inline code. */
+    size_t source_inline_call_index_plus_one;
 } RccX86CodeSourceRange;
 
 typedef struct {

@@ -17897,6 +17897,8 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
     bool volatile_access;
     size_t previous_inline_call_plus_one =
         context ? context->active_debug_inline_call_plus_one : 0u;
+    const Stmt* previous_statement =
+        context ? context->current_statement : NULL;
     const Decl* inline_caller = NULL;
     const Decl* inline_callee = NULL;
     const ExprList* inline_arguments = NULL;
@@ -17914,12 +17916,33 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             call_location.filename,
             (uint32_t)call_location.line,
             (uint32_t)call_location.column,
-            previous_inline_call_plus_one);
+            previous_inline_call_plus_one,
+            context->current_statement);
         if (call_index == SIZE_MAX) {
             rcc_fatal("invalid optimized inline debug origin");
             return lower_invalid_value();
         }
         context->active_debug_inline_call_plus_one = call_index + 1u;
+    }
+    if (context && g_opts.debug_info && expression &&
+        context->active_debug_inline_call_plus_one != 0u &&
+        context->active_debug_inline_call_plus_one <=
+            context->module->inline_call_count) {
+        const RccIrInlineCall* active_call =
+            &context->module->inline_calls[
+                context->active_debug_inline_call_plus_one - 1u];
+        size_t scope_count =
+            rcc_optimize_inline_debug_scope_count(expression);
+        for (size_t ordinal = 0u; ordinal < scope_count; ++ordinal) {
+            const Decl* scope_function = NULL;
+            const Stmt* scope = NULL;
+            if (rcc_optimize_inline_debug_scope(
+                    expression, ordinal, &scope_function, &scope) &&
+                scope_function == active_call->callee) {
+                context->current_statement = scope;
+                break;
+            }
+        }
     }
     value = lower_expression_impl(context, expression);
     if (!value.valid || !expression ||
@@ -17994,6 +18017,7 @@ cleanup:
     if (context) {
         context->active_debug_inline_call_plus_one =
             previous_inline_call_plus_one;
+        context->current_statement = previous_statement;
     }
     return value;
 }
