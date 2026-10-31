@@ -23850,12 +23850,14 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
     Expr* function_expression;
     CxxTemplate* tmpl;
     Decl* lambda_variable = NULL;
-    Type* arguments[32] = { NULL };
-    Type* pack_arguments[32] = { NULL };
-    int64_t pack_values[32] = { 0 };
-    bool pack_value_present[32] = { false };
-    int64_t values[32] = { 0 };
-    bool value_present[32] = { false };
+    Type** arguments;
+    Type** pack_arguments = NULL;
+    int64_t* pack_values = NULL;
+    bool* pack_value_present = NULL;
+    int64_t* values;
+    bool* value_present;
+    size_t template_capacity;
+    size_t pack_capacity = 0u;
     int capture_count = 0;
     int function_parameter_index;
     int pack_count = 0;
@@ -23882,10 +23884,47 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
         lambda_variable = function_expression->ident_decl;
     }
     if (tmpl->kind != TMPL_FUNCTION || !tmpl->func_def ||
-        tmpl->param_count <= 0 ||
-        tmpl->param_count > (int)(sizeof(arguments) / sizeof(arguments[0]))) {
+        tmpl->param_count <= 0) {
         rcc_error(call->loc, "generic lambda has an invalid template shape");
         return false;
+    }
+    template_capacity = (size_t)tmpl->param_count;
+    for (ExprList* argument = call->call_args; argument;
+         argument = argument->next) {
+        if (pack_capacity == (size_t)INT_MAX) {
+            rcc_error(call->loc, "generic lambda argument list is too large");
+            return false;
+        }
+        ++pack_capacity;
+    }
+    if (template_capacity > SIZE_MAX / sizeof(*arguments) ||
+        template_capacity > SIZE_MAX / sizeof(*values) ||
+        template_capacity > SIZE_MAX / sizeof(*value_present) ||
+        pack_capacity > SIZE_MAX / sizeof(*pack_arguments) ||
+        pack_capacity > SIZE_MAX / sizeof(*pack_values) ||
+        pack_capacity > SIZE_MAX / sizeof(*pack_value_present)) {
+        rcc_error(call->loc, "generic lambda argument state is too large");
+        return false;
+    }
+    arguments = ast_arena_alloc(template_capacity * sizeof(*arguments));
+    values = ast_arena_alloc(template_capacity * sizeof(*values));
+    value_present = ast_arena_alloc(
+        template_capacity * sizeof(*value_present));
+    memset(arguments, 0, template_capacity * sizeof(*arguments));
+    memset(values, 0, template_capacity * sizeof(*values));
+    memset(value_present, 0,
+           template_capacity * sizeof(*value_present));
+    if (pack_capacity > 0u) {
+        pack_arguments = ast_arena_alloc(
+            pack_capacity * sizeof(*pack_arguments));
+        pack_values = ast_arena_alloc(pack_capacity * sizeof(*pack_values));
+        pack_value_present = ast_arena_alloc(
+            pack_capacity * sizeof(*pack_value_present));
+        memset(pack_arguments, 0,
+               pack_capacity * sizeof(*pack_arguments));
+        memset(pack_values, 0, pack_capacity * sizeof(*pack_values));
+        memset(pack_value_present, 0,
+               pack_capacity * sizeof(*pack_value_present));
     }
     for (ExprList* capture = function_expression->cxx_lambda_captures;
          capture; capture = capture->next) {
@@ -23950,12 +23989,6 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
             }
             while (pack_argument) {
                 int64_t deduced_value = 0;
-                if (pack_count >= (int)(sizeof(pack_values) /
-                                        sizeof(pack_values[0]))) {
-                    rcc_error(pack_argument->expr->loc,
-                              "generic lambda non-type parameter pack exceeds compiler limits");
-                    return false;
-                }
                 sema_expr(pack_argument->expr);
                 if (!sema_cxx_lambda_deduction_value(
                         pack_argument->expr, parameter_pattern,
@@ -24014,12 +24047,6 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
             }
             while (pack_argument) {
                 Type* deduced;
-                if (pack_count >= (int)(sizeof(pack_arguments) /
-                                        sizeof(pack_arguments[0]))) {
-                    rcc_error(pack_argument->expr->loc,
-                              "generic lambda parameter pack exceeds compiler limits");
-                    return false;
-                }
                 sema_expr(pack_argument->expr);
                 deduced = sema_cxx_lambda_deduction_type(
                     pack_argument->expr, parameter_pattern);
