@@ -32216,7 +32216,7 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
             ? class_pack_index : index;
         if (parameter_index < 0 ||
             parameter_index >= pattern_template->param_count ||
-            index >= actual_argument_count) {
+            index > actual_argument_count) {
             return false;
         }
         TemplateParam* class_parameter =
@@ -32229,15 +32229,17 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
         bool is_pack_expansion =
             pattern->cxx_template_arg_pack_expansions &&
             pattern->cxx_template_arg_pack_expansions[index];
-        if (class_parameter->is_pack && !is_pack_expansion &&
-            argument_pack_index != -1) {
+        if (class_pack_index == index && pattern_argument_count == 1 &&
+            !is_pack_expansion && argument_pack_index != -1) {
             is_pack_expansion = true;
         }
+        if (index == actual_argument_count && !is_pack_expansion) {
+            return false;
+        }
         if (is_pack_expansion) {
-            if (!class_parameter->is_pack ||
+            if ((!class_parameter->is_pack && pattern_argument_count != 1) ||
                 class_parameter->kind != TPARAM_TYPE ||
-                class_pack_index != index || !argument_pattern ||
-                !actual_arguments) {
+                class_pack_index != index || !argument_pattern) {
                 return false;
             }
             bool* referenced = cxx_allocate_zeroed_array(
@@ -32262,7 +32264,8 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
             int expansion_count = actual_argument_count - index;
             int referenced_count = 0;
             if (expansion_count < 0 ||
-                expansion_count > pack_state->capacity_per_pack) {
+                expansion_count > pack_state->capacity_per_pack ||
+                (expansion_count > 0 && !actual_arguments)) {
                 return false;
             }
             memcpy(initial_counts, pack_state->counts,
@@ -33279,6 +33282,17 @@ static bool cxx_type_uses_sizeof_pack_name(
     return false;
 }
 
+static bool cxx_function_template_deduce_nested_type_packs(
+    CxxTemplate* tmpl, Type* pattern, Type* actual,
+    ExprList* call_arguments, Type** template_arguments,
+    int64_t* template_values, bool* template_value_present,
+    Type** pack_arguments, int64_t* pack_values,
+    bool* pack_value_present, int pack_capacity, int* pack_offsets,
+    int* pack_counts, bool* pack_seen, int* pack_count,
+    int* specificity);
+static bool cxx_function_template_nested_pack_pattern_has_outer_pack(
+    Type* pattern);
+
 static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                                                ExprList* call_arguments,
                                                Type** template_arguments,
@@ -33484,6 +33498,18 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
         int pattern_pack_index = cxx_parser_template_parameter_pack_index(
             tmpl, parameter->decl ? parameter->decl->type : NULL);
         if (pattern_pack_index == -2) {
+            if (!cxx_function_template_nested_pack_pattern_has_outer_pack(
+                    parameter->decl->type) &&
+                !cxx_function_template_deduce_nested_type_packs(
+                    tmpl, parameter->decl->type,
+                    cxx_parser_template_deduction_argument(
+                        parameter->decl->type, deduction_actual),
+                    call_arguments, template_arguments, template_values,
+                    template_value_present, pack_arguments, pack_values,
+                    pack_value_present, pack_capacity, pack_offsets,
+                    pack_counts, pack_seen, pack_count, specificity)) {
+                return false;
+            }
             parameter = parameter->next;
             argument = argument->next;
             continue;
@@ -42262,6 +42288,131 @@ static size_t cxx_function_template_type_argument_budget(Type* type) {
     return budget;
 }
 
+static bool cxx_function_template_deduce_nested_type_packs(
+    CxxTemplate* tmpl, Type* pattern, Type* actual,
+    ExprList* call_arguments, Type** template_arguments,
+    int64_t* template_values, bool* template_value_present,
+    Type** pack_arguments, int64_t* pack_values,
+    bool* pack_value_present, int pack_capacity, int* pack_offsets,
+    int* pack_counts, bool* pack_seen, int* pack_count,
+    int* specificity) {
+    CxxDeductionGuidePackState pack_state;
+    CxxSavedTemplatePackState saved_pack_state;
+    int call_argument_count = 0;
+    bool deduced;
+    if (!tmpl || !pattern || !actual || !template_arguments ||
+        !template_values || !template_value_present || !pack_arguments ||
+        !pack_capacity || !pack_offsets || !pack_counts || !pack_seen ||
+        !pack_count) {
+        return false;
+    }
+    for (ExprList* argument = call_arguments; argument;
+         argument = argument->next) {
+        if (call_argument_count == INT_MAX) return false;
+        ++call_argument_count;
+    }
+    if (pack_capacity > call_argument_count) {
+        call_argument_count = pack_capacity;
+    }
+    if (!cxx_deduction_guide_pack_state_init(
+            tmpl, call_arguments, call_argument_count, &pack_state)) {
+        return false;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        int existing_count;
+        int existing_offset;
+        if (!tmpl->params[index].is_pack) continue;
+        existing_count = pack_counts[index];
+        existing_offset = pack_offsets[index];
+        if (existing_count < 0 || existing_offset < 0 ||
+            existing_offset > *pack_count ||
+            existing_count > *pack_count - existing_offset ||
+            existing_count > pack_state.capacity_per_pack) {
+            return false;
+        }
+        if (pack_seen[index] || existing_count > 0) {
+            pack_state.seen[index] = true;
+            if (existing_count > pack_state.pending_count) {
+                pack_state.pending_count = existing_count;
+            }
+        }
+        pack_state.counts[index] = existing_count;
+        for (int element = 0; element < existing_count; ++element) {
+            int state_index = pack_state.offsets[index] + element;
+            int match_index = existing_offset + element;
+            if (tmpl->params[index].kind == TPARAM_TYPE) {
+                pack_state.arguments[state_index] =
+                    pack_arguments[match_index];
+            } else {
+                if (!pack_values || !pack_value_present) return false;
+                pack_state.values[state_index] = pack_values[match_index];
+                pack_state.value_present[state_index] =
+                    pack_value_present[match_index];
+            }
+        }
+    }
+    cxx_deduction_guide_pack_state_bind(
+        tmpl, &pack_state, &saved_pack_state);
+    deduced = cxx_deduction_guide_match_type_with_nested_packs(
+        tmpl, pattern, actual, template_arguments, template_values,
+        template_value_present, &pack_state, specificity, 0u);
+    cxx_deduction_guide_pack_state_restore(
+        tmpl, &pack_state, &saved_pack_state);
+    if (!deduced) return false;
+
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        int inferred_count;
+        int existing_count;
+        if (!tmpl->params[index].is_pack || !pack_state.seen[index]) {
+            continue;
+        }
+        if (tmpl->params[index].kind != TPARAM_TYPE) return false;
+        inferred_count = pack_state.counts[index];
+        existing_count = pack_counts[index];
+        if (existing_count > 0) {
+            if (existing_count != inferred_count) return false;
+            for (int element = 0; element < inferred_count; ++element) {
+                if (!type_is_same_template_argument(
+                        pack_arguments[pack_offsets[index] + element],
+                        pack_state.arguments[
+                            pack_state.offsets[index] + element])) {
+                    return false;
+                }
+            }
+            pack_seen[index] = true;
+            continue;
+        }
+        if (inferred_count < 0 ||
+            *pack_count < 0 || *pack_count > pack_capacity ||
+            inferred_count > pack_capacity - *pack_count) {
+            return false;
+        }
+        pack_offsets[index] = *pack_count;
+        for (int element = 0; element < inferred_count; ++element) {
+            pack_arguments[*pack_count + element] =
+                pack_state.arguments[pack_state.offsets[index] + element];
+        }
+        pack_counts[index] = inferred_count;
+        pack_seen[index] = true;
+        *pack_count += inferred_count;
+    }
+    return true;
+}
+
+static bool cxx_function_template_nested_pack_pattern_has_outer_pack(
+    Type* pattern) {
+    CxxTemplate* pattern_template = NULL;
+    Type** pattern_arguments = NULL;
+    int pattern_argument_count = 0;
+    if (!pattern) return false;
+    cxx_function_template_class_type_pattern_arguments(
+        pattern, &pattern_template, &pattern_arguments,
+        &pattern_argument_count);
+    (void)pattern_arguments;
+    (void)pattern_argument_count;
+    return pattern_template && cxx_class_pack_index(pattern_template) >= 0;
+}
+
 static bool prepare_cxx_function_template_match_impl(
     CxxTemplate* tmpl, ExprList* call_arguments,
     const CxxParsedTemplateArgument* explicit_arguments,
@@ -42710,9 +42861,21 @@ static bool prepare_cxx_function_template_match_impl(
                     cxx_parser_template_parameter_pack_index(
                         tmpl, parameter->decl->type);
                 if (template_pack_index == -2) {
-                    /* Defer this complete sequence until all packs have
-                     * been deduced; a partial substitution would treat later
-                     * packs as empty and reject valid independent packs. */
+                    if (!cxx_function_template_nested_pack_pattern_has_outer_pack(
+                            parameter->decl->type) &&
+                        !cxx_function_template_deduce_nested_type_packs(
+                            tmpl, parameter->decl->type,
+                            cxx_parser_template_deduction_argument(
+                                parameter->decl->type, actual),
+                            call_arguments, match->arguments,
+                            match->values, match->value_present,
+                            match->pack_arguments, match->pack_values,
+                            match->pack_value_present, match->pack_capacity,
+                            match->pack_offsets, match->pack_counts,
+                            match->pack_seen, &match->pack_count,
+                            &specificity)) {
+                        return false;
+                    }
                     continue;
                 }
                 if (template_pack_index >= 0 &&
