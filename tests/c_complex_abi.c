@@ -1555,6 +1555,8 @@ static int rcc_complex_annexg_cexp_infinite_nan(void) {
     return 0;
 }
 
+static int rcc_complex_branch_endpoints(void);
+
 int rcc_complex_standard_api_all(void) {
 #define RCC_COMPLEX_API_CHECK_FLOAT(call, expected_real, expected_imaginary) \
     do { \
@@ -1594,6 +1596,36 @@ int rcc_complex_standard_api_all(void) {
     do { \
         RccComplexLongDouble result = (call); \
         if (__real__ result != (expected_real) || __imag__ result == 0.0L || \
+            !!__builtin_signbit(__imag__ result) != \
+                (negative_imaginary)) return __LINE__; \
+    } while (0)
+#define RCC_COMPLEX_API_ZERO_BRANCH_FLOAT( \
+    call, expected_real, negative_real, negative_imaginary) \
+    do { \
+        RccComplexFloat result = (call); \
+        if (__real__ result != (expected_real) || \
+            !!__builtin_signbit(__real__ result) != (negative_real) || \
+            __imag__ result != 0.0f || \
+            !!__builtin_signbit(__imag__ result) != \
+                (negative_imaginary)) return __LINE__; \
+    } while (0)
+#define RCC_COMPLEX_API_ZERO_BRANCH_DOUBLE( \
+    call, expected_real, negative_real, negative_imaginary) \
+    do { \
+        RccComplexDouble result = (call); \
+        if (__real__ result != (expected_real) || \
+            !!__builtin_signbit(__real__ result) != (negative_real) || \
+            __imag__ result != 0.0 || \
+            !!__builtin_signbit(__imag__ result) != \
+                (negative_imaginary)) return __LINE__; \
+    } while (0)
+#define RCC_COMPLEX_API_ZERO_BRANCH_LONG_DOUBLE( \
+    call, expected_real, negative_real, negative_imaginary) \
+    do { \
+        RccComplexLongDouble result = (call); \
+        if (__real__ result != (expected_real) || \
+            !!__builtin_signbit(__real__ result) != (negative_real) || \
+            __imag__ result != 0.0L || \
             !!__builtin_signbit(__imag__ result) != \
                 (negative_imaginary)) return __LINE__; \
     } while (0)
@@ -1668,6 +1700,10 @@ int rcc_complex_standard_api_all(void) {
             return __LINE__; \
     } while (0)
 
+    {
+        int endpoint_result = rcc_complex_branch_endpoints();
+        if (endpoint_result != 0) return endpoint_result;
+    }
     RCC_COMPLEX_API_CHECK_FLOAT(cacosf(CMPLXF(1.0f, 0.0f)), 0.0f, 0.0f);
     RCC_COMPLEX_API_CHECK_DOUBLE(cacos(CMPLX(1.0, 0.0)), 0.0, 0.0);
     RCC_COMPLEX_API_CHECK_LONG_DOUBLE(cacosl(CMPLXL(1.0L, 0.0L)),
@@ -2366,3 +2402,71 @@ int rcc_complex_standard_api_all(void) {
 #undef RCC_COMPLEX_API_SIGNED_RANGE_LONG_DOUBLE
     return 0;
 }
+
+static int rcc_complex_branch_endpoints(void) {
+    RCC_COMPLEX_API_ZERO_BRANCH_FLOAT(
+        cacosf(CMPLXF(1.0f, 0.0f)), 0.0f, 0, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_FLOAT(
+        cacosf(CMPLXF(1.0f, -0.0f)), 0.0f, 0, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_DOUBLE(
+        cacos(CMPLX(1.0, 0.0)), 0.0, 0, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_DOUBLE(
+        cacos(CMPLX(1.0, -0.0)), 0.0, 0, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_LONG_DOUBLE(
+        cacosl(CMPLXL(1.0L, 0.0L)), 0.0L, 0, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_LONG_DOUBLE(
+        cacosl(CMPLXL(1.0L, -0.0L)), 0.0L, 0, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_FLOAT(
+        cacosf(CMPLXF(-1.0f, 0.0f)),
+        3.14159265358979323846f, 0, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_FLOAT(
+        cacosf(CMPLXF(-1.0f, -0.0f)),
+        3.14159265358979323846f, 0, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_DOUBLE(
+        cacos(CMPLX(-1.0, 0.0)), 3.14159265358979323846, 0, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_DOUBLE(
+        cacos(CMPLX(-1.0, -0.0)), 3.14159265358979323846, 0, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_LONG_DOUBLE(
+        cacosl(CMPLXL(-1.0L, 0.0L)),
+        3.14159265358979323846L, 0, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_LONG_DOUBLE(
+        cacosl(CMPLXL(-1.0L, -0.0L)),
+        3.14159265358979323846L, 0, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_FLOAT(
+        casinf(CMPLXF(1.0f, 0.0f)),
+        1.57079632679489661923f, 0, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_FLOAT(
+        casinf(CMPLXF(1.0f, -0.0f)),
+        1.57079632679489661923f, 0, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_DOUBLE(
+        casin(CMPLX(1.0, 0.0)), 1.57079632679489661923, 0, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_DOUBLE(
+        casin(CMPLX(1.0, -0.0)), 1.57079632679489661923, 0, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_LONG_DOUBLE(
+        casinl(CMPLXL(1.0L, 0.0L)),
+        1.57079632679489661923L, 0, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_LONG_DOUBLE(
+        casinl(CMPLXL(1.0L, -0.0L)),
+        1.57079632679489661923L, 0, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_FLOAT(
+        casinf(CMPLXF(-1.0f, 0.0f)),
+        -1.57079632679489661923f, 1, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_FLOAT(
+        casinf(CMPLXF(-1.0f, -0.0f)),
+        -1.57079632679489661923f, 1, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_DOUBLE(
+        casin(CMPLX(-1.0, 0.0)), -1.57079632679489661923, 1, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_DOUBLE(
+        casin(CMPLX(-1.0, -0.0)), -1.57079632679489661923, 1, 1);
+    RCC_COMPLEX_API_ZERO_BRANCH_LONG_DOUBLE(
+        casinl(CMPLXL(-1.0L, 0.0L)),
+        -1.57079632679489661923L, 1, 0);
+    RCC_COMPLEX_API_ZERO_BRANCH_LONG_DOUBLE(
+        casinl(CMPLXL(-1.0L, -0.0L)),
+        -1.57079632679489661923L, 1, 1);
+    return 0;
+}
+
+#undef RCC_COMPLEX_API_ZERO_BRANCH_FLOAT
+#undef RCC_COMPLEX_API_ZERO_BRANCH_DOUBLE
+#undef RCC_COMPLEX_API_ZERO_BRANCH_LONG_DOUBLE

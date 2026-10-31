@@ -1479,6 +1479,36 @@ static void check_complex_branch_cuts(void) {
         assert(!!__builtin_signbit(value.imaginary) == \
                (negative_imaginary)); \
     } while (0)
+#define RCC_ASSERT_FLOAT_ZERO_BRANCH(call, expected_real, negative_real, \
+                                     negative_imaginary) \
+    do { \
+        RccLegacyComplexFloat value = (call); \
+        assert(near_float(__real__ value, expected_real)); \
+        assert(!!__builtin_signbit(__real__ value) == (negative_real)); \
+        assert(__imag__ value == 0.0f); \
+        assert(!!__builtin_signbit(__imag__ value) == \
+               (negative_imaginary)); \
+    } while (0)
+#define RCC_ASSERT_DOUBLE_ZERO_BRANCH(call, expected_real, negative_real, \
+                                      negative_imaginary) \
+    do { \
+        RccLegacyComplexDouble value = (call); \
+        assert(near_double(__real__ value, expected_real)); \
+        assert(!!__builtin_signbit(__real__ value) == (negative_real)); \
+        assert(__imag__ value == 0.0); \
+        assert(!!__builtin_signbit(__imag__ value) == \
+               (negative_imaginary)); \
+    } while (0)
+#define RCC_ASSERT_LONG_DOUBLE_ZERO_BRANCH( \
+    call, expected_real, negative_real, negative_imaginary) \
+    do { \
+        RccLegacyComplexBinary64Pair value = (call); \
+        assert(near_double(value.real, expected_real)); \
+        assert(!!__builtin_signbit(value.real) == (negative_real)); \
+        assert(value.imaginary == 0.0); \
+        assert(!!__builtin_signbit(value.imaginary) == \
+               (negative_imaginary)); \
+    } while (0)
 
     RccLegacyComplexBinary64Pair ld_negative_axis = {-1.0, 0.0};
     RccLegacyComplexBinary64Pair ld_negative_axis_below = {-1.0, -0.0};
@@ -1522,6 +1552,79 @@ static void check_complex_branch_cuts(void) {
     RCC_ASSERT_LONG_DOUBLE_BRANCH(
         rcc_legacy_complex_api_clogl(ld_negative_axis_below),
         0.0, 3.14159265358979323846, 1);
+
+    RCC_ASSERT_FLOAT_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacosf(__builtin_complex(1.0f, 0.0f)),
+        0.0f, 0, 1);
+    RCC_ASSERT_FLOAT_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacosf(__builtin_complex(1.0f, -0.0f)),
+        0.0f, 0, 0);
+    RCC_ASSERT_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacos(__builtin_complex(1.0, 0.0)),
+        0.0, 0, 1);
+    RCC_ASSERT_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacos(__builtin_complex(1.0, -0.0)),
+        0.0, 0, 0);
+    RCC_ASSERT_LONG_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacosl((ComplexBinary64Pair){1.0, 0.0}),
+        0.0, 0, 1);
+    RCC_ASSERT_LONG_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacosl((ComplexBinary64Pair){1.0, -0.0}),
+        0.0, 0, 0);
+    RCC_ASSERT_FLOAT_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacosf(__builtin_complex(-1.0f, 0.0f)),
+        3.14159265358979323846f, 0, 1);
+    RCC_ASSERT_FLOAT_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacosf(__builtin_complex(-1.0f, -0.0f)),
+        3.14159265358979323846f, 0, 0);
+    RCC_ASSERT_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacos(__builtin_complex(-1.0, 0.0)),
+        3.14159265358979323846, 0, 1);
+    RCC_ASSERT_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacos(__builtin_complex(-1.0, -0.0)),
+        3.14159265358979323846, 0, 0);
+    RCC_ASSERT_LONG_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacosl((ComplexBinary64Pair){-1.0, 0.0}),
+        3.14159265358979323846, 0, 1);
+    RCC_ASSERT_LONG_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_cacosl((ComplexBinary64Pair){-1.0, -0.0}),
+        3.14159265358979323846, 0, 0);
+    RCC_ASSERT_FLOAT_ZERO_BRANCH(
+        rcc_legacy_complex_api_casinf(__builtin_complex(1.0f, 0.0f)),
+        1.57079632679489661923f, 0, 0);
+    RCC_ASSERT_FLOAT_ZERO_BRANCH(
+        rcc_legacy_complex_api_casinf(__builtin_complex(1.0f, -0.0f)),
+        1.57079632679489661923f, 0, 1);
+    RCC_ASSERT_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_casin(__builtin_complex(1.0, 0.0)),
+        1.57079632679489661923, 0, 0);
+    RCC_ASSERT_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_casin(__builtin_complex(1.0, -0.0)),
+        1.57079632679489661923, 0, 1);
+    RCC_ASSERT_LONG_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_casinl((ComplexBinary64Pair){1.0, 0.0}),
+        1.57079632679489661923, 0, 0);
+    RCC_ASSERT_LONG_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_casinl((ComplexBinary64Pair){1.0, -0.0}),
+        1.57079632679489661923, 0, 1);
+    RCC_ASSERT_FLOAT_ZERO_BRANCH(
+        rcc_legacy_complex_api_casinf(__builtin_complex(-1.0f, 0.0f)),
+        -1.57079632679489661923f, 1, 0);
+    RCC_ASSERT_FLOAT_ZERO_BRANCH(
+        rcc_legacy_complex_api_casinf(__builtin_complex(-1.0f, -0.0f)),
+        -1.57079632679489661923f, 1, 1);
+    RCC_ASSERT_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_casin(__builtin_complex(-1.0, 0.0)),
+        -1.57079632679489661923, 1, 0);
+    RCC_ASSERT_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_casin(__builtin_complex(-1.0, -0.0)),
+        -1.57079632679489661923, 1, 1);
+    RCC_ASSERT_LONG_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_casinl((ComplexBinary64Pair){-1.0, 0.0}),
+        -1.57079632679489661923, 1, 0);
+    RCC_ASSERT_LONG_DOUBLE_ZERO_BRANCH(
+        rcc_legacy_complex_api_casinl((ComplexBinary64Pair){-1.0, -0.0}),
+        -1.57079632679489661923, 1, 1);
 
     RCC_ASSERT_FLOAT_BRANCH(
         rcc_legacy_complex_api_cacosf(__builtin_complex(-2.0f, 0.0f)),
@@ -2521,6 +2624,9 @@ static void check_complex_branch_cuts(void) {
 #undef RCC_ASSERT_FLOAT_BRANCH
 #undef RCC_ASSERT_DOUBLE_BRANCH
 #undef RCC_ASSERT_LONG_DOUBLE_BRANCH
+#undef RCC_ASSERT_FLOAT_ZERO_BRANCH
+#undef RCC_ASSERT_DOUBLE_ZERO_BRANCH
+#undef RCC_ASSERT_LONG_DOUBLE_ZERO_BRANCH
 }
 
 int main(void) {
