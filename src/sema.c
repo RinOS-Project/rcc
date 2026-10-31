@@ -30343,6 +30343,18 @@ static bool sema_float_classification_builtin(const char* name) {
          strcmp(name, "__builtin_signbit") == 0);
 }
 
+static bool sema_clear_padding_object_type_complete(
+    const Type* type, unsigned depth) {
+    if (!type || depth >= 64u) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->base && !type->array_unspecified_bound &&
+            (type->array_bound || type->array_len > 0) &&
+            sema_clear_padding_object_type_complete(type->base, depth + 1u);
+    }
+    return type->kind != TYPE_FUNC && type->size > 0 &&
+        type_is_complete((Type*)type);
+}
+
 static Type* sema_float_unary_builtin_type(const char* name) {
     if (!name) return NULL;
     if (strcmp(name, "__builtin_floorf") == 0 ||
@@ -30406,8 +30418,8 @@ static bool sema_compiler_builtin_call(Expr* expr) {
         first = expr->call_args ? expr->call_args->expr : NULL;
         if (!first || !first->type || first->type->kind != TYPE_PTR ||
             !first->type->base ||
-            !type_is_complete(first->type->base) ||
-            first->type->base->size <= 0 ||
+            !sema_clear_padding_object_type_complete(
+                first->type->base, 0u) ||
             first->type->base->kind == TYPE_FUNC ||
             first->type->base->is_const) {
             rcc_error(expr->loc,

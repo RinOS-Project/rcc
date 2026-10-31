@@ -12656,3 +12656,14 @@ remains a separate open item.
       `-O0`/`-O2`; emitted i686 RINs link the runtime and pass `rinvalidate`.
       The Windows and WSL `test-cxx-atomic-aggregate-concurrency` gates pass,
       including the host concurrency regression.
+# RCC continuation (2026-10-31, clear-padding VLA and aggregate iteration)
+- [x] Extend `__builtin_clear_padding` semantic validation and typed-SSA lowering
+      to complete VLA and multidimensional VLA objects. Lower arrays as a runtime
+      loop over fixed-size leaf objects; use the saved VLA byte extent, preserve
+      volatile byte accesses, and keep large fixed arrays from expanding into
+      per-element instructions. Update both legacy x86 backends to read the
+      declaration's saved extent instead of reevaluating side-effecting bounds.
+      Verify every padding byte across 2,048 fixed elements and a 4x5 VLA, with
+      a post-incremented row bound proving single evaluation. i686/AMD64 verified
+      builds emit seven functions with zero fallback; legacy runtime, GCC
+      reference, and the existing VLA runtime/semantic/declaration gates pass.

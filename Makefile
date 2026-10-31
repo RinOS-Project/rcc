@@ -18249,21 +18249,34 @@ test-clear-padding: $(RCC_TARGET)
 		-Ibootstrap/include -fverified-backend -v -c \
 		-o $(TEST_OUT)/clear-padding/x64-verified.ro tests/clear_padding.c \
 		>$(TEST_OUT)/clear-padding/x64-verified.log
-	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
 		$(TEST_OUT)/clear-padding/x64-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/clear-padding/x64-verified.log,0)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -fverified-backend -v -c \
+		-o $(TEST_OUT)/clear-padding/x86-verified.ro tests/clear_padding.c \
+		>$(TEST_OUT)/clear-padding/x86-verified.log
+	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' \
+		$(TEST_OUT)/clear-padding/x86-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/clear-padding/x86-verified.log,0)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
 		-Ibootstrap/include -S -o $(TEST_OUT)/clear-padding/x86.s \
 		tests/clear_padding.c
+	$(PYTHON) scripts/check_asm_function_size.py \
+		$(TEST_OUT)/clear-padding/x86.s clear_padding_large_array \
+		clear_padding_vla 1536
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/clear-padding/x86-host,$(TEST_OUT)/clear-padding/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
 		-Ibootstrap/include -S -o $(TEST_OUT)/clear-padding/x64.s \
 		tests/clear_padding.c
+	$(PYTHON) scripts/check_asm_function_size.py \
+		$(TEST_OUT)/clear-padding/x64.s clear_padding_large_array \
+		clear_padding_vla 2048
 	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/clear-padding/x64-host,$(TEST_OUT)/clear-padding/x64.s)
 	$(CC) -std=c2x -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/clear-padding/gcc-reference tests/clear_padding.c
 	$(TEST_OUT)/clear-padding/gcc-reference
-	@echo "__builtin_clear_padding scalar, array, nested, bit-field, and union tests passed"
+	@echo "__builtin_clear_padding scalar, nested, large-array, VLA, bit-field, and union tests passed"
 
 test-atomic-language: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-language-x86)

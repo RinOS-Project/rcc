@@ -14964,6 +14964,77 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         const Type* object_type = pointer_type &&
                 pointer_type->kind == TYPE_PTR
             ? pointer_type->base : NULL;
+        if (object_type && object_type->kind == TYPE_ARRAY) {
+            const Type* element_type = object_type;
+            int loop_label = new_label();
+            int done_label = new_label();
+            for (; element_type && element_type->kind == TYPE_ARRAY;
+                 element_type = element_type->base) {
+                if (!element_type->base ||
+                    element_type->array_unspecified_bound ||
+                    (!element_type->array_bound &&
+                     element_type->array_len <= 0)) {
+                    rcc_error(expr->loc,
+                              "__builtin_clear_padding has an incomplete array layout");
+                    return true;
+                }
+            }
+            if (!element_type || element_type->size <= 0 ||
+                element_type->size > INT32_MAX) {
+                rcc_error(expr->loc,
+                          "__builtin_clear_padding has no fixed array element layout");
+                return true;
+            }
+            if (object_type->size > 0) {
+                if (object_type->size % element_type->size != 0) {
+                    rcc_error(expr->loc,
+                              "__builtin_clear_padding has an inconsistent array extent");
+                    return true;
+                }
+                emit_mov_reg_imm(
+                    mod, EAX,
+                    (uint32_t)(object_type->size / element_type->size));
+            } else {
+                gen_vla_extent_for_expr(mod, (Type*)object_type, pointer);
+                emit_xor_reg_reg(mod, EDX, EDX);
+                emit_mov_reg_imm(
+                    mod, ECX, (uint32_t)element_type->size);
+                emit_div_reg(mod, ECX);
+            }
+            emit_mov_reg_reg(mod, ECX, EAX);
+            emit_push_reg(mod, ECX);
+            gen_expr(mod, pointer);
+            emit_mov_reg_reg(mod, EDX, EAX);
+            emit_pop_reg(mod, ECX);
+            emit_test_reg_reg(mod, ECX, ECX);
+            emit_jcc_label(mod, CC_E, done_label);
+            emit_label(mod, loop_label);
+            for (size_t offset = 0u;
+                 offset < (size_t)element_type->size; ++offset) {
+                uint8_t value_mask;
+                if (!rcc_type_value_byte_mask(
+                        element_type, offset, &value_mask)) {
+                    rcc_error(expr->loc,
+                              "__builtin_clear_padding cannot inspect array element layout");
+                    return true;
+                }
+                if (value_mask == 0xffu) continue;
+                if (value_mask == 0u) {
+                    emit_xor_reg_reg(mod, EAX, EAX);
+                } else {
+                    emit_load_typed32(
+                        mod, EAX, EDX, (int32_t)offset, type_uchar);
+                    emit_and_reg_imm(mod, EAX, value_mask);
+                }
+                emit_store_typed32(
+                    mod, EDX, (int32_t)offset, EAX, type_uchar);
+            }
+            emit_add_reg_imm(mod, EDX, element_type->size);
+            emit_sub_reg_imm(mod, ECX, 1);
+            emit_jcc_label(mod, CC_NE, loop_label);
+            emit_label(mod, done_label);
+            return true;
+        }
         if (!object_type || object_type->size <= 0) {
             rcc_error(expr->loc,
                       "__builtin_clear_padding has no complete object layout");

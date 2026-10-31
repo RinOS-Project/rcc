@@ -2155,7 +2155,8 @@ static const Decl* lower_vla_owner(const Expr* expression) {
     while (expression) {
         if (expression->kind == EXPR_INDEX) {
             expression = expression->index_base;
-        } else if (expression->kind == EXPR_DEREF) {
+        } else if (expression->kind == EXPR_DEREF ||
+                   expression->kind == EXPR_ADDR) {
             expression = expression->unary_operand;
         } else {
             break;
@@ -16274,6 +16275,243 @@ static RccIrLowerValue lower_builtin_strlen_scan(
                        expression->type->is_unsigned);
 }
 
+static bool lower_clear_padding_fixed_object(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    const Type* object_type, bool volatile_access) {
+    RccIrType byte_type;
+    if (!context || !address.valid ||
+        address.type.kind != RCC_IR_TYPE_POINTER ||
+        !object_type || object_type->size <= 0 ||
+        !lower_type(type_uchar, &byte_type) ||
+        byte_type.kind != RCC_IR_TYPE_INTEGER || byte_type.bit_width != 8u) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    for (size_t offset = 0u; offset < (size_t)object_type->size; ++offset) {
+        uint8_t value_mask;
+        RccIrLowerValue byte_address;
+        RccIrValue store_operands[2];
+        RccIrInstruction* store;
+        RccIrValue value;
+        bool is_volatile;
+        if (!rcc_type_value_byte_mask(object_type, offset, &value_mask)) {
+            context->unsupported = true;
+            return false;
+        }
+        if (value_mask == 0xffu) continue;
+        byte_address = lower_byte_offset_address(context, address, offset);
+        if (!byte_address.valid) return false;
+        is_volatile = volatile_access || byte_address.volatile_access ||
+            object_type->is_volatile;
+        if (value_mask == 0u) {
+            RccIrLowerValue zero = lower_integer_constant(
+                context, byte_type, true, 0u);
+            if (!zero.valid) return false;
+            value = zero.value;
+        } else {
+            RccIrInstruction* load = lower_append(
+                context, RCC_IR_LOAD, byte_type,
+                &byte_address.value, 1u, NULL, 0u);
+            RccIrLowerValue mask_value;
+            RccIrValue and_operands[2];
+            RccIrInstruction* masked;
+            if (!load) return false;
+            rcc_ir_set_volatile_access(load, is_volatile);
+            mask_value = lower_integer_constant(
+                context, byte_type, true, value_mask);
+            if (!mask_value.valid) return false;
+            and_operands[0] = load->result;
+            and_operands[1] = mask_value.value;
+            masked = lower_append(
+                context, RCC_IR_AND, byte_type,
+                and_operands, 2u, NULL, 0u);
+            if (!masked) return false;
+            value = masked->result;
+        }
+        store_operands[0] = value;
+        store_operands[1] = byte_address.value;
+        store = lower_append(
+            context, RCC_IR_STORE, rcc_ir_type_void(),
+            store_operands, 2u, NULL, 0u);
+        if (!store) return false;
+        rcc_ir_set_volatile_access(store, is_volatile);
+    }
+    return true;
+}
+
+static bool lower_clear_padding_object(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    const Type* object_type, bool volatile_access,
+    const Decl* vla_owner) {
+    RccIrType size_type;
+    const Type* element_type;
+    RccIrLowerValue element_size;
+    RccIrLowerValue count;
+    RccIrLowerValue total_size;
+    RccIrBlock* entry;
+    RccIrBlock* loop;
+    RccIrBlock* body;
+    RccIrBlock* advance;
+    RccIrBlock* done;
+    RccIrInstruction* index_phi;
+    RccIrValue phi_operands[2];
+    RccIrBlockId phi_targets[2];
+    RccIrValue compare_operands[2];
+    RccIrInstruction* compare;
+    RccIrLowerValue zero;
+    RccIrLowerValue one;
+    RccIrValue multiply_operands[2];
+    RccIrInstruction* byte_offset;
+    RccIrValue gep_operands[2];
+    RccIrInstruction* element_address;
+    RccIrLowerValue element_pointer;
+    RccIrInstruction* next_index;
+
+    if (!context || !address.valid ||
+        address.type.kind != RCC_IR_TYPE_POINTER || !object_type ||
+        object_type->kind == TYPE_FUNC) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (object_type->kind != TYPE_ARRAY) {
+        return lower_clear_padding_fixed_object(
+            context, address, object_type,
+            volatile_access || address.volatile_access);
+    }
+    element_type = object_type;
+    while (element_type && element_type->kind == TYPE_ARRAY) {
+        if (!element_type->base || element_type->array_unspecified_bound ||
+            (!element_type->array_bound && element_type->array_len <= 0)) {
+            context->unsupported = true;
+            return false;
+        }
+        element_type = element_type->base;
+    }
+    if (!element_type || element_type->size <= 0) {
+        context->unsupported = true;
+        return false;
+    }
+    size_type = rcc_ir_type_integer(
+        (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
+    element_size = lower_integer_constant(
+        context, size_type, true, (uint64_t)element_type->size);
+    if (!element_size.valid ||
+        !rcc_ir_type_equal(element_size.type, size_type)) {
+        context->unsupported = true;
+        return false;
+    }
+    if (object_type->size > 0) {
+        if ((size_t)object_type->size % (size_t)element_type->size != 0u) {
+            context->unsupported = true;
+            return false;
+        }
+        count = lower_integer_constant(
+            context, size_type, true,
+            (uint64_t)(object_type->size / element_type->size));
+    } else {
+        if (!lower_vla_saved_byte_extent(
+                context, vla_owner, object_type, &total_size) ||
+            !rcc_ir_type_equal(total_size.type, size_type)) {
+            context->unsupported = true;
+            return false;
+        }
+        {
+            RccIrValue divide_operands[2];
+            RccIrInstruction* divide;
+            divide_operands[0] = total_size.value;
+            divide_operands[1] = element_size.value;
+            divide = lower_append(
+                context, RCC_IR_UDIV, size_type,
+                divide_operands, 2u, NULL, 0u);
+            if (!divide) return false;
+            count = lower_value(divide->result, size_type, true);
+        }
+    }
+    if (!count.valid || !rcc_ir_type_equal(count.type, size_type)) {
+        context->unsupported = true;
+        return false;
+    }
+
+    entry = context->current;
+    loop = rcc_ir_block_add(context->function, "clear.padding.loop");
+    body = rcc_ir_block_add(context->function, "clear.padding.body");
+    advance = rcc_ir_block_add(context->function, "clear.padding.advance");
+    done = rcc_ir_block_add(context->function, "clear.padding.done");
+    if (!entry || !loop || !body || !advance || !done) {
+        context->unsupported = true;
+        return false;
+    }
+    zero = lower_integer_constant(context, size_type, true, 0u);
+    one = lower_integer_constant(context, size_type, true, 1u);
+    if (!zero.valid || !one.valid || !lower_branch(context, loop->id)) {
+        return false;
+    }
+    context->current = loop;
+    context->terminated = false;
+    phi_operands[0] = zero.value;
+    phi_operands[1] = RCC_IR_VALUE_NONE;
+    phi_targets[0] = entry->id;
+    phi_targets[1] = advance->id;
+    index_phi = lower_append(
+        context, RCC_IR_PHI, size_type, phi_operands, 2u,
+        phi_targets, 2u);
+    if (!index_phi) return false;
+    compare_operands[0] = index_phi->result;
+    compare_operands[1] = count.value;
+    compare = lower_append(
+        context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+        compare_operands, 2u, NULL, 0u);
+    if (!compare) return false;
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_ULT);
+    if (!lower_conditional_branch(
+            context,
+            lower_value(compare->result, rcc_ir_type_integer(1u), true),
+            body->id, done->id)) {
+        return false;
+    }
+
+    context->current = body;
+    context->terminated = false;
+    multiply_operands[0] = index_phi->result;
+    multiply_operands[1] = element_size.value;
+    byte_offset = lower_append(
+        context, RCC_IR_MUL, size_type,
+        multiply_operands, 2u, NULL, 0u);
+    if (!byte_offset) return false;
+    gep_operands[0] = address.value;
+    gep_operands[1] = byte_offset->result;
+    element_address = lower_append(
+        context, RCC_IR_GEP, rcc_ir_type_pointer(0u),
+        gep_operands, 2u, NULL, 0u);
+    if (!element_address) return false;
+    rcc_ir_set_immediate(element_address, 1u);
+    element_pointer = lower_value(
+        element_address->result, rcc_ir_type_pointer(0u), true);
+    element_pointer.volatile_access = volatile_access ||
+        address.volatile_access || object_type->is_volatile ||
+        element_type->is_volatile;
+    if (!lower_clear_padding_fixed_object(
+            context, element_pointer, element_type,
+            element_pointer.volatile_access) ||
+        !lower_branch(context, advance->id)) {
+        return false;
+    }
+
+    context->current = advance;
+    context->terminated = false;
+    phi_operands[0] = index_phi->result;
+    phi_operands[1] = one.value;
+    next_index = lower_append(
+        context, RCC_IR_ADD, size_type, phi_operands, 2u,
+        NULL, 0u);
+    if (!next_index || !lower_branch(context, loop->id)) return false;
+    index_phi->operands[1] = next_index->result;
+
+    context->current = done;
+    context->terminated = false;
+    return true;
+}
+
 static RccIrLowerValue lower_builtin_call(
     RccIrLowerContext* context, const Expr* expression) {
     const ExprList* first;
@@ -16297,13 +16535,15 @@ static RccIrLowerValue lower_builtin_call(
                 pointer_type->kind == TYPE_PTR
             ? pointer_type->base : NULL;
         RccIrLowerValue pointer;
-        RccIrType byte_type;
+        const Decl* vla_owner;
         if (!argument || argument->next || !argument->expr ||
             !expression->type || expression->type->kind != TYPE_VOID ||
-            !object_type || object_type->size <= 0 ||
-            !lower_type(type_uchar, &byte_type) ||
-            byte_type.kind != RCC_IR_TYPE_INTEGER ||
-            byte_type.bit_width != 8u) {
+            !object_type ||
+            (object_type->kind == TYPE_ARRAY
+                 ? (!object_type->base ||
+                    (!object_type->array_bound &&
+                     object_type->array_len <= 0))
+                 : object_type->size <= 0)) {
             context->unsupported = true;
             return lower_invalid_value();
         }
@@ -16312,55 +16552,13 @@ static RccIrLowerValue lower_builtin_call(
             context->unsupported = true;
             return lower_invalid_value();
         }
-        for (size_t offset = 0u; offset < (size_t)object_type->size;
-             ++offset) {
-            uint8_t value_mask;
-            RccIrLowerValue address;
-            RccIrValue store_operands[2];
-            RccIrInstruction* access;
-            RccIrValue value;
-            bool is_volatile;
-            if (!rcc_type_value_byte_mask(
-                    object_type, offset, &value_mask)) {
-                context->unsupported = true;
-                return lower_invalid_value();
-            }
-            if (value_mask == 0xffu) continue;
-            address = lower_byte_offset_address(context, pointer, offset);
-            if (!address.valid) return lower_invalid_value();
-            is_volatile = address.volatile_access || object_type->is_volatile;
-            if (value_mask == 0u) {
-                RccIrLowerValue zero = lower_integer_constant(
-                    context, byte_type, true, 0u);
-                if (!zero.valid) return lower_invalid_value();
-                value = zero.value;
-            } else {
-                RccIrInstruction* load = lower_append(
-                    context, RCC_IR_LOAD, byte_type,
-                    &address.value, 1u, NULL, 0u);
-                RccIrLowerValue mask_value;
-                RccIrValue and_operands[2];
-                RccIrInstruction* masked;
-                if (!load) return lower_invalid_value();
-                rcc_ir_set_volatile_access(load, is_volatile);
-                mask_value = lower_integer_constant(
-                    context, byte_type, true, value_mask);
-                if (!mask_value.valid) return lower_invalid_value();
-                and_operands[0] = load->result;
-                and_operands[1] = mask_value.value;
-                masked = lower_append(
-                    context, RCC_IR_AND, byte_type,
-                    and_operands, 2u, NULL, 0u);
-                if (!masked) return lower_invalid_value();
-                value = masked->result;
-            }
-            store_operands[0] = value;
-            store_operands[1] = address.value;
-            access = lower_append(
-                context, RCC_IR_STORE, rcc_ir_type_void(),
-                store_operands, 2u, NULL, 0u);
-            if (!access) return lower_invalid_value();
-            rcc_ir_set_volatile_access(access, is_volatile);
+        vla_owner = lower_vla_owner(argument->expr);
+        if (!lower_clear_padding_object(
+                context, pointer, object_type,
+                pointer.volatile_access || object_type->is_volatile,
+                vla_owner)) {
+            context->unsupported = true;
+            return lower_invalid_value();
         }
         result.type = rcc_ir_type_void();
         result.is_unsigned = false;

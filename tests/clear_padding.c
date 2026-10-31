@@ -141,10 +141,70 @@ static int clear_padding_union(void) {
         different_bytes[2] == 0u && different_bytes[3] == 0u;
 }
 
+#define CLEAR_PADDING_LARGE_COUNT 2048u
+
+static int clear_padding_large_array(void) {
+    struct ClearPaddingPair values[CLEAR_PADDING_LARGE_COUNT];
+    volatile unsigned char* bytes = (volatile unsigned char*)values;
+    for (size_t index = 0u; index < CLEAR_PADDING_LARGE_COUNT; ++index) {
+        values[index].tag = (unsigned char)(index + 1u);
+        values[index].value = (unsigned)(index * 17u + 9u);
+        bytes[index * sizeof(values[0]) + 1u] = 0xa1u;
+        bytes[index * sizeof(values[0]) + 2u] = 0xb2u;
+        bytes[index * sizeof(values[0]) + 3u] = 0xc3u;
+    }
+    __builtin_clear_padding(&values);
+    for (size_t index = 0u; index < CLEAR_PADDING_LARGE_COUNT; ++index) {
+        if (values[index].tag != (unsigned char)(index + 1u)) return 0;
+        if (values[index].value != (unsigned)(index * 17u + 9u)) return 0;
+        if (bytes[index * sizeof(values[0]) + 1u] != 0u) return 0;
+        if (bytes[index * sizeof(values[0]) + 2u] != 0u) return 0;
+        if (bytes[index * sizeof(values[0]) + 3u] != 0u) return 0;
+    }
+    return 1;
+}
+
+static int clear_padding_vla(size_t rows, size_t columns) {
+    struct ClearPaddingPair values[rows++][columns];
+    const size_t row_count = rows - 1u;
+    volatile unsigned char* bytes = (volatile unsigned char*)values;
+    for (size_t row = 0u; row < row_count; ++row) {
+        for (size_t column = 0u; column < columns; ++column) {
+            const size_t index = row * columns + column;
+            const size_t offset = index * sizeof(values[0][0]);
+            values[row][column].tag = (unsigned char)(index + 3u);
+            values[row][column].value = (unsigned)(index * 29u + 5u);
+            bytes[offset + 1u] = 0x17u;
+            bytes[offset + 2u] = 0x28u;
+            bytes[offset + 3u] = 0x39u;
+        }
+    }
+    __builtin_clear_padding(&values);
+    if (rows != row_count + 1u) return 0;
+    for (size_t row = 0u; row < row_count; ++row) {
+        for (size_t column = 0u; column < columns; ++column) {
+            const size_t index = row * columns + column;
+            const size_t offset = index * sizeof(values[0][0]);
+            if (values[row][column].tag != (unsigned char)(index + 3u)) {
+                return 0;
+            }
+            if (values[row][column].value != (unsigned)(index * 29u + 5u)) {
+                return 0;
+            }
+            if (bytes[offset + 1u] != 0u) return 0;
+            if (bytes[offset + 2u] != 0u) return 0;
+            if (bytes[offset + 3u] != 0u) return 0;
+        }
+    }
+    return 1;
+}
+
 int main(void) {
     if (!clear_padding_pair()) return 1;
     if (!clear_padding_array_and_nested()) return 2;
     if (!clear_padding_bitfield()) return 3;
     if (!clear_padding_union()) return 4;
+    if (!clear_padding_large_array()) return 5;
+    if (!clear_padding_vla(4u, 5u)) return 6;
     return 0;
 }
