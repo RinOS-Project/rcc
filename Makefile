@@ -126,10 +126,14 @@ endef
 endif
 
 ifeq ($(OS),Windows_NT)
-MKDIR_P = if not exist "$(1)\." mkdir "$(1)"
+MKDIR_P = $(POWERSHELL) -NoProfile -Command "New-Item -ItemType Directory -Force -Path '$(1)' | Out-Null"
 # cmd.exe treats forward slashes in an executable path as option syntax. Make
 # Windows expected-failure invocations use native separators before launching.
+ifneq ($(findstring sh,$(notdir $(SHELL))),)
+EXPECT_FAILURE = $(1) >$(2) 2>&1; test $$? -ne 0
+else
 EXPECT_FAILURE = $(subst /,\,$(subst ./,,$(1))) >$(subst /,\,$(2)) 2>&1 & if not errorlevel 1 exit /b 1
+endif
 CHECK_NONEMPTY = $(POWERSHELL) -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(1)') -or (Get-Item -LiteralPath '$(1)').Length -eq 0) { exit 1 }"
 COPY_FILE = $(POWERSHELL) -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
 ASSERT_ABSENT = $(POWERSHELL) -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { exit 1 }"
