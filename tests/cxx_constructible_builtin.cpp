@@ -424,6 +424,20 @@ struct ConstrainedAssignmentOverload {
     ConstrainedAssignmentOverload& operator=(T&&) = delete;
 };
 
+struct DeletedTemplateCopyAssignment {
+    template <typename Marker>
+    DeletedTemplateCopyAssignment& operator=(
+        const DeletedTemplateCopyAssignment&) = delete;
+};
+
+struct TemplateCopySignatureIsNotSpecial {
+    template <typename Marker>
+    TemplateCopySignatureIsNotSpecial& operator=(
+        const TemplateCopySignatureIsNotSpecial&) {
+        return *this;
+    }
+};
+
 template <typename T>
 struct AssignmentSizeProbe {
     static constexpr bool value = sizeof(T) == sizeof(double);
@@ -445,6 +459,12 @@ static void check_constrained_forwarding_assignment(
 
 static void check_unconstrained_forwarding_assignment(
     TemplateAssignment& target, const double& source) {
+    target = source;
+}
+
+static void check_implicit_copy_beside_deleted_assignment_template(
+    DeletedTemplateCopyAssignment& target,
+    const DeletedTemplateCopyAssignment& source) {
     target = source;
 }
 
@@ -871,6 +891,11 @@ static_assert(__is_assignable(ConstrainedForwardingAssignment&, const double),
               "a satisfied forwarding assignment constraint accepts a const rvalue");
 static_assert(!__is_assignable(ConstrainedAssignmentOverload&, int),
               "an unsatisfied constraint leaves the deleted fallback selected");
+static_assert(__is_assignable(DeletedTemplateCopyAssignment&,
+                              const DeletedTemplateCopyAssignment&),
+              "a deleted assignment template does not suppress implicit copy assignment");
+static_assert(__is_trivially_copyable(TemplateCopySignatureIsNotSpecial),
+              "an assignment function template is not a copy-assignment special member");
 static_assert(__is_assignable(volatile int&, int),
               "a volatile scalar lvalue can be assigned");
 static_assert(__is_assignable(int&, volatile int&),

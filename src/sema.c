@@ -15215,7 +15215,8 @@ static bool sema_cxx_has_user_copy_move_assignment(Type* type) {
         CxxMethod* method = member->method;
         DeclList* parameter;
         Type* parameter_type;
-        if (!method || method->is_deleted || method->is_defaulted ||
+        if (!method || method->member_template || method->is_deleted ||
+            method->is_defaulted ||
             !method->source_name ||
             strcmp(method->source_name, "operator=") != 0 ||
             !method->decl || !method->decl->type) {
@@ -17781,7 +17782,8 @@ static bool sema_cxx_has_declared_special_assignment(Type* type,
         CxxMethod* method = member->method;
         DeclList* parameter;
         Type* parameter_type;
-        if (!method || method->is_static || !method->source_name ||
+        if (!method || method->is_static || method->member_template ||
+            !method->source_name ||
             strcmp(method->source_name, "operator=") != 0 || !method->decl) {
             continue;
         }
@@ -19937,7 +19939,8 @@ static bool sema_cxx_type_trait_copy_parameter_is_const(Type* type,
         CxxMethod* method = member->method;
         DeclList* parameter;
         Type* parameter_type;
-        if (!method || method->is_static || !method->source_name ||
+        if (!method || method->is_static || method->member_template ||
+            !method->source_name ||
             strcmp(method->source_name, "operator=") != 0 ||
             !method->decl) {
             continue;
