@@ -2,8 +2,11 @@
 
 struct AtomicWaitAggregate {
     unsigned char tag;
-    unsigned value;
+    unsigned value[3];
 };
+
+static_assert(sizeof(AtomicWaitAggregate) == 16u,
+              "aggregate wait API fixture must exceed lock-free widths");
 
 template<class T>
 struct AtomicWaitPointerProbe {
@@ -48,7 +51,7 @@ void atomic_wait_api_surface(
     std::atomic_notify_one(&volatile_scalar);
 #endif
 
-    aggregate.wait(AtomicWaitAggregate{0u, 0u});
+    aggregate.wait(AtomicWaitAggregate{0u, {0u, 0u, 0u}});
     aggregate.notify_all();
 
     flag.wait(false, std::memory_order_acquire);
