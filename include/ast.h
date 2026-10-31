@@ -486,6 +486,8 @@ Type* type_reference(Type* base, bool rvalue_reference);
 /* Strip C++ reference wrappers when an operation is defined on the referred
  * object type (for example sizeof/alignof of a reference type-id). */
 Type* type_remove_reference(Type* type);
+bool rcc_type_value_byte_mask(const Type* type, size_t byte_index,
+                              uint8_t* mask);
 Type* type_array(Type* base, int len);
 Type* type_vector(Type* base, int lanes, int vector_size);
 Type* type_func(Type* ret, TypeParam* params, bool variadic);

@@ -14820,6 +14820,39 @@ static bool gen_compiler_builtin(Module* mod, Expr* expr) {
         }
         return true;
     }
+    if (strcmp(function->ident_name, "__builtin_clear_padding") == 0) {
+        Expr* pointer = call_argument(expr, 0);
+        const Type* pointer_type = pointer ? pointer->type : NULL;
+        const Type* object_type = pointer_type &&
+                pointer_type->kind == TYPE_PTR
+            ? pointer_type->base : NULL;
+        if (!object_type || object_type->size <= 0) {
+            rcc_error(expr->loc,
+                      "__builtin_clear_padding has no complete object layout");
+            return true;
+        }
+        gen_expr(mod, pointer);
+        emit_mov_reg_reg(mod, EDX, EAX);
+        for (size_t offset = 0u; offset < (size_t)object_type->size;
+             ++offset) {
+            uint8_t value_mask;
+            if (!rcc_type_value_byte_mask(object_type, offset, &value_mask)) {
+                rcc_error(expr->loc,
+                          "__builtin_clear_padding cannot inspect object layout");
+                return true;
+            }
+            if (value_mask == 0xffu) continue;
+            if (value_mask == 0u) {
+                emit_xor_reg_reg(mod, ECX, ECX);
+            } else {
+                emit_load_typed32(mod, ECX, EDX, (int32_t)offset, type_uchar);
+                emit_and_reg_imm(mod, ECX, value_mask);
+            }
+            emit_store_typed32(
+                mod, EDX, (int32_t)offset, ECX, type_uchar);
+        }
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_prefetch") == 0) {
         rw = 0;
         locality = 3;

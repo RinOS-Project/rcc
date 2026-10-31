@@ -3860,6 +3860,40 @@ static bool gen64_compiler_builtin(Module* mod, Expr* expr) {
         }
         return true;
     }
+    if (strcmp(function->ident_name, "__builtin_clear_padding") == 0) {
+        Expr* pointer = call64_argument(expr, 0);
+        const Type* pointer_type = pointer ? pointer->type : NULL;
+        const Type* object_type = pointer_type &&
+                pointer_type->kind == TYPE_PTR
+            ? pointer_type->base : NULL;
+        if (!object_type || object_type->size <= 0) {
+            rcc_error(expr->loc,
+                      "__builtin_clear_padding has no complete object layout");
+            return true;
+        }
+        gen64_expr(mod, pointer);
+        emit64_mov_reg_reg(mod, R10, RAX);
+        for (size_t offset = 0u; offset < (size_t)object_type->size;
+             ++offset) {
+            uint8_t value_mask;
+            if (!rcc_type_value_byte_mask(object_type, offset, &value_mask)) {
+                rcc_error(expr->loc,
+                          "__builtin_clear_padding cannot inspect object layout");
+                return true;
+            }
+            if (value_mask == 0xffu) continue;
+            if (value_mask == 0u) {
+                emit64_xor_reg_reg(mod, RAX, RAX);
+            } else {
+                emit64_load_typed(
+                    mod, RAX, R10, (int32_t)offset, type_uchar);
+                emit64_and_reg_imm32(mod, RAX, value_mask);
+            }
+            emit64_store_typed(
+                mod, R10, (int32_t)offset, RAX, type_uchar);
+        }
+        return true;
+    }
     if (strcmp(function->ident_name, "__builtin_prefetch") == 0) {
         rw = 0;
         locality = 3;

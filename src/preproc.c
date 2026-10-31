@@ -530,6 +530,7 @@ static bool pp_has_builtin(const char* name) {
         "__builtin_add_overflow", "__builtin_add_overflow_p",
         "__builtin_assume_aligned",
         "__builtin_bswap16", "__builtin_bswap32", "__builtin_bswap64",
+        "__builtin_clear_padding",
         "__builtin_choose_expr", "__builtin_clrsb", "__builtin_clrsbl",
         "__builtin_clrsbll", "__builtin_clz", "__builtin_clzl",
         "__builtin_clzll", "__builtin_constant_p", "__builtin_ctz",

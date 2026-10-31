@@ -15997,6 +15997,84 @@ static RccIrLowerValue lower_builtin_call(
         return lower_invalid_value();
     }
     name = expression->call_func->ident_name;
+    if (strcmp(name, "__builtin_clear_padding") == 0) {
+        const ExprList* argument = expression->call_args;
+        const Type* pointer_type = argument && argument->expr
+            ? argument->expr->type : NULL;
+        const Type* object_type = pointer_type &&
+                pointer_type->kind == TYPE_PTR
+            ? pointer_type->base : NULL;
+        RccIrLowerValue pointer;
+        RccIrType byte_type;
+        if (!argument || argument->next || !argument->expr ||
+            !expression->type || expression->type->kind != TYPE_VOID ||
+            !object_type || object_type->size <= 0 ||
+            !lower_type(type_uchar, &byte_type) ||
+            byte_type.kind != RCC_IR_TYPE_INTEGER ||
+            byte_type.bit_width != 8u) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        pointer = lower_expression(context, argument->expr);
+        if (!pointer.valid || pointer.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        for (size_t offset = 0u; offset < (size_t)object_type->size;
+             ++offset) {
+            uint8_t value_mask;
+            RccIrLowerValue address;
+            RccIrValue store_operands[2];
+            RccIrInstruction* access;
+            RccIrValue value;
+            bool is_volatile;
+            if (!rcc_type_value_byte_mask(
+                    object_type, offset, &value_mask)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (value_mask == 0xffu) continue;
+            address = lower_byte_offset_address(context, pointer, offset);
+            if (!address.valid) return lower_invalid_value();
+            is_volatile = address.volatile_access || object_type->is_volatile;
+            if (value_mask == 0u) {
+                RccIrLowerValue zero = lower_integer_constant(
+                    context, byte_type, true, 0u);
+                if (!zero.valid) return lower_invalid_value();
+                value = zero.value;
+            } else {
+                RccIrInstruction* load = lower_append(
+                    context, RCC_IR_LOAD, byte_type,
+                    &address.value, 1u, NULL, 0u);
+                RccIrLowerValue mask_value;
+                RccIrValue and_operands[2];
+                RccIrInstruction* masked;
+                if (!load) return lower_invalid_value();
+                rcc_ir_set_volatile_access(load, is_volatile);
+                mask_value = lower_integer_constant(
+                    context, byte_type, true, value_mask);
+                if (!mask_value.valid) return lower_invalid_value();
+                and_operands[0] = load->result;
+                and_operands[1] = mask_value.value;
+                masked = lower_append(
+                    context, RCC_IR_AND, byte_type,
+                    and_operands, 2u, NULL, 0u);
+                if (!masked) return lower_invalid_value();
+                value = masked->result;
+            }
+            store_operands[0] = value;
+            store_operands[1] = address.value;
+            access = lower_append(
+                context, RCC_IR_STORE, rcc_ir_type_void(),
+                store_operands, 2u, NULL, 0u);
+            if (!access) return lower_invalid_value();
+            rcc_ir_set_volatile_access(access, is_volatile);
+        }
+        result.type = rcc_ir_type_void();
+        result.is_unsigned = false;
+        result.valid = true;
+        return result;
+    }
     if (strcmp(name, "__builtin_choose_expr") == 0) {
         const ExprList* condition = expression->call_args;
         const ExprList* selected;
@@ -17142,6 +17220,8 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                         "__builtin_mul_overflow") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_object_size") == 0 ||
+                 strcmp(expression->call_func->ident_name,
+                        "__builtin_clear_padding") == 0 ||
                  strcmp(expression->call_func->ident_name,
                         "__builtin_strlen") == 0 ||
                  strcmp(expression->call_func->ident_name,

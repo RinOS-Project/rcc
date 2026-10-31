@@ -30392,6 +30392,31 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     name = function->ident_name;
     if (sema_fold_nonfinite_builtin(expr, name)) return true;
     if (sema_builtin_complex_call(expr, name)) return true;
+    if (strcmp(name, "__builtin_clear_padding") == 0) {
+        for (argument = expr->call_args; argument;
+             argument = argument->next) {
+            sema_expr(argument->expr);
+            ++argument_count;
+        }
+        if (argument_count != 1) {
+            rcc_error(expr->loc,
+                      "__builtin_clear_padding expects 1 argument, got %d",
+                      argument_count);
+        }
+        first = expr->call_args ? expr->call_args->expr : NULL;
+        if (!first || !first->type || first->type->kind != TYPE_PTR ||
+            !first->type->base ||
+            !type_is_complete(first->type->base) ||
+            first->type->base->size <= 0 ||
+            first->type->base->kind == TYPE_FUNC ||
+            first->type->base->is_const) {
+            rcc_error(expr->loc,
+                      "__builtin_clear_padding expects a pointer to a modifiable complete object type");
+        }
+        function->type = type_ptr(type_void);
+        expr->type = type_void;
+        return true;
+    }
     {
         bool classification = sema_float_classification_builtin(name);
         bool fpclassify = strcmp(name, "__builtin_fpclassify") == 0;

@@ -2,6 +2,9 @@
 #define RCC_CXX_ATOMIC
 
 #include <stddef.h>
+#if __cplusplus >= 202002L
+#include <__rcc_atomic_wait_value.h>
+#endif
 
 #if __cplusplus >= 202002L
 extern "C" {
@@ -60,21 +63,6 @@ struct __rcc_atomic_ops {
             object, expected, &desired, weak, success, failure);
     }
 };
-
-#if __cplusplus >= 202002L
-template<class T>
-inline bool __rcc_atomic_wait_value_equal_v1(
-    T observed, T expected) noexcept {
-    const unsigned char* observed_bytes =
-        reinterpret_cast<const unsigned char*>(&observed);
-    const unsigned char* expected_bytes =
-        reinterpret_cast<const unsigned char*>(&expected);
-    for (size_t index = 0; index < sizeof(T); ++index) {
-        if (observed_bytes[index] != expected_bytes[index]) return false;
-    }
-    return true;
-}
-#endif
 
 template<class T>
 struct __rcc_atomic_ops<T*> {

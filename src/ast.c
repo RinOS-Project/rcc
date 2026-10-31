@@ -534,6 +534,146 @@ bool type_is_floating(Type* t) {
     return t && (t->kind == TYPE_FLOAT || t->kind == TYPE_DOUBLE);
 }
 
+static uint8_t type_value_byte_mask_impl(
+    const Type* type, size_t byte_index) {
+    const TypeField* field;
+    uint8_t mask = 0u;
+    if (!type || type->size <= 0 || byte_index >= (size_t)type->size) {
+        return 0u;
+    }
+    if (type->is_complex && type->complex_component_type &&
+        type->complex_component_type->size > 0) {
+        const size_t component_size =
+            (size_t)type->complex_component_type->size;
+        if (byte_index < component_size * 2u) {
+            return type_value_byte_mask_impl(
+                type->complex_component_type, byte_index % component_size);
+        }
+        return 0u;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        const Type* element = type->base;
+        size_t element_size;
+        if (!element || element->size <= 0) return 0u;
+        element_size = (size_t)element->size;
+        return type_value_byte_mask_impl(element, byte_index % element_size);
+    }
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        bool has_union_member = false;
+        if (type->kind == TYPE_UNION) mask = 0xffu;
+        for (field = type->fields; field; field = field->next) {
+            uint8_t field_mask = 0u;
+            if (field->offset < 0 || !field->type ||
+                field->type->size <= 0) {
+                continue;
+            }
+            if (type->kind == TYPE_UNION &&
+                byte_index >= (size_t)field->offset &&
+                byte_index - (size_t)field->offset >=
+                    (size_t)field->type->size) {
+                /* Bytes outside a smaller union member are not padding bits
+                 * in that member's object representation.  Preserve them so
+                 * an active larger member is never damaged. */
+                field_mask = 0xffu;
+            } else if (field->is_bitfield) {
+                unsigned value_width = field->bit_width;
+                const unsigned declared_width =
+                    type_integer_width(field->type);
+                if (declared_width != 0u && value_width > declared_width) {
+                    value_width = declared_width;
+                }
+                const uint64_t first_bit =
+                    (uint64_t)(unsigned)field->offset * 8u +
+                    field->bit_offset;
+                const uint64_t last_bit = first_bit + value_width;
+                const uint64_t byte_first = (uint64_t)byte_index * 8u;
+                for (unsigned bit = 0u; bit < 8u; ++bit) {
+                    const uint64_t absolute_bit = byte_first + bit;
+                    if (absolute_bit >= first_bit && absolute_bit < last_bit) {
+                        field_mask |= (uint8_t)(1u << bit);
+                    }
+                }
+            } else if (byte_index >= (size_t)field->offset &&
+                       byte_index - (size_t)field->offset <
+                           (size_t)field->type->size) {
+                field_mask = type_value_byte_mask_impl(
+                    field->type, byte_index - (size_t)field->offset);
+            }
+            if (type->kind == TYPE_UNION) {
+                has_union_member = true;
+                mask &= field_mask;
+            } else {
+                mask |= field_mask;
+            }
+        }
+        if (type->kind == TYPE_UNION && !has_union_member) mask = 0u;
+        if (type->kind == TYPE_STRUCT && type->cxx_class) {
+            const size_t pointer_size = g_opts.target_arch == ARCH_X64
+                ? 8u : 4u;
+            if (type->cxx_class->virtual_base_pointer_offset >= 0 &&
+                byte_index >= (size_t)type->cxx_class->virtual_base_pointer_offset &&
+                byte_index -
+                    (size_t)type->cxx_class->virtual_base_pointer_offset <
+                    pointer_size) {
+                mask = 0xffu;
+            }
+            if (type->cxx_class->vtable_size > 0) {
+                if (byte_index < pointer_size) mask = 0xffu;
+                for (int index = 0;
+                     index < type->cxx_class->secondary_vtable_count; ++index) {
+                    const CxxSecondaryVtable* secondary =
+                        &type->cxx_class->secondary_vtables[index];
+                    int offset = -1;
+                    if (secondary->is_virtual_base) {
+                        const int base_index = secondary->virtual_base_index;
+                        if (base_index >= 0 && base_index <
+                                type->cxx_class->virtual_base_count) {
+                            offset = type->cxx_class->virtual_bases[base_index].offset;
+                        }
+                    } else {
+                        const int base_index = secondary->base_index;
+                        if (base_index >= 0 && base_index <
+                                type->cxx_class->base_count &&
+                            type->cxx_class->base_offsets) {
+                            offset = type->cxx_class->base_offsets[base_index];
+                        }
+                    }
+                    if (offset >= 0 && byte_index >= (size_t)offset &&
+                        byte_index - (size_t)offset < pointer_size) {
+                        mask = 0xffu;
+                    }
+                }
+            }
+        }
+        return mask;
+    }
+    if (type->kind == TYPE_ENUM && type->enum_underlying_type) {
+        return type_value_byte_mask_impl(type->enum_underlying_type,
+                                         byte_index);
+    }
+    if (type->kind == TYPE_BOOL) return byte_index == 0u ? 0x01u : 0u;
+    if (type->is_bit_precise && type->bit_width > 0u) {
+        const size_t bit_start = byte_index * 8u;
+        const unsigned remaining = type->bit_width > bit_start
+            ? (unsigned)(type->bit_width - bit_start) : 0u;
+        if (remaining >= 8u) return 0xffu;
+        if (remaining == 0u) return 0u;
+        return (uint8_t)((1u << remaining) - 1u);
+    }
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) return mask;
+    return 0xffu;
+}
+
+bool rcc_type_value_byte_mask(const Type* type, size_t byte_index,
+                              uint8_t* mask) {
+    if (!type || !mask || type->size <= 0 ||
+        byte_index >= (size_t)type->size) {
+        return false;
+    }
+    *mask = type_value_byte_mask_impl(type, byte_index);
+    return true;
+}
+
 bool type_is_complex(const Type* t) {
     return t && t->is_complex && t->complex_component_type;
 }
