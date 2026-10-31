@@ -12,7 +12,7 @@ extern "C" int debug_inline_mutated_parameter_entry(int input_value)
 {
     int stable_input = input_value;
     debug_inline_mutated_parameter_observe(&stable_input);
-    return debug_inline_mutated_parameter(stable_input);
+    return debug_inline_mutated_parameter(stable_input + 2);
 }
 
 static inline unsigned int debug_inline_mutated_unsigned_parameter(

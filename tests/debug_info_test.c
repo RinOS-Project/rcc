@@ -6116,7 +6116,8 @@ static void verify_cxx_inline_mutated_parameter_location(
     const char* path, uint16_t architecture, const char* function_name,
     const char* parameter_name, const char* source_local_name,
     const char* entry_name,
-    unsigned expected_entries, bool final_mutation_has_multiply) {
+    unsigned expected_entries, bool final_mutation_has_multiply,
+    bool initial_expression_has_add) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6196,6 +6197,12 @@ static void verify_cxx_inline_mutated_parameter_location(
         found_parameter_location = true;
         break;
     }
+    if (locations == NULL || !found_parameter_location ||
+        location_list >= locations->size) {
+        fprintf(stderr,
+                "missing mutated inline parameter location list: %s (%s)\n",
+                function_name, parameter_name);
+    }
     assert(locations != NULL && found_parameter_location &&
            location_list < locations->size);
     {
@@ -6262,11 +6269,34 @@ static void verify_cxx_inline_mutated_parameter_location(
                         locations->data, expression_end, &initial_offset,
                         &initial_frame_offset));
                     assert(initial_frame_offset == source_frame_offset);
-                    assert(initial_offset + 3u == expression_end);
                     assert(locations->data[initial_offset] == 0x94u &&
-                           locations->data[initial_offset + 1u] == 4u &&
-                           locations->data[initial_offset + 2u] == 0x9fu);
-                    assert(has_deref_size && !has_add && !has_multiply);
+                           locations->data[initial_offset + 1u] == 4u);
+                    if (initial_expression_has_add) {
+                        bool has_signed_two = false;
+                        bool has_add_after_constant = false;
+                        initial_offset += 2u;
+                        for (uint64_t byte = initial_offset;
+                             byte + 1u < expression_end; ++byte) {
+                            if (locations->data[byte] == 0x11u &&
+                                locations->data[byte + 1u] == 2u) {
+                                has_signed_two = true;
+                                for (uint64_t operation = byte + 2u;
+                                     operation < expression_end; ++operation) {
+                                    if (locations->data[operation] == 0x22u) {
+                                        has_add_after_constant = true;
+                                        break;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                        assert(has_signed_two && has_add_after_constant);
+                        assert(has_deref_size && has_add && !has_multiply);
+                    } else {
+                        assert(initial_offset + 3u == expression_end);
+                        assert(locations->data[initial_offset + 2u] == 0x9fu);
+                        assert(has_deref_size && !has_add && !has_multiply);
+                    }
                 } else {
                     assert(has_add);
                 }
@@ -18696,19 +18726,21 @@ int main(int argc, char** argv)
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_parameter",
             "mutable_parameter", "stable_input",
-            "debug_inline_mutated_parameter_entry", 4u, true);
+            "debug_inline_mutated_parameter_entry", 4u, true, true);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_parameter",
             "mutable_parameter", "stable_input",
-            "debug_inline_mutated_parameter_entry", 4u, true);
+            "debug_inline_mutated_parameter_entry", 4u, true, true);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter", "stable_unsigned_input",
-            "debug_inline_mutated_unsigned_parameter_entry", 2u, false);
+            "debug_inline_mutated_unsigned_parameter_entry", 2u, false,
+            false);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter", "stable_unsigned_input",
-            "debug_inline_mutated_unsigned_parameter_entry", 2u, false);
+            "debug_inline_mutated_unsigned_parameter_entry", 2u, false,
+            false);
         return 0;
     }
     if (argc == 10 &&

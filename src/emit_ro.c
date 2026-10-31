@@ -15617,6 +15617,80 @@ static bool debug_inline_mutated_parameter_body_is_isolated(
     }
 }
 
+static bool debug_inline_parameter_initial_value_is_frame_pure(
+    const Module* mod, const Expr* expression, unsigned int depth) {
+    uint64_t literal_bits;
+    if (!mod || !expression || depth >= 32u ||
+        !debug_inline_integer_expression_type(expression->type)) {
+        return false;
+    }
+    if (debug_inline_integer_literal_bits(
+            expression, &literal_bits, 0u)) {
+        return true;
+    }
+    switch (expression->kind) {
+        case EXPR_IDENT: {
+            const Decl* source = expression->ident_decl;
+            int64_t frame_offset;
+            return source &&
+                (source->kind == DECL_VAR || source->kind == DECL_PARAM) &&
+                !source->var_is_global && !source->var_is_static_local &&
+                !source->var_is_thread_local && !source->var_is_vla &&
+                source->type && !source->type->is_volatile &&
+                !source->type->is_atomic &&
+                debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+                    source->type, expression->type, 0u) &&
+                debug_inline_parameter_frame_offset(
+                    mod, source, &frame_offset);
+        }
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return expression->binary_lhs && expression->binary_rhs &&
+                debug_inline_parameter_initial_value_is_frame_pure(
+                    mod, expression->binary_lhs, depth + 1u) &&
+                debug_inline_parameter_initial_value_is_frame_pure(
+                    mod, expression->binary_rhs, depth + 1u);
+        case EXPR_CAST:
+            return expression->cast_expr &&
+                debug_inline_parameter_initial_value_is_frame_pure(
+                    mod, expression->cast_expr, depth + 1u);
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return expression->unary_operand &&
+                debug_inline_parameter_initial_value_is_frame_pure(
+                    mod, expression->unary_operand, depth + 1u);
+        case EXPR_COND:
+            return expression->cond_test && expression->cond_then &&
+                expression->cond_else &&
+                debug_inline_parameter_initial_value_is_frame_pure(
+                    mod, expression->cond_test, depth + 1u) &&
+                debug_inline_parameter_initial_value_is_frame_pure(
+                    mod, expression->cond_then, depth + 1u) &&
+                debug_inline_parameter_initial_value_is_frame_pure(
+                    mod, expression->cond_else, depth + 1u);
+        default:
+            return false;
+    }
+}
+
 static bool debug_emit_inline_mutated_parameter_location(
     ObjectFile* obj, ObjSection* info, const Module* mod,
     const char* filename, int architecture, const ModuleSymbol* function,
@@ -15731,54 +15805,61 @@ static bool debug_emit_inline_mutated_parameter_location(
     }
     if (argument && argument->expr && !argument->cxx_temporary_owner &&
         debug_inline_mutated_parameter_body_is_isolated(
-            call->callee, value) &&
-        argument->expr->kind == EXPR_IDENT &&
-        argument->expr->ident_decl && value->declaration->type &&
-        argument->expr->type && !argument->expr->type->is_volatile &&
-        !argument->expr->type->is_atomic &&
-        debug_inline_integer_expression_type(
-            value->declaration->type) &&
+            call->callee, value) && value->declaration->type &&
         (unsigned int)value->declaration->type->size <=
             (unsigned int)address_size &&
         debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
-            value->declaration->type, argument->expr->type, 0u)) {
-        const Decl* source = argument->expr->ident_decl;
-        int64_t frame_offset;
-        uint8_t initial_expression[32];
-        size_t initial_expression_size;
-        if ((source->kind == DECL_VAR || source->kind == DECL_PARAM) &&
-            source->type && !source->type->is_volatile &&
-            !source->type->is_atomic &&
-            !source->var_is_global && !source->var_is_static_local &&
-            !source->var_is_thread_local && !source->var_is_vla &&
-            debug_inline_parameter_frame_offset(
-                mod, source, &frame_offset)) {
-            initial_expression_size = debug_build_expr_breg(
-                initial_expression, architecture, frame_offset, 0u, false);
-            if (initial_expression_size != 0u &&
-                initial_expression_size + 3u <=
-                    sizeof(initial_expression)) {
-                initial_expression[initial_expression_size++] = 0x94u;
-                initial_expression[initial_expression_size++] =
-                    (uint8_t)value->declaration->type->size;
-                initial_expression[initial_expression_size++] = 0x9fu;
-                if (call->code_start < entries[0].start &&
-                    initial_expression_size <= UINT16_MAX &&
-                    list_size <= UINT32_MAX -
-                        ((uint64_t)address_size * 2u + 2u +
-                         initial_expression_size)) {
-                    memmove(entries + 1u, entries,
-                            entry_count * sizeof(*entries));
-                    entries[0].start = call->code_start;
-                    entries[0].end = entries[1].start;
-                    entries[0].expression_size = initial_expression_size;
-                    memcpy(entries[0].expression, initial_expression,
-                           initial_expression_size);
-                    list_size += (uint64_t)address_size * 2u + 2u +
-                        initial_expression_size;
-                    ++entry_count;
+            value->declaration->type, argument->expr->type, 0u) &&
+        debug_inline_parameter_initial_value_is_frame_pure(
+            mod, argument->expr, 0u)) {
+        uint8_t initial_expression[
+            DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
+        size_t initial_expression_size = 0u;
+        bool have_initial_expression = false;
+        if (argument->expr->kind == EXPR_IDENT &&
+            argument->expr->ident_decl) {
+            const Decl* source = argument->expr->ident_decl;
+            int64_t frame_offset;
+            if (debug_inline_parameter_frame_offset(
+                    mod, source, &frame_offset)) {
+                initial_expression_size = debug_build_expr_breg(
+                    initial_expression, architecture, frame_offset,
+                    0u, false);
+                if (initial_expression_size != 0u &&
+                    initial_expression_size + 3u <=
+                        sizeof(initial_expression)) {
+                    initial_expression[initial_expression_size++] = 0x94u;
+                    initial_expression[initial_expression_size++] =
+                        (uint8_t)value->declaration->type->size;
+                    initial_expression[initial_expression_size++] = 0x9fu;
+                    have_initial_expression = true;
                 }
             }
+        } else {
+            ExprList initial_value = {0};
+            initial_value.expr = (Expr*)argument->expr;
+            have_initial_expression =
+                debug_inline_parameter_integer_expression(
+                    mod, architecture, call->callee, value, &initial_value,
+                    initial_expression, sizeof(initial_expression),
+                    &initial_expression_size, true);
+        }
+        if (have_initial_expression && initial_expression_size != 0u &&
+            call->code_start < entries[0].start &&
+            initial_expression_size <= UINT16_MAX &&
+            list_size <= UINT32_MAX -
+                ((uint64_t)address_size * 2u + 2u +
+                 initial_expression_size)) {
+            memmove(entries + 1u, entries,
+                    entry_count * sizeof(*entries));
+            entries[0].start = call->code_start;
+            entries[0].end = entries[1].start;
+            entries[0].expression_size = initial_expression_size;
+            memcpy(entries[0].expression, initial_expression,
+                   initial_expression_size);
+            list_size += (uint64_t)address_size * 2u + 2u +
+                initial_expression_size;
+            ++entry_count;
         }
     }
     list_size += (uint64_t)address_size * 2u;
