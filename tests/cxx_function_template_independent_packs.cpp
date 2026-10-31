@@ -22,9 +22,15 @@ int choose_zipped_independent_packs(Pair<Left, Right>...) {
     return static_cast<int>(sizeof...(Left) * 10 + sizeof...(Right));
 }
 
+template<typename... Left, typename... Right>
+int choose_zipped_compound_packs(Pair<Left*, Right>...) {
+    return static_cast<int>(sizeof...(Left) * 10 + sizeof...(Right));
+}
+
 int main() {
 #if defined(RCC_TEST_INVALID_ZIPPED_PACK)
-    return choose_zipped_independent_packs(NotPair{});
+    return choose_zipped_independent_packs(NotPair{}) +
+           choose_zipped_compound_packs(Pair<int, char>{});
 #else
     using EmptyPair = Pair<Pack<>, Pack<> >;
     using UnequalPair = Pair<Pack<char>, Pack<int, long> >;
@@ -36,7 +42,10 @@ int main() {
                        Pack<int, char>{}, Pack<double, long, short>{}) == 23 &&
                    choose_zipped_independent_packs() == 0 &&
                    choose_zipped_independent_packs(
-                       Pair<int, char>{}, Pair<long, double>{}) == 22
+                       Pair<int, char>{}, Pair<long, double>{}) == 22 &&
+                   choose_zipped_compound_packs() == 0 &&
+                   choose_zipped_compound_packs(
+                       Pair<int*, char>{}, Pair<long*, double>{}) == 22
         ? 0 : 1;
 #endif
 }

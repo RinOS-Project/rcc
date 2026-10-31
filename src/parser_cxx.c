@@ -33503,13 +33503,22 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                 size_t element_offset =
                     (size_t)pack_index * (size_t)function_pack_count +
                     (size_t)element_index;
+                if (!deduce_function_template_type(
+                        tmpl, argument_pattern, actual_argument,
+                        element_arguments, element_values,
+                        element_value_present, specificity) ||
+                    !element_arguments[pack_index]) {
+                    return false;
+                }
                 if (source_packs[pack_index] &&
                     zipped_arguments[element_offset] &&
                     !type_is_same_template_argument(
-                        zipped_arguments[element_offset], actual_argument)) {
+                        zipped_arguments[element_offset],
+                        element_arguments[pack_index])) {
                     return false;
                 }
-                zipped_arguments[element_offset] = actual_argument;
+                zipped_arguments[element_offset] =
+                    element_arguments[pack_index];
                 continue;
             }
             if (pack_index != -1 ||
@@ -33629,6 +33638,7 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                 parameter = parameter->next;
                 break;
             }
+            if (pack_index == -2) return false;
             bool value_pack = pack_index >= 0 &&
                 tmpl->params[pack_index].kind == TPARAM_NONTYPE;
             if (!pack_arguments || !pack_count || pack_capacity < 0 ||

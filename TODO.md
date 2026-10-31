@@ -12694,3 +12694,10 @@ remains a separate open item.
       Itanium symbolを照合し、RCC i686/AMD64生成・AMD64実行、verified backend両targetで
       7関数・fallback 0、不一致引数のno-match/no-object、およびWindows
       `test-cxx-function-template-overloads`通過を確認。
+
+# RCC continuation (2026-11-01, compound zipped function parameter packs)
+- [x] 各class-template引数に独立packを1つずつ含む末尾parameter-pack patternについて、
+      `Left`の直接型と`Left*`のcompound型から同じ位置の要素を推論する。strict GCC
+      C++20とのruntime結果・Itanium symbol一致、RCC i686/AMD64生成・AMD64実行、
+      verified backend両target 9関数・fallback 0、invalid typeのno-match/no-object、
+      およびWindows `test-cxx-function-template-overloads`通過を確認。
