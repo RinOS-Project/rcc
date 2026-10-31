@@ -766,6 +766,7 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-wide-class-base-pack
 .PHONY: test-cxx-wide-function-parameter-pack-deduction
 .PHONY: test-cxx-wide-nested-class-template-specialization
+.PHONY: test-cxx-wide-structured-binding
 test-cxx-wide-nested-class-template-specialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-nested-class-template-specialization)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-wide-nested-class-template-specialization,cxx_wide_nested_class_template_specialization.cpp)
@@ -785,6 +786,26 @@ test-cxx-wide-nested-class-template-specialization: $(RCXX_TARGET)
 		tests/cxx_wide_nested_class_template_specialization.cpp \
 		>$(TEST_OUT)/cxx-wide-nested-class-template-specialization/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-nested-class-template-specialization/verified-x64.log,0)
+
+test-cxx-wide-structured-binding: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-structured-binding)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-wide-structured-binding,cxx_wide_structured_binding.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-wide-structured-binding/gcc-host$(EXE_SUFFIX) \
+		tests/cxx_wide_structured_binding.cpp
+	$(TEST_OUT)/cxx-wide-structured-binding/gcc-host$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-wide-structured-binding/verified-x86.ro \
+		tests/cxx_wide_structured_binding.cpp \
+		>$(TEST_OUT)/cxx-wide-structured-binding/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-structured-binding/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-wide-structured-binding/verified-x64.ro \
+		tests/cxx_wide_structured_binding.cpp \
+		>$(TEST_OUT)/cxx-wide-structured-binding/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-structured-binding/verified-x64.log,0)
 
 test-cxx-wide-function-parameter-pack-deduction: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction)
@@ -886,6 +907,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-wide-class-base-pack \
 	test-cxx-wide-function-parameter-pack-deduction \
 	test-cxx-wide-nested-class-template-specialization \
+	test-cxx-wide-structured-binding \
 	test-cxx-template-template-wide-mangling \
 	test-cxx-trailing-return-noexcept \
 	test-cxx-global-allocation-operators \

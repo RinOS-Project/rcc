@@ -46833,7 +46833,8 @@ static Stmt* parse_cxx_structured_binding_declaration(void) {
     Expr* initializer;
     Decl* hidden;
     StmtList* statements = NULL;
-    const char* binding_names[32];
+    const char** binding_names = NULL;
+    size_t binding_name_capacity = 0u;
     int binding_count = 0;
     char hidden_name[64];
     int written;
@@ -46852,11 +46853,35 @@ static Stmt* parse_cxx_structured_binding_declaration(void) {
     }
     while (!check(TOK_RBRACKET) && !at_end()) {
         Token* name = expect(TOK_IDENT, "structured binding name");
-        if (name && binding_count < (int)(sizeof(binding_names) /
-                                          sizeof(binding_names[0]))) {
-            binding_names[binding_count++] = name->value.str_val;
+        if (name && binding_count == INT_MAX) {
+            rcc_error(name->loc, "structured binding list is too large");
         } else if (name) {
-            rcc_error(name->loc, "too many structured binding names");
+            if ((size_t)binding_count >= binding_name_capacity) {
+                size_t required_capacity = (size_t)binding_count + 1u;
+                size_t new_capacity = binding_name_capacity == 0u
+                    ? 8u
+                    : binding_name_capacity <= SIZE_MAX / 2u
+                        ? binding_name_capacity * 2u : SIZE_MAX;
+                const char** grown_names;
+                if (new_capacity < required_capacity) {
+                    new_capacity = required_capacity;
+                }
+                if (new_capacity > SIZE_MAX / sizeof(*binding_names)) {
+                    rcc_error(name->loc,
+                              "structured binding list is too large");
+                    if (!match(TOK_COMMA)) break;
+                    continue;
+                }
+                grown_names = cxx_grow_zeroed_array(
+                    (void*)binding_names, sizeof(*binding_names),
+                    binding_name_capacity, new_capacity);
+                if (!grown_names) {
+                    rcc_fatal("out of memory parsing structured bindings");
+                }
+                binding_names = grown_names;
+                binding_name_capacity = new_capacity;
+            }
+            binding_names[binding_count++] = name->value.str_val;
         }
         if (!match(TOK_COMMA)) break;
     }
