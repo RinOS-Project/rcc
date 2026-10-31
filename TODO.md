@@ -12602,3 +12602,15 @@ remains a separate open item.
       of the legacy x86_64 assembly checks initial values and independent state
       across threads. Dynamic initialization and non-trivial destructor cleanup
       remain open.
+
+## RCC continuation (2026-10-31, concurrent C++ aggregate atomics)
+
+- [x] Exercise an eight-byte trivially copyable `std::atomic<T>` aggregate
+      concurrently with relaxed loads, weak compare-exchange using acquire-
+      release success/acquire failure ordering, release reset, and acquire
+      reads. Four pthreads each perform 25,000 increments; both aggregate
+      fields are checked. `test-cxx-atomic-aggregate-concurrency` compiles and
+      links the production atomic fallback runtime into i686/AMD64 RINs and
+      validates their exact imports; its legacy x86_64 host execution passes.
+      Typed-SSA instantiation of `std::__rcc_atomic_ops::store_impl` remains
+      uncovered, so broader C++ atomic backend support stays open.

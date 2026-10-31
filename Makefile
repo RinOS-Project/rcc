@@ -17792,7 +17792,7 @@ test-cxx-template-template-wide-mangling: $(RCXX_TARGET)
 test-cxx-trailing-return-noexcept: $(RCXX_TARGET)
 	$(call CXX_FRONTEND_ONLY_TEST,cxx-trailing-return-noexcept,cxx_trailing_return_noexcept.cpp)
 
-test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wait
+test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wait test-cxx-atomic-aggregate-concurrency
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x86)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x64)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
@@ -17984,6 +17984,71 @@ endif
 	$(GREP) -F -q "non-static member function 'read' requires an object" \
 		$(TEST_OUT)/atomic-cxx-x64/qualified-nonstatic.log
 	@echo "Dual-architecture integer/pointer atomic tests completed"
+
+.PHONY: test-atomic-wait test-clear-padding test-cxx-atomic-aggregate-concurrency
+test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-atomic-aggregate-concurrency)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -Iinclude -fsyntax-only \
+		tests/verified_backend_cxx_atomic_concurrency.cpp
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -v -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x86.ro \
+		tests/verified_backend_cxx_atomic_concurrency.cpp \
+		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x86.log
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -v -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x64.ro \
+		tests/verified_backend_cxx_atomic_concurrency.cpp \
+		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x64.log
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-x86.ro \
+		$(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-x64.ro \
+		$(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		--dep rincrt.rll --import __errno_location=rincrt.rll@function \
+		-e verified_atomic_pair_increment \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x86.rin \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x86.ro \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-x86.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		--exact-dependencies --require-dependency rincrt.rll \
+		--exact-imports --require-import rincrt.rll:__errno_location@function \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x86.rin
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		--dep rincrt.rll --import __errno_location=rincrt.rll@function \
+		-e verified_atomic_pair_increment \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x64.rin \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x64.ro \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-x64.ro
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		--exact-dependencies --require-dependency rincrt.rll \
+		--exact-imports --require-import rincrt.rll:__errno_location@function \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x64.rin
+ifeq ($(OS),Windows_NT)
+	@echo "C++ aggregate atomic RIN validation completed"
+else
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x64.s \
+		tests/verified_backend_cxx_atomic_concurrency.cpp
+	$(CC) -std=c11 -Wall -Wextra -Werror -Wno-unused-but-set-variable \
+		-ffunction-sections -fdata-sections \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-host.o \
+		$(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c
+	$(CC) $(CFLAGS) -pthread -Wa,--noexecstack -no-pie \
+		-Wl,--gc-sections -o \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/host \
+		tests/verified_backend_cxx_atomic_concurrency_host.c \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x64.s \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-host.o
+	$(TEST_OUT)/cxx-atomic-aggregate-concurrency/host
+	@echo "C++ aggregate atomic concurrency test completed"
+endif
 
 .PHONY: test-atomic-wait test-clear-padding
 test-atomic-wait: $(RCC_TARGET) $(RCXX_TARGET) test-clear-padding
