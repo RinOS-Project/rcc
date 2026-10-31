@@ -39,3 +39,12 @@ int verified_volatile_aggregate_member(
     pair->first = value;
     return pair->first + pair->second;
 }
+
+int verified_volatile_tls_aggregate(int value)
+{
+    static _Thread_local volatile struct VerifiedVolatilePair pair = {17, 23};
+    int previous_second = pair.second;
+    pair.first = value;
+    pair.second = previous_second + 1;
+    return pair.first + pair.second;
+}

@@ -21703,20 +21703,22 @@ test-verified-bitcounts: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/bitcounts-x64.ro
 	@echo "Verified backend clz/ctz/popcount/ffs/clrsb tests completed"
 
-test-verified-volatile: $(RCC_TARGET)
+test-verified-volatile: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/volatile-x86.ro \
 		tests/verified_backend_volatile.c \
 		>$(TEST_OUT)/verified-backend/volatile-x86.log
-	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/volatile-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/volatile-x86.log,0)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/volatile-x64.ro \
 		tests/verified_backend_volatile.c \
 		>$(TEST_OUT)/verified-backend/volatile-x64.log
-	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/volatile-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/volatile-x64.log,0)
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/volatile-cxx-x86.ro \
@@ -21731,7 +21733,31 @@ test-verified-volatile: $(RCC_TARGET)
 		>$(TEST_OUT)/verified-backend/volatile-cxx-x64.log
 	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/volatile-cxx-x64.log
-	@echo "Verified backend volatile scalar access tests completed"
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e verified_volatile_tls_aggregate \
+		-o $(TEST_OUT)/verified-backend/volatile-tls-x86.rin \
+		$(TEST_OUT)/verified-backend/volatile-x86.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/verified-backend/volatile-tls-x86.rin
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e verified_volatile_tls_aggregate \
+		-o $(TEST_OUT)/verified-backend/volatile-tls-x64.rin \
+		$(TEST_OUT)/verified-backend/volatile-x64.ro
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/verified-backend/volatile-tls-x64.rin
+ifeq ($(OS),Windows_NT)
+	@echo "Verified volatile TLS object validation completed"
+else
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -S \
+		-o $(TEST_OUT)/verified-backend/volatile-tls-x64.s \
+		tests/verified_backend_volatile.c
+	$(CC) $(CFLAGS) -pthread -Wa,--noexecstack -no-pie -o \
+		$(TEST_OUT)/verified-backend/volatile-tls-host \
+		tests/verified_backend_volatile_tls_host.c \
+		$(TEST_OUT)/verified-backend/volatile-tls-x64.s
+	$(TEST_OUT)/verified-backend/volatile-tls-host
+	@echo "Verified backend volatile TLS aggregate tests completed"
+endif
 
 .PHONY: test-verified-cxx-conditional-xvalue
 .PHONY: test-cxx-conditional-static-xvalue
@@ -22111,7 +22137,7 @@ test-verified-cxx-conditional-aggregate: $(RCXX_TARGET) test-verified-cxx-refere
 		-o $(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.ro \
 		tests/cxx_function_template_references.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log
-	$(GREP) -F -q "Verified backend fallback: function '_ZN22LifetimeVirtualDerivedC1Pii' is outside the typed SSA subset" \
+	$(GREP) -F -q "Verified backend fallback: function 'select_conditional_lvalue' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log,1)
 

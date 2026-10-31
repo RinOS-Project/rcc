@@ -12471,7 +12471,8 @@ remains a separate open item.
       `test-ir` also passes.
 - [ ] Complete the standard-conforming `std::atomic<T>` operation surface and
       concurrency/memory-order coverage for trivially-copyable aggregate types.
-      Volatile aggregate TLS setup remains a separate typed-SSA gap.
+      C++ volatile aggregate TLS initialization and cleanup remain a separate
+      typed-SSA gap.
 
 ## RCC continuation (2026-10-31, verified scalar virtual-base construction)
 
@@ -12579,3 +12580,15 @@ remains a separate open item.
       exchange, exact outlined helper counts, zero typed-SSA fallback for
       i686/AMD64 at `-O0`/`-O2`, and AMD64 execution with
       `make SHELL=cmd.exe test-verified-atomic-aggregate-widths`.
+
+## RCC continuation (2026-10-31, function-local volatile aggregate TLS)
+
+- [x] Lower statically initialized C function-local
+      `static _Thread_local volatile struct/union` declarations through typed
+      SSA. Their TLS symbol address and volatile member accesses now compile
+      with zero fallback on i686/AMD64; the linked RIN images pass `rinvalidate`.
+      Native Windows `make SHELL=cmd.exe test-verified-volatile` checks both
+      target objects and linked RIN images. POSIX `make test-verified-volatile`
+      additionally runs the legacy-generated x86_64 code from two pthreads to
+      verify initial values and per-thread state isolation. C++ dynamic
+      aggregate TLS initialization/cleanup remains open.

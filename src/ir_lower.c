@@ -2642,7 +2642,7 @@ static bool lower_static_volatile_aggregate_supported(
     Type unqualified_type;
     const Type* type = declaration ? declaration->type : NULL;
     if (!declaration || declaration->kind != DECL_VAR ||
-        !declaration->var_is_static_local || declaration->var_is_thread_local ||
+        !declaration->var_is_static_local ||
         g_opts.cxx_mode || declaration->var_dynamic_initializer ||
         declaration->var_reference_temporary_guard ||
         declaration->var_reference_temporary_owner ||
