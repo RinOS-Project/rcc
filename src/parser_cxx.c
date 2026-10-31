@@ -30898,7 +30898,8 @@ static Type* deduce_class_template_from_aggregate(
     int specificity = 0;
 
     if (recognized) *recognized = false;
-    if (!definition || !definition->is_struct || definition->constructors ||
+    if (!arguments || !definition || !definition->is_struct ||
+        definition->constructors ||
         definition->has_user_constructor || definition->has_nonpublic_field ||
         definition->has_field_initializer || definition->base_count != 0 ||
         definition->vtable_size != 0) {
@@ -46447,12 +46448,14 @@ static Type* parse_cxx_type_spec(void) {
         } else if (tmpl && !check(TOK_LT)) {
             bool direct_initialization = check(TOK_IDENT) &&
                 (check_next(TOK_LPAREN) || check_next(TOK_LBRACE));
+            bool default_initialization = check(TOK_IDENT) &&
+                check_next(TOK_SEMICOLON);
             if (!rcc_parser_cxx_standard_at_least(17)) {
                 rcc_error(loc,
                           "class template argument deduction requires "
                           "C++17 or newer");
                 t = type_int;
-            } else if (!direct_initialization) {
+            } else if (!direct_initialization && !default_initialization) {
                 rcc_error(loc,
                           "class template argument deduction requires "
                           "direct initialization");
@@ -47985,6 +47988,8 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     bool is_ctad_placeholder = base_type && base_type->cxx_dependent &&
         base_type->cxx_template && base_type->cxx_template_param_index < 0 &&
         base_type->cxx_template_arg_count == 0;
+    bool default_initialization = is_ctad_placeholder &&
+        check(TOK_IDENT) && check_next(TOK_SEMICOLON);
     bool brace_form;
 
     constructor_mask = base_type
@@ -48015,7 +48020,8 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
            !(aggregate_type && (check_next(TOK_LBRACE) ||
                                 (paren_form && paren_has_arguments)))))) ||
         !check(TOK_IDENT) ||
-        (!check_next(TOK_LPAREN) && !check_next(TOK_LBRACE))) {
+        (!check_next(TOK_LPAREN) && !check_next(TOK_LBRACE) &&
+         !default_initialization)) {
         return NULL;
     }
 
@@ -48034,8 +48040,10 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     }
 
     name = advance();
-    brace_form = check(TOK_LBRACE);
-    if (brace_form && parser.cur->next &&
+    brace_form = !default_initialization && check(TOK_LBRACE);
+    if (default_initialization) {
+        initializer = NULL;
+    } else if (brace_form && parser.cur->next &&
         (parser.cur->next->type == TOK_DOT ||
          parser.cur->next->type == TOK_LBRACKET)) {
         /* Use the shared initializer parser for list initialization.  The
@@ -48070,7 +48078,8 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
             return stmt_null(loc);
         }
         if (rcc_parser_cxx_constructor_arity_mask(base_type) == 0u &&
-            !brace_form && !rcc_parser_cxx_standard_at_least(20)) {
+            !brace_form && !default_initialization &&
+            !rcc_parser_cxx_standard_at_least(20)) {
             rcc_error(loc,
                       "aggregate class template argument deduction requires "
                       "braced initialization before C++20");
@@ -48079,10 +48088,13 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
         }
     }
 
-    initializer->compound_type = base_type;
-    initializer->compound_paren_init = !brace_form;
     rcc_parser_validate_cxx_object_type(base_type, loc);
-    rcc_parser_validate_cxx_constructor_initializer(base_type, initializer);
+    if (initializer) {
+        initializer->compound_type = base_type;
+        initializer->compound_paren_init = !brace_form;
+        rcc_parser_validate_cxx_constructor_initializer(base_type,
+                                                       initializer);
+    }
     expect(TOK_SEMICOLON, ";");
 
     declaration = decl_var(name->value.str_val, base_type, initializer, loc);
