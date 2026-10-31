@@ -50,6 +50,59 @@ template <typename... Ignored, typename Value>
 NonFinalGuidePackBox(int, Ignored..., Value)
     -> NonFinalGuidePackBox<Value>;
 
+template <typename... Values>
+struct GuidePackList {};
+
+template <typename First, typename Second>
+struct GuidePackPair {};
+
+template <typename Left, typename Right>
+struct IndependentGuidePackBox {
+    Left first;
+    Right second;
+};
+
+template <typename... Left, typename... Right>
+IndependentGuidePackBox(GuidePackList<Left...>, GuidePackList<Right...>)
+    -> IndependentGuidePackBox<GuidePackList<Left...>,
+                               GuidePackList<Right...>>;
+
+template <typename Left, typename Right>
+struct ExpandedIndependentGuidePackBox {
+    Left first;
+    Right second;
+
+    ExpandedIndependentGuidePackBox(GuidePackPair<int, long>,
+                                    GuidePackPair<char, short>) {}
+};
+
+template <typename... Left, typename... Right>
+ExpandedIndependentGuidePackBox(GuidePackPair<Left, Right>...)
+    -> ExpandedIndependentGuidePackBox<GuidePackList<Left...>,
+                                       GuidePackList<Right...>>;
+
+template <typename Value, int Count>
+struct GuideValuePair {};
+
+template <int... Values>
+struct GuideValueList {
+    char values[sizeof...(Values) + 1];
+};
+
+template <typename Types, typename Counts>
+struct MixedIndependentGuidePackBox {
+    Types first;
+    Counts second;
+
+    MixedIndependentGuidePackBox(GuideValuePair<int, 3>,
+                                 GuideValuePair<char, 5>) {}
+};
+
+template <typename... Types, int... Counts>
+MixedIndependentGuidePackBox(GuideValuePair<Types, Counts>...)
+    -> MixedIndependentGuidePackBox<GuidePackList<Types...>,
+                                    GuideValueList<Counts...>>;
+
 template <template <typename> class Container>
 struct TemplateTemplateGuideBox {
     Container<int> value;
@@ -123,6 +176,17 @@ int main() {
     NonFinalGuidePackBox selected_nonfinal_pack{1, 43};
     NonFinalGuidePackBox<int>* exact_nonfinal_pack =
         &selected_nonfinal_pack;
+    IndependentGuidePackBox selected_independent_packs{
+        GuidePackList<int, char>{}, GuidePackList<long>{}};
+    IndependentGuidePackBox<GuidePackList<int, char>, GuidePackList<long>>*
+        exact_independent_packs = &selected_independent_packs;
+    ExpandedIndependentGuidePackBox selected_expanded_packs{
+        GuidePackPair<int, long>{}, GuidePackPair<char, short>{}};
+    ExpandedIndependentGuidePackBox<GuidePackList<int, char>,
+                                    GuidePackList<long, short>>*
+        exact_expanded_packs = &selected_expanded_packs;
+    MixedIndependentGuidePackBox selected_mixed_packs{
+        GuideValuePair<int, 3>{}, GuideValuePair<char, 5>{}};
     TemplateTemplateMultiGuideBox multi{pair};
     TemplateTemplateMultiGuideBox<GuidePair, long, int>* exact_multi = &multi;
     TemplateTemplateNontypeGuideBox nontype{array};
@@ -136,6 +200,11 @@ int main() {
                    exact_order->value == 2 &&
                    exact_nonfinal_pack->marker == 1 &&
                    exact_nonfinal_pack->value == 43 &&
+                   sizeof(exact_independent_packs->first) ==
+                       sizeof(GuidePackList<int, char>) &&
+                   sizeof(exact_expanded_packs->second) ==
+                       sizeof(GuidePackList<long, short>) &&
+                   sizeof(selected_mixed_packs.second) == 3 &&
                    exact_multi->value.first == 23 &&
                    exact_multi->value.second == 41 &&
                    exact_nontype->value.values[0] == 2 &&
