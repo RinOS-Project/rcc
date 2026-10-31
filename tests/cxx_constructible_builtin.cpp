@@ -452,6 +452,39 @@ struct DefaultedThrowingCopyAssignment {
         const DefaultedThrowingCopyAssignment&) = default;
 };
 
+struct DefaultedTrivialCopyAssignment {
+    int value;
+    DefaultedTrivialCopyAssignment& operator=(
+        const DefaultedTrivialCopyAssignment&) = default;
+};
+
+struct DefaultedTrivialMoveAssignment {
+    int value;
+    DefaultedTrivialMoveAssignment& operator=(
+        DefaultedTrivialMoveAssignment&&) = default;
+};
+
+struct TrivialArrayMemberAssignment {
+    int values[2];
+};
+
+struct NontrivialArrayMemberAssignment {
+    AssignmentExceptionProbe values[1];
+};
+
+struct TrivialBaseAssignment {
+    int value;
+};
+
+struct TrivialDerivedAssignment : TrivialBaseAssignment {
+    int extra;
+};
+
+union TrivialScalarAssignmentUnion {
+    int value;
+    double other;
+};
+
 struct DefaultedNothrowMoveAssignment {
     AssignmentExceptionProbe value;
     DefaultedNothrowMoveAssignment& operator=(
@@ -521,6 +554,61 @@ static_assert(__is_nothrow_assignable(
                   DefaultedNothrowBaseMoveAssignment&,
                   DefaultedNothrowBaseMoveAssignment&&),
               "the nothrow trait includes a nonthrowing base move assignment");
+static_assert(__is_trivially_assignable(int&, int),
+              "scalar assignment is trivial");
+static_assert(__is_trivially_assignable(volatile int&, const int&),
+              "cv-qualified scalar references preserve trivial assignment");
+static_assert(__is_trivially_assignable(int&, short),
+              "a standard arithmetic conversion keeps scalar assignment trivial");
+static_assert(!__is_trivially_assignable(
+                  int&, ThrowingIntAssignmentConversion),
+              "a user-defined conversion makes scalar assignment nontrivial");
+static_assert(__is_trivially_assignable(ImplicitMoveAssignment&,
+                                        ImplicitMoveAssignment&&),
+              "implicit scalar-member move assignment is trivial");
+static_assert(__is_trivially_assignable(
+                  DefaultedTrivialCopyAssignment&,
+                  const DefaultedTrivialCopyAssignment&),
+              "defaulted assignment with trivial subobjects is trivial");
+static_assert(__is_trivially_assignable(
+                  DefaultedTrivialMoveAssignment&,
+                  DefaultedTrivialMoveAssignment&&),
+              "a defaulted move assignment with trivial subobjects is trivial");
+static_assert(__is_trivially_assignable(
+                  TrivialArrayMemberAssignment&,
+                  const TrivialArrayMemberAssignment&),
+              "array members with trivial elements keep assignment trivial");
+static_assert(!__is_trivially_assignable(
+                  NontrivialArrayMemberAssignment&,
+                  const NontrivialArrayMemberAssignment&),
+              "array members use their element assignment triviality");
+static_assert(__is_trivially_assignable(
+                  TrivialDerivedAssignment&,
+                  const TrivialDerivedAssignment&),
+              "trivial direct bases and members keep assignment trivial");
+static_assert(__is_trivially_assignable(
+                  TrivialScalarAssignmentUnion&,
+                  const TrivialScalarAssignmentUnion&),
+              "union assignment is trivial when all variant members are trivial");
+static_assert(!__is_trivially_assignable(int, int),
+              "a non-reference destination is not assignable");
+static_assert(!__is_trivially_assignable(const int&, int),
+              "a const destination reference is not assignable");
+static_assert(!__is_trivially_assignable(
+                  AssignmentExceptionProbe&, const AssignmentExceptionProbe&),
+              "a user-provided assignment is not trivial");
+static_assert(!__is_trivially_assignable(
+                  DefaultedThrowingCopyAssignment&,
+                  const DefaultedThrowingCopyAssignment&),
+              "a defaulted assignment is nontrivial when a selected member assignment is user-provided");
+static_assert(!__is_trivially_assignable(
+                  DefaultedNothrowMoveAssignment&,
+                  DefaultedNothrowMoveAssignment&&),
+              "a defaulted move assignment is nontrivial when its member move is user-provided");
+static_assert(!__is_trivially_assignable(
+                  DefaultedThrowingBaseCopyAssignment&,
+                  const DefaultedThrowingBaseCopyAssignment&),
+              "a defaulted assignment is nontrivial when a selected base assignment is user-provided");
 
 struct RvalueQualifiedAssignment {
     RvalueQualifiedAssignment& operator=(
@@ -639,6 +727,8 @@ struct BuiltinAssignmentProbe {
     static constexpr bool value = __is_assignable(Target, Source);
     static constexpr bool nothrow_value =
         __is_nothrow_assignable(Target, Source);
+    static constexpr bool trivial_value =
+        __is_trivially_assignable(Target, Source);
 };
 
 union ScalarAssignmentUnion {
@@ -650,6 +740,11 @@ union NontrivialAssignmentUnion {
     NontrivialUnionMemberAssignment value;
     int other;
 };
+
+static_assert(!__is_trivially_assignable(
+                  NontrivialAssignmentUnion&,
+                  const NontrivialAssignmentUnion&),
+              "union assignment is nontrivial when a variant member assignment is nontrivial");
 
 struct DeletedTemplateCopyMember {
     DeletedTemplateCopyMember(const DeletedTemplateCopyMember&) = delete;
@@ -1190,10 +1285,14 @@ static_assert(BuiltinAssignmentProbe<int&, int>::value,
               "dependent assignability is evaluated after substitution");
 static_assert(BuiltinAssignmentProbe<int&, int>::nothrow_value,
               "dependent nothrow-assignability is evaluated after substitution");
+static_assert(BuiltinAssignmentProbe<int&, int>::trivial_value,
+              "dependent trivial-assignability is evaluated after substitution");
 static_assert(!BuiltinAssignmentProbe<const int&, int>::value,
               "dependent non-assignability is evaluated after substitution");
 static_assert(!BuiltinAssignmentProbe<const int&, int>::nothrow_value,
               "dependent nothrow-assignability is evaluated after substitution");
+static_assert(!BuiltinAssignmentProbe<const int&, int>::trivial_value,
+              "dependent trivial-assignability rejects a const target");
 static_assert(__is_constructible(TemplateConstructorValue,
                                 const TemplateConstructorValue&),
               "the implicit copy constructor remains available beside a template");

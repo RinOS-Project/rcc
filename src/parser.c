@@ -2801,7 +2801,8 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
     }
     if (strcmp(name, "__is_base_of") == 0 ||
         strcmp(name, "__is_assignable") == 0 ||
-        strcmp(name, "__is_nothrow_assignable") == 0) {
+        strcmp(name, "__is_nothrow_assignable") == 0 ||
+        strcmp(name, "__is_trivially_assignable") == 0) {
         expect(TOK_COMMA, ",");
         if (!is_type_start()) {
             rcc_error(peek()->loc, "%s requires two type names", name);
@@ -2868,6 +2869,7 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
                                      &value) &&
         (kind == CXX_TYPE_TRAIT_ASSIGNABLE ||
          kind == CXX_TYPE_TRAIT_NOTHROW_ASSIGNABLE ||
+         kind == CXX_TYPE_TRAIT_TRIVIALLY_ASSIGNABLE ||
          kind == CXX_TYPE_TRAIT_NOTHROW_CONSTRUCTIBLE ||
          kind == CXX_TYPE_TRAIT_HAS_NOTHROW_CONSTRUCTOR)) {
         Expr* result = expr_int(0, loc);
@@ -2912,6 +2914,8 @@ static bool parser_cxx_type_trait_kind(const char* name,
         *kind = CXX_TYPE_TRAIT_ASSIGNABLE;
     } else if (strcmp(name, "__is_nothrow_assignable") == 0) {
         *kind = CXX_TYPE_TRAIT_NOTHROW_ASSIGNABLE;
+    } else if (strcmp(name, "__is_trivially_assignable") == 0) {
+        *kind = CXX_TYPE_TRAIT_TRIVIALLY_ASSIGNABLE;
     } else if (strcmp(name, "__has_virtual_destructor") == 0) {
         *kind = CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR;
     } else if (strcmp(name, "__is_aggregate") == 0) {
@@ -3087,6 +3091,10 @@ static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
         case CXX_TYPE_TRAIT_NOTHROW_ASSIGNABLE:
             if (!other_type) return false;
             return rcc_sema_cxx_nothrow_assignable(
+                type, other_type, value);
+        case CXX_TYPE_TRAIT_TRIVIALLY_ASSIGNABLE:
+            if (!other_type) return false;
+            return rcc_sema_cxx_trivially_assignable(
                 type, other_type, value);
         case CXX_TYPE_TRAIT_HAS_VIRTUAL_DESTRUCTOR:
             *value = cxx_class_has_virtual_destructor(type->cxx_class);
@@ -3502,6 +3510,7 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__is_nothrow_constructible") ||
          parser_builtin_name("__is_assignable") ||
          parser_builtin_name("__is_nothrow_assignable") ||
+         parser_builtin_name("__is_trivially_assignable") ||
          parser_builtin_name("__has_virtual_destructor") ||
          parser_builtin_name("__is_aggregate") ||
          parser_builtin_name("__is_base_of") ||

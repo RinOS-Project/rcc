@@ -593,6 +593,7 @@ static bool pp_has_builtin(const char* name) {
         "__has_trivial_destructor",
         "__is_assignable",
         "__is_nothrow_assignable",
+        "__is_trivially_assignable",
         "__is_constructible", "__is_nothrow_constructible",
         "__is_trivially_constructible",
         "__has_virtual_destructor",

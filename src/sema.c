@@ -20083,7 +20083,7 @@ static int sema_cxx_type_trait_assignable_impl(
     Type* target, Type* source, unsigned depth);
 static int sema_cxx_type_trait_assignable_impl_with_access(
     Type* target, Type* source, unsigned depth, CxxClass* access_context,
-    bool* is_nothrow);
+    bool* is_nothrow, bool* is_trivial);
 
 static bool sema_cxx_type_trait_copy_parameter_is_const(Type* type,
                                                         unsigned depth) {
@@ -20144,6 +20144,8 @@ static bool sema_cxx_type_trait_copy_parameter_is_const(Type* type,
 static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
     Type* owner_type, Type* source_parameter, unsigned depth);
 static bool sema_cxx_type_trait_assignment_subobjects_are_nothrow(
+    Type* owner_type, Type* source_parameter, unsigned depth);
+static bool sema_cxx_type_trait_assignment_subobjects_are_trivial(
     Type* owner_type, Type* source_parameter, unsigned depth);
 
 static bool sema_cxx_type_trait_union_member_has_nontrivial_assignment(
@@ -20322,7 +20324,7 @@ static bool sema_cxx_type_trait_assignment_subobject_is_assignable(
         source_is_rvalue);
     return sema_cxx_type_trait_assignable_impl_with_access(
                target_reference, source_reference, depth + 1u,
-               access_context, NULL) == 1;
+               access_context, NULL, NULL) == 1;
 }
 
 static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
@@ -20424,7 +20426,7 @@ static bool sema_cxx_type_trait_assignment_subobject_is_nothrow(
         source_is_rvalue);
     assignable = sema_cxx_type_trait_assignable_impl_with_access(
         target_reference, source_reference, depth + 1u, access_context,
-        &is_nothrow);
+        &is_nothrow, NULL);
     return assignable == 1 && is_nothrow;
 }
 
@@ -20457,6 +20459,76 @@ static bool sema_cxx_type_trait_assignment_subobjects_are_nothrow(
     for (TypeParam* field = cls->fields; field; field = field->next) {
         if (field->is_static) continue;
         if (!sema_cxx_type_trait_assignment_subobject_is_nothrow(
+                field->type, source_object, source_is_rvalue, cls,
+                depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sema_cxx_type_trait_assignment_subobject_is_trivial(
+    Type* subobject, Type* source_object, bool source_is_rvalue,
+    CxxClass* access_context, unsigned depth) {
+    Type* target_reference;
+    Type* source_reference;
+    bool is_nothrow = false;
+    bool is_trivial = false;
+    int assignable;
+    if (!subobject || !source_object || depth > 64u) return false;
+    if (subobject->kind == TYPE_ARRAY) {
+        return subobject->array_len >= 0 &&
+            sema_cxx_type_trait_assignment_subobject_is_trivial(
+                subobject->base, source_object, source_is_rvalue,
+                access_context, depth + 1u);
+    }
+    if (subobject->kind != TYPE_STRUCT && subobject->kind != TYPE_UNION) {
+        return true;
+    }
+    target_reference = sema_cxx_type_trait_reference_type(
+        subobject, false, false, false);
+    source_reference = sema_cxx_type_trait_reference_type(
+        subobject, source_object->is_const, source_object->is_volatile,
+        source_is_rvalue);
+    assignable = sema_cxx_type_trait_assignable_impl_with_access(
+        target_reference, source_reference, depth + 1u, access_context,
+        &is_nothrow, &is_trivial);
+    return assignable == 1 && is_trivial;
+}
+
+static bool sema_cxx_type_trait_assignment_subobjects_are_trivial(
+    Type* owner_type, Type* source_parameter, unsigned depth) {
+    CxxClass* cls = owner_type ? owner_type->cxx_class : NULL;
+    Type* source_object;
+    bool source_is_rvalue;
+    if (!owner_type || !source_parameter || depth > 64u ||
+        (!cls && owner_type->kind != TYPE_UNION)) {
+        return false;
+    }
+    source_is_rvalue = source_parameter->kind == TYPE_PTR &&
+        source_parameter->is_reference &&
+        source_parameter->is_rvalue_reference;
+    source_object = source_parameter->kind == TYPE_PTR &&
+            source_parameter->is_reference
+        ? source_parameter->base : source_parameter;
+    if (!source_object) return false;
+    if (owner_type->kind == TYPE_UNION) {
+        return sema_cxx_type_trait_union_member_assignment_is_trivial(
+            owner_type, source_object, source_is_rvalue, depth + 1u);
+    }
+    if (cls->vtable_size > 0 || cls->virtual_base_count > 0) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || !base->type ||
+            !sema_cxx_type_trait_assignment_subobject_is_trivial(
+                base->type, source_object, source_is_rvalue, cls,
+                depth + 1u)) {
+            return false;
+        }
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!sema_cxx_type_trait_assignment_subobject_is_trivial(
                 field->type, source_object, source_is_rvalue, cls,
                 depth + 1u)) {
             return false;
@@ -20682,9 +20754,321 @@ static Type* sema_cxx_type_trait_assignment_type(Type* owner_type,
     return result;
 }
 
+static TypeMethod* sema_cxx_type_trait_find_assignment_call_method_in_list(
+    ExprList* list, unsigned depth);
+static TypeMethod* sema_cxx_type_trait_find_assignment_method_for_type(
+    Expr* expression, Type* owner_type, unsigned depth);
+
+static TypeMethod* sema_cxx_type_trait_find_assignment_call_method(
+    Expr* expression, unsigned depth) {
+    TypeMethod* method;
+    if (!expression || depth > 64u) return NULL;
+    if (expression->kind == EXPR_CALL && expression->call_method &&
+        expression->call_method->name &&
+        strcmp(expression->call_method->name, "operator=") == 0) {
+        return expression->call_method;
+    }
+    switch (expression->kind) {
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+        case EXPR_CXX_TYPEID:
+        case EXPR_CAST:
+            return sema_cxx_type_trait_find_assignment_call_method(
+                expression->unary_operand, depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            method = sema_cxx_type_trait_find_assignment_call_method(
+                expression->binary_lhs, depth + 1u);
+            return method ? method
+                : sema_cxx_type_trait_find_assignment_call_method(
+                    expression->binary_rhs, depth + 1u);
+        case EXPR_COND:
+            method = sema_cxx_type_trait_find_assignment_call_method(
+                expression->cond_test, depth + 1u);
+            if (method) return method;
+            method = sema_cxx_type_trait_find_assignment_call_method(
+                expression->cond_then, depth + 1u);
+            return method ? method
+                : sema_cxx_type_trait_find_assignment_call_method(
+                    expression->cond_else, depth + 1u);
+        case EXPR_CALL:
+            method = sema_cxx_type_trait_find_assignment_call_method(
+                expression->call_func, depth + 1u);
+            return method ? method
+                : sema_cxx_type_trait_find_assignment_call_method_in_list(
+                    expression->call_args, depth + 1u);
+        case EXPR_INDEX:
+            method = sema_cxx_type_trait_find_assignment_call_method(
+                expression->index_base, depth + 1u);
+            return method ? method
+                : sema_cxx_type_trait_find_assignment_call_method(
+                    expression->index_expr, depth + 1u);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return sema_cxx_type_trait_find_assignment_call_method(
+                expression->member_base, depth + 1u);
+        case EXPR_COMPOUND:
+            return sema_cxx_type_trait_find_assignment_call_method_in_list(
+                expression->compound_init, depth + 1u);
+        default:
+            return NULL;
+    }
+}
+
+static TypeMethod* sema_cxx_type_trait_find_assignment_call_method_in_list(
+    ExprList* list, unsigned depth) {
+    for (; list && depth <= 64u; list = list->next) {
+        TypeMethod* method =
+            sema_cxx_type_trait_find_assignment_call_method(
+                list->expr, depth + 1u);
+        if (method) return method;
+    }
+    return NULL;
+}
+
+static TypeMethod* sema_cxx_type_trait_find_assignment_method_for_type(
+    Expr* expression, Type* owner_type, unsigned depth) {
+    TypeMethod* method;
+    if (!expression || depth > 64u) return NULL;
+    if (expression->kind == EXPR_CALL) {
+        Decl* declaration = expression->call_func &&
+                expression->call_func->kind == EXPR_IDENT
+            ? expression->call_func->ident_decl : NULL;
+        if (declaration && owner_type) {
+            for (method = owner_type->methods; method;
+                 method = method->next) {
+                if (method->name &&
+                    strcmp(method->name, "operator=") == 0 &&
+                    (method->function_decl == declaration ||
+                     method->source_decl == declaration)) {
+                    return method;
+                }
+            }
+        }
+        method = sema_cxx_type_trait_find_assignment_method_for_type(
+            expression->call_func, owner_type, depth + 1u);
+        if (method) return method;
+        for (ExprList* argument = expression->call_args; argument;
+             argument = argument->next) {
+            method = sema_cxx_type_trait_find_assignment_method_for_type(
+                argument->expr, owner_type, depth + 1u);
+            if (method) return method;
+        }
+        return NULL;
+    }
+    switch (expression->kind) {
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+        case EXPR_CXX_TYPEID:
+        case EXPR_CAST:
+            return sema_cxx_type_trait_find_assignment_method_for_type(
+                expression->unary_operand, owner_type, depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            method = sema_cxx_type_trait_find_assignment_method_for_type(
+                expression->binary_lhs, owner_type, depth + 1u);
+            return method ? method
+                : sema_cxx_type_trait_find_assignment_method_for_type(
+                    expression->binary_rhs, owner_type, depth + 1u);
+        case EXPR_COND:
+            method = sema_cxx_type_trait_find_assignment_method_for_type(
+                expression->cond_test, owner_type, depth + 1u);
+            if (method) return method;
+            method = sema_cxx_type_trait_find_assignment_method_for_type(
+                expression->cond_then, owner_type, depth + 1u);
+            return method ? method
+                : sema_cxx_type_trait_find_assignment_method_for_type(
+                    expression->cond_else, owner_type, depth + 1u);
+        case EXPR_INDEX:
+            method = sema_cxx_type_trait_find_assignment_method_for_type(
+                expression->index_base, owner_type, depth + 1u);
+            return method ? method
+                : sema_cxx_type_trait_find_assignment_method_for_type(
+                    expression->index_expr, owner_type, depth + 1u);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return sema_cxx_type_trait_find_assignment_method_for_type(
+                expression->member_base, owner_type, depth + 1u);
+        case EXPR_COMPOUND:
+            for (ExprList* item = expression->compound_init; item;
+                 item = item->next) {
+                method = sema_cxx_type_trait_find_assignment_method_for_type(
+                    item->expr, owner_type, depth + 1u);
+                if (method) return method;
+            }
+            return NULL;
+        default:
+            return NULL;
+    }
+}
+
+static bool sema_cxx_type_trait_expression_contains_call(
+    Expr* expression, unsigned depth) {
+    if (!expression || depth > 64u) return false;
+    if (expression->kind == EXPR_CALL) return true;
+    switch (expression->kind) {
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+        case EXPR_CXX_TYPEID:
+        case EXPR_CAST:
+            return sema_cxx_type_trait_expression_contains_call(
+                expression->unary_operand, depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return sema_cxx_type_trait_expression_contains_call(
+                       expression->binary_lhs, depth + 1u) ||
+                   sema_cxx_type_trait_expression_contains_call(
+                       expression->binary_rhs, depth + 1u);
+        case EXPR_COND:
+            return sema_cxx_type_trait_expression_contains_call(
+                       expression->cond_test, depth + 1u) ||
+                   sema_cxx_type_trait_expression_contains_call(
+                       expression->cond_then, depth + 1u) ||
+                   sema_cxx_type_trait_expression_contains_call(
+                       expression->cond_else, depth + 1u);
+        case EXPR_INDEX:
+            return sema_cxx_type_trait_expression_contains_call(
+                       expression->index_base, depth + 1u) ||
+                   sema_cxx_type_trait_expression_contains_call(
+                       expression->index_expr, depth + 1u);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return sema_cxx_type_trait_expression_contains_call(
+                expression->member_base, depth + 1u);
+        default:
+            return false;
+    }
+}
+
 static int sema_cxx_type_trait_assignable_impl_with_access(
     Type* target, Type* source, unsigned depth, CxxClass* access_context,
-    bool* is_nothrow) {
+    bool* is_nothrow, bool* is_trivial) {
     SourceLoc loc = {"<type-trait>", 0, 0};
     Type* target_object = NULL;
     Type* lookup_type = NULL;
@@ -20701,6 +21085,7 @@ static int sema_cxx_type_trait_assignable_impl_with_access(
     bool owns_symtab = false;
     int result;
     if (is_nothrow) *is_nothrow = false;
+    if (is_trivial) *is_trivial = false;
     if (!target || !source || depth > 64u || target->cxx_dependent ||
         source->cxx_dependent) {
         return -1;
@@ -20761,6 +21146,35 @@ static int sema_cxx_type_trait_assignable_impl_with_access(
             *is_nothrow = sema_noexcept_expr(assignment);
         }
     }
+    if (result == 1 && is_trivial) {
+        if (target_object &&
+            (target_object->kind == TYPE_STRUCT ||
+             target_object->kind == TYPE_UNION)) {
+            TypeMethod* selected_method =
+                sema_cxx_type_trait_find_assignment_call_method(
+                    assignment, 0u);
+            if (!selected_method) {
+                selected_method =
+                    sema_cxx_type_trait_find_assignment_method_for_type(
+                        assignment, lookup_type, 0u);
+            }
+            if (selected_method) {
+                *is_trivial = selected_method->is_defaulted &&
+                    sema_cxx_type_trait_assignment_subobjects_are_trivial(
+                        target_object, source, depth + 1u);
+            } else if (assignment->kind == EXPR_ASSIGN) {
+                *is_trivial =
+                    sema_cxx_type_trait_assignment_subobjects_are_trivial(
+                        target_object, source, depth + 1u);
+            }
+        } else {
+            *is_trivial = assignment->kind == EXPR_ASSIGN &&
+                !sema_cxx_type_trait_expression_contains_call(
+                    assignment->binary_lhs, 0u) &&
+                !sema_cxx_type_trait_expression_contains_call(
+                    assignment->binary_rhs, 0u);
+        }
+    }
     current_cxx_method_owner = prior_method_owner;
     current_cxx_function_decl = prior_function_decl;
     if (owns_symtab) {
@@ -20773,7 +21187,7 @@ static int sema_cxx_type_trait_assignable_impl_with_access(
 static int sema_cxx_type_trait_assignable_impl(
     Type* target, Type* source, unsigned depth) {
     return sema_cxx_type_trait_assignable_impl_with_access(
-        target, source, depth, NULL, NULL);
+        target, source, depth, NULL, NULL, NULL);
 }
 
 int rcc_sema_cxx_assignable(Type* target, Type* source) {
@@ -20786,7 +21200,19 @@ bool rcc_sema_cxx_nothrow_assignable(
     if (!target || !source || !value) return false;
     *value = false;
     assignable = sema_cxx_type_trait_assignable_impl_with_access(
-        target, source, 0u, NULL, value);
+        target, source, 0u, NULL, value, NULL);
+    if (assignable < 0) return false;
+    if (assignable == 0) *value = false;
+    return true;
+}
+
+bool rcc_sema_cxx_trivially_assignable(
+    Type* target, Type* source, bool* value) {
+    int assignable;
+    if (!target || !source || !value) return false;
+    *value = false;
+    assignable = sema_cxx_type_trait_assignable_impl_with_access(
+        target, source, 0u, NULL, NULL, value);
     if (assignable < 0) return false;
     if (assignable == 0) *value = false;
     return true;
@@ -24795,7 +25221,7 @@ static bool sema_cxx_assignment_expression_is_nothrow(Expr* expression) {
         ? current_cxx_method_owner->cxx_class : NULL;
     assignable = sema_cxx_type_trait_assignable_impl_with_access(
         target_reference, source_reference, 0u, access_context,
-        &is_nothrow);
+        &is_nothrow, NULL);
     return assignable == 1 && is_nothrow;
 }
 
@@ -25886,6 +26312,18 @@ static Type* sema_expr(Expr* expr) {
                        expr->cxx_type_trait_other_type) {
                 bool value = false;
                 if (rcc_sema_cxx_nothrow_assignable(
+                        expr->cxx_type_trait_type,
+                        expr->cxx_type_trait_other_type, &value)) {
+                    expr->kind = EXPR_INT_LIT;
+                    expr->int_val = value ? 1 : 0;
+                    expr->type = type_bool;
+                }
+            } else if (expr->cxx_type_trait_kind ==
+                           CXX_TYPE_TRAIT_TRIVIALLY_ASSIGNABLE &&
+                       expr->cxx_type_trait_type &&
+                       expr->cxx_type_trait_other_type) {
+                bool value = false;
+                if (rcc_sema_cxx_trivially_assignable(
                         expr->cxx_type_trait_type,
                         expr->cxx_type_trait_other_type, &value)) {
                     expr->kind = EXPR_INT_LIT;
