@@ -31057,10 +31057,12 @@ static Type* deduce_class_template_from_guides(
         if (owner) {
             for (int index = 0; index < owner->param_count; ++index) {
                 TemplateParam* template_parameter = &owner->params[index];
-                if (template_parameter->kind != TPARAM_TYPE) {
+                if (template_parameter->kind != TPARAM_TYPE &&
+                    !(template_parameter->kind == TPARAM_NONTYPE &&
+                      !template_parameter->is_pack)) {
                     rcc_error(loc,
-                              "RCC++ deduction guides require type template "
-                              "parameters");
+                              "RCC++ deduction guides require type or scalar "
+                              "non-type template parameters");
                     viable = false;
                     break;
                 }
@@ -31218,6 +31220,26 @@ static Type* deduce_class_template_from_guides(
             for (int index = 0; index < owner->param_count; ++index) {
                 TemplateParam* template_parameter = &owner->params[index];
                 if (template_parameter->is_pack) continue;
+                if (template_parameter->kind == TPARAM_NONTYPE) {
+                    if (!template_value_present[index] &&
+                        template_parameter->has_default &&
+                        template_parameter->default_value &&
+                        eval_template_integer_expression(
+                            template_parameter->default_value,
+                            template_parameter->default_context
+                                ? template_parameter->default_context : owner,
+                            template_values, template_value_present,
+                            &template_values[index])) {
+                        template_value_present[index] = true;
+                    }
+                    if (!template_value_present[index] ||
+                        !template_parameter->type) {
+                        viable = false;
+                        break;
+                    }
+                    template_arguments[index] = template_parameter->type;
+                    continue;
+                }
                 if (template_arguments[index]) continue;
                 if (!template_parameter->has_default ||
                     !template_parameter->default_type) {

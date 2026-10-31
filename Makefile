@@ -10400,6 +10400,35 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-deduction/pack-guide-x64.o \
 		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-class-template-deduction/pack-guide-x64-host
+	$(CXX) -std=c++17 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-class-template-deduction/nontype-guide-gcc \
+		tests/cxx_class_template_deduction_nontype_guide.cpp
+	$(TEST_OUT)/cxx-class-template-deduction/nontype-guide-gcc
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -S \
+		-o $(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x86.s \
+		tests/cxx_class_template_deduction_nontype_guide.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x86.o \
+		$(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x86.s
+	$(OBJDUMP) -f \
+		$(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x86.o > \
+		$(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x86-arch.log
+	$(GREP) -F -q "pe-i386" \
+		$(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -S \
+		-o $(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x64.s \
+		tests/cxx_class_template_deduction_nontype_guide.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x64.o \
+		$(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x64.o
+	$(CC) $(CFLAGS) -o \
+		$(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x64-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x64.o \
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-class-template-deduction/nontype-guide-x64-host
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x86.ro tests/cxx_class_template_deduction_guide_default_order_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x86.log)
 	$(GREP) -F -q "parameter without a default follows a default argument" $(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x64.ro tests/cxx_class_template_deduction_guide_default_order_invalid.cpp,$(TEST_OUT)/cxx-class-template-deduction/default-order-invalid-x64.log)
