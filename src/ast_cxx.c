@@ -7070,7 +7070,7 @@ void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
 }
 
 static bool cxx_template_template_signature_matches(
-    const CxxTemplate* left, const CxxTemplate* right, int depth);
+    const CxxTemplate* left, const CxxTemplate* right);
 
 static int cxx_template_redeclaration_parameter_index(
     Type* type, const CxxTemplate* tmpl) {
@@ -7152,7 +7152,7 @@ static bool cxx_template_redeclaration_type_matches(
             (left_parameter->kind == TPARAM_TEMPLATE &&
              !cxx_template_template_signature_matches(
                  left_parameter->template_signature,
-                 right_parameter->template_signature, 0)) ||
+                 right_parameter->template_signature)) ||
             ((left->cxx_dependent_member_name ||
               right->cxx_dependent_member_name) &&
              (!left->cxx_dependent_member_name ||
@@ -7227,8 +7227,8 @@ static bool cxx_template_redeclaration_type_matches(
 }
 
 static bool cxx_template_template_signature_matches(
-    const CxxTemplate* left, const CxxTemplate* right, int depth) {
-    if (!left || !right || depth > 32 ||
+    const CxxTemplate* left, const CxxTemplate* right) {
+    if (!left || !right ||
         left->param_count != right->param_count) {
         return false;
     }
@@ -7251,7 +7251,7 @@ static bool cxx_template_template_signature_matches(
         if (left_parameter->kind != TPARAM_TEMPLATE ||
             !cxx_template_template_signature_matches(
                 left_parameter->template_signature,
-                right_parameter->template_signature, depth + 1)) {
+                right_parameter->template_signature)) {
             return false;
         }
     }
@@ -7968,7 +7968,7 @@ static bool cxx_function_template_redeclaration_matches(
         if (left_template_parameter->kind != TPARAM_TEMPLATE ||
             !cxx_template_template_signature_matches(
                 left_template_parameter->template_signature,
-                right_template_parameter->template_signature, 0)) {
+                right_template_parameter->template_signature)) {
             return false;
         }
     }

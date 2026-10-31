@@ -3991,7 +3991,7 @@ static int active_template_template_parameter_index(const char* name);
 static const TemplateParam* active_template_template_parameter(
     int parameter_index);
 static bool template_template_parameter_signatures_match(
-    const CxxTemplate* expected, const CxxTemplate* actual, int depth);
+    const CxxTemplate* expected, const CxxTemplate* actual);
 static bool template_template_signature_matches(
     const TemplateParam* parameter, const CxxTemplate* actual);
 static int cxx_parser_function_template_overload_conversion_rank(
@@ -6765,7 +6765,7 @@ static Type* parse_cxx_concept_template_argument(
         if (!source_parameter ||
             !template_template_parameter_signatures_match(
                 parameter->template_signature,
-                source_parameter->template_signature, 0)) {
+                source_parameter->template_signature)) {
             rcc_error(loc,
                       "named concept template-template argument does not "
                       "match its parameter list");
@@ -16923,7 +16923,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                         if (!source_parameter ||
                             !template_template_parameter_signatures_match(
                                 parameter->template_signature,
-                                source_parameter->template_signature, 0)) {
+                                source_parameter->template_signature)) {
                             rcc_error(loc,
                                       "template-template argument does not "
                                       "match its parameter list");
@@ -20528,8 +20528,8 @@ static const TemplateParam* active_template_template_parameter(
 }
 
 static bool template_template_parameter_signatures_match(
-    const CxxTemplate* expected, const CxxTemplate* actual, int depth) {
-    if (!expected || !actual || depth > 32 ||
+    const CxxTemplate* expected, const CxxTemplate* actual) {
+    if (!expected || !actual ||
         expected->param_count != actual->param_count) {
         return false;
     }
@@ -20549,7 +20549,7 @@ static bool template_template_parameter_signatures_match(
         if (expected_parameter->kind == TPARAM_TEMPLATE &&
             !template_template_parameter_signatures_match(
                 expected_parameter->template_signature,
-                actual_parameter->template_signature, depth + 1)) {
+                actual_parameter->template_signature)) {
             return false;
         }
     }
@@ -20564,7 +20564,7 @@ static bool template_template_signature_matches(
                     actual->kind != TMPL_ALIAS)) {
         return false;
     }
-    return template_template_parameter_signatures_match(signature, actual, 0);
+    return template_template_parameter_signatures_match(signature, actual);
 }
 
 bool rcc_parser_cxx_template_template_argument_matches(
@@ -25799,7 +25799,7 @@ static int cxx_class_specialization_zero_tail_pack_relation(
             (fixed_parameter->kind == TPARAM_TEMPLATE &&
              !template_template_parameter_signatures_match(
                  fixed_parameter->template_signature,
-                 expanded_parameter->template_signature, 0))) {
+                 expanded_parameter->template_signature))) {
             return 0;
         }
     }
@@ -26242,13 +26242,13 @@ static bool cxx_partial_owner_template_argument_matches(
             (actual_parameter
                  ? !template_template_parameter_signatures_match(
                        primary_parameter->template_signature,
-                       actual_parameter->template_signature, 0)
+                       actual_parameter->template_signature)
                  : !template_template_signature_matches(
                        primary_parameter, actual_template)) ||
             (actual_parameter
                  ? !template_template_parameter_signatures_match(
                        pattern_parameter->template_signature,
-                       actual_parameter->template_signature, 0)
+                       actual_parameter->template_signature)
                  : !template_template_signature_matches(
                        pattern_parameter, actual_template))) {
             return false;
@@ -27972,7 +27972,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                         if (!source_parameter ||
                             !template_template_parameter_signatures_match(
                                 parameter->template_signature,
-                                source_parameter->template_signature, 0)) {
+                                source_parameter->template_signature)) {
                             rcc_error(loc,
                                       "template-template argument does not match "
                                       "its parameter list");
@@ -34238,7 +34238,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                             if (!source_parameter ||
                                 !template_template_parameter_signatures_match(
                                     parameter->template_signature,
-                                    source_parameter->template_signature, 0)) {
+                                    source_parameter->template_signature)) {
                                 rcc_error(
                                     loc,
                                     "alias template template argument does "
@@ -34373,7 +34373,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                         if (!source_parameter ||
                             !template_template_parameter_signatures_match(
                                 parameter->template_signature,
-                                source_parameter->template_signature, 0)) {
+                                source_parameter->template_signature)) {
                             rcc_error(
                                 loc,
                                 "alias template template argument does "
@@ -36365,7 +36365,7 @@ static bool cxx_constraint_template_parameters_match(
             /* Compare the declared signature supported by the parser. */
             if (!template_template_parameter_signatures_match(
                     left_parameter->template_signature,
-                    right_parameter->template_signature, 0)) {
+                    right_parameter->template_signature)) {
                 return false;
             }
         }
@@ -37088,8 +37088,7 @@ static bool cxx_function_template_partial_order_deduce_type(
             !template_template_parameter_signatures_match(
                 parameter->template_signature,
                 argument_template->params[argument_template_index]
-                    .template_signature,
-                0)) {
+                    .template_signature)) {
             return false;
         }
         if (deduced_arguments[parameter_template_index] &&

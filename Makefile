@@ -761,6 +761,27 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-floating-math-builtins
 
 .PHONY: test-cxx-function-template-candidate-overloads
+.PHONY: test-cxx-template-template-signature-depth
+test-cxx-template-template-signature-depth: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template-signature-depth)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-template-template-signature-depth,cxx_template_template_signature_depth.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-template-template-signature-depth/gcc-host \
+		tests/cxx_template_template_signature_depth.cpp
+	$(TEST_OUT)/cxx-template-template-signature-depth/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-template-template-signature-depth/verified-x86.ro \
+		tests/cxx_template_template_signature_depth.cpp \
+		>$(TEST_OUT)/cxx-template-template-signature-depth/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-template-template-signature-depth/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-template-template-signature-depth/verified-x64.ro \
+		tests/cxx_template_template_signature_depth.cpp \
+		>$(TEST_OUT)/cxx-template-template-signature-depth/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-template-template-signature-depth/verified-x64.log,0)
+
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
 	test-compiler-builtins \
@@ -776,6 +797,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-noexcept-function-decay \
 	test-cxx-recursive-class-partial-specialization \
 	test-cxx-template-template-parameters \
+	test-cxx-template-template-signature-depth \
 	test-cxx-template-template-wide-mangling \
 	test-cxx-trailing-return-noexcept \
 	test-cxx-global-allocation-operators \
