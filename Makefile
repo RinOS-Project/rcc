@@ -21461,14 +21461,15 @@ test-verified-atomic-aggregate-widths: $(RCC_TARGET)
 	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -Dmain=rcc_test_main -S \
 		-I$(RINOS_SDK_ROOT)/include -o $(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s \
 		tests/verified_backend_atomic_generic_outlined.c
-	$(call CHECK_COUNT,__rin_atomic_load_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,2)
-	$(call CHECK_COUNT,__rin_atomic_store_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,4)
-	$(call CHECK_COUNT,__rin_atomic_exchange_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,3)
-	$(call CHECK_COUNT,__rin_atomic_compare_exchange_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,4)
+	$(call CHECK_COUNT,__rin_atomic_load_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,3)
+	$(call CHECK_COUNT,__rin_atomic_store_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,6)
+	$(call CHECK_COUNT,__rin_atomic_exchange_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,4)
+	$(call CHECK_COUNT,__rin_atomic_compare_exchange_v1,$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x86.s,6)
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -Dmain=rcc_test_main -S \
 		-I$(RINOS_SDK_ROOT)/include -o $(TEST_OUT)/verified-backend/atomic-aggregate-widths-x64.s \
 		tests/verified_backend_atomic_generic_outlined.c
-	$(GCC) -std=c17 -Wall -Wextra -Werror -I$(RINOS_SDK_ROOT)/include \
+	$(GCC) -std=c17 -Wall -Wextra -Werror -Wno-unused-but-set-variable \
+		-I$(RINOS_SDK_ROOT)/include \
 		-o $(TEST_OUT)/verified-backend/atomic-aggregate-widths-run$(EXE_SUFFIX) \
 		$(TEST_OUT)/verified-backend/atomic-aggregate-widths-x64.s \
 		tests/verified_backend_atomic_sysv_entry.c \

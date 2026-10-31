@@ -12469,10 +12469,9 @@ remains a separate open item.
       compiles with zero fallback at `-O0`/`-O2`, executes AMD64 outputs, and
       matches the GCC C17 fixture oracle via `test-verified-atomic-fetch-add`;
       `test-ir` also passes.
-- [ ] Support aggregate widths outside 1/2/4/8 bytes and 8-byte objects on
-      i686, non-trivial C++ objects, and the full `std::atomic<T>` API and
-      concurrency model. Volatile aggregate TLS setup remains a separate
-      typed-SSA gap.
+- [ ] Complete the standard-conforming `std::atomic<T>` operation surface and
+      concurrency/memory-order coverage for trivially-copyable aggregate types.
+      Volatile aggregate TLS setup remains a separate typed-SSA gap.
 
 ## RCC continuation (2026-10-31, verified scalar virtual-base construction)
 
@@ -12567,3 +12566,16 @@ remains a separate open item.
       runs its C/C++ preprocessing output, i686/AMD64 compile, and malformed
       line diagnostics on both Linux and native Windows. Remove the redundant
       Linux-only workflow invocation; both host shell gates pass.
+
+## RCC continuation (2026-10-31, variable-width aggregate atomic coverage)
+
+- [x] Re-audit generic C aggregate atomics: complete `__atomic_load`,
+      `__atomic_store`, `__atomic_exchange`, and
+      `__atomic_compare_exchange` operations whose width cannot use the
+      target's scalar representation route through the size-aware RinOS
+      serialized runtime helper, including widths above eight bytes and
+      eight-byte objects on i686. Extend the under-aligned runtime fixture to
+      13 bytes and verify load/store/exchange, failed/successful compare-
+      exchange, exact outlined helper counts, zero typed-SSA fallback for
+      i686/AMD64 at `-O0`/`-O2`, and AMD64 execution with
+      `make SHELL=cmd.exe test-verified-atomic-aggregate-widths`.
