@@ -20082,7 +20082,8 @@ bool rcc_sema_cxx_has_nothrow_constructor(Type* type, bool* value) {
 static int sema_cxx_type_trait_assignable_impl(
     Type* target, Type* source, unsigned depth);
 static int sema_cxx_type_trait_assignable_impl_with_access(
-    Type* target, Type* source, unsigned depth, CxxClass* access_context);
+    Type* target, Type* source, unsigned depth, CxxClass* access_context,
+    bool* is_nothrow);
 
 static bool sema_cxx_type_trait_copy_parameter_is_const(Type* type,
                                                         unsigned depth) {
@@ -20141,6 +20142,8 @@ static bool sema_cxx_type_trait_copy_parameter_is_const(Type* type,
 }
 
 static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
+    Type* owner_type, Type* source_parameter, unsigned depth);
+static bool sema_cxx_type_trait_assignment_subobjects_are_nothrow(
     Type* owner_type, Type* source_parameter, unsigned depth);
 
 static bool sema_cxx_type_trait_union_member_has_nontrivial_assignment(
@@ -20319,7 +20322,7 @@ static bool sema_cxx_type_trait_assignment_subobject_is_assignable(
         source_is_rvalue);
     return sema_cxx_type_trait_assignable_impl_with_access(
                target_reference, source_reference, depth + 1u,
-               access_context) == 1;
+               access_context, NULL) == 1;
 }
 
 static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
@@ -20391,6 +20394,71 @@ static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
         if (!sema_cxx_type_trait_assignment_subobject_is_assignable(
                 field->type, source_object, source_is_rvalue,
                 cls, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sema_cxx_type_trait_assignment_subobject_is_nothrow(
+    Type* subobject, Type* source_object, bool source_is_rvalue,
+    CxxClass* access_context, unsigned depth) {
+    Type* target_reference;
+    Type* source_reference;
+    bool is_nothrow = false;
+    int assignable;
+    if (!subobject || !source_object || depth > 64u) return false;
+    if (subobject->kind == TYPE_ARRAY) {
+        return subobject->array_len >= 0 &&
+            sema_cxx_type_trait_assignment_subobject_is_nothrow(
+                subobject->base, source_object, source_is_rvalue,
+                access_context, depth + 1u);
+    }
+    if (subobject->kind != TYPE_STRUCT && subobject->kind != TYPE_UNION) {
+        return true;
+    }
+    target_reference = sema_cxx_type_trait_reference_type(
+        subobject, false, false, false);
+    source_reference = sema_cxx_type_trait_reference_type(
+        subobject, source_object->is_const, source_object->is_volatile,
+        source_is_rvalue);
+    assignable = sema_cxx_type_trait_assignable_impl_with_access(
+        target_reference, source_reference, depth + 1u, access_context,
+        &is_nothrow);
+    return assignable == 1 && is_nothrow;
+}
+
+static bool sema_cxx_type_trait_assignment_subobjects_are_nothrow(
+    Type* owner_type, Type* source_parameter, unsigned depth) {
+    CxxClass* cls = owner_type ? owner_type->cxx_class : NULL;
+    Type* source_object;
+    bool source_is_rvalue;
+    if (!owner_type || !source_parameter || depth > 64u ||
+        (!cls && owner_type->kind != TYPE_UNION)) {
+        return false;
+    }
+    if (owner_type->kind == TYPE_UNION) return true;
+    source_is_rvalue = source_parameter->kind == TYPE_PTR &&
+        source_parameter->is_reference &&
+        source_parameter->is_rvalue_reference;
+    source_object = source_parameter->kind == TYPE_PTR &&
+            source_parameter->is_reference
+        ? source_parameter->base : source_parameter;
+    if (!source_object) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || !base->type ||
+            !sema_cxx_type_trait_assignment_subobject_is_nothrow(
+                base->type, source_object, source_is_rvalue, cls,
+                depth + 1u)) {
+            return false;
+        }
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (!sema_cxx_type_trait_assignment_subobject_is_nothrow(
+                field->type, source_object, source_is_rvalue, cls,
+                depth + 1u)) {
             return false;
         }
     }
@@ -20515,6 +20583,7 @@ static Type* sema_cxx_type_trait_assignment_type(Type* owner_type,
         TypeMethod* lowered;
         bool is_deleted;
         bool is_defaulted;
+        bool is_noexcept;
         if (!source_method || source_method->is_static ||
             source_method->member_template || !source_method->decl ||
             !source_method->source_name ||
@@ -20525,6 +20594,8 @@ static Type* sema_cxx_type_trait_assignment_type(Type* owner_type,
         }
         is_deleted = source_method->is_deleted;
         is_defaulted = source_method->is_defaulted;
+        is_noexcept = sema_cxx_type_trait_decl_is_nothrow(
+            source_method->decl, source_method->is_noexcept);
         if (is_defaulted && !is_deleted && source_method->decl->func_params &&
             !source_method->decl->func_params->next &&
             source_method->decl->func_params->decl) {
@@ -20534,13 +20605,24 @@ static Type* sema_cxx_type_trait_assignment_type(Type* owner_type,
                 parameter_type->is_reference &&
                 parameter_type->base &&
                 parameter_type->base->cxx_class == cls) {
+                bool has_exception_specification = source_method->is_noexcept ||
+                    source_method->decl->func_is_noexcept ||
+                    source_method->decl->func_noexcept_expr ||
+                    (source_method->decl->type &&
+                     source_method->decl->type->kind == TYPE_FUNC &&
+                     source_method->decl->type->function_is_noexcept);
                 is_deleted = !sema_cxx_type_trait_assignment_subobjects_are_assignable(
                     result, parameter_type, depth + 1u);
+                if (!has_exception_specification && !is_deleted) {
+                    is_noexcept =
+                        sema_cxx_type_trait_assignment_subobjects_are_nothrow(
+                            result, parameter_type, depth + 1u);
+                }
             }
         }
         lowered = sema_cxx_type_trait_assignment_method(
             result, source_method->decl, NULL, member->access, is_deleted,
-            is_defaulted, source_method->is_noexcept,
+            is_defaulted, is_noexcept,
             source_method->ref_qualifier, source_method->decl->loc);
         if (!lowered) continue;
         lowered->source_decl = source_method->decl;
@@ -20562,9 +20644,13 @@ static Type* sema_cxx_type_trait_assignment_type(Type* owner_type,
         bool is_deleted = has_move_assignment || has_move_constructor ||
             !sema_cxx_type_trait_assignment_subobjects_are_assignable(
                 result, parameter_type, depth + 1u);
+        bool is_noexcept = !is_deleted &&
+            sema_cxx_type_trait_assignment_subobjects_are_nothrow(
+                result, parameter_type, depth + 1u);
         TypeMethod* implicit_copy = sema_cxx_type_trait_assignment_method(
             result, NULL, parameter_type, ACCESS_PUBLIC, is_deleted, true,
-            false, CXX_REF_QUAL_NONE, (SourceLoc){"<type-trait>", 0, 0});
+            is_noexcept, CXX_REF_QUAL_NONE,
+            (SourceLoc){"<type-trait>", 0, 0});
         if (implicit_copy) {
             *tail = implicit_copy;
             tail = &implicit_copy->next;
@@ -20577,12 +20663,16 @@ static Type* sema_cxx_type_trait_assignment_type(Type* owner_type,
             result, false, false, true);
         bool is_deleted = !sema_cxx_type_trait_assignment_subobjects_are_assignable(
             result, parameter_type, depth + 1u);
+        bool is_noexcept = !is_deleted &&
+            sema_cxx_type_trait_assignment_subobjects_are_nothrow(
+                result, parameter_type, depth + 1u);
         /* A deleted implicit move assignment is ignored by overload
          * resolution, allowing the copy assignment candidate to remain. */
         if (!is_deleted) {
             TypeMethod* implicit_move = sema_cxx_type_trait_assignment_method(
                 result, NULL, parameter_type, ACCESS_PUBLIC, false, true,
-                false, CXX_REF_QUAL_NONE, (SourceLoc){"<type-trait>", 0, 0});
+                is_noexcept, CXX_REF_QUAL_NONE,
+                (SourceLoc){"<type-trait>", 0, 0});
             if (implicit_move) {
                 *tail = implicit_move;
                 tail = &implicit_move->next;
@@ -20593,7 +20683,8 @@ static Type* sema_cxx_type_trait_assignment_type(Type* owner_type,
 }
 
 static int sema_cxx_type_trait_assignable_impl_with_access(
-    Type* target, Type* source, unsigned depth, CxxClass* access_context) {
+    Type* target, Type* source, unsigned depth, CxxClass* access_context,
+    bool* is_nothrow) {
     SourceLoc loc = {"<type-trait>", 0, 0};
     Type* target_object = NULL;
     Type* lookup_type = NULL;
@@ -20609,6 +20700,7 @@ static int sema_cxx_type_trait_assignable_impl_with_access(
     Decl* prior_function_decl;
     bool owns_symtab = false;
     int result;
+    if (is_nothrow) *is_nothrow = false;
     if (!target || !source || depth > 64u || target->cxx_dependent ||
         source->cxx_dependent) {
         return -1;
@@ -20658,6 +20750,17 @@ static int sema_cxx_type_trait_assignable_impl_with_access(
     }
     result = selected_deleted ? 0
         : g_suppressed_error_count == suppressed_before ? 1 : 0;
+    if (result == 1 && is_nothrow) {
+        if (assignment->kind == EXPR_ASSIGN && target_object &&
+            (target_object->kind == TYPE_STRUCT ||
+             target_object->kind == TYPE_UNION)) {
+            *is_nothrow = target_object->kind == TYPE_UNION ||
+                sema_cxx_type_trait_assignment_subobjects_are_nothrow(
+                    target_object, source, depth + 1u);
+        } else {
+            *is_nothrow = sema_noexcept_expr(assignment);
+        }
+    }
     current_cxx_method_owner = prior_method_owner;
     current_cxx_function_decl = prior_function_decl;
     if (owns_symtab) {
@@ -20670,7 +20773,7 @@ static int sema_cxx_type_trait_assignable_impl_with_access(
 static int sema_cxx_type_trait_assignable_impl(
     Type* target, Type* source, unsigned depth) {
     return sema_cxx_type_trait_assignable_impl_with_access(
-        target, source, depth, NULL);
+        target, source, depth, NULL, NULL);
 }
 
 int rcc_sema_cxx_assignable(Type* target, Type* source) {
@@ -23565,6 +23668,7 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
             TypeMethod* lowered;
             bool is_deleted;
             bool is_defaulted;
+            bool is_noexcept;
             if (!source_method || source_method->is_static ||
                 source_method->member_template || !source_method->decl ||
                 !source_method->source_name ||
@@ -23575,6 +23679,8 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
             }
             is_deleted = source_method->is_deleted;
             is_defaulted = source_method->is_defaulted;
+            is_noexcept = sema_cxx_type_trait_decl_is_nothrow(
+                source_method->decl, source_method->is_noexcept);
             if (is_defaulted && !is_deleted &&
                 source_method->decl->func_params &&
                 !source_method->decl->func_params->next &&
@@ -23584,14 +23690,26 @@ static bool sema_rewrite_cxx_assignment_operator(Expr* expression,
                 if (parameter_type && parameter_type->kind == TYPE_PTR &&
                     parameter_type->is_reference && parameter_type->base &&
                     parameter_type->base->cxx_class == aggregate->cxx_class) {
+                    bool has_exception_specification =
+                        source_method->is_noexcept ||
+                        source_method->decl->func_is_noexcept ||
+                        source_method->decl->func_noexcept_expr ||
+                        (source_method->decl->type &&
+                         source_method->decl->type->kind == TYPE_FUNC &&
+                         source_method->decl->type->function_is_noexcept);
                     is_deleted =
                         !sema_cxx_type_trait_assignment_subobjects_are_assignable(
                             aggregate, parameter_type, 0u);
+                    if (!has_exception_specification && !is_deleted) {
+                        is_noexcept =
+                            sema_cxx_type_trait_assignment_subobjects_are_nothrow(
+                                aggregate, parameter_type, 0u);
+                    }
                 }
             }
             lowered = sema_cxx_type_trait_assignment_method(
                 aggregate, source_method->decl, NULL, item->access,
-                is_deleted, is_defaulted, source_method->is_noexcept,
+                is_deleted, is_defaulted, is_noexcept,
                 source_method->ref_qualifier, source_method->decl->loc);
             if (!lowered) continue;
             lowered->source_decl = source_method->decl;
@@ -24624,6 +24742,51 @@ static bool sema_prepare_cxx_close_call(Expr* expression,
 
 static bool sema_noexcept_expr(Expr* expression);
 
+static bool sema_cxx_assignment_expression_is_nothrow(Expr* expression) {
+    Type* target_type;
+    Type* source_type;
+    Type* target_reference;
+    Type* source_reference;
+    Type* target_object;
+    Type* source_object;
+    CxxClass* access_context;
+    bool is_nothrow = false;
+    int assignable;
+    if (!expression || expression->kind != EXPR_ASSIGN ||
+        !expression->binary_lhs || !expression->binary_rhs) {
+        return false;
+    }
+    target_type = expression->binary_lhs->type;
+    source_type = expression->binary_rhs->type;
+#if defined(__GNUC__) || defined(__clang__)
+    if (!target_type && rcc_parser_cxx_expression_type) {
+        target_type = rcc_parser_cxx_expression_type(expression->binary_lhs);
+    }
+    if (!source_type && rcc_parser_cxx_expression_type) {
+        source_type = rcc_parser_cxx_expression_type(expression->binary_rhs);
+    }
+#endif
+    target_object = generic_selection_type(sema_cxx_object_type(target_type));
+    source_object = generic_selection_type(sema_cxx_object_type(source_type));
+    if (!target_object || !source_object ||
+        (target_object->kind != TYPE_STRUCT &&
+         target_object->kind != TYPE_UNION)) {
+        return true;
+    }
+    target_reference = sema_cxx_type_trait_reference_type(
+        target_object, target_object->is_const, target_object->is_volatile,
+        false);
+    source_reference = sema_cxx_type_trait_reference_type(
+        source_object, source_object->is_const, source_object->is_volatile,
+        !is_lvalue(expression->binary_rhs));
+    access_context = current_cxx_method_owner
+        ? current_cxx_method_owner->cxx_class : NULL;
+    assignable = sema_cxx_type_trait_assignable_impl_with_access(
+        target_reference, source_reference, 0u, access_context,
+        &is_nothrow);
+    return assignable == 1 && is_nothrow;
+}
+
 static bool sema_noexcept_expr_list(ExprList* list) {
     for (; list; list = list->next) {
         if (!sema_noexcept_expr(list->expr)) return false;
@@ -24693,7 +24856,6 @@ static bool sema_noexcept_expr(Expr* expression) {
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
-        case EXPR_ASSIGN:
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN:
         case EXPR_MUL_ASSIGN:
@@ -24708,6 +24870,10 @@ static bool sema_noexcept_expr(Expr* expression) {
         case EXPR_CXX_MEMBER_PTR_DOT:
         case EXPR_CXX_MEMBER_PTR_ARROW:
             return sema_noexcept_expr(expression->binary_lhs) &&
+                   sema_noexcept_expr(expression->binary_rhs);
+        case EXPR_ASSIGN:
+            return sema_cxx_assignment_expression_is_nothrow(expression) &&
+                   sema_noexcept_expr(expression->binary_lhs) &&
                    sema_noexcept_expr(expression->binary_rhs);
         case EXPR_COND:
             return sema_noexcept_expr(expression->cond_test) &&

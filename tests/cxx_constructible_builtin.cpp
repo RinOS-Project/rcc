@@ -1,3 +1,6 @@
+template <typename T>
+T&& cxx_test_declval() noexcept;
+
 struct ExplicitValue {
     explicit ExplicitValue(int) {}
 };
@@ -428,6 +431,53 @@ struct DefaultedConstCopyAssignment {
 struct ImplicitMoveAssignment {
     int value;
 };
+
+struct AssignmentExceptionProbe {
+    AssignmentExceptionProbe& operator=(
+        const AssignmentExceptionProbe&) noexcept(false);
+    AssignmentExceptionProbe& operator=(AssignmentExceptionProbe&&) noexcept;
+};
+
+struct DefaultedThrowingCopyAssignment {
+    AssignmentExceptionProbe value;
+    DefaultedThrowingCopyAssignment& operator=(
+        const DefaultedThrowingCopyAssignment&) = default;
+};
+
+struct DefaultedNothrowMoveAssignment {
+    AssignmentExceptionProbe value;
+    DefaultedNothrowMoveAssignment& operator=(
+        DefaultedNothrowMoveAssignment&&) = default;
+};
+
+struct DestructorSuppressesImplicitMoveAssignment {
+    AssignmentExceptionProbe value;
+    ~DestructorSuppressesImplicitMoveAssignment() {}
+};
+
+struct CopyConstructorSuppressesImplicitMoveAssignment {
+    AssignmentExceptionProbe value;
+    CopyConstructorSuppressesImplicitMoveAssignment(
+        const CopyConstructorSuppressesImplicitMoveAssignment&) = default;
+};
+
+struct AssignmentTemplateDoesNotSuppressImplicitMove {
+    AssignmentExceptionProbe value;
+
+    template <typename Marker>
+    AssignmentTemplateDoesNotSuppressImplicitMove& operator=(
+        Marker*) = delete;
+};
+
+static_assert(!noexcept(cxx_test_declval<AssignmentExceptionProbe&>() =
+                        cxx_test_declval<const AssignmentExceptionProbe&>()),
+              "the selected copy assignment keeps its throwing exception specification");
+static_assert(!noexcept(cxx_test_declval<DefaultedThrowingCopyAssignment&>() =
+                        cxx_test_declval<const DefaultedThrowingCopyAssignment&>()),
+              "a defaulted copy assignment inherits a throwing subobject assignment");
+static_assert(noexcept(cxx_test_declval<DefaultedNothrowMoveAssignment&>() =
+                       cxx_test_declval<DefaultedNothrowMoveAssignment&&>()),
+              "a defaulted move assignment inherits a nonthrowing subobject assignment");
 
 struct RvalueQualifiedAssignment {
     RvalueQualifiedAssignment& operator=(
@@ -997,6 +1047,34 @@ static_assert(!__is_assignable(DefaultedConstCopyAssignment&,
 static_assert(__is_assignable(ImplicitMoveAssignment&,
                               ImplicitMoveAssignment),
               "implicit move assignment accepts a class prvalue");
+static_assert(__is_assignable(
+                  DestructorSuppressesImplicitMoveAssignment&,
+                  DestructorSuppressesImplicitMoveAssignment&&) &&
+                  !noexcept(
+                      cxx_test_declval<
+                          DestructorSuppressesImplicitMoveAssignment&>() =
+                          cxx_test_declval<
+                              DestructorSuppressesImplicitMoveAssignment&&>()),
+              "a user-declared destructor suppresses implicit move assignment, so an rvalue uses the potentially-throwing copy assignment");
+static_assert(__is_assignable(
+                  CopyConstructorSuppressesImplicitMoveAssignment&,
+                  CopyConstructorSuppressesImplicitMoveAssignment&&) &&
+                  !noexcept(
+                      cxx_test_declval<
+                          CopyConstructorSuppressesImplicitMoveAssignment&>() =
+                          cxx_test_declval<
+                              CopyConstructorSuppressesImplicitMoveAssignment&&>()),
+              "a user-declared copy constructor suppresses implicit move assignment");
+static_assert(__is_assignable(
+                  AssignmentTemplateDoesNotSuppressImplicitMove&,
+                  AssignmentTemplateDoesNotSuppressImplicitMove&&),
+              "an unrelated assignment function template leaves the type assignable from rvalues");
+static_assert(noexcept(
+                  cxx_test_declval<
+                      AssignmentTemplateDoesNotSuppressImplicitMove&>() =
+                      cxx_test_declval<
+                          AssignmentTemplateDoesNotSuppressImplicitMove&&>()),
+              "an unrelated deleted assignment function template does not suppress implicit move assignment");
 static_assert(__is_assignable(ImplicitMoveAssignment,
                               const ImplicitMoveAssignment&),
               "class xvalues can be assignment targets");
