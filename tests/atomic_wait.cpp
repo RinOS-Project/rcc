@@ -30,6 +30,7 @@ void atomic_wait_api_surface(
     volatile std::atomic<unsigned>& volatile_scalar,
 #endif
     std::atomic<AtomicWaitAggregate>& aggregate,
+    AtomicWaitAggregate& referenced_aggregate,
     std::atomic_flag& flag,
     std::atomic<unsigned*>& pointer_atomic,
     unsigned& referenced_scalar,
@@ -53,6 +54,12 @@ void atomic_wait_api_surface(
 
     aggregate.wait(AtomicWaitAggregate{0u, {0u, 0u, 0u}});
     aggregate.notify_all();
+    std::atomic_wait(&aggregate, AtomicWaitAggregate{0u, {0u, 0u, 0u}});
+    std::atomic_notify_one(&aggregate);
+
+    std::atomic_ref<AtomicWaitAggregate> aggregate_ref(referenced_aggregate);
+    aggregate_ref.wait(AtomicWaitAggregate{0u, {0u, 0u, 0u}});
+    aggregate_ref.notify_all();
 
     flag.wait(false, std::memory_order_acquire);
     flag.notify_one();
