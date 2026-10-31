@@ -1002,6 +1002,26 @@ static_assert(!BuiltinAssignmentProbe<const int&, int>::value,
 static_assert(__is_constructible(TemplateConstructorValue,
                                 const TemplateConstructorValue&),
               "the implicit copy constructor remains available beside a template");
+static_assert(__is_trivially_constructible(
+                  TemplateConstructorValue,
+                  const TemplateConstructorValue&),
+              "the implicit copy constructor wins a tied forwarding-template lvalue");
+static_assert(__is_nothrow_constructible(
+                  TemplateConstructorValue,
+                  TemplateConstructorValue&&),
+              "the implicit move constructor wins a tied forwarding template");
+static_assert(__is_trivially_constructible(
+                  TemplateConstructorValue,
+                  TemplateConstructorValue&&),
+              "the implicit move constructor remains trivial beside a forwarding template");
+static_assert(!__is_nothrow_constructible(
+                  TemplateConstructorValue,
+                  const TemplateConstructorValue&&),
+              "a better-binding const-rvalue forwarding template controls nothrow");
+static_assert(!__is_trivially_constructible(
+                  TemplateConstructorValue,
+                  const TemplateConstructorValue&&),
+              "a better-binding const-rvalue forwarding template controls triviality");
 static_assert(!__is_constructible(
                   TemplateConstructorWithDeletedImplicitCopy,
                   const TemplateConstructorWithDeletedImplicitCopy&),
