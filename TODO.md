@@ -12342,6 +12342,12 @@ remains a separate open item.
         symbols; i686/AMD64 generation, verified-backend emission with zero
         fallback, and no-match/no-object checks pass in the Windows overload
         regression target.
+  - [x] Preserve an explicit fixed non-type argument before the explicit type
+        pack while partitioning the later defaulted fixed non-type argument and
+        deduced non-type pack. Verify nonempty and empty pack runtime cases,
+        GCC/RCC Itanium symbol parity, i686/AMD64 verified-backend emission with
+        zero fallback, and mismatch diagnostics with no object output through
+        `test-cxx-function-template-overloads`.
 - [x] Keep `test-cxx-function-template-explicit-specialization` in
       `CXX_REGRESSION_TARGETS`; verify it is reached by `test-cxx` and the
       Linux production `test-ci` workflow, and that native-Windows `test-cxx`

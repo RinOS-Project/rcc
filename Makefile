@@ -5075,22 +5075,28 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -S -o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/gcc.s tests/cxx_function_template_explicit_multi_pack_partition.cpp
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJicELi7EJLi3ELi4EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/gcc.s
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJELi7EJLi5EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/gcc.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi5EJicELi7EJLi3ELi4EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/gcc.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi3EJELi7EJLi5EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/gcc.s
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJicELi7EJLi3ELi4EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x86.s
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJELi7EJLi5EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x86.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi5EJicELi7EJLi3ELi4EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x86.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi3EJELi7EJLi5EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x86.s
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJicELi7EJLi3ELi4EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJELi7EJLi5EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi5EJicELi7EJLi3ELi4EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi3EJELi7EJLi5EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.ro \
 		tests/cxx_function_template_explicit_multi_pack_partition.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.ro \
 		tests/cxx_function_template_explicit_multi_pack_partition.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.log,0)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-x86.ro)
@@ -5103,6 +5109,16 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DRCC_TEST_INVALID_EXPLICIT_PARTITION -fsyntax-only tests/cxx_function_template_explicit_multi_pack_partition.cpp,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-gcc.log)
 	$(GREP) -F -q 'no matching function' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-gcc.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_PREFIXED_PARTITION -c -o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x86.ro tests/cxx_function_template_explicit_multi_pack_partition.cpp,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x86.log)
+	$(GREP) -F -q "no matching function template overload for 'choose_prefixed_explicit_multi_pack_partition'" $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_PREFIXED_PARTITION -c -o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x64.ro tests/cxx_function_template_explicit_multi_pack_partition.cpp,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x64.log)
+	$(GREP) -F -q "no matching function template overload for 'choose_prefixed_explicit_multi_pack_partition'" $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DRCC_TEST_INVALID_PREFIXED_PARTITION -fsyntax-only tests/cxx_function_template_explicit_multi_pack_partition.cpp,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-gcc.log)
+	$(GREP) -F -q 'no matching function' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-gcc.log
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-independent-packs)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-independent-packs,cxx_function_template_independent_packs.cpp)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-independent-packs/gcc-host tests/cxx_function_template_independent_packs.cpp
@@ -6701,22 +6717,28 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/gcc.s tests/cxx_function_template_explicit_multi_pack_partition.cpp
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJicELi7EJLi3ELi4EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/gcc.s
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJELi7EJLi5EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/gcc.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi5EJicELi7EJLi3ELi4EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/gcc.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi3EJELi7EJLi5EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/gcc.s
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJicELi7EJLi3ELi4EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x86.s
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJELi7EJLi5EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x86.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi5EJicELi7EJLi3ELi4EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x86.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi3EJELi7EJLi5EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x86.s
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJicELi7EJLi3ELi4EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
 	$(GREP) -F -q '_Z36choose_explicit_multi_pack_partitionIJELi7EJLi5EEEiDpT_Dp8ConstantIXT1_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi5EJicELi7EJLi3ELi4EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
+	$(GREP) -F -q '_Z45choose_prefixed_explicit_multi_pack_partitionILi3EJELi7EJLi5EEEiDpT0_Dp8ConstantIXT2_EE' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/x64.s
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.ro \
 		tests/cxx_function_template_explicit_multi_pack_partition.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.ro \
 		tests/cxx_function_template_explicit_multi_pack_partition.cpp \
 		>$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/verified-x64.log,0)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-x86.ro)
@@ -6729,6 +6751,16 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -DRCC_TEST_INVALID_EXPLICIT_PARTITION -fsyntax-only tests/cxx_function_template_explicit_multi_pack_partition.cpp,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-gcc.log)
 	$(GREP) -F -q 'no matching function' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-gcc.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_PREFIXED_PARTITION -c -o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x86.ro tests/cxx_function_template_explicit_multi_pack_partition.cpp,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x86.log)
+	$(GREP) -F -q "no matching function template overload for 'choose_prefixed_explicit_multi_pack_partition'" $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_PREFIXED_PARTITION -c -o $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x64.ro tests/cxx_function_template_explicit_multi_pack_partition.cpp,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x64.log)
+	$(GREP) -F -q "no matching function template overload for 'choose_prefixed_explicit_multi_pack_partition'" $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -DRCC_TEST_INVALID_PREFIXED_PARTITION -fsyntax-only tests/cxx_function_template_explicit_multi_pack_partition.cpp,$(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-gcc.log)
+	$(GREP) -F -q 'no matching function' $(TEST_OUT)/cxx-function-template-explicit-multi-pack/invalid-prefixed-gcc.log
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-independent-packs)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-independent-packs,cxx_function_template_independent_packs.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-independent-packs/gcc-host.exe tests/cxx_function_template_independent_packs.cpp
