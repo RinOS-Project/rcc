@@ -772,6 +772,7 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-wide-delegating-constructor
 .PHONY: test-cxx-deep-delegating-constructor
 .PHONY: test-cxx-deep-inherited-constructor
+.PHONY: test-cxx-wide-constexpr-locals
 test-cxx-wide-nested-class-template-specialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-nested-class-template-specialization)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-wide-nested-class-template-specialization,cxx_wide_nested_class_template_specialization.cpp)
@@ -851,6 +852,14 @@ test-cxx-deep-inherited-constructor: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-deep-inherited-constructor/gcc-host$(EXE_SUFFIX) \
 		tests/cxx_deep_inherited_constructor.cpp
 	$(TEST_OUT)/cxx-deep-inherited-constructor/gcc-host$(EXE_SUFFIX)
+
+test-cxx-wide-constexpr-locals: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-constexpr-locals)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-wide-constexpr-locals,cxx_wide_constexpr_locals.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-wide-constexpr-locals/gcc-host$(EXE_SUFFIX) \
+		tests/cxx_wide_constexpr_locals.cpp
+	$(TEST_OUT)/cxx-wide-constexpr-locals/gcc-host$(EXE_SUFFIX)
 
 test-cxx-wide-function-parameter-pack-deduction: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction)
@@ -958,6 +967,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-wide-delegating-constructor \
 	test-cxx-deep-delegating-constructor \
 	test-cxx-deep-inherited-constructor \
+	test-cxx-wide-constexpr-locals \
 	test-cxx-template-template-wide-mangling \
 	test-cxx-trailing-return-noexcept \
 	test-cxx-global-allocation-operators \
