@@ -31315,6 +31315,18 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                 cxx_type_uses_sizeof_pack_name(
                     parameter->decl->type,
                     tmpl->params[pack_index].name);
+            size_t element_argument_capacity = tmpl->param_count > 0
+                ? (size_t)tmpl->param_count : 1u;
+            Type** element_arguments = cxx_allocate_zeroed_array(
+                sizeof(*element_arguments), element_argument_capacity);
+            int64_t* element_values = cxx_allocate_zeroed_array(
+                sizeof(*element_values), element_argument_capacity);
+            bool* element_value_present = cxx_allocate_zeroed_array(
+                sizeof(*element_value_present), element_argument_capacity);
+            if (!element_arguments || !element_values ||
+                !element_value_present) {
+                rcc_fatal("out of memory deducing function parameter pack");
+            }
             while (argument) {
                 Type* actual = cxx_parser_expression_type(argument->expr);
                 if (!actual) {
@@ -31334,9 +31346,6 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                     }
                     return false;
                 }
-                Type* element_arguments[32] = { NULL };
-                int64_t element_values[32] = { 0 };
-                bool element_value_present[32] = { false };
                 int element_specificity = 0;
                 Type* deduction_actual =
                     cxx_parser_template_deduction_argument(
@@ -31352,6 +31361,13 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                             function_pack_count;
                     }
                 }
+                memset(element_arguments, 0,
+                       sizeof(*element_arguments) * element_argument_capacity);
+                memset(element_values, 0,
+                       sizeof(*element_values) * element_argument_capacity);
+                memset(element_value_present, 0,
+                       sizeof(*element_value_present) *
+                           element_argument_capacity);
                 element_deduced = pack_index < tmpl->param_count &&
                     deduce_function_template_type(
                         tmpl, parameter->decl->type, deduction_actual,

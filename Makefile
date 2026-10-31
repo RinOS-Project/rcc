@@ -764,6 +764,27 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-template-template-signature-depth
 .PHONY: test-cxx-dependent-static-member-overload-count
 .PHONY: test-cxx-wide-class-base-pack
+.PHONY: test-cxx-wide-function-parameter-pack-deduction
+test-cxx-wide-function-parameter-pack-deduction: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-wide-function-parameter-pack-deduction,cxx_wide_function_parameter_pack_deduction.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/gcc-host$(EXE_SUFFIX) \
+		tests/cxx_wide_function_parameter_pack_deduction.cpp
+	$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/gcc-host$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/verified-x86.ro \
+		tests/cxx_wide_function_parameter_pack_deduction.cpp \
+		>$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/verified-x64.ro \
+		tests/cxx_wide_function_parameter_pack_deduction.cpp \
+		>$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-function-parameter-pack-deduction/verified-x64.log,0)
+
 test-cxx-wide-class-base-pack: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-class-base-pack)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-wide-class-base-pack,cxx_wide_class_base_pack.cpp)
@@ -842,6 +863,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-template-template-signature-depth \
 	test-cxx-dependent-static-member-overload-count \
 	test-cxx-wide-class-base-pack \
+	test-cxx-wide-function-parameter-pack-deduction \
 	test-cxx-template-template-wide-mangling \
 	test-cxx-trailing-return-noexcept \
 	test-cxx-global-allocation-operators \
