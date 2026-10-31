@@ -17225,21 +17225,46 @@ static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
     CxxConstructorInfo* best = NULL;
     ExprList* supplied_arguments = arguments ? *arguments : NULL;
     int argument_count = sema_cxx_argument_count(supplied_arguments);
-    int best_ranks[32] = { 0 };
-    Type* best_targets[32] = { NULL };
-    TypeMethod* best_methods[32] = { NULL };
+    size_t rank_capacity = argument_count > 0
+        ? (size_t)argument_count : 1u;
+    int* best_ranks;
+    Type** best_targets;
+    TypeMethod** best_methods;
+    int* candidate_ranks;
+    Type** candidate_targets;
+    TypeMethod** candidate_methods;
     bool ambiguous = false;
 
-    if (!cls || !cls->type || argument_count < 0 || argument_count >= 32) {
+    if (!cls || !cls->type || argument_count < 0) {
         return NULL;
     }
+    if (rank_capacity > SIZE_MAX / sizeof(*best_ranks) ||
+        rank_capacity > SIZE_MAX / sizeof(*best_targets) ||
+        rank_capacity > SIZE_MAX / sizeof(*best_methods)) {
+        rcc_error(loc, "delegating constructor argument state is too large");
+        return NULL;
+    }
+    best_ranks = ast_arena_alloc(sizeof(*best_ranks) * rank_capacity);
+    best_targets = ast_arena_alloc(sizeof(*best_targets) * rank_capacity);
+    best_methods = ast_arena_alloc(sizeof(*best_methods) * rank_capacity);
+    candidate_ranks = ast_arena_alloc(
+        sizeof(*candidate_ranks) * rank_capacity);
+    candidate_targets = ast_arena_alloc(
+        sizeof(*candidate_targets) * rank_capacity);
+    candidate_methods = ast_arena_alloc(
+        sizeof(*candidate_methods) * rank_capacity);
+    memset(best_ranks, 0, sizeof(*best_ranks) * rank_capacity);
+    memset(best_targets, 0, sizeof(*best_targets) * rank_capacity);
+    memset(best_methods, 0, sizeof(*best_methods) * rank_capacity);
+    memset(candidate_ranks, 0, sizeof(*candidate_ranks) * rank_capacity);
+    memset(candidate_targets, 0,
+           sizeof(*candidate_targets) * rank_capacity);
+    memset(candidate_methods, 0,
+           sizeof(*candidate_methods) * rank_capacity);
     for (candidate = cls->constructors; candidate;
          candidate = candidate->next) {
         TypeParam* parameter;
         ExprList* argument;
-        int candidate_ranks[32] = { 0 };
-        Type* candidate_targets[32] = { NULL };
-        TypeMethod* candidate_methods[32] = { NULL };
         int rank_count = 0;
         bool viable = true;
         if (candidate == current || !candidate->method ||
@@ -17287,11 +17312,11 @@ static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
             if (!best || (relation > 0 && !ambiguous)) {
                 best = candidate;
                 memcpy(best_ranks, candidate_ranks,
-                       sizeof(best_ranks));
+                       sizeof(*best_ranks) * (size_t)rank_count);
                 memcpy(best_targets, candidate_targets,
-                       sizeof(best_targets));
+                       sizeof(*best_targets) * (size_t)rank_count);
                 memcpy(best_methods, candidate_methods,
-                       sizeof(best_methods));
+                       sizeof(*best_methods) * (size_t)rank_count);
                 ambiguous = false;
             } else if (relation == 0) {
                 ambiguous = true;
