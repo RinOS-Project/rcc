@@ -1475,8 +1475,37 @@ test-c-null-void-pointer-constant: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "C17 void-pointer null constant and C++ rejection tests completed"
 
 .PHONY: test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-embed
-test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes
+test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-va-start test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes
 	@echo "RCC C23 _BitInt, nullptr, empty-initialization, typeof, attributes, and binary-resource regressions completed"
+
+.PHONY: test-c23-va-start
+test-c23-va-start: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c23-va-start)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -c \
+		-o $(TEST_OUT)/c23-va-start/x86.ro tests/c23_va_start.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -c \
+		-o $(TEST_OUT)/c23-va-start/x64.ro tests/c23_va_start.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -fverified-backend -v -c \
+		-o $(TEST_OUT)/c23-va-start/x64-verified.ro tests/c23_va_start.c \
+		>$(TEST_OUT)/c23-va-start/x64-verified.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/c23-va-start/x64-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/c23-va-start/x64-verified.log,0)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -S \
+		-o $(TEST_OUT)/c23-va-start/x86.s tests/c23_va_start.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/c23-va-start/x86-host,$(TEST_OUT)/c23-va-start/x86.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -nostdinc \
+		-Ibootstrap/include -S \
+		-o $(TEST_OUT)/c23-va-start/x64.s tests/c23_va_start.c
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/c23-va-start/x64-host,$(TEST_OUT)/c23-va-start/x64.s)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -nostdinc -Ibootstrap/include -c -o $(TEST_OUT)/c23-va-start/c17-invalid.ro tests/invalid_c17_va_start_one_argument.c,$(TEST_OUT)/c23-va-start/c17-invalid.log)
+	$(GREP) -F -q 'expected expression' $(TEST_OUT)/c23-va-start/c17-invalid.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c23-va-start/c17-invalid.ro)
+	@echo "C23 optional va_start parameter ABI and C17 rejection tests passed"
 
 test-c23-bitint: $(RCC_TARGET) $(RLD_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c23-bitint)
