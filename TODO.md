@@ -12701,3 +12701,10 @@ remains a separate open item.
       C++20とのruntime結果・Itanium symbol一致、RCC i686/AMD64生成・AMD64実行、
       verified backend両target 9関数・fallback 0、invalid typeのno-match/no-object、
       およびWindows `test-cxx-function-template-overloads`通過を確認。
+
+# RCC continuation (2026-11-01, nested zipped function parameter packs)
+- [x] 一つのclass-template引数内に二つの独立type packを入れた
+      `Envelope<Duo<Left, Right>>...`を、各実引数の同じ位置から推論する。
+      empty/two-element展開、invalid型のno-match/no-object、strict GCC C++20のruntimeと
+      Itanium symbol一致、RCC i686/AMD64生成・AMD64実行、verified backend両target
+      11関数・fallback 0、およびWindows `test-cxx-function-template-overloads`通過を確認。

@@ -13901,7 +13901,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                 int pack_offset = 0;
                 if (pack_index == -2 && item->decl->type &&
                     item->decl->type->cxx_template_args &&
-                    item->decl->type->cxx_template_arg_count > 1) {
+                    item->decl->type->cxx_template_arg_count > 0) {
                     size_t pack_index_count = tmpl->param_count > 0
                         ? (size_t)tmpl->param_count : 1u;
                     if (pack_index_count >
@@ -13934,6 +13934,55 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                       item->decl->type->cxx_template_value_args[
                                           argument_index])
                                 : -1;
+                        if (type_pack_index == -2) {
+                            if (value_pack_index != -1) {
+                                zipped_pack_count = -1;
+                                break;
+                            }
+                            bool found_type_pack = false;
+                            for (int zipped_index = 0;
+                                 zipped_index < tmpl->param_count;
+                                 ++zipped_index) {
+                                TemplateParam* zipped_parameter =
+                                    &tmpl->params[zipped_index];
+                                if (!zipped_parameter->is_pack ||
+                                    zipped_parameter->kind != TPARAM_TYPE ||
+                                    !zipped_parameter->name ||
+                                    !template_type_contains_parameter_name(
+                                        item->decl->type->cxx_template_args[
+                                            argument_index],
+                                        zipped_parameter->name, 0)) {
+                                    continue;
+                                }
+                                found_type_pack = true;
+                                if (zipped_pack_indices[zipped_index]) {
+                                    continue;
+                                }
+                                zipped_pack_indices[zipped_index] = true;
+                                ++zipped_pack_count;
+                                int current_pack_length =
+                                    template_pending_pack_length(
+                                        tmpl, zipped_index);
+                                if (current_pack_length < 0 ||
+                                    (pack_length >= 0 &&
+                                     pack_length != current_pack_length)) {
+                                    zipped_pack_count = -1;
+                                    break;
+                                }
+                                pack_length = current_pack_length;
+                                if (zipped_pack_count == 1) {
+                                    pack_index = zipped_index;
+                                    pack_offset = template_pending_pack_offset(
+                                        tmpl, zipped_index);
+                                }
+                            }
+                            if (zipped_pack_count < 0) break;
+                            if (!found_type_pack) {
+                                zipped_pack_count = -1;
+                                break;
+                            }
+                            continue;
+                        }
                         int argument_pack_index = type_pack_index >= 0
                             ? type_pack_index : value_pack_index;
                         if (type_pack_index >= 0 && value_pack_index >= 0 &&
