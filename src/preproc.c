@@ -168,6 +168,10 @@ Preprocessor* pp_new(void) {
     /* Define built-in macros */
     pp_define(pp, "__RCC__", "1");
     pp_define(pp, "__RINOS__", "1");
+    /* RinOS lowers the distinct long double type with binary64 size and
+     * calling convention.  Let libc expose the conversion and printf/scanf
+     * APIs that use that ABI instead of withholding them as unsupported. */
+    pp_define(pp, "RINOS_ABI_HAS_LONG_DOUBLE", "1");
     pp_define(pp, "__STDC__", "1");
     pp_define(pp, "__STDC_VERSION__",
               g_opts.c_standard >= 23 ? "202311L" : "201710L");
