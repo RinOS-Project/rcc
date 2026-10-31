@@ -346,6 +346,19 @@ struct ConstMemberNotAssignable {
     const int value;
 };
 
+struct ConstQualifiedAssignment {
+    ConstQualifiedAssignment& operator=(
+        const ConstQualifiedAssignment&) const;
+};
+
+struct ConstClassMemberAssignable {
+    const ConstQualifiedAssignment value;
+};
+
+struct ConstClassArrayMemberAssignable {
+    const ConstQualifiedAssignment values[2];
+};
+
 struct ReferenceMemberNotAssignable {
     int& value;
 };
@@ -790,6 +803,12 @@ static_assert(__is_assignable(FriendExplicitCopyAssignmentDerived&,
 static_assert(!__is_assignable(ConstMemberNotAssignable&,
                                const ConstMemberNotAssignable&),
               "const subobjects delete implicit copy assignment");
+static_assert(__is_assignable(ConstClassMemberAssignable&,
+                              const ConstClassMemberAssignable&),
+              "a const class subobject can use a const-qualified assignment operator");
+static_assert(__is_assignable(ConstClassArrayMemberAssignable&,
+                              const ConstClassArrayMemberAssignable&),
+              "const class elements in an array can use their assignment operators");
 static_assert(!__is_assignable(ReferenceMemberNotAssignable&,
                                const ReferenceMemberNotAssignable&),
               "reference subobjects delete implicit copy assignment");

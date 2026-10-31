@@ -17486,9 +17486,15 @@ test-cxx-constructible-builtin: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -ffreestanding -c \
 		-o $(TEST_OUT)/cxx-constructible-builtin/x86.ro \
 		tests/cxx_constructible_builtin.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -ffreestanding -c \
+		-o $(TEST_OUT)/cxx-constructible-builtin/const-class-member-x86.ro \
+		tests/cxx_const_class_subobject_assignment.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -ffreestanding -c \
 		-o $(TEST_OUT)/cxx-constructible-builtin/x64.ro \
 		tests/cxx_constructible_builtin.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -ffreestanding -c \
+		-o $(TEST_OUT)/cxx-constructible-builtin/const-class-member-x64.ro \
+		tests/cxx_const_class_subobject_assignment.cpp
 	$(CXX) -std=c++20 -ffreestanding -fsyntax-only \
 		tests/cxx_constructible_builtin.cpp
 	@echo "C++ constructible type-trait tests completed"

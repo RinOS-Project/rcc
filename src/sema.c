@@ -20129,7 +20129,9 @@ static bool sema_cxx_type_trait_assignment_subobject_is_assignable(
     Type* target_reference;
     Type* source_reference;
     if (!subobject || !source_object || depth > 64u ||
-        subobject->is_reference || subobject->is_const) {
+        subobject->is_reference ||
+        (subobject->is_const && subobject->kind != TYPE_STRUCT &&
+         subobject->kind != TYPE_UNION)) {
         return false;
     }
     if (subobject->kind == TYPE_ARRAY) {
