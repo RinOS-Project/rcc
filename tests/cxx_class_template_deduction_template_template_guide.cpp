@@ -19,6 +19,27 @@ struct GuideArray {
     Value values[Count];
 };
 
+struct GenericGuideChoice {
+    static constexpr int value = 1;
+};
+
+struct ConstGuideChoice {
+    static constexpr int value = 2;
+};
+
+template <typename Choice>
+struct GuideOrderBox {
+    int value;
+
+    GuideOrderBox(const int*) : value(Choice::value) {}
+};
+
+template <typename T>
+GuideOrderBox(T*) -> GuideOrderBox<GenericGuideChoice>;
+
+template <typename T>
+GuideOrderBox(const T*) -> GuideOrderBox<ConstGuideChoice>;
+
 template <template <typename> class Container>
 struct TemplateTemplateGuideBox {
     Container<int> value;
@@ -86,6 +107,9 @@ int main() {
     TemplateTemplatePackSignatureGuideBox pack_signature{source};
     TemplateTemplatePackSignatureGuideBox<GuideInner>* exact_pack_signature =
         &pack_signature;
+    const int* order_source = nullptr;
+    GuideOrderBox selected_order{order_source};
+    GuideOrderBox<ConstGuideChoice>* exact_order = &selected_order;
     TemplateTemplateMultiGuideBox multi{pair};
     TemplateTemplateMultiGuideBox<GuidePair, long, int>* exact_multi = &multi;
     TemplateTemplateNontypeGuideBox nontype{array};
@@ -96,6 +120,7 @@ int main() {
     return exact->value.value == 17 &&
                    exact_defaulted->value.value == 19 &&
                    exact_pack_signature->value.value == 17 &&
+                   exact_order->value == 2 &&
                    exact_multi->value.first == 23 &&
                    exact_multi->value.second == 41 &&
                    exact_nontype->value.values[0] == 2 &&

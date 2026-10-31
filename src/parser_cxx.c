@@ -1467,6 +1467,9 @@ static bool cxx_template_constraint_satisfied(
     bool* unsupported);
 static int cxx_deduction_guide_constraint_relation(
     CxxDeductionGuide* left, CxxDeductionGuide* right, bool* comparable);
+static int cxx_deduction_guide_pattern_relation(
+    CxxDeductionGuide* left, CxxDeductionGuide* right,
+    bool* comparable, bool* equivalent);
 
 static bool cxx_type_is_aggregate(Type* type) {
     return ast_cxx_is_aggregate(type);
@@ -31698,9 +31701,20 @@ static Type* deduce_class_template_from_guides(
             memset(dominated_guides, 0,
                    sizeof(*dominated_guides) * guide_capacity);
             for (int index = 0; index < best_guide_count; ++index) {
-                bool comparable = false;
-                int relation = cxx_deduction_guide_constraint_relation(
-                    guide, best_guides[index], &comparable);
+                bool pattern_comparable = false;
+                bool patterns_equivalent = false;
+                bool constraints_comparable = false;
+                int relation = cxx_deduction_guide_pattern_relation(
+                    guide, best_guides[index], &pattern_comparable,
+                    &patterns_equivalent);
+                bool comparable = pattern_comparable;
+                if (!pattern_comparable ||
+                    (pattern_comparable && relation == 0 &&
+                     patterns_equivalent)) {
+                    relation = cxx_deduction_guide_constraint_relation(
+                        guide, best_guides[index], &constraints_comparable);
+                    comparable = constraints_comparable;
+                }
                 if (!comparable || relation == 0) continue;
                 if (relation < 0) {
                     candidate_dominated = true;
@@ -39321,6 +39335,91 @@ static int cxx_function_template_type_pattern_relation(
     if (right_deduced) return 1;
     if (left_deduced) return -1;
     return 0;
+}
+
+static Type* cxx_deduction_guide_function_type(
+    const CxxDeductionGuide* guide, bool* has_parameter_pack) {
+    TypeParam* parameters = NULL;
+    TypeParam** tail = &parameters;
+    if (has_parameter_pack) *has_parameter_pack = false;
+    for (DeclList* item = guide ? guide->parameters : NULL;
+         item; item = item->next) {
+        TypeParam* parameter;
+        if (!item->decl || !item->decl->type) return NULL;
+        parameter = ast_arena_alloc(sizeof(*parameter));
+        memset(parameter, 0, sizeof(*parameter));
+        parameter->name = item->decl->name;
+        parameter->type = item->decl->type;
+        parameter->is_pack = item->decl->param_is_pack;
+        if (parameter->is_pack && has_parameter_pack) {
+            *has_parameter_pack = true;
+        }
+        *tail = parameter;
+        tail = &parameter->next;
+    }
+    return type_func(type_void, parameters, false);
+}
+
+static int cxx_deduction_guide_pattern_relation(
+    CxxDeductionGuide* left, CxxDeductionGuide* right,
+    bool* comparable, bool* equivalent) {
+    CxxTemplate* left_template = left ? left->template_owner : NULL;
+    CxxTemplate* right_template = right ? right->template_owner : NULL;
+    Decl left_function_decl;
+    Decl right_function_decl;
+    CxxFunctionTemplateMatch left_match;
+    CxxFunctionTemplateMatch right_match;
+    Type* left_function_type;
+    Type* right_function_type;
+    Decl* saved_left_function;
+    Decl* saved_right_function;
+    bool left_parameter_pack = false;
+    bool right_parameter_pack = false;
+    bool handled = false;
+    int relation;
+
+    if (comparable) *comparable = false;
+    if (equivalent) *equivalent = false;
+    if (!left_template || !right_template) return 0;
+    left_function_type = cxx_deduction_guide_function_type(
+        left, &left_parameter_pack);
+    right_function_type = cxx_deduction_guide_function_type(
+        right, &right_parameter_pack);
+    if (!left_function_type || !right_function_type) return 0;
+    memset(&left_function_decl, 0, sizeof(left_function_decl));
+    memset(&right_function_decl, 0, sizeof(right_function_decl));
+    memset(&left_match, 0, sizeof(left_match));
+    memset(&right_match, 0, sizeof(right_match));
+    left_function_decl.type = left_function_type;
+    right_function_decl.type = right_function_type;
+    left_match.tmpl = left_template;
+    left_match.has_function_parameter_pack = left_parameter_pack;
+    left_match.fixed_function_parameter_count = 0;
+    right_match.tmpl = right_template;
+    right_match.has_function_parameter_pack = right_parameter_pack;
+    right_match.fixed_function_parameter_count = 0;
+    for (DeclList* item = left->parameters; item; item = item->next) {
+        if (!item->decl || item->decl->param_is_pack) break;
+        if (left_match.fixed_function_parameter_count < INT_MAX) {
+            ++left_match.fixed_function_parameter_count;
+        }
+    }
+    for (DeclList* item = right->parameters; item; item = item->next) {
+        if (!item->decl || item->decl->param_is_pack) break;
+        if (right_match.fixed_function_parameter_count < INT_MAX) {
+            ++right_match.fixed_function_parameter_count;
+        }
+    }
+    saved_left_function = left_template->func_def;
+    saved_right_function = right_template->func_def;
+    left_template->func_def = &left_function_decl;
+    right_template->func_def = &right_function_decl;
+    relation = cxx_function_template_type_pattern_relation(
+        &left_match, &right_match, &handled, equivalent);
+    left_template->func_def = saved_left_function;
+    right_template->func_def = saved_right_function;
+    if (comparable) *comparable = handled;
+    return relation;
 }
 
 static int cxx_function_template_match_relation(
