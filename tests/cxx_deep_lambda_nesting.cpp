@@ -1,0 +1,3 @@
+int main() {
+    return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return []{ return 91; }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }(); }() == 91 ? 0 : 1;
+}

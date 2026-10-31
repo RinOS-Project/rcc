@@ -1426,10 +1426,12 @@ typedef struct CxxLambdaCaptureSpec {
 
 static CxxParserValueBinding* active_value_bindings;
 static CxxLocalUsingBinding* active_local_using_bindings;
-static CxxParserValueBinding* saved_value_bindings[32];
+static CxxParserValueBinding** saved_value_bindings;
+static size_t saved_value_binding_capacity;
 static int saved_value_binding_depth;
 static CxxReferenceCapture* active_reference_captures;
-static CxxReferenceCapture* saved_reference_captures[32];
+static CxxReferenceCapture** saved_reference_captures;
+static size_t saved_reference_capture_capacity;
 static int saved_reference_capture_depth;
 static unsigned cxx_lambda_counter;
 static unsigned cxx_range_for_counter;
@@ -1697,11 +1699,43 @@ static void cxx_parser_expr_loc(SourceLoc* location, const Expr* expression,
     }
 }
 
-void rcc_parser_cxx_begin_function_parameters(DeclList* parameters) {
-    if (saved_value_binding_depth >=
-        (int)(sizeof(saved_value_bindings) / sizeof(saved_value_bindings[0]))) {
-        rcc_fatal("C++ parser function nesting is too deep");
+static void* cxx_parser_reserve_context_stack(
+    void* entries, size_t element_size, size_t* capacity,
+    size_t required_capacity, const char* context_name) {
+    size_t new_capacity;
+    void* grown_entries;
+    if (!capacity || element_size == 0u) {
+        rcc_fatal("invalid C++ parser context stack");
     }
+    if (required_capacity <= *capacity) return entries;
+    new_capacity = *capacity > 0u ? *capacity : 8u;
+    while (new_capacity < required_capacity) {
+        if (new_capacity > SIZE_MAX / 2u) {
+            new_capacity = required_capacity;
+            break;
+        }
+        new_capacity *= 2u;
+    }
+    if (new_capacity > SIZE_MAX / element_size) {
+        rcc_fatal("C++ parser %s stack is too large", context_name);
+    }
+    grown_entries = cxx_grow_zeroed_array(
+        entries, element_size, *capacity, new_capacity);
+    if (!grown_entries) {
+        rcc_fatal("out of memory growing C++ parser %s stack", context_name);
+    }
+    *capacity = new_capacity;
+    return grown_entries;
+}
+
+void rcc_parser_cxx_begin_function_parameters(DeclList* parameters) {
+    if (saved_value_binding_depth == INT_MAX) {
+        rcc_fatal("C++ parser function nesting exceeds compiler limits");
+    }
+    saved_value_bindings = cxx_parser_reserve_context_stack(
+        saved_value_bindings, sizeof(*saved_value_bindings),
+        &saved_value_binding_capacity,
+        (size_t)saved_value_binding_depth + 1u, "function");
     saved_value_bindings[saved_value_binding_depth++] = active_value_bindings;
     active_value_bindings = NULL;
     for (DeclList* item = parameters; item; item = item->next) {
@@ -15023,11 +15057,14 @@ Expr* rcc_parse_cxx_lambda(void) {
             return_type, NULL, NULL);
     }
     expect(TOK_LBRACE, "{");
-    if (saved_reference_capture_depth >=
-        (int)(sizeof(saved_reference_captures) /
-              sizeof(saved_reference_captures[0]))) {
-        rcc_fatal("C++ lambda nesting is too deep");
+    if (saved_reference_capture_depth == INT_MAX) {
+        rcc_fatal("C++ lambda nesting exceeds compiler limits");
     }
+    saved_reference_captures = cxx_parser_reserve_context_stack(
+        saved_reference_captures,
+        sizeof(*saved_reference_captures),
+        &saved_reference_capture_capacity,
+        (size_t)saved_reference_capture_depth + 1u, "lambda capture");
     saved_reference_captures[saved_reference_capture_depth++] =
         active_reference_captures;
     active_reference_captures = lambda_reference_captures;
