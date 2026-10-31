@@ -13894,15 +13894,100 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             if (item->decl && item->decl->param_is_pack) {
                 int pack_index = template_parameter_pack_index_nested(
                     tmpl, item->decl->type);
-                if (pack_index < 0 || !tmpl->params[pack_index].is_pack) {
+                bool zipped_type_packs = false;
+                bool* zipped_pack_indices = NULL;
+                int zipped_pack_count = 0;
+                int pack_length = -1;
+                int pack_offset = 0;
+                if (pack_index == -2 && item->decl->type &&
+                    item->decl->type->cxx_template_args &&
+                    item->decl->type->cxx_template_arg_count > 1) {
+                    size_t pack_index_count = tmpl->param_count > 0
+                        ? (size_t)tmpl->param_count : 1u;
+                    if (pack_index_count >
+                        SIZE_MAX / sizeof(*zipped_pack_indices)) {
+                        rcc_error(item->decl->loc,
+                                  "function template zipped pack state is too large");
+                        return NULL;
+                    }
+                    zipped_pack_indices = ast_arena_alloc(
+                        sizeof(*zipped_pack_indices) * pack_index_count);
+                    if (!zipped_pack_indices) {
+                        rcc_error(item->decl->loc,
+                                  "function template zipped pack state allocation failed");
+                        return NULL;
+                    }
+                    memset(zipped_pack_indices, 0,
+                           sizeof(*zipped_pack_indices) * pack_index_count);
+                    for (int argument_index = 0;
+                         argument_index <
+                             item->decl->type->cxx_template_arg_count;
+                         ++argument_index) {
+                        int type_pack_index =
+                            template_parameter_pack_index_nested(
+                                tmpl, item->decl->type->cxx_template_args[
+                                          argument_index]);
+                        int value_pack_index =
+                            item->decl->type->cxx_template_value_args
+                                ? template_parameter_pack_index_expression(
+                                      tmpl,
+                                      item->decl->type->cxx_template_value_args[
+                                          argument_index])
+                                : -1;
+                        int argument_pack_index = type_pack_index >= 0
+                            ? type_pack_index : value_pack_index;
+                        if (type_pack_index >= 0 && value_pack_index >= 0 &&
+                            type_pack_index != value_pack_index) {
+                            argument_pack_index = -2;
+                        }
+                        if (argument_pack_index == -2) {
+                            zipped_pack_count = -1;
+                            break;
+                        }
+                        if (argument_pack_index < 0) continue;
+                        if (argument_pack_index >= tmpl->param_count ||
+                            !tmpl->params[argument_pack_index].is_pack ||
+                            tmpl->params[argument_pack_index].kind !=
+                                TPARAM_TYPE) {
+                            zipped_pack_count = -1;
+                            break;
+                        }
+                        if (!zipped_pack_indices[argument_pack_index]) {
+                            zipped_pack_indices[argument_pack_index] = true;
+                            ++zipped_pack_count;
+                            int current_pack_length =
+                                template_pending_pack_length(
+                                    tmpl, argument_pack_index);
+                            if (current_pack_length < 0 ||
+                                (pack_length >= 0 &&
+                                 pack_length != current_pack_length)) {
+                                zipped_pack_count = -1;
+                                break;
+                            }
+                            pack_length = current_pack_length;
+                            if (zipped_pack_count == 1) {
+                                pack_index = argument_pack_index;
+                                pack_offset = template_pending_pack_offset(
+                                    tmpl, argument_pack_index);
+                            }
+                        }
+                    }
+                    if (zipped_pack_count >= 2 && pack_index >= 0) {
+                        zipped_type_packs = true;
+                    }
+                }
+                if (pack_index < 0 || !tmpl->params[pack_index].is_pack ||
+                    (zipped_pack_count < 0)) {
                     rcc_error(item->decl->loc,
                               "function parameter pack is not bound to a template parameter pack");
                     return NULL;
                 }
-                int pack_length =
-                    template_pending_pack_length(tmpl, pack_index);
-                int pack_offset =
-                    template_pending_pack_offset(tmpl, pack_index);
+                if (!zipped_type_packs) {
+                    pack_length =
+                        template_pending_pack_length(tmpl, pack_index);
+                    pack_offset =
+                        template_pending_pack_offset(tmpl, pack_index);
+                }
                 if (pack_length < 0) {
                     rcc_error(item->decl->loc,
                               "function parameter pack has no specialization range");
@@ -13971,7 +14056,32 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                        (size_t)arg_count);
                         }
                     }
-                    if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
+                    if (zipped_type_packs) {
+                        for (int zipped_index = 0;
+                             zipped_index < tmpl->param_count;
+                             ++zipped_index) {
+                            if (!zipped_pack_indices[zipped_index]) continue;
+                            int zipped_offset =
+                                template_pending_pack_offset(
+                                    tmpl, zipped_index);
+                            if (zipped_index >= arg_count ||
+                                !tmpl->pending_pack_args ||
+                                zipped_offset < 0 ||
+                                zipped_offset > INT_MAX - pack_value) {
+                                rcc_error(item->decl->loc,
+                                          "function template zipped type pack value is missing");
+                                return NULL;
+                            }
+                            expanded_arguments[zipped_index] =
+                                tmpl->pending_pack_args[
+                                    zipped_offset + pack_value];
+                        }
+                    } else if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
+                        if (!tmpl->pending_pack_args) {
+                            rcc_error(item->decl->loc,
+                                      "function template type pack value is missing");
+                            return NULL;
+                        }
                         expanded_arguments[pack_index] =
                             tmpl->pending_pack_args[
                                 pack_offset + pack_value];

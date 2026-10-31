@@ -33360,6 +33360,232 @@ static bool cxx_function_template_deduce_nested_type_packs(
 static bool cxx_function_template_nested_pack_pattern_has_outer_pack(
     Type* pattern);
 
+/* Deduce independent type packs zipped through one trailing function
+ * parameter-pack pattern, such as Pair<Left, Right>....  The ordinary
+ * single-pack path below intentionally accepts only one pack source, while
+ * this form gives each template pack one element from every function
+ * argument. */
+static bool cxx_function_template_deduce_zipped_parameter_pack(
+    CxxTemplate* tmpl, Type* pattern, ExprList* first_argument,
+    Type** template_arguments, int64_t* template_values,
+    bool* template_value_present, Type** pack_arguments,
+    int pack_capacity, int* pack_offsets, int* pack_counts,
+    bool* pack_seen, int* pack_count, int* specificity) {
+    CxxTemplate* pattern_template = NULL;
+    Type** pattern_arguments = NULL;
+    int pattern_argument_count = 0;
+    int function_pack_count = 0;
+    size_t matrix_count;
+    Type** zipped_arguments;
+    bool* source_packs;
+    Type** actual_template_arguments;
+    CxxTemplate* actual_template;
+    int actual_template_argument_count;
+    if (!tmpl || !pattern || !template_arguments || !template_values ||
+        !template_value_present || !pack_arguments || pack_capacity < 0 ||
+        !pack_offsets || !pack_counts || !pack_seen || !pack_count ||
+        *pack_count < 0 || *pack_count > pack_capacity) {
+        return false;
+    }
+    for (ExprList* argument = first_argument; argument;
+         argument = argument->next) {
+        if (function_pack_count == INT_MAX) return false;
+        ++function_pack_count;
+    }
+    cxx_function_template_class_type_pattern_arguments(
+        pattern, &pattern_template, &pattern_arguments,
+        &pattern_argument_count);
+    if (!pattern_template || !pattern_arguments ||
+        pattern_argument_count != pattern_template->param_count ||
+        pattern_argument_count <= 1 || tmpl->param_count <= 0 ||
+        (size_t)function_pack_count >
+            SIZE_MAX / (size_t)tmpl->param_count) {
+        return false;
+    }
+    matrix_count = (size_t)function_pack_count *
+                   (size_t)tmpl->param_count;
+    if (matrix_count == 0u) matrix_count = 1u;
+    if (matrix_count > SIZE_MAX / sizeof(*zipped_arguments)) return false;
+    zipped_arguments = cxx_allocate_zeroed_array(
+        sizeof(*zipped_arguments), matrix_count);
+    source_packs = cxx_allocate_zeroed_array(
+        sizeof(*source_packs), (size_t)tmpl->param_count);
+    if (!zipped_arguments || !source_packs) return false;
+    int source_pack_count = 0;
+    for (int argument_index = 0;
+         argument_index < pattern_argument_count; ++argument_index) {
+        TemplateParam* class_parameter =
+            &pattern_template->params[argument_index];
+        int pack_index = class_parameter->kind == TPARAM_TYPE &&
+                pattern_arguments[argument_index]
+            ? cxx_parser_template_parameter_pack_index(
+                  tmpl, pattern_arguments[argument_index])
+            : -1;
+        if (class_parameter->is_pack ||
+            class_parameter->kind != TPARAM_TYPE || pack_index == -2) {
+            return false;
+        }
+        if (pack_index >= 0) {
+            if (pack_index >= tmpl->param_count ||
+                !tmpl->params[pack_index].is_pack ||
+                tmpl->params[pack_index].kind != TPARAM_TYPE) {
+                return false;
+            }
+            if (!source_packs[pack_index]) {
+                source_packs[pack_index] = true;
+                ++source_pack_count;
+            }
+        }
+    }
+    if (source_pack_count < 2) return false;
+
+    int element_index = 0;
+    for (ExprList* argument = first_argument; argument;
+         argument = argument->next, ++element_index) {
+        Type* actual = cxx_parser_expression_type(argument->expr);
+        CxxClass* actual_class = actual ? actual->cxx_class : NULL;
+        actual_template = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_tmpl
+            : actual_class && actual_class->templ
+                ? actual_class->templ : actual ? actual->cxx_template : NULL;
+        actual_template_arguments = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_args
+            : actual_class && actual_class->templ
+                ? actual_class->template_args
+                : actual ? actual->cxx_template_args : NULL;
+        actual_template_argument_count = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_arg_count
+            : actual_class && actual_class->templ
+                ? actual_class->template_arg_count
+                : actual ? actual->cxx_template_arg_count : -1;
+        if (!actual || actual_template != pattern_template ||
+            actual_template_argument_count != pattern_argument_count ||
+            !actual_template_arguments) {
+            return false;
+        }
+
+        Type** element_arguments = NULL;
+        int64_t* element_values = NULL;
+        bool* element_value_present = NULL;
+        if (!cxx_allocate_template_deduction_state(
+                tmpl->param_count, &element_arguments, &element_values,
+                &element_value_present)) {
+            return false;
+        }
+        memcpy(element_arguments, template_arguments,
+               sizeof(*element_arguments) * (size_t)tmpl->param_count);
+        memcpy(element_values, template_values,
+               sizeof(*element_values) * (size_t)tmpl->param_count);
+        memcpy(element_value_present, template_value_present,
+               sizeof(*element_value_present) * (size_t)tmpl->param_count);
+
+        for (int argument_index = 0;
+             argument_index < pattern_argument_count; ++argument_index) {
+            TemplateParam* class_parameter =
+                &pattern_template->params[argument_index];
+            Type* argument_pattern = pattern_arguments[argument_index];
+            Type* actual_argument = actual_template_arguments[argument_index];
+            int pack_index = class_parameter->kind == TPARAM_TYPE &&
+                    argument_pattern
+                ? cxx_parser_template_parameter_pack_index(
+                      tmpl, argument_pattern)
+                : -1;
+            if (class_parameter->is_pack ||
+                class_parameter->kind != TPARAM_TYPE || !actual_argument) {
+                return false;
+            }
+            if (pack_index >= 0 && pack_index < tmpl->param_count &&
+                tmpl->params[pack_index].is_pack &&
+                tmpl->params[pack_index].kind == TPARAM_TYPE) {
+                size_t element_offset =
+                    (size_t)pack_index * (size_t)function_pack_count +
+                    (size_t)element_index;
+                if (source_packs[pack_index] &&
+                    zipped_arguments[element_offset] &&
+                    !type_is_same_template_argument(
+                        zipped_arguments[element_offset], actual_argument)) {
+                    return false;
+                }
+                zipped_arguments[element_offset] = actual_argument;
+                continue;
+            }
+            if (pack_index != -1 ||
+                !deduce_function_template_type(
+                    tmpl, argument_pattern, actual_argument,
+                    element_arguments, element_values,
+                    element_value_present, specificity)) {
+                return false;
+            }
+        }
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            if (tmpl->params[index].is_pack) continue;
+            if (tmpl->params[index].kind == TPARAM_TYPE &&
+                element_arguments[index]) {
+                if (template_arguments[index] &&
+                    !type_is_same_template_argument(
+                        template_arguments[index], element_arguments[index])) {
+                    return false;
+                }
+                template_arguments[index] = element_arguments[index];
+            } else if (tmpl->params[index].kind == TPARAM_NONTYPE &&
+                       element_value_present[index]) {
+                if (template_value_present[index] &&
+                    template_values[index] != element_values[index]) {
+                    return false;
+                }
+                template_values[index] = element_values[index];
+                template_value_present[index] = true;
+            }
+        }
+    }
+
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (!source_packs[index]) continue;
+        if (tmpl->params[index].kind != TPARAM_TYPE ||
+            !tmpl->params[index].is_pack) {
+            return false;
+        }
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (!source_packs[index]) continue;
+        if (pack_seen[index] || pack_counts[index] > 0) {
+            if (pack_offsets[index] < 0 ||
+                pack_counts[index] != function_pack_count ||
+                function_pack_count > pack_capacity - pack_offsets[index]) {
+                return false;
+            }
+            for (int element = 0; element < function_pack_count; ++element) {
+                Type* deduced = zipped_arguments[
+                    (size_t)index * (size_t)function_pack_count +
+                    (size_t)element];
+                if (!deduced ||
+                    !type_is_same_template_argument(
+                        pack_arguments[pack_offsets[index] + element],
+                        deduced)) {
+                    return false;
+                }
+            }
+            continue;
+        }
+        if (function_pack_count > pack_capacity - *pack_count) return false;
+        pack_offsets[index] = *pack_count;
+        pack_counts[index] = function_pack_count;
+        pack_seen[index] = true;
+        for (int element = 0; element < function_pack_count; ++element) {
+            Type* deduced = zipped_arguments[
+                (size_t)index * (size_t)function_pack_count +
+                (size_t)element];
+            if (!deduced) return false;
+            pack_arguments[*pack_count + element] = deduced;
+        }
+        *pack_count += function_pack_count;
+    }
+    return true;
+}
+
 static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                                                ExprList* call_arguments,
                                                Type** template_arguments,
@@ -33392,6 +33618,17 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
             }
             int pack_index = cxx_parser_template_parameter_pack_index(
                 tmpl, parameter->decl->type);
+            bool zipped_pack_deduced = pack_index == -2 &&
+                cxx_function_template_deduce_zipped_parameter_pack(
+                    tmpl, parameter->decl->type, argument,
+                    template_arguments, template_values,
+                    template_value_present, pack_arguments, pack_capacity,
+                    pack_offsets, pack_counts, pack_seen, pack_count,
+                    specificity);
+            if (zipped_pack_deduced) {
+                parameter = parameter->next;
+                break;
+            }
             bool value_pack = pack_index >= 0 &&
                 tmpl->params[pack_index].kind == TPARAM_NONTYPE;
             if (!pack_arguments || !pack_count || pack_capacity < 0 ||

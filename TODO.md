@@ -12687,3 +12687,10 @@ remains a separate open item.
       a post-incremented row bound proving single evaluation. i686/AMD64 verified
       builds emit seven functions with zero fallback; legacy runtime, GCC
       reference, and the existing VLA runtime/semantic/declaration gates pass.
+
+# RCC continuation (2026-11-01, zipped independent function parameter packs)
+- [x] 関数parameter pack `Pair<Left, Right>...`に含まれる複数の独立type packを、各引数から
+      同じ位置の要素として推論し、空packも正しく展開する。strict GCC C++20の実行結果と
+      Itanium symbolを照合し、RCC i686/AMD64生成・AMD64実行、verified backend両targetで
+      7関数・fallback 0、不一致引数のno-match/no-object、およびWindows
+      `test-cxx-function-template-overloads`通過を確認。
