@@ -11528,9 +11528,19 @@ static bool cxx_method_parameter_lists_match(const CxxMethod* left,
     left_parameter = left->decl->func_params;
     right_parameter = right->decl->func_params;
     while (left_parameter && right_parameter) {
-        if (!left_parameter->decl || !right_parameter->decl ||
-            !type_is_compatible(left_parameter->decl->type,
-                                right_parameter->decl->type)) {
+        Type* left_type = left_parameter->decl
+            ? left_parameter->decl->type : NULL;
+        Type* right_type = right_parameter->decl
+            ? right_parameter->decl->type : NULL;
+        bool has_reference_parameter =
+            (left_type && left_type->kind == TYPE_PTR &&
+             left_type->is_reference) ||
+            (right_type && right_type->kind == TYPE_PTR &&
+             right_type->is_reference);
+        if (!left_type || !right_type ||
+            (has_reference_parameter
+                 ? !type_is_same_template_argument(left_type, right_type)
+                 : !type_is_compatible(left_type, right_type))) {
             return false;
         }
         left_parameter = left_parameter->next;

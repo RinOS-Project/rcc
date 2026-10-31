@@ -470,6 +470,72 @@ struct LegacyTrivialAssignDefaulted {
         const LegacyTrivialAssignDefaulted&) = default;
 };
 
+struct LegacyNothrowAssign {
+    int value;
+    LegacyNothrowAssign& operator=(
+        const LegacyNothrowAssign&) noexcept { return *this; }
+};
+
+struct LegacyThrowingAssign {
+    int value;
+    LegacyThrowingAssign& operator=(
+        const LegacyThrowingAssign&) noexcept(false) { return *this; }
+};
+
+struct LegacyNothrowAssignMember {
+    LegacyNothrowAssignMember& operator=(
+        const LegacyNothrowAssignMember&) noexcept { return *this; }
+};
+
+struct LegacyNothrowAssignParent {
+    LegacyNothrowAssignMember member;
+};
+
+struct LegacyThrowingAssignParent {
+    LegacyThrowingAssign member;
+};
+
+struct LegacyDefaultedNothrowAssign {
+    LegacyNothrowAssignMember member;
+    LegacyDefaultedNothrowAssign& operator=(
+        const LegacyDefaultedNothrowAssign&) = default;
+};
+
+struct LegacyDefaultedThrowingAssign {
+    LegacyThrowingAssign member;
+    LegacyDefaultedThrowingAssign& operator=(
+        const LegacyDefaultedThrowingAssign&) = default;
+};
+
+struct LegacyMixedNothrowAssignOverloads {
+    LegacyMixedNothrowAssignOverloads& operator=(
+        LegacyMixedNothrowAssignOverloads&) noexcept { return *this; }
+    LegacyMixedNothrowAssignOverloads& operator=(
+        const LegacyMixedNothrowAssignOverloads&) noexcept(false) {
+        return *this;
+    }
+};
+
+struct LegacyPrivateNothrowAssign {
+private:
+    LegacyPrivateNothrowAssign& operator=(
+        const LegacyPrivateNothrowAssign&) noexcept { return *this; }
+};
+
+struct LegacyNothrowByValueAssign {
+    LegacyNothrowByValueAssign(
+        const LegacyNothrowByValueAssign&) noexcept;
+    LegacyNothrowByValueAssign& operator=(
+        LegacyNothrowByValueAssign) noexcept { return *this; }
+};
+
+struct LegacyThrowingCopyByValueAssign {
+    LegacyThrowingCopyByValueAssign(
+        const LegacyThrowingCopyByValueAssign&) noexcept(false);
+    LegacyThrowingCopyByValueAssign& operator=(
+        LegacyThrowingCopyByValueAssign) noexcept { return *this; }
+};
+
 struct LegacyTrivialAssignNonconstCopy {
     LegacyTrivialAssignNonconstCopy() {}
     LegacyTrivialAssignNonconstCopy& operator=(
@@ -532,6 +598,27 @@ struct LegacyReferenceAssignMember {
 union LegacyTrivialAssignUnion {
     int value;
     double other;
+};
+
+union LegacyNothrowAssignUnion {
+    LegacyNothrowAssignMember member;
+    int value;
+};
+
+union LegacyThrowingAssignUnion {
+    LegacyThrowingAssign member;
+    int value;
+};
+
+union LegacyDefaultedNothrowAssignUnion {
+    LegacyNothrowAssignMember member;
+    int value;
+    LegacyDefaultedNothrowAssignUnion& operator=(
+        const LegacyDefaultedNothrowAssignUnion&) = default;
+};
+
+struct LegacyNothrowUnionParent {
+    LegacyNothrowAssignUnion member;
 };
 
 struct TrivialArrayMemberAssignment {
@@ -696,6 +783,64 @@ static_assert(__has_trivial_assign(LegacyTrivialAssignUnion),
               "legacy trivial-assign recognizes trivial unions");
 static_assert(__has_trivial_assign(LegacyTrivialAssignDefaulted[2]),
               "legacy trivial-assign recognizes arrays of trivial classes");
+static_assert(__has_nothrow_assign(int),
+              "legacy nothrow-assign recognizes scalar types");
+static_assert(!__has_nothrow_assign(void),
+              "legacy nothrow-assign rejects void as an assignable object");
+static_assert(!__has_nothrow_assign(const int),
+              "legacy nothrow-assign rejects const-qualified types");
+static_assert(!__has_nothrow_assign(int&),
+              "legacy nothrow-assign rejects reference types");
+static_assert(__has_nothrow_assign(LegacyNothrowAssign),
+              "a user-provided nonthrowing copy assignment is nothrow");
+static_assert(__has_nothrow_assign(LegacyTrivialAssignDeletedCopy),
+              "legacy nothrow-assign follows the trivial deleted-copy result");
+static_assert(__has_nothrow_assign(LegacyAssignTemplateDoesNotAffectCopy),
+              "a throwing assignment template does not change the legacy trait");
+static_assert(!__has_nothrow_assign(LegacyThrowingAssign),
+              "a potentially throwing copy assignment is not nothrow");
+static_assert(__has_nothrow_assign(LegacyNothrowAssignParent),
+              "an implicit copy assignment inherits member noexcept");
+static_assert(!__has_nothrow_assign(LegacyThrowingAssignParent),
+              "an implicit copy assignment inherits a throwing member");
+static_assert(__has_nothrow_assign(LegacyDefaultedNothrowAssign),
+              "a defaulted copy assignment derives member noexcept");
+static_assert(!__has_nothrow_assign(LegacyDefaultedThrowingAssign),
+              "a defaulted copy assignment propagates member throwing");
+static_assert(!__has_nothrow_assign(LegacyMixedNothrowAssignOverloads),
+              "every copy assignment overload must be nonthrowing");
+static_assert(__has_nothrow_assign(LegacyPrivateNothrowAssign),
+              "legacy nothrow-assign observes private copy assignment specs");
+static_assert(!__has_nothrow_assign(LegacyNothrowByValueAssign),
+              "legacy nothrow-assign rejects a by-value copy operator");
+static_assert(!__has_nothrow_assign(LegacyThrowingCopyByValueAssign),
+              "by-value copy argument construction can throw");
+static_assert(__has_nothrow_assign(volatile LegacyNothrowAssign),
+              "legacy nothrow-assign accepts volatile class types");
+static_assert(!__has_nothrow_assign(const LegacyNothrowAssign),
+              "legacy nothrow-assign rejects const class types");
+static_assert(__has_nothrow_assign(LegacyNothrowAssign[2]),
+              "legacy nothrow-assign evaluates array element assignment");
+static_assert(!__has_nothrow_assign(LegacyThrowingAssign[2]),
+              "a throwing array element assignment makes the trait false");
+static_assert(__has_nothrow_assign(LegacyNothrowAssignUnion),
+              "an implicit union assignment checks its member operations");
+static_assert(__has_nothrow_assign(LegacyTrivialAssignUnion),
+              "legacy nothrow-assign recognizes a trivial union");
+static_assert(!__has_nothrow_assign(LegacyThrowingAssignUnion),
+              "a throwing union member assignment makes the trait false");
+static_assert(!__has_nothrow_assign(LegacyDefaultedNothrowAssignUnion),
+              "an explicitly defaulted deleted union assignment is not nothrow");
+static_assert(__has_nothrow_assign(LegacyNothrowUnionParent),
+              "an implicit class assignment can inspect a union subobject");
+static_assert(__has_nothrow_assign(LegacyNothrowAssign[]),
+              "legacy nothrow-assign accepts arrays of unknown bound");
+static_assert(!__has_nothrow_assign(const LegacyNothrowAssign[2]),
+              "const array elements make legacy nothrow-assign false");
+static_assert(!__has_nothrow_assign(LegacyNontrivialAssignParent),
+              "a nonthrowing query detects a throwing member operator");
+static_assert(__has_nothrow_assign(LegacyVirtualAssign),
+              "an implicit virtual-class copy assignment can be nonthrowing");
 static_assert(!__is_trivially_assignable(
                   AssignmentExceptionProbe&, const AssignmentExceptionProbe&),
               "a user-provided assignment is not trivial");
@@ -836,6 +981,11 @@ struct BuiltinAssignmentProbe {
 template <typename T>
 struct LegacyTrivialAssignProbe {
     static constexpr bool value = __has_trivial_assign(T);
+};
+
+template <typename T>
+struct LegacyNothrowAssignProbe {
+    static constexpr bool value = __has_nothrow_assign(T);
 };
 
 union ScalarAssignmentUnion {
@@ -1416,6 +1566,10 @@ static_assert(LegacyTrivialAssignProbe<
               "dependent legacy trivial-assign is evaluated after substitution");
 static_assert(!LegacyTrivialAssignProbe<LegacyUserProvidedAssign>::value,
               "dependent legacy trivial-assign observes a user-provided operator");
+static_assert(LegacyNothrowAssignProbe<LegacyNothrowAssign>::value,
+              "dependent legacy nothrow-assign evaluates after substitution");
+static_assert(!LegacyNothrowAssignProbe<LegacyThrowingAssign>::value,
+              "dependent legacy nothrow-assign observes a throwing operator");
 static_assert(__is_constructible(TemplateConstructorValue,
                                 const TemplateConstructorValue&),
               "the implicit copy constructor remains available beside a template");

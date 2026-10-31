@@ -2871,7 +2871,8 @@ static Expr* parse_builtin_cxx_type_trait(SourceLoc loc) {
          kind == CXX_TYPE_TRAIT_NOTHROW_ASSIGNABLE ||
          kind == CXX_TYPE_TRAIT_TRIVIALLY_ASSIGNABLE ||
          kind == CXX_TYPE_TRAIT_NOTHROW_CONSTRUCTIBLE ||
-         kind == CXX_TYPE_TRAIT_HAS_NOTHROW_CONSTRUCTOR)) {
+         kind == CXX_TYPE_TRAIT_HAS_NOTHROW_CONSTRUCTOR ||
+         kind == CXX_TYPE_TRAIT_HAS_NOTHROW_ASSIGN)) {
         Expr* result = expr_int(0, loc);
         result->kind = EXPR_CXX_TYPE_TRAIT;
         result->cxx_type_trait_kind = kind;
@@ -2906,6 +2907,8 @@ static bool parser_cxx_type_trait_kind(const char* name,
         *kind = CXX_TYPE_TRAIT_HAS_TRIVIAL_ASSIGN;
     } else if (strcmp(name, "__has_nothrow_constructor") == 0) {
         *kind = CXX_TYPE_TRAIT_HAS_NOTHROW_CONSTRUCTOR;
+    } else if (strcmp(name, "__has_nothrow_assign") == 0) {
+        *kind = CXX_TYPE_TRAIT_HAS_NOTHROW_ASSIGN;
     } else if (strcmp(name, "__is_trivially_constructible") == 0) {
         *kind = CXX_TYPE_TRAIT_TRIVIALLY_CONSTRUCTIBLE;
     } else if (strcmp(name, "__is_constructible") == 0) {
@@ -3075,6 +3078,8 @@ static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
             return rcc_sema_cxx_has_trivial_assign(type, value);
         case CXX_TYPE_TRAIT_HAS_NOTHROW_CONSTRUCTOR:
             return rcc_sema_cxx_has_nothrow_constructor(type, value);
+        case CXX_TYPE_TRAIT_HAS_NOTHROW_ASSIGN:
+            return rcc_sema_cxx_has_nothrow_assign(type, value);
         case CXX_TYPE_TRAIT_TRIVIALLY_CONSTRUCTIBLE:
             *value = rcc_sema_cxx_trivially_constructible(type, arguments);
             break;
@@ -3509,6 +3514,7 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__has_trivial_destructor") ||
          parser_builtin_name("__has_trivial_constructor") ||
          parser_builtin_name("__has_trivial_assign") ||
+         parser_builtin_name("__has_nothrow_assign") ||
          parser_builtin_name("__has_nothrow_constructor") ||
          parser_builtin_name("__is_trivially_constructible") ||
          parser_builtin_name("__is_constructible") ||

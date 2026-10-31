@@ -20497,6 +20497,35 @@ static bool sema_cxx_type_trait_assignment_subobjects_are_assignable(
     return true;
 }
 
+static bool sema_cxx_type_trait_union_members_are_nothrow(
+    Type* type, unsigned depth) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!type || type->kind != TYPE_UNION || depth > 64u) return false;
+    if (cls) {
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            bool member_is_nothrow = false;
+            if (field->is_static) continue;
+            if (!field->type ||
+                !rcc_sema_cxx_has_nothrow_assign(
+                    field->type, &member_is_nothrow) ||
+                !member_is_nothrow) {
+                return false;
+            }
+        }
+    } else {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            bool member_is_nothrow = false;
+            if (!field->type ||
+                !rcc_sema_cxx_has_nothrow_assign(
+                    field->type, &member_is_nothrow) ||
+                !member_is_nothrow) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static bool sema_cxx_type_trait_assignment_subobject_is_nothrow(
     Type* subobject, Type* source_object, bool source_is_rvalue,
     CxxClass* access_context, unsigned depth) {
@@ -20513,6 +20542,11 @@ static bool sema_cxx_type_trait_assignment_subobject_is_nothrow(
     }
     if (subobject->kind != TYPE_STRUCT && subobject->kind != TYPE_UNION) {
         return true;
+    }
+    if (subobject->kind == TYPE_UNION &&
+        !sema_cxx_has_declared_special_assignment(subobject, false)) {
+        return sema_cxx_type_trait_union_members_are_nothrow(
+            subobject, depth + 1u);
     }
     target_reference = sema_cxx_type_trait_reference_type(
         subobject, false, false, false);
@@ -21310,6 +21344,137 @@ bool rcc_sema_cxx_trivially_assignable(
         target, source, 0u, NULL, NULL, value);
     if (assignable < 0) return false;
     if (assignable == 0) *value = false;
+    return true;
+}
+
+bool rcc_sema_cxx_has_nothrow_assign(Type* type, bool* value) {
+    Type* object_type = type;
+    Type* unqualified_type;
+    Type* assignment_type;
+    CxxClass* cls;
+    bool trivial = false;
+    bool found_copy_assignment = false;
+    if (!type || !value) return false;
+    *value = false;
+    if ((type->kind == TYPE_PTR && type->is_reference) ||
+        sema_cxx_type_trait_is_const_qualified(type)) {
+        return true;
+    }
+    if (!rcc_sema_cxx_has_trivial_assign(type, &trivial)) return false;
+    if (trivial) {
+        *value = true;
+        return true;
+    }
+    while (object_type && object_type->kind == TYPE_ARRAY) {
+        object_type = object_type->base;
+    }
+    if (!object_type ||
+        (object_type->kind != TYPE_STRUCT &&
+         object_type->kind != TYPE_UNION) ||
+        !type_is_complete(object_type)) {
+        return true;
+    }
+    unqualified_type = ast_arena_alloc(sizeof(*unqualified_type));
+    *unqualified_type = *object_type;
+    unqualified_type->is_const = false;
+    unqualified_type->is_volatile = false;
+    if (unqualified_type->kind == TYPE_UNION &&
+        !sema_cxx_has_declared_special_assignment(
+            unqualified_type, false)) {
+        *value = sema_cxx_type_trait_union_members_are_nothrow(
+            unqualified_type, 0u);
+        return true;
+    }
+    assignment_type = sema_cxx_type_trait_assignment_type(
+        unqualified_type, 0u);
+    if (!assignment_type) return false;
+    cls = unqualified_type->cxx_class;
+    if (cls) {
+        for (struct CxxMember* member = cls->members; member;
+             member = member->next) {
+            CxxMethod* method = member->method;
+            DeclList* parameter;
+            DeclList* trailing;
+            Type* parameter_type;
+            bool has_exception_specification;
+            bool is_nothrow;
+            if (!method || method->is_static || method->member_template ||
+                !method->source_name ||
+                strcmp(method->source_name, "operator=") != 0 ||
+                !method->decl) {
+                continue;
+            }
+            parameter = method->decl->func_params;
+            parameter_type = parameter && parameter->decl
+                ? parameter->decl->type : NULL;
+            if (!parameter ||
+                sema_cxx_assignment_special_member_kind(
+                    unqualified_type, parameter_type) != 1) {
+                continue;
+            }
+            for (trailing = parameter->next; trailing;
+                 trailing = trailing->next) {
+                if (!trailing->decl || !trailing->decl->param_default) break;
+            }
+            if (trailing) continue;
+            found_copy_assignment = true;
+            if (method->is_deleted || !parameter_type ||
+                parameter_type->kind != TYPE_PTR ||
+                !parameter_type->is_reference) {
+                return true;
+            }
+            has_exception_specification = method->is_noexcept ||
+                method->decl->func_noexcept_expr ||
+                method->decl->func_is_noexcept ||
+                (method->decl->type &&
+                 method->decl->type->kind == TYPE_FUNC &&
+                 method->decl->type->function_is_noexcept);
+            if (method->is_defaulted && !has_exception_specification) {
+                is_nothrow =
+                    sema_cxx_type_trait_assignment_subobjects_are_assignable(
+                        unqualified_type, parameter_type, 0u) &&
+                    sema_cxx_type_trait_assignment_subobjects_are_nothrow(
+                        unqualified_type, parameter_type, 0u);
+            } else {
+                is_nothrow = sema_cxx_type_trait_decl_is_nothrow(
+                    method->decl, method->is_noexcept);
+            }
+            if (!is_nothrow) return true;
+        }
+    }
+    if (found_copy_assignment) {
+        *value = true;
+        return true;
+    }
+
+    for (TypeMethod* method = assignment_type->methods; method;
+         method = method->next) {
+        Decl* declaration = method->function_decl;
+        DeclList* parameter;
+        Type* parameter_type;
+        if (!method->name || strcmp(method->name, "operator=") != 0 ||
+            method->source_decl || method->cxx_member_template ||
+            !declaration) {
+            continue;
+        }
+        parameter = declaration->func_params;
+        parameter_type = parameter && parameter->decl
+            ? parameter->decl->type : NULL;
+        if (sema_cxx_assignment_special_member_kind(
+                unqualified_type, parameter_type) != 1) {
+            continue;
+        }
+        found_copy_assignment = true;
+        if (method->is_deleted && method->is_defaulted) {
+            if (!sema_cxx_type_trait_assignment_subobjects_are_nothrow(
+                    unqualified_type, parameter_type, 0u)) {
+                return true;
+            }
+        } else if (method->is_deleted || !method->is_noexcept) {
+            return true;
+        }
+    }
+    *value = found_copy_assignment;
     return true;
 }
 
