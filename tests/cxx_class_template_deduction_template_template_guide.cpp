@@ -89,6 +89,25 @@ struct GuideValueList {
     char values[sizeof...(Values) + 1];
 };
 
+template <int Value>
+struct GuideValueTag {};
+
+template <typename Pack>
+struct ArithmeticGuidePackBox {
+    Pack value;
+
+    template <typename First, typename Second>
+    ArithmeticGuidePackBox(GuideValueList<2, 4>, First, Second) {}
+
+    template <typename First>
+    ArithmeticGuidePackBox(GuideValueList<2, 4>, First) {}
+};
+
+template <int... Values>
+ArithmeticGuidePackBox(GuideValueList<Values...>,
+                       GuideValueTag<(Values + 1)>...)
+    -> ArithmeticGuidePackBox<GuideValueList<Values...>>;
+
 template <typename Types, typename Counts>
 struct MixedIndependentGuidePackBox {
     Types first;
@@ -154,6 +173,18 @@ template <template <typename> class... Containers>
 TemplateTemplatePackGuideBox(int, Containers<int>...)
     -> TemplateTemplatePackGuideBox<Containers...>;
 
+#if defined(RCC_ARITHMETIC_GUIDE_BAD_VALUE)
+int main() {
+    ArithmeticGuidePackBox invalid{
+        GuideValueList<2, 4>{}, GuideValueTag<3>{}, GuideValueTag<6>{}};
+    return sizeof(invalid.value.values);
+}
+#elif defined(RCC_ARITHMETIC_GUIDE_BAD_LENGTH)
+int main() {
+    ArithmeticGuidePackBox invalid{GuideValueList<2, 4>{}, GuideValueTag<3>{}};
+    return sizeof(invalid.value.values);
+}
+#else
 int main() {
     GuideInner<int> source{17};
     GuideDefaultInner<int> default_source{19};
@@ -187,6 +218,8 @@ int main() {
         exact_expanded_packs = &selected_expanded_packs;
     MixedIndependentGuidePackBox selected_mixed_packs{
         GuideValuePair<int, 3>{}, GuideValuePair<char, 5>{}};
+    ArithmeticGuidePackBox selected_arithmetic_pack{
+        GuideValueList<2, 4>{}, GuideValueTag<3>{}, GuideValueTag<5>{}};
     TemplateTemplateMultiGuideBox multi{pair};
     TemplateTemplateMultiGuideBox<GuidePair, long, int>* exact_multi = &multi;
     TemplateTemplateNontypeGuideBox nontype{array};
@@ -194,6 +227,7 @@ int main() {
         &nontype;
     TemplateTemplatePackGuideBox pack{1, source, source};
     TemplateTemplatePackGuideBox<GuideInner, GuideInner>* exact_pack = &pack;
+    if (sizeof(selected_arithmetic_pack.value.values) != 3) return 3;
     return exact->value.value == 17 &&
                    exact_defaulted->value.value == 19 &&
                    exact_pack_signature->value.value == 17 &&
@@ -213,3 +247,4 @@ int main() {
                    exact_pack->second.value == 17
         ? 0 : 1;
 }
+#endif

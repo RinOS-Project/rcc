@@ -10458,6 +10458,18 @@ test-cxx-class-template-deduction: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-deduction/template-template-guide-x64.o \
 		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-class-template-deduction/template-template-guide-x64-host
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -DRCC_ARITHMETIC_GUIDE_BAD_VALUE -c -o $(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-value-x86.ro tests/cxx_class_template_deduction_template_template_guide.cpp,$(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-value-x86.log)
+	$(GREP) -F -q "no viable public constructor for class template argument deduction" $(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-value-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -DRCC_ARITHMETIC_GUIDE_BAD_VALUE -c -o $(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-value-x64.ro tests/cxx_class_template_deduction_template_template_guide.cpp,$(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-value-x64.log)
+	$(GREP) -F -q "no viable public constructor for class template argument deduction" $(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-value-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -DRCC_ARITHMETIC_GUIDE_BAD_LENGTH -c -o $(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-length-x86.ro tests/cxx_class_template_deduction_template_template_guide.cpp,$(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-length-x86.log)
+	$(GREP) -F -q "no viable public constructor for class template argument deduction" $(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-length-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -DRCC_ARITHMETIC_GUIDE_BAD_LENGTH -c -o $(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-length-x64.ro tests/cxx_class_template_deduction_template_template_guide.cpp,$(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-length-x64.log)
+	$(GREP) -F -q "no viable public constructor for class template argument deduction" $(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-length-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++17 -pedantic-errors -DRCC_ARITHMETIC_GUIDE_BAD_VALUE -fsyntax-only tests/cxx_class_template_deduction_template_template_guide.cpp,$(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-value-gcc.log)
+	$(GREP) -F -q "class template argument deduction failed" $(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-value-gcc.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++17 -pedantic-errors -DRCC_ARITHMETIC_GUIDE_BAD_LENGTH -fsyntax-only tests/cxx_class_template_deduction_template_template_guide.cpp,$(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-length-gcc.log)
+	$(GREP) -F -q "class template argument deduction failed" $(TEST_OUT)/cxx-class-template-deduction/arithmetic-guide-bad-length-gcc.log
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
 		-o $(TEST_OUT)/cxx-class-template-deduction/constrained-guide-gcc \
 		tests/cxx_class_template_deduction_constrained_guide.cpp

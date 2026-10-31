@@ -31545,11 +31545,32 @@ static Type* deduce_class_template_from_guides(
             Type** element_arguments = NULL;
             int64_t* element_values = NULL;
             bool* element_value_present = NULL;
+            int* initial_pack_counts = NULL;
+            bool* initial_pack_seen = NULL;
             if (!pattern || !owner || !pack_state.has_pack ||
                 !cxx_allocate_template_deduction_state(
                     owner->param_count, &element_arguments, &element_values,
                     &element_value_present)) {
                 viable = false;
+            }
+            if (viable) {
+                initial_pack_counts = cxx_allocate_zeroed_array(
+                    sizeof(*initial_pack_counts),
+                    (size_t)owner->param_count);
+                initial_pack_seen = cxx_allocate_zeroed_array(
+                    sizeof(*initial_pack_seen), (size_t)owner->param_count);
+                if (!initial_pack_counts || !initial_pack_seen) {
+                    rcc_error(loc,
+                              "deduction-guide pack snapshot exceeds compiler limits");
+                    viable = false;
+                } else {
+                    memcpy(initial_pack_counts, pack_state.counts,
+                           sizeof(*initial_pack_counts) *
+                               (size_t)owner->param_count);
+                    memcpy(initial_pack_seen, pack_state.seen,
+                           sizeof(*initial_pack_seen) *
+                               (size_t)owner->param_count);
+                }
             }
             while (viable && argument) {
                 Type* actual = cxx_parser_expression_type(argument->expr);
@@ -31568,10 +31589,36 @@ static Type* deduce_class_template_from_guides(
                            (size_t)owner->param_count);
                 for (int index = 0; index < owner->param_count; ++index) {
                     if (!owner->params[index].is_pack) continue;
-                    element_arguments[index] = NULL;
-                    element_values[index] = 0;
-                    element_value_present[index] = false;
+                    if (initial_pack_seen[index]) {
+                        if (pack_argument_count >= initial_pack_counts[index]) {
+                            viable = false;
+                            break;
+                        }
+                        int offset = pack_state.offsets[index];
+                        if (owner->params[index].kind == TPARAM_NONTYPE) {
+                            if (!pack_state.value_present[
+                                    offset + pack_argument_count]) {
+                                viable = false;
+                                break;
+                            }
+                            element_values[index] = pack_state.values[
+                                offset + pack_argument_count];
+                            element_value_present[index] = true;
+                        } else {
+                            element_arguments[index] = pack_state.arguments[
+                                offset + pack_argument_count];
+                            if (!element_arguments[index]) {
+                                viable = false;
+                                break;
+                            }
+                        }
+                    } else {
+                        element_arguments[index] = NULL;
+                        element_values[index] = 0;
+                        element_value_present[index] = false;
+                    }
                 }
+                if (!viable) break;
                 if (!deduce_function_template_type(
                         owner, pattern,
                         cxx_parser_template_deduction_argument(pattern, actual),
@@ -31654,6 +31701,15 @@ static Type* deduce_class_template_from_guides(
                 ++pack_argument_count;
                 specificity += element_specificity;
                 argument = argument->next;
+            }
+            if (viable) {
+                for (int index = 0; index < owner->param_count; ++index) {
+                    if (initial_pack_seen[index] &&
+                        initial_pack_counts[index] != pack_argument_count) {
+                        viable = false;
+                        break;
+                    }
+                }
             }
             if (viable) {
                 for (int index = 0; index < owner->param_count; ++index) {
