@@ -1465,6 +1465,8 @@ static bool cxx_template_constraint_satisfied(
     CxxTemplate* tmpl, Type** arguments, const int64_t* values,
     const bool* value_present, SourceLoc loc, bool report_errors,
     bool* unsupported);
+static int cxx_deduction_guide_constraint_relation(
+    CxxDeductionGuide* left, CxxDeductionGuide* right, bool* comparable);
 
 static bool cxx_type_is_aggregate(Type* type) {
     return ast_cxx_is_aggregate(type);
@@ -31018,13 +31020,125 @@ static Type* deduce_class_template_from_aggregate(
         tmpl->param_count, loc);
 }
 
+static bool cxx_deduction_guide_constraints_satisfied(
+    CxxTemplate* owner, Type** template_arguments,
+    int64_t* template_values, bool* template_value_present,
+    int pack_index, bool pack_is_value, Type** pack_arguments,
+    int64_t* pack_values, bool* pack_value_present,
+    int pack_argument_count, SourceLoc loc) {
+    Type** saved_pending_pack_args;
+    int64_t* saved_pending_pack_values;
+    bool* saved_pending_pack_value_present;
+    bool* saved_pending_pack_expansions;
+    Expr** saved_pending_pack_value_expressions;
+    int saved_pending_pack_count;
+    int* saved_pending_pack_offsets;
+    int* saved_pending_pack_counts;
+    int* pending_pack_offsets = NULL;
+    int* pending_pack_counts = NULL;
+    bool unsupported = false;
+    bool satisfied;
+
+    if (!owner || !owner->constraint) return true;
+    saved_pending_pack_args = owner->pending_pack_args;
+    saved_pending_pack_values = owner->pending_pack_values;
+    saved_pending_pack_value_present = owner->pending_pack_value_present;
+    saved_pending_pack_expansions = owner->pending_pack_expansions;
+    saved_pending_pack_value_expressions =
+        owner->pending_pack_value_expressions;
+    saved_pending_pack_count = owner->pending_pack_count;
+    saved_pending_pack_offsets = owner->pending_pack_offsets;
+    saved_pending_pack_counts = owner->pending_pack_counts;
+    if (pack_index >= 0) {
+        size_t count = owner->param_count > 0
+            ? (size_t)owner->param_count : 1u;
+        if (count > SIZE_MAX / sizeof(*pending_pack_offsets) ||
+            count > SIZE_MAX / sizeof(*pending_pack_counts)) {
+            rcc_error(loc,
+                      "deduction-guide constraint pack state is too large");
+            return false;
+        }
+        pending_pack_offsets = ast_arena_alloc(
+            sizeof(*pending_pack_offsets) * count);
+        pending_pack_counts = ast_arena_alloc(
+            sizeof(*pending_pack_counts) * count);
+        if (!pending_pack_offsets || !pending_pack_counts) {
+            rcc_error(loc,
+                      "deduction-guide constraint pack state allocation failed");
+            return false;
+        }
+        memset(pending_pack_offsets, 0,
+               sizeof(*pending_pack_offsets) * count);
+        memset(pending_pack_counts, 0,
+               sizeof(*pending_pack_counts) * count);
+        pending_pack_counts[pack_index] = pack_argument_count;
+        owner->pending_pack_args = pack_is_value ? NULL : pack_arguments;
+        owner->pending_pack_values = pack_is_value ? pack_values : NULL;
+        owner->pending_pack_value_present =
+            pack_is_value ? pack_value_present : NULL;
+        owner->pending_pack_expansions = NULL;
+        owner->pending_pack_value_expressions = NULL;
+        owner->pending_pack_count = pack_argument_count;
+        owner->pending_pack_offsets = pending_pack_offsets;
+        owner->pending_pack_counts = pending_pack_counts;
+    }
+    satisfied = cxx_template_constraint_satisfied(
+        owner, template_arguments, template_values,
+        template_value_present, loc, false, &unsupported);
+    owner->pending_pack_args = saved_pending_pack_args;
+    owner->pending_pack_values = saved_pending_pack_values;
+    owner->pending_pack_value_present = saved_pending_pack_value_present;
+    owner->pending_pack_expansions = saved_pending_pack_expansions;
+    owner->pending_pack_value_expressions =
+        saved_pending_pack_value_expressions;
+    owner->pending_pack_count = saved_pending_pack_count;
+    owner->pending_pack_offsets = saved_pending_pack_offsets;
+    owner->pending_pack_counts = saved_pending_pack_counts;
+    if (unsupported) {
+        rcc_error(loc,
+                  "deduction-guide constraint cannot be evaluated");
+        return false;
+    }
+    return satisfied;
+}
+
 static Type* deduce_class_template_from_guides(
     CxxTemplate* tmpl, ExprList* arguments, SourceLoc loc) {
-    Type* best_type = NULL;
+    CxxDeductionGuide** best_guides = NULL;
+    Type** best_types = NULL;
+    bool* dominated_guides = NULL;
+    size_t guide_capacity = 0;
+    int best_guide_count = 0;
     int best_total = INT_MAX;
     int best_worst = INT_MAX;
     int best_specificity = -1;
-    int viable_count = 0;
+
+    for (CxxDeductionGuide* guide = tmpl ? tmpl->deduction_guides : NULL;
+         guide; guide = guide->next) {
+        if (guide_capacity == SIZE_MAX) {
+            rcc_error(loc, "too many user-defined deduction guides");
+            return NULL;
+        }
+        ++guide_capacity;
+    }
+    if (!guide_capacity) return NULL;
+    if (guide_capacity > (size_t)INT_MAX ||
+        guide_capacity > SIZE_MAX / sizeof(*best_guides) ||
+        guide_capacity > SIZE_MAX / sizeof(*best_types) ||
+        guide_capacity > SIZE_MAX / sizeof(*dominated_guides)) {
+        rcc_error(loc, "too many user-defined deduction guides");
+        return NULL;
+    }
+    best_guides = cxx_allocate_zeroed_array(
+        sizeof(*best_guides), guide_capacity);
+    best_types = cxx_allocate_zeroed_array(sizeof(*best_types), guide_capacity);
+    dominated_guides = cxx_allocate_zeroed_array(
+        sizeof(*dominated_guides), guide_capacity);
+    if (!best_guides || !best_types || !dominated_guides) {
+        rcc_error(loc,
+                  "cannot allocate user-defined deduction guide candidates");
+        return NULL;
+    }
 
     for (CxxDeductionGuide* guide = tmpl ? tmpl->deduction_guides : NULL;
          guide; guide = guide->next) {
@@ -31284,6 +31398,14 @@ static Type* deduce_class_template_from_guides(
                 }
             }
         }
+        if (viable && owner &&
+            !cxx_deduction_guide_constraints_satisfied(
+                owner, template_arguments, template_values,
+                template_value_present, pack_index, pack_is_value,
+                pack_arguments, pack_values, pack_value_present,
+                pack_argument_count, loc)) {
+            viable = false;
+        }
         if (!viable) continue;
 
         parameter = guide->parameters;
@@ -31413,28 +31535,59 @@ static Type* deduce_class_template_from_guides(
                 owner->param_count, template_values, template_value_present);
         }
         if (!result || result->cxx_dependent || !result->cxx_class) continue;
-        if (total < best_total ||
+        if (best_guide_count == 0 || total < best_total ||
             (total == best_total && worst < best_worst) ||
             (total == best_total && worst == best_worst &&
              specificity > best_specificity)) {
-            best_type = result;
             best_total = total;
             best_worst = worst;
             best_specificity = specificity;
-            viable_count = 1;
+            best_guide_count = 1;
+            best_guides[0] = guide;
+            best_types[0] = result;
         } else if (total == best_total && worst == best_worst &&
                    specificity == best_specificity) {
-            ++viable_count;
+            bool candidate_dominated = false;
+            memset(dominated_guides, 0,
+                   sizeof(*dominated_guides) * guide_capacity);
+            for (int index = 0; index < best_guide_count; ++index) {
+                bool comparable = false;
+                int relation = cxx_deduction_guide_constraint_relation(
+                    guide, best_guides[index], &comparable);
+                if (!comparable || relation == 0) continue;
+                if (relation < 0) {
+                    candidate_dominated = true;
+                    break;
+                }
+                dominated_guides[index] = true;
+            }
+            if (!candidate_dominated) {
+                int retained_count = 0;
+                for (int index = 0; index < best_guide_count; ++index) {
+                    if (dominated_guides[index]) continue;
+                    best_guides[retained_count] = best_guides[index];
+                    best_types[retained_count] = best_types[index];
+                    ++retained_count;
+                }
+                if ((size_t)retained_count >= guide_capacity) {
+                    rcc_error(loc,
+                              "deduction guide candidate capacity exceeded");
+                    return NULL;
+                }
+                best_guides[retained_count] = guide;
+                best_types[retained_count] = result;
+                best_guide_count = retained_count + 1;
+            }
         }
     }
 
-    if (viable_count > 1) {
+    if (best_guide_count > 1) {
         rcc_error(loc,
                   "ambiguous user-defined deduction guides for '%s'",
                   tmpl && tmpl->name ? tmpl->name : "template");
         return NULL;
     }
-    return viable_count == 1 ? best_type : NULL;
+    return best_guide_count == 1 ? best_types[0] : NULL;
 }
 
 /* Bounded C++17 class-template argument deduction.  The RinOS ABI can lower
@@ -36908,6 +37061,35 @@ static int cxx_function_template_constraint_relation(
         return 0;
     }
     return cxx_template_constraint_relation(left, right, comparable);
+}
+
+static int cxx_deduction_guide_constraint_relation(
+    CxxDeductionGuide* left, CxxDeductionGuide* right, bool* comparable) {
+    CxxTemplate* left_owner = left ? left->template_owner : NULL;
+    CxxTemplate* right_owner = right ? right->template_owner : NULL;
+    DeclList* left_parameter = left ? left->parameters : NULL;
+    DeclList* right_parameter = right ? right->parameters : NULL;
+    if (comparable) *comparable = false;
+    if (!left_owner || !right_owner ||
+        !cxx_constraint_template_parameters_match(left_owner, right_owner)) {
+        return 0;
+    }
+    while (left_parameter && right_parameter) {
+        Decl* left_decl = left_parameter->decl;
+        Decl* right_decl = right_parameter->decl;
+        if (!left_decl || !right_decl ||
+            left_decl->param_is_pack != right_decl->param_is_pack ||
+            !cxx_template_type_parameter_mapping_matches(
+                left_decl->type, left_owner,
+                right_decl->type, right_owner)) {
+            return 0;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    if (left_parameter || right_parameter) return 0;
+    return cxx_template_constraint_relation(
+        left_owner, right_owner, comparable);
 }
 
 static bool cxx_function_template_reference_adjustment_base_type_supported(
