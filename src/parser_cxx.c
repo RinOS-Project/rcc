@@ -22548,14 +22548,20 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             int pack_index = parameter->is_pack
                 ? cxx_template_pack_index_in_type(tmpl, parameter->type)
                 : -1;
+            int pack_length = pack_index >= 0 && tmpl
+                ? cxx_template_pending_pack_length(tmpl, pack_index) : -1;
+            int pack_offset = pack_index >= 0 && tmpl
+                ? cxx_template_pending_pack_offset(tmpl, pack_index) : 0;
             if (pack_index >= 0 && tmpl &&
                 tmpl->params[pack_index].kind == TPARAM_TYPE &&
-                tmpl->pending_pack_count >= 0 &&
+                pack_length >= 0 && pack_offset >= 0 &&
+                pack_offset <= tmpl->pending_pack_count &&
+                pack_length <= tmpl->pending_pack_count - pack_offset &&
                 pack_index < argument_count &&
-                (tmpl->pending_pack_count == 0 ||
+                (pack_length == 0 ||
                  tmpl->pending_pack_args)) {
-                for (int pack_value = 0;
-                     pack_value < tmpl->pending_pack_count; ++pack_value) {
+                for (int pack_value = 0; pack_value < pack_length;
+                     ++pack_value) {
                     Type** expanded_arguments = cxx_allocate_zeroed_array(
                         sizeof(*expanded_arguments),
                         argument_count > 0 ? (size_t)argument_count : 1u);
@@ -22570,7 +22576,7 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                sizeof(Type*) * (size_t)argument_count);
                     }
                     expanded_arguments[pack_index] =
-                        tmpl->pending_pack_args[pack_value];
+                        tmpl->pending_pack_args[pack_offset + pack_value];
                     *copy = *parameter;
                     copy->type = substitute_template_type(
                         tmpl, parameter->type, expanded_arguments,
@@ -22642,6 +22648,10 @@ static DeclList* substitute_template_decl_parameters(
         if (parameter->param_is_pack) {
             int pack_index = cxx_template_pack_index_in_type(
                 tmpl, parameter->type);
+            int pack_length = pack_index >= 0 && tmpl
+                ? cxx_template_pending_pack_length(tmpl, pack_index) : -1;
+            int pack_offset = pack_index >= 0 && tmpl
+                ? cxx_template_pending_pack_offset(tmpl, pack_index) : 0;
             if (pack_index < 0 && tmpl && tmpl->kind == TMPL_CLASS) {
                 Type* parameter_type = substitute_template_type(
                     tmpl, parameter->type, arguments, argument_count,
@@ -22659,15 +22669,18 @@ static DeclList* substitute_template_decl_parameters(
                 decllist_append(&result, copy);
                 continue;
             }
-            if (pack_index < 0 || !tmpl || tmpl->pending_pack_count < 0 ||
+            if (pack_index < 0 || !tmpl || pack_length < 0 ||
+                pack_offset < 0 ||
+                pack_offset > tmpl->pending_pack_count ||
+                pack_length > tmpl->pending_pack_count - pack_offset ||
                 tmpl->params[pack_index].kind != TPARAM_TYPE ||
-                (tmpl->pending_pack_count > 0 && !tmpl->pending_pack_args)) {
+                (pack_length > 0 && !tmpl->pending_pack_args)) {
                 rcc_error(parameter->loc,
                           "local member parameter pack has no matching type pack");
                 continue;
             }
             for (int pack_value = 0;
-                 pack_value < tmpl->pending_pack_count; ++pack_value) {
+                 pack_value < pack_length; ++pack_value) {
                 Type** expanded_arguments = cxx_allocate_zeroed_array(
                     sizeof(*expanded_arguments),
                     argument_count > 0 ? (size_t)argument_count : 1u);
@@ -22696,7 +22709,7 @@ static DeclList* substitute_template_decl_parameters(
                            sizeof(bool) * (size_t)argument_count);
                 }
                 expanded_arguments[pack_index] =
-                    tmpl->pending_pack_args[pack_value];
+                    tmpl->pending_pack_args[pack_offset + pack_value];
                 expanded_type = substitute_template_type(
                     tmpl, parameter->type, expanded_arguments,
                     argument_count, expanded_values,
