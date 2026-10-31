@@ -5418,6 +5418,7 @@ typedef struct SemaConstexprBinding {
     bool is_constexpr_uninitialized_local;
 } SemaConstexprBinding;
 
+#define SEMA_CONSTEXPR_EVALUATION_DEPTH_LIMIT 512
 static int constexpr_eval_depth;
 /* The active constexpr function supplies the concrete template-pack sizes
  * needed to evaluate sizeof...(Pack) in its body.  Nested constexpr calls
@@ -5769,7 +5770,8 @@ static bool sema_eval_constexpr_expr(
                 expression->ident_decl->kind == DECL_VAR &&
                 expression->ident_decl->var_is_constexpr &&
                 expression->ident_decl->var_init &&
-                constexpr_eval_depth < 64) {
+                constexpr_eval_depth <
+                    SEMA_CONSTEXPR_EVALUATION_DEPTH_LIMIT) {
                 ++constexpr_eval_depth;
                 bool result = sema_eval_constexpr_expr(
                     expression->ident_decl->var_init, bindings,
@@ -6443,7 +6445,8 @@ static bool sema_eval_constexpr_function(Decl* declaration, ExprList* args,
         declaration->func_this_param || !declaration->type ||
         declaration->type->variadic || !declaration->func_body ||
         declaration->func_body->kind != STMT_BLOCK ||
-        !declaration->func_body->block_stmts || constexpr_eval_depth >= 64) {
+        !declaration->func_body->block_stmts ||
+        constexpr_eval_depth >= SEMA_CONSTEXPR_EVALUATION_DEPTH_LIMIT) {
         return false;
     }
     body = declaration->func_body;
@@ -8746,7 +8749,8 @@ static bool sema_constexpr_materialize_object(
         if (initializer->ident_decl &&
             initializer->ident_decl->kind == DECL_VAR &&
             initializer->ident_decl->var_is_constexpr &&
-            initializer->ident_decl->var_init && constexpr_eval_depth < 64) {
+            initializer->ident_decl->var_init &&
+            constexpr_eval_depth < SEMA_CONSTEXPR_EVALUATION_DEPTH_LIMIT) {
             ++constexpr_eval_depth;
             bool result = sema_constexpr_materialize_object(
                 type, initializer->ident_decl->var_init, bindings,
@@ -9035,7 +9039,8 @@ static bool sema_constexpr_resolve_aggregate_expression(
             !declaration->type ||
             !sema_constexpr_aggregate_type(declaration->type) ||
             !type_is_compatible(declaration->type, expected_type) ||
-            constexpr_eval_depth >= 64) return false;
+            constexpr_eval_depth >=
+                SEMA_CONSTEXPR_EVALUATION_DEPTH_LIMIT) return false;
         ++constexpr_eval_depth;
         bool result = sema_constexpr_resolve_aggregate_expression(
             declaration->var_init, declaration->type,
@@ -9138,7 +9143,8 @@ static bool sema_validate_constexpr_object(
     if (initializer->kind == EXPR_IDENT && initializer->ident_decl &&
         initializer->ident_decl->kind == DECL_VAR &&
         initializer->ident_decl->var_is_constexpr &&
-        initializer->ident_decl->var_init && constexpr_eval_depth < 64) {
+        initializer->ident_decl->var_init &&
+        constexpr_eval_depth < SEMA_CONSTEXPR_EVALUATION_DEPTH_LIMIT) {
         ++constexpr_eval_depth;
         bool result = sema_validate_constexpr_object(
             type, initializer->ident_decl->var_init);
@@ -10984,7 +10990,9 @@ static bool sema_eval_constexpr_aggregate_function(
         !declaration->func_body || declaration->func_body->kind != STMT_BLOCK ||
         !storage || declaration->type->ret_type->size <= 0 ||
         (size_t)declaration->type->ret_type->size > storage_size ||
-        constexpr_eval_depth >= 64) return false;
+        constexpr_eval_depth >= SEMA_CONSTEXPR_EVALUATION_DEPTH_LIMIT) {
+        return false;
+    }
 
     parameter = declaration->func_params;
     argument = args;
@@ -12068,7 +12076,9 @@ static bool sema_eval_constexpr_scalar_function(
             argument = argument->next;
         }
     }
-    if (constexpr_eval_depth >= 64) return false;
+    if (constexpr_eval_depth >= SEMA_CONSTEXPR_EVALUATION_DEPTH_LIMIT) {
+        return false;
+    }
     saved_dynamic_live_count = constexpr_dynamic_live_count;
     saved_constexpr_function = constexpr_function_context;
     constexpr_function_context = declaration;
@@ -12347,7 +12357,8 @@ static bool sema_eval_constexpr_scalar_expr_unadjusted(
                 expression->ident_decl->var_is_constexpr &&
                 expression->ident_decl->var_init &&
                 sema_constexpr_scalar_type(expression->ident_decl->type) &&
-                constexpr_eval_depth < 64) {
+                constexpr_eval_depth <
+                    SEMA_CONSTEXPR_EVALUATION_DEPTH_LIMIT) {
                 ++constexpr_eval_depth;
                 bool result = sema_eval_constexpr_scalar_expr(
                     expression->ident_decl->var_init, bindings,
