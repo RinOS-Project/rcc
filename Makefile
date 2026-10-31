@@ -17403,30 +17403,30 @@ test-preprocessor-line: $(RCC_TARGET) $(RCXX_TARGET)
 
 test-preprocessor-include: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
-	$(RCC_SHELL_TARGET) -E -Itests tests/preprocessor_include.c > \
+	$(RCC_SHELL_TARGET) -E -Itests -Ibootstrap/include tests/preprocessor_include.c > \
 		$(TEST_OUT)/preprocessor-include-c.i
 	$(GREP) -F -q 'int preprocessor_include_c =' \
 		$(TEST_OUT)/preprocessor-include-c.i
 	$(GREP) -F -q '17 + 17' $(TEST_OUT)/preprocessor-include-c.i
 	$(GREP) -F -q 'int preprocessor_include_bom_c = 29;' \
 		$(TEST_OUT)/preprocessor-include-c.i
-	$(RCXX_SHELL_TARGET) -E -Itests tests/preprocessor_include.cpp > \
+	$(RCXX_SHELL_TARGET) -E -Itests -Ibootstrap/include tests/preprocessor_include.cpp > \
 		$(TEST_OUT)/preprocessor-include-cxx.i
 	$(GREP) -F -q 'constexpr int preprocessor_include_cxx =' \
 		$(TEST_OUT)/preprocessor-include-cxx.i
 	$(GREP) -F -q '17 + 17' $(TEST_OUT)/preprocessor-include-cxx.i
 	$(GREP) -F -q 'constexpr int preprocessor_include_bom_cxx = 29;' \
 		$(TEST_OUT)/preprocessor-include-cxx.i
-	$(RCC_TARGET) --target i686-unknown-rinos -Itests -c \
+	$(RCC_TARGET) --target i686-unknown-rinos -Itests -Ibootstrap/include -c \
 		-o $(TEST_OUT)/preprocessor-include-c-x86.ro \
 		tests/preprocessor_include.c
-	$(RCC_TARGET) --target x86_64-unknown-rinos -Itests -c \
+	$(RCC_TARGET) --target x86_64-unknown-rinos -Itests -Ibootstrap/include -c \
 		-o $(TEST_OUT)/preprocessor-include-c-x64.ro \
 		tests/preprocessor_include.c
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -Itests -c \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -Itests -Ibootstrap/include -c \
 		-o $(TEST_OUT)/preprocessor-include-cxx-x86.ro \
 		tests/preprocessor_include.cpp
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -Itests -c \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -Itests -Ibootstrap/include -c \
 		-o $(TEST_OUT)/preprocessor-include-cxx-x64.ro \
 		tests/preprocessor_include.cpp
 	$(RCC_SHELL_TARGET) -E -Itests tests/preprocessor_pragma_once.c > \

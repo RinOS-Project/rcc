@@ -2789,8 +2789,19 @@ static const char* process_directive(Preprocessor* pp, const char* p,
         char* include_text = rcc_alloc(include_text_length + 1u);
         memcpy(include_text, p, include_text_length);
         include_text[include_text_length] = '\0';
-        char* expanded_include = expand_macros(pp, include_text);
-        rcc_free(include_text);
+        char* expanded_include;
+        const char* raw_include_start = skip_ws(include_text);
+        if (*raw_include_start == '<' || *raw_include_start == '"') {
+            /* A delimited header-name is already a preprocessing token.
+             * Macro-expanding its spelling can corrupt valid names such as
+             * <errno.h> after errno.h has defined `errno`. */
+            expanded_include = include_text;
+        } else {
+            /* Macro form (#include HEADER) is expanded before the resulting
+             * quoted or angle-bracket header-name is parsed. */
+            expanded_include = expand_macros(pp, include_text);
+            rcc_free(include_text);
+        }
 
         const char* include_start = skip_ws(expanded_include);
         bool is_system = (*include_start == '<');
