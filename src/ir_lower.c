@@ -11986,6 +11986,18 @@ static RccIrLowerValue lower_atomic_representation_cast(
     RccIrInstruction* bitcast;
     if (!context || !value.valid) return lower_invalid_value();
     if (rcc_ir_type_equal(value.type, target_type)) return value;
+    if (value.type.kind == RCC_IR_TYPE_INTEGER &&
+        target_type.kind == RCC_IR_TYPE_INTEGER) {
+        RccIrOpcode opcode = value.type.bit_width < target_type.bit_width
+            ? (value.is_unsigned ? RCC_IR_ZEXT : RCC_IR_SEXT)
+            : RCC_IR_TRUNC;
+        RccIrInstruction* conversion = lower_append(
+            context, opcode, target_type, &value.value, 1u, NULL, 0u);
+        return conversion
+            ? lower_value(conversion->result, target_type,
+                          value.is_unsigned)
+            : lower_invalid_value();
+    }
     if (!((value.type.kind == RCC_IR_TYPE_FLOAT &&
            target_type.kind == RCC_IR_TYPE_INTEGER) ||
           (value.type.kind == RCC_IR_TYPE_INTEGER &&
@@ -12011,6 +12023,11 @@ static bool lower_atomic_object_representation_type(
         !aggregate_representation) return false;
     *aggregate_representation = false;
     if (under_aligned_aggregate) *under_aligned_aggregate = false;
+    if (object_type->kind == TYPE_BOOL) {
+        if (!lower_type(object_type, object_ir_type)) return false;
+        *operation_type = rcc_ir_type_integer(8u);
+        return true;
+    }
     if (lower_type(object_type, object_ir_type)) {
         return lower_atomic_representation_type(
             *object_ir_type, operation_type);
@@ -12101,6 +12118,18 @@ static RccIrLowerValue lower_atomic_value_load(
     RccIrLowerValue zero;
     RccIrValue operands[3];
     if (!aggregate_representation) {
+        if (object_type && object_type->kind == TYPE_BOOL) {
+            RccIrType logical_type;
+            RccIrLowerValue storage_value = lower_load_address(
+                context, address, type_uchar);
+            if (!storage_value.valid ||
+                !lower_type(object_type, &logical_type)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            return lower_atomic_representation_cast(
+                context, storage_value, logical_type);
+        }
         return lower_load_address(context, address, object_type);
     }
     if (!context || !address.valid ||
@@ -12713,7 +12742,7 @@ static RccIrLowerValue lower_atomic_load_store_call(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    if (!aggregate_representation) {
+    if (!aggregate_representation && object_type->kind != TYPE_BOOL) {
         /* Generic load/store access memory directly.  Keep floating objects
          * in their AST representation; only exchange and compare-exchange
          * need the integer bit representation chosen by the helper. */
@@ -12770,6 +12799,8 @@ static RccIrLowerValue lower_atomic_load_store_call(
     }
     if (!aggregate_representation) {
         value = lower_cast(context, value, object_type);
+        value = lower_atomic_representation_cast(
+            context, value, atomic_type);
     }
     if (!value.valid || !rcc_ir_type_equal(value.type, atomic_type) ||
         !lower_store_address(context, object_address, value)) {

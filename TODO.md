@@ -12637,9 +12637,17 @@ remains a separate open item.
       per target at `-O0`/`-O2`. This prevents a zero count for an unrelated
       symbol from masking the actual legacy-backend fallback. The focused
       Windows and WSL gates pass.
+- [x] Bind constructor mem-initializer parameter names to their declarations,
+      and rebind those declarations when a class-template constructor is
+      specialized. A reference-member template and `std::atomic_ref<char>` now
+      lower their constructors without typed-SSA fallback on AMD64.
+- [x] Lower generic atomic builtins on `bool` objects with their byte-sized
+      memory representation while preserving the logical `i1` value. The
+      C++20 atomic bool store/load/exchange/compare-exchange fixture has no
+      atomic-operation fallback on either target. AMD64 currently retains one
+      fallback for `std::__rcc_atomic_base<bool>`'s default constructor.
 - [ ] Broader typed-SSA C++ atomic coverage remains open. The same header still
-      exposes unrelated fallback functions (`__rcc_atomic_supported_fetch_add`
-      on i686 and a `std::atomic_ref<signed char>` constructor on AMD64 in the
-      full header translation unit); expand remaining fetch operations and
-      typed-SSA coverage across `atomic_ref` specializations before closing this
-      item.
+      exposes `__rcc_atomic_supported_fetch_add` on i686 and the default
+      constructor for `std::__rcc_atomic_base<bool>` on AMD64 in the full
+      header translation unit; expand remaining fetch operations and constructor
+      lowering before closing this item.

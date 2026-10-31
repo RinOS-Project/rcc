@@ -1401,6 +1401,7 @@ void rcc_parser_validate_cxx_object_type(Type* type, SourceLoc loc) {
 typedef struct CxxParserValueBinding {
     const char* name;
     Type* type;
+    Decl* declaration;
     struct CxxParserValueBinding* next;
 } CxxParserValueBinding;
 
@@ -1425,6 +1426,7 @@ typedef struct CxxLambdaCaptureSpec {
 } CxxLambdaCaptureSpec;
 
 static CxxParserValueBinding* active_value_bindings;
+static unsigned constructor_initializer_parameter_binding_depth;
 static CxxLocalUsingBinding* active_local_using_bindings;
 static CxxParserValueBinding** saved_value_bindings;
 static size_t saved_value_binding_capacity;
@@ -1756,6 +1758,7 @@ void rcc_parser_cxx_begin_function_parameters(DeclList* parameters) {
             CxxParserValueBinding* binding = ast_arena_alloc(sizeof(*binding));
             binding->name = item->decl->name;
             binding->type = item->decl->type;
+            binding->declaration = item->decl;
             binding->next = active_value_bindings;
             active_value_bindings = binding;
         }
@@ -1770,6 +1773,41 @@ void rcc_parser_cxx_end_function_parameters(void) {
         saved_value_bindings[--saved_value_binding_depth];
 }
 
+void rcc_parser_cxx_begin_constructor_initializer_parameters(
+    DeclList* parameters) {
+    if (constructor_initializer_parameter_binding_depth == UINT_MAX) {
+        rcc_fatal("C++ constructor initializer binding nesting exceeds compiler limits");
+    }
+    rcc_parser_cxx_begin_function_parameters(parameters);
+    ++constructor_initializer_parameter_binding_depth;
+}
+
+void rcc_parser_cxx_end_constructor_initializer_parameters(void) {
+    if (constructor_initializer_parameter_binding_depth == 0u) {
+        rcc_fatal("C++ constructor initializer binding stack underflow");
+    }
+    --constructor_initializer_parameter_binding_depth;
+    rcc_parser_cxx_end_function_parameters();
+}
+
+void rcc_parser_cxx_bind_value_identifier(Expr* expression) {
+    if (constructor_initializer_parameter_binding_depth == 0u ||
+        !expression || expression->kind != EXPR_IDENT ||
+        !expression->ident_name) {
+        return;
+    }
+    for (CxxParserValueBinding* binding = active_value_bindings;
+         binding; binding = binding->next) {
+        if (!binding->name ||
+            strcmp(binding->name, expression->ident_name) != 0) {
+            continue;
+        }
+        expression->ident_decl = binding->declaration;
+        expression->type = binding->type;
+        return;
+    }
+}
+
 void rcc_parser_cxx_add_value_binding(const char* name, Type* type) {
     CxxParserValueBinding* binding;
     if (!name || !*name || !type) return;
@@ -1779,6 +1817,7 @@ void rcc_parser_cxx_add_value_binding(const char* name, Type* type) {
     binding = ast_arena_alloc(sizeof(*binding));
     binding->name = name;
     binding->type = type;
+    binding->declaration = NULL;
     binding->next = active_value_bindings;
     active_value_bindings = binding;
 }
@@ -12738,7 +12777,9 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         }
 
         if (is_constructor) {
+            rcc_parser_cxx_begin_constructor_initializer_parameters(params);
             constructor_initializer = parse_ctor_initializer();
+            rcc_parser_cxx_end_constructor_initializer_parameters();
         }
 
         /* Method body or declaration */
@@ -19278,7 +19319,9 @@ Stmt* rcc_parse_cxx_qualified_constructor_definition(
             is_noexcept = true;
         }
     }
+    rcc_parser_cxx_begin_constructor_initializer_parameters(parameters);
     constructor_initializer = parse_ctor_initializer();
+    rcc_parser_cxx_end_constructor_initializer_parameters();
 
     for (struct CxxMember* member = cls->members; member;
          member = member->next) {
@@ -23310,6 +23353,242 @@ static TypeParam* constructor_parameters_from_method(DeclList* parameters,
     return result;
 }
 
+static Decl* cxx_constructor_instantiated_parameter(
+    const Decl* pattern_parameter, DeclList* pattern_parameters,
+    DeclList* instantiated_parameters) {
+    while (pattern_parameters && instantiated_parameters) {
+        if (pattern_parameters->decl == pattern_parameter) {
+            return instantiated_parameters->decl;
+        }
+        pattern_parameters = pattern_parameters->next;
+        instantiated_parameters = instantiated_parameters->next;
+    }
+    return NULL;
+}
+
+typedef struct {
+    Expr** expressions;
+    size_t count;
+    size_t capacity;
+} CxxConstructorRebindVisited;
+
+static bool cxx_constructor_rebind_visit_once(
+    CxxConstructorRebindVisited* visited, Expr* expression) {
+    if (!visited || !expression) return false;
+    for (size_t index = 0; index < visited->count; ++index) {
+        if (visited->expressions[index] == expression) return false;
+    }
+    if (visited->count == visited->capacity) {
+        size_t capacity = visited->capacity ? visited->capacity * 2u : 32u;
+        if (capacity < visited->capacity ||
+            capacity > SIZE_MAX / sizeof(*visited->expressions)) {
+            rcc_fatal("C++ constructor initializer expression graph is too large");
+        }
+        visited->expressions = rcc_realloc(
+            visited->expressions, capacity * sizeof(*visited->expressions));
+        visited->capacity = capacity;
+    }
+    visited->expressions[visited->count++] = expression;
+    return true;
+}
+
+static void cxx_constructor_rebind_initializer_expression(
+    Expr* expression, DeclList* pattern_parameters,
+    DeclList* instantiated_parameters,
+    CxxConstructorRebindVisited* visited);
+
+static void cxx_constructor_rebind_initializer_expression_list(
+    ExprList* expressions, DeclList* pattern_parameters,
+    DeclList* instantiated_parameters,
+    CxxConstructorRebindVisited* visited) {
+    for (ExprList* item = expressions; item; item = item->next) {
+        cxx_constructor_rebind_initializer_expression(
+            item->expr, pattern_parameters, instantiated_parameters, visited);
+    }
+}
+
+static void cxx_constructor_rebind_initializer_expression(
+    Expr* expression, DeclList* pattern_parameters,
+    DeclList* instantiated_parameters,
+    CxxConstructorRebindVisited* visited) {
+    if (!cxx_constructor_rebind_visit_once(visited, expression)) return;
+    switch (expression->kind) {
+        case EXPR_IDENT: {
+            Decl* instantiated_parameter =
+                cxx_constructor_instantiated_parameter(
+                    expression->ident_decl, pattern_parameters,
+                    instantiated_parameters);
+            if (instantiated_parameter) {
+                expression->ident_decl = instantiated_parameter;
+            }
+            return;
+        }
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            cxx_constructor_rebind_initializer_expression(
+                expression->unary_operand, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_CAST:
+            cxx_constructor_rebind_initializer_expression(
+                expression->cast_expr, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            cxx_constructor_rebind_initializer_expression(
+                expression->binary_lhs, pattern_parameters,
+                instantiated_parameters, visited);
+            cxx_constructor_rebind_initializer_expression(
+                expression->binary_rhs, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_COND:
+            cxx_constructor_rebind_initializer_expression(
+                expression->cond_test, pattern_parameters,
+                instantiated_parameters, visited);
+            cxx_constructor_rebind_initializer_expression(
+                expression->cond_then, pattern_parameters,
+                instantiated_parameters, visited);
+            cxx_constructor_rebind_initializer_expression(
+                expression->cond_else, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_INDEX:
+            cxx_constructor_rebind_initializer_expression(
+                expression->index_base, pattern_parameters,
+                instantiated_parameters, visited);
+            cxx_constructor_rebind_initializer_expression(
+                expression->index_expr, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            cxx_constructor_rebind_initializer_expression(
+                expression->member_base, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_CXX_TYPEID:
+            cxx_constructor_rebind_initializer_expression(
+                expression->cxx_typeid_operand, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_COMPOUND:
+            cxx_constructor_rebind_initializer_expression_list(
+                expression->compound_init, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_GENERIC:
+            cxx_constructor_rebind_initializer_expression(
+                expression->generic_control, pattern_parameters,
+                instantiated_parameters, visited);
+            for (GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                cxx_constructor_rebind_initializer_expression(
+                    association->expr, pattern_parameters,
+                    instantiated_parameters, visited);
+            }
+            return;
+        case EXPR_CXX_FOLD:
+            cxx_constructor_rebind_initializer_expression(
+                expression->cxx_fold_init, pattern_parameters,
+                instantiated_parameters, visited);
+            cxx_constructor_rebind_initializer_expression(
+                expression->cxx_fold_pattern, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_CXX_REQUIRES:
+            cxx_constructor_rebind_initializer_expression_list(
+                expression->cxx_requires_items, pattern_parameters,
+                instantiated_parameters, visited);
+            cxx_constructor_rebind_initializer_expression_list(
+                expression->cxx_requires_nested, pattern_parameters,
+                instantiated_parameters, visited);
+            for (CxxCompoundRequirement* requirement =
+                     expression->cxx_requires_compound;
+                 requirement; requirement = requirement->next) {
+                cxx_constructor_rebind_initializer_expression(
+                    requirement->expr, pattern_parameters,
+                    instantiated_parameters, visited);
+                cxx_constructor_rebind_initializer_expression_list(
+                    requirement->return_type_concept_arguments,
+                    pattern_parameters, instantiated_parameters, visited);
+            }
+            return;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            cxx_constructor_rebind_initializer_expression(
+                expression->va_list_operand, pattern_parameters,
+                instantiated_parameters, visited);
+            cxx_constructor_rebind_initializer_expression(
+                expression->va_second_operand, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_CALL:
+            cxx_constructor_rebind_initializer_expression(
+                expression->call_func, pattern_parameters,
+                instantiated_parameters, visited);
+            cxx_constructor_rebind_initializer_expression_list(
+                expression->call_args, pattern_parameters,
+                instantiated_parameters, visited);
+            return;
+        case EXPR_CXX_THIS:
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_CXX_TYPE_TRAIT:
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
+            return;
+    }
+}
+
 /* Expand one trailing class-template parameter pack while preserving any
  * fixed parameters declared before it.  A pack in any other position remains
  * diagnosed by the parser because its explicit argument boundary is not
@@ -24844,6 +25123,7 @@ static Type* instantiate_class_template_for_owner(
                  ++pack_value) {
                 CxxConstructorInitializer* initializer_copy =
                     ast_arena_alloc(sizeof(*initializer_copy));
+                CxxConstructorRebindVisited rebind_visited = {0};
                 *initializer_copy = *initializer;
                 initializer_copy->arguments = NULL;
                 initializer_copy->is_pack_expansion = false;
@@ -24938,16 +25218,30 @@ static Type* instantiate_class_template_for_owner(
                             substitution_value_present);
                     for (ExprList* argument = initializer->arguments;
                          argument; argument = argument->next) {
-                        exprlist_append(
-                            &initializer_copy->arguments,
+                        Expr* cloned_argument =
                             cxx_template_clone_expr_with_values(
                                 tmpl, argument->expr,
                                 substitution_arguments,
                                 substitution_argument_count,
                                 substitution_value_args,
-                                substitution_value_present));
+                                substitution_value_present);
+                        exprlist_append(&initializer_copy->arguments,
+                                        cloned_argument);
                     }
                 }
+                DeclList* pattern_parameters =
+                    constructor->method && constructor->method->decl
+                        ? constructor->method->decl->func_params : NULL;
+                DeclList* instantiated_parameters =
+                    copy->method && copy->method->decl
+                        ? copy->method->decl->func_params : NULL;
+                cxx_constructor_rebind_initializer_expression(
+                    initializer_copy->value, pattern_parameters,
+                    instantiated_parameters, &rebind_visited);
+                cxx_constructor_rebind_initializer_expression_list(
+                    initializer_copy->arguments, pattern_parameters,
+                    instantiated_parameters, &rebind_visited);
+                rcc_free(rebind_visited.expressions);
                 /* The cloned initializer is re-resolved against the concrete
                  * bases and constructors after the specialized class layout
                  * is complete; the pattern's constructor belongs to the

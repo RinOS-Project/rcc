@@ -11,6 +11,20 @@ static std::atomic<VerifiedAtomicCounterPair> verified_atomic_counter_pair{
     VerifiedAtomicCounterPair{0u, 0u}
 };
 static std::atomic<double> verified_atomic_double{0.0};
+static std::atomic<bool> verified_atomic_bool{false};
+
+template<class T>
+struct VerifiedReferenceMember {
+    T& value;
+    explicit VerifiedReferenceMember(T& source) : value(source) {}
+};
+
+extern "C" int verified_constructor_parameter_binding()
+{
+    char value = 7;
+    VerifiedReferenceMember<char> reference(value);
+    return reference.value == value ? 0 : 1;
+}
 
 extern "C" int verified_atomic_lock_free_query(
     unsigned long size, const void* object)
@@ -42,6 +56,23 @@ extern "C" int verified_atomic_double_store_load()
     }
     return verified_atomic_double.load(std::memory_order_acquire) == 3.5
         ? 0 : 4;
+}
+
+extern "C" int verified_atomic_bool_store_load()
+{
+    verified_atomic_bool.store(true, std::memory_order_release);
+    if (!verified_atomic_bool.load(std::memory_order_acquire)) return 1;
+    if (!verified_atomic_bool.exchange(
+            false, std::memory_order_acq_rel)) {
+        return 2;
+    }
+    bool expected = false;
+    if (!verified_atomic_bool.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
+        return 3;
+    }
+    return verified_atomic_bool.load(std::memory_order_acquire) ? 0 : 4;
 }
 
 extern "C" int verified_atomic_ref_char()

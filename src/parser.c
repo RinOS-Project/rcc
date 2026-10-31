@@ -107,9 +107,15 @@ extern bool rcc_parser_cxx_take_no_unique_address_attribute(void)
 extern bool rcc_parser_cxx_take_weak_attribute(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parser_cxx_take_noreturn_attribute(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_range_for_statement(void) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_begin_constructor_initializer_parameters(
+    DeclList* parameters) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_end_constructor_initializer_parameters(void)
+    RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
     RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_end_function_parameters(void) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_bind_value_identifier(Expr* expression)
+    RCC_OPTIONAL_CXX;
 extern void* rcc_parser_cxx_begin_function_friend_access(
     const char* name, Type* function_type) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_end_function_friend_access(void* saved_context)
@@ -3630,8 +3636,13 @@ static Expr* parse_primary(void) {
             local_using_name = rcc_parser_cxx_resolve_local_using(
                 previous()->value.str_val, loc);
         }
-        return expr_ident(local_using_name ? local_using_name
-                                           : previous()->value.str_val, loc);
+        Expr* identifier = expr_ident(
+            local_using_name ? local_using_name : previous()->value.str_val,
+            loc);
+        if (parser_cxx_mode && rcc_parser_cxx_bind_value_identifier) {
+            rcc_parser_cxx_bind_value_identifier(identifier);
+        }
+        return identifier;
     }
     if (parser_cxx_mode && rcc_parse_cxx_fold_expression) {
         Expr* fold = rcc_parse_cxx_fold_expression();

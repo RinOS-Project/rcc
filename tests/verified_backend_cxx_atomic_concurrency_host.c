@@ -4,7 +4,9 @@ extern void verified_atomic_pair_reset(void);
 extern void verified_atomic_pair_increment(unsigned int iterations);
 extern unsigned long long verified_atomic_pair_read(void);
 extern int verified_atomic_double_store_load(void);
+extern int verified_atomic_bool_store_load(void);
 extern int verified_atomic_ref_char(void);
+extern int verified_constructor_parameter_binding(void);
 extern int verified_atomic_lock_free_query(unsigned long size,
                                            const void* object);
 extern int verified_atomic_always_lock_free(void);
@@ -25,7 +27,9 @@ int main(void)
     unsigned char lock_free_object = 0u;
 
     if (verified_atomic_double_store_load() != 0) return 5;
+    if (verified_atomic_bool_store_load() != 0) return 9;
     if (verified_atomic_ref_char() != 0) return 6;
+    if (verified_constructor_parameter_binding() != 0) return 8;
     if (!verified_atomic_always_lock_free() ||
         !verified_atomic_lock_free_query(1u, &lock_free_object) ||
         !verified_atomic_lock_free_query(2u, &lock_free_object) ||
