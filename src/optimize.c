@@ -3321,9 +3321,12 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     const Expr* returned;
     InlineScalarOperation operations[INLINE_SCALAR_BINDING_LIMIT];
     InlineScalarBinding bindings[INLINE_SCALAR_BINDING_LIMIT];
+    InlineDebugParameterState parameter_mutations[
+        INLINE_SCALAR_BINDING_LIMIT];
     size_t binding_count = 0u;
     size_t parameter_count = 0u;
     size_t operation_count = 0u;
+    size_t parameter_mutation_count = 0u;
     size_t index;
     size_t expansion_cost;
     bool has_reference_parameter = false;
@@ -3452,6 +3455,8 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             combined = expr_binary(binary_operator, previous_value, one,
                                    operation->expression->loc);
             combined->type = operation->declaration->type;
+            inline_debug_statement_origin_add(
+                combined, function, operation->statement);
             inline_debug_scope_origins_copy_to_clone(
                 operation->expression, combined);
             inline_debug_statement_origin_add(
@@ -3459,6 +3464,17 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             bindings[local_binding].argument = combined;
             bindings[local_binding].uses = 0u;
             bindings[local_binding].value_statement = operation->statement;
+            if (g_opts.debug_info && bindings[local_binding].parameter &&
+                bindings[local_binding].parameter->kind == DECL_PARAM) {
+                if (parameter_mutation_count >=
+                    INLINE_SCALAR_BINDING_LIMIT) return false;
+                parameter_mutations[parameter_mutation_count].declaration =
+                    bindings[local_binding].parameter;
+                parameter_mutations[parameter_mutation_count].value = combined;
+                parameter_mutations[parameter_mutation_count].statement =
+                    operation->statement;
+                ++parameter_mutation_count;
+            }
             continue;
         }
         if (!operation->declaration || !operation->expression ||
@@ -3525,6 +3541,16 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             inline_debug_statement_origin_add(
                 value, function, operation->statement);
             bindings[local_binding].value_statement = operation->statement;
+            if (g_opts.debug_info) {
+                if (parameter_mutation_count >=
+                    INLINE_SCALAR_BINDING_LIMIT) return false;
+                parameter_mutations[parameter_mutation_count].declaration =
+                    bindings[local_binding].parameter;
+                parameter_mutations[parameter_mutation_count].value = value;
+                parameter_mutations[parameter_mutation_count].statement =
+                    operation->statement;
+                ++parameter_mutation_count;
+            }
         }
         bindings[local_binding].argument = value;
         bindings[local_binding].uses = 0u;
@@ -3619,26 +3645,10 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         }
         inline_caller_budget_charge(optimize_inline_caller, expansion_cost);
         if (g_opts.debug_info) {
-            InlineDebugParameterState parameter_states[
-                INLINE_SCALAR_BINDING_LIMIT];
-            size_t parameter_state_count = 0u;
-            for (index = 0u; index < binding_count; ++index) {
-                if (!bindings[index].parameter ||
-                    bindings[index].parameter->kind != DECL_PARAM ||
-                    !bindings[index].value_statement ||
-                    !bindings[index].argument) continue;
-                parameter_states[parameter_state_count].declaration =
-                    bindings[index].parameter;
-                parameter_states[parameter_state_count].value =
-                    bindings[index].argument;
-                parameter_states[parameter_state_count].statement =
-                    bindings[index].value_statement;
-                ++parameter_state_count;
-            }
             inline_debug_origin_add(clone, optimize_inline_caller, function,
                                     expression->loc, expression->call_args,
-                                    parameter_states,
-                                    parameter_state_count);
+                                    parameter_mutations,
+                                    parameter_mutation_count);
         }
         *expression_out = clone;
     }

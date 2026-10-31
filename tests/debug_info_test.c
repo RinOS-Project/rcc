@@ -6114,7 +6114,8 @@ static void verify_cxx_inline_nested_local_constants(
 
 static void verify_cxx_inline_mutated_parameter_location(
     const char* path, uint16_t architecture, const char* function_name,
-    const char* parameter_name, const char* entry_name) {
+    const char* parameter_name, const char* entry_name,
+    unsigned expected_entries) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6189,44 +6190,61 @@ static void verify_cxx_inline_mutated_parameter_location(
            location_list < locations->size);
     {
         uint64_t cursor = location_list;
-        const ObjReloc* start_relocation = NULL;
-        const ObjReloc* end_relocation = NULL;
-        uint16_t expression_size;
-        uint64_t expression_start;
-        uint64_t expression_end;
-        for (const ObjReloc* relocation = locations->relocs;
-             relocation; relocation = relocation->next) {
-            if (relocation->offset == cursor) start_relocation = relocation;
-            if (relocation->offset == cursor + address_size) {
-                end_relocation = relocation;
+        uint64_t previous_end = 0u;
+        assert(expected_entries > 0u);
+        for (unsigned entry = 0u; entry < expected_entries; ++entry) {
+            const ObjReloc* start_relocation = NULL;
+            const ObjReloc* end_relocation = NULL;
+            uint16_t expression_size;
+            uint64_t expression_start;
+            uint64_t expression_end;
+            for (const ObjReloc* relocation = locations->relocs;
+                 relocation; relocation = relocation->next) {
+                if (relocation->offset == cursor) {
+                    start_relocation = relocation;
+                }
+                if (relocation->offset == cursor + address_size) {
+                    end_relocation = relocation;
+                }
             }
-        }
-        assert(start_relocation != NULL && end_relocation != NULL);
-        assert(start_relocation->symbol_name != NULL &&
-               strcmp(start_relocation->symbol_name, entry_name) == 0);
-        assert(end_relocation->symbol_name != NULL &&
-               strcmp(end_relocation->symbol_name, entry_name) == 0);
-        assert(start_relocation->addend > (int64_t)call_start &&
-               end_relocation->addend == (int64_t)call_end);
-        cursor += address_size * 2u;
-        assert(cursor + 2u <= locations->size);
-        expression_size = (uint16_t)locations->data[cursor] |
-            (uint16_t)((uint16_t)locations->data[cursor + 1u] << 8u);
-        expression_start = cursor + 2u;
-        expression_end = expression_start + expression_size;
-        assert(expression_size >= 4u && expression_end <= locations->size);
-        assert(locations->data[expression_start] ==
-               (architecture == ARCH_X64 ? 0x76u : 0x75u));
-        assert(locations->data[expression_end - 1u] == 0x9fu);
-        {
-            bool has_add = false;
-            for (uint64_t byte = expression_start; byte < expression_end;
-                 ++byte) {
-                if (locations->data[byte] == 0x22u) has_add = true;
+            assert(start_relocation != NULL && end_relocation != NULL);
+            assert(start_relocation->symbol_name != NULL &&
+                   strcmp(start_relocation->symbol_name, entry_name) == 0);
+            assert(end_relocation->symbol_name != NULL &&
+                   strcmp(end_relocation->symbol_name, entry_name) == 0);
+            assert(start_relocation->addend > (int64_t)call_start &&
+                   end_relocation->addend <= (int64_t)call_end &&
+                   end_relocation->addend > start_relocation->addend);
+            if (entry == 0u) {
+                assert(start_relocation->addend > (int64_t)call_start);
+            } else {
+                assert(start_relocation->addend == (int64_t)previous_end);
             }
-            assert(has_add);
+            previous_end = (uint64_t)end_relocation->addend;
+            cursor += address_size * 2u;
+            assert(cursor + 2u <= locations->size);
+            expression_size = (uint16_t)locations->data[cursor] |
+                (uint16_t)((uint16_t)locations->data[cursor + 1u] << 8u);
+            expression_start = cursor + 2u;
+            expression_end = expression_start + expression_size;
+            assert(expression_size >= 4u && expression_end <= locations->size);
+            assert(locations->data[expression_start] ==
+                   (architecture == ARCH_X64 ? 0x76u : 0x75u));
+            assert(locations->data[expression_end - 1u] == 0x9fu);
+            {
+                bool has_add = false;
+                bool has_multiply = false;
+                for (uint64_t byte = expression_start;
+                     byte < expression_end; ++byte) {
+                    if (locations->data[byte] == 0x22u) has_add = true;
+                    if (locations->data[byte] == 0x1eu) has_multiply = true;
+                }
+                assert(has_add);
+                if (entry != 0u) assert(has_multiply);
+            }
+            cursor = expression_end;
         }
-        cursor = expression_end;
+        assert(previous_end == call_end);
         assert(cursor + address_size * 2u <= locations->size);
         for (uint64_t byte = cursor;
              byte < cursor + address_size * 2u; ++byte) {
@@ -18641,18 +18659,20 @@ int main(int argc, char** argv)
         strcmp(argv[1], "--verify-inline-mutated-parameter") == 0) {
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_parameter",
-            "mutable_parameter", "debug_inline_mutated_parameter_entry");
+            "mutable_parameter", "debug_inline_mutated_parameter_entry",
+            2u);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_parameter",
-            "mutable_parameter", "debug_inline_mutated_parameter_entry");
+            "mutable_parameter", "debug_inline_mutated_parameter_entry",
+            2u);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter",
-            "debug_inline_mutated_unsigned_parameter_entry");
+            "debug_inline_mutated_unsigned_parameter_entry", 1u);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter",
-            "debug_inline_mutated_unsigned_parameter_entry");
+            "debug_inline_mutated_unsigned_parameter_entry", 1u);
         return 0;
     }
     if (argc == 10 &&

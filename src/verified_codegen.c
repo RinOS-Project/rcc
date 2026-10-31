@@ -1411,7 +1411,8 @@ static bool verified_append_debug_inline_calls(
             if (value->value_statement != range->source_statement) continue;
             if (!module_set_debug_inline_parameter_value(
                     destination, global_index_plus_one[local_call_index] - 1u,
-                    (const Decl*)value->declaration, NULL, NULL, code_end)) {
+                    (const Decl*)value->declaration, NULL,
+                    (const Stmt*)value->value_statement, code_end)) {
                 if (error && error_size != 0u) {
                     snprintf(error, error_size,
                              "verified inline parameter range has no formal");
@@ -1522,12 +1523,15 @@ static void verified_emit_debug_sections(
             const ModuleDebugInlineParameterValue* value =
                 &call->parameter_values[value_index];
             if (!value->has_mutated_value) continue;
-            if (!module_set_debug_inline_parameter_value(
-                    debug_module, debug_index, value->declaration,
-                    value->current_value_expression,
-                    value->current_value_statement,
-                    value->current_value_start)) {
-                rcc_fatal("verified DWARF inline parameter state is inconsistent");
+            for (const ModuleDebugInlineParameterMutation* mutation =
+                     value->mutations;
+                 mutation; mutation = mutation->next) {
+                if (!module_set_debug_inline_parameter_value(
+                        debug_module, debug_index, value->declaration,
+                        mutation->expression, mutation->statement,
+                        mutation->code_start)) {
+                    rcc_fatal("verified DWARF inline parameter state is inconsistent");
+                }
             }
         }
         for (const ModuleDebugInlineScope* scope = call->lexical_scopes;

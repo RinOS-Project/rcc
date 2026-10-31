@@ -1,6 +1,7 @@
 static inline int debug_inline_mutated_parameter(int mutable_parameter)
 {
     mutable_parameter += 3;
+    mutable_parameter *= 2;
     return mutable_parameter * 2;
 }
 

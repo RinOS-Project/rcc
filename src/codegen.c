@@ -305,9 +305,7 @@ static void debug_inline_capture_parameter_values(
         value->has_unsigned_integer_constant = false;
         value->has_float_constant = false;
         value->has_mutated_value = false;
-        value->current_value_expression = NULL;
-        value->current_value_statement = NULL;
-        value->current_value_start = 0u;
+        value->mutations = NULL;
         parameter_type = declaration->type;
         argument_type = argument && argument->expr
             ? argument->expr->type : NULL;
@@ -534,15 +532,30 @@ bool module_set_debug_inline_parameter_value(
         ModuleDebugInlineParameterValue* value = &call->parameter_values[index];
         if (value->declaration != declaration) continue;
         if (current_value_expression || current_value_statement) {
-            if (!current_value_expression || !current_value_statement) {
-                return false;
+            ModuleDebugInlineParameterMutation* mutation;
+            if (!current_value_statement) return false;
+            for (mutation = value->mutations; mutation;
+                 mutation = mutation->next) {
+                if (mutation->statement == current_value_statement) break;
             }
+            if (current_value_expression && !mutation) {
+                ModuleDebugInlineParameterMutation** tail =
+                    &value->mutations;
+                mutation = rcc_alloc(sizeof(*mutation));
+                mutation->expression = current_value_expression;
+                mutation->statement = current_value_statement;
+                mutation->code_start = 0u;
+                mutation->next = NULL;
+                while (*tail) tail = &(*tail)->next;
+                *tail = mutation;
+            } else if (current_value_expression) {
+                mutation->expression = current_value_expression;
+            }
+            if (!mutation) return false;
             value->has_mutated_value = true;
-            value->current_value_expression = current_value_expression;
-            value->current_value_statement = current_value_statement;
-        }
-        if (current_value_start > value->current_value_start) {
-            value->current_value_start = current_value_start;
+            if (current_value_start > mutation->code_start) {
+                mutation->code_start = current_value_start;
+            }
         }
         return true;
     }
@@ -629,7 +642,20 @@ void codegen_free(Module* mod) {
     for (size_t index = 0u; index < mod->debug_inline_call_count; ++index) {
         ModuleDebugInlineScope* scope =
             mod->debug_inline_calls[index].lexical_scopes;
-        rcc_free(mod->debug_inline_calls[index].parameter_values);
+        ModuleDebugInlineParameterValue* values =
+            mod->debug_inline_calls[index].parameter_values;
+        for (size_t value_index = 0u;
+             value_index < mod->debug_inline_calls[index].parameter_value_count;
+             ++value_index) {
+            ModuleDebugInlineParameterMutation* mutation =
+                values[value_index].mutations;
+            while (mutation) {
+                ModuleDebugInlineParameterMutation* next = mutation->next;
+                rcc_free(mutation);
+                mutation = next;
+            }
+        }
+        rcc_free(values);
         while (scope) {
             ModuleDebugInlineScope* next_scope = scope->next;
             StmtDebugRange* range = scope->code_ranges;

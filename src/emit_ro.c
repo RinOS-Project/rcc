@@ -15541,23 +15541,29 @@ static bool debug_emit_inline_mutated_parameter_location(
     const ModuleDebugInlineCall* call,
     const ModuleDebugInlineParameterValue* value,
     DebugInlineParameterOrigin* origin) {
+    typedef struct {
+        uint32_t start;
+        uint32_t end;
+        size_t expression_size;
+        uint8_t expression[DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
+    } DebugInlineMutationLocation;
     ObjSection* locations;
     int locations_section;
     char* scoped_symbol = NULL;
     const char* symbol_name;
     ExprList dynamic_value = {0};
-    uint8_t expression[DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
-    size_t expression_size = 0u;
+    DebugInlineMutationLocation* entries;
+    size_t mutation_count = 0u;
+    size_t entry_count = 0u;
+    size_t allocation_size;
+    uint64_t list_size = 0u;
     uint32_t function_size;
     uint32_t function_end;
     uint32_t list_offset;
-    uint64_t list_size;
     int address_size = architecture == ARCH_X64 ? 8 : 4;
     if (!obj || !info || !mod || !filename || !function || !call ||
-        !value || !origin || !value->current_value_expression ||
-        !value->current_value_statement ||
-        value->current_value_start < call->code_start ||
-        value->current_value_start >= call->code_end) {
+        !value || !origin || !value->mutations ||
+        call->code_start >= call->code_end) {
         return false;
     }
     function_size = debug_function_size(mod, function);
@@ -15566,39 +15572,117 @@ static bool debug_emit_inline_mutated_parameter_location(
     function_end = function->offset + function_size;
     if (call->code_start < function->offset ||
         call->code_end > function_end) return false;
-    dynamic_value.expr = (Expr*)value->current_value_expression;
-    if (!debug_inline_parameter_integer_expression(
-            mod, architecture, call->callee, value, &dynamic_value,
-            expression, sizeof(expression), &expression_size, true) ||
-        expression_size == 0u || expression_size > UINT16_MAX) {
+    for (const ModuleDebugInlineParameterMutation* mutation =
+             value->mutations;
+         mutation; mutation = mutation->next) {
+        if (mutation_count == SIZE_MAX) return false;
+        ++mutation_count;
+    }
+    if (mutation_count == 0u ||
+        mutation_count > SIZE_MAX / sizeof(*entries)) return false;
+    allocation_size = mutation_count * sizeof(*entries);
+    entries = rcc_alloc(allocation_size);
+    uint32_t previous_start = 0u;
+    bool have_previous_start = false;
+    while (entry_count < mutation_count) {
+        uint32_t selected_start = UINT32_MAX;
+        const ModuleDebugInlineParameterMutation* selected = NULL;
+        uint32_t next_start = call->code_end;
+        for (const ModuleDebugInlineParameterMutation* mutation =
+                 value->mutations;
+             mutation; mutation = mutation->next) {
+            if (!mutation->expression ||
+                mutation->code_start <= call->code_start ||
+                mutation->code_start >= call->code_end ||
+                (have_previous_start &&
+                 mutation->code_start <= previous_start)) {
+                continue;
+            }
+            if (mutation->code_start < selected_start ||
+                mutation->code_start == selected_start) {
+                selected_start = mutation->code_start;
+                selected = mutation;
+            }
+        }
+        if (!selected) break;
+        for (const ModuleDebugInlineParameterMutation* mutation =
+                 value->mutations;
+             mutation; mutation = mutation->next) {
+            if (mutation->expression &&
+                mutation->code_start > selected_start &&
+                mutation->code_start < next_start) {
+                next_start = mutation->code_start;
+            }
+        }
+        if (next_start <= selected_start) {
+            rcc_free(entries);
+            return false;
+        }
+        dynamic_value.expr = (Expr*)selected->expression;
+        entries[entry_count].start = selected_start;
+        entries[entry_count].end = next_start;
+        entries[entry_count].expression_size = 0u;
+        if (!debug_inline_parameter_integer_expression(
+                mod, architecture, call->callee, value, &dynamic_value,
+                entries[entry_count].expression,
+                sizeof(entries[entry_count].expression),
+                &entries[entry_count].expression_size, true) ||
+            entries[entry_count].expression_size == 0u ||
+            entries[entry_count].expression_size > UINT16_MAX) {
+            rcc_free(entries);
+            return false;
+        }
+        list_size += (uint64_t)address_size * 2u + 2u +
+            entries[entry_count].expression_size;
+        if (list_size > UINT32_MAX) {
+            rcc_free(entries);
+            return false;
+        }
+        previous_start = selected_start;
+        have_previous_start = true;
+        ++entry_count;
+    }
+    if (entry_count == 0u) {
+        rcc_free(entries);
         return false;
     }
+    list_size += (uint64_t)address_size * 2u;
     locations = objfile_get_section(obj, ".debug_loc");
     if (!locations) {
         locations = objfile_add_section(
             obj, ".debug_loc", SECT_DEBUG_LOC, 0u);
         locations->align = 1u;
     }
-    if (locations->size > UINT32_MAX) return false;
+    if (locations->size > UINT32_MAX) {
+        rcc_free(entries);
+        return false;
+    }
     locations_section = objfile_section_index(obj, locations);
-    if (locations_section < 0) return false;
-    list_size = (uint64_t)address_size * 2u + 2u + expression_size +
-        (uint64_t)address_size * 2u;
-    if (list_size > UINT32_MAX - locations->size) return false;
+    if (locations_section < 0 ||
+        list_size > UINT32_MAX - locations->size) {
+        rcc_free(entries);
+        return false;
+    }
     list_offset = (uint32_t)locations->size;
     symbol_name = function->name;
     if (!function->is_global) {
         scoped_symbol = module_scoped_symbol(filename, function->name);
-        if (!scoped_symbol) return false;
+        if (!scoped_symbol) {
+            rcc_free(entries);
+            return false;
+        }
         symbol_name = scoped_symbol;
     }
-    debug_location_list_append_entry(
-        obj, locations, locations_section, symbol_name, architecture,
-        function->offset, value->current_value_start, call->code_end,
-        expression, expression_size);
+    for (size_t index = 0u; index < entry_count; ++index) {
+        debug_location_list_append_entry(
+            obj, locations, locations_section, symbol_name, architecture,
+            function->offset, entries[index].start, entries[index].end,
+            entries[index].expression, entries[index].expression_size);
+    }
     debug_line_address(locations, 0u, address_size);
     debug_line_address(locations, 0u, address_size);
     rcc_free(scoped_symbol);
+    rcc_free(entries);
     section_add_byte(info, 69u);
     debug_line_u32(info, origin->die_offset);
     debug_line_u32(info, list_offset);

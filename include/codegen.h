@@ -88,6 +88,13 @@ typedef struct ModuleDebugFrameSave {
     uint8_t dwarf_register;
 } ModuleDebugFrameSave;
 
+typedef struct ModuleDebugInlineParameterMutation {
+    const Expr* expression;
+    const Stmt* statement;
+    uint32_t code_start;
+    struct ModuleDebugInlineParameterMutation* next;
+} ModuleDebugInlineParameterMutation;
+
 typedef struct ModuleDebugInlineParameterValue {
     const Decl* declaration;
     int64_t value;
@@ -99,9 +106,7 @@ typedef struct ModuleDebugInlineParameterValue {
     bool has_unsigned_integer_constant;
     bool has_float_constant;
     bool has_mutated_value;
-    const Expr* current_value_expression;
-    const Stmt* current_value_statement;
-    uint32_t current_value_start;
+    ModuleDebugInlineParameterMutation* mutations;
 } ModuleDebugInlineParameterValue;
 
 typedef struct ModuleDebugInlineScope {
