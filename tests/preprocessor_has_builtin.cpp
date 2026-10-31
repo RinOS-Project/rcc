@@ -34,12 +34,20 @@
 #error RCC must report the implemented legacy trivial-assign builtin
 #endif
 
+#if !__has_builtin(__has_trivial_copy)
+#error RCC must report the implemented legacy trivial-copy builtin
+#endif
+
 #if !__has_builtin(__has_nothrow_constructor)
 #error RCC must report the implemented legacy nothrow-constructor builtin
 #endif
 
 #if !__has_builtin(__has_nothrow_assign)
 #error RCC must report the implemented legacy nothrow-assign builtin
+#endif
+
+#if !__has_builtin(__has_nothrow_copy)
+#error RCC must report the implemented legacy nothrow-copy builtin
 #endif
 
 #if !__has_builtin(__is_trivially_constructible)

@@ -470,6 +470,111 @@ struct LegacyTrivialAssignDefaulted {
         const LegacyTrivialAssignDefaulted&) = default;
 };
 
+struct LegacyTrivialCopyWithNontrivialDefault {
+    LegacyTrivialCopyWithNontrivialDefault() {}
+    LegacyTrivialCopyWithNontrivialDefault(
+        const LegacyTrivialCopyWithNontrivialDefault&) = default;
+};
+
+struct LegacyUserProvidedCopy {
+    LegacyUserProvidedCopy(const LegacyUserProvidedCopy&) {}
+};
+
+struct LegacyDeletedCopy {
+    LegacyDeletedCopy(const LegacyDeletedCopy&) = delete;
+};
+
+struct LegacyNonconstCopyConstructor {
+    LegacyNonconstCopyConstructor(LegacyNonconstCopyConstructor&) = default;
+};
+
+struct LegacyTrivialCopyMoveOnly {
+    LegacyTrivialCopyMoveOnly(LegacyTrivialCopyMoveOnly&&) {}
+};
+
+struct LegacyTrivialCopyTemplateConstructor {
+    template <typename T>
+    LegacyTrivialCopyTemplateConstructor(T&&) {}
+};
+
+struct LegacyNontrivialCopyMember {
+    LegacyNontrivialCopyMember(const LegacyNontrivialCopyMember&) {}
+};
+
+struct LegacyNontrivialCopyParent {
+    LegacyNontrivialCopyMember member;
+};
+
+struct LegacyNothrowCopy {
+    LegacyNothrowCopy(const LegacyNothrowCopy&) noexcept {}
+};
+
+struct LegacyThrowingCopy {
+    LegacyThrowingCopy(const LegacyThrowingCopy&) noexcept(false) {}
+};
+
+struct LegacyNothrowCopyMember {
+    LegacyNothrowCopyMember(const LegacyNothrowCopyMember&) noexcept {}
+};
+
+struct LegacyThrowingCopyMember {
+    LegacyThrowingCopyMember(const LegacyThrowingCopyMember&) noexcept(false) {}
+};
+
+struct LegacyNothrowCopyParent {
+    LegacyNothrowCopyMember member;
+};
+
+struct LegacyThrowingCopyParent {
+    LegacyThrowingCopyMember member;
+};
+
+struct LegacyDefaultedNothrowCopy {
+    LegacyNothrowCopyMember member;
+    LegacyDefaultedNothrowCopy(
+        const LegacyDefaultedNothrowCopy&) = default;
+};
+
+struct LegacyDefaultedThrowingCopy {
+    LegacyThrowingCopyMember member;
+    LegacyDefaultedThrowingCopy(
+        const LegacyDefaultedThrowingCopy&) = default;
+};
+
+struct LegacyMixedNothrowCopyOverloads {
+    LegacyMixedNothrowCopyOverloads(
+        LegacyMixedNothrowCopyOverloads&) noexcept {}
+    LegacyMixedNothrowCopyOverloads(
+        const LegacyMixedNothrowCopyOverloads&) noexcept(false) {}
+};
+
+struct LegacyNothrowConstCopyOverload {
+    LegacyNothrowConstCopyOverload(
+        LegacyNothrowConstCopyOverload&) noexcept(false) {}
+    LegacyNothrowConstCopyOverload(
+        const LegacyNothrowConstCopyOverload&) noexcept {}
+};
+
+struct LegacyThrowingConstCopyOverload {
+    LegacyThrowingConstCopyOverload(
+        LegacyThrowingConstCopyOverload&) noexcept {}
+    LegacyThrowingConstCopyOverload(
+        const LegacyThrowingConstCopyOverload&) noexcept(false) {}
+};
+
+struct LegacyNothrowConstCopyParent {
+    LegacyNothrowConstCopyOverload member;
+};
+
+struct LegacyThrowingConstCopyParent {
+    LegacyThrowingConstCopyOverload member;
+};
+
+struct LegacyPrivateNothrowCopy {
+private:
+    LegacyPrivateNothrowCopy(const LegacyPrivateNothrowCopy&) noexcept {}
+};
+
 struct LegacyNothrowAssign {
     int value;
     LegacyNothrowAssign& operator=(
@@ -598,6 +703,27 @@ struct LegacyReferenceAssignMember {
 union LegacyTrivialAssignUnion {
     int value;
     double other;
+};
+
+union LegacyNothrowCopyUnion {
+    LegacyNothrowCopyMember member;
+    int value;
+};
+
+union LegacyThrowingCopyUnion {
+    LegacyThrowingCopyMember member;
+    int value;
+};
+
+union LegacyDefaultedNothrowCopyUnion {
+    LegacyNothrowCopyMember member;
+    int value;
+    LegacyDefaultedNothrowCopyUnion(
+        const LegacyDefaultedNothrowCopyUnion&) = default;
+};
+
+struct LegacyNothrowCopyUnionParent {
+    LegacyNothrowCopyUnion member;
 };
 
 union LegacyNothrowAssignUnion {
@@ -783,6 +909,101 @@ static_assert(__has_trivial_assign(LegacyTrivialAssignUnion),
               "legacy trivial-assign recognizes trivial unions");
 static_assert(__has_trivial_assign(LegacyTrivialAssignDefaulted[2]),
               "legacy trivial-assign recognizes arrays of trivial classes");
+static_assert(__has_trivial_copy(int),
+              "legacy trivial-copy recognizes scalar types");
+static_assert(!__has_trivial_copy(void),
+              "legacy trivial-copy rejects void");
+static_assert(__has_trivial_copy(int&),
+              "legacy trivial-copy recognizes references");
+static_assert(__has_trivial_copy(const int),
+              "legacy trivial-copy recognizes cv-qualified scalar types");
+static_assert(__has_trivial_copy(LegacyTrivialCopyWithNontrivialDefault),
+              "a nontrivial default constructor does not affect trivial copy");
+static_assert(!__has_trivial_copy(LegacyUserProvidedCopy),
+              "a user-provided copy constructor is nontrivial");
+static_assert(__has_trivial_copy(LegacyDeletedCopy),
+              "legacy trivial-copy reports a deleted trivial copy constructor");
+static_assert(__has_trivial_copy(LegacyNonconstCopyConstructor),
+              "legacy trivial-copy accepts a nonconst copy parameter");
+static_assert(__has_trivial_copy(LegacyTrivialCopyMoveOnly),
+              "a move constructor does not change the legacy trivial-copy result");
+static_assert(__has_trivial_copy(LegacyTrivialCopyTemplateConstructor),
+              "a constructor template does not replace the copy constructor");
+static_assert(!__has_trivial_copy(LegacyNontrivialCopyMember),
+              "a user-provided copy constructor is nontrivial");
+static_assert(!__has_trivial_copy(LegacyNontrivialCopyParent),
+              "a nontrivial member copy constructor propagates to its parent");
+static_assert(__has_trivial_copy(LegacyConstAssignMember),
+              "an implicitly deleted copy constructor can still be trivial");
+static_assert(__has_trivial_copy(LegacyUserProvidedAssign),
+              "a user-provided assignment does not affect trivial copy");
+static_assert(__has_trivial_copy(volatile LegacyTrivialCopyWithNontrivialDefault),
+              "legacy trivial-copy accepts volatile class types");
+static_assert(!__has_trivial_copy(const LegacyUserProvidedCopy),
+              "cv qualification does not hide a user-provided copy constructor");
+static_assert(__has_trivial_copy(LegacyTrivialCopyWithNontrivialDefault[2]),
+              "legacy trivial-copy recognizes arrays of trivial classes");
+static_assert(__has_trivial_copy(LegacyTrivialCopyWithNontrivialDefault[]),
+              "legacy trivial-copy recognizes arrays of unknown bound");
+static_assert(!__has_trivial_copy(LegacyNontrivialCopyMember[2]),
+              "a nontrivial array element copy makes the trait false");
+static_assert(!__has_trivial_copy(LegacyNothrowCopyUnion),
+              "a union with a nontrivial member copy is not trivially copyable");
+static_assert(__has_nothrow_copy(int),
+              "legacy nothrow-copy recognizes scalar types");
+static_assert(!__has_nothrow_copy(void),
+              "legacy nothrow-copy rejects void");
+static_assert(__has_nothrow_copy(int&),
+              "legacy nothrow-copy recognizes reference types");
+static_assert(__has_nothrow_copy(const int),
+              "legacy nothrow-copy recognizes cv-qualified scalars");
+static_assert(__has_nothrow_copy(LegacyNothrowCopy),
+              "a user-provided nonthrowing copy constructor is nothrow");
+static_assert(!__has_nothrow_copy(LegacyThrowingCopy),
+              "a potentially throwing copy constructor is not nothrow");
+static_assert(__has_nothrow_copy(LegacyNothrowCopyParent),
+              "an implicit copy constructor inherits member noexcept");
+static_assert(!__has_nothrow_copy(LegacyThrowingCopyParent),
+              "an implicit copy constructor inherits a throwing member");
+static_assert(__has_nothrow_copy(LegacyDefaultedNothrowCopy),
+              "a defaulted copy constructor derives member noexcept");
+static_assert(!__has_nothrow_copy(LegacyDefaultedThrowingCopy),
+              "a defaulted copy constructor propagates member throwing");
+static_assert(!__has_nothrow_copy(LegacyMixedNothrowCopyOverloads),
+              "all declared copy constructor overloads contribute to the legacy trait");
+static_assert(__has_nothrow_copy(LegacyPrivateNothrowCopy),
+              "legacy nothrow-copy observes private copy constructor specs");
+static_assert(__has_nothrow_copy(LegacyTrivialCopyMoveOnly),
+              "a trivial legacy copy result implies nothrow copy");
+static_assert(!__has_nothrow_copy(LegacyNontrivialCopyParent),
+              "a potentially throwing member copy makes the parent not nothrow");
+static_assert(__has_nothrow_copy(LegacyNothrowConstCopyParent),
+              "implicit copy selects the const member overload for its parent");
+static_assert(!__has_nothrow_copy(LegacyThrowingConstCopyParent),
+              "implicit copy propagates the selected const member overload");
+static_assert(__has_nothrow_copy(LegacyNothrowCopy[2]),
+              "legacy nothrow-copy evaluates array element constructors");
+static_assert(!__has_nothrow_copy(LegacyThrowingCopy[2]),
+              "a throwing array element copy makes the trait false");
+static_assert(__has_nothrow_copy(LegacyNothrowCopyUnion),
+              "an implicitly deleted union copy checks member exceptions");
+static_assert(!__has_nothrow_copy(LegacyThrowingCopyUnion),
+              "a throwing union member copy makes the trait false");
+static_assert(!__has_nothrow_copy(LegacyDefaultedNothrowCopyUnion),
+              "an explicitly defaulted deleted union copy is not nothrow");
+static_assert(__has_nothrow_copy(LegacyNothrowCopyUnionParent),
+              "an implicit parent copy can inspect a union subobject");
+template <typename T>
+struct LegacyCopyTraitDependentProbe {
+    static constexpr bool trivial = __has_trivial_copy(T);
+    static constexpr bool nothrow = __has_nothrow_copy(T);
+};
+static_assert(LegacyCopyTraitDependentProbe<int>::trivial &&
+                  LegacyCopyTraitDependentProbe<int>::nothrow,
+              "legacy copy traits evaluate after dependent type substitution");
+static_assert(!LegacyCopyTraitDependentProbe<LegacyThrowingCopy>::trivial &&
+                  !LegacyCopyTraitDependentProbe<LegacyThrowingCopy>::nothrow,
+              "dependent legacy copy traits observe substituted constructors");
 static_assert(__has_nothrow_assign(int),
               "legacy nothrow-assign recognizes scalar types");
 static_assert(!__has_nothrow_assign(void),

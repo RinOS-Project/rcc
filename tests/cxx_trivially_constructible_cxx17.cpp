@@ -21,6 +21,16 @@ struct Cxx17ThrowingCopyAssignment {
         const Cxx17ThrowingCopyAssignment&) noexcept(false) { return *this; }
 };
 
+struct Cxx17NothrowCopyConstructor {
+    Cxx17NothrowCopyConstructor(
+        const Cxx17NothrowCopyConstructor&) noexcept {}
+};
+
+struct Cxx17ThrowingCopyConstructor {
+    Cxx17ThrowingCopyConstructor(
+        const Cxx17ThrowingCopyConstructor&) noexcept(false) {}
+};
+
 #ifdef __RCC__
 static_assert(__is_trivially_constructible(Cxx17AggregateConstructible),
               "an aggregate remains default constructible in C++17");
@@ -36,6 +46,12 @@ static_assert(__has_nothrow_assign(Cxx17NothrowCopyAssignment),
               "legacy nothrow assignment traits are available in C++17");
 static_assert(!__has_nothrow_assign(Cxx17ThrowingCopyAssignment),
               "C++17 nothrow assignment checks exception specifications");
+static_assert(__has_trivial_copy(int),
+              "legacy trivial-copy traits are available in C++17");
+static_assert(__has_nothrow_copy(Cxx17NothrowCopyConstructor),
+              "C++17 nothrow-copy checks exception specifications");
+static_assert(!__has_nothrow_copy(Cxx17ThrowingCopyConstructor),
+              "C++17 nothrow-copy rejects throwing copy constructors");
 #else
 static_assert(std::is_trivially_constructible_v<Cxx17AggregateConstructible>,
               "an aggregate remains default constructible in C++17");
@@ -53,4 +69,10 @@ static_assert(__has_nothrow_assign(Cxx17NothrowCopyAssignment),
               "legacy nothrow assignment traits are available in C++17");
 static_assert(!__has_nothrow_assign(Cxx17ThrowingCopyAssignment),
               "C++17 nothrow assignment checks exception specifications");
+static_assert(__has_trivial_copy(int),
+              "legacy trivial-copy traits are available in C++17");
+static_assert(__has_nothrow_copy(Cxx17NothrowCopyConstructor),
+              "C++17 nothrow-copy checks exception specifications");
+static_assert(!__has_nothrow_copy(Cxx17ThrowingCopyConstructor),
+              "C++17 nothrow-copy rejects throwing copy constructors");
 #endif

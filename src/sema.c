@@ -20054,6 +20054,277 @@ bool rcc_sema_cxx_nothrow_constructible(
     return !cxx_type_trait_nothrow_evaluation_unknown;
 }
 
+static bool sema_cxx_type_trait_has_trivial_copy_recursive(
+    Type* type, unsigned depth) {
+    CxxClass* cls;
+    if (!type || depth > 64u || type->kind == TYPE_VOID ||
+        type->kind == TYPE_FUNC) {
+        return false;
+    }
+    if (type->kind == TYPE_PTR && type->is_reference) return true;
+    if (type->kind == TYPE_ARRAY) {
+        return sema_cxx_type_trait_has_trivial_copy_recursive(
+            type->base, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (!type_is_complete(type)) return false;
+    cls = type->cxx_class;
+    if (cls) {
+        if (cls->virtual_base_count > 0) return false;
+        for (CxxConstructorInfo* constructor = cls->constructors;
+             constructor; constructor = constructor->next) {
+            CxxMethod* method = constructor->method;
+            if (!method || constructor->is_inherited ||
+                method->member_template ||
+                sema_cxx_constructor_special_member_kind(type, constructor) !=
+                    1) {
+                continue;
+            }
+            if (!constructor->is_defaulted && !constructor->is_deleted &&
+                !method->is_defaulted && !method->is_deleted) {
+                return false;
+            }
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                !sema_cxx_type_trait_has_trivial_copy_recursive(
+                    base->type, depth + 1u)) {
+                return false;
+            }
+        }
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            if (field->is_static) continue;
+            if (!field->type ||
+                !sema_cxx_type_trait_has_trivial_copy_recursive(
+                    field->type, depth + 1u)) {
+                return false;
+            }
+        }
+    } else {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            if (!field->type ||
+                !sema_cxx_type_trait_has_trivial_copy_recursive(
+                    field->type, depth + 1u)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool rcc_sema_cxx_has_trivial_copy(Type* type) {
+    return sema_cxx_type_trait_has_trivial_copy_recursive(type, 0u);
+}
+
+static bool sema_cxx_type_trait_union_members_are_nothrow_copy(
+    Type* type, unsigned depth) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!type || type->kind != TYPE_UNION || depth > 64u) return false;
+    if (cls) {
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            bool member_is_nothrow = false;
+            if (field->is_static) continue;
+            if (!field->type ||
+                !rcc_sema_cxx_has_nothrow_copy(
+                    field->type, &member_is_nothrow) ||
+                !member_is_nothrow) {
+                return false;
+            }
+        }
+    } else {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            bool member_is_nothrow = false;
+            if (!field->type ||
+                !rcc_sema_cxx_has_nothrow_copy(
+                    field->type, &member_is_nothrow) ||
+                !member_is_nothrow) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool sema_cxx_type_trait_copy_subobject_is_nothrow_legacy(
+    Type* subobject, bool source_is_const, bool source_is_volatile,
+    CxxClass* access_context, unsigned depth) {
+    CxxTypeTraitArgument argument;
+    if (!subobject || depth > 64u) return false;
+    if (sema_cxx_type_trait_is_reference(subobject)) return true;
+    if (subobject->kind == TYPE_ARRAY) {
+        return sema_cxx_type_trait_copy_subobject_is_nothrow_legacy(
+            subobject->base, source_is_const, source_is_volatile,
+            access_context, depth + 1u);
+    }
+    if (subobject->kind != TYPE_STRUCT && subobject->kind != TYPE_UNION) {
+        return true;
+    }
+    if (subobject->kind == TYPE_UNION) {
+        bool has_copy = false;
+        if (!sema_cxx_has_declared_copy_move_constructor(
+                subobject, &has_copy, NULL)) {
+            return false;
+        }
+        if (!has_copy) {
+            return sema_cxx_type_trait_union_members_are_nothrow_copy(
+                subobject, depth + 1u);
+        }
+    }
+    memset(&argument, 0, sizeof(argument));
+    argument.type = sema_cxx_type_trait_reference_type(
+        subobject, source_is_const, source_is_volatile, false);
+    return argument.type && sema_cxx_nothrow_constructible_with_access(
+                                subobject, &argument, depth + 1u,
+                                access_context);
+}
+
+static bool sema_cxx_type_trait_copy_subobjects_are_nothrow_legacy(
+    Type* type, bool source_is_const, bool source_is_volatile,
+    unsigned depth) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!type || depth > 64u) return false;
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                !sema_cxx_type_trait_copy_subobject_is_nothrow_legacy(
+                    base->type, source_is_const, source_is_volatile, cls,
+                    depth + 1u)) {
+                return false;
+            }
+        }
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            if (field->is_static) continue;
+            if (!field->type ||
+                !sema_cxx_type_trait_copy_subobject_is_nothrow_legacy(
+                    field->type, source_is_const, source_is_volatile, cls,
+                    depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (!field->type ||
+            !sema_cxx_type_trait_copy_subobject_is_nothrow_legacy(
+                field->type, source_is_const, source_is_volatile, NULL,
+                depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool rcc_sema_cxx_has_nothrow_copy(Type* type, bool* value) {
+    Type* object_type = type;
+    CxxClass* cls;
+    bool found_copy_constructor = false;
+    if (!type || !value) return false;
+    *value = false;
+    if (!rcc_sema_cxx_has_trivial_copy(type)) {
+        while (object_type && object_type->kind == TYPE_ARRAY) {
+            object_type = object_type->base;
+        }
+        if (!object_type ||
+            (object_type->kind != TYPE_STRUCT &&
+             object_type->kind != TYPE_UNION) ||
+            !type_is_complete(object_type)) {
+            return true;
+        }
+    } else {
+        *value = true;
+        return true;
+    }
+    cls = object_type->cxx_class;
+    if (object_type->kind == TYPE_UNION) {
+        bool has_copy = false;
+        if (!sema_cxx_has_declared_copy_move_constructor(
+                object_type, &has_copy, NULL)) {
+            return false;
+        }
+        if (!has_copy) {
+            *value = sema_cxx_type_trait_union_members_are_nothrow_copy(
+                object_type, 0u);
+            return true;
+        }
+    }
+    if (cls) {
+        for (CxxConstructorInfo* constructor = cls->constructors;
+             constructor; constructor = constructor->next) {
+            CxxMethod* method = constructor->method;
+            Type* parameter_type;
+            Type* source_type;
+            Type* source_base;
+            bool source_is_const;
+            bool source_is_volatile;
+            bool is_defaulted;
+            bool has_exception_specification;
+            bool is_nothrow;
+            if (!method || constructor->is_inherited ||
+                method->member_template || !method->decl ||
+                sema_cxx_constructor_special_member_kind(
+                    object_type, constructor) != 1) {
+                continue;
+            }
+            found_copy_constructor = true;
+            parameter_type = constructor->parameters
+                ? constructor->parameters->type : NULL;
+            if (!parameter_type || constructor->is_deleted ||
+                method->is_deleted) {
+                return true;
+            }
+            source_type = sema_cxx_type_trait_is_reference(parameter_type)
+                ? parameter_type->base : parameter_type;
+            source_base = source_type;
+            if (!source_base) return true;
+            source_is_const = source_base->is_const;
+            source_is_volatile = source_base->is_volatile;
+            is_defaulted = constructor->is_defaulted || method->is_defaulted;
+            has_exception_specification = method->is_noexcept ||
+                method->decl->func_is_noexcept ||
+                method->decl->func_noexcept_expr ||
+                (method->decl->type &&
+                 method->decl->type->kind == TYPE_FUNC &&
+                 method->decl->type->function_is_noexcept);
+            if (is_defaulted) {
+                if (object_type->kind == TYPE_UNION ||
+                    !sema_cxx_type_trait_copy_subobjects_constructible(
+                        object_type, source_is_const, source_is_volatile,
+                        false, 0u)) {
+                    return true;
+                }
+                if (!has_exception_specification) {
+                    is_nothrow =
+                        sema_cxx_type_trait_copy_subobjects_are_nothrow_legacy(
+                            object_type, source_is_const,
+                            source_is_volatile, 0u);
+                } else {
+                    is_nothrow = sema_cxx_type_trait_decl_is_nothrow(
+                        method->decl, method->is_noexcept);
+                }
+            } else {
+                is_nothrow = sema_cxx_type_trait_decl_is_nothrow(
+                    method->decl, method->is_noexcept);
+            }
+            if (!is_nothrow) return true;
+        }
+    }
+    if (found_copy_constructor) {
+        *value = true;
+        return true;
+    }
+
+    {
+        bool source_is_const =
+            sema_cxx_type_trait_copy_subobjects_constructible(
+                object_type, true, false, false, 0u);
+        *value = sema_cxx_type_trait_copy_subobjects_are_nothrow_legacy(
+            object_type, source_is_const, false, 0u);
+    }
+    return true;
+}
+
 static bool sema_cxx_has_nothrow_default_constructor_impl(
     Type* type, unsigned depth, CxxClass* access_context);
 
