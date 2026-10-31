@@ -12715,3 +12715,10 @@ remains a separate open item.
       生成・AMD64実行、GCCとのItanium symbol一致、verified backend両target 13関数・
       fallback 0、不正型のno-match/no-object、Windows
       `test-cxx-function-template-overloads`通過を確認。
+
+# RCC continuation (2026-11-01, zipped independent non-type function packs)
+- [x] `ValuePair<Left, Right>...`から複数のintegral non-type packを同じ位置で
+      推論・展開する。空pack/two-elementのGCC C++20 runtimeとItanium symbol、RCC
+      i686/AMD64生成・AMD64実行、verified backend両target 15関数・fallback 0、
+      不正型のno-match/no-object、およびWindows
+      `test-cxx-function-template-overloads`通過を確認。

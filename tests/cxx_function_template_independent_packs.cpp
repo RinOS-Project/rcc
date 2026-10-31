@@ -13,6 +13,9 @@ struct Envelope {};
 template<typename Value, int Tag>
 struct Tagged {};
 
+template<int First, int Second>
+struct ValuePair {};
+
 struct NotPair {};
 struct NotTagged {};
 
@@ -47,12 +50,18 @@ int choose_zipped_mixed_packs(Tagged<Types, Values>...) {
     return static_cast<int>(sizeof...(Types) * 10 + sizeof...(Values));
 }
 
+template<int... Left, int... Right>
+int choose_zipped_nontype_packs(ValuePair<Left, Right>...) {
+    return static_cast<int>(sizeof...(Left) * 10 + sizeof...(Right));
+}
+
 int main() {
 #if defined(RCC_TEST_INVALID_ZIPPED_PACK)
     return choose_zipped_independent_packs(NotPair{}) +
            choose_zipped_compound_packs(Pair<int, char>{}) +
            choose_zipped_nested_packs(NotPair{}) +
-           choose_zipped_mixed_packs(NotTagged{});
+           choose_zipped_mixed_packs(NotTagged{}) +
+           choose_zipped_nontype_packs(NotTagged{});
 #else
     using EmptyPair = Pair<Pack<>, Pack<> >;
     using UnequalPair = Pair<Pack<char>, Pack<int, long> >;
@@ -74,7 +83,10 @@ int main() {
                        Envelope<Duo<long, double>>{}) == 22 &&
                    choose_zipped_mixed_packs() == 0 &&
                    choose_zipped_mixed_packs(
-                       Tagged<int, 1>{}, Tagged<long, 2>{}) == 22
+                       Tagged<int, 1>{}, Tagged<long, 2>{}) == 22 &&
+                   choose_zipped_nontype_packs() == 0 &&
+                   choose_zipped_nontype_packs(
+                       ValuePair<2, 3>{}, ValuePair<5, 7>{}) == 22
         ? 0 : 1;
 #endif
 }
