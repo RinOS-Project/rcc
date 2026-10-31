@@ -961,6 +961,119 @@ static int rcc_complex_annexg_ctanh_infinity_nan_matrix(void) {
     return 0;
 }
 
+static int rcc_complex_annexg_hyperbolic_infinite_real(void) {
+    int imaginary_sign;
+    int magnitude_sign;
+    RccComplexFloat value_float;
+    RccComplexDouble value_double;
+    RccComplexLongDouble value_long_double;
+
+    for (imaginary_sign = 0; imaginary_sign != 2; ++imaginary_sign) {
+        for (magnitude_sign = 0; magnitude_sign != 2; ++magnitude_sign) {
+            float imaginary_float = magnitude_sign ? 2.0f : 1.0f;
+            double imaginary_double = magnitude_sign ? 2.0 : 1.0;
+            long double imaginary_long_double = magnitude_sign
+                ? 2.0L : 1.0L;
+            int expected_real_sign = magnitude_sign;
+
+            if (imaginary_sign) {
+                imaginary_float = -imaginary_float;
+                imaginary_double = -imaginary_double;
+                imaginary_long_double = -imaginary_long_double;
+            }
+
+            value_float = ccoshf(CMPLXF(
+                __builtin_huge_valf(), imaginary_float));
+            value_double = ccosh(CMPLX(
+                __builtin_huge_val(), imaginary_double));
+            value_long_double = ccoshl(CMPLXL(
+                (long double)__builtin_huge_val(), imaginary_long_double));
+            if (!__builtin_isinf(__real__ value_float) ||
+                !!__builtin_signbit(__real__ value_float) != expected_real_sign ||
+                !__builtin_isinf(__imag__ value_float) ||
+                !!__builtin_signbit(__imag__ value_float) != imaginary_sign ||
+                !__builtin_isinf(__real__ value_double) ||
+                !!__builtin_signbit(__real__ value_double) != expected_real_sign ||
+                !__builtin_isinf(__imag__ value_double) ||
+                !!__builtin_signbit(__imag__ value_double) != imaginary_sign ||
+                !__builtin_isinf(__real__ value_long_double) ||
+                !!__builtin_signbit(__real__ value_long_double) !=
+                    expected_real_sign ||
+                !__builtin_isinf(__imag__ value_long_double) ||
+                !!__builtin_signbit(__imag__ value_long_double) != imaginary_sign)
+                return __LINE__;
+
+            value_float = csinhf(CMPLXF(
+                __builtin_huge_valf(), imaginary_float));
+            value_double = csinh(CMPLX(
+                __builtin_huge_val(), imaginary_double));
+            value_long_double = csinhl(CMPLXL(
+                (long double)__builtin_huge_val(), imaginary_long_double));
+            if (!__builtin_isinf(__real__ value_float) ||
+                !!__builtin_signbit(__real__ value_float) != expected_real_sign ||
+                !__builtin_isinf(__imag__ value_float) ||
+                !!__builtin_signbit(__imag__ value_float) != imaginary_sign ||
+                !__builtin_isinf(__real__ value_double) ||
+                !!__builtin_signbit(__real__ value_double) != expected_real_sign ||
+                !__builtin_isinf(__imag__ value_double) ||
+                !!__builtin_signbit(__imag__ value_double) != imaginary_sign ||
+                !__builtin_isinf(__real__ value_long_double) ||
+                !!__builtin_signbit(__real__ value_long_double) !=
+                    expected_real_sign ||
+                !__builtin_isinf(__imag__ value_long_double) ||
+                !!__builtin_signbit(__imag__ value_long_double) != imaginary_sign)
+                return __LINE__;
+        }
+    }
+
+    for (imaginary_sign = 0; imaginary_sign != 2; ++imaginary_sign) {
+        float imaginary_float = imaginary_sign ? -0.0f : 0.0f;
+        double imaginary_double = imaginary_sign ? -0.0 : 0.0;
+        long double imaginary_long_double = imaginary_sign ? -0.0L : 0.0L;
+
+        value_float = ccoshf(CMPLXF(
+            __builtin_huge_valf(), imaginary_float));
+        value_double = ccosh(CMPLX(
+            __builtin_huge_val(), imaginary_double));
+        value_long_double = ccoshl(CMPLXL(
+            (long double)__builtin_huge_val(), imaginary_long_double));
+        if (!__builtin_isinf(__real__ value_float) ||
+            __builtin_signbit(__real__ value_float) ||
+            __imag__ value_float != 0.0f ||
+            !!__builtin_signbit(__imag__ value_float) != imaginary_sign ||
+            !__builtin_isinf(__real__ value_double) ||
+            __builtin_signbit(__real__ value_double) ||
+            __imag__ value_double != 0.0 ||
+            !!__builtin_signbit(__imag__ value_double) != imaginary_sign ||
+            !__builtin_isinf(__real__ value_long_double) ||
+            __builtin_signbit(__real__ value_long_double) ||
+            __imag__ value_long_double != 0.0L ||
+            !!__builtin_signbit(__imag__ value_long_double) != imaginary_sign)
+            return __LINE__;
+
+        value_float = csinhf(CMPLXF(
+            __builtin_huge_valf(), imaginary_float));
+        value_double = csinh(CMPLX(
+            __builtin_huge_val(), imaginary_double));
+        value_long_double = csinhl(CMPLXL(
+            (long double)__builtin_huge_val(), imaginary_long_double));
+        if (!__builtin_isinf(__real__ value_float) ||
+            __builtin_signbit(__real__ value_float) ||
+            __imag__ value_float != 0.0f ||
+            !!__builtin_signbit(__imag__ value_float) != imaginary_sign ||
+            !__builtin_isinf(__real__ value_double) ||
+            __builtin_signbit(__real__ value_double) ||
+            __imag__ value_double != 0.0 ||
+            !!__builtin_signbit(__imag__ value_double) != imaginary_sign ||
+            !__builtin_isinf(__real__ value_long_double) ||
+            __builtin_signbit(__real__ value_long_double) ||
+            __imag__ value_long_double != 0.0L ||
+            !!__builtin_signbit(__imag__ value_long_double) != imaginary_sign)
+            return __LINE__;
+    }
+    return 0;
+}
+
 int rcc_complex_standard_api_all(void) {
 #define RCC_COMPLEX_API_CHECK_FLOAT(call, expected_real, expected_imaginary) \
     do { \
@@ -1747,6 +1860,8 @@ int rcc_complex_standard_api_all(void) {
     if (rcc_complex_annexg_hyperbolic_nan_real() != 0)
         return __LINE__;
     if (rcc_complex_annexg_ctanh_infinity_nan_matrix() != 0)
+        return __LINE__;
+    if (rcc_complex_annexg_hyperbolic_infinite_real() != 0)
         return __LINE__;
 
 #undef RCC_COMPLEX_API_CHECK_FLOAT

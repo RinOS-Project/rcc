@@ -20,6 +20,10 @@
 - [x] Cover Annex G G.6.3.6 `ctanh` for `±∞+iy` with both signs of `y` and
   `sin(2y)` result-zero signs, plus `NaN+iy` and `NaN+iNaN`, across float,
   double, and RinOS binary64 `long double` through legacy and verified callers.
+- [x] Cover Annex G G.6.3.4/.5 `ccosh`/`csinh` at `+∞+i0` with both signed
+  zeros and at `+∞+iy` for `y=±1,±2`. Check the signed infinite components
+  against `cis(y)` for float, double, and RinOS binary64 `long double` through
+  legacy and verified callers.
 
 ## RCC continuation (2026-10-30, floating math builtins)
 

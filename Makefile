@@ -17631,21 +17631,21 @@ test-complex: $(RCC_TARGET)
 		tests/c_complex_abi.c \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x86.log
-	$(GREP) -F -q 'Verified backend: 65 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 66 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x86.log
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 \
 		-fverified-backend -v -c -o $(TEST_OUT)/complex/complex-x64.ro \
 		tests/c_complex_abi.c \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x64.log
-	$(GREP) -F -q 'Verified backend: 65 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 66 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x64.log
 	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/complex/complex-x64-o2.ro \
 		tests/c_complex_abi.c -I$(RINOS_ROOT)/public-base/libs/libc \
 		>$(TEST_OUT)/complex/complex-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 65 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 66 function(s) emitted' \
 		$(TEST_OUT)/complex/complex-x64-o2.log
 	$(CC) $(CFLAGS) -I$(RINOS_ROOT)/RinOS-SDK/include \
 		-I$(RINOS_ROOT)/public-base/libs/libc \
@@ -18832,16 +18832,24 @@ test-inline-asm-validation: $(RCC_TARGET)
 
 test-fenv-header: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/fenv-header)
-	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos \
+		-std=c17 -c -o $(TEST_OUT)/fenv-header/invalid.ro \
+		tests/invalid_fenv_access_pragma.c,$(TEST_OUT)/fenv-header/invalid.log)
+	$(GREP) -F -q "invalid #pragma STDC FENV_ACCESS" \
+		$(TEST_OUT)/fenv-header/invalid.log
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O2 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -c \
 		-o $(TEST_OUT)/fenv-header/c-x86.ro tests/fenv_header_compile.c
-	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -c \
 		-o $(TEST_OUT)/fenv-header/c-x64.ro tests/fenv_header_compile.c
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -O2 -c \
+		-o $(TEST_OUT)/fenv-header/c23-x64.ro \
+		tests/fenv_access_optimizer.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -c \
 		-o $(TEST_OUT)/fenv-header/cxx-x86.ro tests/fenv_header_compile.cpp
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -c \
 		-o $(TEST_OUT)/fenv-header/cxx-x64.ro tests/fenv_header_compile.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
@@ -18852,6 +18860,12 @@ test-fenv-header: $(RCC_TARGET) $(RCXX_TARGET)
 		-I$(RINOS_ROOT)/public-base/libs/libc -S \
 		-o $(TEST_OUT)/fenv-header/runtime-x64.s tests/fenv_header_runtime.c
 	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/fenv-header/runtime-x64,$(TEST_OUT)/fenv-header/runtime-x64.s)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 -S \
+		-o $(TEST_OUT)/fenv-header/optimizer-x64.s \
+		tests/fenv_access_optimizer.c
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/fenv-header/optimizer-x64,\
+		$(TEST_OUT)/fenv-header/optimizer-x64.s \
+		tests/fenv_access_optimizer_runtime.c)
 	@echo "RinOS math.h/fenv.h C17/C++20 compile and runtime tests completed"
 
 ifeq ($(OS),Windows_NT)
