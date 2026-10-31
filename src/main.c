@@ -61,6 +61,7 @@ static void print_usage(void) {
     printf("  -ffreestanding  Freestanding environment\n");
     printf("  -fPIC/-fpic     Position-independent code and data references\n");
     printf("  -fPIE/-fpie     Position-independent executable code and data references\n");
+    printf("  -frounding-math  Honor dynamic floating-point rounding modes\n");
     printf("  --dynamic-tls/-fdynamic-tls  Use RinOS DTV/__tls_get_addr TLS model\n");
     printf("  -fverified-backend  Use typed-SSA x86 backend when supported\n");
     printf("\n");
@@ -239,6 +240,10 @@ static int parse_args(int argc, char** argv) {
             g_opts.sse2_enabled = true;
         } else if (strcmp(arg, "-mno-sse2") == 0) {
             g_opts.sse2_enabled = false;
+        } else if (strcmp(arg, "-frounding-math") == 0) {
+            g_opts.frounding_math = true;
+        } else if (strcmp(arg, "-fno-rounding-math") == 0) {
+            g_opts.frounding_math = false;
         } else if (strcmp(arg, "--target") == 0 || strncmp(arg, "--target=", 9) == 0) {
             const char* triple;
             TargetArch target_arch;

@@ -2396,6 +2396,7 @@ extern Type* rcc_parser_parse_cxx_declarator(Type* base_type,
                                               const char** name,
                                               DeclList** parameters);
 extern bool rcc_parser_last_cxx_declarator_was_pack(void);
+static bool cxx_top_level_class_declaration_starts(void);
 static Stmt* parse_cxx_statement(void);
 static DeclList* parse_cxx_parameter_declarations(bool* is_variadic);
 static Type* parse_cxx_type_spec(void);
@@ -13376,11 +13377,25 @@ static CxxClass* cxx_find_class_declaration(const char* name) {
     return NULL;
 }
 
+static void cxx_sync_aggregate_fields_from_type(CxxClass* cls, Type* type) {
+    if (!cls || !type || cls->fields || !type->fields) return;
+    for (TypeField* source = type->fields; source; source = source->next) {
+        source->cxx_declaring_class = cls;
+        cxx_class_add_field_initializer(
+            cls, source->name, source->type,
+            (AccessSpec)source->cxx_access, source->initializer,
+            source->is_bitfield, source->bit_width, false,
+            source->is_deprecated, source->deprecated_message,
+            source->cxx_no_unique_address);
+    }
+}
+
 static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                                        bool is_union, const char* class_name,
                                        const char* local_type_identity) {
     bool has_definition = false;
     bool is_final;
+    Type* prior_tag_type = NULL;
 
     /* A final class has the same object layout as an otherwise identical
      * class; the semantic restriction is enforced when bases are resolved. */
@@ -13394,6 +13409,35 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                           !local_type_identity)
         ? cxx_find_class_declaration(class_name) : NULL;
     CxxClass* cls = NULL;
+    if (!existing && !active_template && !active_class &&
+        !local_type_identity && class_name) {
+        TypeKind expected_kind = is_union ? TYPE_UNION : TYPE_STRUCT;
+        const char* tag_name = strrchr(class_name, ':');
+        tag_name = tag_name ? tag_name + 1 : class_name;
+        prior_tag_type = rcc_parser_lookup_type(class_name);
+        if (prior_tag_type && prior_tag_type->kind == expected_kind &&
+            prior_tag_type->tag &&
+            (strcmp(prior_tag_type->tag, class_name) == 0 ||
+             strcmp(prior_tag_type->tag, tag_name) == 0)) {
+            existing = prior_tag_type->cxx_class;
+            if (!existing) {
+                existing = cxx_class_new(class_name, loc);
+                existing->type = prior_tag_type;
+                prior_tag_type->cxx_class = existing;
+            }
+            existing->ns = active_namespace
+                ? active_namespace : g_global_namespace;
+            existing->is_struct = is_struct;
+            existing->is_union = is_union;
+            existing->is_final = is_final;
+            if (existing->type && existing->type->is_complete) {
+                cxx_sync_aggregate_fields_from_type(existing, existing->type);
+                if (!existing->type->cxx_typeinfo_symbol) {
+                    cxx_class_build_vtable(existing);
+                }
+            }
+        }
+    }
     if (existing && existing->is_union != is_union) {
         rcc_error(loc, "class-key does not match previous declaration of '%s'",
                   class_name ? class_name : "<anonymous>");
@@ -14443,19 +14487,8 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
             }
         } else if (match(TOK_PRAGMA_PACK)) {
             rcc_parser_apply_pragma_pack(previous());
-        } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
-            CxxClass* cls = parse_cxx_class();
-            (void)take_cxx_nodiscard();
-            if (take_cxx_weak()) {
-                rcc_error(loc, "[[gnu::weak]] requires a file-scope declaration");
-            }
-            (void)take_cxx_deprecated(NULL);
-            if (take_cxx_no_unique_address()) {
-                rcc_error(loc,
-                          "[[no_unique_address]] requires a class data member");
-            }
-            cxx_namespace_add_class(ns, cls);
-        } else if (match(TOK_UNION)) {
+        } else if (cxx_top_level_class_declaration_starts()) {
+            advance();
             CxxClass* cls = parse_cxx_class();
             (void)take_cxx_nodiscard();
             if (take_cxx_weak()) {
@@ -18403,6 +18436,19 @@ CxxClass* rcc_parser_cxx_find_class(const char* qualified_name) {
 Type* rcc_parser_cxx_find_class_type(const char* qualified_name) {
     CxxClass* cls = find_class(qualified_name);
     return cls ? cls->type : NULL;
+}
+
+void rcc_parser_cxx_complete_aggregate_type(Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!cls || !type->is_complete) return;
+    cls->ns = cls->ns ? cls->ns
+        : active_namespace ? active_namespace : g_global_namespace;
+    /* C declarations included by a C++ translation unit are completed by
+     * the shared aggregate parser.  Keep the adopted C++ class view in sync
+     * with that layout so C++ aggregate initialization and member-based
+     * semantic checks see the same fields as the common Type. */
+    cxx_sync_aggregate_fields_from_type(cls, type);
+    if (!type->cxx_typeinfo_symbol) cxx_class_build_vtable(cls);
 }
 
 /* Complete a previously declared static data member outside its class.  The
@@ -50213,7 +50259,8 @@ static void parse_cxx_language_linkage(AST* ast, CxxNamespace* ns) {
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
             skip_cxx_attributes();
-            if (match(TOK_CLASS) || match(TOK_STRUCT) || match(TOK_UNION)) {
+            if (cxx_top_level_class_declaration_starts()) {
+                advance();
                 CxxClass* cls = parse_cxx_class();
                 (void)take_cxx_nodiscard();
                 if (take_cxx_weak()) {
@@ -50324,6 +50371,37 @@ static bool cxx_abbreviated_function_starts(void) {
     return false;
 }
 
+/* At namespace scope, a class-key starts a class declaration only when it
+ * introduces a definition or a forward declaration. An elaborated-type
+ * specifier such as `struct lconv* localeconv(void);` belongs to the regular
+ * declaration parser; sending it to parse_cxx_class() consumes the tag and
+ * leaves the declarator suffix to be misparsed as an expression. */
+static bool cxx_top_level_class_declaration_starts(void) {
+    Token* token = parser.cur;
+    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT &&
+                   token->type != TOK_UNION)) {
+        return false;
+    }
+    token = token->next;
+    if (!token) return false;
+    if (token->type == TOK_LBRACE) return true;
+    if (token->type != TOK_IDENT) return false;
+    token = token->next;
+    while (token && token->type == TOK_SCOPE && token->next &&
+           token->next->type == TOK_IDENT) {
+        token = token->next->next;
+    }
+    if (token && token->type == TOK_LT) {
+        Token* template_end = cxx_find_template_argument_list_end(token);
+        if (!template_end) return false;
+        token = template_end->next;
+    }
+    if (token && token->type == TOK_FINAL) token = token->next;
+    return token && (token->type == TOK_LBRACE ||
+                     token->type == TOK_COLON ||
+                     token->type == TOK_SEMICOLON);
+}
+
 /* Parse C++ translation unit */
 AST* rcc_parse_cxx(TokenList* tokens) {
     rcc_parser_set_cxx_mode(true);
@@ -50395,7 +50473,8 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                 cxx_namespace_add_template(g_global_namespace, tmpl);
             }
         } else if (rcc_parse_cxx_deduction_guide()) {
-        } else if (match(TOK_CLASS) || match(TOK_STRUCT) || match(TOK_UNION)) {
+        } else if (cxx_top_level_class_declaration_starts()) {
+            advance();
             CxxClass* cls = parse_cxx_class();
             (void)take_cxx_nodiscard();
             if (take_cxx_weak()) {

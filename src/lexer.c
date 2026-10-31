@@ -116,6 +116,7 @@ static struct {
     {"typeof", TOK_TYPEOF},
     {"typeof_unqual", TOK_TYPEOF_UNQUAL},
     /* GNU Extensions */
+    {"__thread", TOK_THREAD_LOCAL},
     {"asm", TOK_ASM},
     {"__asm", TOK_ASM},
     {"__asm__", TOK_ASM},
@@ -2003,7 +2004,7 @@ static void lex_normalize_adjacent_strings(TokenList* list, Lexer* lex) {
 
 /* Lex from string */
 TokenList* rcc_lex_string(const char* src, const char* filename) {
-    g_opts.fenv_access = false;
+    g_opts.fenv_access = g_opts.frounding_math;
     /* Initialize lexer */
     Lexer lex = {
         .filename = filename,

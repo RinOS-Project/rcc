@@ -14771,6 +14771,135 @@ static void codegen64_asm_emit_modrm_memory(Module* mod, int reg, int base,
     else if (mode == 2) emit_dword(mod, (uint32_t)displacement);
 }
 
+static bool codegen64_asm_parse_vector_register(const char* text,
+                                                size_t length, int* reg,
+                                                int* width) {
+    unsigned index;
+    size_t prefix_length;
+    if (!text || !reg || !width) return false;
+    if (length > 0u && text[0] == '%') {
+        ++text;
+        --length;
+    }
+    if (length >= 4u && memcmp(text, "xmm", 3u) == 0) {
+        prefix_length = 3u;
+        *width = 16;
+    } else if (length >= 4u && memcmp(text, "ymm", 3u) == 0) {
+        prefix_length = 3u;
+        *width = 32;
+    } else {
+        return false;
+    }
+    if (length == prefix_length + 1u &&
+        text[prefix_length] >= '0' && text[prefix_length] <= '9') {
+        index = (unsigned)(text[prefix_length] - '0');
+    } else if (length == prefix_length + 2u &&
+               text[prefix_length] == '1' &&
+               text[prefix_length + 1u] >= '0' &&
+               text[prefix_length + 1u] <= '5') {
+        index = 10u + (unsigned)(text[prefix_length + 1u] - '0');
+    } else {
+        return false;
+    }
+    *reg = (int)index;
+    return true;
+}
+
+static bool codegen64_asm_emit_vector_move(Module* mod, const char* text,
+                                           size_t length) {
+    size_t mnemonic_length;
+    size_t comma;
+    size_t first_begin;
+    size_t first_length;
+    size_t second_begin;
+    size_t second_length;
+    size_t cursor;
+    int first_register;
+    int first_width;
+    int second_register;
+    int second_width;
+    int vector_register;
+    int base;
+    int32_t displacement;
+    bool avx;
+    bool load;
+    uint8_t opcode;
+
+    if (length >= 8u && memcmp(text, "vmovdqu", 7u) == 0 &&
+        (text[7] == ' ' || text[7] == '\t')) {
+        avx = true;
+        mnemonic_length = 7u;
+    } else if (length >= 7u && memcmp(text, "movdqu", 6u) == 0 &&
+               (text[6] == ' ' || text[6] == '\t')) {
+        avx = false;
+        mnemonic_length = 6u;
+    } else {
+        return false;
+    }
+    cursor = mnemonic_length;
+    while (cursor < length && (text[cursor] == ' ' || text[cursor] == '\t')) {
+        ++cursor;
+    }
+    first_begin = cursor;
+    comma = first_begin;
+    while (comma < length && text[comma] != ',') ++comma;
+    if (comma == length) return false;
+    first_length = comma - first_begin;
+    while (first_length > 0u &&
+           (text[first_begin + first_length - 1u] == ' ' ||
+            text[first_begin + first_length - 1u] == '\t')) {
+        --first_length;
+    }
+    second_begin = comma + 1u;
+    while (second_begin < length &&
+           (text[second_begin] == ' ' || text[second_begin] == '\t')) {
+        ++second_begin;
+    }
+    second_length = length - second_begin;
+    while (second_length > 0u &&
+           (text[second_begin + second_length - 1u] == ' ' ||
+            text[second_begin + second_length - 1u] == '\t')) {
+        --second_length;
+    }
+
+    if (codegen64_asm_parse_vector_register(text + first_begin,
+                                             first_length, &first_register,
+                                             &first_width) &&
+        codegen64_asm_parse_memory(text + second_begin, second_length,
+                                   &base, &displacement)) {
+        load = false;
+        vector_register = first_register;
+        if (first_width != (avx ? 32 : 16)) return false;
+    } else if (codegen64_asm_parse_memory(text + first_begin, first_length,
+                                          &base, &displacement) &&
+               codegen64_asm_parse_vector_register(
+                   text + second_begin, second_length, &second_register,
+                   &second_width)) {
+        load = true;
+        vector_register = second_register;
+        if (second_width != (avx ? 32 : 16)) return false;
+    } else {
+        return false;
+    }
+
+    opcode = load ? 0x6Fu : 0x7Fu;
+    if (avx) {
+        uint8_t vex_r = vector_register >= 8 ? 0u : 0x80u;
+        uint8_t vex_b = base >= 8 ? 0u : 0x20u;
+        emit_byte(mod, 0xC4u);
+        emit_byte(mod, (uint8_t)(vex_r | 0x40u | vex_b | 0x01u));
+        emit_byte(mod, 0x7Eu); /* 256-bit, F3 prefix, reserved vvvv */
+    } else {
+        emit_byte(mod, 0xF3u);
+        emit_rex(mod, false, vector_register, 0, base);
+        emit_byte(mod, 0x0Fu);
+    }
+    emit_byte(mod, opcode);
+    codegen64_asm_emit_modrm_memory(mod, vector_register, base,
+                                    displacement);
+    return true;
+}
+
 static bool codegen64_asm_parse_control_register(const char* text,
                                                  size_t length, int* control)
 {
@@ -15317,6 +15446,104 @@ static bool codegen64_asm_emit_addl_immediate(Module* mod, const char* text,
     return true;
 }
 
+static bool codegen64_asm_emit_cmp_immediate(Module* mod, const char* text,
+                                            size_t length) {
+    static const struct {
+        const char* mnemonic;
+        int width;
+    } forms[] = {
+        {"cmpb", 1}, {"cmpw", 2}, {"cmpl", 4}, {"cmpq", 8}
+    };
+    size_t mnemonic_length = 0u;
+    int width = 0;
+    size_t cursor;
+    size_t comma;
+    size_t immediate_length;
+    size_t destination_begin;
+    size_t destination_length;
+    uint64_t immediate;
+    int destination;
+    int destination_width = 0;
+    int32_t displacement = 0;
+    bool memory_destination;
+    bool short_immediate;
+    uint8_t opcode;
+
+    for (size_t index = 0u; index < sizeof(forms) / sizeof(forms[0]); ++index) {
+        size_t candidate_length = strlen(forms[index].mnemonic);
+        if (length > candidate_length &&
+            memcmp(text, forms[index].mnemonic, candidate_length) == 0 &&
+            (text[candidate_length] == ' ' ||
+             text[candidate_length] == '\t')) {
+            mnemonic_length = candidate_length;
+            width = forms[index].width;
+            break;
+        }
+    }
+    if (width == 0) return false;
+    cursor = mnemonic_length;
+    while (cursor < length && (text[cursor] == ' ' || text[cursor] == '\t')) {
+        ++cursor;
+    }
+    comma = cursor;
+    while (comma < length && text[comma] != ',') ++comma;
+    if (comma == length) return false;
+    immediate_length = comma - cursor;
+    while (immediate_length > 0u &&
+           (text[cursor + immediate_length - 1u] == ' ' ||
+            text[cursor + immediate_length - 1u] == '\t')) {
+        --immediate_length;
+    }
+    destination_begin = comma + 1u;
+    while (destination_begin < length &&
+           (text[destination_begin] == ' ' ||
+            text[destination_begin] == '\t')) {
+        ++destination_begin;
+    }
+    destination_length = length - destination_begin;
+    while (destination_length > 0u &&
+           (text[destination_begin + destination_length - 1u] == ' ' ||
+            text[destination_begin + destination_length - 1u] == '\t')) {
+        --destination_length;
+    }
+    if (!codegen64_asm_parse_immediate_width(
+            text + cursor, immediate_length, width, &immediate)) {
+        return false;
+    }
+    memory_destination = codegen64_asm_parse_memory(
+        text + destination_begin, destination_length,
+        &destination, &displacement);
+    if (!memory_destination &&
+        (!codegen64_asm_parse_register_width(
+             text + destination_begin, destination_length, &destination,
+             &destination_width) || destination_width != width)) {
+        return false;
+    }
+    if (width == 8 && (int64_t)immediate !=
+                          (int64_t)(int32_t)(uint32_t)immediate) {
+        return false;
+    }
+    short_immediate = width != 1 &&
+        (int64_t)immediate >= INT8_MIN && (int64_t)immediate <= INT8_MAX;
+    opcode = width == 1 ? 0x80u : short_immediate ? 0x83u : 0x81u;
+    if (width == 2) emit_byte(mod, 0x66u);
+    emit_rex(mod, width == 8, 0, 0, destination);
+    emit_byte(mod, opcode);
+    if (memory_destination) {
+        codegen64_asm_emit_modrm_memory(mod, 7, destination, displacement);
+    } else {
+        emit_byte(mod, modrm64(3, 7, destination));
+    }
+    if (opcode == 0x80u || opcode == 0x83u) {
+        emit_byte(mod, (uint8_t)immediate);
+    } else if (width == 2) {
+        emit_word(mod, (uint16_t)immediate);
+    } else {
+        emit_dword(mod, (uint32_t)immediate);
+    }
+    return true;
+}
+
 static bool codegen64_asm_emit_alu_immediate(Module* mod, const char* text,
                                               size_t length)
 {
@@ -15632,12 +15859,20 @@ static bool codegen64_asm_parse_numeric_branch(const char* text,
     size_t mnemonic_length;
     const char* mnemonic;
     unsigned value = 0u;
-    if (length >= 4u && strncmp(text, "jnz ", 4u) == 0) {
-        mnemonic = "jnz ";
+    if (length >= 4u && strncmp(text, "jmp ", 4u) == 0) {
+        mnemonic = text;
+        mnemonic_length = 4u;
+        *condition = -1;
+    } else if (length >= 4u &&
+        (strncmp(text, "jnz ", 4u) == 0 ||
+         strncmp(text, "jne ", 4u) == 0)) {
+        mnemonic = text;
         mnemonic_length = 4u;
         *condition = CC64_NE;
-    } else if (length >= 3u && strncmp(text, "jz ", 3u) == 0) {
-        mnemonic = "jz ";
+    } else if (length >= 3u &&
+               (strncmp(text, "jz ", 3u) == 0 ||
+                strncmp(text, "je ", 3u) == 0)) {
+        mnemonic = text;
         mnemonic_length = 3u;
         *condition = CC64_E;
     } else {
@@ -15764,6 +15999,33 @@ static bool codegen64_asm_emit_memory_group(Module* mod, const char* text,
     return true;
 }
 
+static bool codegen64_asm_emit_extended_state(Module* mod, const char* text,
+                                              size_t length,
+                                              const char* mnemonic,
+                                              int group_extension) {
+    size_t mnemonic_length = strlen(mnemonic);
+    size_t operand_begin = mnemonic_length;
+    int base;
+    int32_t displacement;
+    while (operand_begin < length &&
+           (text[operand_begin] == ' ' || text[operand_begin] == '\t')) {
+        ++operand_begin;
+    }
+    if (operand_begin == mnemonic_length || operand_begin == length ||
+        strncmp(text, mnemonic, mnemonic_length) != 0 ||
+        !codegen64_asm_parse_memory(text + operand_begin,
+                                    length - operand_begin,
+                                    &base, &displacement)) {
+        return false;
+    }
+    emit_rex(mod, true, 0, 0, base);
+    emit_byte(mod, 0x0Fu);
+    emit_byte(mod, 0xAEu);
+    codegen64_asm_emit_modrm_memory(mod, group_extension, base,
+                                    displacement);
+    return true;
+}
+
 static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
                                            size_t length, bool lock_prefix)
 {
@@ -15806,8 +16068,17 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
         return true;
     }
     if (repeat_prefix) return false;
+    if (codegen64_asm_emit_vector_move(mod, text, length)) return true;
+    if (codegen64_asm_no_operands(text, length, "vzeroupper")) {
+        emit_byte(mod, 0xC5u);
+        emit_byte(mod, 0xF8u);
+        emit_byte(mod, 0x77u);
+        return true;
+    }
     if (codegen64_asm_emit_memory_group(mod, text, length, "fnstenv",
                                         0xD9u, -1, 6) ||
+        codegen64_asm_emit_extended_state(mod, text, length, "xsave64", 4) ||
+        codegen64_asm_emit_extended_state(mod, text, length, "xrstor64", 5) ||
         codegen64_asm_emit_memory_group(mod, text, length, "fldenv",
                                         0xD9u, -1, 4) ||
         codegen64_asm_emit_memory_group(mod, text, length, "fnstcw",
@@ -15833,6 +16104,7 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
     if (codegen64_asm_emit_mov(mod, text, length)) return true;
     if (codegen64_asm_emit_lea(mod, text, length)) return true;
     if (codegen64_asm_emit_addl_immediate(mod, text, length) ||
+        codegen64_asm_emit_cmp_immediate(mod, text, length) ||
         codegen64_asm_emit_alu_immediate(mod, text, length) ||
         codegen64_asm_emit_fxsave(mod, text, length) ||
         codegen64_asm_emit_pushq(mod, text, length) ||
@@ -15893,6 +16165,12 @@ static bool codegen64_emit_asm_instruction(Module* mod, const char* text,
         emit_byte(mod, 0x0F);
         emit_byte(mod, 0x01);
         emit_byte(mod, 0xF9);
+        return true;
+    }
+    if (codegen64_asm_no_operands(text, length, "xgetbv")) {
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0x01);
+        emit_byte(mod, 0xD0);
         return true;
     }
     if (codegen64_asm_no_operands(text, length, "rdmsr")) {
@@ -16261,7 +16539,12 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
                           "unresolved numeric label in AMD64 inline asm branch");
                 break;
             }
-            emit64_jcc_label(mod, condition, numeric_labels[selected].label);
+            if (condition < 0) {
+                emit64_jmp_label(mod, numeric_labels[selected].label);
+            } else {
+                emit64_jcc_label(mod, condition,
+                                 numeric_labels[selected].label);
+            }
             ++line_index;
             lock_prefix = false;
             continue;
@@ -16272,7 +16555,9 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
             continue;
         }
         if (!codegen64_emit_asm_instruction(mod, begin, length, lock_prefix)) {
-            rcc_error(stmt->loc, "unsupported AMD64 inline asm instruction");
+            rcc_error(stmt->loc,
+                      "unsupported AMD64 inline asm instruction '%.*s'",
+                      (int)length, begin);
             break;
         }
         lock_prefix = false;

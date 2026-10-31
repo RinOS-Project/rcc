@@ -53,6 +53,7 @@ extern void rcc_parser_cxx_record_call_context(Expr* expression)
     RCC_OPTIONAL_CXX;
 extern Type* rcc_parse_cxx_type_name(void) RCC_OPTIONAL_CXX;
 extern Type* rcc_parser_cxx_find_class_type(const char*) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_complete_aggregate_type(Type*) RCC_OPTIONAL_CXX;
 extern Type* rcc_parser_cxx_destructor_type(const char*) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_functional_cast(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
@@ -5763,6 +5764,10 @@ static Type* parser_parse_aggregate_type_spec(TypeKind kind) {
         advance();
         parse_aggregate_body(aggregate);
         parser_aggregate_pack_alignment = saved_aggregate_pack_alignment;
+        if (parser_cxx_mode && aggregate->cxx_class &&
+            rcc_parser_cxx_complete_aggregate_type) {
+            rcc_parser_cxx_complete_aggregate_type(aggregate);
+        }
     }
 
     /* GNU permits a type attribute after the closing brace as well, e.g.
@@ -6382,6 +6387,11 @@ static ParsedPointerLevel* parse_pointer_levels(void) {
             else if (match(TOK_VOLATILE)) level->is_volatile = true;
             else if (match(TOK_RESTRICT)) level->is_restrict = true;
         }
+        /* GNU attributes may appear between a pointer operator and the
+         * declared identifier, for example `void* __attribute__((used)) f`.
+         * Keep them pending for parse_declaration/parameter parsing to apply
+         * after the complete declarator is known. */
+        while (check(TOK___ATTRIBUTE__)) skip_attributes();
         *tail = level;
         tail = &level->next;
     }
@@ -7243,6 +7253,23 @@ static Stmt* parse_statement(void) {
         /* Parse template string */
         Token* templ_tok = expect(TOK_STRING_LIT, "assembly template");
         const char* templ = templ_tok ? templ_tok->value.str_val : "";
+        char* joined_template = NULL;
+        size_t template_length = strlen(templ);
+        while (check(TOK_STRING_LIT)) {
+            Token* adjacent = advance();
+            const char* text = adjacent->value.str_val;
+            size_t adjacent_length = strlen(text);
+            char* grown = rcc_realloc(
+                joined_template,
+                template_length + adjacent_length + 1u);
+            if (!joined_template) {
+                memcpy(grown, templ, template_length);
+            }
+            memcpy(grown + template_length, text, adjacent_length + 1u);
+            joined_template = grown;
+            template_length += adjacent_length;
+        }
+        if (joined_template) templ = joined_template;
 
         AsmOperand* outputs = NULL;
         AsmOperand* inputs = NULL;
@@ -7864,6 +7891,27 @@ Stmt* parse_declaration(void) {
         rcc_error(loc, "expected type specifier");
         synchronize();
         return NULL;
+    }
+    /* GNU attributes may follow the declaration's type specifier and still
+     * precede its declarator, as in `void __attribute__((naked)) f(void)`.
+     * Consume them here before parse_declarator sees the attribute token as a
+     * missing identifier. */
+    while (check(TOK___ATTRIBUTE__)) {
+        skip_attributes();
+        if (!parser_cxx_mode) {
+            parser_accumulate_c_function_type_attributes(
+                &declaration_type_is_reproducible,
+                &declaration_type_is_unsequenced,
+                &declaration_type_attribute_loc);
+            is_noreturn = is_noreturn || take_c_noreturn_attribute();
+            parser_accumulate_c_maybe_unused_attribute(&is_maybe_unused);
+            parser_accumulate_c_nodiscard_attribute(
+                &is_nodiscard, &nodiscard_message);
+            parser_accumulate_c_deprecated_attribute(
+                &is_deprecated, &deprecated_message);
+        }
+        is_weak = is_weak || take_weak_attribute();
+        is_naked = is_naked || take_naked_attribute();
     }
     parser_apply_c_function_type_attributes(
         base_type, declaration_type_is_reproducible,

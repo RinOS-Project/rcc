@@ -707,6 +707,8 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-preprocessor-include test-preprocessor-include-next
 .PHONY: test-cxx-predefined-function-identifiers
 .PHONY: test-cxx-class-template-deduction test-cxx-aggregate-paren-init
+.PHONY: test-array-to-void-pointer
+.PHONY: test-cxx-rinos-header-identity
 .PHONY: test-cxx-decltype-dependent-function-reference \
 	test-cxx-decltype-pseudo-destructor \
 	test-cxx-dependent-alias-template-argument \
@@ -1210,6 +1212,8 @@ endef
 ifeq ($(OS),Windows_NT)
 $(CXX_REGRESSION_TARGETS): $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 endif
+CXX_REGRESSION_TARGETS += test-array-to-void-pointer
+CXX_REGRESSION_TARGETS += test-cxx-rinos-header-identity
 
 # The C17 profile is an explicit aggregate of the focused frontend, ABI, and
 # native-execution tests.  Keeping these as prerequisites makes the
@@ -1278,6 +1282,7 @@ C17_REGRESSION_TARGETS += test-c-old-style test-c-multi-declarator
 C17_REGRESSION_TARGETS += test-c11-threads-sdk
 C17_REGRESSION_TARGETS += test-ucontext-sdk
 C17_REGRESSION_TARGETS += test-c-null-void-pointer-constant
+C17_REGRESSION_TARGETS += test-array-to-void-pointer
 C17_REGRESSION_TARGETS += test-complex
 C17_REGRESSION_TARGETS += test-complex-legacy
 C17_REGRESSION_TARGETS += test-long-double test-preprocessor-standard-macros
@@ -1473,6 +1478,52 @@ test-c-null-void-pointer-constant: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x86.ro)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/c-null-void-pointer-constant/cxx-x64.ro)
 	@echo "C17 void-pointer null constant and C++ rejection tests completed"
+
+test-array-to-void-pointer: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/array-to-void-pointer)
+	$(CC) -std=c17 -pedantic-errors -fsyntax-only \
+		tests/array_to_void_pointer.c
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/array_to_void_pointer.cpp
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/array-to-void-pointer/c-x86.ro \
+		tests/array_to_void_pointer.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/array-to-void-pointer/c-x64.ro \
+		tests/array_to_void_pointer.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/array-to-void-pointer/cxx-x86.ro \
+		tests/array_to_void_pointer.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/array-to-void-pointer/cxx-x64.ro \
+		tests/array_to_void_pointer.cpp
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/array-to-void-pointer/invalid-c-x86.ro tests/invalid_array_to_void_pointer_const.c,$(TEST_OUT)/array-to-void-pointer/invalid-c-x86.log)
+	$(GREP) -F -q 'incompatible type for argument 1' \
+		$(TEST_OUT)/array-to-void-pointer/invalid-c-x86.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/array-to-void-pointer/invalid-c-x64.ro tests/invalid_array_to_void_pointer_const.c,$(TEST_OUT)/array-to-void-pointer/invalid-c-x64.log)
+	$(GREP) -F -q 'incompatible type for argument 1' \
+		$(TEST_OUT)/array-to-void-pointer/invalid-c-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/array-to-void-pointer/invalid-cxx-x86.ro tests/invalid_array_to_void_pointer_const.cpp,$(TEST_OUT)/array-to-void-pointer/invalid-cxx-x86.log)
+	$(GREP) -F -q 'incompatible type for argument 1' \
+		$(TEST_OUT)/array-to-void-pointer/invalid-cxx-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/array-to-void-pointer/invalid-cxx-x64.ro tests/invalid_array_to_void_pointer_const.cpp,$(TEST_OUT)/array-to-void-pointer/invalid-cxx-x64.log)
+	$(GREP) -F -q 'incompatible type for argument 1' \
+		$(TEST_OUT)/array-to-void-pointer/invalid-cxx-x64.log
+	@echo "C17/C++20 multidimensional array-to-void-pointer conversions tested"
+
+test-cxx-rinos-header-identity: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-rinos-header-identity)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-DRIN_USERSPACE=1 -I../../libs/libc -I../../RinOS-SDK/include \
+		-I../../libs/libunicode -c \
+		-o $(TEST_OUT)/cxx-rinos-header-identity/x86.ro \
+		tests/cxx_rinos_header_identity.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-DRIN_USERSPACE=1 -I../../libs/libc -I../../RinOS-SDK/include \
+		-I../../libs/libunicode -c \
+		-o $(TEST_OUT)/cxx-rinos-header-identity/x64.ro \
+		tests/cxx_rinos_header_identity.cpp
+	@echo "C++ RinOS uchar/wchar/locale tag identity tested"
 
 .PHONY: test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-embed
 test-c23: $(RCC_TARGET) test-c23-bitint test-c23-bitint-promotions test-c23-bitint-float-conversion test-c23-nullptr test-c23-empty-initializer test-c23-typeof-type-name test-c23-vla-declarator-order test-c23-va-start test-c23-embed test-c23-noreturn-attribute test-c23-nodiscard-attribute test-c23-deprecated-attribute test-c23-maybe-unused-attribute test-c23-fallthrough-attribute test-c23-function-type-attributes
@@ -17357,11 +17408,15 @@ test-preprocessor-include: $(RCC_TARGET) $(RCXX_TARGET)
 	$(GREP) -F -q 'int preprocessor_include_c =' \
 		$(TEST_OUT)/preprocessor-include-c.i
 	$(GREP) -F -q '17 + 17' $(TEST_OUT)/preprocessor-include-c.i
+	$(GREP) -F -q 'int preprocessor_include_bom_c = 29;' \
+		$(TEST_OUT)/preprocessor-include-c.i
 	$(RCXX_SHELL_TARGET) -E -Itests tests/preprocessor_include.cpp > \
 		$(TEST_OUT)/preprocessor-include-cxx.i
 	$(GREP) -F -q 'constexpr int preprocessor_include_cxx =' \
 		$(TEST_OUT)/preprocessor-include-cxx.i
 	$(GREP) -F -q '17 + 17' $(TEST_OUT)/preprocessor-include-cxx.i
+	$(GREP) -F -q 'constexpr int preprocessor_include_bom_cxx = 29;' \
+		$(TEST_OUT)/preprocessor-include-cxx.i
 	$(RCC_TARGET) --target i686-unknown-rinos -Itests -c \
 		-o $(TEST_OUT)/preprocessor-include-c-x86.ro \
 		tests/preprocessor_include.c
@@ -17461,6 +17516,8 @@ test-preprocessor-operators: $(RCC_TARGET)
 	$(GREP) -F -q 'variadic_string[] = "one, two"' $(TEST_OUT)/preprocessor-operators.i
 	$(GREP) -F -q 'pasted_identifier = 77' $(TEST_OUT)/preprocessor-operators.i
 	$(GREP) -F -q 'pasted_number = 123' $(TEST_OUT)/preprocessor-operators.i
+	$(GREP) -F -q '((40)+1)' $(TEST_OUT)/preprocessor-operators.i
+	$(GREP) -F -q '((20)+(22))' $(TEST_OUT)/preprocessor-operators.i
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/preprocessor-operators-x86.ro \
 		tests/preprocessor_operators.c
@@ -19574,6 +19631,17 @@ test-fenv-header: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c23 -O2 -c \
 		-o $(TEST_OUT)/fenv-header/c23-x64.ro \
 		tests/fenv_access_optimizer.c
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O2 -frounding-math -c \
+		-o $(TEST_OUT)/fenv-header/rounding-math-x86.ro \
+		tests/frounding_math_optimizer.c
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-frounding-math -I$(RINOS_ROOT)/public-base/libs/libc -c \
+		-o $(TEST_OUT)/fenv-header/rounding-math-cxx-x64.ro \
+		tests/fenv_header_compile.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-frounding-math -I$(RINOS_ROOT)/public-base/libs/libc -c \
+		-o $(TEST_OUT)/fenv-header/rounding-math-cxx-x86.ro \
+		tests/fenv_header_compile.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -c \
 		-o $(TEST_OUT)/fenv-header/cxx-x86.ro tests/fenv_header_compile.cpp
@@ -19593,6 +19661,14 @@ test-fenv-header: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/fenv_access_optimizer.c
 	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/fenv-header/optimizer-x64,\
 		$(TEST_OUT)/fenv-header/optimizer-x64.s \
+		tests/fenv_access_optimizer_runtime.c)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
+		-frounding-math -S -o $(TEST_OUT)/fenv-header/rounding-math-x64.s \
+		tests/frounding_math_optimizer.c
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/fenv-header/rounding-math-x64,\
+		$(TEST_OUT)/fenv-header/rounding-math-x64.s \
+		-DRCC_FENV_ROUNDING_PROBE=rcc_frounding_math_rounding_probe \
+		-DRCC_FENV_RUNTIME_PROBE=rcc_frounding_math_runtime_probe \
 		tests/fenv_access_optimizer_runtime.c)
 	@echo "RinOS math.h/fenv.h C17/C++20 compile and runtime tests completed"
 

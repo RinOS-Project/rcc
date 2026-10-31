@@ -97,6 +97,7 @@ static void print_usage_cxx(void) {
     printf("  -ffreestanding  Freestanding environment\n");
     printf("  -fPIC/-fpic     Position-independent code and data references\n");
     printf("  -fPIE/-fpie     Position-independent executable code and data references\n");
+    printf("  -frounding-math  Honor dynamic floating-point rounding modes\n");
     printf("  --dynamic-tls/-fdynamic-tls  Use RinOS DTV/__tls_get_addr TLS model\n");
     printf("  -fverified-backend  Use typed-SSA x86 backend when supported\n");
     printf("  -v              Verbose output\n");
@@ -150,6 +151,8 @@ static int parse_cxx_args(int argc, char** argv) {
         {"fno-pie", no_argument, 0, 21},
         {"dynamic-tls", no_argument, 0, 22},
         {"fdynamic-tls", no_argument, 0, 22},
+        {"frounding-math", no_argument, 0, 23},
+        {"fno-rounding-math", no_argument, 0, 24},
         {0, 0, 0, 0}
     };
 
@@ -336,6 +339,12 @@ static int parse_cxx_args(int argc, char** argv) {
                 break;
             case 22:
                 g_opts.dynamic_tls = true;
+                break;
+            case 23:
+                g_opts.frounding_math = true;
+                break;
+            case 24:
+                g_opts.frounding_math = false;
                 break;
             default:
                 return -1;

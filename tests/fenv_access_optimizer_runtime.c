@@ -7,8 +7,14 @@ void __main(void)
 }
 #endif
 
-extern double rcc_fenv_access_rounding_probe(void);
-extern double rcc_fenv_access_runtime_probe(double value);
+#ifndef RCC_FENV_ROUNDING_PROBE
+#define RCC_FENV_ROUNDING_PROBE rcc_fenv_access_rounding_probe
+#endif
+#ifndef RCC_FENV_RUNTIME_PROBE
+#define RCC_FENV_RUNTIME_PROBE rcc_fenv_access_runtime_probe
+#endif
+extern double RCC_FENV_ROUNDING_PROBE(void);
+extern double RCC_FENV_RUNTIME_PROBE(double value);
 
 static void fenv_set_rounding(uint16_t x87_rounding,
                               uint32_t mxcsr_rounding)
@@ -46,17 +52,17 @@ int main(void)
     __asm__ volatile ("stmxcsr %0" : "=m"(original_mxcsr));
 
     fenv_set_rounding(0x0800u, 0x00004000u);
-    upward = rcc_fenv_access_rounding_probe();
+    upward = RCC_FENV_ROUNDING_PROBE();
     valid = upward > 1.0 && fenv_inexact_is_set();
     fenv_set_rounding(0x0800u, 0x00004000u);
-    upward_runtime = rcc_fenv_access_runtime_probe(1.0);
+    upward_runtime = RCC_FENV_RUNTIME_PROBE(1.0);
     valid = valid && upward_runtime > 1.0 && fenv_inexact_is_set();
 
     fenv_set_rounding(0x0400u, 0x00002000u);
-    downward = rcc_fenv_access_rounding_probe();
+    downward = RCC_FENV_ROUNDING_PROBE();
     valid = valid && downward == 1.0 && fenv_inexact_is_set();
     fenv_set_rounding(0x0400u, 0x00002000u);
-    downward_runtime = rcc_fenv_access_runtime_probe(1.0);
+    downward_runtime = RCC_FENV_RUNTIME_PROBE(1.0);
     valid = valid && downward_runtime == 1.0 && fenv_inexact_is_set();
 
     __asm__ volatile ("ldmxcsr %0\n\tfldcw %1"

@@ -2870,7 +2870,12 @@ static bool sema_asm_clobber_supported(const char* name, SourceLoc loc) {
         "rax", "eax", "ax", "al", "ah", "rbx", "ebx", "bx", "bl",
         "bh", "rcx", "ecx", "cx", "cl", "ch", "rdx", "edx", "dx",
         "dl", "dh", "rsi", "esi", "si", "rdi", "edi", "di", "r8",
-        "r9", "r10", "r11", "cc", "memory"
+        "r9", "r10", "r11", "xmm0", "xmm1", "xmm2", "xmm3",
+        "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10",
+        "xmm11", "xmm12", "xmm13", "xmm14", "xmm15", "ymm0", "ymm1",
+        "ymm2", "ymm3", "ymm4", "ymm5", "ymm6", "ymm7", "ymm8",
+        "ymm9", "ymm10", "ymm11", "ymm12", "ymm13", "ymm14", "ymm15",
+        "cc", "memory"
     };
     const char* const* names = g_opts.target_arch == ARCH_X86
         ? x86_names : x64_names;
@@ -4869,12 +4874,18 @@ reference_binding_validated:
 
     /* Array to pointer decay */
     if (type_is_array(e->type) && type_is_pointer(target)) {
+        if (target->base && target->base->kind == TYPE_VOID) {
+            if (!sema_void_pointer_qualification_preserved(
+                    e->type->base, target->base)) {
+                return NULL;
+            }
+            return target;
+        }
         if (!sema_pointee_qualification_preserved(
                 e->type->base, target->base)) {
             return NULL;
         }
-        if ((target->base && target->base->kind == TYPE_VOID) ||
-            type_is_compatible(e->type->base, target->base)) {
+        if (type_is_compatible(e->type->base, target->base)) {
             return target;
         }
     }
@@ -14053,13 +14064,16 @@ static int cxx_conversion_rank_detail_at_context(
     if (source->kind == TYPE_ARRAY && target->kind == TYPE_PTR) {
         source_base = source->base;
         target_base = target->base;
+        if (target_base && target_base->kind == TYPE_VOID) {
+            return sema_void_pointer_qualification_preserved(
+                source_base, target_base) ? 2 : -1;
+        }
         if (source_base && target_base &&
             !sema_pointee_qualification_preserved(
                 source_base, target_base)) {
             return -1;
         }
-        if ((target_base && target_base->kind == TYPE_VOID) ||
-            type_is_compatible(source_base, target_base)) {
+        if (type_is_compatible(source_base, target_base)) {
             /* Array-to-pointer decay is an Exact Match sequence even when
              * the destination pointee adds cv-qualification. Keep that
              * sequence ahead of array decay followed by a pointer

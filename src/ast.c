@@ -869,12 +869,42 @@ bool type_is_compatible(Type* a, Type* b) {
         /* C++ class identity is declaration-based.  Comparing only the tag
          * merges unrelated classes with the same spelling in different
          * namespaces (and can then incorrectly reuse a class-template
-         * specialization). */
+         * specialization).  A typedef or declaration parsed before the tag
+         * is adopted by the C++ class registry can retain a tag-only Type
+         * view; when exactly one side has the registry link, the complete
+         * tag and its lexical/namespace identities still identify that same
+         * declaration. */
         if (a->cxx_class || b->cxx_class) {
-            return a->cxx_class && b->cxx_class &&
-                   (a->cxx_class == b->cxx_class ||
-                    cxx_template_class_instances_compatible(
-                        a->cxx_class, b->cxx_class));
+            if (a->cxx_class && b->cxx_class) {
+                return a->cxx_class == b->cxx_class ||
+                       cxx_template_class_instances_compatible(
+                           a->cxx_class, b->cxx_class);
+            }
+            {
+                const char* a_scope = a->cxx_scope_identity &&
+                                              a->cxx_scope_identity[0]
+                    ? a->cxx_scope_identity : NULL;
+                const char* b_scope = b->cxx_scope_identity &&
+                                              b->cxx_scope_identity[0]
+                    ? b->cxx_scope_identity : NULL;
+                const char* a_namespace = a->cxx_namespace &&
+                                                  a->cxx_namespace[0]
+                    ? a->cxx_namespace : NULL;
+                const char* b_namespace = b->cxx_namespace &&
+                                                  b->cxx_namespace[0]
+                    ? b->cxx_namespace : NULL;
+                bool same_tag = a->tag && b->tag &&
+                                strcmp(a->tag, b->tag) == 0;
+                bool same_scope =
+                    (!a_scope && !b_scope) ||
+                    (a_scope && b_scope &&
+                     strcmp(a_scope, b_scope) == 0);
+                bool same_namespace =
+                    (!a_namespace && !b_namespace) ||
+                    (a_namespace && b_namespace &&
+                     strcmp(a_namespace, b_namespace) == 0);
+                return same_tag && same_scope && same_namespace;
+            }
         }
         if (a->tag || b->tag) {
             return a->tag && b->tag && strcmp(a->tag, b->tag) == 0 &&

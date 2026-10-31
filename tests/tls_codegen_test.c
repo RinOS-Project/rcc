@@ -110,17 +110,17 @@ static void verify_object(const char* path, uint16_t arch, int cxx)
                namespace_counter->value + 4u <= tls->size &&
                read_u32(tls->data + namespace_counter->value) == 13u);
     } else {
-        ObjSymbol* zero = NULL;
-        for (ObjSymbol* symbol = object->symbols; symbol;
-             symbol = symbol->next) {
-            if (symbol != initialized && symbol->binding == BIND_TLS &&
-                symbol->section >= 0) {
-                zero = symbol;
-                break;
-            }
-        }
-        assert(zero != NULL && zero->value + 4u <= tls->size);
+        ObjSymbol* zero = objfile_find_symbol(
+            object, "tests/tls.c::tls_zero");
+        ObjSymbol* gnu_tls = objfile_find_symbol(object, "gnu_tls_counter");
+        assert(zero != NULL && zero->binding == BIND_TLS &&
+               zero->section == section_index(object, tls) &&
+               zero->value + 4u <= tls->size);
         assert(read_u32(tls->data + zero->value) == 0u);
+        assert(gnu_tls != NULL && gnu_tls->binding == BIND_TLS &&
+               gnu_tls->section == section_index(object, tls) &&
+               gnu_tls->value + 4u <= tls->size);
+        assert(read_u32(tls->data + gnu_tls->value) == 9u);
     }
     for (ObjReloc* relocation = text->relocs; relocation;
          relocation = relocation->next) {
@@ -189,7 +189,7 @@ static void verify_image(const char* path, uint16_t architecture, int library)
            data->file_offset == code->file_offset + code->file_size &&
            data->file_size == data->memory_size &&
            header->image_size == data->virtual_address + data->memory_size);
-    assert(tls->flags == RIN_IMAGE_SECTION_READ && tls->memory_size >= 8u &&
+    assert(tls->flags == RIN_IMAGE_SECTION_READ && tls->memory_size >= 12u &&
            tls->file_size == tls->memory_size &&
            tls->virtual_address >= data->virtual_address &&
            tls->virtual_address + tls->memory_size <=
@@ -210,7 +210,8 @@ static void verify_image(const char* path, uint16_t architecture, int library)
                unwind->file_size <= size - unwind->file_offset);
     }
     assert(read_u32(bytes + tls->file_offset) == 7u);
-    assert(read_u32(bytes + tls->file_offset + 4u) == 0u);
+    assert(read_u32(bytes + tls->file_offset + 4u) == 9u);
+    assert(read_u32(bytes + tls->file_offset + 8u) == 0u);
     assert(read_u32(bytes + data->file_offset) == 3u);
     assert(relocation_section->file_offset + relocation_section->file_size <= size);
     assert(relocation_section->file_size % sizeof(*relocations) == 0u);
@@ -232,6 +233,9 @@ static void verify_image(const char* path, uint16_t architecture, int library)
         } else {
             uint64_t width = architecture == RIN_ARCH_X86 ? 4u : 8u;
             uint64_t relative;
+            uint64_t target;
+            uint64_t code_base = header->preferred_base +
+                                 code->virtual_address;
             uint16_t expected_type = architecture == RIN_ARCH_X86
                 ? RIN_IMAGE_RELOCATION_ABS32U
                 : RIN_IMAGE_RELOCATION_ABS64;
@@ -243,18 +247,18 @@ static void verify_image(const char* path, uint16_t architecture, int library)
                                 (address - unwind->virtual_address));
             relative = address - unwind->virtual_address;
             if (width == 4u) {
-                assert(read_u32(bytes + unwind->file_offset + relative) ==
-                       (uint32_t)(header->preferred_base +
-                                  code->virtual_address));
+                target = read_u32(bytes + unwind->file_offset + relative);
             } else {
-                assert(read_u64(bytes + unwind->file_offset + relative) ==
-                       header->preferred_base + code->virtual_address);
+                target = read_u64(bytes + unwind->file_offset + relative);
             }
+            assert(target >= code_base &&
+                   target - code_base < code->memory_size);
             ++unwind_relocation_count;
         }
     }
     assert(tls_relocation_count >= 4u);
-    assert(unwind_relocation_count == (unwind ? 1u : 0u));
+    assert(unwind ? unwind_relocation_count >= 1u
+                  : unwind_relocation_count == 0u);
     assert(tls_relocation_count + unwind_relocation_count == relocation_count);
     free(bytes);
 }

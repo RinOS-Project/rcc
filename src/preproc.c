@@ -517,6 +517,7 @@ void pp_undef(Preprocessor* pp, const char* name) {
 bool pp_is_defined(Preprocessor* pp, const char* name) {
     if (name && (strcmp(name, "__has_builtin") == 0 ||
                  strcmp(name, "__has_include") == 0 ||
+                 strcmp(name, "__has_include_next") == 0 ||
                  (!pp->cxx_mode && g_opts.c_standard >= 23 &&
                   (strcmp(name, "__has_embed") == 0 ||
                    strcmp(name, "__has_c_attribute") == 0)))) return true;
@@ -718,13 +719,23 @@ static char* read_file(const char* filename) {
  * CRLF/LF convention. */
 static char* normalize_source_newlines(const char* source) {
     size_t length;
+    size_t read_index = 0;
     size_t write_index = 0;
     char* normalized;
 
     if (!source) return NULL;
     length = strlen(source);
     normalized = rcc_alloc(length + 1u);
-    for (size_t read_index = 0; read_index < length; ++read_index) {
+    /* A UTF-8 BOM is permitted at the beginning of each source file.  Strip
+     * it before preprocessing so included text cannot leak the three bytes
+     * into the token stream. */
+    if (length >= 3u &&
+        (unsigned char)source[0] == 0xEFu &&
+        (unsigned char)source[1] == 0xBBu &&
+        (unsigned char)source[2] == 0xBFu) {
+        read_index = 3u;
+    }
+    for (; read_index < length; ++read_index) {
         if (source[read_index] == '\r') {
             if (read_index + 1u < length &&
                 source[read_index + 1u] == '\n') {
@@ -874,14 +885,14 @@ static char* find_include(Preprocessor* pp, const char* name, const char* curren
 }
 
 /* Probe the same search order as #include without recording a dependency or
- * reporting an error.  __has_include is a conditional feature probe: a
- * missing header is a valid false result, while malformed syntax is handled
- * by the #if expression parser below. */
+ * reporting an error. Missing headers are valid false results; malformed
+ * syntax is handled by the #if expression parser below. */
 static bool pp_has_include(Preprocessor* pp, const char* name,
-                           bool is_system) {
+                           bool is_system, bool include_next) {
     char resolved[RCC_MAX_PATH];
-    char* content = find_include(pp, name, pp->current_file, is_system, false,
-                                 resolved, sizeof(resolved), 0u, NULL);
+    char* content = find_include(pp, name, pp->current_file, is_system,
+                                 include_next, resolved, sizeof(resolved),
+                                 0u, NULL);
     if (!content) return false;
     rcc_free(content);
     return true;
@@ -1438,7 +1449,10 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
                 p = cursor;
                 continue;
             }
-            if (strcmp(ident, "__has_include") == 0) {
+            if (strcmp(ident, "__has_include") == 0 ||
+                strcmp(ident, "__has_include_next") == 0) {
+                bool include_next =
+                    strcmp(ident, "__has_include_next") == 0;
                 const char* cursor = pp_expr_skip(end);
                 char include_name[RCC_MAX_PATH];
                 size_t include_length = 0u;
@@ -1485,7 +1499,8 @@ static char* pp_prepare_if_expression(Preprocessor* pp, const char* expression,
                     continue;
                 }
                 buf_append_str(&protected,
-                               pp_has_include(pp, include_name, is_system)
+                               pp_has_include(pp, include_name, is_system,
+                                              include_next)
                                    ? "1" : "0");
                 p = cursor;
                 continue;
@@ -2586,6 +2601,56 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
                         }
 
                         char* expanded = expand_macro_recursive(pp, macro, args, arg_count);
+                        const char* following_open = skip_macro_space(args_start);
+                        size_t expanded_size = strlen(expanded);
+                        const char* token_end = expanded + expanded_size;
+                        const char* token_start = token_end;
+                        while (token_start > expanded &&
+                               isspace((unsigned char)token_start[-1])) {
+                            token_start--;
+                        }
+                        token_end = token_start;
+                        while (token_start > expanded &&
+                               (isalnum((unsigned char)token_start[-1]) ||
+                                token_start[-1] == '_')) {
+                            token_start--;
+                        }
+                        if (token_start < token_end &&
+                            (isalpha((unsigned char)*token_start) ||
+                             *token_start == '_')) {
+                            char trailing_ident[RCC_MAX_IDENT];
+                            size_t ident_size =
+                                (size_t)(token_end - token_start);
+                            if (ident_size < sizeof(trailing_ident)) {
+                                memcpy(trailing_ident, token_start,
+                                       ident_size);
+                                trailing_ident[ident_size] = '\0';
+                                Macro* trailing_macro = pp_get_macro(
+                                    pp, trailing_ident);
+                                if (trailing_macro &&
+                                    trailing_macro->param_count >= 0 &&
+                                    !macro_is_expanding(pp, trailing_macro) &&
+                                    *following_open == '(') {
+                                    const char* joined_end =
+                                        pp_macro_invocation_end(following_open);
+                                    if (joined_end) {
+                                        PPBuffer joined;
+                                        buf_init(&joined);
+                                        buf_append_str(&joined, expanded);
+                                        buf_append(&joined, args_start,
+                                            (size_t)(joined_end - args_start));
+                                        char* rescanned = expand_macros(
+                                            pp, joined.data);
+                                        buf_append_str(&result, rescanned);
+                                        rcc_free(rescanned);
+                                        rcc_free(joined.data);
+                                        rcc_free(expanded);
+                                        p = joined_end;
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
                         buf_append_str(&result, expanded);
                         rcc_free(expanded);
                         p = args_start;

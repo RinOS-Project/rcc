@@ -1,0 +1,1 @@
+﻿#define RCC_UTF8_BOM_VALUE 29

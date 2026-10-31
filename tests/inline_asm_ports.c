@@ -1,3 +1,8 @@
+void inline_asm_adjacent_templates(void)
+{
+    __asm__ volatile("nop\n" "nop\n");
+}
+
 unsigned char asm_port_inb_const(void)
 {
     unsigned char value;
@@ -66,3 +71,32 @@ unsigned int asm_modifier_dword_move(unsigned int value)
     __asm__ __volatile__("mov %k1, %k0" : "=a"(result) : "b"(value));
     return result;
 }
+
+#if defined(__x86_64__)
+void asm_vector_ymm_move(void* destination, const void* source)
+{
+    __asm__ volatile(
+        "vmovdqu 0(%1), %%ymm0\n\t"
+        "vmovdqu %%ymm0, 0(%0)\n\t"
+        "vzeroupper"
+        : : "r"(destination), "r"(source) : "ymm0", "memory");
+}
+
+void asm_vector_xmm_move(void* destination, const void* source)
+{
+    __asm__ volatile(
+        "movdqu 0(%1), %%xmm0\n\t"
+        "movdqu %%xmm0, 0(%0)"
+        : : "r"(destination), "r"(source) : "xmm0", "memory");
+}
+
+void asm_xgetbv_instruction(void)
+{
+    __asm__ volatile("xgetbv" ::: "eax", "ecx", "edx");
+}
+
+void asm_cmp_memory_immediate(const unsigned int* value)
+{
+    __asm__ volatile("cmpl $2, 772(%0)" : : "r"(value) : "cc");
+}
+#endif
