@@ -1454,6 +1454,8 @@ static bool cxx_parser_find_enclosing_pack_source(
 static bool cxx_parser_find_pattern_pack_source(
     Type* type_pattern, CxxTemplate** pack_scope_out,
     int* pack_index_out);
+static bool cxx_deduction_guide_collect_type_pack_references(
+    CxxTemplate* owner, Type* pattern, bool* referenced, unsigned depth);
 static void cxx_parser_replace_pack_value_identifier(
     Expr* expression, const char* parameter_name,
     Expr* replacement_expression);
@@ -21482,11 +21484,32 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     type_pack_index != value_pack_index) {
                     type_pack_index = -2;
                 }
-                int expansion_pack_index = type_pack_index >= 0
+                int expansion_pack_index = type_pack_index != -1
                     ? type_pack_index : value_pack_index;
                 is_pack_expansion = expansion_pack_index >= 0 &&
                     expansion_pack_index < tmpl->param_count &&
                     tmpl->params[expansion_pack_index].is_pack;
+                if (expansion_pack_index == -2 && tmpl && pack_pattern &&
+                    value_pack_index < 0) {
+                    size_t reference_capacity =
+                        (size_t)(tmpl->param_count > 0
+                                     ? tmpl->param_count : 1);
+                    bool* referenced = cxx_allocate_zeroed_array(
+                        sizeof(*referenced), reference_capacity);
+                    int reference_count = 0;
+                    if (!referenced) {
+                        rcc_error((SourceLoc){"<template>", 0, 0},
+                                  "cannot allocate template pack expansion state");
+                        return NULL;
+                    }
+                    if (cxx_deduction_guide_collect_type_pack_references(
+                            tmpl, pack_pattern, referenced, 0u)) {
+                        for (int pack = 0; pack < tmpl->param_count; ++pack) {
+                            if (referenced[pack]) ++reference_count;
+                        }
+                    }
+                    is_pack_expansion = reference_count >= 2;
+                }
             }
             if (is_pack_expansion) {
                 Type* pattern_argument = type->cxx_template_args[nested_index];
@@ -21499,7 +21522,42 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 int value_expansion_pack_index =
                     cxx_parser_template_value_pack_index_expression(
                         tmpl, pattern_value_expression);
-                if (expansion_pack_index < 0) {
+                bool* referenced_type_packs = NULL;
+                int referenced_type_pack_count = 0;
+                bool has_multiple_type_pack_sources = false;
+                if (expansion_pack_index == -2 &&
+                    value_expansion_pack_index < 0 && tmpl) {
+                    size_t reference_capacity =
+                        (size_t)(tmpl->param_count > 0
+                                     ? tmpl->param_count : 1);
+                    referenced_type_packs = cxx_allocate_zeroed_array(
+                        sizeof(*referenced_type_packs), reference_capacity);
+                    if (!referenced_type_packs) {
+                        rcc_error((SourceLoc){"<template>", 0, 0},
+                                  "cannot allocate template type pack expansion state");
+                        return NULL;
+                    }
+                    bool collected_type_packs =
+                        cxx_deduction_guide_collect_type_pack_references(
+                            tmpl, pattern_argument, referenced_type_packs,
+                            0u);
+                    if (!collected_type_packs) {
+                        expansion_pack_index = -2;
+                    } else {
+                        for (int pack = 0; pack < tmpl->param_count; ++pack) {
+                            if (!referenced_type_packs[pack]) continue;
+                            ++referenced_type_pack_count;
+                            if (expansion_pack_index == -2) {
+                                expansion_pack_index = pack;
+                            }
+                        }
+                        has_multiple_type_pack_sources =
+                            referenced_type_pack_count >= 2;
+                        if (!has_multiple_type_pack_sources) {
+                            expansion_pack_index = -2;
+                        }
+                    }
+                } else if (expansion_pack_index == -1) {
                     expansion_pack_index = value_expansion_pack_index;
                 } else if (value_expansion_pack_index >= 0 &&
                            expansion_pack_index !=
@@ -21561,6 +21619,41 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     ? cxx_template_pending_pack_offset(
                           tmpl, expansion_pack_index)
                     : 0;
+                if (has_multiple_type_pack_sources) {
+                    int common_pack_length = -1;
+                    for (int pack = 0; pack < tmpl->param_count; ++pack) {
+                        if (!referenced_type_packs[pack]) continue;
+                        TemplateParam* source = &tmpl->params[pack];
+                        int source_length =
+                            cxx_template_pending_pack_length(tmpl, pack);
+                        int source_offset =
+                            cxx_template_pending_pack_offset(tmpl, pack);
+                        if (source->kind != TPARAM_TYPE || !source->is_pack) {
+                            rcc_error(
+                                (SourceLoc){"<template>", 0, 0},
+                                "simultaneous pack expansion requires type parameter packs");
+                            return NULL;
+                        }
+                        if (common_pack_length < 0) {
+                            common_pack_length = source_length;
+                        } else if (source_length >= 0 &&
+                                   common_pack_length >= 0 &&
+                                   source_length != common_pack_length) {
+                            rcc_error(
+                                (SourceLoc){"<template>", 0, 0},
+                                "simultaneous pack expansion has inconsistent pack lengths");
+                            return NULL;
+                        }
+                        if (source_length > 0 &&
+                            (!tmpl->pending_pack_args || source_offset < 0 ||
+                             source_offset > INT_MAX - source_length)) {
+                            rcc_error(
+                                (SourceLoc){"<template>", 0, 0},
+                                "simultaneous pack expansion is missing deduced type arguments");
+                            return NULL;
+                        }
+                    }
+                }
                 if (nested_index < pack_index || !parameter ||
                     (parameter->kind != TPARAM_TYPE &&
                      parameter->kind != TPARAM_NONTYPE &&
@@ -21710,6 +21803,19 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                             expanded_arguments[expansion_pack_index] =
                                 tmpl->pending_pack_args[
                                     local_expansion_offset + pack_value];
+                        }
+                    }
+                    if (has_multiple_type_pack_sources) {
+                        for (int pack = 0; pack < tmpl->param_count; ++pack) {
+                            if (!referenced_type_packs[pack] ||
+                                pack == expansion_pack_index) {
+                                continue;
+                            }
+                            int pack_offset =
+                                cxx_template_pending_pack_offset(tmpl, pack);
+                            expanded_arguments[pack] =
+                                tmpl->pending_pack_args[pack_offset +
+                                                        pack_value];
                         }
                     }
                     if (expands_enclosing_pack) {
@@ -31198,8 +31304,15 @@ static int cxx_deduction_guide_pack_capacity_in_type(
     int capacity;
     if (!type || depth >= 64u) return 0;
     capacity = type->cxx_template_arg_count;
-    if (type->cxx_class && type->cxx_class->template_pack_count > capacity) {
-        capacity = type->cxx_class->template_pack_count;
+    if (type->cxx_class) {
+        int class_capacity = type->cxx_class->template_identity_arg_count;
+        if (class_capacity < type->cxx_class->template_arg_count) {
+            class_capacity = type->cxx_class->template_arg_count;
+        }
+        if (class_capacity < type->cxx_class->template_pack_count) {
+            class_capacity = type->cxx_class->template_pack_count;
+        }
+        if (class_capacity > capacity) capacity = class_capacity;
     }
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
         type->kind == TYPE_VECTOR) {
@@ -31347,6 +31460,333 @@ static bool cxx_deduction_guide_constraints_satisfied(
         return false;
     }
     return satisfied;
+}
+
+static bool cxx_deduction_guide_collect_type_pack_references(
+    CxxTemplate* owner, Type* pattern, bool* referenced, unsigned depth) {
+    if (!owner || !pattern || !referenced || depth > 64u) return false;
+    if (pattern->kind == TYPE_STRUCT && pattern->tag) {
+        if (pattern->cxx_dependent &&
+            pattern->cxx_template_param_index >= 0 &&
+            pattern->cxx_template_param_index < owner->param_count) {
+            int index = pattern->cxx_template_param_index;
+            TemplateParam* parameter = &owner->params[index];
+            if (parameter->kind == TPARAM_TEMPLATE &&
+                parameter->is_pack && parameter->name &&
+                strcmp(parameter->name, pattern->tag) == 0) {
+                return false;
+            }
+            if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
+                parameter->name &&
+                strcmp(parameter->name, pattern->tag) == 0) {
+                referenced[index] = true;
+            }
+        }
+        for (int index = 0; index < owner->param_count; ++index) {
+            TemplateParam* parameter = &owner->params[index];
+            if (parameter->kind == TPARAM_TEMPLATE && parameter->is_pack &&
+                parameter->name &&
+                strcmp(parameter->name, pattern->tag) == 0) {
+                return false;
+            }
+            if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
+                parameter->name &&
+                strcmp(parameter->name, pattern->tag) == 0) {
+                referenced[index] = true;
+            }
+        }
+    }
+    if ((pattern->kind == TYPE_PTR || pattern->kind == TYPE_ARRAY ||
+         pattern->kind == TYPE_VECTOR) &&
+        !cxx_deduction_guide_collect_type_pack_references(
+            owner, pattern->base, referenced, depth + 1u)) {
+        return false;
+    }
+    if (pattern->kind == TYPE_FUNC) {
+        if (!cxx_deduction_guide_collect_type_pack_references(
+                owner, pattern->ret_type, referenced, depth + 1u)) {
+            return false;
+        }
+        for (TypeParam* parameter = pattern->params; parameter;
+             parameter = parameter->next) {
+            if (!cxx_deduction_guide_collect_type_pack_references(
+                    owner, parameter->type, referenced, depth + 1u)) {
+                return false;
+            }
+        }
+    }
+    if (pattern->cxx_is_member_pointer &&
+        pattern->cxx_member_pointer_owner &&
+        !cxx_deduction_guide_collect_type_pack_references(
+            owner, pattern->cxx_member_pointer_owner, referenced,
+            depth + 1u)) {
+        return false;
+    }
+    for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+        if (pattern->cxx_template_value_args &&
+            pattern->cxx_template_value_args[index] &&
+            cxx_parser_template_value_pack_index_expression(
+                owner, pattern->cxx_template_value_args[index]) != -1) {
+            return false;
+        }
+        if (pattern->cxx_template_args &&
+            !cxx_deduction_guide_collect_type_pack_references(
+                owner, pattern->cxx_template_args[index], referenced,
+                depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool cxx_deduction_guide_match_type_with_nested_packs(
+    CxxTemplate* owner, Type* pattern, Type* actual,
+    Type** template_arguments, int64_t* template_values,
+    bool* template_value_present, CxxDeductionGuidePackState* pack_state,
+    int* specificity, unsigned depth) {
+    CxxTemplate* pattern_template = NULL;
+    CxxTemplate* actual_template;
+    Type** pattern_arguments = NULL;
+    Type** actual_arguments;
+    int pattern_argument_count = 0;
+    int actual_argument_count;
+    CxxClass* actual_class;
+    int class_pack_index;
+    if (!owner || !pattern || !actual || !template_arguments ||
+        !template_values || !template_value_present || !pack_state ||
+        depth > 64u) {
+        return false;
+    }
+    int referenced_pack_index =
+        cxx_parser_template_parameter_pack_index(owner, pattern);
+    if (referenced_pack_index == -1) {
+        return deduce_function_template_type(
+            owner, pattern, actual, template_arguments, template_values,
+            template_value_present, specificity);
+    }
+    if (pattern->kind != TYPE_STRUCT) return false;
+    cxx_function_template_class_type_pattern_arguments(
+        pattern, &pattern_template, &pattern_arguments,
+        &pattern_argument_count);
+    if (!pattern_template || !pattern_arguments ||
+        pattern_argument_count <= 0) {
+        return false;
+    }
+    actual_class = actual->cxx_class;
+    actual_template = actual_class &&
+            actual_class->template_identity_tmpl
+        ? actual_class->template_identity_tmpl
+        : actual_class && actual_class->templ
+            ? actual_class->templ : actual->cxx_template;
+    actual_arguments = actual_class &&
+            actual_class->template_identity_tmpl
+        ? actual_class->template_identity_args
+        : actual_class && actual_class->templ
+            ? actual_class->template_args : actual->cxx_template_args;
+    actual_argument_count = actual_class &&
+            actual_class->template_identity_tmpl
+        ? actual_class->template_identity_arg_count
+        : actual_class && actual_class->templ
+            ? actual_class->template_arg_count
+            : actual->cxx_template_arg_count;
+    if (actual_template != pattern_template || actual_argument_count < 0 ||
+        (actual_argument_count > 0 && !actual_arguments)) {
+        return false;
+    }
+    class_pack_index = cxx_class_pack_index(pattern_template);
+    if (class_pack_index < 0 &&
+        actual_argument_count != pattern_argument_count) {
+        return false;
+    }
+    if (class_pack_index >= 0 && actual_argument_count < class_pack_index) {
+        return false;
+    }
+    for (int index = 0; index < pattern_argument_count; ++index) {
+        int parameter_index = class_pack_index >= 0 &&
+                index >= class_pack_index
+            ? class_pack_index : index;
+        if (parameter_index < 0 ||
+            parameter_index >= pattern_template->param_count ||
+            index >= actual_argument_count) {
+            return false;
+        }
+        TemplateParam* class_parameter =
+            &pattern_template->params[parameter_index];
+        Type* argument_pattern = pattern_arguments[index];
+        int argument_pack_index = argument_pattern
+            ? cxx_parser_template_parameter_pack_index(
+                  owner, argument_pattern)
+            : -1;
+        bool is_pack_expansion =
+            pattern->cxx_template_arg_pack_expansions &&
+            pattern->cxx_template_arg_pack_expansions[index];
+        if (class_parameter->is_pack && !is_pack_expansion &&
+            argument_pack_index != -1) {
+            is_pack_expansion = true;
+        }
+        if (is_pack_expansion) {
+            if (!class_parameter->is_pack ||
+                class_parameter->kind != TPARAM_TYPE ||
+                class_pack_index != index || !argument_pattern ||
+                !actual_arguments) {
+                return false;
+            }
+            bool* referenced = cxx_allocate_zeroed_array(
+                sizeof(*referenced), (size_t)owner->param_count);
+            int* initial_counts = cxx_allocate_zeroed_array(
+                sizeof(*initial_counts), (size_t)owner->param_count);
+            bool* initial_seen = cxx_allocate_zeroed_array(
+                sizeof(*initial_seen), (size_t)owner->param_count);
+            Type** element_arguments = NULL;
+            int64_t* element_values = NULL;
+            bool* element_value_present = NULL;
+            if (!referenced || !initial_counts || !initial_seen ||
+                !cxx_allocate_template_deduction_state(
+                    owner->param_count, &element_arguments, &element_values,
+                    &element_value_present) ||
+                !cxx_deduction_guide_collect_type_pack_references(
+                    owner, argument_pattern, referenced, depth + 1u)) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "cannot allocate nested deduction-guide pack state");
+                return false;
+            }
+            int expansion_count = actual_argument_count - index;
+            int referenced_count = 0;
+            if (expansion_count < 0 ||
+                expansion_count > pack_state->capacity_per_pack) {
+                return false;
+            }
+            memcpy(initial_counts, pack_state->counts,
+                   sizeof(*initial_counts) * (size_t)owner->param_count);
+            memcpy(initial_seen, pack_state->seen,
+                   sizeof(*initial_seen) * (size_t)owner->param_count);
+            for (int pack_index = 0; pack_index < owner->param_count;
+                 ++pack_index) {
+                if (!referenced[pack_index]) continue;
+                if (!owner->params[pack_index].is_pack ||
+                    owner->params[pack_index].kind != TPARAM_TYPE) {
+                    return false;
+                }
+                ++referenced_count;
+                if (initial_seen[pack_index] &&
+                    initial_counts[pack_index] != expansion_count) {
+                    return false;
+                }
+            }
+            if (referenced_count == 0) return false;
+            for (int element_index = 0; element_index < expansion_count;
+                 ++element_index) {
+                int element_specificity = 0;
+                memcpy(element_arguments, template_arguments,
+                       sizeof(*element_arguments) *
+                           (size_t)owner->param_count);
+                memcpy(element_values, template_values,
+                       sizeof(*element_values) *
+                           (size_t)owner->param_count);
+                memcpy(element_value_present, template_value_present,
+                       sizeof(*element_value_present) *
+                           (size_t)owner->param_count);
+                for (int pack_index = 0; pack_index < owner->param_count;
+                     ++pack_index) {
+                    if (referenced[pack_index]) {
+                        element_arguments[pack_index] = NULL;
+                    }
+                }
+                if (!deduce_function_template_type(
+                        owner, argument_pattern,
+                        actual_arguments[index + element_index],
+                        element_arguments, element_values,
+                        element_value_present, &element_specificity)) {
+                    return false;
+                }
+                for (int pack_index = 0; pack_index < owner->param_count;
+                     ++pack_index) {
+                    if (referenced[pack_index]) {
+                        Type* element_type = element_arguments[pack_index];
+                        int offset = pack_state->offsets[pack_index];
+                        if (!element_type) return false;
+                        if (initial_seen[pack_index]) {
+                            if (pack_state->counts[pack_index] <=
+                                    element_index ||
+                                !type_is_same_template_argument(
+                                    pack_state->arguments[
+                                        offset + element_index],
+                                    element_type)) {
+                                return false;
+                            }
+                        } else {
+                            if (pack_state->counts[pack_index] !=
+                                    element_index ||
+                                element_index >=
+                                    pack_state->capacity_per_pack) {
+                                return false;
+                            }
+                            pack_state->arguments[offset + element_index] =
+                                element_type;
+                            pack_state->counts[pack_index] =
+                                element_index + 1;
+                        }
+                    } else if (owner->params[pack_index].kind == TPARAM_TYPE &&
+                               element_arguments[pack_index]) {
+                        if (template_arguments[pack_index] &&
+                            !type_is_same_template_argument(
+                                template_arguments[pack_index],
+                                element_arguments[pack_index])) {
+                            return false;
+                        }
+                        template_arguments[pack_index] =
+                            element_arguments[pack_index];
+                    }
+                }
+                if (specificity) *specificity += element_specificity;
+            }
+            for (int pack_index = 0; pack_index < owner->param_count;
+                 ++pack_index) {
+                if (!referenced[pack_index]) continue;
+                if (pack_state->counts[pack_index] != expansion_count) {
+                    return false;
+                }
+                pack_state->seen[pack_index] = true;
+                if (expansion_count > pack_state->pending_count) {
+                    pack_state->pending_count = expansion_count;
+                }
+            }
+            continue;
+        }
+        if (parameter_index >= actual_argument_count) return false;
+        TemplateParam* actual_parameter = actual_template->params
+            ? &actual_template->params[parameter_index] : NULL;
+        if (!actual_parameter) return false;
+        if (actual_parameter->kind == TPARAM_TYPE) {
+            if (!cxx_deduction_guide_match_type_with_nested_packs(
+                    owner, argument_pattern, actual_arguments[index],
+                    template_arguments, template_values,
+                    template_value_present, pack_state, specificity,
+                    depth + 1u)) {
+                return false;
+            }
+        } else if (actual_parameter->kind == TPARAM_NONTYPE) {
+            if (cxx_parser_template_parameter_pack_index(
+                    owner, argument_pattern) != -1 ||
+                !cxx_function_template_class_nontype_argument_deduce(
+                    owner, pattern, actual, index, template_arguments,
+                    template_values, template_value_present)) {
+                return false;
+            }
+        } else if (actual_parameter->kind == TPARAM_TEMPLATE) {
+            if (cxx_parser_template_parameter_pack_index(
+                    owner, argument_pattern) != -1 ||
+                !cxx_function_template_class_template_template_argument_deduce(
+                    owner, argument_pattern, actual_arguments[index],
+                    template_arguments)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    if (specificity) *specificity += 16;
+    return true;
 }
 
 static Type* deduce_class_template_from_guides(
@@ -31501,7 +31941,21 @@ static Type* deduce_class_template_from_guides(
                 int pattern_pack_index =
                     cxx_parser_template_parameter_pack_index(owner, pattern);
                 bool deduced;
-                if (pattern_pack_index >= 0 && pack_state.has_pack) {
+                if (pattern_pack_index == -2 && pack_state.has_pack) {
+                    CxxSavedTemplatePackState saved;
+                    cxx_deduction_guide_pack_state_bind(
+                        owner, &pack_state, &saved);
+                    deduced =
+                        cxx_deduction_guide_match_type_with_nested_packs(
+                            owner, pattern,
+                            cxx_parser_template_deduction_argument(
+                                pattern, actual),
+                            template_arguments, template_values,
+                            template_value_present, &pack_state,
+                            &specificity, 0u);
+                    cxx_deduction_guide_pack_state_restore(
+                        owner, &pack_state, &saved);
+                } else if (pattern_pack_index >= 0 && pack_state.has_pack) {
                     CxxSavedTemplatePackState saved;
                     cxx_deduction_guide_pack_state_bind(
                         owner, &pack_state, &saved);
@@ -31517,11 +31971,6 @@ static Type* deduce_class_template_from_guides(
                         &pack_state.seen[pattern_pack_index]);
                     cxx_deduction_guide_pack_state_restore(
                         owner, &pack_state, &saved);
-                    if (pack_state.counts[pattern_pack_index] >
-                        pack_state.pending_count) {
-                        pack_state.pending_count =
-                            pack_state.counts[pattern_pack_index];
-                    }
                 } else {
                     deduced = deduce_function_template_type(
                         owner, pattern,
@@ -31529,6 +31978,19 @@ static Type* deduce_class_template_from_guides(
                             pattern, actual),
                         template_arguments, template_values,
                         template_value_present, &specificity);
+                }
+                if (deduced) {
+                    for (int index = 0; index < owner->param_count; ++index) {
+                        if (!owner->params[index].is_pack) continue;
+                        if (pack_state.counts[index] > 0) {
+                            pack_state.seen[index] = true;
+                        }
+                        if (pack_state.counts[index] >
+                            pack_state.pending_count) {
+                            pack_state.pending_count =
+                                pack_state.counts[index];
+                        }
+                    }
                 }
                 if (!deduced) {
                     viable = false;
@@ -39895,6 +40357,24 @@ static bool cxx_parser_template_pack_parameter_in_scopes(
             ? cxx_parser_template_parameter_pack_index(scope, type_pattern)
             : cxx_parser_template_value_pack_index_expression(
                   scope, value_pattern);
+        if (pack_index == -2 && type_pattern && parameter_kind < 0) {
+            bool* referenced = cxx_allocate_zeroed_array(
+                sizeof(*referenced),
+                (size_t)(scope->param_count > 0 ? scope->param_count : 1));
+            int referenced_count = 0;
+            if (!referenced) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "cannot allocate class-template pack validation state");
+                return false;
+            }
+            if (cxx_deduction_guide_collect_type_pack_references(
+                    scope, type_pattern, referenced, 0u)) {
+                for (int index = 0; index < scope->param_count; ++index) {
+                    if (referenced[index]) ++referenced_count;
+                }
+                if (referenced_count >= 2) return true;
+            }
+        }
         if (pack_index >= 0 && pack_index < scope->param_count) {
             const TemplateParam* parameter = &scope->params[pack_index];
             if (parameter->is_pack &&

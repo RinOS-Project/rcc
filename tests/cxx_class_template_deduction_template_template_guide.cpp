@@ -54,6 +54,9 @@ template <typename... Values>
 struct GuidePackList {};
 
 template <typename First, typename Second>
+struct GuidePackBundle {};
+
+template <typename First, typename Second>
 struct GuidePackPair {};
 
 template <typename Left, typename Right>
@@ -80,6 +83,44 @@ template <typename... Left, typename... Right>
 ExpandedIndependentGuidePackBox(GuidePackPair<Left, Right>...)
     -> ExpandedIndependentGuidePackBox<GuidePackList<Left...>,
                                        GuidePackList<Right...>>;
+
+template <typename Left, typename Right>
+struct NestedExpansionGuideBox {
+    Left first;
+    Right second;
+
+    NestedExpansionGuideBox(
+        GuidePackBundle<GuidePackList<int, char>, GuidePackList<long>>) {}
+    NestedExpansionGuideBox(
+        GuidePackList<GuidePackPair<int, long>,
+                      GuidePackPair<char, short>>) {}
+};
+
+template <typename... Left, typename... Right>
+NestedExpansionGuideBox(
+    GuidePackBundle<GuidePackList<Left...>, GuidePackList<Right...>>)
+    -> NestedExpansionGuideBox<GuidePackList<Left...>,
+                               GuidePackList<Right...>>;
+
+template <typename... Left, typename... Right>
+NestedExpansionGuideBox(GuidePackList<GuidePackPair<Left, Right>...>)
+    -> NestedExpansionGuideBox<GuidePackList<Left...>,
+                               GuidePackList<Right...>>;
+
+template <typename Left, typename Right>
+struct NestedExpansionLengthBox {
+    NestedExpansionLengthBox(
+        GuidePackBundle<GuidePackList<int, char>, GuidePackList<long>>,
+        GuidePackList<GuidePackPair<int, long>,
+                      GuidePackPair<char, short>>) {}
+};
+
+template <typename... Left, typename... Right>
+NestedExpansionLengthBox(
+    GuidePackBundle<GuidePackList<Left...>, GuidePackList<Right...>>,
+    GuidePackList<GuidePackPair<Left, Right>...>)
+    -> NestedExpansionLengthBox<GuidePackList<Left...>,
+                                GuidePackList<Right...>>;
 
 template <typename Value, int Count>
 struct GuideValuePair {};
@@ -186,6 +227,13 @@ int main() {
 }
 #else
 int main() {
+#ifdef RCC_NESTED_GUIDE_BAD_ZIPPED_LENGTH
+    NestedExpansionLengthBox invalid_zipped_expansion{
+        GuidePackBundle<GuidePackList<int, char>, GuidePackList<long>>{},
+        GuidePackList<GuidePackPair<int, long>,
+                      GuidePackPair<char, short>>{}};
+    (void)invalid_zipped_expansion;
+#endif
     GuideInner<int> source{17};
     GuideDefaultInner<int> default_source{19};
     GuidePair<long, int> pair{23, 41};
@@ -216,6 +264,16 @@ int main() {
     ExpandedIndependentGuidePackBox<GuidePackList<int, char>,
                                     GuidePackList<long, short>>*
         exact_expanded_packs = &selected_expanded_packs;
+    NestedExpansionGuideBox selected_nested_expansions{
+        GuidePackBundle<GuidePackList<int, char>, GuidePackList<long>>{}};
+    NestedExpansionGuideBox<GuidePackList<int, char>, GuidePackList<long>>*
+        exact_nested_expansions = &selected_nested_expansions;
+    NestedExpansionGuideBox selected_zipped_expansion{
+        GuidePackList<GuidePackPair<int, long>,
+                      GuidePackPair<char, short>>{}};
+    NestedExpansionGuideBox<GuidePackList<int, char>,
+                            GuidePackList<long, short>>*
+        exact_zipped_expansion = &selected_zipped_expansion;
     MixedIndependentGuidePackBox selected_mixed_packs{
         GuideValuePair<int, 3>{}, GuideValuePair<char, 5>{}};
     ArithmeticGuidePackBox selected_arithmetic_pack{
@@ -237,6 +295,14 @@ int main() {
                    sizeof(exact_independent_packs->first) ==
                        sizeof(GuidePackList<int, char>) &&
                    sizeof(exact_expanded_packs->second) ==
+                       sizeof(GuidePackList<long, short>) &&
+                   sizeof(exact_nested_expansions->first) ==
+                       sizeof(GuidePackList<int, char>) &&
+                   sizeof(exact_nested_expansions->second) ==
+                       sizeof(GuidePackList<long>) &&
+                   sizeof(exact_zipped_expansion->first) ==
+                       sizeof(GuidePackList<int, char>) &&
+                   sizeof(exact_zipped_expansion->second) ==
                        sizeof(GuidePackList<long, short>) &&
                    sizeof(selected_mixed_packs.second) == 3 &&
                    exact_multi->value.first == 23 &&
