@@ -11273,6 +11273,95 @@ static bool lower_receiver_source_contains_subobject(
     return saw_subobject_projection && current == receiver_source;
 }
 
+static RccIrLowerValue lower_builtin_overflow_p(
+    RccIrLowerContext* context, const Expr* expression,
+    const char* name) {
+    const ExprList* first = expression ? expression->call_args : NULL;
+    const ExprList* second = first ? first->next : NULL;
+    const ExprList* third = second ? second->next : NULL;
+    Type* result_type = third && third->expr
+        ? third->expr->type : NULL;
+    RccIrLowerValue left;
+    RccIrLowerValue right;
+    RccIrLowerValue operation;
+    RccIrLowerValue left_unsigned;
+    RccIrLowerValue right_unsigned;
+    RccIrLowerValue precision;
+    RccIrLowerValue result_unsigned;
+    RccIrInstruction* call;
+    RccIrValue operands[7];
+    unsigned result_precision;
+    uint64_t operation_value;
+
+    if (!context || !expression || !expression->type || !name ||
+        !first || !first->expr || !second || !second->expr || !third ||
+        !third->expr || third->next || !result_type ||
+        !type_is_integer(first->expr->type) ||
+        !type_is_integer(second->expr->type) ||
+        !type_is_integer(result_type) || first->expr->type->size <= 0 ||
+        first->expr->type->size > 8 || second->expr->type->size <= 0 ||
+        second->expr->type->size > 8 || result_type->size <= 0 ||
+        result_type->size > 8) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    result_precision = third->expr->member_field &&
+            third->expr->member_field->is_bitfield
+        ? third->expr->member_field->bit_width
+        : result_type->is_bit_precise
+            ? result_type->bit_width
+            : (unsigned)result_type->size * 8u;
+    if (result_precision == 0u || result_precision > 64u) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operation_value = strcmp(name, "__builtin_add_overflow_p") == 0 ? 0u
+        : strcmp(name, "__builtin_sub_overflow_p") == 0 ? 1u
+        : strcmp(name, "__builtin_mul_overflow_p") == 0 ? 2u : UINT64_MAX;
+    if (operation_value > 2u) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    left = lower_cast(context, lower_expression(context, first->expr),
+                      type_ullong);
+    right = lower_cast(context, lower_expression(context, second->expr),
+                       type_ullong);
+    operation = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, operation_value);
+    left_unsigned = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true,
+        first->expr->type->is_unsigned ? 1u : 0u);
+    right_unsigned = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true,
+        second->expr->type->is_unsigned ? 1u : 0u);
+    precision = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, result_precision);
+    result_unsigned = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true,
+        result_type->is_unsigned ? 1u : 0u);
+    if (!left.valid || !right.valid || !operation.valid ||
+        !left_unsigned.valid || !right_unsigned.valid ||
+        !precision.valid || !result_unsigned.valid) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = operation.value;
+    operands[1] = left.value;
+    operands[2] = left_unsigned.value;
+    operands[3] = right.value;
+    operands[4] = right_unsigned.value;
+    operands[5] = precision.value;
+    operands[6] = result_unsigned.value;
+    call = lower_append(
+        context, RCC_IR_CALL, rcc_ir_type_integer(32u),
+        operands, 7u, NULL, 0u);
+    if (!call) return lower_invalid_value();
+    rcc_ir_set_callee(call, "__rin_builtin_overflow_p_v1");
+    return lower_cast(
+        context, lower_value(call->result, rcc_ir_type_integer(32u), true),
+        expression->type);
+}
+
 static RccIrLowerValue lower_call_receiver_argument(
     RccIrLowerContext* context, const Expr* expression,
     const Expr* receiver_source,
@@ -15912,6 +16001,11 @@ static RccIrLowerValue lower_builtin_call(
          * selected expression; the other expression was semantically checked
          * but must not acquire runtime side effects in verified IR. */
         return lower_expression(context, selected->expr);
+    }
+    if (strcmp(name, "__builtin_add_overflow_p") == 0 ||
+        strcmp(name, "__builtin_sub_overflow_p") == 0 ||
+        strcmp(name, "__builtin_mul_overflow_p") == 0) {
+        return lower_builtin_overflow_p(context, expression, name);
     }
     if (strcmp(name, "__builtin_add_overflow") == 0 ||
         strcmp(name, "__builtin_sub_overflow") == 0) {

@@ -13991,6 +13991,60 @@ static bool codegen_builtin_object_size(Expr* expression, uint64_t* size) {
     return false;
 }
 
+static bool gen_compiler_overflow_predicate32(Module* mod, Expr* expr,
+                                             const char* name) {
+    Expr* lhs = call_argument(expr, 0);
+    Expr* rhs = call_argument(expr, 1);
+    Expr* precision_expression = call_argument(expr, 2);
+    Type* result_type = precision_expression
+        ? precision_expression->type : NULL;
+    unsigned precision;
+    int operation;
+    uint32_t call_offset;
+
+    if (!result_type || !type_is_integer(result_type) ||
+        !lhs || !lhs->type || lhs->type->size <= 0 || lhs->type->size > 8 ||
+        !rhs || !rhs->type || rhs->type->size <= 0 || rhs->type->size > 8) {
+        rcc_error(expr->loc,
+                  "%s requires integer operands no wider than 64 bits", name);
+        return true;
+    }
+    precision = precision_expression->member_field &&
+            precision_expression->member_field->is_bitfield
+        ? precision_expression->member_field->bit_width
+        : result_type->is_bit_precise
+            ? result_type->bit_width : (unsigned)result_type->size * 8u;
+    if (precision == 0u || precision > 64u) {
+        rcc_error(expr->loc, "%s result precision is unsupported", name);
+        return true;
+    }
+    operation = strcmp(name, "__builtin_add_overflow_p") == 0 ? 0
+        : strcmp(name, "__builtin_sub_overflow_p") == 0 ? 1 : 2;
+
+    emit_mov_reg_imm(mod, EAX, result_type->is_unsigned ? 1u : 0u);
+    emit_push_reg(mod, EAX); /* Result signedness. */
+    emit_mov_reg_imm(mod, EAX, precision);
+    emit_push_reg(mod, EAX); /* Result precision. */
+    emit_mov_reg_imm(mod, EAX, rhs->type->is_unsigned ? 1u : 0u);
+    emit_push_reg(mod, EAX); /* Right operand signedness. */
+    gen_expr_as_integer64(mod, rhs);
+    emit_push_reg(mod, EDX);
+    emit_push_reg(mod, EAX); /* Right operand bits. */
+    emit_mov_reg_imm(mod, EAX, lhs->type->is_unsigned ? 1u : 0u);
+    emit_push_reg(mod, EAX); /* Left operand signedness. */
+    gen_expr_as_integer64(mod, lhs);
+    emit_push_reg(mod, EDX);
+    emit_push_reg(mod, EAX); /* Left operand bits. */
+    emit_mov_reg_imm(mod, EAX, (uint32_t)operation);
+    emit_push_reg(mod, EAX);
+    emit_byte(mod, 0xE8);
+    call_offset = code_offset(mod);
+    emit_dword(mod, 0u);
+    add_func_call_ref("__rin_builtin_overflow_p_v1", call_offset);
+    emit_add_reg_imm(mod, ESP, 36);
+    return true;
+}
+
 static bool gen_compiler_overflow_builtin32(Module* mod, Expr* expr) {
     const char* name;
     Expr* result_address;
@@ -14004,6 +14058,11 @@ static bool gen_compiler_overflow_builtin32(Module* mod, Expr* expr) {
     if (!expr || expr->kind != EXPR_CALL || !expr->call_func ||
         expr->call_func->kind != EXPR_IDENT) return false;
     name = expr->call_func->ident_name;
+    if (strcmp(name, "__builtin_add_overflow_p") == 0 ||
+        strcmp(name, "__builtin_sub_overflow_p") == 0 ||
+        strcmp(name, "__builtin_mul_overflow_p") == 0) {
+        return gen_compiler_overflow_predicate32(mod, expr, name);
+    }
     is_multiply = strcmp(name, "__builtin_mul_overflow") == 0;
     is_subtract = strcmp(name, "__builtin_sub_overflow") == 0;
     if (!is_multiply && !is_subtract &&

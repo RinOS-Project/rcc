@@ -3540,6 +3540,61 @@ static bool codegen64_builtin_object_size(Expr* expression, uint64_t* size) {
     return false;
 }
 
+static void add_func_call_ref64(const char* name, uint32_t call_offset);
+
+static bool gen64_compiler_overflow_predicate(
+    Module* mod, Expr* expr, const char* name) {
+    Expr* lhs = call64_argument(expr, 0);
+    Expr* rhs = call64_argument(expr, 1);
+    Expr* precision_expression = call64_argument(expr, 2);
+    Type* result_type = precision_expression
+        ? precision_expression->type : NULL;
+    unsigned precision;
+    uint32_t call_offset;
+    int operation;
+
+    if (!result_type || !type_is_integer(result_type) ||
+        !lhs || !lhs->type || lhs->type->size <= 0 || lhs->type->size > 8 ||
+        !rhs || !rhs->type || rhs->type->size <= 0 || rhs->type->size > 8) {
+        rcc_error(expr->loc,
+                  "%s requires integer operands no wider than 64 bits", name);
+        return true;
+    }
+    precision = precision_expression->member_field &&
+            precision_expression->member_field->is_bitfield
+        ? precision_expression->member_field->bit_width
+        : result_type->is_bit_precise
+            ? result_type->bit_width : (unsigned)result_type->size * 8u;
+    if (precision == 0u || precision > 64u) {
+        rcc_error(expr->loc, "%s result precision is unsupported", name);
+        return true;
+    }
+    operation = strcmp(name, "__builtin_add_overflow_p") == 0 ? 0
+        : strcmp(name, "__builtin_sub_overflow_p") == 0 ? 1 : 2;
+
+    emit64_sub_reg_imm(mod, RSP, 32);
+    gen64_expr(mod, rhs);
+    emit64_normalize_atomic_value(mod, RAX, rhs->type);
+    emit64_mov_mem_reg(mod, RSP, 24, RAX);
+    gen64_expr(mod, lhs);
+    emit64_normalize_atomic_value(mod, RAX, lhs->type);
+    emit64_mov_mem_reg(mod, RSP, 16, RAX);
+    emit64_mov_reg_imm32(mod, RDI, (uint32_t)operation);
+    emit64_mov_reg_mem(mod, RSI, RSP, 16);
+    emit64_mov_reg_imm32(mod, RDX, lhs->type->is_unsigned ? 1u : 0u);
+    emit64_mov_reg_mem(mod, RCX, RSP, 24);
+    emit64_mov_reg_imm32(mod, R8, rhs->type->is_unsigned ? 1u : 0u);
+    emit64_mov_reg_imm32(mod, R9, precision);
+    emit64_mov_reg_imm32(mod, RAX, result_type->is_unsigned ? 1u : 0u);
+    emit64_mov_mem_reg(mod, RSP, 0, RAX);
+    emit_byte(mod, 0xE8);
+    call_offset = code_offset(mod);
+    emit_dword(mod, 0u);
+    add_func_call_ref64("__rin_builtin_overflow_p_v1", call_offset);
+    emit64_add_reg_imm(mod, RSP, 32);
+    return true;
+}
+
 static bool gen64_compiler_overflow_builtin(Module* mod, Expr* expr) {
     const char* name;
     Expr* result_address;
@@ -3553,6 +3608,11 @@ static bool gen64_compiler_overflow_builtin(Module* mod, Expr* expr) {
     if (!expr || expr->kind != EXPR_CALL || !expr->call_func ||
         expr->call_func->kind != EXPR_IDENT) return false;
     name = expr->call_func->ident_name;
+    if (strcmp(name, "__builtin_add_overflow_p") == 0 ||
+        strcmp(name, "__builtin_sub_overflow_p") == 0 ||
+        strcmp(name, "__builtin_mul_overflow_p") == 0) {
+        return gen64_compiler_overflow_predicate(mod, expr, name);
+    }
     is_multiply = strcmp(name, "__builtin_mul_overflow") == 0;
     is_subtract = strcmp(name, "__builtin_sub_overflow") == 0;
     if (!is_multiply && !is_subtract &&
@@ -3941,8 +4001,6 @@ static bool gen64_atomic_lock_free_query(Module* mod, Expr* call) {
     emit64_label(mod, end_label);
     return true;
 }
-
-static void add_func_call_ref64(const char* name, uint32_t call_offset);
 
 static bool gen64_atomic_outlined_fallback(Module* mod, Expr* call,
                                             const char* name) {

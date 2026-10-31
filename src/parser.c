@@ -1116,6 +1116,133 @@ static bool parser_integer_constant_mul(int64_t left, int64_t right,
     return true;
 }
 
+typedef struct ParserOverflowWide {
+    uint64_t low;
+    uint64_t high;
+} ParserOverflowWide;
+
+static uint64_t parser_overflow_p_operand_bits(
+    IntegerConstantValue value) {
+    unsigned width = value.type ? type_integer_width(value.type) : 0u;
+    uint64_t mask = width == 0u ? 0u : integer_type_mask(value.type);
+    uint64_t bits = value.bits & mask;
+    if (value.type && !value.type->is_unsigned && width > 0u && width < 64u &&
+        (bits & (UINT64_C(1) << (width - 1u))) != 0u) {
+        bits |= ~mask;
+    }
+    return bits;
+}
+
+static ParserOverflowWide parser_overflow_p_add(
+    ParserOverflowWide left, ParserOverflowWide right) {
+    ParserOverflowWide result;
+    result.low = left.low + right.low;
+    result.high = left.high + right.high + (result.low < left.low);
+    return result;
+}
+
+static ParserOverflowWide parser_overflow_p_subtract(
+    ParserOverflowWide left, ParserOverflowWide right) {
+    ParserOverflowWide result;
+    result.low = left.low - right.low;
+    result.high = left.high - right.high - (left.low < right.low);
+    return result;
+}
+
+static ParserOverflowWide parser_overflow_p_multiply_unsigned(
+    uint64_t left, uint64_t right) {
+    const uint64_t mask = UINT64_C(0xffffffff);
+    uint64_t left_low = left & mask;
+    uint64_t left_high = left >> 32;
+    uint64_t right_low = right & mask;
+    uint64_t right_high = right >> 32;
+    uint64_t word0 = left_low * right_low;
+    uint64_t intermediate = left_high * right_low + (word0 >> 32);
+    uint64_t word1 = intermediate & mask;
+    uint64_t word2 = intermediate >> 32;
+    ParserOverflowWide result;
+    word1 += left_low * right_high;
+    result.high = left_high * right_high + word2 + (word1 >> 32);
+    result.low = (word1 << 32) | (word0 & mask);
+    return result;
+}
+
+static ParserOverflowWide parser_overflow_p_negate(
+    ParserOverflowWide value) {
+    ParserOverflowWide result;
+    result.low = ~value.low + 1u;
+    result.high = ~value.high + (result.low == 0u);
+    return result;
+}
+
+static bool parser_overflow_p_fits(
+    ParserOverflowWide value, unsigned precision, bool result_unsigned) {
+    uint64_t low_mask;
+    uint64_t upper_low;
+    bool negative;
+    if (precision == 0u || precision > 64u) return false;
+    if (result_unsigned) {
+        return value.high == 0u &&
+            (precision == 64u || (value.low >> precision) == 0u);
+    }
+    negative = ((value.low >> (precision - 1u)) & 1u) != 0u;
+    if (precision == 64u) {
+        return value.high == (negative ? UINT64_MAX : 0u);
+    }
+    low_mask = (UINT64_C(1) << precision) - 1u;
+    upper_low = value.low & ~low_mask;
+    return value.high == (negative ? UINT64_MAX : 0u) &&
+        upper_low == (negative ? ~low_mask : 0u);
+}
+
+static bool parser_overflow_p_value(
+    unsigned operation, IntegerConstantValue left,
+    IntegerConstantValue right, unsigned precision, bool result_unsigned) {
+    uint64_t left_bits = parser_overflow_p_operand_bits(left);
+    uint64_t right_bits = parser_overflow_p_operand_bits(right);
+    ParserOverflowWide exact;
+    if (operation == 0u) {
+        ParserOverflowWide left_wide = {
+            left_bits,
+            left.type && !left.type->is_unsigned &&
+                    (left_bits >> 63) != 0u ? UINT64_MAX : 0u
+        };
+        ParserOverflowWide right_wide = {
+            right_bits,
+            right.type && !right.type->is_unsigned &&
+                    (right_bits >> 63) != 0u ? UINT64_MAX : 0u
+        };
+        exact = parser_overflow_p_add(left_wide, right_wide);
+    } else if (operation == 1u) {
+        ParserOverflowWide left_wide = {
+            left_bits,
+            left.type && !left.type->is_unsigned &&
+                    (left_bits >> 63) != 0u ? UINT64_MAX : 0u
+        };
+        ParserOverflowWide right_wide = {
+            right_bits,
+            right.type && !right.type->is_unsigned &&
+                    (right_bits >> 63) != 0u ? UINT64_MAX : 0u
+        };
+        exact = parser_overflow_p_subtract(left_wide, right_wide);
+    } else if (operation == 2u) {
+        bool left_negative = left.type && !left.type->is_unsigned &&
+                             (left_bits >> 63) != 0u;
+        bool right_negative = right.type && !right.type->is_unsigned &&
+                              (right_bits >> 63) != 0u;
+        uint64_t left_magnitude = left_negative ? 0u - left_bits : left_bits;
+        uint64_t right_magnitude = right_negative ? 0u - right_bits : right_bits;
+        exact = parser_overflow_p_multiply_unsigned(
+            left_magnitude, right_magnitude);
+        if (left_negative != right_negative) {
+            exact = parser_overflow_p_negate(exact);
+        }
+    } else {
+        return true;
+    }
+    return !parser_overflow_p_fits(exact, precision, result_unsigned);
+}
+
 static bool eval_integer_constant_typed(Expr* expr,
                                         IntegerConstantValue* value) {
     IntegerConstantValue left;
@@ -1126,6 +1253,57 @@ static bool eval_integer_constant_typed(Expr* expr,
 
     if (!expr || !value) return false;
     switch (expr->kind) {
+        case EXPR_CALL: {
+            const char* name = expr->call_func &&
+                    expr->call_func->kind == EXPR_IDENT
+                ? expr->call_func->ident_name : NULL;
+            ExprList* first = expr->call_args;
+            ExprList* second = first ? first->next : NULL;
+            ExprList* third = second ? second->next : NULL;
+            unsigned operation;
+            unsigned precision;
+            IntegerConstantValue left_value;
+            IntegerConstantValue right_value;
+            Type* result_type;
+            if (!name || !first || !first->expr || !second ||
+                !second->expr || !third || !third->expr || third->next) {
+                return false;
+            }
+            if (strcmp(name, "__builtin_add_overflow_p") == 0) {
+                operation = 0u;
+            } else if (strcmp(name, "__builtin_sub_overflow_p") == 0) {
+                operation = 1u;
+            } else if (strcmp(name, "__builtin_mul_overflow_p") == 0) {
+                operation = 2u;
+            } else {
+                return false;
+            }
+            result_type = third->expr->type;
+            if (!result_type || !type_is_integer(result_type) ||
+                result_type->size <= 0 || result_type->size > 8 ||
+                !type_is_integer(first->expr->type) ||
+                first->expr->type->size <= 0 ||
+                first->expr->type->size > 8 ||
+                !type_is_integer(second->expr->type) ||
+                second->expr->type->size <= 0 ||
+                second->expr->type->size > 8 ||
+                !eval_integer_constant_typed(first->expr, &left_value) ||
+                !eval_integer_constant_typed(second->expr, &right_value)) {
+                return false;
+            }
+            precision = third->expr->member_field &&
+                    third->expr->member_field->is_bitfield
+                ? third->expr->member_field->bit_width
+                : result_type->is_bit_precise
+                    ? result_type->bit_width
+                    : (unsigned)result_type->size * 8u;
+            if (precision == 0u || precision > 64u) return false;
+            value->bits = parser_overflow_p_value(
+                operation, left_value, right_value, precision,
+                result_type->is_unsigned) ? 1u : 0u;
+            value->type = expr->type ? expr->type : type_int;
+            return true;
+        }
         case EXPR_INT_LIT:
             if (expr->is_cxx_nullptr) return false;
             value->bits = (uint64_t)expr->int_val &

@@ -527,7 +527,8 @@ bool pp_is_defined(Preprocessor* pp, const char* name) {
  * in the C/C++ frontends. Unknown names are not advertised. */
 static bool pp_has_builtin(const char* name) {
     static const char* const builtins[] = {
-        "__builtin_add_overflow", "__builtin_assume_aligned",
+        "__builtin_add_overflow", "__builtin_add_overflow_p",
+        "__builtin_assume_aligned",
         "__builtin_bswap16", "__builtin_bswap32", "__builtin_bswap64",
         "__builtin_choose_expr", "__builtin_clrsb", "__builtin_clrsbl",
         "__builtin_clrsbll", "__builtin_clz", "__builtin_clzl",
@@ -565,11 +566,13 @@ static bool pp_has_builtin(const char* name) {
         "__builtin_ia32_pxor", "__builtin_ia32_vec_init_v2si",
         "__builtin_ia32_vec_init_v4hi", "__builtin_ia32_vec_init_v8qi",
         "__builtin_inf", "__builtin_inff",
-        "__builtin_mul_overflow", "__builtin_nan", "__builtin_nanf",
+        "__builtin_mul_overflow", "__builtin_mul_overflow_p",
+        "__builtin_nan", "__builtin_nanf",
         "__builtin_object_size", "__builtin_offsetof", "__builtin_parity",
         "__builtin_parityl", "__builtin_parityll", "__builtin_popcount",
         "__builtin_popcountl", "__builtin_popcountll", "__builtin_prefetch",
-        "__builtin_strlen", "__builtin_sub_overflow", "__builtin_trap",
+        "__builtin_strlen", "__builtin_sub_overflow",
+        "__builtin_sub_overflow_p", "__builtin_trap",
         "__builtin_types_compatible_p", "__builtin_unreachable",
         "__builtin_va_arg", "__builtin_va_copy", "__builtin_va_end",
         "__builtin_va_list", "__builtin_va_start",

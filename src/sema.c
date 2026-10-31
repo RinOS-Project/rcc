@@ -30703,8 +30703,14 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     }
     if (strcmp(name, "__builtin_add_overflow") == 0 ||
         strcmp(name, "__builtin_sub_overflow") == 0 ||
-        strcmp(name, "__builtin_mul_overflow") == 0) {
+        strcmp(name, "__builtin_mul_overflow") == 0 ||
+        strcmp(name, "__builtin_add_overflow_p") == 0 ||
+        strcmp(name, "__builtin_sub_overflow_p") == 0 ||
+        strcmp(name, "__builtin_mul_overflow_p") == 0) {
+        bool predicate = name[strlen(name) - 2] == '_' &&
+                         name[strlen(name) - 1] == 'p';
         Type* result_type = NULL;
+        unsigned result_precision = 0u;
         for (argument = expr->call_args; argument;
              argument = argument->next) {
             sema_expr(argument->expr);
@@ -30728,27 +30734,61 @@ static bool sema_compiler_builtin_call(Expr* expr) {
             rcc_error(expr->loc,
                       "%s second argument must have integer type", name);
         }
-        if (!third || !third->type || third->type->kind != TYPE_PTR ||
-            !third->type->base || !type_is_integer(third->type->base)) {
-            rcc_error(expr->loc,
-                      "%s result argument must point to an integer type", name);
+        if (predicate) {
+            if ((first && first->type &&
+                 (first->type->size < 1 || first->type->size > 8)) ||
+                (second && second->type &&
+                 (second->type->size < 1 || second->type->size > 8))) {
+                rcc_error(expr->loc,
+                          "%s operands must fit in 64 bits", name);
+            }
+            if (!third || !third->type || !type_is_integer(third->type)) {
+                rcc_error(expr->loc,
+                          "%s third argument must have integer type", name);
+            } else {
+                result_type = third->type;
+                result_precision = third->member_field &&
+                        third->member_field->is_bitfield
+                    ? third->member_field->bit_width
+                    : result_type->is_bit_precise
+                        ? result_type->bit_width
+                        : result_type->size > 0
+                            ? (unsigned)result_type->size * 8u : 0u;
+            }
         } else {
-            result_type = third->type->base;
+            if (!third || !third->type || third->type->kind != TYPE_PTR ||
+                !third->type->base || !type_is_integer(third->type->base)) {
+                rcc_error(expr->loc,
+                          "%s result argument must point to an integer type",
+                          name);
+            } else {
+                result_type = third->type->base;
+                result_precision = result_type->is_bit_precise
+                    ? result_type->bit_width
+                    : result_type->size > 0
+                        ? (unsigned)result_type->size * 8u : 0u;
+            }
         }
-        if (result_type &&
+        if (result_type && predicate &&
+            (result_type->size < 1 || result_type->size > 8 ||
+             result_precision == 0u || result_precision > 64u)) {
+            rcc_error(expr->loc,
+                      "%s operands and result precision must fit in 64 bits",
+                      name);
+        } else if (result_type && !predicate &&
             (result_type->size != 1 && result_type->size != 2 &&
              result_type->size != 4 && result_type->size != 8)) {
             rcc_error(expr->loc,
                       "%s result type has an unsupported integer width", name);
         }
-        if (first && first->type && result_type &&
+        if (!predicate && first && first->type && result_type &&
             (first->type->size != result_type->size ||
              first->type->is_unsigned != result_type->is_unsigned)) {
             rcc_error(expr->loc,
                       "%s operands and result must have the same integer width and signedness",
                       name);
         }
-        if (second && second->type && result_type &&
+        if (!predicate && second && second->type && result_type &&
             (second->type->size != result_type->size ||
              second->type->is_unsigned != result_type->is_unsigned)) {
             rcc_error(expr->loc,
