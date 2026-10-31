@@ -17,6 +17,9 @@ LinkerOpts g_linker_opts;
 
 static bool linker_section_selected(const ObjSection* section);
 static ObjSection* object_section_at(const ObjectFile* object, int index);
+static uint64_t linker_comdat_hash(const char* key);
+static bool linker_comdat_contains(const Linker* ld, const char* key);
+static void linker_comdat_insert(Linker* ld, const char* key);
 
 /* ═══════════════════════════════════════
  * Linker Creation/Destruction
@@ -27,6 +30,9 @@ Linker* linker_new(void) {
     ld->objects = NULL;
     ld->object_count = 0;
     ld->object_capacity = 0u;
+    ld->comdat_keys = NULL;
+    ld->comdat_key_count = 0u;
+    ld->comdat_key_capacity = 0u;
     ld->sections = NULL;
     ld->section_count = 0;
     ld->symbols = NULL;
@@ -50,6 +56,7 @@ void linker_free(Linker* ld) {
         objfile_free(ld->objects[i]);
     }
     rcc_free(ld->objects);
+    rcc_free(ld->comdat_keys);
 
     /* Free linked sections */
     LinkedSection* s = ld->sections;
@@ -100,20 +107,20 @@ static bool linker_append_object(Linker* ld, ObjectFile* obj) {
         return false;
     }
 
+    /* Query only signatures from previously accepted objects.  Publish keys
+     * after the complete object is classified so all sections sharing a key
+     * inside this object remain one selected COMDAT group. */
     for (ObjSection* section = obj->sections; section;
          section = section->next) {
         if ((section->flags & SECT_FLAG_COMDAT) == 0u) continue;
-        for (int previous = 0; previous < ld->object_count; previous++) {
-            for (ObjSection* candidate = ld->objects[previous]->sections;
-                 candidate; candidate = candidate->next) {
-                if ((candidate->flags & SECT_FLAG_COMDAT) != 0u &&
-                    strcmp(candidate->comdat_key, section->comdat_key) == 0) {
-                    section->comdat_selected = false;
-                    break;
-                }
-            }
-            if (!section->comdat_selected) break;
+        if (section->comdat_key == NULL) {
+            fprintf(stderr, "rld: object %s has COMDAT without a signature\n",
+                    obj->filename ? obj->filename : "<unknown>");
+            objfile_free(obj);
+            return false;
         }
+        section->comdat_selected =
+            !linker_comdat_contains(ld, section->comdat_key);
     }
 
     /* Grow geometrically so large archive/object lists do not copy the
@@ -137,12 +144,100 @@ static bool linker_append_object(Linker* ld, ObjectFile* obj) {
     }
     ld->objects[ld->object_count++] = obj;
 
+    for (ObjSection* section = obj->sections; section;
+         section = section->next) {
+        if ((section->flags & SECT_FLAG_COMDAT) != 0u &&
+            section->comdat_selected)
+            linker_comdat_insert(ld, section->comdat_key);
+    }
+
     if (g_linker_opts.verbose) {
         printf("  + %s: %d sections, %d symbols\n",
                obj->filename, obj->section_count, obj->symbol_count);
     }
 
     return true;
+}
+
+static uint64_t linker_comdat_hash(const char* key)
+{
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (const unsigned char* byte = (const unsigned char*)key; *byte; ++byte) {
+        hash ^= *byte;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static size_t linker_comdat_slot(const Linker* ld, const char* key,
+                                 bool* found)
+{
+    size_t bucket;
+    *found = false;
+    if (!ld->comdat_key_capacity) return 0u;
+    bucket = (size_t)linker_comdat_hash(key) &
+             (ld->comdat_key_capacity - 1u);
+    while (ld->comdat_keys[bucket] != NULL) {
+        if (strcmp(ld->comdat_keys[bucket], key) == 0) {
+            *found = true;
+            return bucket;
+        }
+        bucket = (bucket + 1u) & (ld->comdat_key_capacity - 1u);
+    }
+    return bucket;
+}
+
+static bool linker_comdat_contains(const Linker* ld, const char* key)
+{
+    bool found;
+    if (key == NULL) return false;
+    (void)linker_comdat_slot(ld, key, &found);
+    return found;
+}
+
+static void linker_grow_comdat_index(Linker* ld)
+{
+    size_t capacity = ld->comdat_key_capacity ? ld->comdat_key_capacity : 64u;
+    const char** slots;
+
+    if (ld->comdat_key_capacity) {
+        if (capacity > SIZE_MAX / 2u)
+            rcc_fatal("linker COMDAT index is too large");
+        capacity *= 2u;
+    }
+    if (capacity > SIZE_MAX / sizeof(*slots))
+        rcc_fatal("linker COMDAT index is too large");
+    slots = rcc_alloc(capacity * sizeof(*slots));
+    memset(slots, 0, capacity * sizeof(*slots));
+    for (size_t index = 0u; index < ld->comdat_key_capacity; ++index) {
+        const char* key = ld->comdat_keys[index];
+        if (key != NULL) {
+            size_t bucket = (size_t)linker_comdat_hash(key) & (capacity - 1u);
+            while (slots[bucket] != NULL)
+                bucket = (bucket + 1u) & (capacity - 1u);
+            slots[bucket] = key;
+        }
+    }
+    rcc_free(ld->comdat_keys);
+    ld->comdat_keys = slots;
+    ld->comdat_key_capacity = capacity;
+}
+
+static void linker_comdat_insert(Linker* ld, const char* key)
+{
+    bool found;
+    size_t bucket;
+    if (key == NULL) return;
+    if (ld->comdat_key_count == SIZE_MAX)
+        rcc_fatal("too many linker COMDAT groups");
+    if (!ld->comdat_key_capacity ||
+        ld->comdat_key_count + 1u >
+            ld->comdat_key_capacity - ld->comdat_key_capacity / 4u)
+        linker_grow_comdat_index(ld);
+    bucket = linker_comdat_slot(ld, key, &found);
+    if (found) return;
+    ld->comdat_keys[bucket] = key;
+    ++ld->comdat_key_count;
 }
 
 bool linker_add_object(Linker* ld, const char* filename) {

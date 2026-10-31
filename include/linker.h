@@ -99,6 +99,10 @@ typedef struct Linker {
     ObjectFile** objects;
     int object_count;
     size_t object_capacity;
+    /* First-object-wins index for input COMDAT group signatures. */
+    const char** comdat_keys;
+    size_t comdat_key_count;
+    size_t comdat_key_capacity;
 
     /* Linked sections */
     LinkedSection* sections;
