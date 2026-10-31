@@ -15455,6 +15455,101 @@ bool rcc_sema_cxx_has_trivial_constructor(Type* type) {
     return sema_cxx_has_trivial_constructor(type, 0u);
 }
 
+static bool sema_cxx_type_trait_has_user_provided_copy_assignment(
+    Type* type) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (!cls) return false;
+    for (struct CxxMember* member = cls->members;
+         member; member = member->next) {
+        CxxMethod* method = member->method;
+        DeclList* parameter;
+        DeclList* trailing;
+        if (!method || method->is_static || method->member_template ||
+            method->is_defaulted || method->is_deleted ||
+            !method->source_name ||
+            strcmp(method->source_name, "operator=") != 0 ||
+            !method->decl || !method->decl->type) {
+            continue;
+        }
+        parameter = method->decl->func_params;
+        if (!parameter || !parameter->decl ||
+            sema_cxx_assignment_special_member_kind(
+                type, parameter->decl->type) != 1) {
+            continue;
+        }
+        for (trailing = parameter->next; trailing;
+             trailing = trailing->next) {
+            if (!trailing->decl || !trailing->decl->param_default) break;
+        }
+        if (!trailing) return true;
+    }
+    return false;
+}
+
+static bool sema_cxx_type_trait_has_trivial_assign_recursive(
+    Type* type, unsigned depth) {
+    CxxClass* cls;
+    if (!type || depth > 64u || type->kind == TYPE_VOID ||
+        type->kind == TYPE_FUNC) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return sema_cxx_type_trait_has_trivial_assign_recursive(
+            type->base, depth + 1u);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (!type_is_complete(type)) return false;
+    cls = type->cxx_class;
+    if (cls && (cls->vtable_size > 0 || cls->virtual_base_count > 0 ||
+                sema_cxx_type_trait_has_user_provided_copy_assignment(
+                    type))) {
+        return false;
+    }
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            if (!base || !base->type ||
+                !sema_cxx_type_trait_has_trivial_assign_recursive(
+                    base->type, depth + 1u)) {
+                return false;
+            }
+        }
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            if (field->is_static) continue;
+            if (!field->type ||
+                !sema_cxx_type_trait_has_trivial_assign_recursive(
+                    field->type, depth + 1u)) {
+                return false;
+            }
+        }
+    } else {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            if (!field->type ||
+                !sema_cxx_type_trait_has_trivial_assign_recursive(
+                    field->type, depth + 1u)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool sema_cxx_type_trait_is_const_qualified(Type* type) {
+    while (type && type->kind == TYPE_ARRAY) type = type->base;
+    return type && type->is_const;
+}
+
+bool rcc_sema_cxx_has_trivial_assign(Type* type, bool* value) {
+    if (!type || !value) return false;
+    *value = false;
+    if ((type->kind == TYPE_PTR && type->is_reference) ||
+        sema_cxx_type_trait_is_const_qualified(type)) {
+        return true;
+    }
+    *value = sema_cxx_type_trait_has_trivial_assign_recursive(type, 0u);
+    return true;
+}
+
 typedef struct {
     CxxClass** items;
     size_t count;
@@ -26295,7 +26390,18 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_CXX_TYPE_TRAIT:
-            if (expr->cxx_type_trait_kind == CXX_TYPE_TRAIT_ASSIGNABLE &&
+            if (expr->cxx_type_trait_kind ==
+                    CXX_TYPE_TRAIT_HAS_TRIVIAL_ASSIGN &&
+                expr->cxx_type_trait_type) {
+                bool value = false;
+                if (rcc_sema_cxx_has_trivial_assign(
+                        expr->cxx_type_trait_type, &value)) {
+                    expr->kind = EXPR_INT_LIT;
+                    expr->int_val = value ? 1 : 0;
+                    expr->type = type_bool;
+                }
+            } else if (expr->cxx_type_trait_kind ==
+                           CXX_TYPE_TRAIT_ASSIGNABLE &&
                 expr->cxx_type_trait_type &&
                 expr->cxx_type_trait_other_type) {
                 int assignable = rcc_sema_cxx_assignable(

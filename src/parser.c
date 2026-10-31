@@ -2902,6 +2902,8 @@ static bool parser_cxx_type_trait_kind(const char* name,
         *kind = CXX_TYPE_TRAIT_HAS_TRIVIAL_DESTRUCTOR;
     } else if (strcmp(name, "__has_trivial_constructor") == 0) {
         *kind = CXX_TYPE_TRAIT_HAS_TRIVIAL_CONSTRUCTOR;
+    } else if (strcmp(name, "__has_trivial_assign") == 0) {
+        *kind = CXX_TYPE_TRAIT_HAS_TRIVIAL_ASSIGN;
     } else if (strcmp(name, "__has_nothrow_constructor") == 0) {
         *kind = CXX_TYPE_TRAIT_HAS_NOTHROW_CONSTRUCTOR;
     } else if (strcmp(name, "__is_trivially_constructible") == 0) {
@@ -3069,6 +3071,8 @@ static bool parser_cxx_type_trait_value(CxxTypeTraitKind kind, Type* type,
         case CXX_TYPE_TRAIT_HAS_TRIVIAL_CONSTRUCTOR:
             *value = rcc_sema_cxx_has_trivial_constructor(type);
             break;
+        case CXX_TYPE_TRAIT_HAS_TRIVIAL_ASSIGN:
+            return rcc_sema_cxx_has_trivial_assign(type, value);
         case CXX_TYPE_TRAIT_HAS_NOTHROW_CONSTRUCTOR:
             return rcc_sema_cxx_has_nothrow_constructor(type, value);
         case CXX_TYPE_TRAIT_TRIVIALLY_CONSTRUCTIBLE:
@@ -3504,6 +3508,7 @@ static Expr* parse_primary(void) {
          parser_builtin_name("__is_trivially_destructible") ||
          parser_builtin_name("__has_trivial_destructor") ||
          parser_builtin_name("__has_trivial_constructor") ||
+         parser_builtin_name("__has_trivial_assign") ||
          parser_builtin_name("__has_nothrow_constructor") ||
          parser_builtin_name("__is_trivially_constructible") ||
          parser_builtin_name("__is_constructible") ||

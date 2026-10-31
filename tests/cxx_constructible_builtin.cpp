@@ -464,6 +464,76 @@ struct DefaultedTrivialMoveAssignment {
         DefaultedTrivialMoveAssignment&&) = default;
 };
 
+struct LegacyTrivialAssignDefaulted {
+    LegacyTrivialAssignDefaulted() {}
+    LegacyTrivialAssignDefaulted& operator=(
+        const LegacyTrivialAssignDefaulted&) = default;
+};
+
+struct LegacyTrivialAssignNonconstCopy {
+    LegacyTrivialAssignNonconstCopy() {}
+    LegacyTrivialAssignNonconstCopy& operator=(
+        LegacyTrivialAssignNonconstCopy&) = default;
+};
+
+struct LegacyTrivialAssignDeletedCopy {
+    LegacyTrivialAssignDeletedCopy() {}
+    LegacyTrivialAssignDeletedCopy& operator=(
+        const LegacyTrivialAssignDeletedCopy&) = delete;
+};
+
+struct LegacyUserProvidedAssign {
+    LegacyUserProvidedAssign() {}
+    LegacyUserProvidedAssign& operator=(
+        const LegacyUserProvidedAssign&) { return *this; }
+};
+
+struct LegacyAssignTemplateDoesNotAffectCopy {
+    LegacyAssignTemplateDoesNotAffectCopy() {}
+
+    template <typename T>
+    LegacyAssignTemplateDoesNotAffectCopy& operator=(T&&) {
+        return *this;
+    }
+};
+
+struct LegacyNontrivialAssignMember {
+    LegacyNontrivialAssignMember& operator=(
+        const LegacyNontrivialAssignMember&) { return *this; }
+};
+
+struct LegacyNontrivialAssignParent {
+    LegacyNontrivialAssignParent() {}
+    LegacyNontrivialAssignMember member;
+};
+
+struct LegacyVirtualAssign {
+    virtual void invoke();
+    int value;
+};
+
+struct LegacyNontrivialAssignBase {
+    LegacyNontrivialAssignBase& operator=(
+        const LegacyNontrivialAssignBase&) { return *this; }
+};
+
+struct LegacyNontrivialAssignDerived : LegacyNontrivialAssignBase {
+    int value;
+};
+
+struct LegacyConstAssignMember {
+    const int value;
+};
+
+struct LegacyReferenceAssignMember {
+    int& value;
+};
+
+union LegacyTrivialAssignUnion {
+    int value;
+    double other;
+};
+
 struct TrivialArrayMemberAssignment {
     int values[2];
 };
@@ -594,6 +664,38 @@ static_assert(!__is_trivially_assignable(int, int),
               "a non-reference destination is not assignable");
 static_assert(!__is_trivially_assignable(const int&, int),
               "a const destination reference is not assignable");
+static_assert(__has_trivial_assign(int),
+              "legacy trivial-assign recognizes scalar types");
+static_assert(__has_trivial_assign(LegacyTrivialAssignDefaulted),
+              "legacy trivial-assign recognizes a defaulted copy assignment");
+static_assert(__has_trivial_assign(LegacyTrivialAssignNonconstCopy),
+              "legacy trivial-assign accepts a nonconst copy parameter");
+static_assert(__has_trivial_assign(LegacyTrivialAssignDeletedCopy),
+              "legacy trivial-assign reports a trivial deleted copy assignment");
+static_assert(__has_trivial_assign(LegacyAssignTemplateDoesNotAffectCopy),
+              "an assignment function template does not replace the copy assignment");
+static_assert(__has_trivial_assign(volatile LegacyTrivialAssignDefaulted),
+              "legacy trivial-assign accepts a volatile-qualified class type");
+static_assert(!__has_trivial_assign(const LegacyTrivialAssignDefaulted),
+              "legacy trivial-assign rejects a const-qualified type");
+static_assert(!__has_trivial_assign(LegacyTrivialAssignDefaulted&),
+              "legacy trivial-assign rejects reference types");
+static_assert(!__has_trivial_assign(LegacyUserProvidedAssign),
+              "a user-provided copy assignment is not trivial");
+static_assert(!__has_trivial_assign(LegacyNontrivialAssignParent),
+              "a user-provided member copy assignment makes the trait false");
+static_assert(!__has_trivial_assign(LegacyVirtualAssign),
+              "a virtual class does not have trivial assignment");
+static_assert(!__has_trivial_assign(LegacyNontrivialAssignDerived),
+              "a nontrivial base copy assignment makes the trait false");
+static_assert(__has_trivial_assign(LegacyConstAssignMember),
+              "legacy trivial-assign accepts an implicitly deleted assignment");
+static_assert(__has_trivial_assign(LegacyReferenceAssignMember),
+              "legacy trivial-assign accepts a reference-member class");
+static_assert(__has_trivial_assign(LegacyTrivialAssignUnion),
+              "legacy trivial-assign recognizes trivial unions");
+static_assert(__has_trivial_assign(LegacyTrivialAssignDefaulted[2]),
+              "legacy trivial-assign recognizes arrays of trivial classes");
 static_assert(!__is_trivially_assignable(
                   AssignmentExceptionProbe&, const AssignmentExceptionProbe&),
               "a user-provided assignment is not trivial");
@@ -729,6 +831,11 @@ struct BuiltinAssignmentProbe {
         __is_nothrow_assignable(Target, Source);
     static constexpr bool trivial_value =
         __is_trivially_assignable(Target, Source);
+};
+
+template <typename T>
+struct LegacyTrivialAssignProbe {
+    static constexpr bool value = __has_trivial_assign(T);
 };
 
 union ScalarAssignmentUnion {
@@ -1304,6 +1411,11 @@ static_assert(!BuiltinAssignmentProbe<
 static_assert(!BuiltinAssignmentProbe<
                   int&, ThrowingIntAssignmentConversion>::trivial_value,
               "dependent assignment observes a user-defined source conversion");
+static_assert(LegacyTrivialAssignProbe<
+                  LegacyTrivialAssignDefaulted>::value,
+              "dependent legacy trivial-assign is evaluated after substitution");
+static_assert(!LegacyTrivialAssignProbe<LegacyUserProvidedAssign>::value,
+              "dependent legacy trivial-assign observes a user-provided operator");
 static_assert(__is_constructible(TemplateConstructorValue,
                                 const TemplateConstructorValue&),
               "the implicit copy constructor remains available beside a template");

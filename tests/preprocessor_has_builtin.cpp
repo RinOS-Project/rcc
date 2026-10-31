@@ -30,6 +30,10 @@
 #error RCC must report the implemented legacy trivial-constructor builtin
 #endif
 
+#if !__has_builtin(__has_trivial_assign)
+#error RCC must report the implemented legacy trivial-assign builtin
+#endif
+
 #if !__has_builtin(__has_nothrow_constructor)
 #error RCC must report the implemented legacy nothrow-constructor builtin
 #endif

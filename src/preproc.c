@@ -590,7 +590,7 @@ static bool pp_has_builtin(const char* name) {
         "__atomic_store_n", "__atomic_sub_fetch", "__atomic_test_and_set",
         "__atomic_thread_fence", "__atomic_xor_fetch",
         "__has_nothrow_constructor", "__has_trivial_constructor",
-        "__has_trivial_destructor",
+        "__has_trivial_destructor", "__has_trivial_assign",
         "__is_assignable",
         "__is_nothrow_assignable",
         "__is_trivially_assignable",
