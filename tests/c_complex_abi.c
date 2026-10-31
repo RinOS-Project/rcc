@@ -633,6 +633,231 @@ static int rcc_complex_annexg_exceptional_values(void) {
                     return __LINE__;
             }
         }
+
+        {
+            int real_sign, imaginary_sign;
+            const float pi_float = 3.14159265358979323846f;
+            const double pi_double = 3.14159265358979323846;
+            const long double pi_long_double = 3.14159265358979323846L;
+
+            for (real_sign = 0; real_sign != 2; ++real_sign) {
+                for (imaginary_sign = 0; imaginary_sign != 2;
+                     ++imaginary_sign) {
+                    float real_float = real_sign
+                        ? -__builtin_huge_valf() : __builtin_huge_valf();
+                    double real_double = real_sign
+                        ? -__builtin_huge_val() : __builtin_huge_val();
+                    long double real_long_double = real_sign
+                        ? -(long double)__builtin_huge_val()
+                        : (long double)__builtin_huge_val();
+                    float imaginary_float = imaginary_sign ? -1.0f : 1.0f;
+                    double imaginary_double = imaginary_sign ? -1.0 : 1.0;
+                    long double imaginary_long_double = imaginary_sign
+                        ? -1.0L : 1.0L;
+
+                    value_float = cacosf(
+                        CMPLXF(real_float, imaginary_float));
+                    value_double = cacos(
+                        CMPLX(real_double, imaginary_double));
+                    value_long_double = cacosl(CMPLXL(
+                        real_long_double, imaginary_long_double));
+                    if (!__builtin_isfinite(__real__ value_float) ||
+                        (real_sign
+                            ? (__real__ value_float < pi_float - 0.0002f ||
+                               __real__ value_float > pi_float + 0.0002f)
+                            : (__real__ value_float != 0.0f ||
+                               __builtin_signbit(__real__ value_float))) ||
+                        !__builtin_isinf(__imag__ value_float) ||
+                        !!__builtin_signbit(__imag__ value_float) ==
+                            imaginary_sign ||
+                        !__builtin_isfinite(__real__ value_double) ||
+                        (real_sign
+                            ? (__real__ value_double < pi_double - 0.0002 ||
+                               __real__ value_double > pi_double + 0.0002)
+                            : (__real__ value_double != 0.0 ||
+                               __builtin_signbit(__real__ value_double))) ||
+                        !__builtin_isinf(__imag__ value_double) ||
+                        !!__builtin_signbit(__imag__ value_double) ==
+                            imaginary_sign ||
+                        !__builtin_isfinite(__real__ value_long_double) ||
+                        (real_sign
+                            ? (__real__ value_long_double <
+                                   pi_long_double - 0.0002L ||
+                               __real__ value_long_double >
+                                   pi_long_double + 0.0002L)
+                            : (__real__ value_long_double != 0.0L ||
+                               __builtin_signbit(
+                                   __real__ value_long_double))) ||
+                        !__builtin_isinf(__imag__ value_long_double) ||
+                        !!__builtin_signbit(__imag__ value_long_double) ==
+                            imaginary_sign) return __LINE__;
+
+                    value_float = cacoshf(
+                        CMPLXF(real_float, imaginary_float));
+                    value_double = cacosh(
+                        CMPLX(real_double, imaginary_double));
+                    value_long_double = cacoshl(CMPLXL(
+                        real_long_double, imaginary_long_double));
+                    if (!__builtin_isinf(__real__ value_float) ||
+                        __builtin_signbit(__real__ value_float))
+                        return __LINE__;
+                    if (!__builtin_isfinite(__imag__ value_float) ||
+                        (real_sign
+                            ? (imaginary_sign
+                                ? (__imag__ value_float >
+                                       -pi_float + 0.0002f ||
+                                   __imag__ value_float <
+                                       -pi_float - 0.0002f)
+                                : (__imag__ value_float <
+                                       pi_float - 0.0002f ||
+                                   __imag__ value_float >
+                                       pi_float + 0.0002f))
+                            : __imag__ value_float != 0.0f))
+                        return __LINE__;
+                    if (!!__builtin_signbit(__imag__ value_float) !=
+                        imaginary_sign) return __LINE__;
+                    if (!__builtin_isinf(__real__ value_double) ||
+                        __builtin_signbit(__real__ value_double))
+                        return __LINE__;
+                    if (!__builtin_isfinite(__imag__ value_double) ||
+                        (real_sign
+                            ? (imaginary_sign
+                                ? (__imag__ value_double >
+                                       -pi_double + 0.0002 ||
+                                   __imag__ value_double <
+                                       -pi_double - 0.0002)
+                                : (__imag__ value_double <
+                                       pi_double - 0.0002 ||
+                                   __imag__ value_double >
+                                       pi_double + 0.0002))
+                            : __imag__ value_double != 0.0))
+                        return __LINE__;
+                    if (!!__builtin_signbit(__imag__ value_double) !=
+                        imaginary_sign) return __LINE__;
+                    if (!__builtin_isinf(__real__ value_long_double) ||
+                        __builtin_signbit(__real__ value_long_double))
+                        return __LINE__;
+                    if (!__builtin_isfinite(__imag__ value_long_double) ||
+                        (real_sign
+                            ? (imaginary_sign
+                                ? (__imag__ value_long_double >
+                                       -pi_long_double + 0.0002L ||
+                                   __imag__ value_long_double <
+                                       -pi_long_double - 0.0002L)
+                                : (__imag__ value_long_double <
+                                       pi_long_double - 0.0002L ||
+                                   __imag__ value_long_double >
+                                       pi_long_double + 0.0002L))
+                            : __imag__ value_long_double != 0.0L))
+                        return __LINE__;
+                    if (!!__builtin_signbit(__imag__ value_long_double) !=
+                        imaginary_sign) return __LINE__;
+                }
+            }
+
+            for (real_sign = 0; real_sign != 2; ++real_sign) {
+                for (imaginary_sign = 0; imaginary_sign != 2;
+                     ++imaginary_sign) {
+                    float real_float = real_sign
+                        ? -__builtin_huge_valf() : __builtin_huge_valf();
+                    double real_double = real_sign
+                        ? -__builtin_huge_val() : __builtin_huge_val();
+                    long double real_long_double = real_sign
+                        ? -(long double)__builtin_huge_val()
+                        : (long double)__builtin_huge_val();
+                    float imaginary_float = imaginary_sign
+                        ? -__builtin_huge_valf() : __builtin_huge_valf();
+                    double imaginary_double = imaginary_sign
+                        ? -__builtin_huge_val() : __builtin_huge_val();
+                    long double imaginary_long_double = imaginary_sign
+                        ? -(long double)__builtin_huge_val()
+                        : (long double)__builtin_huge_val();
+                    float angle_float = real_sign
+                        ? 3.0f * pi_float / 4.0f : pi_float / 4.0f;
+                    double angle_double = real_sign
+                        ? 3.0 * pi_double / 4.0 : pi_double / 4.0;
+                    long double angle_long_double = real_sign
+                        ? 3.0L * pi_long_double / 4.0L
+                        : pi_long_double / 4.0L;
+
+                    value_float = cacosf(
+                        CMPLXF(real_float, imaginary_float));
+                    value_double = cacos(
+                        CMPLX(real_double, imaginary_double));
+                    value_long_double = cacosl(CMPLXL(
+                        real_long_double, imaginary_long_double));
+                    if (!__builtin_isfinite(__real__ value_float) ||
+                        __real__ value_float < angle_float - 0.0002f ||
+                        __real__ value_float > angle_float + 0.0002f ||
+                        !__builtin_isfinite(__real__ value_double) ||
+                        __real__ value_double < angle_double - 0.0002 ||
+                        __real__ value_double > angle_double + 0.0002 ||
+                        !__builtin_isfinite(__real__ value_long_double) ||
+                        __real__ value_long_double <
+                            angle_long_double - 0.0002L ||
+                        __real__ value_long_double >
+                            angle_long_double + 0.0002L ||
+                        !__builtin_isinf(__imag__ value_float) ||
+                        !__builtin_isinf(__imag__ value_double) ||
+                        !__builtin_isinf(__imag__ value_long_double) ||
+                        !!__builtin_signbit(__imag__ value_float) ==
+                            imaginary_sign ||
+                        !!__builtin_signbit(__imag__ value_double) ==
+                            imaginary_sign ||
+                        !!__builtin_signbit(__imag__ value_long_double) ==
+                            imaginary_sign) return __LINE__;
+
+                    value_float = cacoshf(
+                        CMPLXF(real_float, imaginary_float));
+                    value_double = cacosh(
+                        CMPLX(real_double, imaginary_double));
+                    value_long_double = cacoshl(CMPLXL(
+                        real_long_double, imaginary_long_double));
+                    if (!__builtin_isinf(__real__ value_float) ||
+                        __builtin_signbit(__real__ value_float) ||
+                        !__builtin_isinf(__real__ value_double) ||
+                        __builtin_signbit(__real__ value_double) ||
+                        !__builtin_isinf(__real__ value_long_double) ||
+                        __builtin_signbit(__real__ value_long_double) ||
+                        !__builtin_isfinite(__imag__ value_float) ||
+                        (imaginary_sign
+                            ? (__imag__ value_float >
+                                   -angle_float + 0.0002f ||
+                               __imag__ value_float <
+                                   -angle_float - 0.0002f)
+                            : (__imag__ value_float <
+                                   angle_float - 0.0002f ||
+                               __imag__ value_float >
+                                   angle_float + 0.0002f)) ||
+                        !__builtin_isfinite(__imag__ value_double) ||
+                        (imaginary_sign
+                            ? (__imag__ value_double >
+                                   -angle_double + 0.0002 ||
+                               __imag__ value_double <
+                                   -angle_double - 0.0002)
+                            : (__imag__ value_double <
+                                   angle_double - 0.0002 ||
+                               __imag__ value_double >
+                                   angle_double + 0.0002)) ||
+                        !__builtin_isfinite(__imag__ value_long_double) ||
+                        (imaginary_sign
+                            ? (__imag__ value_long_double >
+                                   -angle_long_double + 0.0002L ||
+                               __imag__ value_long_double <
+                                   -angle_long_double - 0.0002L)
+                            : (__imag__ value_long_double <
+                                   angle_long_double - 0.0002L ||
+                               __imag__ value_long_double >
+                                   angle_long_double + 0.0002L)) ||
+                        !!__builtin_signbit(__imag__ value_float) !=
+                            imaginary_sign ||
+                        !!__builtin_signbit(__imag__ value_double) !=
+                            imaginary_sign ||
+                        !!__builtin_signbit(__imag__ value_long_double) !=
+                            imaginary_sign) return __LINE__;
+                }
+            }
+        }
     return 0;
 }
 
@@ -2110,7 +2335,10 @@ int rcc_complex_standard_api_all(void) {
 
     }
 
-    if (rcc_complex_annexg_exceptional_values() != 0) return __LINE__;
+    {
+        int exceptional_result = rcc_complex_annexg_exceptional_values();
+        if (exceptional_result != 0) return exceptional_result;
+    }
     if (rcc_complex_annexg_catanh_infinity_nan_matrix() != 0)
         return __LINE__;
     if (rcc_complex_annexg_hyperbolic_nan_real() != 0)

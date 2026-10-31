@@ -479,6 +479,154 @@ static int near_double(double actual, double expected) {
     return fabs(actual - expected) < 0.0000001;
 }
 
+static void check_annexg_cacos_cacosh_infinity_matrix(void) {
+    int real_sign;
+    int imaginary_sign;
+    const float pi_float = 3.14159265358979323846f;
+    const double pi_double = 3.14159265358979323846;
+    RccLegacyComplexFloat value_float;
+    RccLegacyComplexDouble value_double;
+    RccLegacyComplexBinary64Pair value_long_double;
+
+    for (real_sign = 0; real_sign != 2; ++real_sign) {
+        float real_float = real_sign
+            ? -__builtin_huge_valf() : __builtin_huge_valf();
+        double real_double = real_sign
+            ? -__builtin_huge_val() : __builtin_huge_val();
+        for (imaginary_sign = 0; imaginary_sign != 2; ++imaginary_sign) {
+            float imaginary_float = imaginary_sign ? -1.0f : 1.0f;
+            double imaginary_double = imaginary_sign ? -1.0 : 1.0;
+
+            value_float = rcc_legacy_complex_api_cacosf(
+                __builtin_complex(real_float, imaginary_float));
+            value_double = rcc_legacy_complex_api_cacos(
+                __builtin_complex(real_double, imaginary_double));
+            value_long_double = rcc_legacy_complex_api_cacosl(
+                (ComplexBinary64Pair){real_double, imaginary_double});
+            if (real_sign) {
+                assert(near_float(__real__ value_float, pi_float));
+                assert(near_double(__real__ value_double, pi_double));
+                assert(near_double(value_long_double.real, pi_double));
+            } else {
+                assert(__real__ value_float == 0.0f &&
+                       !__builtin_signbit(__real__ value_float));
+                assert(__real__ value_double == 0.0 &&
+                       !__builtin_signbit(__real__ value_double));
+                assert(value_long_double.real == 0.0 &&
+                       !__builtin_signbit(value_long_double.real));
+            }
+            assert(isinf(__imag__ value_float) &&
+                   !!__builtin_signbit(__imag__ value_float) !=
+                       imaginary_sign);
+            assert(isinf(__imag__ value_double) &&
+                   !!__builtin_signbit(__imag__ value_double) !=
+                       imaginary_sign);
+            assert(isinf(value_long_double.imaginary) &&
+                   !!__builtin_signbit(value_long_double.imaginary) !=
+                       imaginary_sign);
+
+            value_float = rcc_legacy_complex_api_cacoshf(
+                __builtin_complex(real_float, imaginary_float));
+            value_double = rcc_legacy_complex_api_cacosh(
+                __builtin_complex(real_double, imaginary_double));
+            value_long_double = rcc_legacy_complex_api_cacoshl(
+                (ComplexBinary64Pair){real_double, imaginary_double});
+            assert(isinf(__real__ value_float) &&
+                   !__builtin_signbit(__real__ value_float));
+            assert(isinf(__real__ value_double) &&
+                   !__builtin_signbit(__real__ value_double));
+            assert(isinf(value_long_double.real) &&
+                   !__builtin_signbit(value_long_double.real));
+            if (real_sign && imaginary_sign) {
+                assert(near_float(__imag__ value_float, -pi_float));
+                assert(near_double(__imag__ value_double, -pi_double));
+                assert(near_double(value_long_double.imaginary, -pi_double));
+            } else if (real_sign) {
+                assert(near_float(__imag__ value_float, pi_float));
+                assert(near_double(__imag__ value_double, pi_double));
+                assert(near_double(value_long_double.imaginary, pi_double));
+            } else {
+                assert(__imag__ value_float == 0.0f &&
+                       !!__builtin_signbit(__imag__ value_float) ==
+                           imaginary_sign);
+                assert(__imag__ value_double == 0.0 &&
+                       !!__builtin_signbit(__imag__ value_double) ==
+                           imaginary_sign);
+                assert(value_long_double.imaginary == 0.0 &&
+                       !!__builtin_signbit(value_long_double.imaginary) ==
+                           imaginary_sign);
+            }
+            if (real_sign) {
+                assert(!!__builtin_signbit(__imag__ value_float) ==
+                       imaginary_sign);
+                assert(!!__builtin_signbit(__imag__ value_double) ==
+                       imaginary_sign);
+                assert(!!__builtin_signbit(value_long_double.imaginary) ==
+                       imaginary_sign);
+            }
+
+            imaginary_float = imaginary_sign
+                ? -__builtin_huge_valf() : __builtin_huge_valf();
+            imaginary_double = imaginary_sign
+                ? -__builtin_huge_val() : __builtin_huge_val();
+            {
+                float angle_float = real_sign
+                    ? 3.0f * pi_float / 4.0f : pi_float / 4.0f;
+                double angle_double = real_sign
+                    ? 3.0 * pi_double / 4.0 : pi_double / 4.0;
+                value_float = rcc_legacy_complex_api_cacosf(
+                    __builtin_complex(real_float, imaginary_float));
+                value_double = rcc_legacy_complex_api_cacos(
+                    __builtin_complex(real_double, imaginary_double));
+                value_long_double = rcc_legacy_complex_api_cacosl(
+                    (ComplexBinary64Pair){real_double, imaginary_double});
+                assert(near_float(__real__ value_float, angle_float));
+                assert(near_double(__real__ value_double, angle_double));
+                assert(near_double(value_long_double.real, angle_double));
+                assert(isinf(__imag__ value_float) &&
+                       !!__builtin_signbit(__imag__ value_float) !=
+                           imaginary_sign);
+                assert(isinf(__imag__ value_double) &&
+                       !!__builtin_signbit(__imag__ value_double) !=
+                           imaginary_sign);
+                assert(isinf(value_long_double.imaginary) &&
+                       !!__builtin_signbit(value_long_double.imaginary) !=
+                           imaginary_sign);
+
+                value_float = rcc_legacy_complex_api_cacoshf(
+                    __builtin_complex(real_float, imaginary_float));
+                value_double = rcc_legacy_complex_api_cacosh(
+                    __builtin_complex(real_double, imaginary_double));
+                value_long_double = rcc_legacy_complex_api_cacoshl(
+                    (ComplexBinary64Pair){real_double, imaginary_double});
+                assert(isinf(__real__ value_float) &&
+                       !__builtin_signbit(__real__ value_float));
+                assert(isinf(__real__ value_double) &&
+                       !__builtin_signbit(__real__ value_double));
+                assert(isinf(value_long_double.real) &&
+                       !__builtin_signbit(value_long_double.real));
+                if (imaginary_sign) {
+                    assert(near_float(__imag__ value_float, -angle_float));
+                    assert(near_double(__imag__ value_double, -angle_double));
+                    assert(near_double(value_long_double.imaginary,
+                                       -angle_double));
+                } else {
+                    assert(near_float(__imag__ value_float, angle_float));
+                    assert(near_double(__imag__ value_double, angle_double));
+                    assert(near_double(value_long_double.imaginary,
+                                       angle_double));
+                }
+                assert(!!__builtin_signbit(__imag__ value_float) ==
+                       imaginary_sign);
+                assert(!!__builtin_signbit(__imag__ value_double) ==
+                       imaginary_sign);
+                assert(!!__builtin_signbit(value_long_double.imaginary) ==
+                       imaginary_sign);
+            }
+        }
+    }
+}
+
 #define RCC_ASSERT_FLOAT_COMPLEX_API(name, input, expected_real, expected_imag) \
     do { \
         RccLegacyComplexFloat result = \
@@ -2387,6 +2535,7 @@ int main(void) {
     RccLegacyComplexDouble double_result;
     RccLegacyComplexBinary64Pair long_double_result;
 
+    check_annexg_cacos_cacosh_infinity_matrix();
     double_result = rcc_legacy_complex_tls_read();
     assert(fabs(__real__ double_result - 9.0) < 0.0000001 &&
            fabs(__imag__ double_result - 10.0) < 0.0000001);
