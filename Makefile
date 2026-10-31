@@ -5134,6 +5134,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -F -q '_Z25choose_zipped_mixed_packsIJilEJLi1ELi2EEEiDp6TaggedIT_XT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/gcc.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJEJEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/gcc.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJLi2ELi5EEJLi3ELi7EEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/gcc.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJEJEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/gcc.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJ5WrapA5WrapBEJilEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/gcc.s
 	$(GREP) -F -q '_Z31choose_zipped_independent_packsIJEJEEiDp4PairIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
 	$(GREP) -F -q '_Z31choose_zipped_independent_packsIJilEJcdEEiDp4PairIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
 	$(GREP) -F -q '_Z28choose_zipped_compound_packsIJEJEEiDp4PairIPT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
@@ -5144,6 +5146,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -F -q '_Z25choose_zipped_mixed_packsIJilEJLi1ELi2EEEiDp6TaggedIT_XT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJEJEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJLi2ELi5EEJLi3ELi7EEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJEJEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJ5WrapA5WrapBEJilEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
 	$(GREP) -F -q '_Z31choose_zipped_independent_packsIJEJEEiDp4PairIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z31choose_zipped_independent_packsIJilEJcdEEiDp4PairIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z28choose_zipped_compound_packsIJEJEEiDp4PairIPT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
@@ -5154,18 +5158,20 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -F -q '_Z25choose_zipped_mixed_packsIJilEJLi1ELi2EEEiDp6TaggedIT_XT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJEJEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJLi2ELi5EEJLi3ELi7EEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJEJEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJ5WrapA5WrapBEJilEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.ro \
 		tests/cxx_function_template_independent_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log
-	$(GREP) -F -q 'Verified backend: 15 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.ro \
 		tests/cxx_function_template_independent_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log
-	$(GREP) -F -q 'Verified backend: 15 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log,0)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.ro)
@@ -5175,6 +5181,7 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_nested_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.log
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_mixed_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.log
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_nontype_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.log
+	$(GREP) -F -q "no matching function template overload for 'choose_zipped_template_template_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ZIPPED_PACK -c -o $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.ro tests/cxx_function_template_independent_packs.cpp,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.log)
@@ -5183,9 +5190,19 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_nested_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.log
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_mixed_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.log
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_nontype_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.log
+	$(GREP) -F -q "no matching function template overload for 'choose_zipped_template_template_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DRCC_TEST_INVALID_ZIPPED_PACK -fsyntax-only tests/cxx_function_template_independent_packs.cpp,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-gcc.log)
 	$(GREP) -F -q 'no matching function' $(TEST_OUT)/cxx-function-template-independent-packs/invalid-gcc.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_UNEXPANDED_TEMPLATE_TEMPLATE_PACK -c -o $(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x86.ro tests/cxx_function_template_independent_packs.cpp,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x86.log)
+	$(GREP) -F -q 'template-template parameter pack requires an ellipsis' $(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_UNEXPANDED_TEMPLATE_TEMPLATE_PACK -c -o $(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x64.ro tests/cxx_function_template_independent_packs.cpp,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x64.log)
+	$(GREP) -F -q 'template-template parameter pack requires an ellipsis' $(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -DRCC_TEST_INVALID_UNEXPANDED_TEMPLATE_TEMPLATE_PACK -fsyntax-only tests/cxx_function_template_independent_packs.cpp,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-gcc.log)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-independent-nontype-packs)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-independent-nontype-packs,cxx_function_template_independent_nontype_packs.cpp)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/gcc-host tests/cxx_function_template_independent_nontype_packs.cpp
@@ -6825,6 +6842,8 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q '_Z25choose_zipped_mixed_packsIJilEJLi1ELi2EEEiDp6TaggedIT_XT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/gcc.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJEJEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/gcc.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJLi2ELi5EEJLi3ELi7EEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/gcc.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJEJEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/gcc.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJ5WrapA5WrapBEJilEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/gcc.s
 	$(GREP) -F -q '_Z31choose_zipped_independent_packsIJEJEEiDp4PairIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
 	$(GREP) -F -q '_Z31choose_zipped_independent_packsIJilEJcdEEiDp4PairIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
 	$(GREP) -F -q '_Z28choose_zipped_compound_packsIJEJEEiDp4PairIPT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
@@ -6835,6 +6854,8 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q '_Z25choose_zipped_mixed_packsIJilEJLi1ELi2EEEiDp6TaggedIT_XT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJEJEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJLi2ELi5EEJLi3ELi7EEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJEJEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJ5WrapA5WrapBEJilEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x86.s
 	$(GREP) -F -q '_Z31choose_zipped_independent_packsIJEJEEiDp4PairIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z31choose_zipped_independent_packsIJilEJcdEEiDp4PairIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z28choose_zipped_compound_packsIJEJEEiDp4PairIPT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
@@ -6845,18 +6866,20 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q '_Z25choose_zipped_mixed_packsIJilEJLi1ELi2EEEiDp6TaggedIT_XT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJEJEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(GREP) -F -q '_Z27choose_zipped_nontype_packsIJLi2ELi5EEJLi3ELi7EEEiDp9ValuePairIXT_EXT0_EE' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJEJEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
+	$(GREP) -F -q '_Z37choose_zipped_template_template_packsIJ5WrapA5WrapBEJilEEiDp5ApplyIT_T0_E' $(TEST_OUT)/cxx-function-template-independent-packs/x64.s
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.ro \
 		tests/cxx_function_template_independent_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log
-	$(GREP) -F -q 'Verified backend: 15 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-packs/verified-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.ro \
 		tests/cxx_function_template_independent_packs.cpp \
 		>$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log
-	$(GREP) -F -q 'Verified backend: 15 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log,0)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.ro)
@@ -6866,6 +6889,7 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_nested_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.log
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_mixed_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.log
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_nontype_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.log
+	$(GREP) -F -q "no matching function template overload for 'choose_zipped_template_template_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_ZIPPED_PACK -c -o $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.ro tests/cxx_function_template_independent_packs.cpp,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.log)
@@ -6874,9 +6898,19 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_nested_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.log
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_mixed_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.log
 	$(GREP) -F -q "no matching function template overload for 'choose_zipped_nontype_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.log
+	$(GREP) -F -q "no matching function template overload for 'choose_zipped_template_template_packs'" $(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -DRCC_TEST_INVALID_ZIPPED_PACK -fsyntax-only tests/cxx_function_template_independent_packs.cpp,$(TEST_OUT)/cxx-function-template-independent-packs/invalid-gcc.log)
 	$(GREP) -F -q 'no matching function' $(TEST_OUT)/cxx-function-template-independent-packs/invalid-gcc.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_UNEXPANDED_TEMPLATE_TEMPLATE_PACK -c -o $(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x86.ro tests/cxx_function_template_independent_packs.cpp,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x86.log)
+	$(GREP) -F -q 'template-template parameter pack requires an ellipsis' $(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DRCC_TEST_INVALID_UNEXPANDED_TEMPLATE_TEMPLATE_PACK -c -o $(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x64.ro tests/cxx_function_template_independent_packs.cpp,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x64.log)
+	$(GREP) -F -q 'template-template parameter pack requires an ellipsis' $(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -DRCC_TEST_INVALID_UNEXPANDED_TEMPLATE_TEMPLATE_PACK -fsyntax-only tests/cxx_function_template_independent_packs.cpp,$(TEST_OUT)/cxx-function-template-independent-packs/unexpanded-template-pack-gcc.log)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-independent-nontype-packs)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-independent-nontype-packs,cxx_function_template_independent_nontype_packs.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/gcc-host.exe tests/cxx_function_template_independent_nontype_packs.cpp

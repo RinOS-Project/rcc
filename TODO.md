@@ -12722,3 +12722,11 @@ remains a separate open item.
       i686/AMD64生成・AMD64実行、verified backend両target 15関数・fallback 0、
       不正型のno-match/no-object、およびWindows
       `test-cxx-function-template-overloads`通過を確認。
+
+# RCC continuation (2026-11-01, zipped template-template function packs)
+- [x] `Apply<Templates, Types>...`のfunction parameter packからtemplate-template
+      packとtype packを同じ要素位置で推論・展開する。空pack/two要素のGCC C++20と
+      RCC AMD64 runtime、GCC/RCC i686・AMD64のItanium symbol一致、verified backend
+      両target 17関数・fallback 0、不正引数のno-match/no-object、未展開
+      template-template packのellipsis診断、およびWindows
+      `test-cxx-function-template-overloads`通過を確認。

@@ -13940,7 +13940,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                 !zipped_parameter->name) {
                                 continue;
                             }
-                            if (zipped_parameter->kind == TPARAM_TYPE &&
+                            if ((zipped_parameter->kind == TPARAM_TYPE ||
+                                 zipped_parameter->kind == TPARAM_TEMPLATE) &&
                                 item->decl->type->cxx_template_args &&
                                 template_type_contains_parameter_name(
                                     item->decl->type->cxx_template_args[
@@ -14082,10 +14083,11 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                           "function template zipped pack value is missing");
                                 return NULL;
                             }
-                            if (zipped_parameter->kind == TPARAM_TYPE) {
+                            if (zipped_parameter->kind == TPARAM_TYPE ||
+                                zipped_parameter->kind == TPARAM_TEMPLATE) {
                                 if (!tmpl->pending_pack_args) {
                                     rcc_error(item->decl->loc,
-                                              "function template zipped type pack value is missing");
+                                              "function template zipped type/template pack value is missing");
                                     return NULL;
                                 }
                                 expanded_arguments[zipped_index] =
@@ -14111,10 +14113,11 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                 return NULL;
                             }
                         }
-                    } else if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
+                    } else if (tmpl->params[pack_index].kind == TPARAM_TYPE ||
+                               tmpl->params[pack_index].kind == TPARAM_TEMPLATE) {
                         if (!tmpl->pending_pack_args) {
                             rcc_error(item->decl->loc,
-                                      "function template type pack value is missing");
+                                      "function template type/template pack value is missing");
                             return NULL;
                         }
                         expanded_arguments[pack_index] =

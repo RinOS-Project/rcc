@@ -28,6 +28,7 @@ extern bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void);
 /* The current template is only needed while parsing dependent declarations;
  * instantiated types are resolved by the later template semantic phase. */
 static CxxTemplate* active_template;
+static unsigned function_parameter_type_parse_depth;
 static CxxNamespace* active_namespace;
 static CxxClass* active_class;
 static CxxClass* active_template_class_definition;
@@ -1447,6 +1448,8 @@ static int cxx_parser_template_value_pack_index_expression(
 static bool cxx_parser_template_pack_parameter_in_scopes(
     CxxTemplate* tmpl, Type* type_pattern, const Expr* value_pattern,
     int parameter_kind);
+static bool cxx_parser_type_has_unexpanded_template_template_pack(
+    CxxTemplate* tmpl, Type* type_pattern, unsigned depth);
 static bool cxx_parser_find_enclosing_pack_source(
     CxxTemplate* tmpl, Type* type_pattern, const Expr* value_pattern,
     int local_pack_index,
@@ -14767,11 +14770,19 @@ static DeclList* parse_cxx_parameter_declarations(bool* is_variadic) {
                           "abbreviated function parameter requires a name");
             }
         } else {
+            ++function_parameter_type_parse_depth;
             type = parse_cxx_type_spec();
+            --function_parameter_type_parse_depth;
             parameter_pack = match(TOK_ELLIPSIS);
             type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
             parameter_pack = parameter_pack ||
                 rcc_parser_last_cxx_declarator_was_pack();
+        }
+        if (!parameter_pack && active_template &&
+            cxx_parser_type_has_unexpanded_template_template_pack(
+                active_template, type, 0u)) {
+            rcc_error(peek()->loc,
+                      "template-template parameter pack requires an ellipsis");
         }
         if (match(TOK_ASSIGN)) {
             default_argument = parse_assignment_expression();
@@ -14780,8 +14791,10 @@ static DeclList* parse_cxx_parameter_declarations(bool* is_variadic) {
         parameter->param_is_pack = parameter_pack;
         bool class_template_pack_expansion = active_template &&
             active_template->kind == TMPL_CLASS &&
-            cxx_parser_template_pack_parameter_in_scopes(
-                active_template, type, NULL, TPARAM_TYPE);
+            (cxx_parser_template_pack_parameter_in_scopes(
+                 active_template, type, NULL, TPARAM_TYPE) ||
+             cxx_parser_template_pack_parameter_in_scopes(
+                 active_template, type, NULL, TPARAM_TEMPLATE));
         if (parameter_pack &&
             (!active_template ||
              (active_template->kind != TMPL_FUNCTION &&
@@ -28863,6 +28876,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                         has_pack_expansion = true;
                     }
                 } else if (source_parameter_index >= 0 && active_template &&
+                           !function_parameter_type_parse_depth &&
                            source_parameter_index <
                                active_template->param_count &&
                            active_template->params[source_parameter_index]
@@ -33437,6 +33451,7 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
             ? pattern->cxx_template_value_args[argument_index] : NULL;
         if (class_parameter->is_pack ||
             (class_parameter->kind != TPARAM_TYPE &&
+             class_parameter->kind != TPARAM_TEMPLATE &&
              class_parameter->kind != TPARAM_NONTYPE) ||
             !cxx_deduction_guide_collect_expansion_pack_references(
                 tmpl, pattern_arguments[argument_index], value_pattern,
@@ -33449,6 +33464,7 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
             if (pack_index >= tmpl->param_count ||
                 !tmpl->params[pack_index].is_pack ||
                 (tmpl->params[pack_index].kind != TPARAM_TYPE &&
+                 tmpl->params[pack_index].kind != TPARAM_TEMPLATE &&
                  tmpl->params[pack_index].kind != TPARAM_NONTYPE)) {
                 return false;
             }
@@ -33506,7 +33522,8 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                sizeof(*element_value_present) * (size_t)tmpl->param_count);
         for (int index = 0; index < tmpl->param_count; ++index) {
             if (!source_packs[index]) continue;
-            if (tmpl->params[index].kind == TPARAM_TYPE) {
+            if (tmpl->params[index].kind == TPARAM_TYPE ||
+                tmpl->params[index].kind == TPARAM_TEMPLATE) {
                 element_arguments[index] = NULL;
             } else {
                 element_value_present[index] = false;
@@ -33526,13 +33543,15 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                        (size_t)tmpl->param_count);
             if (class_parameter->is_pack ||
                 (class_parameter->kind != TPARAM_TYPE &&
+                 class_parameter->kind != TPARAM_TEMPLATE &&
                  class_parameter->kind != TPARAM_NONTYPE) ||
                 !cxx_deduction_guide_collect_expansion_pack_references(
                     tmpl, argument_pattern, value_pattern,
                     argument_pack_sources, 0u)) {
                 return false;
             }
-            if ((class_parameter->kind == TPARAM_TYPE &&
+            if (((class_parameter->kind == TPARAM_TYPE ||
+                  class_parameter->kind == TPARAM_TEMPLATE) &&
                  !actual_argument) ||
                 (class_parameter->kind == TPARAM_NONTYPE &&
                  !value_pattern)) {
@@ -33546,21 +33565,31 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                     if (!source_packs[pack_index] ||
                         !tmpl->params[pack_index].is_pack ||
                         (tmpl->params[pack_index].kind != TPARAM_TYPE &&
+                         tmpl->params[pack_index].kind != TPARAM_TEMPLATE &&
                          tmpl->params[pack_index].kind != TPARAM_NONTYPE)) {
                         return false;
                     }
                 }
             }
             if (argument_has_pack) {
-                bool deduced_argument = class_parameter->kind == TPARAM_TYPE
-                    ? deduce_function_template_type(
-                          tmpl, argument_pattern, actual_argument,
-                          element_arguments, element_values,
-                          element_value_present, specificity)
-                    : cxx_function_template_class_nontype_argument_deduce(
-                          tmpl, pattern, actual, argument_index,
-                          element_arguments, element_values,
-                          element_value_present);
+                bool deduced_argument;
+                if (class_parameter->kind == TPARAM_TYPE) {
+                    deduced_argument = deduce_function_template_type(
+                        tmpl, argument_pattern, actual_argument,
+                        element_arguments, element_values,
+                        element_value_present, specificity);
+                } else if (class_parameter->kind == TPARAM_TEMPLATE) {
+                    deduced_argument =
+                        cxx_function_template_class_template_template_argument_deduce(
+                            tmpl, argument_pattern, actual_argument,
+                            element_arguments);
+                } else {
+                    deduced_argument =
+                        cxx_function_template_class_nontype_argument_deduce(
+                            tmpl, pattern, actual, argument_index,
+                            element_arguments, element_values,
+                            element_value_present);
+                }
                 if (!deduced_argument) {
                     return false;
                 }
@@ -33571,13 +33600,18 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                         (size_t)pack_index *
                             (size_t)function_pack_count +
                         (size_t)element_index;
-                    if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
+                    if (tmpl->params[pack_index].kind == TPARAM_TYPE ||
+                        tmpl->params[pack_index].kind == TPARAM_TEMPLATE) {
                         Type* deduced = element_arguments[pack_index];
                         if (!deduced ||
                             (zipped_arguments[element_offset] &&
-                             !type_is_same_template_argument(
-                                 zipped_arguments[element_offset],
-                                 deduced))) {
+                             (tmpl->params[pack_index].kind == TPARAM_TYPE
+                                  ? !type_is_same_template_argument(
+                                        zipped_arguments[element_offset],
+                                        deduced)
+                                  : zipped_arguments[element_offset]
+                                            ->cxx_template !=
+                                        deduced->cxx_template))) {
                             return false;
                         }
                         zipped_arguments[element_offset] = deduced;
@@ -33595,15 +33629,24 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                 }
                 continue;
             }
-            bool deduced_argument = class_parameter->kind == TPARAM_TYPE
-                ? deduce_function_template_type(
-                      tmpl, argument_pattern, actual_argument,
-                      element_arguments, element_values,
-                      element_value_present, specificity)
-                : cxx_function_template_class_nontype_argument_deduce(
-                      tmpl, pattern, actual, argument_index,
-                      element_arguments, element_values,
-                      element_value_present);
+            bool deduced_argument;
+            if (class_parameter->kind == TPARAM_TYPE) {
+                deduced_argument = deduce_function_template_type(
+                    tmpl, argument_pattern, actual_argument,
+                    element_arguments, element_values,
+                    element_value_present, specificity);
+            } else if (class_parameter->kind == TPARAM_TEMPLATE) {
+                deduced_argument =
+                    cxx_function_template_class_template_template_argument_deduce(
+                        tmpl, argument_pattern, actual_argument,
+                        element_arguments);
+            } else {
+                deduced_argument =
+                    cxx_function_template_class_nontype_argument_deduce(
+                        tmpl, pattern, actual, argument_index,
+                        element_arguments, element_values,
+                        element_value_present);
+            }
             if (!deduced_argument) {
                 return false;
             }
@@ -33626,6 +33669,14 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                 }
                 template_values[index] = element_values[index];
                 template_value_present[index] = true;
+            } else if (tmpl->params[index].kind == TPARAM_TEMPLATE &&
+                       element_arguments[index]) {
+                if (template_arguments[index] &&
+                    template_arguments[index]->cxx_template !=
+                        element_arguments[index]->cxx_template) {
+                    return false;
+                }
+                template_arguments[index] = element_arguments[index];
             }
         }
     }
@@ -33633,6 +33684,7 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
     for (int index = 0; index < tmpl->param_count; ++index) {
         if (!source_packs[index]) continue;
         if ((tmpl->params[index].kind != TPARAM_TYPE &&
+             tmpl->params[index].kind != TPARAM_TEMPLATE &&
              tmpl->params[index].kind != TPARAM_NONTYPE) ||
             !tmpl->params[index].is_pack) {
             return false;
@@ -33650,12 +33702,16 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
                 size_t element_offset =
                     (size_t)index * (size_t)function_pack_count +
                     (size_t)element;
-                if (tmpl->params[index].kind == TPARAM_TYPE) {
+                if (tmpl->params[index].kind == TPARAM_TYPE ||
+                    tmpl->params[index].kind == TPARAM_TEMPLATE) {
                     Type* deduced = zipped_arguments[element_offset];
                     if (!deduced ||
-                        !type_is_same_template_argument(
-                            pack_arguments[pack_offsets[index] + element],
-                            deduced)) {
+                        (tmpl->params[index].kind == TPARAM_TYPE
+                             ? !type_is_same_template_argument(
+                                   pack_arguments[pack_offsets[index] + element],
+                                   deduced)
+                             : pack_arguments[pack_offsets[index] + element]
+                                       ->cxx_template != deduced->cxx_template)) {
                         return false;
                     }
                 } else if (!pack_values || !pack_value_present ||
@@ -33676,7 +33732,8 @@ static bool cxx_function_template_deduce_zipped_parameter_pack(
             size_t element_offset =
                 (size_t)index * (size_t)function_pack_count +
                 (size_t)element;
-            if (tmpl->params[index].kind == TPARAM_TYPE) {
+            if (tmpl->params[index].kind == TPARAM_TYPE ||
+                tmpl->params[index].kind == TPARAM_TEMPLATE) {
                 Type* deduced = zipped_arguments[element_offset];
                 if (!deduced) return false;
                 pack_arguments[*pack_count + element] = deduced;
@@ -41437,6 +41494,71 @@ static bool cxx_parser_template_pack_parameter_in_scopes(
                  (int)parameter->kind == parameter_kind)) {
                 return true;
             }
+        }
+    }
+    return false;
+}
+
+static bool cxx_parser_type_has_unexpanded_template_template_pack(
+    CxxTemplate* tmpl, Type* type_pattern, unsigned depth) {
+    if (!tmpl || !type_pattern || depth > 64u) return false;
+    if (type_pattern->kind == TYPE_STRUCT && type_pattern->cxx_dependent &&
+        type_pattern->cxx_template_param_index >= 0) {
+        const TemplateParam* parameter = cxx_template_parameter_at(
+            tmpl, type_pattern->cxx_template_param_index);
+        if (parameter && parameter->kind == TPARAM_TEMPLATE &&
+            parameter->is_pack) {
+            return true;
+        }
+    }
+    if (type_pattern->kind == TYPE_STRUCT && type_pattern->tag) {
+        for (CxxTemplate* scope = tmpl; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                const TemplateParam* parameter = &scope->params[index];
+                if (parameter->kind == TPARAM_TEMPLATE &&
+                    parameter->is_pack && parameter->name &&
+                    strcmp(parameter->name, type_pattern->tag) == 0) {
+                    return true;
+                }
+            }
+        }
+    }
+    if ((type_pattern->kind == TYPE_PTR ||
+         type_pattern->kind == TYPE_ARRAY ||
+         type_pattern->kind == TYPE_VECTOR) &&
+        cxx_parser_type_has_unexpanded_template_template_pack(
+            tmpl, type_pattern->base, depth + 1u)) {
+        return true;
+    }
+    if (type_pattern->kind == TYPE_FUNC) {
+        if (cxx_parser_type_has_unexpanded_template_template_pack(
+                tmpl, type_pattern->ret_type, depth + 1u)) {
+            return true;
+        }
+        for (TypeParam* parameter = type_pattern->params; parameter;
+             parameter = parameter->next) {
+            if (cxx_parser_type_has_unexpanded_template_template_pack(
+                    tmpl, parameter->type, depth + 1u)) {
+                return true;
+            }
+        }
+    }
+    if (type_pattern->cxx_is_member_pointer &&
+        cxx_parser_type_has_unexpanded_template_template_pack(
+            tmpl, type_pattern->cxx_member_pointer_owner, depth + 1u)) {
+        return true;
+    }
+    for (int index = 0; index < type_pattern->cxx_template_arg_count;
+         ++index) {
+        if (type_pattern->cxx_template_arg_pack_expansions &&
+            type_pattern->cxx_template_arg_pack_expansions[index]) {
+            continue;
+        }
+        if (type_pattern->cxx_template_args &&
+            cxx_parser_type_has_unexpanded_template_template_pack(
+                tmpl, type_pattern->cxx_template_args[index], depth + 1u)) {
+            return true;
         }
     }
     return false;
