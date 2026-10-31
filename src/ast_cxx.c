@@ -13894,7 +13894,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             if (item->decl && item->decl->param_is_pack) {
                 int pack_index = template_parameter_pack_index_nested(
                     tmpl, item->decl->type);
-                bool zipped_type_packs = false;
+                bool zipped_packs = false;
                 bool* zipped_pack_indices = NULL;
                 int zipped_pack_count = 0;
                 int pack_length = -1;
@@ -13923,10 +13923,6 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                          argument_index <
                              item->decl->type->cxx_template_arg_count;
                          ++argument_index) {
-                        int type_pack_index =
-                            template_parameter_pack_index_nested(
-                                tmpl, item->decl->type->cxx_template_args[
-                                          argument_index]);
                         int value_pack_index =
                             item->decl->type->cxx_template_value_args
                                 ? template_parameter_pack_index_expression(
@@ -13934,79 +13930,42 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                       item->decl->type->cxx_template_value_args[
                                           argument_index])
                                 : -1;
-                        if (type_pack_index == -2) {
-                            if (value_pack_index != -1) {
-                                zipped_pack_count = -1;
-                                break;
+                        for (int zipped_index = 0;
+                             zipped_index < tmpl->param_count;
+                             ++zipped_index) {
+                            TemplateParam* zipped_parameter =
+                                &tmpl->params[zipped_index];
+                            bool referenced = false;
+                            if (!zipped_parameter->is_pack ||
+                                !zipped_parameter->name) {
+                                continue;
                             }
-                            bool found_type_pack = false;
-                            for (int zipped_index = 0;
-                                 zipped_index < tmpl->param_count;
-                                 ++zipped_index) {
-                                TemplateParam* zipped_parameter =
-                                    &tmpl->params[zipped_index];
-                                if (!zipped_parameter->is_pack ||
-                                    zipped_parameter->kind != TPARAM_TYPE ||
-                                    !zipped_parameter->name ||
-                                    !template_type_contains_parameter_name(
-                                        item->decl->type->cxx_template_args[
-                                            argument_index],
-                                        zipped_parameter->name, 0)) {
-                                    continue;
-                                }
-                                found_type_pack = true;
-                                if (zipped_pack_indices[zipped_index]) {
-                                    continue;
-                                }
-                                zipped_pack_indices[zipped_index] = true;
-                                ++zipped_pack_count;
-                                int current_pack_length =
-                                    template_pending_pack_length(
-                                        tmpl, zipped_index);
-                                if (current_pack_length < 0 ||
-                                    (pack_length >= 0 &&
-                                     pack_length != current_pack_length)) {
-                                    zipped_pack_count = -1;
-                                    break;
-                                }
-                                pack_length = current_pack_length;
-                                if (zipped_pack_count == 1) {
-                                    pack_index = zipped_index;
-                                    pack_offset = template_pending_pack_offset(
-                                        tmpl, zipped_index);
-                                }
+                            if (zipped_parameter->kind == TPARAM_TYPE &&
+                                item->decl->type->cxx_template_args &&
+                                template_type_contains_parameter_name(
+                                    item->decl->type->cxx_template_args[
+                                        argument_index],
+                                    zipped_parameter->name, 0)) {
+                                referenced = true;
+                            } else if (
+                                zipped_parameter->kind == TPARAM_NONTYPE &&
+                                (value_pack_index == zipped_index ||
+                                 (item->decl->type->cxx_template_args &&
+                                  template_type_contains_parameter_name(
+                                      item->decl->type->cxx_template_args[
+                                          argument_index],
+                                      zipped_parameter->name, 0)))) {
+                                referenced = true;
                             }
-                            if (zipped_pack_count < 0) break;
-                            if (!found_type_pack) {
-                                zipped_pack_count = -1;
-                                break;
+                            if (!referenced ||
+                                zipped_pack_indices[zipped_index]) {
+                                continue;
                             }
-                            continue;
-                        }
-                        int argument_pack_index = type_pack_index >= 0
-                            ? type_pack_index : value_pack_index;
-                        if (type_pack_index >= 0 && value_pack_index >= 0 &&
-                            type_pack_index != value_pack_index) {
-                            argument_pack_index = -2;
-                        }
-                        if (argument_pack_index == -2) {
-                            zipped_pack_count = -1;
-                            break;
-                        }
-                        if (argument_pack_index < 0) continue;
-                        if (argument_pack_index >= tmpl->param_count ||
-                            !tmpl->params[argument_pack_index].is_pack ||
-                            tmpl->params[argument_pack_index].kind !=
-                                TPARAM_TYPE) {
-                            zipped_pack_count = -1;
-                            break;
-                        }
-                        if (!zipped_pack_indices[argument_pack_index]) {
-                            zipped_pack_indices[argument_pack_index] = true;
+                            zipped_pack_indices[zipped_index] = true;
                             ++zipped_pack_count;
                             int current_pack_length =
                                 template_pending_pack_length(
-                                    tmpl, argument_pack_index);
+                                    tmpl, zipped_index);
                             if (current_pack_length < 0 ||
                                 (pack_length >= 0 &&
                                  pack_length != current_pack_length)) {
@@ -14015,14 +13974,15 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                             }
                             pack_length = current_pack_length;
                             if (zipped_pack_count == 1) {
-                                pack_index = argument_pack_index;
+                                pack_index = zipped_index;
                                 pack_offset = template_pending_pack_offset(
-                                    tmpl, argument_pack_index);
+                                    tmpl, zipped_index);
                             }
                         }
+                        if (zipped_pack_count < 0) break;
                     }
                     if (zipped_pack_count >= 2 && pack_index >= 0) {
-                        zipped_type_packs = true;
+                        zipped_packs = true;
                     }
                 }
                 if (pack_index < 0 || !tmpl->params[pack_index].is_pack ||
@@ -14031,7 +13991,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                               "function parameter pack is not bound to a template parameter pack");
                     return NULL;
                 }
-                if (!zipped_type_packs) {
+                if (!zipped_packs) {
                     pack_length =
                         template_pending_pack_length(tmpl, pack_index);
                     pack_offset =
@@ -14105,25 +14065,51 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                                        (size_t)arg_count);
                         }
                     }
-                    if (zipped_type_packs) {
+                    if (zipped_packs) {
                         for (int zipped_index = 0;
                              zipped_index < tmpl->param_count;
                              ++zipped_index) {
                             if (!zipped_pack_indices[zipped_index]) continue;
+                            TemplateParam* zipped_parameter =
+                                &tmpl->params[zipped_index];
                             int zipped_offset =
                                 template_pending_pack_offset(
                                     tmpl, zipped_index);
                             if (zipped_index >= arg_count ||
-                                !tmpl->pending_pack_args ||
                                 zipped_offset < 0 ||
                                 zipped_offset > INT_MAX - pack_value) {
                                 rcc_error(item->decl->loc,
-                                          "function template zipped type pack value is missing");
+                                          "function template zipped pack value is missing");
                                 return NULL;
                             }
-                            expanded_arguments[zipped_index] =
-                                tmpl->pending_pack_args[
-                                    zipped_offset + pack_value];
+                            if (zipped_parameter->kind == TPARAM_TYPE) {
+                                if (!tmpl->pending_pack_args) {
+                                    rcc_error(item->decl->loc,
+                                              "function template zipped type pack value is missing");
+                                    return NULL;
+                                }
+                                expanded_arguments[zipped_index] =
+                                    tmpl->pending_pack_args[
+                                        zipped_offset + pack_value];
+                            } else if (
+                                zipped_parameter->kind == TPARAM_NONTYPE) {
+                                if (!tmpl->pending_pack_values ||
+                                    !tmpl->pending_pack_value_present ||
+                                    !tmpl->pending_pack_value_present[
+                                        zipped_offset + pack_value]) {
+                                    rcc_error(item->decl->loc,
+                                              "function template zipped non-type pack value is missing");
+                                    return NULL;
+                                }
+                                expanded_values[zipped_index] =
+                                    tmpl->pending_pack_values[
+                                        zipped_offset + pack_value];
+                                expanded_value_present[zipped_index] = true;
+                            } else {
+                                rcc_error(item->decl->loc,
+                                          "function template zipped pack has an unsupported parameter kind");
+                                return NULL;
+                            }
                         }
                     } else if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
                         if (!tmpl->pending_pack_args) {

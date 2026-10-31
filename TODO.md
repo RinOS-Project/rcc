@@ -12708,3 +12708,10 @@ remains a separate open item.
       empty/two-element展開、invalid型のno-match/no-object、strict GCC C++20のruntimeと
       Itanium symbol一致、RCC i686/AMD64生成・AMD64実行、verified backend両target
       11関数・fallback 0、およびWindows `test-cxx-function-template-overloads`通過を確認。
+
+# RCC continuation (2026-11-01, mixed zipped function parameter packs)
+- [x] `Tagged<Types, Values>...`からtype packとintegral non-type packを同じ位置で
+      同時に推論・展開する。空pack/two-elementのGCC C++20 runtime、RCC i686/AMD64
+      生成・AMD64実行、GCCとのItanium symbol一致、verified backend両target 13関数・
+      fallback 0、不正型のno-match/no-object、Windows
+      `test-cxx-function-template-overloads`通過を確認。
