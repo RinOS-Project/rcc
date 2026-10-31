@@ -101,6 +101,18 @@ struct DefaultedTemplateConstructorValue {
     DefaultedTemplateConstructorValue(T&&, int = 0) {}
 };
 
+struct TemplateCopyConstructorSignature {
+    template <typename Marker = void>
+    TemplateCopyConstructorSignature(
+        const TemplateCopyConstructorSignature&) {}
+};
+
+struct DeletedTemplateCopyConstructorSignature {
+    template <typename Marker = void>
+    DeletedTemplateCopyConstructorSignature(
+        const DeletedTemplateCopyConstructorSignature&) = delete;
+};
+
 struct PartialOrderTemplateConstructorValue {
     template <typename T>
     PartialOrderTemplateConstructorValue(T*) = delete;
@@ -770,6 +782,35 @@ static_assert(__is_constructible(
 static_assert(!__is_constructible(
                   InheritedConstrainedConstructorTemplateValue, double),
               "unsatisfied inherited constructor constraints are rejected");
+static_assert(__is_constructible(
+                  TemplateCopyConstructorSignature,
+                  const TemplateCopyConstructorSignature&),
+              "a constructor template does not suppress copy construction");
+static_assert(__is_trivially_constructible(
+                  TemplateCopyConstructorSignature,
+                  const TemplateCopyConstructorSignature&),
+              "the implicit copy constructor remains trivial beside a constructor template");
+static_assert(__is_nothrow_constructible(
+                  TemplateCopyConstructorSignature,
+                  const TemplateCopyConstructorSignature&),
+              "the implicit copy constructor remains nothrow beside a constructor template");
+static_assert(__is_trivially_copyable(TemplateCopyConstructorSignature),
+              "a constructor template is not a user-provided copy constructor");
+static_assert(__is_constructible(
+                  DeletedTemplateCopyConstructorSignature,
+                  const DeletedTemplateCopyConstructorSignature&),
+              "the implicit copy constructor beats a deleted constructor template");
+static_assert(__is_trivially_constructible(
+                  DeletedTemplateCopyConstructorSignature,
+                  const DeletedTemplateCopyConstructorSignature&),
+              "the implicit copy constructor stays trivial beside a deleted template");
+static_assert(__is_nothrow_constructible(
+                  DeletedTemplateCopyConstructorSignature,
+                  const DeletedTemplateCopyConstructorSignature&),
+              "the implicit copy constructor stays nothrow beside a deleted template");
+static_assert(__is_trivially_copyable(
+                  DeletedTemplateCopyConstructorSignature),
+              "a deleted constructor template does not suppress trivial copying");
 static_assert(__is_assignable(int&, int), "scalar lvalue assignment");
 static_assert(!__is_assignable(int, int), "a scalar prvalue is not assignable");
 static_assert(!__is_assignable(const int&, int),

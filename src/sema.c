@@ -17614,6 +17614,9 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor(
 
 static bool sema_cxx_trivially_constructible(
     Type* type, CxxTypeTraitArgument* arguments, unsigned depth);
+static bool sema_cxx_type_trait_implicit_copy_move_beats_template(
+    Type* type, CxxTypeTraitArgument* arguments, ExprList* expressions,
+    int argument_count, CxxConstructorInfo* constructor, unsigned depth);
 
 static int sema_cxx_type_trait_argument_count(
     const CxxTypeTraitArgument* arguments) {
@@ -17738,7 +17741,8 @@ static int sema_cxx_constructor_special_member_kind(
     const TypeParam* first;
     const Type* parameter_type;
     const Type* parameter_base;
-    if (!type || !type->cxx_class || !constructor ||
+    if (!type || !type->cxx_class || !constructor || !constructor->method ||
+        constructor->method->member_template ||
         constructor->is_inherited ||
         !sema_cxx_copy_move_constructor_trailing_parameters_are_defaulted(
             constructor)) {
@@ -18546,6 +18550,15 @@ static bool sema_cxx_trivially_constructible(Type* type,
             int special_kind;
             const TypeParam* first_parameter;
             Type* special_parameter_type;
+            if (constructor->method &&
+                constructor->method->member_template &&
+                sema_cxx_type_trait_implicit_copy_move_beats_template(
+                    type, arguments, expressions, argument_count,
+                    constructor, depth + 1u)) {
+                return sema_cxx_type_trait_implicit_copy_move(
+                    type, arguments, expressions, argument_count,
+                    depth + 1u);
+            }
             if (constructor->is_deleted ||
                 constructor->access != ACCESS_PUBLIC) {
                 return false;
