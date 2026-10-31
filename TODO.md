@@ -32,6 +32,14 @@
   legacy and verified callers. Preserve the specified imaginary signed zero
   for `cexp(-∞ ± i0)` in the RinOS libc runtime.
 
+## RCC continuation (2026-10-31, verified mutable inline-parameter gate)
+
+- [x] Make `test-debug-info-inline-expression` prove the mutable inline-
+  parameter location-list case runs through typed SSA on i686 and AMD64:
+  require two emitted functions and zero verified-backend fallback for both
+  objects before checking their DWARF locations. The focused test and full
+  native-Windows `test-debug-info` gate pass.
+
 ## RCC continuation (2026-10-30, floating math builtins)
 
 - [x] Validate argument counts and types for floating classification,
