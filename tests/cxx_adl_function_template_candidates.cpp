@@ -28,6 +28,11 @@ struct outer {
     friend int score(token) {
         return 41;
     }
+
+    template<typename T>
+    friend int template_score(token, T value) {
+        return value + 50;
+    }
 };
 
 }
@@ -43,6 +48,7 @@ int main() {
     return score(namespace_value, 1) == 11 &&
                    score(friend_value, 2) == 32 &&
                    score(friend_value, 2L) == 22 &&
-                   score(nested_value) == 41
+                   score(nested_value) == 41 &&
+                   template_score(nested_value, 3L) == 53
         ? 0 : 1;
 }

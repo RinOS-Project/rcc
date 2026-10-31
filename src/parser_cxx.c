@@ -17811,6 +17811,10 @@ static void cxx_function_template_lookup_adl_type(
     }
     cls = type->cxx_class;
     if (!cls) return;
+    if (cls->enclosing_class && cls->enclosing_class->type) {
+        cxx_function_template_lookup_adl_type(
+            lookup, cls->enclosing_class->type, name);
+    }
     for (int index = 0; index < cls->hidden_friend_template_count; ++index) {
         CxxTemplate* candidate = cls->hidden_friend_templates[index];
         if (candidate && candidate->kind == TMPL_FUNCTION &&
@@ -18045,6 +18049,10 @@ static bool cxx_class_is_associated_with(CxxClass* actual,
                                          CxxClass* granting_class) {
     if (!actual || !granting_class) return false;
     if (actual == granting_class) return true;
+    if (cxx_class_is_associated_with(actual->enclosing_class,
+                                     granting_class)) {
+        return true;
+    }
     for (int index = 0; index < actual->base_count; ++index) {
         if (cxx_class_is_associated_with(actual->bases[index].base,
                                          granting_class)) {
