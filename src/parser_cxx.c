@@ -24148,19 +24148,21 @@ static Type* instantiate_class_template_for_owner(
                           "template-template parameter pack");
                 continue;
             }
+            size_t expanded_argument_count = argument_count > 0
+                ? (size_t)argument_count : 1u;
+            Type** expanded_arguments = cxx_allocate_zeroed_array(
+                sizeof(*expanded_arguments), expanded_argument_count);
+            int64_t* expanded_values = cxx_allocate_zeroed_array(
+                sizeof(*expanded_values), expanded_argument_count);
+            bool* expanded_value_present = cxx_allocate_zeroed_array(
+                sizeof(*expanded_value_present), expanded_argument_count);
+            if (!expanded_arguments || !expanded_values ||
+                !expanded_value_present) {
+                rcc_fatal("out of memory expanding class base pack");
+            }
             for (int pack_value = 0;
                  pack_value < tmpl->pending_pack_count; ++pack_value) {
-                Type* expanded_arguments[32] = { NULL };
-                int64_t expanded_values[32] = { 0 };
-                bool expanded_value_present[32] = { false };
                 Type* resolved;
-                if (argument_count >
-                    (int)(sizeof(expanded_arguments) /
-                          sizeof(expanded_arguments[0]))) {
-                    rcc_error(loc,
-                              "local base pack substitution exceeds compiler limits");
-                    break;
-                }
                 memcpy(expanded_arguments, arguments,
                        sizeof(Type*) * (size_t)argument_count);
                 if (value_args && value_present) {
@@ -24350,6 +24352,9 @@ static Type* instantiate_class_template_for_owner(
             int expansion_count = initializer->is_pack_expansion
                 ? tmpl->pending_pack_count : 1;
             const char* parameter_pack_name = NULL;
+            Type** expanded_arguments = NULL;
+            int64_t* expanded_values = NULL;
+            bool* expanded_value_present = NULL;
             if (initializer->is_pack_expansion) {
                 if (base_pattern_index < 0 || base_pack_index < 0 ||
                     base_pack_index >= tmpl->param_count ||
@@ -24365,6 +24370,18 @@ static Type* instantiate_class_template_for_owner(
                     constructor->method && constructor->method->decl
                         ? constructor->method->decl->func_params : NULL,
                     tmpl, base_pack_index);
+                size_t expanded_argument_count = argument_count > 0
+                    ? (size_t)argument_count : 1u;
+                expanded_arguments = cxx_allocate_zeroed_array(
+                    sizeof(*expanded_arguments), expanded_argument_count);
+                expanded_values = cxx_allocate_zeroed_array(
+                    sizeof(*expanded_values), expanded_argument_count);
+                expanded_value_present = cxx_allocate_zeroed_array(
+                    sizeof(*expanded_value_present), expanded_argument_count);
+                if (!expanded_arguments || !expanded_values ||
+                    !expanded_value_present) {
+                    rcc_fatal("out of memory expanding constructor base pack");
+                }
             }
             for (int pack_value = 0; pack_value < expansion_count;
                  ++pack_value) {
@@ -24374,21 +24391,10 @@ static Type* instantiate_class_template_for_owner(
                 initializer_copy->arguments = NULL;
                 initializer_copy->is_pack_expansion = false;
                 if (initializer->is_pack_expansion) {
-                    Type* expanded_arguments[32] = { NULL };
-                    int64_t expanded_values[32] = { 0 };
-                    bool expanded_value_present[32] = { false };
                     Type* resolved_base;
                     Type** substitution_arguments = arguments;
                     DeclList* saved_pack_parameters =
                         tmpl->active_pack_parameters;
-                    if (argument_count >
-                        (int)(sizeof(expanded_arguments) /
-                              sizeof(expanded_arguments[0]))) {
-                        rcc_error(loc,
-                                  "constructor base pack exceeds compiler limits");
-                        copy->initializers_are_supported = false;
-                        break;
-                    }
                     if (argument_count > 0) {
                         memcpy(expanded_arguments, arguments,
                                sizeof(Type*) * (size_t)argument_count);

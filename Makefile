@@ -763,6 +763,27 @@ test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-function-template-candidate-overloads
 .PHONY: test-cxx-template-template-signature-depth
 .PHONY: test-cxx-dependent-static-member-overload-count
+.PHONY: test-cxx-wide-class-base-pack
+test-cxx-wide-class-base-pack: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-class-base-pack)
+	$(call CXX_PORTABLE_ENTRY_TEST,cxx-wide-class-base-pack,cxx_wide_class_base_pack.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors \
+		-o $(TEST_OUT)/cxx-wide-class-base-pack/gcc-host$(EXE_SUFFIX) \
+		tests/cxx_wide_class_base_pack.cpp
+	$(TEST_OUT)/cxx-wide-class-base-pack/gcc-host$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-wide-class-base-pack/verified-x86.ro \
+		tests/cxx_wide_class_base_pack.cpp \
+		>$(TEST_OUT)/cxx-wide-class-base-pack/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-class-base-pack/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-wide-class-base-pack/verified-x64.ro \
+		tests/cxx_wide_class_base_pack.cpp \
+		>$(TEST_OUT)/cxx-wide-class-base-pack/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-class-base-pack/verified-x64.log,0)
+
 test-cxx-dependent-static-member-overload-count: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-static-member-overload-count)
 	$(call CXX_PORTABLE_ENTRY_TEST,cxx-dependent-static-member-overload-count,cxx_dependent_static_member_overload_count.cpp)
@@ -820,6 +841,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-template-template-parameters \
 	test-cxx-template-template-signature-depth \
 	test-cxx-dependent-static-member-overload-count \
+	test-cxx-wide-class-base-pack \
 	test-cxx-template-template-wide-mangling \
 	test-cxx-trailing-return-noexcept \
 	test-cxx-global-allocation-operators \
