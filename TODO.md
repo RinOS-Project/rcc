@@ -12471,8 +12471,8 @@ remains a separate open item.
       `test-ir` also passes.
 - [ ] Complete the standard-conforming `std::atomic<T>` operation surface and
       concurrency/memory-order coverage for trivially-copyable aggregate types.
-      C++ volatile aggregate TLS initialization and cleanup remain a separate
-      typed-SSA gap.
+      Dynamic/non-trivial C++ volatile aggregate TLS initialization and cleanup
+      remain a separate typed-SSA gap.
 
 ## RCC continuation (2026-10-31, verified scalar virtual-base construction)
 
@@ -12592,3 +12592,13 @@ remains a separate open item.
       additionally runs the legacy-generated x86_64 code from two pthreads to
       verify initial values and per-thread state isolation. C++ dynamic
       aggregate TLS initialization/cleanup remains open.
+
+## RCC continuation (2026-10-31, trivial C++ volatile aggregate TLS)
+
+- [x] Lower statically initialized, trivial C++ function-local
+      `thread_local` aggregates with volatile members through typed SSA. Check
+      triviality before bypassing runtime initialization/cleanup; verify zero
+      fallback and linked RIN validation on i686/AMD64. A WSL pthread host run
+      of the legacy x86_64 assembly checks initial values and independent state
+      across threads. Dynamic initialization and non-trivial destructor cleanup
+      remain open.

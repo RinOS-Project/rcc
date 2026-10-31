@@ -1,6 +1,7 @@
 #include <pthread.h>
 
 extern int verified_volatile_tls_aggregate(int value);
+extern int verified_cpp_volatile_tls_aggregate(int value);
 
 typedef struct {
     int input;
@@ -10,7 +11,8 @@ typedef struct {
 static void* run_tls_worker(void* opaque)
 {
     ThreadContext* context = (ThreadContext*)opaque;
-    context->result = verified_volatile_tls_aggregate(context->input);
+    context->result = verified_volatile_tls_aggregate(context->input) +
+        verified_cpp_volatile_tls_aggregate(context->input);
     return NULL;
 }
 
@@ -22,7 +24,9 @@ int main(void)
     ThreadContext second = {47, 0};
 
     if (verified_volatile_tls_aggregate(11) != 35 ||
-        verified_volatile_tls_aggregate(13) != 38) {
+        verified_volatile_tls_aggregate(13) != 38 ||
+        verified_cpp_volatile_tls_aggregate(11) != 41 ||
+        verified_cpp_volatile_tls_aggregate(13) != 44) {
         return 1;
     }
     if (pthread_create(&first_thread, NULL, run_tls_worker, &first) != 0)
@@ -35,5 +39,5 @@ int main(void)
         pthread_join(second_thread, NULL) != 0) {
         return 4;
     }
-    return first.result == 55 && second.result == 71 ? 0 : 5;
+    return first.result == 116 && second.result == 148 ? 0 : 5;
 }

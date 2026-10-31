@@ -2643,14 +2643,18 @@ static bool lower_static_volatile_aggregate_supported(
     const Type* type = declaration ? declaration->type : NULL;
     if (!declaration || declaration->kind != DECL_VAR ||
         !declaration->var_is_static_local ||
-        g_opts.cxx_mode || declaration->var_dynamic_initializer ||
+        (g_opts.cxx_mode &&
+         (!declaration->var_is_thread_local || !type || !type->cxx_class ||
+          !rcc_sema_cxx_trivial((Type*)type))) ||
+        (!g_opts.cxx_mode && type && type->cxx_class) ||
+        declaration->var_dynamic_initializer ||
         declaration->var_reference_temporary_guard ||
         declaration->var_reference_temporary_owner ||
         declaration->var_cleanup || declaration->var_cleanups ||
         declaration->storage != STORAGE_STATIC || !type ||
         !lower_type_has_volatile_subobject(type, 0u) ||
         type->is_atomic || type->is_reference ||
-        type->cxx_class || type->cleanup_function || type->cleanup_field ||
+        type->cleanup_function || type->cleanup_field ||
         (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION)) {
         return false;
     }
