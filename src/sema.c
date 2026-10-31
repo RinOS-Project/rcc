@@ -18337,13 +18337,6 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     return best;
 }
 
-static CxxConstructorInfo* sema_cxx_select_type_trait_constructor(
-    Type* type, ExprList* arguments, int argument_count, bool* ambiguous) {
-    return sema_cxx_select_type_trait_constructor_ex(
-        type, arguments, argument_count, true, false, false, true,
-        ambiguous);
-}
-
 static bool sema_cxx_type_trait_is_aggregate_constructible(
     Type* type, CxxTypeTraitArgument* arguments, int argument_count,
     unsigned depth) {
@@ -18543,8 +18536,9 @@ static bool sema_cxx_trivially_constructible(Type* type,
     {
         bool ambiguous = false;
         CxxConstructorInfo* constructor =
-            sema_cxx_select_type_trait_constructor(
-                type, expressions, argument_count, &ambiguous);
+            sema_cxx_select_type_trait_constructor_ex(
+                type, expressions, argument_count, true, true, true, true,
+                &ambiguous);
         if (ambiguous) return false;
         if (constructor) {
             int special_kind;
@@ -18813,6 +18807,102 @@ static bool sema_cxx_type_trait_copy_subobjects_constructible(
     return true;
 }
 
+static bool sema_cxx_type_trait_implicit_copy_parameter_is_const(
+    Type* type, unsigned depth, bool* is_const) {
+    CxxClass* cls;
+    if (!type || !is_const || depth > 64u) return false;
+    if (sema_cxx_type_trait_is_reference(type)) {
+        *is_const = true;
+        return true;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return sema_cxx_type_trait_implicit_copy_parameter_is_const(
+            type->base, depth + 1u, is_const);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) {
+        *is_const = true;
+        return true;
+    }
+    if (!type_is_complete(type)) return false;
+    cls = type->cxx_class;
+    if (cls) {
+        bool has_copy = false;
+        bool has_const_copy = false;
+        if (!sema_cxx_has_declared_copy_move_constructor(
+                type, &has_copy, NULL)) {
+            return false;
+        }
+        if (has_copy) {
+            bool found_copy = false;
+            for (CxxConstructorInfo* constructor = cls->constructors;
+                 constructor; constructor = constructor->next) {
+                TypeParam* parameter;
+                Type* parameter_type;
+                if (sema_cxx_constructor_special_member_kind(type,
+                                                              constructor) != 1) {
+                    continue;
+                }
+                parameter = constructor->parameters;
+                parameter_type = parameter ? parameter->type : NULL;
+                if (!parameter_type ||
+                    !sema_cxx_type_trait_is_reference(parameter_type) ||
+                    !parameter_type->base) {
+                    return false;
+                }
+                found_copy = true;
+                if (parameter_type->base->is_const ||
+                    parameter_type->base->is_volatile) {
+                    has_const_copy = true;
+                }
+            }
+            if (!found_copy) return false;
+            *is_const = has_const_copy;
+            return true;
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases[index].base;
+            bool base_is_const = false;
+            if (!base || !base->type ||
+                !sema_cxx_type_trait_implicit_copy_parameter_is_const(
+                    base->type, depth + 1u, &base_is_const)) {
+                return false;
+            }
+            if (!base_is_const) {
+                *is_const = false;
+                return true;
+            }
+        }
+        for (TypeParam* field = cls->fields; field; field = field->next) {
+            bool field_is_const = false;
+            if (field->is_static) continue;
+            if (!field->type ||
+                !sema_cxx_type_trait_implicit_copy_parameter_is_const(
+                    field->type, depth + 1u, &field_is_const)) {
+                return false;
+            }
+            if (!field_is_const) {
+                *is_const = false;
+                return true;
+            }
+        }
+    } else {
+        for (TypeField* field = type->fields; field; field = field->next) {
+            bool field_is_const = false;
+            if (!field->type ||
+                !sema_cxx_type_trait_implicit_copy_parameter_is_const(
+                    field->type, depth + 1u, &field_is_const)) {
+                return false;
+            }
+            if (!field_is_const) {
+                *is_const = false;
+                return true;
+            }
+        }
+    }
+    *is_const = true;
+    return true;
+}
+
 static bool sema_cxx_type_trait_implicit_copy_move_constructible(
     Type* type, CxxTypeTraitArgument* arguments, ExprList* expressions,
     int argument_count, unsigned depth, bool* applicable) {
@@ -18835,11 +18925,13 @@ static bool sema_cxx_type_trait_implicit_copy_move_constructible(
     source_type = arguments->type;
     source_base = sema_cxx_type_trait_is_reference(source_type)
         ? source_type->base : source_type;
-    if (!source_base || source_base->cxx_class != cls || has_copy || has_move) {
+    if (!source_base || source_base->cxx_class != cls || has_copy) {
         return false;
     }
     if (applicable) *applicable = true;
-    if (sema_cxx_has_declared_special_assignment(type, true)) return false;
+    if (has_move || sema_cxx_has_declared_special_assignment(type, true)) {
+        return false;
+    }
     source_is_rvalue = !is_lvalue(expressions->expr);
     source_is_const = source_base->is_const;
     source_is_volatile = source_base->is_volatile;
@@ -18868,16 +18960,34 @@ static bool sema_cxx_type_trait_implicit_copy_move_beats_template(
     int argument_count, CxxConstructorInfo* constructor, unsigned depth) {
     bool has_copy = false;
     bool has_move = false;
+    bool source_is_rvalue;
+    bool source_is_const;
+    bool copy_parameter_is_const = false;
     Type* source_type;
     Type* source_base;
+    Type* template_parameter_type;
+    Type* implicit_parameter_type;
+    TypeMethod* template_conversion = NULL;
+    TypeMethod* implicit_conversion = NULL;
+    int template_rank;
+    int implicit_rank;
+    int template_ranks[1];
+    int implicit_ranks[1];
+    Type* template_targets[1];
+    Type* implicit_targets[1];
+    TypeMethod* template_methods[1];
+    TypeMethod* implicit_methods[1];
+    Expr implicit_expression;
+    int relation;
     CxxClass* cls = type ? type->cxx_class : NULL;
     if (!constructor || !constructor->method ||
         !constructor->method->member_template || !type || !cls ||
         argument_count != 1 || !arguments || !expressions ||
-        !expressions->expr ||
+        !expressions->expr || !constructor->parameters ||
+        !(template_parameter_type = constructor->parameters->type) ||
         !sema_cxx_has_declared_copy_move_constructor(type, &has_copy,
                                                      &has_move) ||
-        has_copy || has_move) {
+        has_copy) {
         return false;
     }
     source_type = arguments->type;
@@ -18887,20 +18997,43 @@ static bool sema_cxx_type_trait_implicit_copy_move_beats_template(
         source_base->is_volatile) {
         return false;
     }
-    if (is_lvalue(expressions->expr)) return true;
-    if (source_base->is_const) return false;
-
-    /* A forwarding constructor's C&& parameter ties with an implicit move
-     * constructor only while the latter is actually declared and viable.
-     * A user destructor suppresses that move; C&& then beats the fallback
-     * const C& copy binding and must not be rescued by it. */
-    if (sema_cxx_has_declared_special_assignment(type, false) ||
-        sema_cxx_has_declared_special_assignment(type, true) ||
-        cls->destructor_method) {
-        return false;
+    source_is_rvalue = !is_lvalue(expressions->expr);
+    source_is_const = source_base->is_const;
+    implicit_parameter_type = NULL;
+    if (source_is_rvalue && !source_is_const &&
+        !has_move &&
+        !sema_cxx_has_declared_special_assignment(type, false) &&
+        !sema_cxx_has_declared_special_assignment(type, true) &&
+        !cls->destructor_method &&
+        sema_cxx_type_trait_copy_subobjects_constructible(
+            type, false, false, true, depth + 1u)) {
+        implicit_parameter_type = sema_cxx_type_trait_reference_type(
+            type, false, false, true);
+    } else if (sema_cxx_type_trait_implicit_copy_parameter_is_const(
+                   type, depth + 1u, &copy_parameter_is_const)) {
+        implicit_parameter_type = sema_cxx_type_trait_reference_type(
+            type, copy_parameter_is_const, false, false);
     }
-    return sema_cxx_type_trait_copy_subobjects_constructible(
-        type, false, false, true, depth + 1u);
+    if (!implicit_parameter_type) return false;
+    implicit_expression = *expressions->expr;
+    implicit_rank = cxx_conversion_rank_detail(
+        &implicit_expression, implicit_parameter_type,
+        &implicit_conversion);
+    template_rank = cxx_conversion_rank_detail(
+        expressions->expr, template_parameter_type, &template_conversion);
+    if (implicit_rank < 0 || template_rank < 0) return false;
+    implicit_ranks[0] = implicit_rank;
+    template_ranks[0] = template_rank;
+    implicit_targets[0] = implicit_parameter_type;
+    template_targets[0] = template_parameter_type;
+    implicit_methods[0] = implicit_conversion;
+    template_methods[0] = template_conversion;
+    relation = cxx_conversion_vector_relation(
+        implicit_ranks, template_ranks, implicit_targets, template_targets,
+        implicit_methods, template_methods, expressions, 0, 1);
+    /* A non-template implicit special member wins an equal conversion
+     * sequence. A template with a better reference binding remains selected. */
+    return relation >= 0;
 }
 
 static bool sema_cxx_type_trait_constructor_accessible(
@@ -19436,11 +19569,13 @@ static bool sema_cxx_type_trait_implicit_copy_move_is_nothrow(
     source_type = arguments->type;
     source_base = sema_cxx_type_trait_is_reference(source_type)
         ? source_type->base : source_type;
-    if (!source_base || source_base->cxx_class != cls || has_copy || has_move) {
+    if (!source_base || source_base->cxx_class != cls || has_copy) {
         return false;
     }
     if (applicable) *applicable = true;
-    if (sema_cxx_has_declared_special_assignment(type, true)) return false;
+    if (has_move || sema_cxx_has_declared_special_assignment(type, true)) {
+        return false;
+    }
     source_is_rvalue = !is_lvalue(expressions->expr);
     source_is_const = source_base->is_const;
     source_is_volatile = source_base->is_volatile;
