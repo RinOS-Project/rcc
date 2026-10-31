@@ -4175,9 +4175,11 @@ static int cxx_materialize_member_function_templates_internal(
     int explicit_argument_count, bool explicit_arguments_specified,
     TypeMethod*** candidates,
     bool* constraint_unsupported);
+typedef struct CxxClassRecursionFrame CxxClassRecursionFrame;
 static bool cxx_member_template_storage_capacity(
     CxxClass* cls, const char* name, bool include_constructors,
-    bool include_inherited, unsigned depth, size_t* capacity);
+    bool include_inherited, size_t* capacity,
+    CxxClassRecursionFrame* parent_frame);
 static void cxx_add_function_declaration_once(Decl* declaration);
 
 static bool cxx_eval_dependent_integer_member_template_call(
@@ -9027,13 +9029,56 @@ static bool cxx_inherited_constructor_paths_same_subobject(
                   sizeof(*left_path) * (size_t)(left_anchor_index + 1)) == 0;
 }
 
+static int cxx_inherited_constructor_path_capacity(CxxClass* complete_class) {
+    CxxClass** classes = NULL;
+    size_t class_count = 0u;
+    size_t class_capacity = 0u;
+    if (!complete_class) return 0;
+    class_capacity = 8u;
+    classes = ast_arena_alloc(sizeof(*classes) * class_capacity);
+    classes[class_count++] = complete_class;
+    for (size_t index = 0u; index < class_count; ++index) {
+        CxxClass* cls = classes[index];
+        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+            CxxClass* base = cls->bases[base_index].base;
+            bool found = false;
+            if (!base) continue;
+            for (size_t prior = 0u; prior < class_count; ++prior) {
+                if (classes[prior] == base) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) continue;
+            if (class_count == (size_t)INT_MAX) return -1;
+            if (class_count == class_capacity) {
+                size_t new_capacity = class_capacity <= SIZE_MAX / 2u
+                    ? class_capacity * 2u : SIZE_MAX;
+                CxxClass** grown_classes;
+                if (new_capacity <= class_capacity ||
+                    new_capacity > SIZE_MAX / sizeof(*classes)) {
+                    return -1;
+                }
+                grown_classes = cxx_grow_zeroed_array(
+                    classes, sizeof(*classes), class_capacity, new_capacity);
+                if (!grown_classes) return -1;
+                classes = grown_classes;
+                class_capacity = new_capacity;
+            }
+            classes[class_count++] = base;
+        }
+    }
+    return (int)class_count;
+}
+
 /* Return the number of distinct using-inherited base subobjects and retain a
  * representative path in target-to-derived order. Paths that converge at
  * the same virtual-base subobject denote one inherited constructor source. */
 static int cxx_find_inherited_constructor_paths(
     CxxClass* complete_class, CxxClass* cls, CxxClass* target,
     CxxClass** path, int capacity, int* path_length, unsigned depth) {
-    CxxClass* first_path[64];
+    CxxClass** first_path;
+    CxxClass** candidate_path;
     int first_length = 0;
     int paths = 0;
     if (!complete_class || !cls || !target || !path || !path_length ||
@@ -9043,10 +9088,13 @@ static int cxx_find_inherited_constructor_paths(
         *path_length = 1;
         return 1;
     }
-    if (depth >= (unsigned)capacity || depth >= 64u) return -1;
+    if (depth >= (unsigned)capacity ||
+        (size_t)capacity > SIZE_MAX / sizeof(*first_path)) return -1;
+    first_path = ast_arena_alloc(sizeof(*first_path) * (size_t)capacity);
+    candidate_path = ast_arena_alloc(
+        sizeof(*candidate_path) * (size_t)capacity);
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
-        CxxClass* candidate_path[64];
         int candidate_length = 0;
         int candidate_count;
         if (!base || cls->bases[index].access != ACCESS_PUBLIC ||
@@ -9100,9 +9148,10 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
         ? pattern->method->owner : NULL;
     CxxConstructorInfo* member_initializers;
     CxxConstructorInitializer** initializer_tail;
-    CxxClass* inheritance_path[64];
-    int selected_base_indices[64] = {0};
-    int inheritance_layer_offsets[64] = {0};
+    CxxClass** inheritance_path;
+    int* selected_base_indices;
+    int* inheritance_layer_offsets;
+    int inheritance_path_capacity;
     int inheritance_path_length = 0;
     int inheritance_path_count;
     int initializer_count = 0;
@@ -9119,9 +9168,35 @@ bool rcc_parser_cxx_complete_inherited_constructor_member_initializers(
                   "inherited constructor template has no derived/base class metadata");
         return false;
     }
+    inheritance_path_capacity =
+        cxx_inherited_constructor_path_capacity(cls);
+    if (inheritance_path_capacity <= 0 ||
+        (size_t)inheritance_path_capacity >
+            SIZE_MAX / sizeof(*inheritance_path) ||
+        (size_t)inheritance_path_capacity >
+            SIZE_MAX / sizeof(*selected_base_indices) ||
+        (size_t)inheritance_path_capacity >
+            SIZE_MAX / sizeof(*inheritance_layer_offsets)) {
+        rcc_error(loc,
+                  "inherited constructor class graph exceeds compiler limits");
+        return false;
+    }
+    inheritance_path = ast_arena_alloc(
+        sizeof(*inheritance_path) * (size_t)inheritance_path_capacity);
+    selected_base_indices = ast_arena_alloc(
+        sizeof(*selected_base_indices) * (size_t)inheritance_path_capacity);
+    inheritance_layer_offsets = ast_arena_alloc(
+        sizeof(*inheritance_layer_offsets) *
+        (size_t)inheritance_path_capacity);
+    memset(selected_base_indices, 0,
+           sizeof(*selected_base_indices) *
+               (size_t)inheritance_path_capacity);
+    memset(inheritance_layer_offsets, 0,
+           sizeof(*inheritance_layer_offsets) *
+               (size_t)inheritance_path_capacity);
     inheritance_path_count = cxx_find_inherited_constructor_paths(
         cls, cls, base, inheritance_path,
-        (int)(sizeof(inheritance_path) / sizeof(inheritance_path[0])),
+        inheritance_path_capacity,
         &inheritance_path_length, 0u);
     if (inheritance_path_count < 0) {
         rcc_error(loc,
@@ -42837,15 +42912,23 @@ static bool cxx_append_constructor_template_source(
     return true;
 }
 
+struct CxxClassRecursionFrame {
+    CxxClass* cls;
+    CxxClassRecursionFrame* previous;
+};
+
 static bool cxx_collect_constructor_template_sources(
     CxxClass* cls, bool include_inherited, CxxMethod** methods,
-    AccessSpec* accesses, int capacity, int* count, unsigned depth) {
-    if (depth > 64u) {
-        rcc_error((SourceLoc){"<constructor>", 0, 0},
-                  "inherited constructor-template chain is too deep");
-        return false;
-    }
+    AccessSpec* accesses, int capacity, int* count,
+    CxxClassRecursionFrame* parent_frame) {
+    CxxClassRecursionFrame frame;
     if (!cls || !methods || !accesses || !count || capacity < 0) return false;
+    for (CxxClassRecursionFrame* current = parent_frame; current;
+         current = current->previous) {
+        if (current->cls == cls) return true;
+    }
+    frame.cls = cls;
+    frame.previous = parent_frame;
     for (struct CxxMember* member = cls->members; member;
          member = member->next) {
         if (member->method && member->method->member_template &&
@@ -42876,7 +42959,7 @@ static bool cxx_collect_constructor_template_sources(
         }
         if (!inherited) continue;
         if (!cxx_collect_constructor_template_sources(
-                base, true, methods, accesses, capacity, count, depth + 1u)) {
+                base, true, methods, accesses, capacity, count, &frame)) {
             return false;
         }
     }
@@ -42885,10 +42968,17 @@ static bool cxx_collect_constructor_template_sources(
 
 static bool cxx_member_template_storage_capacity(
     CxxClass* cls, const char* name, bool include_constructors,
-    bool include_inherited, unsigned depth, size_t* capacity) {
+    bool include_inherited, size_t* capacity,
+    CxxClassRecursionFrame* parent_frame) {
+    CxxClassRecursionFrame frame;
     if (!capacity) return false;
     if (!cls) return true;
-    if (depth > 64u) return true;
+    for (CxxClassRecursionFrame* current = parent_frame; current;
+         current = current->previous) {
+        if (current->cls == cls) return true;
+    }
+    frame.cls = cls;
+    frame.previous = parent_frame;
     for (struct CxxMember* member = cls->members; member;
          member = member->next) {
         CxxMethod* method = member->method;
@@ -42910,8 +43000,7 @@ static bool cxx_member_template_storage_capacity(
             base = find_class(cls->bases[base_index].base_name);
         }
         if (!cxx_member_template_storage_capacity(
-                base, name, include_constructors, true, depth + 1u,
-                capacity)) {
+                base, name, include_constructors, true, capacity, &frame)) {
             return false;
         }
     }
@@ -42946,8 +43035,8 @@ static int cxx_materialize_member_function_templates_internal(
         return 0;
     }
     if (!cxx_member_template_storage_capacity(
-            cls, name, include_constructors, include_inherited, 0u,
-            &source_capacity_size) ||
+            cls, name, include_constructors, include_inherited,
+            &source_capacity_size, NULL) ||
         source_capacity_size > (size_t)INT_MAX) {
         rcc_error((SourceLoc){"<member-template>", 0, 0},
                   "member function template candidate storage is too large");
@@ -42980,7 +43069,7 @@ static int cxx_materialize_member_function_templates_internal(
     if (include_constructors) {
         if (!cxx_collect_constructor_template_sources(
                 cls, include_inherited, source_methods, source_accesses,
-                source_capacity, &source_count, 0u)) {
+                source_capacity, &source_count, NULL)) {
             return -1;
         }
     } else if (include_inherited) {
@@ -43132,7 +43221,7 @@ bool rcc_parser_cxx_has_constructor_template(Type* type) {
     int count = 0;
     if (!cls) return false;
     if (!cxx_member_template_storage_capacity(
-            cls, cls->name, true, true, 0u, &capacity) ||
+            cls, cls->name, true, true, &capacity, NULL) ||
         capacity > (size_t)INT_MAX) {
         rcc_error((SourceLoc){"<constructor>", 0, 0},
                   "constructor template candidate storage is too large");
@@ -43153,7 +43242,7 @@ bool rcc_parser_cxx_has_constructor_template(Type* type) {
         return false;
     }
     return cxx_collect_constructor_template_sources(
-               cls, true, methods, accesses, (int)capacity, &count, 0u) &&
+               cls, true, methods, accesses, (int)capacity, &count, NULL) &&
         count > 0;
 }
 
