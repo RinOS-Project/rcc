@@ -13913,6 +13913,95 @@ static bool lower_float_math_builtin_call(
     }
 }
 
+static bool lower_atomic_lock_free_size_supported(uint64_t size) {
+    return size == 1u || size == 2u || size == 4u || size == 8u;
+}
+
+static RccIrLowerValue lower_atomic_lock_free_query_call(
+    RccIrLowerContext* context, const Expr* expression,
+    bool always_lock_free) {
+    const ExprList* size_argument = expression
+        ? expression->call_args : NULL;
+    const ExprList* pointer_argument = size_argument
+        ? size_argument->next : NULL;
+    RccIrLowerValue pointer_value;
+    RccIrType result_type;
+    if (!context || !expression || !size_argument || !size_argument->expr ||
+        !pointer_argument || !pointer_argument->expr ||
+        pointer_argument->next || !expression->type ||
+        !lower_type(expression->type, &result_type) ||
+        result_type.kind != RCC_IR_TYPE_INTEGER) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    /* Match the legacy backend's evaluation of the alignment operand, even
+     * though RinOS currently answers this query from the supported width set. */
+    pointer_value = lower_expression(context, pointer_argument->expr);
+    if (!pointer_value.valid ||
+        (pointer_value.type.kind != RCC_IR_TYPE_POINTER &&
+         pointer_value.type.kind != RCC_IR_TYPE_INTEGER)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    if (always_lock_free) {
+        int64_t size_value;
+        if (!expr_eval_integer_constant(
+                size_argument->expr, &size_value)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        return lower_integer_constant(
+            context, result_type, false,
+            lower_atomic_lock_free_size_supported(
+                (uint64_t)size_value) ? 1u : 0u);
+    }
+
+    {
+        static const uint64_t supported_sizes[] = {1u, 2u, 4u, 8u};
+        RccIrLowerValue size_value = lower_expression(
+            context, size_argument->expr);
+        RccIrLowerValue result = lower_invalid_value();
+        if (!size_value.valid ||
+            size_value.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        for (size_t index = 0u;
+             index < sizeof(supported_sizes) / sizeof(supported_sizes[0]);
+             ++index) {
+            RccIrLowerValue width = lower_integer_constant(
+                context, size_value.type, true, supported_sizes[index]);
+            RccIrValue operands[2];
+            RccIrInstruction* comparison;
+            if (!width.valid) return lower_invalid_value();
+            operands[0] = size_value.value;
+            operands[1] = width.value;
+            comparison = lower_append(
+                context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+                operands, 2u, NULL, 0u);
+            if (!comparison) return lower_invalid_value();
+            rcc_ir_set_predicate(comparison, RCC_IR_ICMP_EQ);
+            if (!result.valid) {
+                result = lower_value(
+                    comparison->result, rcc_ir_type_integer(1u), true);
+            } else {
+                RccIrValue or_operands[2] = {
+                    result.value, comparison->result
+                };
+                RccIrInstruction* combined = lower_append(
+                    context, RCC_IR_OR, rcc_ir_type_integer(1u),
+                    or_operands, 2u, NULL, 0u);
+                if (!combined) return lower_invalid_value();
+                result = lower_value(
+                    combined->result, rcc_ir_type_integer(1u), true);
+            }
+        }
+        return lower_cast(context, result, expression->type);
+    }
+}
+
 static RccIrLowerValue lower_call(RccIrLowerContext* context,
                                   const Expr* expression) {
     const Decl* callee = NULL;
@@ -13957,6 +14046,18 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 context, expression, &builtin_value)) {
             return builtin_value;
         }
+    }
+    if (expression && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_name &&
+        (strcmp(expression->call_func->ident_name,
+                "__atomic_is_lock_free") == 0 ||
+         strcmp(expression->call_func->ident_name,
+                "__atomic_always_lock_free") == 0)) {
+        return lower_atomic_lock_free_query_call(
+            context, expression,
+            strcmp(expression->call_func->ident_name,
+                   "__atomic_always_lock_free") == 0);
     }
     if (expression && expression->call_func &&
         expression->call_func->kind == EXPR_IDENT &&
@@ -21367,6 +21468,7 @@ static bool lower_cxx_constructor_initializer_expression_supported(
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
+        case EXPR_ADDR:
         case EXPR_CAST:
             return lower_cxx_constructor_initializer_expression_supported(
                 context,

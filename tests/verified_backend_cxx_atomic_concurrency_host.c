@@ -4,6 +4,10 @@ extern void verified_atomic_pair_reset(void);
 extern void verified_atomic_pair_increment(unsigned int iterations);
 extern unsigned long long verified_atomic_pair_read(void);
 extern int verified_atomic_double_store_load(void);
+extern int verified_atomic_ref_char(void);
+extern int verified_atomic_lock_free_query(unsigned long size,
+                                           const void* object);
+extern int verified_atomic_always_lock_free(void);
 
 enum { THREAD_COUNT = 4, ITERATIONS_PER_THREAD = 25000 };
 
@@ -18,8 +22,17 @@ int main(void)
 {
     pthread_t threads[THREAD_COUNT];
     unsigned int created = 0u;
+    unsigned char lock_free_object = 0u;
 
     if (verified_atomic_double_store_load() != 0) return 5;
+    if (verified_atomic_ref_char() != 0) return 6;
+    if (!verified_atomic_always_lock_free() ||
+        !verified_atomic_lock_free_query(1u, &lock_free_object) ||
+        !verified_atomic_lock_free_query(2u, &lock_free_object) ||
+        !verified_atomic_lock_free_query(4u, &lock_free_object) ||
+        !verified_atomic_lock_free_query(8u, &lock_free_object) ||
+        verified_atomic_lock_free_query(3u, &lock_free_object) ||
+        verified_atomic_lock_free_query(16u, &lock_free_object)) return 7;
     verified_atomic_pair_reset();
     if (verified_atomic_pair_read() != 0ULL) return 1;
 

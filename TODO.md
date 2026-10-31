@@ -12625,7 +12625,16 @@ remains a separate open item.
       verified O2 objects link into RINs accepted by `rinvalidate`. The host
       regression executes all four operations and the aggregate concurrency
       test. The focused Windows and WSL gates pass.
+- [x] Lower `__atomic_is_lock_free` and `__atomic_always_lock_free` through
+      typed SSA, preserving evaluation of the pointer argument and matching
+      the legacy backend's supported-width result. A dedicated C fixture has
+      zero fallback on i686/AMD64 at `-O0`/`-O2`; both generated RINs pass
+      dependency validation. The WSL host regression checks widths 1/2/4/8
+      and unsupported widths 3/16, plus the `std::atomic_ref<char>`
+      load/store/exchange path.
 - [ ] Broader typed-SSA C++ atomic coverage remains open. The same header still
       exposes unrelated fallback functions (`__rcc_atomic_supported_fetch_add`
-      on i686 and an `atomic_ref<char>` constructor on AMD64); expand coverage
-      for remaining fetch operations and `atomic_ref` before closing this item.
+      on i686 and a `std::atomic_ref<signed char>` constructor on AMD64 in the
+      full header translation unit); expand remaining fetch operations and
+      typed-SSA coverage across `atomic_ref` specializations before closing this
+      item.

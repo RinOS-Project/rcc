@@ -12,6 +12,18 @@ static std::atomic<VerifiedAtomicCounterPair> verified_atomic_counter_pair{
 };
 static std::atomic<double> verified_atomic_double{0.0};
 
+extern "C" int verified_atomic_lock_free_query(
+    unsigned long size, const void* object)
+{
+    return __atomic_is_lock_free(size, object);
+}
+
+extern "C" int verified_atomic_always_lock_free()
+{
+    unsigned int object = 0u;
+    return __atomic_always_lock_free(sizeof(object), &object);
+}
+
 extern "C" int verified_atomic_double_store_load()
 {
     verified_atomic_double.store(1.5, std::memory_order_release);
@@ -29,6 +41,24 @@ extern "C" int verified_atomic_double_store_load()
         return 3;
     }
     return verified_atomic_double.load(std::memory_order_acquire) == 3.5
+        ? 0 : 4;
+}
+
+extern "C" int verified_atomic_ref_char()
+{
+    char value = 5;
+    std::atomic_ref<char> reference(value);
+    if (!reference.is_lock_free()) {
+        return 1;
+    }
+    if (reference.load(std::memory_order_relaxed) != 5) {
+        return 2;
+    }
+    reference.store(9, std::memory_order_release);
+    if (reference.exchange(12, std::memory_order_acq_rel) != 9) {
+        return 3;
+    }
+    return reference.load(std::memory_order_acquire) == 12 && value == 12
         ? 0 : 4;
 }
 

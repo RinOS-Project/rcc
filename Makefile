@@ -17990,6 +17990,44 @@ test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET
 	$(call MKDIR_P,$(TEST_OUT)/cxx-atomic-aggregate-concurrency)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -Iinclude -fsyntax-only \
 		tests/verified_backend_cxx_atomic_concurrency.cpp
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o0.ro \
+		tests/verified_backend_atomic_lock_free.c \
+		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o0.log,0)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o2.ro \
+		tests/verified_backend_atomic_lock_free.c \
+		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o2.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o0.ro \
+		tests/verified_backend_atomic_lock_free.c \
+		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o0.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o0.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o2.ro \
+		tests/verified_backend_atomic_lock_free.c \
+		>$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o2.log,0)
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e verified_atomic_lock_free_query \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86.rin \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86-o2.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		--exact-dependencies \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x86.rin
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e verified_atomic_lock_free_query \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64.rin \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64-o2.ro
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		--exact-dependencies \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/lock-free-x64.rin
 	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -v -c \
 		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-x86.ro \
 		tests/verified_backend_cxx_atomic_concurrency.cpp \
@@ -18072,6 +18110,26 @@ test-cxx-atomic-aggregate-concurrency: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET
 		--exact-dependencies --require-dependency rincrt.rll \
 		--exact-imports --require-import rincrt.rll:__errno_location@function \
 		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-verified-x64.rin
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		--dep rincrt.rll --import __errno_location=rincrt.rll@function \
+		-e verified_atomic_ref_char \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-ref-verified-x86.rin \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x86-o2.ro \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-x86.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		--exact-dependencies --require-dependency rincrt.rll \
+		--exact-imports --require-import rincrt.rll:__errno_location@function \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-ref-verified-x86.rin
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		--dep rincrt.rll --import __errno_location=rincrt.rll@function \
+		-e verified_atomic_ref_char \
+		-o $(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-ref-verified-x64.rin \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/verified-x64-o2.ro \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/runtime-x64.ro
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		--exact-dependencies --require-dependency rincrt.rll \
+		--exact-imports --require-import rincrt.rll:__errno_location@function \
+		$(TEST_OUT)/cxx-atomic-aggregate-concurrency/atomic-ref-verified-x64.rin
 ifeq ($(OS),Windows_NT)
 	@echo "C++ aggregate atomic RIN validation completed"
 else
