@@ -12044,6 +12044,11 @@ static bool lower_atomic_uses_outlined_fallback(
         strcmp(name, "__atomic_compare_exchange") == 0;
     if (!object_type || !generic_builtin) return false;
     if (object_type->size > 8) return true;
+    if (g_opts.target_arch == ARCH_X86 && object_type->size == 8 &&
+        (type_is_integer(object_type) ||
+         object_type->kind == TYPE_DOUBLE)) {
+        return true;
+    }
     if ((object_type->kind != TYPE_STRUCT &&
          object_type->kind != TYPE_UNION) ||
         !type_is_complete(object_type) || object_type->size <= 0) {

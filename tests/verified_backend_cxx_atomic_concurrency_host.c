@@ -3,6 +3,7 @@
 extern void verified_atomic_pair_reset(void);
 extern void verified_atomic_pair_increment(unsigned int iterations);
 extern unsigned long long verified_atomic_pair_read(void);
+extern int verified_atomic_double_store_load(void);
 
 enum { THREAD_COUNT = 4, ITERATIONS_PER_THREAD = 25000 };
 
@@ -18,6 +19,7 @@ int main(void)
     pthread_t threads[THREAD_COUNT];
     unsigned int created = 0u;
 
+    if (verified_atomic_double_store_load() != 0) return 5;
     verified_atomic_pair_reset();
     if (verified_atomic_pair_read() != 0ULL) return 1;
 

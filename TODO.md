@@ -12618,5 +12618,14 @@ remains a separate open item.
       fields are checked. `test-cxx-atomic-aggregate-concurrency` compiles and
       links the production atomic fallback runtime into i686/AMD64 RINs and
       validates their exact imports; its legacy x86_64 host execution passes.
-      Typed-SSA instantiation of `std::__rcc_atomic_ops::store_impl` remains
-      uncovered, so broader C++ atomic backend support stays open.
+- [x] Lower i686 64-bit generic scalar atomics through the production
+      size-aware runtime when the native typed representation cannot express
+      them. `std::atomic<double>` store/load/exchange/compare-exchange now
+      compile without a `store_impl` fallback on i686/AMD64 at `-O0` and `-O2`;
+      verified O2 objects link into RINs accepted by `rinvalidate`. The host
+      regression executes all four operations and the aggregate concurrency
+      test. The focused Windows and WSL gates pass.
+- [ ] Broader typed-SSA C++ atomic coverage remains open. The same header still
+      exposes unrelated fallback functions (`__rcc_atomic_supported_fetch_add`
+      on i686 and an `atomic_ref<char>` constructor on AMD64); expand coverage
+      for remaining fetch operations and `atomic_ref` before closing this item.
