@@ -14,11 +14,40 @@ struct DefaultCountGuideBox {
 template <int Count = 5>
 DefaultCountGuideBox(int) -> DefaultCountGuideBox<Count>;
 
+template <int... Extents>
+struct ExtentPackGuideBox {
+    int marker;
+    int (&short_source)[2];
+    int (&long_source)[4];
+};
+
+template <int... Extents>
+ExtentPackGuideBox(int, int (&...sources)[Extents])
+    -> ExtentPackGuideBox<Extents...>;
+
+template <int... Extents>
+struct EmptyExtentPackGuideBox {
+    int marker;
+};
+
+template <int... Extents>
+EmptyExtentPackGuideBox(int, int (&...sources)[Extents])
+    -> EmptyExtentPackGuideBox<Extents...>;
+
 int main() {
     int source[3] = {4, 5, 6};
     ExtentGuideBox value(source);
     ExtentGuideBox<int, 3>* exact = &value;
     DefaultCountGuideBox defaulted(1);
     DefaultCountGuideBox<5>* exact_default = &defaulted;
-    return sizeof(*exact) > 0 && sizeof(*exact_default) > 0 ? 0 : 1;
+    int short_source[2] = {7, 8};
+    int long_source[4] = {9, 10, 11, 12};
+    ExtentPackGuideBox extent_pack{0, short_source, long_source};
+    ExtentPackGuideBox<2, 4>* exact_extent_pack = &extent_pack;
+    EmptyExtentPackGuideBox empty_extent_pack{1};
+    EmptyExtentPackGuideBox<>* exact_empty_extent_pack = &empty_extent_pack;
+    return sizeof(*exact) > 0 && sizeof(*exact_default) > 0 &&
+                   sizeof(*exact_extent_pack) > 0 &&
+                   sizeof(*exact_empty_extent_pack) > 0
+        ? 0 : 1;
 }

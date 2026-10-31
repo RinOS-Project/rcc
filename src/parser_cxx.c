@@ -31033,8 +31033,11 @@ static Type* deduce_class_template_from_guides(
         int64_t* template_values = NULL;
         bool* template_value_present = NULL;
         Type** pack_arguments = NULL;
+        int64_t* pack_values = NULL;
+        bool* pack_value_present = NULL;
         int pack_argument_count = 0;
         int pack_index = -1;
+        bool pack_is_value = false;
         DeclList* guide_pack_parameter = NULL;
         DeclList* parameter = guide->parameters;
         ExprList* argument = arguments;
@@ -31058,11 +31061,10 @@ static Type* deduce_class_template_from_guides(
             for (int index = 0; index < owner->param_count; ++index) {
                 TemplateParam* template_parameter = &owner->params[index];
                 if (template_parameter->kind != TPARAM_TYPE &&
-                    !(template_parameter->kind == TPARAM_NONTYPE &&
-                      !template_parameter->is_pack)) {
+                    template_parameter->kind != TPARAM_NONTYPE) {
                     rcc_error(loc,
-                              "RCC++ deduction guides require type or scalar "
-                              "non-type template parameters");
+                              "RCC++ deduction guides require type or "
+                              "integral non-type template parameters");
                     viable = false;
                     break;
                 }
@@ -31072,6 +31074,8 @@ static Type* deduce_class_template_from_guides(
                         break;
                     }
                     pack_index = index;
+                    pack_is_value =
+                        template_parameter->kind == TPARAM_NONTYPE;
                 }
             }
         }
@@ -31102,14 +31106,23 @@ static Type* deduce_class_template_from_guides(
 
         if (guide_pack_parameter) {
             int argument_capacity = cxx_constructor_argument_count(arguments);
+            size_t capacity = (size_t)(argument_capacity > 0
+                                           ? argument_capacity : 1);
             if (argument_capacity < 0 ||
-                (size_t)(argument_capacity > 0 ? argument_capacity : 1) >
-                    SIZE_MAX / sizeof(*pack_arguments)) {
+                capacity > SIZE_MAX / sizeof(*pack_arguments) ||
+                capacity > SIZE_MAX / sizeof(*pack_values) ||
+                capacity > SIZE_MAX / sizeof(*pack_value_present)) {
                 viable = false;
             } else {
-                pack_arguments = ast_arena_alloc(
-                    sizeof(*pack_arguments) *
-                    (size_t)(argument_capacity > 0 ? argument_capacity : 1));
+                if (!pack_is_value) {
+                    pack_arguments = ast_arena_alloc(
+                        sizeof(*pack_arguments) * capacity);
+                } else {
+                    pack_values = ast_arena_alloc(
+                        sizeof(*pack_values) * capacity);
+                    pack_value_present = ast_arena_alloc(
+                        sizeof(*pack_value_present) * capacity);
+                }
             }
         }
 
@@ -31145,7 +31158,10 @@ static Type* deduce_class_template_from_guides(
             Type** element_arguments = NULL;
             int64_t* element_values = NULL;
             bool* element_value_present = NULL;
-            if (!pattern || !owner || !pack_arguments ||
+            if (!pattern || !owner ||
+                (pack_is_value
+                     ? (!pack_values || !pack_value_present)
+                     : !pack_arguments) ||
                 !cxx_allocate_template_deduction_state(
                     owner->param_count, &element_arguments, &element_values,
                     &element_value_present)) {
@@ -31167,12 +31183,15 @@ static Type* deduce_class_template_from_guides(
                        sizeof(*element_value_present) *
                            (size_t)owner->param_count);
                 element_arguments[pack_index] = NULL;
+                element_value_present[pack_index] = false;
                 if (!deduce_function_template_type(
                         owner, pattern,
                         cxx_parser_template_deduction_argument(pattern, actual),
                         element_arguments, element_values,
                         element_value_present, &element_specificity) ||
-                    !element_arguments[pack_index]) {
+                    (pack_is_value
+                         ? !element_value_present[pack_index]
+                         : !element_arguments[pack_index])) {
                     viable = false;
                     break;
                 }
@@ -31199,8 +31218,15 @@ static Type* deduce_class_template_from_guides(
                     }
                 }
                 if (!viable) break;
-                pack_arguments[pack_argument_count++] =
-                    element_arguments[pack_index];
+                if (pack_is_value) {
+                    pack_values[pack_argument_count] =
+                        element_values[pack_index];
+                    pack_value_present[pack_argument_count] = true;
+                } else {
+                    pack_arguments[pack_argument_count] =
+                        element_arguments[pack_index];
+                }
+                ++pack_argument_count;
                 specificity += element_specificity;
                 argument = argument->next;
             }
@@ -31273,12 +31299,35 @@ static Type* deduce_class_template_from_guides(
                     memcpy(element_template_arguments, template_arguments,
                            sizeof(*element_template_arguments) *
                                (size_t)owner->param_count);
-                    element_template_arguments[pack_index] =
-                        pack_arguments[pack_element];
+                    int64_t* element_template_values = template_values;
+                    bool* element_template_value_present =
+                        template_value_present;
+                    if (pack_is_value) {
+                        element_template_values = ast_arena_alloc(
+                            sizeof(*element_template_values) *
+                            (size_t)owner->param_count);
+                        element_template_value_present = ast_arena_alloc(
+                            sizeof(*element_template_value_present) *
+                            (size_t)owner->param_count);
+                        memcpy(element_template_values, template_values,
+                               sizeof(*element_template_values) *
+                                   (size_t)owner->param_count);
+                        memcpy(element_template_value_present,
+                               template_value_present,
+                               sizeof(*element_template_value_present) *
+                                   (size_t)owner->param_count);
+                        element_template_values[pack_index] =
+                            pack_values[pack_element];
+                        element_template_value_present[pack_index] =
+                            pack_value_present[pack_element];
+                    } else {
+                        element_template_arguments[pack_index] =
+                            pack_arguments[pack_element];
+                    }
                     Type* target_type = substitute_template_type(
                         owner, pattern, element_template_arguments,
-                        owner->param_count, template_values,
-                        template_value_present);
+                        owner->param_count, element_template_values,
+                        element_template_value_present);
                     int rank = cxx_parser_template_conversion_rank(
                         argument->expr, target_type);
                     if (rank < 0) {
@@ -31315,6 +31364,13 @@ static Type* deduce_class_template_from_guides(
         Type* result = guide->return_type;
         if (owner && pack_index >= 0) {
             Type** saved_pending_pack_args = owner->pending_pack_args;
+            int64_t* saved_pending_pack_values = owner->pending_pack_values;
+            bool* saved_pending_pack_value_present =
+                owner->pending_pack_value_present;
+            bool* saved_pending_pack_expansions =
+                owner->pending_pack_expansions;
+            Expr** saved_pending_pack_value_expressions =
+                owner->pending_pack_value_expressions;
             int saved_pending_pack_count = owner->pending_pack_count;
             int* saved_pending_pack_offsets = owner->pending_pack_offsets;
             int* saved_pending_pack_counts = owner->pending_pack_counts;
@@ -31327,7 +31383,12 @@ static Type* deduce_class_template_from_guides(
             memset(pending_pack_counts, 0,
                    sizeof(*pending_pack_counts) * (size_t)owner->param_count);
             pending_pack_counts[pack_index] = pack_argument_count;
-            owner->pending_pack_args = pack_arguments;
+            owner->pending_pack_args = pack_is_value ? NULL : pack_arguments;
+            owner->pending_pack_values = pack_is_value ? pack_values : NULL;
+            owner->pending_pack_value_present =
+                pack_is_value ? pack_value_present : NULL;
+            owner->pending_pack_expansions = NULL;
+            owner->pending_pack_value_expressions = NULL;
             owner->pending_pack_count = pack_argument_count;
             owner->pending_pack_offsets = pending_pack_offsets;
             owner->pending_pack_counts = pending_pack_counts;
@@ -31335,6 +31396,13 @@ static Type* deduce_class_template_from_guides(
                 owner, guide->return_type, template_arguments,
                 owner->param_count, template_values, template_value_present);
             owner->pending_pack_args = saved_pending_pack_args;
+            owner->pending_pack_values = saved_pending_pack_values;
+            owner->pending_pack_value_present =
+                saved_pending_pack_value_present;
+            owner->pending_pack_expansions =
+                saved_pending_pack_expansions;
+            owner->pending_pack_value_expressions =
+                saved_pending_pack_value_expressions;
             owner->pending_pack_count = saved_pending_pack_count;
             owner->pending_pack_offsets = saved_pending_pack_offsets;
             owner->pending_pack_counts = saved_pending_pack_counts;
@@ -39106,6 +39174,11 @@ static int cxx_parser_template_parameter_pack_index(CxxTemplate* tmpl,
         result = cxx_parser_template_pack_index_merge(
             result, cxx_parser_template_parameter_pack_index(
                         tmpl, pattern->base));
+        if (pattern->kind == TYPE_ARRAY) {
+            result = cxx_parser_template_pack_index_merge(
+                result, cxx_parser_template_value_pack_index_expression(
+                            tmpl, pattern->array_bound));
+        }
     } else if (pattern->kind == TYPE_FUNC) {
         result = cxx_parser_template_pack_index_merge(
             result, cxx_parser_template_parameter_pack_index(
