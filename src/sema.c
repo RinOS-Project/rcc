@@ -1512,6 +1512,15 @@ static void sema_cxx_adl_append_type(SemaCxxAdlTypes* types, Type* type) {
         types->capacity = capacity;
     }
     types->types[types->count++] = type;
+    if (type->kind != TYPE_ENUM && type->cxx_class &&
+        type->cxx_class->enclosing_class &&
+        type->cxx_class->enclosing_class->type) {
+        /* A nested class argument also associates the class that contains
+         * it. Hidden friends declared by that enclosing class are therefore
+         * visible to ADL even though ordinary lookup cannot see them. */
+        sema_cxx_adl_append_type(
+            types, type->cxx_class->enclosing_class->type);
+    }
 }
 
 static void sema_cxx_adl_collect_symbol(
