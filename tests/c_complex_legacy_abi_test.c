@@ -1078,6 +1078,225 @@ static void check_annex_g_hyperbolic_infinite_real(void) {
     }
 }
 
+static void check_annex_g_cexp_infinite_nan(void) {
+    int sign;
+    int magnitude_sign;
+
+    for (sign = 0; sign != 2; ++sign) {
+        float imaginary_float = sign
+            ? -__builtin_huge_valf() : __builtin_huge_valf();
+        double imaginary_double = sign
+            ? -__builtin_huge_val() : __builtin_huge_val();
+        assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+        RccLegacyComplexFloat value_float = rcc_legacy_complex_api_cexpf(
+            __builtin_complex(1.0f, imaginary_float));
+        assert(isnan(__real__ value_float) && isnan(__imag__ value_float));
+        assert((fetestexcept(FE_INVALID) & FE_INVALID) != 0);
+        assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+        RccLegacyComplexDouble value_double = rcc_legacy_complex_api_cexp(
+            __builtin_complex(1.0, imaginary_double));
+        assert(isnan(__real__ value_double) && isnan(__imag__ value_double));
+        assert((fetestexcept(FE_INVALID) & FE_INVALID) != 0);
+        assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+        RccLegacyComplexBinary64Pair value_long_double =
+            rcc_legacy_complex_api_cexpl(
+                (ComplexBinary64Pair){1.0, imaginary_double});
+        assert(isnan(value_long_double.real) &&
+               isnan(value_long_double.imaginary));
+        assert((fetestexcept(FE_INVALID) & FE_INVALID) != 0);
+    }
+
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    RccLegacyComplexFloat value_float = rcc_legacy_complex_api_cexpf(
+        __builtin_complex(__builtin_huge_valf(), __builtin_huge_valf()));
+    assert(isinf(__real__ value_float) && __real__ value_float > 0.0f &&
+           isnan(__imag__ value_float));
+    assert((fetestexcept(FE_INVALID) & FE_INVALID) != 0);
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    RccLegacyComplexDouble value_double = rcc_legacy_complex_api_cexp(
+        __builtin_complex(__builtin_huge_val(), __builtin_huge_val()));
+    assert(isinf(__real__ value_double) && __real__ value_double > 0.0 &&
+           isnan(__imag__ value_double));
+    assert((fetestexcept(FE_INVALID) & FE_INVALID) != 0);
+    assert(feclearexcept(FE_ALL_EXCEPT) == 0);
+    RccLegacyComplexBinary64Pair value_long_double =
+        rcc_legacy_complex_api_cexpl((ComplexBinary64Pair){
+            (double)__builtin_huge_val(), (double)__builtin_huge_val()});
+    assert(isinf(value_long_double.real) && value_long_double.real > 0.0 &&
+           isnan(value_long_double.imaginary));
+    assert((fetestexcept(FE_INVALID) & FE_INVALID) != 0);
+
+    value_float = rcc_legacy_complex_api_cexpf(
+        __builtin_complex(-__builtin_huge_valf(), __builtin_huge_valf()));
+    value_double = rcc_legacy_complex_api_cexp(
+        __builtin_complex(-__builtin_huge_val(), __builtin_huge_val()));
+    value_long_double = rcc_legacy_complex_api_cexpl(
+        (ComplexBinary64Pair){-(double)__builtin_huge_val(),
+                              (double)__builtin_huge_val()});
+    assert(__real__ value_float == 0.0f && __imag__ value_float == 0.0f);
+    assert(__real__ value_double == 0.0 && __imag__ value_double == 0.0);
+    assert(value_long_double.real == 0.0 &&
+           value_long_double.imaginary == 0.0);
+
+    value_float = rcc_legacy_complex_api_cexpf(
+        __builtin_complex(-__builtin_huge_valf(), __builtin_nanf("")));
+    value_double = rcc_legacy_complex_api_cexp(
+        __builtin_complex(-__builtin_huge_val(), __builtin_nan("")));
+    value_long_double = rcc_legacy_complex_api_cexpl(
+        (ComplexBinary64Pair){-(double)__builtin_huge_val(),
+                              __builtin_nan("")});
+    assert(__real__ value_float == 0.0f && __imag__ value_float == 0.0f);
+    assert(__real__ value_double == 0.0 && __imag__ value_double == 0.0);
+    assert(value_long_double.real == 0.0 &&
+           value_long_double.imaginary == 0.0);
+
+    for (sign = 0; sign != 2; ++sign) {
+        for (magnitude_sign = 0; magnitude_sign != 2; ++magnitude_sign) {
+            float imaginary_float = magnitude_sign ? 2.0f : 1.0f;
+            double imaginary_double = magnitude_sign ? 2.0 : 1.0;
+            if (sign) {
+                imaginary_float = -imaginary_float;
+                imaginary_double = -imaginary_double;
+            }
+            value_float = rcc_legacy_complex_api_cexpf(
+                __builtin_complex(__builtin_huge_valf(), imaginary_float));
+            value_double = rcc_legacy_complex_api_cexp(
+                __builtin_complex(__builtin_huge_val(), imaginary_double));
+            value_long_double = rcc_legacy_complex_api_cexpl(
+                (ComplexBinary64Pair){(double)__builtin_huge_val(),
+                                      imaginary_double});
+            assert(isinf(__real__ value_float) &&
+                   !!__builtin_signbit(__real__ value_float) == magnitude_sign);
+            assert(isinf(__imag__ value_float) &&
+                   !!__builtin_signbit(__imag__ value_float) == sign);
+            assert(isinf(__real__ value_double) &&
+                   !!__builtin_signbit(__real__ value_double) == magnitude_sign);
+            assert(isinf(__imag__ value_double) &&
+                   !!__builtin_signbit(__imag__ value_double) == sign);
+            assert(isinf(value_long_double.real) &&
+                   !!__builtin_signbit(value_long_double.real) == magnitude_sign);
+            assert(isinf(value_long_double.imaginary) &&
+                   !!__builtin_signbit(value_long_double.imaginary) == sign);
+
+            value_float = rcc_legacy_complex_api_cexpf(
+                __builtin_complex(-__builtin_huge_valf(), imaginary_float));
+            value_double = rcc_legacy_complex_api_cexp(
+                __builtin_complex(-__builtin_huge_val(), imaginary_double));
+            value_long_double = rcc_legacy_complex_api_cexpl(
+                (ComplexBinary64Pair){-(double)__builtin_huge_val(),
+                                      imaginary_double});
+            assert(__real__ value_float == 0.0f &&
+                   !!__builtin_signbit(__real__ value_float) == magnitude_sign);
+            assert(__imag__ value_float == 0.0f &&
+                   !!__builtin_signbit(__imag__ value_float) == sign);
+            assert(__real__ value_double == 0.0 &&
+                   !!__builtin_signbit(__real__ value_double) == magnitude_sign);
+            assert(__imag__ value_double == 0.0 &&
+                   !!__builtin_signbit(__imag__ value_double) == sign);
+            assert(value_long_double.real == 0.0 &&
+                   !!__builtin_signbit(value_long_double.real) == magnitude_sign);
+            assert(value_long_double.imaginary == 0.0 &&
+                   !!__builtin_signbit(value_long_double.imaginary) == sign);
+        }
+    }
+
+    for (sign = 0; sign != 2; ++sign) {
+        float imaginary_float = sign ? -0.0f : 0.0f;
+        double imaginary_double = sign ? -0.0 : 0.0;
+        value_float = rcc_legacy_complex_api_cexpf(
+            __builtin_complex(__builtin_huge_valf(), imaginary_float));
+        value_double = rcc_legacy_complex_api_cexp(
+            __builtin_complex(__builtin_huge_val(), imaginary_double));
+        value_long_double = rcc_legacy_complex_api_cexpl(
+            (ComplexBinary64Pair){(double)__builtin_huge_val(),
+                                  imaginary_double});
+        assert(isinf(__real__ value_float) && __real__ value_float > 0.0f &&
+               __imag__ value_float == 0.0f &&
+               !!__builtin_signbit(__imag__ value_float) == sign);
+        assert(isinf(__real__ value_double) && __real__ value_double > 0.0 &&
+               __imag__ value_double == 0.0 &&
+               !!__builtin_signbit(__imag__ value_double) == sign);
+        assert(isinf(value_long_double.real) && value_long_double.real > 0.0 &&
+               value_long_double.imaginary == 0.0 &&
+               !!__builtin_signbit(value_long_double.imaginary) == sign);
+
+        value_float = rcc_legacy_complex_api_cexpf(
+            __builtin_complex(-__builtin_huge_valf(), imaginary_float));
+        value_double = rcc_legacy_complex_api_cexp(
+            __builtin_complex(-__builtin_huge_val(), imaginary_double));
+        value_long_double = rcc_legacy_complex_api_cexpl(
+            (ComplexBinary64Pair){-(double)__builtin_huge_val(),
+                                  imaginary_double});
+        assert(__real__ value_float == 0.0f &&
+               !__builtin_signbit(__real__ value_float) &&
+               __imag__ value_float == 0.0f &&
+               !!__builtin_signbit(__imag__ value_float) == sign);
+        assert(__real__ value_double == 0.0 &&
+               !__builtin_signbit(__real__ value_double) &&
+               __imag__ value_double == 0.0 &&
+               !!__builtin_signbit(__imag__ value_double) == sign);
+        assert(value_long_double.real == 0.0 &&
+               !__builtin_signbit(value_long_double.real) &&
+               value_long_double.imaginary == 0.0 &&
+               !!__builtin_signbit(value_long_double.imaginary) == sign);
+    }
+
+    for (sign = 0; sign != 2; ++sign) {
+        float imaginary_float = sign ? -1.0f : 1.0f;
+        double imaginary_double = sign ? -1.0 : 1.0;
+        value_float = rcc_legacy_complex_api_cexpf(
+            __builtin_complex(__builtin_nanf(""), imaginary_float));
+        value_double = rcc_legacy_complex_api_cexp(
+            __builtin_complex(__builtin_nan(""), imaginary_double));
+        value_long_double = rcc_legacy_complex_api_cexpl(
+            (ComplexBinary64Pair){__builtin_nan(""), imaginary_double});
+        assert(isnan(__real__ value_float) && isnan(__imag__ value_float));
+        assert(isnan(__real__ value_double) && isnan(__imag__ value_double));
+        assert(isnan(value_long_double.real) &&
+               isnan(value_long_double.imaginary));
+    }
+
+    value_float = rcc_legacy_complex_api_cexpf(
+        __builtin_complex(1.0f, __builtin_nanf("")));
+    value_double = rcc_legacy_complex_api_cexp(
+        __builtin_complex(1.0, __builtin_nan("")));
+    value_long_double = rcc_legacy_complex_api_cexpl(
+        (ComplexBinary64Pair){1.0, __builtin_nan("")});
+    assert(isnan(__real__ value_float) && isnan(__imag__ value_float));
+    assert(isnan(__real__ value_double) && isnan(__imag__ value_double));
+    assert(isnan(value_long_double.real) &&
+           isnan(value_long_double.imaginary));
+
+    value_float = rcc_legacy_complex_api_cexpf(
+        __builtin_complex(__builtin_nanf(""), __builtin_nanf("")));
+    value_double = rcc_legacy_complex_api_cexp(
+        __builtin_complex(__builtin_nan(""), __builtin_nan("")));
+    value_long_double = rcc_legacy_complex_api_cexpl(
+        (ComplexBinary64Pair){__builtin_nan(""), __builtin_nan("")});
+    assert(isnan(__real__ value_float) && isnan(__imag__ value_float));
+    assert(isnan(__real__ value_double) && isnan(__imag__ value_double));
+    assert(isnan(value_long_double.real) &&
+           isnan(value_long_double.imaginary));
+
+    for (sign = 0; sign != 2; ++sign) {
+        float imaginary_float = sign ? -0.0f : 0.0f;
+        double imaginary_double = sign ? -0.0 : 0.0;
+        value_float = rcc_legacy_complex_api_cexpf(
+            __builtin_complex(__builtin_nanf(""), imaginary_float));
+        value_double = rcc_legacy_complex_api_cexp(
+            __builtin_complex(__builtin_nan(""), imaginary_double));
+        value_long_double = rcc_legacy_complex_api_cexpl(
+            (ComplexBinary64Pair){__builtin_nan(""), imaginary_double});
+        assert(isnan(__real__ value_float) && __imag__ value_float == 0.0f &&
+               !!__builtin_signbit(__imag__ value_float) == sign);
+        assert(isnan(__real__ value_double) && __imag__ value_double == 0.0 &&
+               !!__builtin_signbit(__imag__ value_double) == sign);
+        assert(isnan(value_long_double.real) &&
+               value_long_double.imaginary == 0.0 &&
+               !!__builtin_signbit(value_long_double.imaginary) == sign);
+    }
+}
+
 #undef RCC_ASSERT_FLOAT_COMPLEX_API
 #undef RCC_ASSERT_DOUBLE_COMPLEX_API
 #undef RCC_ASSERT_LONG_DOUBLE_COMPLEX_API
@@ -2237,6 +2456,7 @@ int main(void) {
     check_annex_g_hyperbolic_nan_real();
     check_annex_g_ctanh_infinity_nan_matrix();
     check_annex_g_hyperbolic_infinite_real();
+    check_annex_g_cexp_infinite_nan();
     check_complex_branch_cuts();
 
     float_result = rcc_legacy_complex_float_add(float_left, float_right);

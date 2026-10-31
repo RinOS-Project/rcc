@@ -24,6 +24,13 @@
   zeros and at `+∞+iy` for `y=±1,±2`. Check the signed infinite components
   against `cis(y)` for float, double, and RinOS binary64 `long double` through
   legacy and verified callers.
+- [x] Cover Annex G G.6.4.1 `cexp` finite real inputs paired with signed
+  infinite imaginary values, positive/negative infinite real inputs paired
+  with finite, infinite, zero, or NaN imaginary values, and NaN inputs paired
+  with finite, zero, or NaN values. Check required `FE_INVALID` cases and
+  specified component classifications through float/double/long double
+  legacy and verified callers. Preserve the specified imaginary signed zero
+  for `cexp(-∞ ± i0)` in the RinOS libc runtime.
 
 ## RCC continuation (2026-10-30, floating math builtins)
 
