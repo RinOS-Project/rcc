@@ -12179,6 +12179,12 @@ remains a separate open item.
       including remaining built-in conversion candidates, function-template
       ordering, and hidden-friend/ADL corner cases; retain the broader C++20
       overload conformance item as open.
+- [x] Deduce independently sized non-type template parameter packs nested in
+      separate class-template arguments, and combine nested type/non-type
+      packs. Cover empty and unequal lengths plus value preservation through
+      fold expressions; strict GCC C++20 and the full
+      `test-cxx-function-template-overloads` gate pass with RCC i686/AMD64
+      generation, AMD64 runtime, and verified-backend fallback zero.
 - [x] Apply C++20 derived-class visibility and using-declaration hiding to
       ordinary member overload candidate collection. A direct declaration
       hides base overloads without `using`; with `using`, only the selected

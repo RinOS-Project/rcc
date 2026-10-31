@@ -32198,8 +32198,7 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
         : actual_class && actual_class->templ
             ? actual_class->template_arg_count
             : actual->cxx_template_arg_count;
-    if (actual_template != pattern_template || actual_argument_count < 0 ||
-        (actual_argument_count > 0 && !actual_arguments)) {
+    if (actual_template != pattern_template || actual_argument_count < 0) {
         return false;
     }
     class_pack_index = cxx_class_pack_index(pattern_template);
@@ -32222,15 +32221,22 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
         TemplateParam* class_parameter =
             &pattern_template->params[parameter_index];
         Type* argument_pattern = pattern_arguments[index];
+        Expr* value_pattern = pattern->cxx_template_value_args
+            ? pattern->cxx_template_value_args[index] : NULL;
         int argument_pack_index = argument_pattern
             ? cxx_parser_template_parameter_pack_index(
                   owner, argument_pattern)
             : -1;
+        int argument_value_pack_index =
+            cxx_parser_template_value_pack_index_expression(
+                owner, value_pattern);
         bool is_pack_expansion =
             pattern->cxx_template_arg_pack_expansions &&
             pattern->cxx_template_arg_pack_expansions[index];
         if (class_pack_index == index && pattern_argument_count == 1 &&
-            !is_pack_expansion && argument_pack_index != -1) {
+            !is_pack_expansion &&
+            (argument_pack_index != -1 ||
+             argument_value_pack_index != -1)) {
             is_pack_expansion = true;
         }
         if (index == actual_argument_count && !is_pack_expansion) {
@@ -32238,8 +32244,13 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
         }
         if (is_pack_expansion) {
             if ((!class_parameter->is_pack && pattern_argument_count != 1) ||
-                class_parameter->kind != TPARAM_TYPE ||
-                class_pack_index != index || !argument_pattern) {
+                (class_parameter->kind != TPARAM_TYPE &&
+                 class_parameter->kind != TPARAM_NONTYPE) ||
+                class_pack_index != index ||
+                (class_parameter->kind == TPARAM_TYPE &&
+                 !argument_pattern) ||
+                (class_parameter->kind == TPARAM_NONTYPE &&
+                 !value_pattern)) {
                 return false;
             }
             bool* referenced = cxx_allocate_zeroed_array(
@@ -32255,8 +32266,11 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
                 !cxx_allocate_template_deduction_state(
                     owner->param_count, &element_arguments, &element_values,
                     &element_value_present) ||
-                !cxx_deduction_guide_collect_type_pack_references(
-                    owner, argument_pattern, referenced, depth + 1u)) {
+                !(class_parameter->kind == TPARAM_TYPE
+                      ? cxx_deduction_guide_collect_type_pack_references(
+                            owner, argument_pattern, referenced, depth + 1u)
+                      : cxx_deduction_guide_collect_value_pack_references(
+                            owner, value_pattern, referenced, depth + 1u))) {
                 rcc_error((SourceLoc){"<template>", 0, 0},
                           "cannot allocate nested deduction-guide pack state");
                 return false;
@@ -32265,7 +32279,9 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
             int referenced_count = 0;
             if (expansion_count < 0 ||
                 expansion_count > pack_state->capacity_per_pack ||
-                (expansion_count > 0 && !actual_arguments)) {
+                (expansion_count > 0 &&
+                 class_parameter->kind == TPARAM_TYPE &&
+                 !actual_arguments)) {
                 return false;
             }
             memcpy(initial_counts, pack_state->counts,
@@ -32276,7 +32292,8 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
                  ++pack_index) {
                 if (!referenced[pack_index]) continue;
                 if (!owner->params[pack_index].is_pack ||
-                    owner->params[pack_index].kind != TPARAM_TYPE) {
+                    owner->params[pack_index].kind !=
+                        class_parameter->kind) {
                     return false;
                 }
                 ++referenced_count;
@@ -32289,6 +32306,54 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
             for (int element_index = 0; element_index < expansion_count;
                  ++element_index) {
                 int element_specificity = 0;
+                if (class_parameter->kind == TPARAM_NONTYPE) {
+                    int referenced_index = -1;
+                    int64_t actual_value;
+                    if (!value_pattern ||
+                        value_pattern->kind != EXPR_IDENT ||
+                        !value_pattern->ident_name ||
+                        !cxx_function_template_class_nontype_argument_value(
+                            actual, index + element_index, &actual_value)) {
+                        return false;
+                    }
+                    for (int pack_index = 0;
+                         pack_index < owner->param_count; ++pack_index) {
+                        if (!referenced[pack_index]) continue;
+                        if (referenced_index >= 0 ||
+                            !owner->params[pack_index].name ||
+                            strcmp(owner->params[pack_index].name,
+                                   value_pattern->ident_name) != 0) {
+                            return false;
+                        }
+                        referenced_index = pack_index;
+                    }
+                    if (referenced_index < 0) return false;
+                    int offset = pack_state->offsets[referenced_index];
+                    if (initial_seen[referenced_index]) {
+                        if (pack_state->counts[referenced_index] <=
+                                element_index ||
+                            !pack_state->value_present[
+                                offset + element_index] ||
+                            pack_state->values[offset + element_index] !=
+                                actual_value) {
+                            return false;
+                        }
+                    } else {
+                        if (pack_state->counts[referenced_index] !=
+                                element_index ||
+                            element_index >=
+                                pack_state->capacity_per_pack) {
+                            return false;
+                        }
+                        pack_state->values[offset + element_index] =
+                            actual_value;
+                        pack_state->value_present[offset + element_index] =
+                            true;
+                        pack_state->counts[referenced_index] =
+                            element_index + 1;
+                    }
+                    continue;
+                }
                 memcpy(element_arguments, template_arguments,
                        sizeof(*element_arguments) *
                            (size_t)owner->param_count);
@@ -32370,6 +32435,7 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
             ? &actual_template->params[parameter_index] : NULL;
         if (!actual_parameter) return false;
         if (actual_parameter->kind == TPARAM_TYPE) {
+            if (!actual_arguments) return false;
             if (!cxx_deduction_guide_match_type_with_nested_packs(
                     owner, argument_pattern, actual_arguments[index],
                     template_arguments, template_values,
@@ -32386,6 +32452,7 @@ static bool cxx_deduction_guide_match_type_with_nested_packs(
                 return false;
             }
         } else if (actual_parameter->kind == TPARAM_TEMPLATE) {
+            if (!actual_arguments) return false;
             if (cxx_parser_template_parameter_pack_index(
                     owner, argument_pattern) != -1 ||
                 !cxx_function_template_class_template_template_argument_deduce(
@@ -42366,16 +42433,29 @@ static bool cxx_function_template_deduce_nested_type_packs(
         if (!tmpl->params[index].is_pack || !pack_state.seen[index]) {
             continue;
         }
-        if (tmpl->params[index].kind != TPARAM_TYPE) return false;
         inferred_count = pack_state.counts[index];
         existing_count = pack_counts[index];
-        if (existing_count > 0) {
+        if (pack_seen[index] || existing_count > 0) {
             if (existing_count != inferred_count) return false;
             for (int element = 0; element < inferred_count; ++element) {
-                if (!type_is_same_template_argument(
-                        pack_arguments[pack_offsets[index] + element],
-                        pack_state.arguments[
-                            pack_state.offsets[index] + element])) {
+                int existing_index = pack_offsets[index] + element;
+                int inferred_index =
+                    pack_state.offsets[index] + element;
+                if (tmpl->params[index].kind == TPARAM_TYPE) {
+                    if (!type_is_same_template_argument(
+                            pack_arguments[existing_index],
+                            pack_state.arguments[inferred_index])) {
+                        return false;
+                    }
+                } else if (tmpl->params[index].kind == TPARAM_NONTYPE) {
+                    if (!pack_values || !pack_value_present ||
+                        !pack_value_present[existing_index] ||
+                        !pack_state.value_present[inferred_index] ||
+                        pack_values[existing_index] !=
+                            pack_state.values[inferred_index]) {
+                        return false;
+                    }
+                } else {
                     return false;
                 }
             }
@@ -42389,8 +42469,22 @@ static bool cxx_function_template_deduce_nested_type_packs(
         }
         pack_offsets[index] = *pack_count;
         for (int element = 0; element < inferred_count; ++element) {
-            pack_arguments[*pack_count + element] =
-                pack_state.arguments[pack_state.offsets[index] + element];
+            int inferred_index =
+                pack_state.offsets[index] + element;
+            if (tmpl->params[index].kind == TPARAM_TYPE) {
+                pack_arguments[*pack_count + element] =
+                    pack_state.arguments[inferred_index];
+            } else if (tmpl->params[index].kind == TPARAM_NONTYPE) {
+                if (!pack_values || !pack_value_present ||
+                    !pack_state.value_present[inferred_index]) {
+                    return false;
+                }
+                pack_values[*pack_count + element] =
+                    pack_state.values[inferred_index];
+                pack_value_present[*pack_count + element] = true;
+            } else {
+                return false;
+            }
         }
         pack_counts[index] = inferred_count;
         pack_seen[index] = true;

@@ -5088,6 +5088,24 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log,0)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-independent-nontype-packs)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-independent-nontype-packs,cxx_function_template_independent_nontype_packs.cpp)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/gcc-host tests/cxx_function_template_independent_nontype_packs.cpp
+	$(TEST_OUT)/cxx-function-template-independent-nontype-packs/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.ro \
+		tests/cxx_function_template_independent_nontype_packs.cpp \
+		>$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.ro \
+		tests/cxx_function_template_independent_nontype_packs.cpp \
+		>$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-function-template-overloads/x86.s \
 		tests/cxx_function_template_overloads.cpp
@@ -6661,6 +6679,24 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-packs/verified-x64.log,0)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-independent-nontype-packs)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-independent-nontype-packs,cxx_function_template_independent_nontype_packs.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/gcc-host.exe tests/cxx_function_template_independent_nontype_packs.cpp
+	$(TEST_OUT)/cxx-function-template-independent-nontype-packs/gcc-host.exe
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.ro \
+		tests/cxx_function_template_independent_nontype_packs.cpp \
+		>$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.ro \
+		tests/cxx_function_template_independent_nontype_packs.cpp \
+		>$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-function-template-independent-nontype-packs/verified-x64.log,0)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-function-template-overloads/gcc-symbols.s tests/cxx_function_template_overloads.cpp
 	$(GREP) -F -q "_Z7adl_tieIiElP13AdlTiePayloadT_" $(TEST_OUT)/cxx-function-template-overloads/gcc-symbols.s
