@@ -17769,9 +17769,13 @@ static void cxx_function_template_lookup_adl_type(
     int template_argument_count;
 
     if (!lookup || !type || !name) return;
-    if (type->cxx_is_member_pointer && type->cxx_member_pointer_owner) {
-        cxx_function_template_lookup_adl_type(
-            lookup, type->cxx_member_pointer_owner, name);
+    if (type->cxx_is_member_pointer) {
+        if (type->cxx_member_pointer_owner) {
+            cxx_function_template_lookup_adl_type(
+                lookup, type->cxx_member_pointer_owner, name);
+        }
+        cxx_function_template_lookup_adl_type(lookup, type->base, name);
+        return;
     }
     if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
         !type->cxx_is_member_pointer) {
@@ -18065,11 +18069,14 @@ static bool cxx_class_is_associated_with(CxxClass* actual,
 static bool cxx_type_is_associated_with(Type* type,
                                         CxxClass* granting_class) {
     if (!type || !granting_class) return false;
-    if (type->cxx_is_member_pointer &&
-        type->cxx_member_pointer_owner &&
-        cxx_class_is_associated_with(
-            type->cxx_member_pointer_owner->cxx_class, granting_class)) {
-        return true;
+    if (type->cxx_is_member_pointer) {
+        if (type->cxx_member_pointer_owner &&
+            cxx_class_is_associated_with(
+                type->cxx_member_pointer_owner->cxx_class,
+                granting_class)) {
+            return true;
+        }
+        return cxx_type_is_associated_with(type->base, granting_class);
     }
     if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
         !type->cxx_is_member_pointer) {
@@ -31216,6 +31223,28 @@ static bool deduce_function_template_type_with_pack(
             deduced_pack_seen);
     }
     if (pattern->kind == TYPE_PTR && actual->kind == TYPE_PTR) {
+        if (pattern->cxx_is_member_pointer !=
+            actual->cxx_is_member_pointer) {
+            return false;
+        }
+        if (pattern->cxx_is_member_pointer) {
+            if (!pattern->base || !actual->base ||
+                !pattern->cxx_member_pointer_owner ||
+                !actual->cxx_member_pointer_owner ||
+                !deduce_function_template_type_with_pack(
+                    tmpl, pattern->base, actual->base, arguments, values,
+                    value_present, specificity, deduced_pack_args,
+                    deduced_pack_count, deduced_pack_seen) ||
+                !deduce_function_template_type_with_pack(
+                    tmpl, pattern->cxx_member_pointer_owner,
+                    actual->cxx_member_pointer_owner, arguments, values,
+                    value_present, specificity, deduced_pack_args,
+                    deduced_pack_count, deduced_pack_seen)) {
+                return false;
+            }
+            if (specificity) *specificity += 16;
+            return true;
+        }
         if (specificity) *specificity += 8;
         return deduce_function_template_type_with_pack(
             tmpl, pattern->base, actual->base, arguments, values,

@@ -20,6 +20,17 @@ struct token {
 
 }
 
+namespace member_pointer_associated_type {
+
+struct value {
+    template<typename Owner>
+    friend int member_pointer_score(value Owner::*) {
+        return 70;
+    }
+};
+
+}
+
 namespace enclosing_hidden_friend {
 
 struct outer {
@@ -49,6 +60,10 @@ struct outer {
 
 }
 
+struct member_pointer_owner {
+    member_pointer_associated_type::value member;
+};
+
 int score(hidden_friend_template::token, int value) {
     return value + 30;
 }
@@ -58,11 +73,13 @@ int main() {
     hidden_friend_template::token friend_value;
     enclosing_hidden_friend::outer::token nested_value;
     enclosing_template_hidden_friend::outer<int> specialized_value;
+    auto member_pointer = &member_pointer_owner::member;
     return score(namespace_value, 1) == 11 &&
                    score(friend_value, 2) == 32 &&
                    score(friend_value, 2L) == 22 &&
                    score(nested_value) == 41 &&
                    template_score(nested_value, 3L) == 53 &&
-                   template_score(specialized_value, 4L) == 64
+                   template_score(specialized_value, 4L) == 64 &&
+                   member_pointer_score(member_pointer) == 70
         ? 0 : 1;
 }
