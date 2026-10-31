@@ -6114,8 +6114,9 @@ static void verify_cxx_inline_nested_local_constants(
 
 static void verify_cxx_inline_mutated_parameter_location(
     const char* path, uint16_t architecture, const char* function_name,
-    const char* parameter_name, const char* entry_name,
-    unsigned expected_entries) {
+    const char* parameter_name, const char* source_local_name,
+    const char* entry_name,
+    unsigned expected_entries, bool final_mutation_has_multiply) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6128,11 +6129,20 @@ static void verify_cxx_inline_mutated_parameter_location(
     uint32_t location_list = UINT32_MAX;
     bool found_call = false;
     bool found_parameter_location = false;
+    bool source_has_location = false;
+    bool source_is_location_list = false;
+    int64_t source_frame_offset = 0;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     locations = objfile_get_section(object, ".debug_loc");
     assert(info != NULL && strings != NULL);
+    assert(find_variable_location(
+        info, strings, locations, source_local_name, architecture,
+        &source_has_location, &source_is_location_list,
+        &source_frame_offset));
+    assert(source_has_location);
+    (void)source_is_location_list;
     for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
         uint32_t name_offset;
         if (info->data[die] != 40u) continue;
@@ -6212,11 +6222,11 @@ static void verify_cxx_inline_mutated_parameter_location(
                    strcmp(start_relocation->symbol_name, entry_name) == 0);
             assert(end_relocation->symbol_name != NULL &&
                    strcmp(end_relocation->symbol_name, entry_name) == 0);
-            assert(start_relocation->addend > (int64_t)call_start &&
+            assert(start_relocation->addend >= (int64_t)call_start &&
                    end_relocation->addend <= (int64_t)call_end &&
                    end_relocation->addend > start_relocation->addend);
             if (entry == 0u) {
-                assert(start_relocation->addend > (int64_t)call_start);
+                assert(start_relocation->addend == (int64_t)call_start);
             } else {
                 assert(start_relocation->addend == (int64_t)previous_end);
             }
@@ -6234,14 +6244,35 @@ static void verify_cxx_inline_mutated_parameter_location(
             {
                 bool has_add = false;
                 bool has_multiply = false;
+                bool has_deref_size = false;
                 for (uint64_t byte = expression_start;
                      byte < expression_end; ++byte) {
                     if (locations->data[byte] == 0x22u) has_add = true;
                     if (locations->data[byte] == 0x1eu) has_multiply = true;
+                    if (byte + 1u < expression_end &&
+                        locations->data[byte] == 0x94u &&
+                        locations->data[byte + 1u] == 4u) {
+                        has_deref_size = true;
+                    }
                 }
-                assert(has_add);
-                if (expected_entries > 1u &&
-                    entry == expected_entries - 1u) {
+                if (entry == 0u) {
+                    uint64_t initial_offset = expression_start + 1u;
+                    int64_t initial_frame_offset;
+                    assert(try_read_sleb(
+                        locations->data, expression_end, &initial_offset,
+                        &initial_frame_offset));
+                    assert(initial_frame_offset == source_frame_offset);
+                    assert(initial_offset + 3u == expression_end);
+                    assert(locations->data[initial_offset] == 0x94u &&
+                           locations->data[initial_offset + 1u] == 4u &&
+                           locations->data[initial_offset + 2u] == 0x9fu);
+                    assert(has_deref_size && !has_add && !has_multiply);
+                } else {
+                    assert(has_add);
+                }
+                if (entry != 0u &&
+                    entry == expected_entries - 1u &&
+                    final_mutation_has_multiply) {
                     assert(has_multiply);
                 } else {
                     assert(!has_multiply);
@@ -18664,20 +18695,20 @@ int main(int argc, char** argv)
         strcmp(argv[1], "--verify-inline-mutated-parameter") == 0) {
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_parameter",
-            "mutable_parameter", "debug_inline_mutated_parameter_entry",
-            3u);
+            "mutable_parameter", "stable_input",
+            "debug_inline_mutated_parameter_entry", 4u, true);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_parameter",
-            "mutable_parameter", "debug_inline_mutated_parameter_entry",
-            3u);
+            "mutable_parameter", "stable_input",
+            "debug_inline_mutated_parameter_entry", 4u, true);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_unsigned_parameter",
-            "unsigned_parameter",
-            "debug_inline_mutated_unsigned_parameter_entry", 1u);
+            "unsigned_parameter", "stable_unsigned_input",
+            "debug_inline_mutated_unsigned_parameter_entry", 2u, false);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_unsigned_parameter",
-            "unsigned_parameter",
-            "debug_inline_mutated_unsigned_parameter_entry", 1u);
+            "unsigned_parameter", "stable_unsigned_input",
+            "debug_inline_mutated_unsigned_parameter_entry", 2u, false);
         return 0;
     }
     if (argc == 10 &&

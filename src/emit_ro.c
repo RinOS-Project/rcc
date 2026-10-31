@@ -15535,10 +15535,93 @@ expression_too_large:
     return 0u;
 }
 
+static bool debug_inline_mutated_parameter_update_is_isolated(
+    const Expr* expression, const Decl* callee, const Decl* parameter) {
+    if (!expression || !callee || !parameter) return false;
+    switch (expression->kind) {
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            return expression->binary_lhs &&
+                expression->binary_lhs->kind == EXPR_IDENT &&
+                expression->binary_lhs->ident_decl == parameter &&
+                debug_inline_parameter_expression_is_read_only(
+                    expression->binary_rhs, callee);
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return expression->unary_operand &&
+                expression->unary_operand->kind == EXPR_IDENT &&
+                expression->unary_operand->ident_decl == parameter;
+        default:
+            return false;
+    }
+}
+
+static bool debug_inline_mutated_parameter_body_is_isolated(
+    const Decl* callee, const ModuleDebugInlineParameterValue* value) {
+    const StmtList* item;
+    size_t update_count = 0u;
+    /* Reading the caller's slot across the inline range is sound only when
+     * the callee consists solely of pure scalar updates to this by-value
+     * parameter and a pure return. */
+    if (!callee || !callee->func_body ||
+        callee->func_body->kind != STMT_BLOCK || !value ||
+        !value->declaration) return false;
+    item = callee->func_body->block_stmts;
+    if (!item) return false;
+    while (item->next) {
+        const Stmt* statement = item->stmt;
+        const ModuleDebugInlineParameterMutation* mutation;
+        bool found_mutation = false;
+        if (!statement || statement->kind != STMT_EXPR ||
+            !debug_inline_mutated_parameter_update_is_isolated(
+                statement->expr, callee, value->declaration)) {
+            return false;
+        }
+        for (mutation = value->mutations; mutation;
+             mutation = mutation->next) {
+            if (mutation->statement != statement) continue;
+            if (!mutation->expression) return false;
+            found_mutation = true;
+            break;
+        }
+        if (!found_mutation || update_count == SIZE_MAX) return false;
+        ++update_count;
+        item = item->next;
+    }
+    if (!item->stmt || item->stmt->kind != STMT_RETURN ||
+        !item->stmt->return_val ||
+        !debug_inline_parameter_expression_is_read_only(
+            item->stmt->return_val, callee)) {
+        return false;
+    }
+    {
+        size_t mutation_count = 0u;
+        for (const ModuleDebugInlineParameterMutation* mutation =
+                 value->mutations;
+             mutation; mutation = mutation->next) {
+            if (mutation_count == SIZE_MAX) return false;
+            ++mutation_count;
+        }
+        return update_count != 0u && update_count == mutation_count;
+    }
+}
+
 static bool debug_emit_inline_mutated_parameter_location(
     ObjectFile* obj, ObjSection* info, const Module* mod,
     const char* filename, int architecture, const ModuleSymbol* function,
     const ModuleDebugInlineCall* call,
+    const ExprList* argument,
     const ModuleDebugInlineParameterValue* value,
     DebugInlineParameterOrigin* origin) {
     typedef struct {
@@ -15579,8 +15662,8 @@ static bool debug_emit_inline_mutated_parameter_location(
         ++mutation_count;
     }
     if (mutation_count == 0u ||
-        mutation_count > SIZE_MAX / sizeof(*entries)) return false;
-    allocation_size = mutation_count * sizeof(*entries);
+        mutation_count >= SIZE_MAX / sizeof(*entries)) return false;
+    allocation_size = (mutation_count + 1u) * sizeof(*entries);
     entries = rcc_alloc(allocation_size);
     uint32_t previous_start = 0u;
     bool have_previous_start = false;
@@ -15645,6 +15728,58 @@ static bool debug_emit_inline_mutated_parameter_location(
     if (entry_count == 0u) {
         rcc_free(entries);
         return false;
+    }
+    if (argument && argument->expr && !argument->cxx_temporary_owner &&
+        debug_inline_mutated_parameter_body_is_isolated(
+            call->callee, value) &&
+        argument->expr->kind == EXPR_IDENT &&
+        argument->expr->ident_decl && value->declaration->type &&
+        argument->expr->type && !argument->expr->type->is_volatile &&
+        !argument->expr->type->is_atomic &&
+        debug_inline_integer_expression_type(
+            value->declaration->type) &&
+        (unsigned int)value->declaration->type->size <=
+            (unsigned int)address_size &&
+        debug_inline_parameter_storage_type_equal_ignoring_top_cv_atomic(
+            value->declaration->type, argument->expr->type, 0u)) {
+        const Decl* source = argument->expr->ident_decl;
+        int64_t frame_offset;
+        uint8_t initial_expression[32];
+        size_t initial_expression_size;
+        if ((source->kind == DECL_VAR || source->kind == DECL_PARAM) &&
+            source->type && !source->type->is_volatile &&
+            !source->type->is_atomic &&
+            !source->var_is_global && !source->var_is_static_local &&
+            !source->var_is_thread_local && !source->var_is_vla &&
+            debug_inline_parameter_frame_offset(
+                mod, source, &frame_offset)) {
+            initial_expression_size = debug_build_expr_breg(
+                initial_expression, architecture, frame_offset, 0u, false);
+            if (initial_expression_size != 0u &&
+                initial_expression_size + 3u <=
+                    sizeof(initial_expression)) {
+                initial_expression[initial_expression_size++] = 0x94u;
+                initial_expression[initial_expression_size++] =
+                    (uint8_t)value->declaration->type->size;
+                initial_expression[initial_expression_size++] = 0x9fu;
+                if (call->code_start < entries[0].start &&
+                    initial_expression_size <= UINT16_MAX &&
+                    list_size <= UINT32_MAX -
+                        ((uint64_t)address_size * 2u + 2u +
+                         initial_expression_size)) {
+                    memmove(entries + 1u, entries,
+                            entry_count * sizeof(*entries));
+                    entries[0].start = call->code_start;
+                    entries[0].end = entries[1].start;
+                    entries[0].expression_size = initial_expression_size;
+                    memcpy(entries[0].expression, initial_expression,
+                           initial_expression_size);
+                    list_size += (uint64_t)address_size * 2u + 2u +
+                        initial_expression_size;
+                    ++entry_count;
+                }
+            }
+        }
     }
     list_size += (uint64_t)address_size * 2u;
     locations = objfile_get_section(obj, ".debug_loc");
@@ -15739,7 +15874,7 @@ static void debug_emit_inline_parameter_instances(
             if (origin) {
                 (void)debug_emit_inline_mutated_parameter_location(
                     obj, info, mod, filename, architecture,
-                    function, call, value, origin);
+                    function, call, argument, value, origin);
             }
             if (argument) argument = argument->next;
             continue;
