@@ -6240,7 +6240,12 @@ static void verify_cxx_inline_mutated_parameter_location(
                     if (locations->data[byte] == 0x1eu) has_multiply = true;
                 }
                 assert(has_add);
-                if (entry != 0u) assert(has_multiply);
+                if (expected_entries > 1u &&
+                    entry == expected_entries - 1u) {
+                    assert(has_multiply);
+                } else {
+                    assert(!has_multiply);
+                }
             }
             cursor = expression_end;
         }
@@ -18660,11 +18665,11 @@ int main(int argc, char** argv)
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_parameter",
             "mutable_parameter", "debug_inline_mutated_parameter_entry",
-            2u);
+            3u);
         verify_cxx_inline_mutated_parameter_location(
             argv[3], ARCH_X64, "debug_inline_mutated_parameter",
             "mutable_parameter", "debug_inline_mutated_parameter_entry",
-            2u);
+            3u);
         verify_cxx_inline_mutated_parameter_location(
             argv[2], ARCH_X86, "debug_inline_mutated_unsigned_parameter",
             "unsigned_parameter",
