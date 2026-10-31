@@ -505,6 +505,15 @@ struct LegacyNontrivialCopyParent {
     LegacyNontrivialCopyMember member;
 };
 
+template <unsigned Depth>
+struct LegacyRecursiveCopyDepth
+    : LegacyRecursiveCopyDepth<Depth - 1u> {};
+
+template <>
+struct LegacyRecursiveCopyDepth<0u> {
+    int value;
+};
+
 struct LegacyNothrowCopy {
     LegacyNothrowCopy(const LegacyNothrowCopy&) noexcept {}
 };
@@ -949,6 +958,8 @@ static_assert(!__has_trivial_copy(LegacyNontrivialCopyMember[2]),
               "a nontrivial array element copy makes the trait false");
 static_assert(!__has_trivial_copy(LegacyNothrowCopyUnion),
               "a union with a nontrivial member copy is not trivially copyable");
+static_assert(__has_trivial_copy(LegacyRecursiveCopyDepth<70u>),
+              "legacy trivial-copy handles nested subobjects beyond internal helper depth");
 static_assert(__has_nothrow_copy(int),
               "legacy nothrow-copy recognizes scalar types");
 static_assert(!__has_nothrow_copy(void),
@@ -993,6 +1004,8 @@ static_assert(!__has_nothrow_copy(LegacyDefaultedNothrowCopyUnion),
               "an explicitly defaulted deleted union copy is not nothrow");
 static_assert(__has_nothrow_copy(LegacyNothrowCopyUnionParent),
               "an implicit parent copy can inspect a union subobject");
+static_assert(__has_nothrow_copy(LegacyRecursiveCopyDepth<70u>),
+              "legacy nothrow-copy handles deeply nested trivial subobjects");
 template <typename T>
 struct LegacyCopyTraitDependentProbe {
     static constexpr bool trivial = __has_trivial_copy(T);

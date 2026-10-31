@@ -20057,7 +20057,7 @@ bool rcc_sema_cxx_nothrow_constructible(
 static bool sema_cxx_type_trait_has_trivial_copy_recursive(
     Type* type, unsigned depth) {
     CxxClass* cls;
-    if (!type || depth > 64u || type->kind == TYPE_VOID ||
+    if (!type || type->kind == TYPE_VOID ||
         type->kind == TYPE_FUNC) {
         return false;
     }
@@ -20118,9 +20118,9 @@ bool rcc_sema_cxx_has_trivial_copy(Type* type) {
 }
 
 static bool sema_cxx_type_trait_union_members_are_nothrow_copy(
-    Type* type, unsigned depth) {
+    Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
-    if (!type || type->kind != TYPE_UNION || depth > 64u) return false;
+    if (!type || type->kind != TYPE_UNION) return false;
     if (cls) {
         for (TypeParam* field = cls->fields; field; field = field->next) {
             bool member_is_nothrow = false;
@@ -20150,7 +20150,7 @@ static bool sema_cxx_type_trait_copy_subobject_is_nothrow_legacy(
     Type* subobject, bool source_is_const, bool source_is_volatile,
     CxxClass* access_context, unsigned depth) {
     CxxTypeTraitArgument argument;
-    if (!subobject || depth > 64u) return false;
+    if (!subobject) return false;
     if (sema_cxx_type_trait_is_reference(subobject)) return true;
     if (subobject->kind == TYPE_ARRAY) {
         return sema_cxx_type_trait_copy_subobject_is_nothrow_legacy(
@@ -20168,7 +20168,7 @@ static bool sema_cxx_type_trait_copy_subobject_is_nothrow_legacy(
         }
         if (!has_copy) {
             return sema_cxx_type_trait_union_members_are_nothrow_copy(
-                subobject, depth + 1u);
+                subobject);
         }
     }
     memset(&argument, 0, sizeof(argument));
@@ -20183,7 +20183,7 @@ static bool sema_cxx_type_trait_copy_subobjects_are_nothrow_legacy(
     Type* type, bool source_is_const, bool source_is_volatile,
     unsigned depth) {
     CxxClass* cls = type ? type->cxx_class : NULL;
-    if (!type || depth > 64u) return false;
+    if (!type) return false;
     if (cls) {
         for (int index = 0; index < cls->base_count; ++index) {
             CxxClass* base = cls->bases[index].base;
@@ -20245,7 +20245,7 @@ bool rcc_sema_cxx_has_nothrow_copy(Type* type, bool* value) {
         }
         if (!has_copy) {
             *value = sema_cxx_type_trait_union_members_are_nothrow_copy(
-                object_type, 0u);
+                object_type);
             return true;
         }
     }
