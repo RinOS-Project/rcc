@@ -6112,6 +6112,132 @@ static void verify_cxx_inline_nested_local_constants(
     objfile_free(object);
 }
 
+static void verify_cxx_inline_mutated_parameter_location(
+    const char* path, uint16_t architecture) {
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* locations;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint32_t function_origin = UINT32_MAX;
+    uint32_t parameter_origin = UINT32_MAX;
+    uint64_t call_start = 0u;
+    uint64_t call_end = 0u;
+    uint32_t location_list = UINT32_MAX;
+    bool found_call = false;
+    bool found_parameter_location = false;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    locations = objfile_get_section(object, ".debug_loc");
+    assert(info != NULL && strings != NULL);
+    for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
+        uint32_t name_offset;
+        if (info->data[die] != 40u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset < strings->size &&
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_inline_mutated_parameter") == 0) {
+            function_origin = (uint32_t)die;
+            break;
+        }
+    }
+    assert(function_origin != UINT32_MAX);
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 16u <= info->size; ++die) {
+        uint64_t low_pc_offset;
+        uint32_t origin;
+        if (info->data[die] != 41u) continue;
+        origin = read_u32(info->data, die + 1u);
+        if (origin != function_origin) continue;
+        low_pc_offset = die + 1u + 4u;
+        for (const ObjReloc* relocation = info->relocs;
+             relocation; relocation = relocation->next) {
+            if (relocation->offset != low_pc_offset) continue;
+            assert(relocation->symbol_name != NULL &&
+                   strcmp(relocation->symbol_name,
+                          "debug_inline_mutated_parameter_entry") == 0);
+            assert(relocation->addend >= 0);
+            call_start = (uint64_t)relocation->addend;
+            call_end = call_start + read_u32(
+                info->data, low_pc_offset + address_size);
+            found_call = true;
+            break;
+        }
+    }
+    assert(found_call && call_end > call_start);
+    for (uint64_t die = 11u; die + 21u <= info->size; ++die) {
+        uint32_t name_offset;
+        if (info->data[die] != 42u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset < strings->size &&
+            strcmp((const char*)strings->data + name_offset,
+                   "mutable_parameter") == 0) {
+            parameter_origin = (uint32_t)die;
+            break;
+        }
+    }
+    assert(parameter_origin != UINT32_MAX);
+    for (uint64_t die = 11u; die + 9u <= info->size; ++die) {
+        if (info->data[die] != 69u ||
+            read_u32(info->data, die + 1u) != parameter_origin) continue;
+        location_list = read_u32(info->data, die + 5u);
+        found_parameter_location = true;
+        break;
+    }
+    assert(locations != NULL && found_parameter_location &&
+           location_list < locations->size);
+    {
+        uint64_t cursor = location_list;
+        const ObjReloc* start_relocation = NULL;
+        const ObjReloc* end_relocation = NULL;
+        uint16_t expression_size;
+        uint64_t expression_start;
+        uint64_t expression_end;
+        for (const ObjReloc* relocation = locations->relocs;
+             relocation; relocation = relocation->next) {
+            if (relocation->offset == cursor) start_relocation = relocation;
+            if (relocation->offset == cursor + address_size) {
+                end_relocation = relocation;
+            }
+        }
+        assert(start_relocation != NULL && end_relocation != NULL);
+        assert(start_relocation->symbol_name != NULL &&
+               strcmp(start_relocation->symbol_name,
+                      "debug_inline_mutated_parameter_entry") == 0);
+        assert(end_relocation->symbol_name != NULL &&
+               strcmp(end_relocation->symbol_name,
+                      "debug_inline_mutated_parameter_entry") == 0);
+        assert(start_relocation->addend > (int64_t)call_start &&
+               end_relocation->addend == (int64_t)call_end);
+        cursor += address_size * 2u;
+        assert(cursor + 2u <= locations->size);
+        expression_size = (uint16_t)locations->data[cursor] |
+            (uint16_t)((uint16_t)locations->data[cursor + 1u] << 8u);
+        expression_start = cursor + 2u;
+        expression_end = expression_start + expression_size;
+        assert(expression_size >= 4u && expression_end <= locations->size);
+        assert(locations->data[expression_start] ==
+               (architecture == ARCH_X64 ? 0x76u : 0x75u));
+        assert(locations->data[expression_end - 1u] == 0x9fu);
+        {
+            bool has_add = false;
+            for (uint64_t byte = expression_start; byte < expression_end;
+                 ++byte) {
+                if (locations->data[byte] == 0x22u) has_add = true;
+            }
+            assert(has_add);
+        }
+        cursor = expression_end;
+        assert(cursor + address_size * 2u <= locations->size);
+        for (uint64_t byte = cursor;
+             byte < cursor + address_size * 2u; ++byte) {
+            assert(locations->data[byte] == 0u);
+        }
+    }
+    objfile_free(object);
+}
+
 static unsigned count_line_copy_ops(const ObjSection* line)
 {
     uint64_t offset;
@@ -18513,6 +18639,12 @@ int main(int argc, char** argv)
         {"debug_inline_automatic_neg_add_signed_index", 4u, false, 4u,
          false, 0u, 0u, false, 0u}
     };
+    if (argc == 4 &&
+        strcmp(argv[1], "--verify-inline-mutated-parameter") == 0) {
+        verify_cxx_inline_mutated_parameter_location(argv[2], ARCH_X86);
+        verify_cxx_inline_mutated_parameter_location(argv[3], ARCH_X64);
+        return 0;
+    }
     if (argc == 10 &&
         strcmp(argv[1], "--verify-inline-integer-expression") == 0) {
         typedef struct {

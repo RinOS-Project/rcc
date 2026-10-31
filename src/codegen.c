@@ -304,6 +304,10 @@ static void debug_inline_capture_parameter_values(
         value->has_signed_integer_constant = false;
         value->has_unsigned_integer_constant = false;
         value->has_float_constant = false;
+        value->has_mutated_value = false;
+        value->current_value_expression = NULL;
+        value->current_value_statement = NULL;
+        value->current_value_start = 0u;
         parameter_type = declaration->type;
         argument_type = argument && argument->expr
             ? argument->expr->type : NULL;
@@ -515,6 +519,34 @@ void module_end_debug_inline_call(Module* mod, size_t call_index,
         rcc_fatal("invalid DWARF inline-call range");
     }
     mod->debug_inline_calls[call_index].code_end = code_end;
+}
+
+bool module_set_debug_inline_parameter_value(
+    Module* mod, size_t call_index, const Decl* declaration,
+    const Expr* current_value_expression, const Stmt* current_value_statement,
+    uint32_t current_value_start) {
+    ModuleDebugInlineCall* call;
+    if (!mod || call_index >= mod->debug_inline_call_count || !declaration) {
+        return false;
+    }
+    call = &mod->debug_inline_calls[call_index];
+    for (size_t index = 0u; index < call->parameter_value_count; ++index) {
+        ModuleDebugInlineParameterValue* value = &call->parameter_values[index];
+        if (value->declaration != declaration) continue;
+        if (current_value_expression || current_value_statement) {
+            if (!current_value_expression || !current_value_statement) {
+                return false;
+            }
+            value->has_mutated_value = true;
+            value->current_value_expression = current_value_expression;
+            value->current_value_statement = current_value_statement;
+        }
+        if (current_value_start > value->current_value_start) {
+            value->current_value_start = current_value_start;
+        }
+        return true;
+    }
+    return false;
 }
 
 static void module_add_debug_inline_scope_range_to_call(

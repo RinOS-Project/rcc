@@ -17923,6 +17923,27 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             return lower_invalid_value();
         }
         context->active_debug_inline_call_plus_one = call_index + 1u;
+        for (size_t ordinal = 0u;
+             ordinal < rcc_optimize_inline_debug_parameter_value_count(
+                           expression);
+             ++ordinal) {
+            const Decl* state_callee = NULL;
+            const Decl* parameter = NULL;
+            const Expr* current_value = NULL;
+            const Stmt* value_statement = NULL;
+            if (!rcc_optimize_inline_debug_parameter_value(
+                    expression, ordinal, &state_callee, &parameter,
+                    &current_value, &value_statement) ||
+                state_callee != inline_callee || !parameter ||
+                !current_value || !value_statement ||
+                !rcc_ir_module_add_inline_parameter_value(
+                    context->module, call_index, parameter, current_value,
+                    value_statement)) {
+                rcc_fatal("invalid optimized inline parameter-value origin");
+                value = lower_invalid_value();
+                goto cleanup;
+            }
+        }
     }
     if (context && g_opts.debug_info && expression &&
         context->active_debug_inline_call_plus_one != 0u &&
@@ -17940,6 +17961,18 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                     expression, ordinal, &scope_function, &scope) &&
                 scope_function == active_call->callee) {
                 context->current_statement = scope;
+                break;
+            }
+        }
+        for (size_t ordinal = 0u;
+             ordinal < rcc_optimize_inline_debug_statement_count(expression);
+             ++ordinal) {
+            const Decl* statement_function = NULL;
+            const Stmt* statement = NULL;
+            if (rcc_optimize_inline_debug_statement(
+                    expression, ordinal, &statement_function, &statement) &&
+                statement_function == active_call->callee) {
+                context->current_statement = statement;
                 break;
             }
         }

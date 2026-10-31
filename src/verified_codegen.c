@@ -1330,6 +1330,23 @@ static bool verified_append_debug_inline_calls(
                 destination, global_index,
                 (uint32_t)(function_symbol->value + local_end));
             global_index_plus_one[call_index] = global_index + 1u;
+            for (size_t value_index = 0u;
+                 value_index < call->parameter_value_count; ++value_index) {
+                const RccIrInlineParameterValue* value =
+                    &call->parameter_values[value_index];
+                if (!module_set_debug_inline_parameter_value(
+                        destination, global_index,
+                        (const Decl*)value->declaration,
+                        (const Expr*)value->value_expression,
+                        (const Stmt*)value->value_statement, 0u)) {
+                    if (error && error_size != 0u) {
+                        snprintf(error, error_size,
+                                 "verified inline parameter value has no formal");
+                    }
+                    rcc_free(global_index_plus_one);
+                    return false;
+                }
+            }
         }
     }
     if (encoded->source_range_count != 0u && !encoded->source_ranges) {
@@ -1386,6 +1403,23 @@ static bool verified_append_debug_inline_calls(
             verified_inline_scope_paths_free(scope_paths);
             rcc_free(global_index_plus_one);
             return false;
+        }
+        for (size_t value_index = 0u;
+             value_index < call->parameter_value_count; ++value_index) {
+            const RccIrInlineParameterValue* value =
+                &call->parameter_values[value_index];
+            if (value->value_statement != range->source_statement) continue;
+            if (!module_set_debug_inline_parameter_value(
+                    destination, global_index_plus_one[local_call_index] - 1u,
+                    (const Decl*)value->declaration, NULL, NULL, code_end)) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "verified inline parameter range has no formal");
+                }
+                verified_inline_scope_paths_free(scope_paths);
+                rcc_free(global_index_plus_one);
+                return false;
+            }
         }
     }
     for (size_t call_index = 0u;
@@ -1483,6 +1517,19 @@ static void verified_emit_debug_sections(
             call->parent_index_plus_one);
         module_end_debug_inline_call(
             debug_module, debug_index, call->code_end);
+        for (size_t value_index = 0u;
+             value_index < call->parameter_value_count; ++value_index) {
+            const ModuleDebugInlineParameterValue* value =
+                &call->parameter_values[value_index];
+            if (!value->has_mutated_value) continue;
+            if (!module_set_debug_inline_parameter_value(
+                    debug_module, debug_index, value->declaration,
+                    value->current_value_expression,
+                    value->current_value_statement,
+                    value->current_value_start)) {
+                rcc_fatal("verified DWARF inline parameter state is inconsistent");
+            }
+        }
         for (const ModuleDebugInlineScope* scope = call->lexical_scopes;
              scope; scope = scope->next) {
             for (const StmtDebugRange* range = scope->code_ranges;

@@ -161,6 +161,9 @@ void rcc_ir_module_destroy(RccIrModule* module) {
         rcc_free(constant);
         constant = next_constant;
     }
+    for (size_t index = 0u; index < module->inline_call_count; ++index) {
+        rcc_free(module->inline_calls[index].parameter_values);
+    }
     rcc_free(module->inline_calls);
     rcc_free(module);
 }
@@ -198,7 +201,40 @@ size_t rcc_ir_module_add_inline_call(
     module->inline_calls[index].parent_index_plus_one =
         parent_index_plus_one;
     module->inline_calls[index].caller_statement = caller_statement;
+    module->inline_calls[index].parameter_values = NULL;
+    module->inline_calls[index].parameter_value_count = 0u;
+    module->inline_calls[index].parameter_value_capacity = 0u;
     return index;
+}
+
+bool rcc_ir_module_add_inline_parameter_value(
+    RccIrModule* module, size_t call_index, const void* declaration,
+    const void* value_expression, const void* value_statement) {
+    RccIrInlineCall* call;
+    size_t capacity;
+    if (!module || call_index >= module->inline_call_count || !declaration ||
+        !value_expression || !value_statement) return false;
+    call = &module->inline_calls[call_index];
+    if (call->parameter_value_count == call->parameter_value_capacity) {
+        capacity = call->parameter_value_capacity < 4u
+            ? 4u : call->parameter_value_capacity * 2u;
+        if (capacity < call->parameter_value_capacity ||
+            capacity > SIZE_MAX / sizeof(*call->parameter_values)) {
+            rcc_fatal("IR inline parameter-value table is too large");
+            return false;
+        }
+        call->parameter_values = rcc_realloc(
+            call->parameter_values, capacity * sizeof(*call->parameter_values));
+        call->parameter_value_capacity = capacity;
+    }
+    call->parameter_values[call->parameter_value_count].declaration =
+        declaration;
+    call->parameter_values[call->parameter_value_count].value_expression =
+        value_expression;
+    call->parameter_values[call->parameter_value_count].value_statement =
+        value_statement;
+    ++call->parameter_value_count;
+    return true;
 }
 
 const RccIrConstant* rcc_ir_module_intern_constant(
@@ -1659,12 +1695,28 @@ bool rcc_ir_verify_module(const RccIrModule* module, char* error,
         const RccIrInlineCall* call = &module->inline_calls[index];
         if (!call->caller || !call->callee || !call->filename ||
             !call->filename[0] || call->line == 0u ||
-            call->parent_index_plus_one > index) {
+            call->parent_index_plus_one > index ||
+            call->parameter_value_count > call->parameter_value_capacity ||
+            (call->parameter_value_count != 0u &&
+             !call->parameter_values)) {
             if (error && error_size != 0u) {
                 snprintf(error, error_size,
                          "IR inline-call record is invalid");
             }
             return false;
+        }
+        for (size_t value_index = 0u;
+             value_index < call->parameter_value_count; ++value_index) {
+            const RccIrInlineParameterValue* value =
+                &call->parameter_values[value_index];
+            if (!value->declaration || !value->value_expression ||
+                !value->value_statement) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "IR inline parameter-value record is invalid");
+                }
+                return false;
+            }
         }
     }
     for (const RccIrConstant* constant = module->first_constant;

@@ -138,6 +138,12 @@ typedef struct RccIrConstant RccIrConstant;
 struct ExprList;
 
 typedef struct {
+    const void* declaration;
+    const void* value_expression;
+    const void* value_statement;
+} RccIrInlineParameterValue;
+
+typedef struct {
     /* Borrowed declarations and filename; valid while the source AST lives. */
     const void* caller;
     const void* callee;
@@ -148,6 +154,9 @@ typedef struct {
     size_t parent_index_plus_one;
     /* Borrowed caller statement for nested inline lexical-scope ranges. */
     const void* caller_statement;
+    RccIrInlineParameterValue* parameter_values;
+    size_t parameter_value_count;
+    size_t parameter_value_capacity;
 } RccIrInlineCall;
 
 typedef struct {
@@ -265,6 +274,9 @@ size_t rcc_ir_module_add_inline_call(
     const struct ExprList* arguments, const char* filename,
     uint32_t line, uint32_t column,
     size_t parent_index_plus_one, const void* caller_statement);
+bool rcc_ir_module_add_inline_parameter_value(
+    RccIrModule* module, size_t call_index, const void* declaration,
+    const void* value_expression, const void* value_statement);
 RccIrFunction* rcc_ir_function_add(RccIrModule* module, const char* name,
                                   RccIrType return_type,
                                   const RccIrType* parameter_types,

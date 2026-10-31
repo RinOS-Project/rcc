@@ -98,6 +98,10 @@ typedef struct ModuleDebugInlineParameterValue {
     bool has_signed_integer_constant;
     bool has_unsigned_integer_constant;
     bool has_float_constant;
+    bool has_mutated_value;
+    const Expr* current_value_expression;
+    const Stmt* current_value_statement;
+    uint32_t current_value_start;
 } ModuleDebugInlineParameterValue;
 
 typedef struct ModuleDebugInlineScope {
@@ -296,6 +300,10 @@ size_t module_begin_debug_inline_call(
     size_t parent_index_plus_one);
 void module_end_debug_inline_call(Module* mod, size_t call_index,
                                   uint32_t code_end);
+bool module_set_debug_inline_parameter_value(
+    Module* mod, size_t call_index, const Decl* declaration,
+    const Expr* current_value_expression, const Stmt* current_value_statement,
+    uint32_t current_value_start);
 void module_add_debug_inline_scope_range(Module* mod, const Decl* function,
                                          const Stmt* scope,
                                          uint32_t code_start,

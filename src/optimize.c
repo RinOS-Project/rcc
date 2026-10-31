@@ -94,12 +94,20 @@ static void inline_caller_budget_charge(const Decl* caller, size_t cost) {
     budget->used += cost;
 }
 
+typedef struct InlineDebugParameterState {
+    const Decl* declaration;
+    const Expr* value;
+    const Stmt* statement;
+} InlineDebugParameterState;
+
 typedef struct InlineDebugOrigin {
     const Expr* expression;
     const Decl* caller;
     const Decl* callee;
     SourceLoc call_location;
     const ExprList* arguments;
+    InlineDebugParameterState* parameter_states;
+    size_t parameter_state_count;
 } InlineDebugOrigin;
 
 typedef struct InlineDebugScopeOrigin {
@@ -107,6 +115,12 @@ typedef struct InlineDebugScopeOrigin {
     const Decl* function;
     const Stmt* scope;
 } InlineDebugScopeOrigin;
+
+typedef struct InlineDebugStatementOrigin {
+    const Expr* expression;
+    const Decl* function;
+    const Stmt* statement;
+} InlineDebugStatementOrigin;
 
 typedef struct InlineDebugScopeStack {
     const Stmt* scope;
@@ -122,8 +136,14 @@ static size_t inline_debug_origin_capacity;
 static InlineDebugScopeOrigin* inline_debug_scope_origins;
 static size_t inline_debug_scope_origin_count;
 static size_t inline_debug_scope_origin_capacity;
+static InlineDebugStatementOrigin* inline_debug_statement_origins;
+static size_t inline_debug_statement_origin_count;
+static size_t inline_debug_statement_origin_capacity;
 
 static void inline_debug_origins_clear(void) {
+    for (size_t index = 0u; index < inline_debug_origin_count; ++index) {
+        rcc_free(inline_debug_origins[index].parameter_states);
+    }
     rcc_free(inline_debug_origins);
     inline_debug_origins = NULL;
     inline_debug_origin_count = 0u;
@@ -132,6 +152,10 @@ static void inline_debug_origins_clear(void) {
     inline_debug_scope_origins = NULL;
     inline_debug_scope_origin_count = 0u;
     inline_debug_scope_origin_capacity = 0u;
+    rcc_free(inline_debug_statement_origins);
+    inline_debug_statement_origins = NULL;
+    inline_debug_statement_origin_count = 0u;
+    inline_debug_statement_origin_capacity = 0u;
 }
 
 static void inline_debug_scope_origin_add(const Expr* expression,
@@ -187,6 +211,50 @@ static void inline_debug_scope_origins_copy_to_clone(const Expr* source,
     }
 }
 
+static void inline_debug_statement_origin_add(
+    const Expr* expression, const Decl* function, const Stmt* statement) {
+    if (!expression || !function || !statement) return;
+    for (size_t index = 0u; index < inline_debug_statement_origin_count;
+         ++index) {
+        const InlineDebugStatementOrigin* origin =
+            &inline_debug_statement_origins[index];
+        if (origin->expression == expression && origin->function == function &&
+            origin->statement == statement) return;
+    }
+    if (inline_debug_statement_origin_count ==
+        inline_debug_statement_origin_capacity) {
+        size_t next_capacity = inline_debug_statement_origin_capacity < 16u
+            ? 16u : inline_debug_statement_origin_capacity * 2u;
+        if (next_capacity < inline_debug_statement_origin_capacity ||
+            next_capacity > SIZE_MAX / sizeof(*inline_debug_statement_origins)) {
+            rcc_fatal("DWARF inline statement table is too large");
+        }
+        inline_debug_statement_origins = rcc_realloc(
+            inline_debug_statement_origins,
+            next_capacity * sizeof(*inline_debug_statement_origins));
+        inline_debug_statement_origin_capacity = next_capacity;
+    }
+    InlineDebugStatementOrigin* origin = &inline_debug_statement_origins[
+        inline_debug_statement_origin_count++];
+    origin->expression = expression;
+    origin->function = function;
+    origin->statement = statement;
+}
+
+static void inline_debug_statement_origins_copy_to_clone(
+    const Expr* source, Expr* clone) {
+    size_t index = 0u;
+    if (!source || !clone || source == clone) return;
+    while (index < inline_debug_statement_origin_count) {
+        InlineDebugStatementOrigin origin =
+            inline_debug_statement_origins[index++];
+        if (origin.expression == source) {
+            inline_debug_statement_origin_add(
+                clone, origin.function, origin.statement);
+        }
+    }
+}
+
 size_t rcc_optimize_inline_debug_scope_count(const Expr* expression) {
     size_t count = 0u;
     if (!expression) return 0u;
@@ -214,11 +282,43 @@ bool rcc_optimize_inline_debug_scope(const Expr* expression, size_t ordinal,
     return false;
 }
 
+size_t rcc_optimize_inline_debug_statement_count(const Expr* expression) {
+    size_t count = 0u;
+    if (!expression) return 0u;
+    for (size_t index = 0u; index < inline_debug_statement_origin_count;
+         ++index) {
+        if (inline_debug_statement_origins[index].expression == expression) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool rcc_optimize_inline_debug_statement(const Expr* expression,
+                                         size_t ordinal,
+                                         const Decl** function,
+                                         const Stmt** statement) {
+    if (!expression || !function || !statement) return false;
+    for (size_t index = 0u; index < inline_debug_statement_origin_count;
+         ++index) {
+        const InlineDebugStatementOrigin* origin =
+            &inline_debug_statement_origins[index];
+        if (origin->expression != expression) continue;
+        if (ordinal-- != 0u) continue;
+        *function = origin->function;
+        *statement = origin->statement;
+        return true;
+    }
+    return false;
+}
+
 static void inline_debug_origin_add(const Expr* expression,
                                     const Decl* caller,
                                     const Decl* callee,
                                     SourceLoc call_location,
-                                    const ExprList* arguments) {
+                                    const ExprList* arguments,
+                                    const InlineDebugParameterState* states,
+                                    size_t state_count) {
     InlineDebugOrigin* origin;
     if (!expression || !caller || !callee) return;
     if (inline_debug_origin_count == inline_debug_origin_capacity) {
@@ -239,6 +339,13 @@ static void inline_debug_origin_add(const Expr* expression,
     origin->callee = callee;
     origin->call_location = call_location;
     origin->arguments = arguments;
+    origin->parameter_state_count = state_count;
+    origin->parameter_states = state_count == 0u
+        ? NULL : rcc_alloc(state_count * sizeof(*origin->parameter_states));
+    if (state_count != 0u) {
+        memcpy(origin->parameter_states, states,
+               state_count * sizeof(*origin->parameter_states));
+    }
 }
 
 static bool inline_debug_same_function(const Decl* left,
@@ -262,6 +369,7 @@ static bool inline_debug_same_function(const Decl* left,
 static void inline_debug_origin_copy_to_clone(const Expr* source,
                                               Expr* clone) {
     inline_debug_scope_origins_copy_to_clone(source, clone);
+    inline_debug_statement_origins_copy_to_clone(source, clone);
     if (!source || !clone || !inline_debug_clone_owner ||
         !inline_debug_clone_caller) {
         return;
@@ -271,6 +379,8 @@ static void inline_debug_origin_copy_to_clone(const Expr* source,
         const Decl* callee;
         SourceLoc call_location;
         const ExprList* arguments;
+        InlineDebugParameterState* states = NULL;
+        size_t state_count;
         if (origin->expression != source ||
             !inline_debug_same_function(
                 origin->caller, inline_debug_clone_owner)) {
@@ -279,10 +389,47 @@ static void inline_debug_origin_copy_to_clone(const Expr* source,
         callee = origin->callee;
         call_location = origin->call_location;
         arguments = origin->arguments;
+        state_count = origin->parameter_state_count;
+        if (state_count != 0u) {
+            states = rcc_alloc(state_count * sizeof(*states));
+            memcpy(states, origin->parameter_states,
+                   state_count * sizeof(*states));
+        }
         inline_debug_origin_add(clone, inline_debug_clone_caller, callee,
-                                call_location, arguments);
+                                call_location, arguments, states,
+                                state_count);
+        rcc_free(states);
         return;
     }
+}
+
+size_t rcc_optimize_inline_debug_parameter_value_count(
+    const Expr* expression) {
+    for (size_t index = 0u; index < inline_debug_origin_count; ++index) {
+        if (inline_debug_origins[index].expression == expression) {
+            return inline_debug_origins[index].parameter_state_count;
+        }
+    }
+    return 0u;
+}
+
+bool rcc_optimize_inline_debug_parameter_value(
+    const Expr* expression, size_t ordinal, const Decl** callee,
+    const Decl** parameter, const Expr** value, const Stmt** statement) {
+    if (!expression || !callee || !parameter || !value || !statement) {
+        return false;
+    }
+    for (size_t index = 0u; index < inline_debug_origin_count; ++index) {
+        const InlineDebugOrigin* origin = &inline_debug_origins[index];
+        if (origin->expression != expression) continue;
+        if (ordinal >= origin->parameter_state_count) return false;
+        *callee = origin->callee;
+        *parameter = origin->parameter_states[ordinal].declaration;
+        *value = origin->parameter_states[ordinal].value;
+        *statement = origin->parameter_states[ordinal].statement;
+        return true;
+    }
+    return false;
 }
 
 bool rcc_optimize_inline_debug_info(const Expr* expression,
@@ -1240,6 +1387,7 @@ typedef struct InlineScalarBinding {
     const Decl* parameter;
     Expr* argument;
     size_t uses;
+    const Stmt* value_statement;
 } InlineScalarBinding;
 
 typedef enum InlineScalarOperationKind {
@@ -1254,6 +1402,7 @@ typedef struct InlineScalarOperation {
     const Decl* declaration;
     const Expr* expression;
     ExprKind assignment_operator;
+    const Stmt* statement;
 } InlineScalarOperation;
 
 static bool inline_scalar_compound_operator(ExprKind assignment_operator,
@@ -1559,6 +1708,7 @@ static bool collect_inline_scalar_statement_list(
             operations[*operation_count].declaration = declaration;
             operations[*operation_count].expression = initializer;
             operations[*operation_count].assignment_operator = EXPR_INT_LIT;
+            operations[*operation_count].statement = statement;
             ++*operation_count;
             continue;
         }
@@ -1603,6 +1753,7 @@ static bool collect_inline_scalar_statement_list(
                     statement->expr->unary_operand;
                 operations[*operation_count].assignment_operator =
                     binary_operator;
+                operations[*operation_count].statement = statement;
                 ++*operation_count;
                 continue;
             }
@@ -1661,6 +1812,7 @@ static bool collect_inline_scalar_statement_list(
                 statement->expr->binary_rhs;
             operations[*operation_count].assignment_operator =
                 statement->expr->kind;
+            operations[*operation_count].statement = statement;
             ++*operation_count;
             continue;
         }
@@ -3248,6 +3400,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                 : expr_cast(parameter->decl->type, argument->expr,
                             argument->expr->loc);
             bindings[binding_count].uses = 0u;
+            bindings[binding_count].value_statement = NULL;
             ++binding_count;
         }
     }
@@ -3301,8 +3454,11 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             combined->type = operation->declaration->type;
             inline_debug_scope_origins_copy_to_clone(
                 operation->expression, combined);
+            inline_debug_statement_origin_add(
+                combined, function, operation->statement);
             bindings[local_binding].argument = combined;
             bindings[local_binding].uses = 0u;
+            bindings[local_binding].value_statement = operation->statement;
             continue;
         }
         if (!operation->declaration || !operation->expression ||
@@ -3331,6 +3487,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             bindings[binding_count].parameter = operation->declaration;
             bindings[binding_count].argument = value;
             bindings[binding_count].uses = 0u;
+            bindings[binding_count].value_statement = NULL;
             ++binding_count;
             continue;
         }
@@ -3362,6 +3519,12 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             inline_debug_scope_origins_copy_to_clone(
                 operation->expression, combined);
             value = combined;
+        }
+        if (bindings[local_binding].parameter &&
+            bindings[local_binding].parameter->kind == DECL_PARAM) {
+            inline_debug_statement_origin_add(
+                value, function, operation->statement);
+            bindings[local_binding].value_statement = operation->statement;
         }
         bindings[local_binding].argument = value;
         bindings[local_binding].uses = 0u;
@@ -3456,8 +3619,26 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         }
         inline_caller_budget_charge(optimize_inline_caller, expansion_cost);
         if (g_opts.debug_info) {
+            InlineDebugParameterState parameter_states[
+                INLINE_SCALAR_BINDING_LIMIT];
+            size_t parameter_state_count = 0u;
+            for (index = 0u; index < binding_count; ++index) {
+                if (!bindings[index].parameter ||
+                    bindings[index].parameter->kind != DECL_PARAM ||
+                    !bindings[index].value_statement ||
+                    !bindings[index].argument) continue;
+                parameter_states[parameter_state_count].declaration =
+                    bindings[index].parameter;
+                parameter_states[parameter_state_count].value =
+                    bindings[index].argument;
+                parameter_states[parameter_state_count].statement =
+                    bindings[index].value_statement;
+                ++parameter_state_count;
+            }
             inline_debug_origin_add(clone, optimize_inline_caller, function,
-                                    expression->loc, expression->call_args);
+                                    expression->loc, expression->call_args,
+                                    parameter_states,
+                                    parameter_state_count);
         }
         *expression_out = clone;
     }

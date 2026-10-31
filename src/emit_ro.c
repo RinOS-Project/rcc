@@ -11834,7 +11834,7 @@ static bool debug_inline_parameter_integer_expression(
     const Module* mod, int architecture, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
     uint8_t* expression, size_t expression_capacity,
-    size_t* expression_size) {
+    size_t* expression_size, bool allow_mutated_value) {
     const Type* parameter_type;
     const Expr* source_expression;
     size_t size = 0u;
@@ -11865,7 +11865,8 @@ static bool debug_inline_parameter_integer_expression(
          argument->expr->kind != EXPR_NOT &&
          argument->expr->kind != EXPR_CAST &&
          argument->expr->kind != EXPR_BITNOT) ||
-        !debug_inline_parameter_body_is_read_only(callee)) {
+        (!allow_mutated_value &&
+         !debug_inline_parameter_body_is_read_only(callee))) {
         return false;
     }
     parameter_type = value->declaration->type;
@@ -15534,10 +15535,81 @@ expression_too_large:
     return 0u;
 }
 
+static bool debug_emit_inline_mutated_parameter_location(
+    ObjectFile* obj, ObjSection* info, const Module* mod,
+    const char* filename, int architecture, const ModuleSymbol* function,
+    const ModuleDebugInlineCall* call,
+    const ModuleDebugInlineParameterValue* value,
+    DebugInlineParameterOrigin* origin) {
+    ObjSection* locations;
+    int locations_section;
+    char* scoped_symbol = NULL;
+    const char* symbol_name;
+    ExprList dynamic_value = {0};
+    uint8_t expression[DEBUG_INLINE_INTEGER_VALUE_EXPRESSION_CAPACITY];
+    size_t expression_size = 0u;
+    uint32_t function_size;
+    uint32_t function_end;
+    uint32_t list_offset;
+    uint64_t list_size;
+    int address_size = architecture == ARCH_X64 ? 8 : 4;
+    if (!obj || !info || !mod || !filename || !function || !call ||
+        !value || !origin || !value->current_value_expression ||
+        !value->current_value_statement ||
+        value->current_value_start < call->code_start ||
+        value->current_value_start >= call->code_end) {
+        return false;
+    }
+    function_size = debug_function_size(mod, function);
+    if (function_size == 0u ||
+        function->offset > UINT32_MAX - function_size) return false;
+    function_end = function->offset + function_size;
+    if (call->code_start < function->offset ||
+        call->code_end > function_end) return false;
+    dynamic_value.expr = (Expr*)value->current_value_expression;
+    if (!debug_inline_parameter_integer_expression(
+            mod, architecture, call->callee, value, &dynamic_value,
+            expression, sizeof(expression), &expression_size, true) ||
+        expression_size == 0u || expression_size > UINT16_MAX) {
+        return false;
+    }
+    locations = objfile_get_section(obj, ".debug_loc");
+    if (!locations) {
+        locations = objfile_add_section(
+            obj, ".debug_loc", SECT_DEBUG_LOC, 0u);
+        locations->align = 1u;
+    }
+    if (locations->size > UINT32_MAX) return false;
+    locations_section = objfile_section_index(obj, locations);
+    if (locations_section < 0) return false;
+    list_size = (uint64_t)address_size * 2u + 2u + expression_size +
+        (uint64_t)address_size * 2u;
+    if (list_size > UINT32_MAX - locations->size) return false;
+    list_offset = (uint32_t)locations->size;
+    symbol_name = function->name;
+    if (!function->is_global) {
+        scoped_symbol = module_scoped_symbol(filename, function->name);
+        if (!scoped_symbol) return false;
+        symbol_name = scoped_symbol;
+    }
+    debug_location_list_append_entry(
+        obj, locations, locations_section, symbol_name, architecture,
+        function->offset, value->current_value_start, call->code_end,
+        expression, expression_size);
+    debug_line_address(locations, 0u, address_size);
+    debug_line_address(locations, 0u, address_size);
+    rcc_free(scoped_symbol);
+    section_add_byte(info, 69u);
+    debug_line_u32(info, origin->die_offset);
+    debug_line_u32(info, list_offset);
+    return true;
+}
+
 static void debug_emit_inline_parameter_instances(
     ObjectFile* obj, ObjSection* info, int info_section, const Module* mod,
     const char* filename, int architecture,
-    DebugInlineParameterOrigin* origins, const ModuleDebugInlineCall* call) {
+    DebugInlineParameterOrigin* origins, const ModuleDebugInlineCall* call,
+    const ModuleSymbol* function) {
     const ExprList* argument;
     if (!obj || !info || !mod || !filename || info_section < 0 || !call ||
         !call->callee || !call->parameter_values) return;
@@ -15575,6 +15647,19 @@ static void debug_emit_inline_parameter_instances(
             false
         };
         int64_t address_addend = 0;
+        if (value->has_mutated_value) {
+            origin = value->declaration
+                ? debug_inline_parameter_origin_find(
+                      origins, call->callee, value->declaration)
+                : NULL;
+            if (origin) {
+                (void)debug_emit_inline_mutated_parameter_location(
+                    obj, info, mod, filename, architecture,
+                    function, call, value, origin);
+            }
+            if (argument) argument = argument->next;
+            continue;
+        }
         if (value->has_signed_integer_constant && value->declaration &&
             (origin = debug_inline_parameter_origin_find(
                 origins, call->callee, value->declaration)) != NULL) {
@@ -16178,7 +16263,7 @@ static void debug_emit_inline_parameter_instances(
                        mod, architecture, call->callee, value, argument,
                        integer_value_expression,
                        sizeof(integer_value_expression),
-                       &integer_value_expression_size)) {
+                       &integer_value_expression_size, false)) {
             section_add_byte(info, 67u);
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, integer_value_expression_size);
@@ -16585,7 +16670,7 @@ static void debug_emit_inline_call_tree(
     debug_emit_inline_parameter_instances(
         obj, info, info_section, mod, filename,
         g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86,
-        parameter_origins, call);
+        parameter_origins, call, function);
     if (mod->debug_verified_backend && !call->lexical_scopes) {
         debug_emit_inline_local_instances(
             info, local_origins, call->callee);
@@ -17718,6 +17803,15 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
     debug_line_uleb(abbrev, 0x01u);   /* DW_FORM_addr */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 69u);
+    debug_line_uleb(abbrev, 0x05u);   /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x02u);   /* DW_AT_location */
+    debug_line_uleb(abbrev, 0x06u);   /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
