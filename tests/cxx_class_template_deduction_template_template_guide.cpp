@@ -3,6 +3,11 @@ struct GuideInner {
     Value value;
 };
 
+template <typename Value, typename Policy = void>
+struct GuideDefaultInner {
+    Value value;
+};
+
 template <typename First, typename Second>
 struct GuidePair {
     First first;
@@ -58,6 +63,7 @@ TemplateTemplatePackGuideBox(int, Containers<int>...)
 
 int main() {
     GuideInner<int> source{17};
+    GuideDefaultInner<int> default_source{19};
     GuidePair<long, int> pair{23, 41};
     GuideArray<int, 3> array;
     array.values[0] = 2;
@@ -65,6 +71,9 @@ int main() {
     array.values[2] = 5;
     TemplateTemplateGuideBox value{source};
     TemplateTemplateGuideBox<GuideInner>* exact = &value;
+    TemplateTemplateGuideBox defaulted{default_source};
+    TemplateTemplateGuideBox<GuideDefaultInner>* exact_defaulted =
+        &defaulted;
     TemplateTemplateMultiGuideBox multi{pair};
     TemplateTemplateMultiGuideBox<GuidePair, long, int>* exact_multi = &multi;
     TemplateTemplateNontypeGuideBox nontype{array};
@@ -73,6 +82,7 @@ int main() {
     TemplateTemplatePackGuideBox pack{1, source, source};
     TemplateTemplatePackGuideBox<GuideInner, GuideInner>* exact_pack = &pack;
     return exact->value.value == 17 &&
+                   exact_defaulted->value.value == 19 &&
                    exact_multi->value.first == 23 &&
                    exact_multi->value.second == 41 &&
                    exact_nontype->value.values[0] == 2 &&

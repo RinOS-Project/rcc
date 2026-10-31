@@ -20712,6 +20712,39 @@ static bool template_template_parameter_signatures_match(
     return true;
 }
 
+static bool template_template_argument_parameter_lists_match(
+    const CxxTemplate* expected, const CxxTemplate* actual) {
+    if (!expected || !actual ||
+        expected->param_count > actual->param_count) {
+        return false;
+    }
+    for (int index = 0; index < expected->param_count; ++index) {
+        const TemplateParam* expected_parameter = &expected->params[index];
+        const TemplateParam* actual_parameter = &actual->params[index];
+        if (expected_parameter->kind != actual_parameter->kind ||
+            expected_parameter->is_pack != actual_parameter->is_pack) {
+            return false;
+        }
+        if (expected_parameter->kind == TPARAM_NONTYPE &&
+            (!expected_parameter->type || !actual_parameter->type ||
+             !type_is_compatible(expected_parameter->type,
+                                 actual_parameter->type))) {
+            return false;
+        }
+        if (expected_parameter->kind == TPARAM_TEMPLATE &&
+            !template_template_argument_parameter_lists_match(
+                expected_parameter->template_signature,
+                actual_parameter->template_signature)) {
+            return false;
+        }
+    }
+    for (int index = expected->param_count;
+         index < actual->param_count; ++index) {
+        if (!actual->params[index].has_default) return false;
+    }
+    return true;
+}
+
 static bool template_template_signature_matches(
     const TemplateParam* parameter, const CxxTemplate* actual) {
     const CxxTemplate* signature = parameter ? parameter->template_signature : NULL;
@@ -20720,7 +20753,8 @@ static bool template_template_signature_matches(
                     actual->kind != TMPL_ALIAS)) {
         return false;
     }
-    return template_template_parameter_signatures_match(signature, actual);
+    return template_template_argument_parameter_lists_match(
+        signature, actual);
 }
 
 bool rcc_parser_cxx_template_template_argument_matches(
@@ -21878,24 +21912,13 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         const TemplateParam* template_parameter =
             cxx_template_template_parameter_at(
                 tmpl, type->cxx_template_param_index);
-        size_t nested_capacity = type->cxx_template_arg_count > 0
-            ? (size_t)type->cxx_template_arg_count : 1u;
-        Type** nested_arguments = cxx_allocate_zeroed_array(
-            sizeof(*nested_arguments), nested_capacity);
-        int64_t* nested_values = cxx_allocate_zeroed_array(
-            sizeof(*nested_values), nested_capacity);
-        bool* nested_value_present = cxx_allocate_zeroed_array(
-            sizeof(*nested_value_present), nested_capacity);
-        Expr** nested_value_expressions = cxx_allocate_zeroed_array(
-            sizeof(*nested_value_expressions), nested_capacity);
+        size_t nested_capacity = 0;
+        Type** nested_arguments = NULL;
+        int64_t* nested_values = NULL;
+        bool* nested_value_present = NULL;
+        Expr** nested_value_expressions = NULL;
         bool still_dependent = false;
         Type* instantiated;
-        if (!nested_arguments || !nested_values || !nested_value_present ||
-            !nested_value_expressions) {
-            rcc_error((SourceLoc){"<template>", 0, 0},
-                      "template-template argument state is too large");
-            return NULL;
-        }
         if (type->cxx_template_param_index >= argument_count || !arguments)
             return type;
         template_argument = arguments[type->cxx_template_param_index];
@@ -21917,11 +21940,27 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         if (!template_parameter ||
             !template_template_signature_matches(template_parameter,
                                                  actual_template) ||
-            actual_template->param_count != type->cxx_template_arg_count) {
+            actual_template->param_count < type->cxx_template_arg_count) {
             rcc_error((SourceLoc){"<template>", 0, 0},
                       "template-template argument at parameter index %d "
                       "does not match its enclosing signature",
                       type->cxx_template_param_index);
+            return NULL;
+        }
+        nested_capacity = actual_template->param_count > 0
+            ? (size_t)actual_template->param_count : 1u;
+        nested_arguments = cxx_allocate_zeroed_array(
+            sizeof(*nested_arguments), nested_capacity);
+        nested_values = cxx_allocate_zeroed_array(
+            sizeof(*nested_values), nested_capacity);
+        nested_value_present = cxx_allocate_zeroed_array(
+            sizeof(*nested_value_present), nested_capacity);
+        nested_value_expressions = cxx_allocate_zeroed_array(
+            sizeof(*nested_value_expressions), nested_capacity);
+        if (!nested_arguments || !nested_values || !nested_value_present ||
+            !nested_value_expressions) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "template-template argument state is too large");
             return NULL;
         }
         for (int nested_index = 0;
@@ -21995,6 +22034,83 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 type->cxx_template_arg_count;
             return unresolved;
         }
+        for (int nested_index = type->cxx_template_arg_count;
+             nested_index < actual_template->param_count; ++nested_index) {
+            TemplateParam* nested_parameter =
+                &actual_template->params[nested_index];
+            if (nested_parameter->is_pack ||
+                !nested_parameter->has_default) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "template-template argument omits a parameter "
+                          "without a default");
+                return NULL;
+            }
+            if (nested_parameter->kind == TPARAM_NONTYPE) {
+                CxxTemplate* default_context =
+                    nested_parameter->default_context
+                        ? nested_parameter->default_context : actual_template;
+                Expr* default_expression = nested_parameter->default_value
+                    ? cxx_template_clone_expr_with_values(
+                          default_context, nested_parameter->default_value,
+                          nested_arguments, nested_index, nested_values,
+                          nested_value_present)
+                    : NULL;
+                if (!default_expression ||
+                    !eval_template_integer_expression(
+                        default_expression, default_context, nested_values,
+                        nested_value_present,
+                        &nested_values[nested_index])) {
+                    if (cxx_expression_is_dependent(
+                            default_expression
+                                ? default_expression
+                                : nested_parameter->default_value,
+                            default_context)) {
+                        still_dependent = true;
+                        break;
+                    }
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "template-template non-type default must be "
+                              "an integer constant expression");
+                    return NULL;
+                }
+                nested_arguments[nested_index] = nested_parameter->type
+                    ? nested_parameter->type : type_int;
+                nested_value_present[nested_index] = true;
+                nested_value_expressions[nested_index] = default_expression;
+                continue;
+            }
+            if (!nested_parameter->default_type) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "template-template default has no template "
+                          "argument");
+                return NULL;
+            }
+            nested_arguments[nested_index] = substitute_template_type(
+                actual_template, nested_parameter->default_type,
+                nested_arguments, nested_index, nested_values,
+                nested_value_present);
+            if (!nested_arguments[nested_index]) return NULL;
+            if (nested_parameter->kind == TPARAM_TEMPLATE &&
+                nested_arguments[nested_index]->cxx_template &&
+                !template_template_signature_matches(
+                    nested_parameter,
+                    nested_arguments[nested_index]->cxx_template)) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "template-template default does not match its "
+                          "parameter signature");
+                return NULL;
+            }
+            if (nested_arguments[nested_index]->cxx_dependent) {
+                still_dependent = true;
+                break;
+            }
+        }
+        if (still_dependent) {
+            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+            *unresolved = *type;
+            unresolved->cxx_dependent = true;
+            return unresolved;
+        }
         if (actual_template->kind == TMPL_ALIAS) {
             SourceLoc template_loc = {"<template>", 0, 0};
             if (!actual_template->alias_type) {
@@ -22009,12 +22125,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             }
             return substitute_template_type(
                 actual_template, actual_template->alias_type,
-                nested_arguments, type->cxx_template_arg_count,
+                nested_arguments, actual_template->param_count,
                 nested_values, nested_value_present);
         }
         instantiated = cxx_instantiate_dependent_class_template(
             actual_template, NULL, nested_arguments, nested_values,
-            nested_value_present, type->cxx_template_arg_count,
+            nested_value_present, actual_template->param_count,
             (SourceLoc){"<template>", 0, 0});
         if (!instantiated) return NULL;
         return instantiated;
@@ -29879,7 +29995,7 @@ static bool deduce_function_template_type_with_pack(
             tmpl->params[template_parameter_index].kind != TPARAM_TEMPLATE ||
             !template_template_signature_matches(
                 &tmpl->params[template_parameter_index], actual_template) ||
-            actual_argument_count != pattern->cxx_template_arg_count ||
+            actual_argument_count < pattern->cxx_template_arg_count ||
             !pattern->cxx_template_args || !actual_arguments) {
             return false;
         }
