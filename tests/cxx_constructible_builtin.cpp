@@ -1293,6 +1293,17 @@ static_assert(!BuiltinAssignmentProbe<const int&, int>::nothrow_value,
               "dependent nothrow-assignability is evaluated after substitution");
 static_assert(!BuiltinAssignmentProbe<const int&, int>::trivial_value,
               "dependent trivial-assignability rejects a const target");
+static_assert(BuiltinAssignmentProbe<
+                  DefaultedTrivialCopyAssignment&,
+                  const DefaultedTrivialCopyAssignment&>::trivial_value,
+              "dependent class trivial-assignability is evaluated after substitution");
+static_assert(!BuiltinAssignmentProbe<
+                  AssignmentExceptionProbe&,
+                  const AssignmentExceptionProbe&>::trivial_value,
+              "dependent class assignment observes a user-provided operator");
+static_assert(!BuiltinAssignmentProbe<
+                  int&, ThrowingIntAssignmentConversion>::trivial_value,
+              "dependent assignment observes a user-defined source conversion");
 static_assert(__is_constructible(TemplateConstructorValue,
                                 const TemplateConstructorValue&),
               "the implicit copy constructor remains available beside a template");
