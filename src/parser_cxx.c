@@ -16503,14 +16503,20 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         CxxNestedClassTemplate* nested_template;
         CxxTemplate* primary;
         CxxTemplate* partial_owner_parameter_parent = NULL;
-        Type* arguments[32] = { NULL };
-        Expr* value_arguments[32] = { NULL };
+        size_t argument_capacity = 8u;
+        Type** arguments = cxx_allocate_zeroed_array(
+            sizeof(*arguments), argument_capacity);
+        Expr** value_arguments = cxx_allocate_zeroed_array(
+            sizeof(*value_arguments), argument_capacity);
         int argument_count = 0;
         CxxClass* specialized_class;
         CxxClass* outer_template_class_definition =
             active_template_class_definition;
         CxxTemplate* outer_template = active_template;
 
+        if (!arguments || !value_arguments) {
+            rcc_fatal("out of memory parsing nested class specialization");
+        }
         if (!is_struct) expect(TOK_CLASS, "class or struct");
         class_is_deprecated = cxx_take_class_attributes(
             loc, &class_deprecated_message);
@@ -16706,12 +16712,41 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         if (!check(TOK_GT)) {
             do {
                 int parameter_index;
-                if (argument_count == (int)(sizeof(arguments) /
-                                            sizeof(arguments[0]))) {
+                if (argument_count == INT_MAX) {
                     rcc_error(loc,
-                              "nested class-template specialization argument limit exceeded");
+                              "nested class-template specialization has too many arguments");
                     while (!check(TOK_GT) && !at_end()) advance();
                     break;
+                }
+                if ((size_t)argument_count >= argument_capacity) {
+                    size_t required_capacity = (size_t)argument_count + 1u;
+                    size_t new_capacity = argument_capacity <= SIZE_MAX / 2u
+                        ? argument_capacity * 2u : SIZE_MAX;
+                    Type** grown_arguments;
+                    Expr** grown_value_arguments;
+                    if (new_capacity < required_capacity) {
+                        new_capacity = required_capacity;
+                    }
+                    if (new_capacity > SIZE_MAX / sizeof(*arguments) ||
+                        new_capacity >
+                            SIZE_MAX / sizeof(*value_arguments)) {
+                        rcc_error(loc,
+                                  "nested class-template specialization argument list is too large");
+                        while (!check(TOK_GT) && !at_end()) advance();
+                        break;
+                    }
+                    grown_arguments = cxx_grow_zeroed_array(
+                        arguments, sizeof(*arguments), argument_capacity,
+                        new_capacity);
+                    grown_value_arguments = cxx_grow_zeroed_array(
+                        value_arguments, sizeof(*value_arguments),
+                        argument_capacity, new_capacity);
+                    if (!grown_arguments || !grown_value_arguments) {
+                        rcc_fatal("out of memory growing nested class specialization arguments");
+                    }
+                    arguments = grown_arguments;
+                    value_arguments = grown_value_arguments;
+                    argument_capacity = new_capacity;
                 }
                 parameter_index = primary && primary->param_count > 0
                     ? (argument_count < primary->param_count
@@ -16760,8 +16795,15 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         active_template = outer_template;
         tmpl->templated_class = specialized_class;
         if (specialized_class) {
-            int64_t identity_values[32] = { 0 };
-            bool identity_present[32] = { false };
+            size_t identity_capacity = argument_count > 0
+                ? (size_t)argument_count : 1u;
+            int64_t* identity_values = cxx_allocate_zeroed_array(
+                sizeof(*identity_values), identity_capacity);
+            bool* identity_present = cxx_allocate_zeroed_array(
+                sizeof(*identity_present), identity_capacity);
+            if (!identity_values || !identity_present) {
+                rcc_fatal("out of memory recording nested specialization identity");
+            }
             if (primary && argument_count == primary->param_count) {
                 for (int argument_index = 0;
                      argument_index < argument_count; ++argument_index) {
