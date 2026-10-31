@@ -32,6 +32,9 @@ void atomic_wait_api_surface(
     std::atomic<AtomicWaitAggregate>& aggregate,
     AtomicWaitAggregate& referenced_aggregate,
     std::atomic_flag& flag,
+#if !defined(RCC_STDLIB_REFERENCE)
+    volatile std::atomic_flag& volatile_flag,
+#endif
     std::atomic<unsigned*>& pointer_atomic,
     unsigned& referenced_scalar,
     unsigned*& referenced_pointer) {
@@ -69,6 +72,17 @@ void atomic_wait_api_surface(
                                    std::memory_order_relaxed);
     std::atomic_flag_notify_one(&flag);
     std::atomic_flag_notify_all(&flag);
+
+#if !defined(RCC_STDLIB_REFERENCE)
+    volatile_flag.wait(false, std::memory_order_acquire);
+    volatile_flag.notify_one();
+    volatile_flag.notify_all();
+    std::atomic_flag_wait(&volatile_flag, false);
+    std::atomic_flag_wait_explicit(&volatile_flag, false,
+                                   std::memory_order_relaxed);
+    std::atomic_flag_notify_one(&volatile_flag);
+    std::atomic_flag_notify_all(&volatile_flag);
+#endif
 
     std::atomic_ref<unsigned> scalar_ref(referenced_scalar);
     scalar_ref.wait(0u);
