@@ -214,6 +214,20 @@ template <template <typename> class... Containers>
 TemplateTemplatePackGuideBox(int, Containers<int>...)
     -> TemplateTemplatePackGuideBox<Containers...>;
 
+template <typename Pack>
+struct TemplateTemplateValueGuideBox {
+    Pack value;
+
+    TemplateTemplateValueGuideBox(GuideValuePair<int, 3>,
+                                  GuideArray<char, 5>) {}
+};
+
+template <template <typename, int> class... Containers,
+          typename... Types, int... Counts>
+TemplateTemplateValueGuideBox(Containers<Types, Counts>...)
+    -> TemplateTemplateValueGuideBox<
+        GuidePackList<Containers<Types, Counts>...>>;
+
 #if defined(RCC_ARITHMETIC_GUIDE_BAD_VALUE)
 int main() {
     ArithmeticGuidePackBox invalid{
@@ -285,6 +299,11 @@ int main() {
         &nontype;
     TemplateTemplatePackGuideBox pack{1, source, source};
     TemplateTemplatePackGuideBox<GuideInner, GuideInner>* exact_pack = &pack;
+    TemplateTemplateValueGuideBox mixed_template_value{
+        GuideValuePair<int, 3>{}, GuideArray<char, 5>{}};
+    TemplateTemplateValueGuideBox<
+        GuidePackList<GuideValuePair<int, 3>, GuideArray<char, 5>>>*
+        exact_mixed_template_value = &mixed_template_value;
     if (sizeof(selected_arithmetic_pack.value.values) != 3) return 3;
     return exact->value.value == 17 &&
                    exact_defaulted->value.value == 19 &&
@@ -310,7 +329,10 @@ int main() {
                    exact_nontype->value.values[0] == 2 &&
                    exact_nontype->value.values[2] == 5 &&
                    exact_pack->first.value == 17 &&
-                   exact_pack->second.value == 17
+                    exact_pack->second.value == 17 &&
+                    sizeof(exact_mixed_template_value->value) ==
+                        sizeof(GuidePackList<GuideValuePair<int, 3>,
+                                             GuideArray<char, 5>>)
         ? 0 : 1;
 }
 #endif
