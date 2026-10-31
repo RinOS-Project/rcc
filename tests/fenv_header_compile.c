@@ -1,5 +1,7 @@
 #include <math.h>
 
+#pragma STDC FENV_ACCESS ON
+
 int fenv_header_compile_probe(unsigned int rounding, unsigned int exceptions)
 {
     fenv_t environment;
@@ -11,3 +13,5 @@ int fenv_header_compile_probe(unsigned int rounding, unsigned int exceptions)
     result += feclearexcept((int)exceptions);
     return result + fegetround() + fesetenv(&environment);
 }
+
+#pragma STDC FENV_ACCESS OFF

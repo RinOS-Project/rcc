@@ -7463,6 +7463,13 @@ void rcc_optimize(AST* ast) {
     inline_debug_clone_owner = NULL;
     inline_debug_clone_caller = NULL;
     if (!ast || g_opts.opt_level <= 0) return;
+    if (g_opts.fenv_access) {
+        if (!rcc_ir_verify_ast_subset(ast, &lowered_functions, ir_error,
+                                      sizeof(ir_error))) {
+            rcc_fatal("typed SSA lowering failed: %s", ir_error);
+        }
+        return;
+    }
     optimize_inline_ast = ast;
     /* A successful rewrite removes an eligible call and the supported scalar
      * expansion cannot introduce another eligible call. Iterate to the actual

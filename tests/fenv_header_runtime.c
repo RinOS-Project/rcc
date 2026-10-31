@@ -1,4 +1,11 @@
-#include <math.h>
+#include <fenv.h>
+
+#pragma STDC FENV_ACCESS ON
+
+static double fenv_access_rounding_probe(void)
+{
+    return 1.0 + 0x1p-54;
+}
 
 int main(void) {
     fenv_t saved_environment;
@@ -27,6 +34,13 @@ int main(void) {
         fegetround() != FE_UPWARD ||
         __builtin_rint(input) != 2.0 ||
         __builtin_rintl(extended_input) != 2.0L) return 3;
+    if (feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        fenv_access_rounding_probe() <= 1.0 ||
+        (fetestexcept(FE_INEXACT) & FE_INEXACT) == 0) return 7;
+    if (fesetround(FE_DOWNWARD) != 0 ||
+        feclearexcept(FE_ALL_EXCEPT) != 0 ||
+        fenv_access_rounding_probe() != 1.0 ||
+        (fetestexcept(FE_INEXACT) & FE_INEXACT) == 0) return 8;
     if (feraiseexcept(requested) != 0 ||
         (fetestexcept(FE_ALL_EXCEPT) & requested) != requested) return 4;
     if (feclearexcept(requested) != 0 ||

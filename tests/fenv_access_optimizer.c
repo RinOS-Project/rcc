@@ -1,0 +1,6 @@
+#pragma STDC FENV_ACCESS ON
+
+double rcc_fenv_access_rounding_probe(void)
+{
+    return 1.0 + 0x1p-54;
+}

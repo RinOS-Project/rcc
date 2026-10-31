@@ -22,6 +22,38 @@ typedef struct {
 static bool lexer_cxx_mode;
 static int lexer_cxx_standard = 20;
 
+static void pragma_skip_space(const char** cursor) {
+    while (**cursor == ' ' || **cursor == '\t' || **cursor == '\r') {
+        ++*cursor;
+    }
+}
+
+static bool pragma_match_word(const char** cursor, const char* word) {
+    size_t length = strlen(word);
+    if (strncmp(*cursor, word, length) != 0 ||
+        isalnum((unsigned char)(*cursor)[length]) ||
+        (*cursor)[length] == '_') {
+        return false;
+    }
+    *cursor += length;
+    return true;
+}
+
+static bool pragma_tail_is_space_or_comment(const char* cursor) {
+    for (;;) {
+        pragma_skip_space(&cursor);
+        if (*cursor == '\0' || *cursor == '\n') return true;
+        if (cursor[0] == '/' && cursor[1] == '/') return true;
+        if (cursor[0] == '/' && cursor[1] == '*') {
+            const char* close = strstr(cursor + 2, "*/");
+            if (!close) return true;
+            cursor = close + 2;
+            continue;
+        }
+        return false;
+    }
+}
+
 void rcc_lexer_set_cxx_mode(bool enabled) {
     lexer_cxx_mode = enabled;
 }
@@ -1579,8 +1611,30 @@ static Token* handle_pragma_directive(Lexer* lex) {
     const char* p = lex->pos + 7; /* strlen("#pragma") */
     int value = 0;
     bool recognized = false;
+    bool fenv_access = false;
+    int fenv_setting = -1;
 
-    while (*p == ' ' || *p == '\t') p++;
+    pragma_skip_space(&p);
+    {
+        const char* fenv = p;
+        if (pragma_match_word(&fenv, "STDC")) {
+            pragma_skip_space(&fenv);
+            if (pragma_match_word(&fenv, "FENV_ACCESS")) {
+                fenv_access = true;
+                pragma_skip_space(&fenv);
+                if (pragma_match_word(&fenv, "ON")) {
+                    fenv_setting = 1;
+                } else if (pragma_match_word(&fenv, "OFF")) {
+                    fenv_setting = 0;
+                }
+                pragma_skip_space(&fenv);
+                if (fenv_setting >= 0 &&
+                    !pragma_tail_is_space_or_comment(fenv)) {
+                    fenv_setting = -1;
+                }
+            }
+        }
+    }
     if (strncmp(p, "pack", 4) == 0 &&
         !(isalnum((unsigned char)p[4]) || p[4] == '_')) {
         p += 4;
@@ -1625,6 +1679,17 @@ static Token* handle_pragma_directive(Lexer* lex) {
 
     while (*lex->pos && *lex->pos != '\n') advance(lex);
     if (*lex->pos == '\n') advance(lex);
+    if (fenv_access) {
+        if (fenv_setting < 0) {
+            rcc_error(loc,
+                      "invalid #pragma STDC FENV_ACCESS; expected ON or OFF");
+        } else if (fenv_setting != 0) {
+            /* Keep the entire translation unit conservative so operations
+             * cannot be moved across pragma state changes. */
+            g_opts.fenv_access = true;
+        }
+        return NULL;
+    }
     if (!recognized) return NULL;
 
     Token* token = token_new(TOK_PRAGMA_PACK, loc);
@@ -1938,6 +2003,7 @@ static void lex_normalize_adjacent_strings(TokenList* list, Lexer* lex) {
 
 /* Lex from string */
 TokenList* rcc_lex_string(const char* src, const char* filename) {
+    g_opts.fenv_access = false;
     /* Initialize lexer */
     Lexer lex = {
         .filename = filename,

@@ -18852,11 +18852,11 @@ test-fenv-header: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -c \
 		-o $(TEST_OUT)/fenv-header/cxx-x64.ro tests/fenv_header_compile.cpp
-	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O2 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -S \
 		-o $(TEST_OUT)/fenv-header/runtime-x86.s tests/fenv_header_runtime.c
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/fenv-header/runtime-x86,$(TEST_OUT)/fenv-header/runtime-x86.s)
-	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -O2 \
 		-I$(RINOS_ROOT)/public-base/libs/libc -S \
 		-o $(TEST_OUT)/fenv-header/runtime-x64.s tests/fenv_header_runtime.c
 	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/fenv-header/runtime-x64,$(TEST_OUT)/fenv-header/runtime-x64.s)

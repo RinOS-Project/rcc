@@ -94,6 +94,11 @@ typedef struct {
     bool verified_backend;      /* -fverified-backend (.ro v2 only) */
     bool sse_enabled;           /* -msse/-mno-sse */
     bool sse2_enabled;          /* -msse2/-mno-sse2 */
+    /* Set when this translation unit contains #pragma STDC
+     * FENV_ACCESS ON. Optimization is conservatively disabled for the whole
+     * unit so operations across pragma boundaries keep their observable
+     * floating-point environment effects. */
+    bool fenv_access;
 
     /* Final artifact signing.  Keys are paths only and are never embedded. */
     const char* sign_key;

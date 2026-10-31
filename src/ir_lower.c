@@ -28343,6 +28343,8 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     size_t parameter_count = 0u;
     RccSysvMemoryArgument* memory_parameters = NULL;
     size_t memory_parameter_count = 0u;
+    unsigned optimization_level = g_opts.fenv_access
+        ? 0u : (unsigned)g_opts.opt_level;
     int aggregate_return_kind = LOWER_ABI_RETURN_SCALAR;
     RccIrModule* module;
     RccIrFunction* function;
@@ -28477,10 +28479,10 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         RccIrOptimizationStats stats;
         bool optimized = g_opts.debug_info
             ? rcc_ir_optimize_function_preserving_source_declarations(
-                  function, (unsigned)g_opts.opt_level, &stats,
+                  function, optimization_level, &stats,
                   error, error_size)
             : rcc_ir_optimize_function(
-                  function, (unsigned)g_opts.opt_level, &stats,
+                  function, optimization_level, &stats,
                   error, error_size);
         if (!optimized) {
             rcc_ir_module_destroy(module);
