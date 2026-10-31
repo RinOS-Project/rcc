@@ -82,6 +82,14 @@ typedef struct GlobalSymbol {
     struct GlobalSymbol* hash_next;
 } GlobalSymbol;
 
+/* Input symbols are indexed while objects are appended. Archive extraction
+ * uses these counts before the final GlobalSymbol table has been collected. */
+typedef struct LinkerInputSymbol {
+    const char* name;
+    size_t definition_count;
+    size_t undefined_count;
+} LinkerInputSymbol;
+
 /* Pending relocation */
 typedef struct PendingReloc {
     uint64_t offset;        /* Offset in linked section */
@@ -103,6 +111,11 @@ typedef struct Linker {
     const char** comdat_keys;
     size_t comdat_key_count;
     size_t comdat_key_capacity;
+
+    /* Open-addressed index of accepted input definitions and references. */
+    LinkerInputSymbol* input_symbol_slots;
+    size_t input_symbol_count;
+    size_t input_symbol_capacity;
 
     /* Linked sections */
     LinkedSection* sections;

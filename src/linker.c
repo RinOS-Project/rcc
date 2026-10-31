@@ -20,6 +20,8 @@ static ObjSection* object_section_at(const ObjectFile* object, int index);
 static uint64_t linker_comdat_hash(const char* key);
 static bool linker_comdat_contains(const Linker* ld, const char* key);
 static void linker_comdat_insert(Linker* ld, const char* key);
+static void linker_input_symbol_update_object(Linker* ld,
+                                              const ObjectFile* object);
 
 /* ═══════════════════════════════════════
  * Linker Creation/Destruction
@@ -33,6 +35,9 @@ Linker* linker_new(void) {
     ld->comdat_keys = NULL;
     ld->comdat_key_count = 0u;
     ld->comdat_key_capacity = 0u;
+    ld->input_symbol_slots = NULL;
+    ld->input_symbol_count = 0u;
+    ld->input_symbol_capacity = 0u;
     ld->sections = NULL;
     ld->section_count = 0;
     ld->symbols = NULL;
@@ -57,6 +62,7 @@ void linker_free(Linker* ld) {
     }
     rcc_free(ld->objects);
     rcc_free(ld->comdat_keys);
+    rcc_free(ld->input_symbol_slots);
 
     /* Free linked sections */
     LinkedSection* s = ld->sections;
@@ -150,6 +156,8 @@ static bool linker_append_object(Linker* ld, ObjectFile* obj) {
             section->comdat_selected)
             linker_comdat_insert(ld, section->comdat_key);
     }
+
+    linker_input_symbol_update_object(ld, obj);
 
     if (g_linker_opts.verbose) {
         printf("  + %s: %d sections, %d symbols\n",
@@ -249,37 +257,123 @@ bool linker_add_object(Linker* ld, const char* filename) {
     return linker_append_object(ld, obj);
 }
 
-static bool linker_has_definition(const Linker* ld, const char* name) {
-    for (int index = 0; index < ld->object_count; ++index) {
-        for (ObjSymbol* symbol = ld->objects[index]->symbols; symbol;
-             symbol = symbol->next) {
-            if (strcmp(symbol->name, name) == 0 &&
-                (symbol->type == SYM_GLOBAL || symbol->type == SYM_WEAK) &&
-                (symbol->section >= 0 || symbol->binding == BIND_ABS)) {
-                ObjSection* owner = symbol->section < 0 ? NULL :
-                    object_section_at(ld->objects[index], symbol->section);
-                if (owner && !linker_section_selected(owner)) {
-                    continue;
-                }
-                return true;
-            }
-        }
+static uint64_t linker_input_symbol_hash(const char* name)
+{
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (const unsigned char* byte = (const unsigned char*)name; *byte; ++byte) {
+        hash ^= *byte;
+        hash *= UINT64_C(1099511628211);
     }
-    return false;
+    return hash;
 }
 
-static bool linker_symbol_is_unresolved(const Linker* ld, const char* name) {
-    bool referenced = !g_linker_opts.shared && g_linker_opts.entry &&
-                      strcmp(g_linker_opts.entry, name) == 0;
-    if (linker_has_definition(ld, name)) return false;
-    for (int index = 0; index < ld->object_count; ++index) {
-        for (ObjSymbol* symbol = ld->objects[index]->symbols; symbol;
-             symbol = symbol->next) {
-            if (symbol->type == SYM_UNDEF &&
-                strcmp(symbol->name, name) == 0) return true;
+static size_t linker_input_symbol_find(const Linker* ld, const char* name)
+{
+    size_t bucket;
+    if (!ld->input_symbol_capacity || !name) return SIZE_MAX;
+    bucket = (size_t)linker_input_symbol_hash(name) &
+             (ld->input_symbol_capacity - 1u);
+    while (ld->input_symbol_slots[bucket].name != NULL) {
+        if (strcmp(ld->input_symbol_slots[bucket].name, name) == 0)
+            return bucket;
+        bucket = (bucket + 1u) & (ld->input_symbol_capacity - 1u);
+    }
+    return SIZE_MAX;
+}
+
+static void linker_input_symbol_grow(Linker* ld)
+{
+    size_t capacity = ld->input_symbol_capacity
+                          ? ld->input_symbol_capacity
+                          : 64u;
+    LinkerInputSymbol* slots;
+    if (ld->input_symbol_capacity) {
+        if (capacity > SIZE_MAX / 2u)
+            rcc_fatal("linker input symbol index is too large");
+        capacity *= 2u;
+    }
+    if (capacity > SIZE_MAX / sizeof(*slots))
+        rcc_fatal("linker input symbol index is too large");
+    slots = rcc_alloc(capacity * sizeof(*slots));
+    memset(slots, 0, capacity * sizeof(*slots));
+    for (size_t index = 0u; index < ld->input_symbol_capacity; ++index) {
+        LinkerInputSymbol symbol = ld->input_symbol_slots[index];
+        if (symbol.name != NULL) {
+            size_t bucket =
+                (size_t)linker_input_symbol_hash(symbol.name) &
+                (capacity - 1u);
+            while (slots[bucket].name != NULL)
+                bucket = (bucket + 1u) & (capacity - 1u);
+            slots[bucket] = symbol;
         }
     }
-    return referenced;
+    rcc_free(ld->input_symbol_slots);
+    ld->input_symbol_slots = slots;
+    ld->input_symbol_capacity = capacity;
+}
+
+static LinkerInputSymbol* linker_input_symbol_get_or_insert(
+    Linker* ld, const char* name)
+{
+    size_t bucket;
+    size_t existing = linker_input_symbol_find(ld, name);
+    if (existing != SIZE_MAX) return &ld->input_symbol_slots[existing];
+    if (ld->input_symbol_count == SIZE_MAX)
+        rcc_fatal("too many linker input symbols");
+    if (!ld->input_symbol_capacity ||
+        ld->input_symbol_count + 1u >
+            ld->input_symbol_capacity - ld->input_symbol_capacity / 4u) {
+        linker_input_symbol_grow(ld);
+    }
+    bucket = (size_t)linker_input_symbol_hash(name) &
+             (ld->input_symbol_capacity - 1u);
+    while (ld->input_symbol_slots[bucket].name != NULL) {
+        if (strcmp(ld->input_symbol_slots[bucket].name, name) == 0)
+            return &ld->input_symbol_slots[bucket];
+        bucket = (bucket + 1u) & (ld->input_symbol_capacity - 1u);
+    }
+    ld->input_symbol_slots[bucket].name = name;
+    ++ld->input_symbol_count;
+    return &ld->input_symbol_slots[bucket];
+}
+
+static void linker_input_symbol_update_object(Linker* ld,
+                                              const ObjectFile* object)
+{
+    for (ObjSymbol* symbol = object->symbols; symbol; symbol = symbol->next) {
+        LinkerInputSymbol* indexed;
+        if (symbol->type == SYM_UNDEF) {
+            indexed = linker_input_symbol_get_or_insert(ld, symbol->name);
+            if (indexed->undefined_count == SIZE_MAX)
+                rcc_fatal("too many references to linker input symbol");
+            ++indexed->undefined_count;
+        }
+        if (symbol->type == SYM_GLOBAL || symbol->type == SYM_WEAK) {
+            ObjSection* owner;
+            if (symbol->section < 0 && symbol->binding != BIND_ABS) continue;
+            owner = symbol->section < 0
+                        ? NULL
+                        : object_section_at(object, symbol->section);
+            if (owner && !linker_section_selected(owner)) continue;
+            indexed = linker_input_symbol_get_or_insert(ld, symbol->name);
+            if (indexed->definition_count == SIZE_MAX)
+                rcc_fatal("too many definitions of linker input symbol");
+            ++indexed->definition_count;
+        }
+    }
+}
+
+static bool linker_symbol_is_unresolved(const Linker* ld, const char* name)
+{
+    size_t index = linker_input_symbol_find(ld, name);
+    bool referenced = index != SIZE_MAX &&
+                      ld->input_symbol_slots[index].undefined_count != 0u;
+    bool entry = !g_linker_opts.shared && g_linker_opts.entry &&
+                 strcmp(g_linker_opts.entry, name) == 0;
+    if (index != SIZE_MAX &&
+        ld->input_symbol_slots[index].definition_count != 0u)
+        return false;
+    return referenced || entry;
 }
 
 static bool object_defines_symbol(const ObjectFile* obj, const char* name) {
@@ -291,55 +385,300 @@ static bool object_defines_symbol(const ObjectFile* obj, const char* name) {
     return false;
 }
 
-static ArchiveMember* archive_member_at(Archive* archive, int member_index) {
-    ArchiveMember* member = archive->members;
-    while (member && member_index-- > 0) member = member->next;
-    return member;
+typedef struct ArchiveResolutionSymbol {
+    const char* name;
+    size_t first_occurrence;
+    bool unresolved;
+} ArchiveResolutionSymbol;
+
+typedef struct ArchiveResolutionOccurrence {
+    const ArchiveSymbol* symbol;
+    size_t symbol_index;
+    size_t next_same_name;
+    size_t next_member;
+    size_t member_index;
+} ArchiveResolutionOccurrence;
+
+typedef struct ArchiveResolutionIndex {
+    ArchiveMember** members;
+    ArchiveResolutionSymbol* symbols;
+    size_t symbol_capacity;
+    size_t symbol_count;
+    ArchiveResolutionOccurrence* occurrences;
+    size_t occurrence_count;
+    size_t* member_heads;
+    size_t* candidate_heap;
+    size_t candidate_heap_count;
+    uint32_t* pending_symbol_count;
+    bool* selected;
+    bool* in_heap;
+    size_t member_count;
+} ArchiveResolutionIndex;
+
+static size_t archive_resolution_symbol_slot(
+    ArchiveResolutionIndex* index, const char* name, bool create)
+{
+    size_t bucket;
+    if (!index->symbol_capacity || !name) return SIZE_MAX;
+    bucket = (size_t)linker_input_symbol_hash(name) &
+             (index->symbol_capacity - 1u);
+    while (index->symbols[bucket].name != NULL) {
+        if (strcmp(index->symbols[bucket].name, name) == 0) return bucket;
+        bucket = (bucket + 1u) & (index->symbol_capacity - 1u);
+    }
+    if (!create) return SIZE_MAX;
+    index->symbols[bucket].name = name;
+    index->symbols[bucket].first_occurrence = SIZE_MAX;
+    ++index->symbol_count;
+    return bucket;
 }
 
-static const char* archive_needed_symbol(const Linker* ld,
-                                         const Archive* archive,
-                                         int member_index) {
-    for (ArchiveSymbol* symbol = archive->symbols; symbol;
-         symbol = symbol->next) {
-        if (symbol->member_idx == member_index &&
-            linker_symbol_is_unresolved(ld, symbol->name)) return symbol->name;
+static void archive_resolution_heap_push(ArchiveResolutionIndex* index,
+                                         size_t member)
+{
+    size_t child = index->candidate_heap_count++;
+    while (child != 0u) {
+        size_t parent = (child - 1u) / 2u;
+        if (index->candidate_heap[parent] <= member) break;
+        index->candidate_heap[child] = index->candidate_heap[parent];
+        child = parent;
+    }
+    index->candidate_heap[child] = member;
+    index->in_heap[member] = true;
+}
+
+static size_t archive_resolution_heap_pop(ArchiveResolutionIndex* index)
+{
+    size_t result = index->candidate_heap[0];
+    size_t last = index->candidate_heap[--index->candidate_heap_count];
+    size_t parent = 0u;
+    index->in_heap[result] = false;
+    while (parent < index->candidate_heap_count / 2u) {
+        size_t child = parent * 2u + 1u;
+        if (child + 1u < index->candidate_heap_count &&
+            index->candidate_heap[child + 1u] <
+                index->candidate_heap[child])
+            ++child;
+        if (last <= index->candidate_heap[child]) break;
+        index->candidate_heap[parent] = index->candidate_heap[child];
+        parent = child;
+    }
+    if (index->candidate_heap_count != 0u)
+        index->candidate_heap[parent] = last;
+    return result;
+}
+
+static void archive_resolution_index_destroy(ArchiveResolutionIndex* index)
+{
+    if (!index) return;
+    rcc_free(index->members);
+    rcc_free(index->symbols);
+    rcc_free(index->occurrences);
+    rcc_free(index->member_heads);
+    rcc_free(index->candidate_heap);
+    rcc_free(index->pending_symbol_count);
+    rcc_free(index->selected);
+    rcc_free(index->in_heap);
+    memset(index, 0, sizeof(*index));
+}
+
+static bool archive_resolution_index_init(ArchiveResolutionIndex* index,
+                                          const Archive* archive,
+                                          const Linker* ld)
+{
+    size_t occurrence = 0u;
+    size_t member = 0u;
+    size_t capacity = 64u;
+    if (!index || !archive || !ld || archive->member_count < 0 ||
+        archive->symbol_count < 0)
+        return false;
+    memset(index, 0, sizeof(*index));
+    index->member_count = (size_t)archive->member_count;
+    index->occurrence_count = (size_t)archive->symbol_count;
+    if (index->member_count != 0u) {
+        if (index->member_count > SIZE_MAX / sizeof(*index->members) ||
+            index->member_count > SIZE_MAX / sizeof(*index->member_heads) ||
+            index->member_count > SIZE_MAX / sizeof(*index->candidate_heap) ||
+            index->member_count > SIZE_MAX / sizeof(*index->pending_symbol_count) ||
+            index->member_count > SIZE_MAX / sizeof(*index->selected) ||
+            index->member_count > SIZE_MAX / sizeof(*index->in_heap))
+            goto fail;
+        index->members = rcc_alloc(index->member_count * sizeof(*index->members));
+        index->member_heads =
+            rcc_alloc(index->member_count * sizeof(*index->member_heads));
+        index->candidate_heap =
+            rcc_alloc(index->member_count * sizeof(*index->candidate_heap));
+        index->pending_symbol_count = rcc_alloc(
+            index->member_count * sizeof(*index->pending_symbol_count));
+        index->selected = rcc_alloc(index->member_count * sizeof(*index->selected));
+        index->in_heap = rcc_alloc(index->member_count * sizeof(*index->in_heap));
+        memset(index->members, 0,
+               index->member_count * sizeof(*index->members));
+        memset(index->pending_symbol_count, 0,
+               index->member_count * sizeof(*index->pending_symbol_count));
+        memset(index->selected, 0,
+               index->member_count * sizeof(*index->selected));
+        memset(index->in_heap, 0,
+               index->member_count * sizeof(*index->in_heap));
+        for (size_t slot = 0u; slot < index->member_count; ++slot)
+            index->member_heads[slot] = SIZE_MAX;
+        for (ArchiveMember* item = archive->members; item; item = item->next) {
+            if (member >= index->member_count) goto fail;
+            index->members[member++] = item;
+        }
+        if (member != index->member_count) goto fail;
+    } else if (archive->members != NULL || index->occurrence_count != 0u) {
+        goto fail;
+    }
+    if (index->occurrence_count != 0u) {
+        if (index->occurrence_count > SIZE_MAX / sizeof(*index->occurrences))
+            goto fail;
+        index->occurrences =
+            rcc_alloc(index->occurrence_count * sizeof(*index->occurrences));
+    }
+    while (index->occurrence_count >
+           capacity - capacity / 4u) {
+        if (capacity > SIZE_MAX / 2u) goto fail;
+        capacity *= 2u;
+    }
+    if (capacity > SIZE_MAX / sizeof(*index->symbols)) goto fail;
+    index->symbol_capacity = capacity;
+    index->symbols = rcc_alloc(capacity * sizeof(*index->symbols));
+    memset(index->symbols, 0, capacity * sizeof(*index->symbols));
+
+    for (const ArchiveSymbol* item = archive->symbols; item;
+         item = item->next) {
+        size_t symbol_index;
+        size_t member_index;
+        ArchiveResolutionOccurrence* node;
+        if (occurrence >= index->occurrence_count || item->member_idx < 0 ||
+            (size_t)item->member_idx >= index->member_count ||
+            item->name == NULL)
+            goto fail;
+        member_index = (size_t)item->member_idx;
+        symbol_index = archive_resolution_symbol_slot(index, item->name, true);
+        node = &index->occurrences[occurrence];
+        node->symbol = item;
+        node->symbol_index = symbol_index;
+        node->member_index = member_index;
+        node->next_same_name = index->symbols[symbol_index].first_occurrence;
+        node->next_member = index->member_heads[member_index];
+        index->symbols[symbol_index].first_occurrence = occurrence;
+        index->member_heads[member_index] = occurrence;
+        ++occurrence;
+    }
+    if (occurrence != index->occurrence_count) goto fail;
+
+    for (size_t slot = 0u; slot < index->symbol_capacity; ++slot) {
+        ArchiveResolutionSymbol* symbol = &index->symbols[slot];
+        if (symbol->name != NULL) {
+            symbol->unresolved = linker_symbol_is_unresolved(ld, symbol->name);
+            if (symbol->unresolved) {
+                for (size_t item = symbol->first_occurrence;
+                     item != SIZE_MAX;
+                     item = index->occurrences[item].next_same_name) {
+                    size_t member_index =
+                        index->occurrences[item].member_index;
+                    if (index->pending_symbol_count[member_index] ==
+                        UINT32_MAX)
+                        goto fail;
+                    ++index->pending_symbol_count[member_index];
+                }
+            }
+        }
+    }
+    for (size_t item = 0u; item < index->member_count; ++item) {
+        if (index->pending_symbol_count[item] != 0u)
+            archive_resolution_heap_push(index, item);
+    }
+    return true;
+
+fail:
+    archive_resolution_index_destroy(index);
+    return false;
+}
+
+static bool archive_resolution_symbol_state_update(
+    ArchiveResolutionIndex* index, const char* name, bool unresolved)
+{
+    size_t slot = archive_resolution_symbol_slot(index, name, false);
+    if (slot == SIZE_MAX || index->symbols[slot].unresolved == unresolved)
+        return true;
+    index->symbols[slot].unresolved = unresolved;
+    for (size_t item = index->symbols[slot].first_occurrence;
+         item != SIZE_MAX;
+         item = index->occurrences[item].next_same_name) {
+        size_t member = index->occurrences[item].member_index;
+        if (unresolved) {
+            if (index->pending_symbol_count[member] == UINT32_MAX)
+                return false;
+            ++index->pending_symbol_count[member];
+        } else {
+            if (index->pending_symbol_count[member] == 0u) return false;
+            --index->pending_symbol_count[member];
+        }
+        if (index->pending_symbol_count[member] != 0u &&
+            !index->selected[member] && !index->in_heap[member])
+            archive_resolution_heap_push(index, member);
+    }
+    return true;
+}
+
+static const char* archive_resolution_member_needed_symbol(
+    const ArchiveResolutionIndex* index, size_t member)
+{
+    for (size_t item = index->member_heads[member]; item != SIZE_MAX;
+         item = index->occurrences[item].next_member) {
+        const ArchiveResolutionOccurrence* occurrence =
+            &index->occurrences[item];
+        if (index->symbols[occurrence->symbol_index].unresolved)
+            return occurrence->symbol->name;
     }
     return NULL;
 }
 
+static bool archive_resolution_update_object(
+    ArchiveResolutionIndex* index, const Linker* ld, const ObjectFile* object)
+{
+    for (const ObjSymbol* symbol = object->symbols; symbol;
+         symbol = symbol->next) {
+        if (!archive_resolution_symbol_state_update(
+                index, symbol->name,
+                linker_symbol_is_unresolved(ld, symbol->name)))
+            return false;
+    }
+    return true;
+}
+
 static bool linker_add_archive(Linker* ld, const char* filename) {
     Archive* archive = archive_read(filename);
-    bool* selected = NULL;
+    ArchiveResolutionIndex index;
     bool ok = false;
     if (!archive) {
         fprintf(stderr, "rld: cannot read archive: %s\n", filename);
         return false;
     }
-    if (archive->member_count != 0) {
-        selected = rcc_alloc(sizeof(bool) * (size_t)archive->member_count);
+    if (!archive_resolution_index_init(&index, archive, ld)) {
+        fprintf(stderr, "rld: invalid archive symbol index in %s\n", filename);
+        archive_free(archive);
+        return false;
     }
 
-    for (;;) {
-        int candidate = -1;
-        const char* needed = NULL;
-        for (int index = 0; index < archive->member_count; ++index) {
-            if (selected[index]) continue;
-            needed = archive_needed_symbol(ld, archive, index);
-            if (needed) {
-                candidate = index;
-                break;
-            }
-        }
-        if (candidate < 0) break;
-
-        ArchiveMember* member = archive_member_at(archive, candidate);
+    while (index.candidate_heap_count != 0u) {
+        size_t candidate = archive_resolution_heap_pop(&index);
+        const char* needed;
+        ArchiveMember* member;
         size_t filename_size;
         size_t member_size;
         size_t display_size;
         char* display_name;
         ObjectFile* obj;
-        if (!member) {
+        if (index.selected[candidate] ||
+            index.pending_symbol_count[candidate] == 0u)
+            continue;
+        needed = archive_resolution_member_needed_symbol(&index, candidate);
+        member = index.members[candidate];
+        if (!needed || !member) {
             fprintf(stderr, "rld: invalid archive member index in %s\n", filename);
             goto done;
         }
@@ -367,17 +706,22 @@ static bool linker_add_archive(Linker* ld, const char* filename) {
             objfile_free(obj);
             goto done;
         }
-        selected[candidate] = true;
         if (g_linker_opts.verbose) {
             printf("  archive %s: selecting %s for %s\n",
                    filename, member->name, needed);
         }
+        index.selected[candidate] = true;
         if (!linker_append_object(ld, obj)) goto done;
+        if (!archive_resolution_update_object(&index, ld, obj)) {
+            fprintf(stderr, "rld: archive symbol index overflow in %s\n",
+                    filename);
+            goto done;
+        }
     }
 
     ok = true;
 done:
-    rcc_free(selected);
+    archive_resolution_index_destroy(&index);
     archive_free(archive);
     return ok;
 }
