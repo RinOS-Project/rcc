@@ -4,15 +4,15 @@ struct ConstrainedGuideBox {
 };
 
 template <typename T>
-ConstrainedGuideBox(T) -> ConstrainedGuideBox<short>;
+ConstrainedGuideBox(T, int ignored = 0) -> ConstrainedGuideBox<short>;
 
 template <typename T>
     requires(sizeof(T) == 8)
-ConstrainedGuideBox(T) -> ConstrainedGuideBox<char>;
+ConstrainedGuideBox(T, int ignored = 0) -> ConstrainedGuideBox<char>;
 
 template <typename T>
     requires(sizeof(T) == 4)
-ConstrainedGuideBox(T) -> ConstrainedGuideBox<long>;
+ConstrainedGuideBox(T, int ignored = 0) -> ConstrainedGuideBox<long>;
 
 int main() {
     ConstrainedGuideBox selected{17};
