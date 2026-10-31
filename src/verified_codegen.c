@@ -1346,16 +1346,17 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             if (!rcc_x86_encode_ir_function(
                     ir_function, target, &encoded,
                     pipeline_error, sizeof(pipeline_error))) {
+                RccVerifiedObjectStatus fallback_status = verified_reason(
+                    RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
+                    "function '%s' is not encoded yet: %s",
+                    function_name, pipeline_error);
                 rcc_free(debug_variable_locations);
                 rcc_ir_module_destroy(module);
                 codegen_free(data_module);
                 objfile_free(object);
                 rcc_x86_encoded_function_release(&encoded);
                 verified_clear_ast_debug_ranges(ast);
-                return verified_reason(
-                    RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
-                    "function '%s' is not encoded yet: %s",
-                    function_name, pipeline_error);
+                return fallback_status;
             }
             verified_collect_debug_variable_locations(
                 &debug_variable_locations,

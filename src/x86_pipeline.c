@@ -11,6 +11,13 @@
 #include "x86_legalize.h"
 #include "x86_select.h"
 
+static void x86_pipeline_set_error_if_empty(
+    char* error, size_t error_size, const char* stage) {
+    if (error && error_size != 0u && error[0] == '\0') {
+        snprintf(error, error_size, "%s failed without a diagnostic", stage);
+    }
+}
+
 bool rcc_x86_encode_ir_function(
     const RccIrFunction* function, RccX86Target target,
     RccX86EncodedFunction* encoded_out,
@@ -39,26 +46,45 @@ bool rcc_x86_encode_ir_function(
         }
         return false;
     }
-    if (!rcc_mir_lower_ir(function, &mir, error, error_size)) goto cleanup;
+    if (!rcc_mir_lower_ir(function, &mir, error, error_size)) {
+        x86_pipeline_set_error_if_empty(error, error_size, "MIR lowering");
+        goto cleanup;
+    }
     if (target == RCC_X86_TARGET_X86_64) {
         rcc_mir_register_policy_x86_64(&policy);
     } else {
         rcc_mir_register_policy_i686(&policy);
     }
     if (!rcc_mir_graph_color_allocate(
-            mir, &policy, &allocation, error, error_size)) goto cleanup;
+            mir, &policy, &allocation, error, error_size)) {
+        x86_pipeline_set_error_if_empty(
+            error, error_size, "MIR register allocation");
+        goto cleanup;
+    }
     allocated = true;
     if (!rcc_mir_build_phi_plan(
             mir, &policy, &allocation, &phi_plan,
-            error, error_size)) goto cleanup;
+            error, error_size)) {
+        x86_pipeline_set_error_if_empty(error, error_size, "MIR phi planning");
+        goto cleanup;
+    }
     phi_built = true;
     if (!rcc_x86_select_function(
             mir, target, &policy, &allocation, &phi_plan,
-            &selected, error, error_size) ||
-        !rcc_x86_legalize_function(
-            selected, &policy, &legal, error, error_size) ||
-        !rcc_x86_encode_function(
-            legal, &policy, &encoded, error, error_size)) goto cleanup;
+            &selected, error, error_size)) {
+        x86_pipeline_set_error_if_empty(error, error_size, "x86 selection");
+        goto cleanup;
+    }
+    if (!rcc_x86_legalize_function(
+            selected, &policy, &legal, error, error_size)) {
+        x86_pipeline_set_error_if_empty(error, error_size, "x86 legalization");
+        goto cleanup;
+    }
+    if (!rcc_x86_encode_function(
+            legal, &policy, &encoded, error, error_size)) {
+        x86_pipeline_set_error_if_empty(error, error_size, "x86 encoding");
+        goto cleanup;
+    }
     *encoded_out = encoded;
     memset(&encoded, 0, sizeof(encoded));
     ok = true;

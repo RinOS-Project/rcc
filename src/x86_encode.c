@@ -3906,10 +3906,41 @@ bool rcc_x86_encode_function(
         for (instruction = block->first; instruction;
              instruction = instruction->next) {
             uint32_t offset = (uint32_t)encoder.output.code_size;
-            if (!x86_emit_instruction(&encoder, instruction) ||
-                !x86_add_source_range(&encoder, instruction, offset) ||
-                !x86_add_inline_range(&encoder, instruction, offset) ||
-                !x86_add_local_location(&encoder, instruction)) {
+            if (!x86_emit_instruction(&encoder, instruction)) {
+                if (!encoder.error || encoder.error_size == 0u ||
+                    encoder.error[0] == '\0') {
+                    x86_encode_error(
+                        &encoder,
+                        "x86 instruction encoding failed in block %u "
+                        "(legal opcode %u, selected opcode %u)",
+                        (unsigned)block->id,
+                        (unsigned)instruction->opcode,
+                        (unsigned)instruction->selected_opcode);
+                }
+                goto cleanup;
+            }
+            if (!x86_add_source_range(&encoder, instruction, offset)) {
+                if (!encoder.error || encoder.error_size == 0u ||
+                    encoder.error[0] == '\0') {
+                    x86_encode_error(&encoder,
+                                     "x86 source range generation failed");
+                }
+                goto cleanup;
+            }
+            if (!x86_add_inline_range(&encoder, instruction, offset)) {
+                if (!encoder.error || encoder.error_size == 0u ||
+                    encoder.error[0] == '\0') {
+                    x86_encode_error(&encoder,
+                                     "x86 inline range generation failed");
+                }
+                goto cleanup;
+            }
+            if (!x86_add_local_location(&encoder, instruction)) {
+                if (!encoder.error || encoder.error_size == 0u ||
+                    encoder.error[0] == '\0') {
+                    x86_encode_error(&encoder,
+                                     "x86 local location generation failed");
+                }
                 goto cleanup;
             }
         }
