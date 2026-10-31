@@ -20780,6 +20780,18 @@ int rcc_sema_cxx_assignable(Type* target, Type* source) {
     return sema_cxx_type_trait_assignable_impl(target, source, 0u);
 }
 
+bool rcc_sema_cxx_nothrow_assignable(
+    Type* target, Type* source, bool* value) {
+    int assignable;
+    if (!target || !source || !value) return false;
+    *value = false;
+    assignable = sema_cxx_type_trait_assignable_impl_with_access(
+        target, source, 0u, NULL, value);
+    if (assignable < 0) return false;
+    if (assignable == 0) *value = false;
+    return true;
+}
+
 /* A class-target static_cast may use a conversion function only when direct
  * initialization has no viable constructor.  This signature-only probe also
  * counts inaccessible, deleted, or not-yet-lowerable candidates so the
@@ -25866,6 +25878,18 @@ static Type* sema_expr(Expr* expr) {
                 if (assignable >= 0) {
                     expr->kind = EXPR_INT_LIT;
                     expr->int_val = assignable != 0;
+                    expr->type = type_bool;
+                }
+            } else if (expr->cxx_type_trait_kind ==
+                           CXX_TYPE_TRAIT_NOTHROW_ASSIGNABLE &&
+                       expr->cxx_type_trait_type &&
+                       expr->cxx_type_trait_other_type) {
+                bool value = false;
+                if (rcc_sema_cxx_nothrow_assignable(
+                        expr->cxx_type_trait_type,
+                        expr->cxx_type_trait_other_type, &value)) {
+                    expr->kind = EXPR_INT_LIT;
+                    expr->int_val = value ? 1 : 0;
                     expr->type = type_bool;
                 }
             } else if (expr->cxx_type_trait_kind ==

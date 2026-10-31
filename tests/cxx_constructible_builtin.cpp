@@ -438,6 +438,14 @@ struct AssignmentExceptionProbe {
     AssignmentExceptionProbe& operator=(AssignmentExceptionProbe&&) noexcept;
 };
 
+struct ThrowingIntAssignmentConversion {
+    operator int() noexcept(false);
+};
+
+struct NothrowIntAssignment {
+    NothrowIntAssignment& operator=(int) noexcept;
+};
+
 struct DefaultedThrowingCopyAssignment {
     AssignmentExceptionProbe value;
     DefaultedThrowingCopyAssignment& operator=(
@@ -448,6 +456,16 @@ struct DefaultedNothrowMoveAssignment {
     AssignmentExceptionProbe value;
     DefaultedNothrowMoveAssignment& operator=(
         DefaultedNothrowMoveAssignment&&) = default;
+};
+
+struct DefaultedThrowingBaseCopyAssignment : AssignmentExceptionProbe {
+    DefaultedThrowingBaseCopyAssignment& operator=(
+        const DefaultedThrowingBaseCopyAssignment&) = default;
+};
+
+struct DefaultedNothrowBaseMoveAssignment : AssignmentExceptionProbe {
+    DefaultedNothrowBaseMoveAssignment& operator=(
+        DefaultedNothrowBaseMoveAssignment&&) = default;
 };
 
 struct DestructorSuppressesImplicitMoveAssignment {
@@ -478,6 +496,31 @@ static_assert(!noexcept(cxx_test_declval<DefaultedThrowingCopyAssignment&>() =
 static_assert(noexcept(cxx_test_declval<DefaultedNothrowMoveAssignment&>() =
                        cxx_test_declval<DefaultedNothrowMoveAssignment&&>()),
               "a defaulted move assignment inherits a nonthrowing subobject assignment");
+static_assert(!__is_nothrow_assignable(
+                  AssignmentExceptionProbe&, const AssignmentExceptionProbe&),
+              "a potentially-throwing selected assignment is not nothrow-assignable");
+static_assert(__is_nothrow_assignable(
+                  AssignmentExceptionProbe&, AssignmentExceptionProbe&&),
+              "a nonthrowing selected move assignment is nothrow-assignable");
+static_assert(!__is_nothrow_assignable(
+                  DefaultedThrowingCopyAssignment&,
+                  const DefaultedThrowingCopyAssignment&),
+              "the nothrow trait uses the inferred defaulted copy exception specification");
+static_assert(__is_nothrow_assignable(
+                  DefaultedNothrowMoveAssignment&,
+                  DefaultedNothrowMoveAssignment&&),
+              "the nothrow trait uses the inferred defaulted move exception specification");
+static_assert(!__is_nothrow_assignable(
+                  NothrowIntAssignment&, ThrowingIntAssignmentConversion),
+              "a throwing conversion to the selected assignment parameter is observed");
+static_assert(!__is_nothrow_assignable(
+                  DefaultedThrowingBaseCopyAssignment&,
+                  const DefaultedThrowingBaseCopyAssignment&),
+              "the nothrow trait includes a throwing base assignment");
+static_assert(__is_nothrow_assignable(
+                  DefaultedNothrowBaseMoveAssignment&,
+                  DefaultedNothrowBaseMoveAssignment&&),
+              "the nothrow trait includes a nonthrowing base move assignment");
 
 struct RvalueQualifiedAssignment {
     RvalueQualifiedAssignment& operator=(
@@ -594,6 +637,8 @@ using FunctionType = int();
 template <typename Target, typename Source>
 struct BuiltinAssignmentProbe {
     static constexpr bool value = __is_assignable(Target, Source);
+    static constexpr bool nothrow_value =
+        __is_nothrow_assignable(Target, Source);
 };
 
 union ScalarAssignmentUnion {
@@ -946,9 +991,15 @@ static_assert(!__is_trivially_constructible(
                   const MoveAssignmentDeletesImplicitCopyBesideTemplate&),
               "a deleted implicit copy after move assignment is not trivially constructible");
 static_assert(__is_assignable(int&, int), "scalar lvalue assignment");
+static_assert(__is_nothrow_assignable(int&, int),
+              "scalar assignment is nonthrowing");
 static_assert(!__is_assignable(int, int), "a scalar prvalue is not assignable");
+static_assert(!__is_nothrow_assignable(int, int),
+              "a non-assignable scalar target is not nothrow-assignable");
 static_assert(!__is_assignable(const int&, int),
               "a const scalar lvalue is not assignable");
+static_assert(!__is_nothrow_assignable(const int&, int),
+              "a const scalar lvalue is not nothrow-assignable");
 static_assert(__is_assignable(int&, short), "scalar assignment conversion");
 static_assert(__is_assignable(AssignableFromInt&, int),
               "user-defined assignment overload");
@@ -1137,8 +1188,12 @@ static_assert(!__is_assignable(void, int),
               "void is not an assignment target");
 static_assert(BuiltinAssignmentProbe<int&, int>::value,
               "dependent assignability is evaluated after substitution");
+static_assert(BuiltinAssignmentProbe<int&, int>::nothrow_value,
+              "dependent nothrow-assignability is evaluated after substitution");
 static_assert(!BuiltinAssignmentProbe<const int&, int>::value,
               "dependent non-assignability is evaluated after substitution");
+static_assert(!BuiltinAssignmentProbe<const int&, int>::nothrow_value,
+              "dependent nothrow-assignability is evaluated after substitution");
 static_assert(__is_constructible(TemplateConstructorValue,
                                 const TemplateConstructorValue&),
               "the implicit copy constructor remains available beside a template");

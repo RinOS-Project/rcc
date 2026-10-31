@@ -50,6 +50,10 @@
 #error RCC must report the implemented assignable builtin
 #endif
 
+#if !__has_builtin(__is_nothrow_assignable)
+#error RCC must report the implemented nothrow-assignable builtin
+#endif
+
 #if !__has_builtin(__is_trivial)
 #error RCC must report the implemented triviality type-trait builtin
 #endif
