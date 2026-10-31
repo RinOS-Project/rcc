@@ -10824,14 +10824,15 @@ static size_t gen_cxx_array_placement_cleanup_record_size32(
 
 static void gen_cxx_alloc_array_cookie32(
     Module* mod, Expr* expr,
-    const CxxArrayPlacementCleanupThunk* cleanup_thunk) {
+    const CxxArrayPlacementCleanupThunk* cleanup_thunk,
+    bool has_array_cookie) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     const ExprList* placement_argument = expr && expr->call_args
         ? expr->call_args->next : NULL;
     int cookie_size = gen_cxx_array_cookie_size();
     int allocated_label;
-    if (!object_type || object_type->size <= 0 ||
-        !expr || !expr->call_new_count) {
+    if (!object_type || object_type->size <= 0 || !expr ||
+        (has_array_cookie && !expr->call_new_count)) {
         rcc_fatal("validated C++ array allocation has incomplete metadata");
     }
     size_t cleanup_argument_count =
@@ -10892,11 +10893,15 @@ static void gen_cxx_alloc_array_cookie32(
         frame_bytes = argument_area_bytes * 2u;
         temp_base = argument_area_bytes;
         emit_sub_reg_imm(mod, ESP, (uint32_t)frame_bytes);
-        gen_expr(mod, expr->call_new_count);
-        emit_mov_mem_reg(mod, ESP, (int)temp_base, EAX);
-        emit_mov_reg_mem(mod, EAX, ESP, (int)temp_base);
-        emit_scale_reg(mod, EAX, (uint32_t)object_type->size);
-        emit_add_reg_imm(mod, EAX, cookie_size);
+        if (has_array_cookie) {
+            gen_expr(mod, expr->call_new_count);
+            emit_mov_mem_reg(mod, ESP, (int)temp_base, EAX);
+            emit_mov_reg_mem(mod, EAX, ESP, (int)temp_base);
+            emit_scale_reg(mod, EAX, (uint32_t)object_type->size);
+            emit_add_reg_imm(mod, EAX, cookie_size);
+        } else {
+            emit_mov_reg_imm(mod, EAX, (uint32_t)object_type->size);
+        }
         emit_mov_mem_reg(mod, ESP, 0, EAX);
 
         parameter = allocation_type ? allocation_type->params : NULL;
@@ -10981,9 +10986,11 @@ static void gen_cxx_alloc_array_cookie32(
         allocated_label = new_label();
         emit_cmp_reg_imm(mod, EAX, 0);
         emit_jcc_label(mod, CC_E, allocated_label);
-        emit_mov_reg_mem(mod, ECX, ESP, (int)temp_base);
-        emit_mov_mem_reg(mod, EAX, 0, ECX);
-        emit_add_reg_imm(mod, EAX, cookie_size);
+        if (has_array_cookie) {
+            emit_mov_reg_mem(mod, ECX, ESP, (int)temp_base);
+            emit_mov_mem_reg(mod, EAX, 0, ECX);
+            emit_add_reg_imm(mod, EAX, cookie_size);
+        }
         emit_label(mod, allocated_label);
         if (cleanup_thunk) {
             size_t record_offset = frame_bytes;
@@ -10992,7 +10999,9 @@ static void gen_cxx_alloc_array_cookie32(
             if (copy_parameter) copy_parameter = copy_parameter->next;
             emit_mov_reg_reg(mod, EDX, EAX);
             emit_mov_reg_reg(mod, ECX, EAX);
-            emit_sub_reg_imm(mod, ECX, (uint32_t)cookie_size);
+            if (has_array_cookie) {
+                emit_sub_reg_imm(mod, ECX, (uint32_t)cookie_size);
+            }
             emit_mov_mem_reg(mod, ESP, (int)record_offset, ECX);
             argument_offset = 0u;
             for (argument = placement_argument; argument;
@@ -11102,7 +11111,7 @@ static void gen_cxx_zero_array32(Module* mod, Expr* expr) {
         int cookie_size = gen_cxx_array_cookie_size();
         int loop = new_label();
         int done = new_label();
-        gen_cxx_alloc_array_cookie32(mod, expr, NULL);
+        gen_cxx_alloc_array_cookie32(mod, expr, NULL, true);
         emit_push_reg(mod, EAX); /* Preserve the user pointer. */
         emit_mov_reg_reg(mod, ECX, EAX);
         emit_sub_reg_imm(mod, ECX, cookie_size);
@@ -12940,7 +12949,7 @@ static void gen_cxx_init_class_array32(Module* mod, Expr* expr) {
             gen_cxx_array_placement_cleanup_record_size32(cleanup_thunk);
     }
     if (expr->call_new_array_cookie) {
-        gen_cxx_alloc_array_cookie32(mod, expr, cleanup_thunk);
+        gen_cxx_alloc_array_cookie32(mod, expr, cleanup_thunk, true);
         if (register_deallocation) {
             emit_mov_reg_reg(mod, ECX, EAX);
             emit_sub_reg_imm(mod, ECX,
@@ -13049,7 +13058,7 @@ static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
             cleanup_record_size =
                 gen_cxx_array_placement_cleanup_record_size32(cleanup_thunk);
         }
-        gen_cxx_alloc_array_cookie32(mod, expr, cleanup_thunk);
+        gen_cxx_alloc_array_cookie32(mod, expr, cleanup_thunk, true);
         if (register_deallocation) {
             emit_mov_reg_reg(mod, ECX, EAX);
             emit_sub_reg_imm(mod, ECX,
@@ -13793,6 +13802,8 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
     bool saved_is_new;
     bool initialize;
     bool register_deallocation;
+    CxxArrayPlacementCleanupThunk* placement_cleanup_thunk = NULL;
+    size_t placement_cleanup_record_size = 0u;
     const char* deallocation_name = gen_cxx_array_deallocation_name(expr);
 
     if (!object_type || object_type->size <= 0) {
@@ -13825,13 +13836,34 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
         return;
     }
     if (expr->call_new_is_array && expr->call_new_array_cookie) {
-        gen_cxx_alloc_array_cookie32(mod, expr, NULL);
+        gen_cxx_alloc_array_cookie32(mod, expr, NULL, true);
         return;
     }
-    saved_is_new = expr->call_is_new;
-    expr->call_is_new = false;
-    gen_call(mod, expr);
-    expr->call_is_new = saved_is_new;
+    bool needs_placement_cleanup =
+        !expr->call_new_is_array && expr->call_args &&
+        expr->call_args->next &&
+        codegen_cxx_new_initializer_may_throw(expr) &&
+        expr->call_new_placement_deallocation_function;
+    if (needs_placement_cleanup) {
+        placement_cleanup_thunk = module_add_cxx_array_placement_cleanup_thunk(
+            mod, expr);
+        if (!placement_cleanup_thunk) {
+            rcc_fatal("validated scalar placement delete has no cleanup thunk");
+        }
+        placement_cleanup_record_size =
+            gen_cxx_array_placement_cleanup_record_size32(
+                placement_cleanup_thunk);
+        gen_cxx_alloc_array_cookie32(
+            mod, expr, placement_cleanup_thunk, false);
+        emit_mov_reg_reg(mod, ECX, ESP);
+        gen_cxx_change_current_cleanup_pointer32(
+            mod, placement_cleanup_thunk->callback_name, ECX, false);
+    } else {
+        saved_is_new = expr->call_is_new;
+        expr->call_is_new = false;
+        gen_call(mod, expr);
+        expr->call_is_new = saved_is_new;
+    }
 
     if (expr->call_new_is_array) {
         return;
@@ -13846,7 +13878,7 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
     /* A throwing scalar initializer releases ordinary new-expression storage
      * through the selected deallocator. Placement new has a different
      * deallocation signature and is tracked separately. */
-    register_deallocation =
+    register_deallocation = !placement_cleanup_thunk &&
         !(expr->call_args && expr->call_args->next) &&
         codegen_cxx_new_initializer_may_throw(expr);
     if (register_deallocation) {
@@ -13866,7 +13898,17 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
             gen_cxx_change_current_cleanup_pointer32(
                 mod, deallocation_name, ECX, true);
         }
+        if (placement_cleanup_thunk) {
+            emit_mov_reg_reg(mod, ECX, ESP);
+            emit_add_reg_imm(mod, ECX, 4);
+            gen_cxx_change_current_cleanup_pointer32(
+                mod, placement_cleanup_thunk->callback_name, ECX, true);
+        }
         emit_pop_reg(mod, EAX);
+        if (placement_cleanup_thunk) {
+            emit_add_reg_imm(
+                mod, ESP, (uint32_t)placement_cleanup_record_size);
+        }
         return;
     }
     if (expr->call_new_constructor) {
@@ -13878,7 +13920,17 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
             gen_cxx_change_current_cleanup_pointer32(
                 mod, deallocation_name, ECX, true);
         }
+        if (placement_cleanup_thunk) {
+            emit_mov_reg_reg(mod, ECX, ESP);
+            emit_add_reg_imm(mod, ECX, 4);
+            gen_cxx_change_current_cleanup_pointer32(
+                mod, placement_cleanup_thunk->callback_name, ECX, true);
+        }
         emit_pop_reg(mod, EAX);
+        if (placement_cleanup_thunk) {
+            emit_add_reg_imm(
+                mod, ESP, (uint32_t)placement_cleanup_record_size);
+        }
         return;
     }
     if (expr->call_new_copy_init) {
@@ -13904,7 +13956,17 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
             gen_cxx_change_current_cleanup_pointer32(
                 mod, deallocation_name, ECX, true);
         }
+        if (placement_cleanup_thunk) {
+            emit_mov_reg_reg(mod, ECX, ESP);
+            emit_add_reg_imm(mod, ECX, 4);
+            gen_cxx_change_current_cleanup_pointer32(
+                mod, placement_cleanup_thunk->callback_name, ECX, true);
+        }
         emit_pop_reg(mod, EAX);
+        if (placement_cleanup_thunk) {
+            emit_add_reg_imm(
+                mod, ESP, (uint32_t)placement_cleanup_record_size);
+        }
         return;
     }
     emit_mov_reg_imm(mod, EAX, 0u);
@@ -13948,7 +14010,17 @@ static void gen_cxx_new32(Module* mod, Expr* expr) {
         gen_cxx_change_current_cleanup_pointer32(
             mod, deallocation_name, ECX, true);
     }
+    if (placement_cleanup_thunk) {
+        emit_mov_reg_reg(mod, ECX, ESP);
+        emit_add_reg_imm(mod, ECX, 4);
+        gen_cxx_change_current_cleanup_pointer32(
+            mod, placement_cleanup_thunk->callback_name, ECX, true);
+    }
     emit_pop_reg(mod, EAX);
+    if (placement_cleanup_thunk) {
+        emit_add_reg_imm(
+            mod, ESP, (uint32_t)placement_cleanup_record_size);
+    }
 }
 
 static void gen_cxx_array_destructor32(Module* mod, Expr* expr) {

@@ -6140,14 +6140,15 @@ static Type* gen64_cxx_next_placement_parameter_type(
 
 static void gen64_cxx_alloc_array_cookie(
     Module* mod, Expr* expr,
-    const CxxArrayPlacementCleanupThunk* cleanup_thunk) {
+    const CxxArrayPlacementCleanupThunk* cleanup_thunk,
+    bool has_array_cookie) {
     Type* object_type = expr ? expr->call_new_type : NULL;
     const ExprList* placement_argument = expr && expr->call_args
         ? expr->call_args->next : NULL;
     static const int argument_registers[] = {RDI, RSI, RDX, RCX, R8, R9};
     int done;
-    if (!object_type || object_type->size <= 0 ||
-        !expr || !expr->call_new_count) {
+    if (!object_type || object_type->size <= 0 || !expr ||
+        (has_array_cookie && !expr->call_new_count)) {
         rcc_fatal("validated C++ array allocation has incomplete metadata");
     }
     size_t cleanup_argument_count =
@@ -6170,7 +6171,11 @@ static void gen64_cxx_alloc_array_cookie(
         }
         emit64_sub_reg_imm(mod, RSP, (uint32_t)cleanup_record_size);
     }
-    gen64_expr(mod, expr->call_new_count);
+    if (has_array_cookie) {
+        gen64_expr(mod, expr->call_new_count);
+    } else {
+        emit64_mov_reg_imm32(mod, RAX, (uint32_t)object_type->size);
+    }
     if (placement_argument) {
         const ExprList* argument;
         size_t placement_count = 0u;
@@ -6298,11 +6303,13 @@ static void gen64_cxx_alloc_array_cookie(
         frame_bytes = (outgoing_bytes + local_bytes + 15u) & ~(size_t)15u;
         local_base = outgoing_bytes;
         emit64_sub_reg_imm(mod, RSP, (uint32_t)frame_bytes);
-        emit64_mov_mem_reg(mod, RSP, (int)local_base, RAX);
-        emit64_mov_reg_reg(mod, RCX, RAX);
-        emit64_mov_reg_imm32(mod, RAX, (uint32_t)object_type->size);
-        emit64_imul_reg_reg(mod, RAX, RCX);
-        emit64_add_reg_imm(mod, RAX, 8);
+        if (has_array_cookie) {
+            emit64_mov_mem_reg(mod, RSP, (int)local_base, RAX);
+            emit64_mov_reg_reg(mod, RCX, RAX);
+            emit64_mov_reg_imm32(mod, RAX, (uint32_t)object_type->size);
+            emit64_imul_reg_reg(mod, RAX, RCX);
+            emit64_add_reg_imm(mod, RAX, 8);
+        }
         emit64_mov_mem_reg(mod, RSP, (int)(local_base + 8u), RAX);
         for (index = 0u; index < placement_count; ++index) {
             Type* parameter_type = call_arguments[index].type;
@@ -6412,15 +6419,17 @@ static void gen64_cxx_alloc_array_cookie(
         done = new_label64();
         emit64_cmp_reg_imm(mod, RAX, 0);
         emit64_jcc_label(mod, CC64_E, done);
-        emit64_mov_reg_mem(mod, RCX, RSP, (int)local_base);
-        emit64_mov_mem_reg(mod, RAX, 0, RCX);
-        emit64_add_reg_imm(mod, RAX, 8);
+        if (has_array_cookie) {
+            emit64_mov_reg_mem(mod, RCX, RSP, (int)local_base);
+            emit64_mov_mem_reg(mod, RAX, 0, RCX);
+            emit64_add_reg_imm(mod, RAX, 8);
+        }
         emit64_label(mod, done);
         if (cleanup_thunk) {
             size_t record_offset = frame_bytes;
             emit64_mov_reg_reg(mod, R11, RAX);
             emit64_mov_reg_reg(mod, RCX, RAX);
-            emit64_sub_reg_imm(mod, RCX, 8);
+            if (has_array_cookie) emit64_sub_reg_imm(mod, RCX, 8);
             emit64_mov_mem_reg(mod, RSP, (int)record_offset, RCX);
             for (index = 0u; index < placement_count; ++index) {
                 Gen64PlacementCallArg64* argument_layout =
@@ -6480,7 +6489,7 @@ static void gen64_cxx_zero_array(Module* mod, Expr* expr) {
     if (expr && expr->call_new_array_cookie) {
         int cookie_loop = new_label64();
         int cookie_done = new_label64();
-        gen64_cxx_alloc_array_cookie(mod, expr, NULL);
+        gen64_cxx_alloc_array_cookie(mod, expr, NULL, true);
         emit64_push_reg(mod, RAX);
         emit64_mov_reg_reg(mod, RCX, RAX);
         emit64_sub_reg_imm(mod, RCX, 8);
@@ -8750,7 +8759,7 @@ static void gen64_cxx_init_class_array(Module* mod, Expr* expr) {
             gen64_cxx_array_placement_cleanup_record_size64(cleanup_thunk);
     }
     if (expr->call_new_array_cookie) {
-        gen64_cxx_alloc_array_cookie(mod, expr, cleanup_thunk);
+        gen64_cxx_alloc_array_cookie(mod, expr, cleanup_thunk, true);
         if (register_deallocation) {
             emit64_mov_reg_reg(mod, RCX, RAX);
             emit64_sub_reg_imm(mod, RCX, 8);
@@ -8860,7 +8869,7 @@ static void gen64_cxx_init_default_class_array(Module* mod, Expr* expr) {
                 gen64_cxx_array_placement_cleanup_record_size64(
                     cleanup_thunk);
         }
-        gen64_cxx_alloc_array_cookie(mod, expr, cleanup_thunk);
+        gen64_cxx_alloc_array_cookie(mod, expr, cleanup_thunk, true);
         if (register_deallocation) {
             emit64_mov_reg_reg(mod, RCX, RAX);
             emit64_sub_reg_imm(mod, RCX, 8);
@@ -8976,6 +8985,8 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
     bool saved_is_new;
     bool initialize;
     bool register_deallocation;
+    CxxArrayPlacementCleanupThunk* placement_cleanup_thunk = NULL;
+    size_t placement_cleanup_record_size = 0u;
     const char* deallocation_name = gen64_cxx_array_deallocation_name(expr);
 
     if (!object_type || object_type->size <= 0) {
@@ -9008,13 +9019,34 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         return;
     }
     if (expr->call_new_is_array && expr->call_new_array_cookie) {
-        gen64_cxx_alloc_array_cookie(mod, expr, NULL);
+        gen64_cxx_alloc_array_cookie(mod, expr, NULL, true);
         return;
     }
-    saved_is_new = expr->call_is_new;
-    expr->call_is_new = false;
-    gen64_expr(mod, expr);
-    expr->call_is_new = saved_is_new;
+    bool needs_placement_cleanup =
+        !expr->call_new_is_array && expr->call_args &&
+        expr->call_args->next &&
+        codegen_cxx_new_initializer_may_throw(expr) &&
+        expr->call_new_placement_deallocation_function;
+    if (needs_placement_cleanup) {
+        placement_cleanup_thunk = module_add_cxx_array_placement_cleanup_thunk(
+            mod, expr);
+        if (!placement_cleanup_thunk) {
+            rcc_fatal("validated scalar placement delete has no cleanup thunk");
+        }
+        placement_cleanup_record_size =
+            gen64_cxx_array_placement_cleanup_record_size64(
+                placement_cleanup_thunk);
+        gen64_cxx_alloc_array_cookie(
+            mod, expr, placement_cleanup_thunk, false);
+        emit64_mov_reg_reg(mod, RCX, RSP);
+        gen64_cxx_change_current_cleanup_pointer(
+            mod, placement_cleanup_thunk->callback_name, RCX, false);
+    } else {
+        saved_is_new = expr->call_is_new;
+        expr->call_is_new = false;
+        gen64_expr(mod, expr);
+        expr->call_is_new = saved_is_new;
+    }
 
     if (expr->call_new_is_array) {
         return;
@@ -9029,7 +9061,7 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
     /* A throwing scalar initializer releases ordinary new-expression storage
      * through the selected deallocator. Placement new has a different
      * deallocation signature and is tracked separately. */
-    register_deallocation =
+    register_deallocation = !placement_cleanup_thunk &&
         !(expr->call_args && expr->call_args->next) &&
         codegen_cxx_new_initializer_may_throw(expr);
     if (register_deallocation) {
@@ -9049,7 +9081,17 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
             gen64_cxx_change_current_cleanup_pointer(
                 mod, deallocation_name, RCX, true);
         }
+        if (placement_cleanup_thunk) {
+            emit64_mov_reg_reg(mod, RCX, RSP);
+            emit64_add_reg_imm(mod, RCX, 8);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, placement_cleanup_thunk->callback_name, RCX, true);
+        }
         emit64_pop_reg(mod, RAX);
+        if (placement_cleanup_thunk) {
+            emit64_add_reg_imm(
+                mod, RSP, (uint32_t)placement_cleanup_record_size);
+        }
         return;
     }
     if (expr->call_new_constructor) {
@@ -9061,7 +9103,17 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
             gen64_cxx_change_current_cleanup_pointer(
                 mod, deallocation_name, RCX, true);
         }
+        if (placement_cleanup_thunk) {
+            emit64_mov_reg_reg(mod, RCX, RSP);
+            emit64_add_reg_imm(mod, RCX, 8);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, placement_cleanup_thunk->callback_name, RCX, true);
+        }
         emit64_pop_reg(mod, RAX);
+        if (placement_cleanup_thunk) {
+            emit64_add_reg_imm(
+                mod, RSP, (uint32_t)placement_cleanup_record_size);
+        }
         return;
     }
     if (expr->call_new_copy_init) {
@@ -9093,7 +9145,17 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
             gen64_cxx_change_current_cleanup_pointer(
                 mod, deallocation_name, RCX, true);
         }
+        if (placement_cleanup_thunk) {
+            emit64_mov_reg_reg(mod, RCX, RSP);
+            emit64_add_reg_imm(mod, RCX, 8);
+            gen64_cxx_change_current_cleanup_pointer(
+                mod, placement_cleanup_thunk->callback_name, RCX, true);
+        }
         emit64_pop_reg(mod, RAX);
+        if (placement_cleanup_thunk) {
+            emit64_add_reg_imm(
+                mod, RSP, (uint32_t)placement_cleanup_record_size);
+        }
         return;
     }
     emit64_mov_reg_imm32(mod, RAX, 0u);
@@ -9132,7 +9194,17 @@ static void gen64_cxx_new(Module* mod, Expr* expr) {
         gen64_cxx_change_current_cleanup_pointer(
             mod, deallocation_name, RCX, true);
     }
+    if (placement_cleanup_thunk) {
+        emit64_mov_reg_reg(mod, RCX, RSP);
+        emit64_add_reg_imm(mod, RCX, 8);
+        gen64_cxx_change_current_cleanup_pointer(
+            mod, placement_cleanup_thunk->callback_name, RCX, true);
+    }
     emit64_pop_reg(mod, RAX);
+    if (placement_cleanup_thunk) {
+        emit64_add_reg_imm(
+            mod, RSP, (uint32_t)placement_cleanup_record_size);
+    }
 }
 
 static void gen64_cxx_array_destructor(Module* mod, Expr* expr) {

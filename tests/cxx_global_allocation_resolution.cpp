@@ -10,6 +10,19 @@ alignas(8) static unsigned char array_allocation_slot[64];
 static int scalar_constructor_allocation_calls;
 static int scalar_constructor_deallocation_calls;
 alignas(8) static unsigned char scalar_constructor_allocation_slot[64];
+static int scalar_placement_state;
+static int scalar_placement_argument_evaluations;
+static int scalar_placement_new_calls;
+static int scalar_placement_delete_calls;
+static int scalar_placement_regular_delete_calls;
+static int scalar_placement_delete_mismatch;
+alignas(8) static unsigned char scalar_placement_allocation_slot[64];
+static int global_scalar_placement_argument_evaluations;
+static int global_scalar_placement_new_calls;
+static int global_scalar_placement_delete_calls;
+static int global_scalar_placement_regular_delete_calls;
+static int global_scalar_placement_delete_mismatch;
+alignas(8) static unsigned char global_scalar_placement_allocation_slot[64];
 static int cookie_array_constructor_calls;
 static int cookie_array_destructor_calls;
 static int placement_array_constructor_calls;
@@ -64,12 +77,18 @@ void* operator new(allocation_size_type size) {
 
 void operator delete(void* pointer) noexcept {
     if (pointer == &allocation_slot) ++deallocation_calls;
+    if (pointer == &global_scalar_placement_allocation_slot[0]) {
+        ++global_scalar_placement_regular_delete_calls;
+    }
 }
 
 void operator delete(void* pointer, allocation_size_type size) noexcept {
     (void)pointer;
     (void)size;
 }
+
+void* operator new(allocation_size_type size, int* state, int marker);
+void operator delete(void* pointer, int* state, int marker) noexcept;
 
 void* operator new[](allocation_size_type size) {
     array_allocation_last_size = size;
@@ -105,6 +124,79 @@ void ThrowingScalarAllocation::operator delete(void* pointer) noexcept {
     if (pointer == &scalar_constructor_allocation_slot[0]) {
         ++scalar_constructor_deallocation_calls;
     }
+}
+
+static int next_scalar_placement_marker() {
+    ++scalar_placement_argument_evaluations;
+    return 0x5a31;
+}
+
+struct ThrowingScalarPlacement {
+    static void* operator new(
+        allocation_size_type size, int* state, int marker);
+    static void operator delete(
+        void* pointer, int* state, int marker) noexcept;
+    static void operator delete(void* pointer) noexcept;
+
+    ThrowingScalarPlacement() { throw 109; }
+};
+
+void* ThrowingScalarPlacement::operator new(
+    allocation_size_type size, int* state, int marker) {
+    if (size != sizeof(ThrowingScalarPlacement) ||
+        state != &scalar_placement_state || marker != 0x5a31) {
+        scalar_placement_delete_mismatch |= 1;
+    }
+    ++scalar_placement_new_calls;
+    return &scalar_placement_allocation_slot[0];
+}
+
+void ThrowingScalarPlacement::operator delete(
+    void* pointer, int* state, int marker) noexcept {
+    if (pointer != &scalar_placement_allocation_slot[0]) {
+        scalar_placement_delete_mismatch |= 2;
+    }
+    if (state != &scalar_placement_state) {
+        scalar_placement_delete_mismatch |= 4;
+    }
+    if (marker != 0x5a31) scalar_placement_delete_mismatch |= 8;
+    ++scalar_placement_delete_calls;
+}
+
+void ThrowingScalarPlacement::operator delete(void* pointer) noexcept {
+    if (pointer == &scalar_placement_allocation_slot[0]) {
+        ++scalar_placement_regular_delete_calls;
+    }
+}
+
+static int next_global_scalar_placement_marker() {
+    ++global_scalar_placement_argument_evaluations;
+    return 0x6b42;
+}
+
+struct ThrowingGlobalScalarPlacement {
+    ThrowingGlobalScalarPlacement() { throw 127; }
+};
+
+void* operator new(
+    allocation_size_type size, int* state, int marker) {
+    if (size != sizeof(ThrowingGlobalScalarPlacement) ||
+        state != &scalar_placement_state || marker != 0x6b42) {
+        global_scalar_placement_delete_mismatch |= 1;
+    }
+    ++global_scalar_placement_new_calls;
+    return &global_scalar_placement_allocation_slot[0];
+}
+
+void operator delete(void* pointer, int* state, int marker) noexcept {
+    if (pointer != &global_scalar_placement_allocation_slot[0]) {
+        global_scalar_placement_delete_mismatch |= 2;
+    }
+    if (state != &scalar_placement_state) {
+        global_scalar_placement_delete_mismatch |= 4;
+    }
+    if (marker != 0x6b42) global_scalar_placement_delete_mismatch |= 8;
+    ++global_scalar_placement_delete_calls;
 }
 
 struct GlobalCookieArray {
@@ -297,6 +389,34 @@ int main() {
     bool scalar_constructor_cleanup = scalar_constructor_exception == 103 &&
         scalar_constructor_allocation_calls == 1 &&
         scalar_constructor_deallocation_calls == 1;
+    int scalar_placement_exception = 0;
+    try {
+        (void)new (&scalar_placement_state,
+                   next_scalar_placement_marker()) ThrowingScalarPlacement;
+    } catch (int exception_value) {
+        scalar_placement_exception = exception_value;
+    }
+    bool scalar_placement_cleanup = scalar_placement_exception == 109 &&
+        scalar_placement_argument_evaluations == 1 &&
+        scalar_placement_new_calls == 1 &&
+        scalar_placement_delete_calls == 1 &&
+        scalar_placement_regular_delete_calls == 0 &&
+        scalar_placement_delete_mismatch == 0;
+    int global_scalar_placement_exception = 0;
+    try {
+        (void)new (&scalar_placement_state,
+                   next_global_scalar_placement_marker())
+            ThrowingGlobalScalarPlacement;
+    } catch (int exception_value) {
+        global_scalar_placement_exception = exception_value;
+    }
+    bool global_scalar_placement_cleanup =
+        global_scalar_placement_exception == 127 &&
+        global_scalar_placement_argument_evaluations == 1 &&
+        global_scalar_placement_new_calls == 1 &&
+        global_scalar_placement_delete_calls == 1 &&
+        global_scalar_placement_regular_delete_calls == 0 &&
+        global_scalar_placement_delete_mismatch == 0;
     int* values = new int[2];
     values[0] = 19;
     values[1] = 23;
@@ -486,6 +606,8 @@ int main() {
     bool existing_checks = initialized && array_initialized &&
         scalar_array_explicitly_initialized && deallocation_calls == 1 &&
         scalar_constructor_cleanup &&
+        scalar_placement_cleanup &&
+        global_scalar_placement_cleanup &&
         cookie_array_initialized && cookie_array_explicitly_initialized &&
         cookie_array_destructor_calls == 4 && array_deallocation_calls == 4;
     if (!existing_checks) return 100;
