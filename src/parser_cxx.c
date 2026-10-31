@@ -1918,6 +1918,7 @@ static Type* cxx_parser_expression_type(Expr* expression) {
 
         case EXPR_ADDR:
             left = cxx_parser_expression_type(expression->unary_operand);
+            left = type_remove_reference(left);
             return left ? type_ptr(left) : NULL;
 
         case EXPR_DEREF:

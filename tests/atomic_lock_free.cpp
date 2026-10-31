@@ -1091,3 +1091,7 @@ extern "C" unsigned cpp_standard_atomic_operations() {
         pointer_expected != pointer_values + 4) return 28u;
     return value.load();
 }
+
+extern "C" unsigned cpp_standard_atomic_operations_end() {
+    return 0u;
+}

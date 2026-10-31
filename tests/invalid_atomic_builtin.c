@@ -6,8 +6,8 @@ struct generic_atomic_aggregate {
     uint32_t guard;
 };
 
-void invalid_generic_aggregate(struct generic_atomic_aggregate* value,
-                               struct generic_atomic_aggregate* result) {
+void generic_aggregate_atomic_load(struct generic_atomic_aggregate* value,
+                                   struct generic_atomic_aggregate* result) {
     __atomic_load(value, result, __ATOMIC_ACQUIRE);
 }
 

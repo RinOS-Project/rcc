@@ -266,6 +266,9 @@ static void* atomic_minmax_worker(void* argument) {
 
 static void verify_cpp_standard_atomic(ObjectFile* object) {
     ObjSection* code;
+    ObjSymbol* operations_symbol;
+    ObjSymbol* operations_end_symbol;
+    ObjReloc* relocation;
     long page_size;
     size_t mapping_size;
     uint8_t* mapping;
@@ -277,7 +280,18 @@ static void verify_cpp_standard_atomic(ObjectFile* object) {
     assert(object->arch == ARCH_X86);
 #endif
     code = objfile_get_section(object, ".text");
-    assert(code != NULL && code->size > 0u && code->relocs == NULL);
+    assert(code != NULL && code->size > 0u);
+    operations_symbol = function_symbol(
+        object, "cpp_standard_atomic_operations");
+    operations_end_symbol = function_symbol(
+        object, "cpp_standard_atomic_operations_end");
+    assert(operations_symbol->section == operations_end_symbol->section);
+    assert(operations_end_symbol->value > operations_symbol->value);
+    for (relocation = code->relocs; relocation;
+         relocation = relocation->next) {
+        assert(relocation->offset < operations_symbol->value ||
+               relocation->offset >= operations_end_symbol->value);
+    }
     page_size = sysconf(_SC_PAGESIZE);
     assert(page_size > 0);
     mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /

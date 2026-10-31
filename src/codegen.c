@@ -18079,12 +18079,21 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
          strcmp(mnemonic, "popl") == 0) && op1 && !op2) {
         int reg;
         int width;
-        if (!asm_parse_register_width(op1, &reg, &width) || width != 4) {
-            return false;
+        if (asm_parse_register_width(op1, &reg, &width) && width == 4) {
+            emit_byte(mod, (uint8_t)((strcmp(mnemonic, "pushl") == 0
+                ? 0x50 : 0x58) + reg));
+            return true;
         }
-        emit_byte(mod, (uint8_t)((strcmp(mnemonic, "pushl") == 0
-            ? 0x50 : 0x58) + reg));
-        return true;
+        int base;
+        int32_t displacement;
+        if (asm_parse_x86_memory(op1, &base, &displacement)) {
+            emit_byte(mod, strcmp(mnemonic, "pushl") == 0 ? 0xFF : 0x8F);
+            asm_emit_x86_memory_modrm(
+                mod, strcmp(mnemonic, "pushl") == 0 ? 6 : 0,
+                base, displacement);
+            return true;
+        }
+        return false;
     }
 
     /* Common instructions used in syscall/interrupt context */

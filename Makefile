@@ -17743,7 +17743,7 @@ test-cxx-template-template-wide-mangling: $(RCXX_TARGET)
 test-cxx-trailing-return-noexcept: $(RCXX_TARGET)
 	$(call CXX_FRONTEND_ONLY_TEST,cxx-trailing-return-noexcept,cxx_trailing_return_noexcept.cpp)
 
-test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
+test-atomic-builtins: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) test-atomic-wait
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x86)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-x64)
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
@@ -17907,8 +17907,6 @@ endif
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_is_lock_free second argument must have pointer or null-pointer type" \
 		$(TEST_OUT)/atomic-x86/invalid.log
-	$(GREP) -F -q "__atomic_load requires a supported lock-free scalar object pointer" \
-		$(TEST_OUT)/atomic-x86/invalid.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x64/invalid-order.ro \
 		tests/invalid_atomic_order.c,$(TEST_OUT)/atomic-x64/invalid-order.log)
@@ -17937,6 +17935,41 @@ endif
 	$(GREP) -F -q "non-static member function 'read' requires an object" \
 		$(TEST_OUT)/atomic-cxx-x64/qualified-nonstatic.log
 	@echo "Dual-architecture integer/pointer atomic tests completed"
+
+.PHONY: test-atomic-wait
+test-atomic-wait: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/atomic-wait)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-wait/api-x86.ro tests/atomic_wait.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -c \
+		-o $(TEST_OUT)/atomic-wait/api-x86-o2.ro tests/atomic_wait.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/atomic-wait/api-x64.ro tests/atomic_wait.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -c \
+		-o $(TEST_OUT)/atomic-wait/api-x64-o2.ro tests/atomic_wait.cpp
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
+		-o $(TEST_OUT)/atomic-wait/runtime-x86.ro \
+		$(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include -c \
+		-o $(TEST_OUT)/atomic-wait/runtime-x64.ro \
+		$(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -DRCC_STDLIB_REFERENCE \
+		-fsyntax-only tests/atomic_wait.cpp
+	$(CC) -std=c11 -Wall -Wextra -Werror -Wno-unused-but-set-variable \
+		-DRIN_ATOMIC_WAIT_RUNTIME_TEST_HOOKS \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-I$(RINOS_SDK_ROOT)/include \
+		-c $(RINOS_ROOT)/public-base/libs/libc/atomic_runtime_fallback.c \
+		-o $(TEST_OUT)/atomic-wait/runtime-host.o
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pthread \
+		tests/atomic_wait_runtime_test.cpp \
+		$(TEST_OUT)/atomic-wait/runtime-host.o \
+		-o $(TEST_OUT)/atomic-wait/host-runtime$(EXE_SUFFIX)
+	$(TEST_OUT)/atomic-wait/host-runtime$(EXE_SUFFIX)
 
 test-atomic-language: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/atomic-language-x86)
