@@ -14021,6 +14021,7 @@ static bool gen_compiler_overflow_predicate32(Module* mod, Expr* expr,
     operation = strcmp(name, "__builtin_add_overflow_p") == 0 ? 0
         : strcmp(name, "__builtin_sub_overflow_p") == 0 ? 1 : 2;
 
+    gen_expr(mod, precision_expression);
     emit_mov_reg_imm(mod, EAX, result_type->is_unsigned ? 1u : 0u);
     emit_push_reg(mod, EAX); /* Result signedness. */
     emit_mov_reg_imm(mod, EAX, precision);

@@ -11288,6 +11288,7 @@ static RccIrLowerValue lower_builtin_overflow_p(
     RccIrLowerValue right_unsigned;
     RccIrLowerValue precision;
     RccIrLowerValue result_unsigned;
+    RccIrLowerValue ignored_third;
     RccIrInstruction* call;
     RccIrValue operands[7];
     unsigned result_precision;
@@ -11319,6 +11320,11 @@ static RccIrLowerValue lower_builtin_overflow_p(
         : strcmp(name, "__builtin_sub_overflow_p") == 0 ? 1u
         : strcmp(name, "__builtin_mul_overflow_p") == 0 ? 2u : UINT64_MAX;
     if (operation_value > 2u) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    ignored_third = lower_expression(context, third->expr);
+    if (!ignored_third.valid) {
         context->unsupported = true;
         return lower_invalid_value();
     }

@@ -1243,6 +1243,125 @@ static bool parser_overflow_p_value(
     return !parser_overflow_p_fits(exact, precision, result_unsigned);
 }
 
+static bool parser_overflow_p_argument_has_side_effect(
+    const Expr* expression) {
+    if (!expression) return false;
+    if (expression->cxx_move_assignment || expression->cxx_close_call ||
+        (expression->type && expression->type->cleanup_function)) {
+        return true;
+    }
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+        case EXPR_CXX_THIS:
+        case EXPR_CXX_TYPEID:
+        case EXPR_CXX_TYPE_TRAIT:
+            return false;
+        case EXPR_BUILTIN_TYPES_COMPAT:
+        case EXPR_BUILTIN_OFFSETOF:
+        case EXPR_CALL:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            return true;
+        case EXPR_IDENT:
+            return expression->type && expression->type->is_volatile;
+        case EXPR_POS:
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_CAST:
+            return parser_overflow_p_argument_has_side_effect(
+                expression->kind == EXPR_CAST ? expression->cast_expr
+                                                : expression->unary_operand);
+        case EXPR_DEREF:
+            return (expression->type && expression->type->is_volatile) ||
+                parser_overflow_p_argument_has_side_effect(
+                    expression->unary_operand);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return (expression->type && expression->type->is_volatile) ||
+                parser_overflow_p_argument_has_side_effect(
+                    expression->binary_lhs) ||
+                parser_overflow_p_argument_has_side_effect(
+                    expression->binary_rhs);
+        case EXPR_COND:
+            return parser_overflow_p_argument_has_side_effect(
+                       expression->cond_test) ||
+                parser_overflow_p_argument_has_side_effect(
+                       expression->cond_then) ||
+                parser_overflow_p_argument_has_side_effect(
+                       expression->cond_else);
+        case EXPR_INDEX:
+            return (expression->type && expression->type->is_volatile) ||
+                parser_overflow_p_argument_has_side_effect(
+                    expression->index_base) ||
+                parser_overflow_p_argument_has_side_effect(
+                    expression->index_expr);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return (expression->type && expression->type->is_volatile) ||
+                parser_overflow_p_argument_has_side_effect(
+                    expression->member_base);
+        case EXPR_COMPOUND:
+            for (const ExprList* item = expression->compound_init;
+                 item; item = item->next) {
+                if (parser_overflow_p_argument_has_side_effect(item->expr)) {
+                    return true;
+                }
+            }
+            return false;
+        case EXPR_GENERIC:
+        case EXPR_CXX_FOLD:
+            return true;
+        case EXPR_CXX_REQUIRES:
+            return false;
+    }
+    return true;
+}
+
 static bool eval_integer_constant_typed(Expr* expr,
                                         IntegerConstantValue* value) {
     IntegerConstantValue left;
@@ -1267,6 +1386,9 @@ static bool eval_integer_constant_typed(Expr* expr,
             Type* result_type;
             if (!name || !first || !first->expr || !second ||
                 !second->expr || !third || !third->expr || third->next) {
+                return false;
+            }
+            if (parser_overflow_p_argument_has_side_effect(third->expr)) {
                 return false;
             }
             if (strcmp(name, "__builtin_add_overflow_p") == 0) {
