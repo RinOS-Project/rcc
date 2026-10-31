@@ -1405,6 +1405,12 @@
         reference-member constructor/read/write regression passes i686/AMD64
         generation and execution at default optimization and `-O2` in
         `test-cxx-class-template-methods`.
+  - [x] Lower templated reference-member initialization and access through
+        typed SSA: pass reference constructor arguments as addresses, preserve
+        the referent address in the member slot, and dereference it for reads
+        and writes. `test-verified-cxx-reference-local` emits 30 functions
+        with zero fallback and executes generated `.ro` files on i686/AMD64 at
+        `-O0` and `-O2`.
   - [x] Preserve a named class xvalue through explicit `static_cast<T&&>` and
         cv-qualified virtual-base reference binding; apply the vbtable adjustment
         exactly once through local initialization and reference-parameter calls.

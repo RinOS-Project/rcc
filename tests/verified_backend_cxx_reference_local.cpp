@@ -15,6 +15,27 @@ int assign_lvalue_reference(int& value, int replacement) {
     return value;
 }
 
+template<class T>
+struct VerifiedTemplateReferenceMember {
+    T& value;
+
+    explicit VerifiedTemplateReferenceMember(T& source) noexcept
+        : value(source) {}
+
+    T read() const noexcept { return value; }
+    void write(T replacement) noexcept { value = replacement; }
+};
+
+int verified_template_reference_member_result() {
+    int value = 39;
+    VerifiedTemplateReferenceMember<int> reference(value);
+    if (reference.read() != 39 || value != 39) return 1;
+    reference.write(43);
+    if (reference.read() != 43) return 2;
+    if (value != 43) return 3;
+    return 0;
+}
+
 struct VerifiedBase {
     int* cleanup_order;
     int value;
@@ -245,6 +266,11 @@ int main() {
     int assigned = 45;
     if (assign_lvalue_reference(assigned, 47) != 47 || assigned != 47) {
         return 10;
+    }
+    int template_reference_result =
+        verified_template_reference_member_result();
+    if (template_reference_result != 0) {
+        return 11 + template_reference_result;
     }
     if (verified_body_constructor_result() != 41) {
         return 3;

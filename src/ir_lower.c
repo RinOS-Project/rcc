@@ -2887,8 +2887,14 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 expression->cxx_virtual_base_index,
                 expression->cxx_virtual_base_nested_adjustment);
         }
-        return lower_byte_offset_address(
-            context, base, (uint64_t)field->offset);
+        {
+            RccIrLowerValue address = lower_byte_offset_address(
+                context, base, (uint64_t)field->offset);
+            if (field->type->is_reference) {
+                return lower_load_address(context, address, field->type);
+            }
+            return address;
+        }
     }
     if (expression->kind == EXPR_CXX_MEMBER_PTR_DOT ||
         expression->kind == EXPR_CXX_MEMBER_PTR_ARROW) {
@@ -21892,8 +21898,7 @@ static bool lower_cxx_initialize_constructor_members(
                 return false;
             }
         } else if (!argument || argument->next ||
-                   !(source = argument->expr) ||
-                   initializer->value != source) {
+                   !(source = argument->expr)) {
             context->unsupported = true;
             return false;
         }
@@ -22055,8 +22060,12 @@ static bool lower_cxx_initialize_constructor_members(
         }
         source = initializer->is_default_member_initializer
             ? initializer->value : initializer->arguments->expr;
-        value = lower_expression(context, source);
-        value = lower_cast(context, value, field->type);
+        if (field->type->is_reference) {
+            value = lower_lvalue_address(context, source);
+        } else {
+            value = lower_expression(context, source);
+            value = lower_cast(context, value, field->type);
+        }
         if (!address.valid || !value.valid ||
             !lower_store_address(context, address, value)) {
             context->unsupported = true;
@@ -24839,7 +24848,10 @@ static bool lower_cxx_emit_constructor_call(
     parameter = constructor->parameters;
     argument = initializer->compound_init;
     while (parameter && argument) {
-        RccIrLowerValue value = lower_expression(context, argument->expr);
+        RccIrLowerValue value = parameter->type &&
+                parameter->type->is_reference
+            ? lower_lvalue_address(context, argument->expr)
+            : lower_expression(context, argument->expr);
         value = lower_cast(context, value, parameter->type);
         if (!value.valid || index >= operand_count) {
             rcc_free(operands);
