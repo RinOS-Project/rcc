@@ -683,6 +683,9 @@ test-cxx-virtual-base-constructor test-cxx-virtual-base-constructor-order
 .PHONY: test-cxx-if-constexpr test-cxx-if-constexpr-template \
 test-cxx-adl-multiple-namespaces test-cxx-adl-function-pointer-signatures \
 test-cxx-adl-function-pointer-signatures-posix \
+test-cxx-adl-function-template-candidates \
+test-cxx-adl-function-template-candidates-posix \
+test-cxx-adl-function-template-candidates-verified \
 test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace test-cxx-template-two-phase-adl \
 	test-cxx-template-two-phase-ordinary test-cxx-template-parameter-pack \
@@ -1167,6 +1170,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-if-constexpr-template \
 	test-cxx-adl-multiple-namespaces \
 	test-cxx-adl-function-pointer-signatures \
+	test-cxx-adl-function-template-candidates \
 	test-cxx-using-overload-namespaces \
 	test-cxx-template-two-phase-namespace \
 	test-cxx-template-two-phase-adl \
@@ -13199,6 +13203,41 @@ test-cxx-adl-function-pointer-signatures-posix: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-adl-function-pointer-signatures/gcc-host
 	$(call CXX_POSIX_ENTRY_TEST,cxx-adl-function-pointer-signatures,cxx_adl_function_pointer_signatures.cpp)
 	@echo "C++ function-pointer-signature ADL tests completed"
+
+ifeq ($(OS),Windows_NT)
+test-cxx-adl-function-template-candidates: $(RCXX_TARGET) test-cxx-adl-function-template-candidates-verified
+	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-function-template-candidates)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-adl-function-template-candidates/gcc-host.exe tests/cxx_adl_function_template_candidates.cpp
+	$(TEST_OUT)/cxx-adl-function-template-candidates/gcc-host.exe
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-adl-function-template-candidates,cxx_adl_function_template_candidates.cpp)
+	@echo "C++ function-template ADL candidate tests completed"
+else
+test-cxx-adl-function-template-candidates: test-cxx-adl-function-template-candidates-posix
+endif
+
+test-cxx-adl-function-template-candidates-posix: $(RCXX_TARGET) test-cxx-adl-function-template-candidates-verified
+	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-function-template-candidates)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -pedantic-errors -o $(TEST_OUT)/cxx-adl-function-template-candidates/gcc-host tests/cxx_adl_function_template_candidates.cpp
+	$(TEST_OUT)/cxx-adl-function-template-candidates/gcc-host
+	$(call CXX_POSIX_ENTRY_TEST,cxx-adl-function-template-candidates,cxx_adl_function_template_candidates.cpp)
+	@echo "C++ function-template ADL candidate tests completed"
+
+test-cxx-adl-function-template-candidates-verified: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-function-template-candidates)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-adl-function-template-candidates/verified-x86.ro \
+		tests/cxx_adl_function_template_candidates.cpp \
+		>$(TEST_OUT)/cxx-adl-function-template-candidates/verified-x86.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/cxx-adl-function-template-candidates/verified-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-adl-function-template-candidates/verified-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-adl-function-template-candidates/verified-x64.ro \
+		tests/cxx_adl_function_template_candidates.cpp \
+		>$(TEST_OUT)/cxx-adl-function-template-candidates/verified-x64.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/cxx-adl-function-template-candidates/verified-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-adl-function-template-candidates/verified-x64.log,0)
 
 test-cxx-adl-multiple-namespaces-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-adl-multiple-namespaces)
