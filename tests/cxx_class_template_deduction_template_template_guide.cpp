@@ -40,6 +40,16 @@ GuideOrderBox(T*) -> GuideOrderBox<GenericGuideChoice>;
 template <typename T>
 GuideOrderBox(const T*) -> GuideOrderBox<ConstGuideChoice>;
 
+template <typename Value>
+struct NonFinalGuidePackBox {
+    int marker;
+    Value value;
+};
+
+template <typename... Ignored, typename Value>
+NonFinalGuidePackBox(int, Ignored..., Value)
+    -> NonFinalGuidePackBox<Value>;
+
 template <template <typename> class Container>
 struct TemplateTemplateGuideBox {
     Container<int> value;
@@ -110,6 +120,9 @@ int main() {
     const int* order_source = nullptr;
     GuideOrderBox selected_order{order_source};
     GuideOrderBox<ConstGuideChoice>* exact_order = &selected_order;
+    NonFinalGuidePackBox selected_nonfinal_pack{1, 43};
+    NonFinalGuidePackBox<int>* exact_nonfinal_pack =
+        &selected_nonfinal_pack;
     TemplateTemplateMultiGuideBox multi{pair};
     TemplateTemplateMultiGuideBox<GuidePair, long, int>* exact_multi = &multi;
     TemplateTemplateNontypeGuideBox nontype{array};
@@ -121,6 +134,8 @@ int main() {
                    exact_defaulted->value.value == 19 &&
                    exact_pack_signature->value.value == 17 &&
                    exact_order->value == 2 &&
+                   exact_nonfinal_pack->marker == 1 &&
+                   exact_nonfinal_pack->value == 43 &&
                    exact_multi->value.first == 23 &&
                    exact_multi->value.second == 41 &&
                    exact_nontype->value.values[0] == 2 &&

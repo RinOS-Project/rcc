@@ -31347,7 +31347,7 @@ static Type* deduce_class_template_from_guides(
         for (DeclList* current = guide->parameters; current;
              current = current->next) {
             if (current->decl && current->decl->param_is_pack) {
-                if (guide_pack_parameter || current->next) {
+                if (guide_pack_parameter) {
                     viable = false;
                     break;
                 }
@@ -31391,7 +31391,16 @@ static Type* deduce_class_template_from_guides(
             }
         }
 
-        while (parameter && parameter != guide_pack_parameter) {
+        while (parameter &&
+               (parameter != guide_pack_parameter || parameter->next)) {
+            if (parameter == guide_pack_parameter) {
+                /* A non-final function parameter pack is a non-deduced
+                 * context. It consumes no call arguments during deduction;
+                 * later fixed parameters are matched from the current
+                 * argument position. */
+                parameter = parameter->next;
+                continue;
+            }
             Type* pattern = parameter->decl ? parameter->decl->type : NULL;
             if (!argument) {
                 if (!parameter->decl || !parameter->decl->param_default) {
@@ -31417,7 +31426,8 @@ static Type* deduce_class_template_from_guides(
             argument = argument->next;
             parameter = parameter->next;
         }
-        if (viable && guide_pack_parameter) {
+        if (viable && guide_pack_parameter &&
+            !guide_pack_parameter->next) {
             Type* pattern = guide_pack_parameter->decl
                 ? guide_pack_parameter->decl->type : NULL;
             Type** element_arguments = NULL;
