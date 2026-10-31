@@ -5941,25 +5941,112 @@ static void verify_inline_local_constant_instance(
         assert(value == expected_value);
         ++matches;
     }
+    if (matches != 1u) {
+        fprintf(stderr,
+                "inline local instance for origin %u has %u matches\n",
+                origin_offset, matches);
+    }
     assert(matches == 1u);
 }
 
+static const ObjReloc* find_debug_section_relocation(
+    const ObjSection* section, uint64_t offset) {
+    for (const ObjReloc* relocation = section ? section->relocs : NULL;
+         relocation; relocation = relocation->next) {
+        if (relocation->offset == offset) return relocation;
+    }
+    return NULL;
+}
+
+static bool verify_inline_lexical_block_range(
+    const ObjSection* info, const ObjSection* ranges,
+    const ObjSection* line, uint16_t architecture, uint32_t local_origin,
+    uint8_t local_abbreviation, const char* function_symbol,
+    uint64_t call_start, uint64_t call_end,
+    uint64_t* minimum_start, uint64_t* maximum_end) {
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    for (uint64_t die = 11u; die + 18u <= info->size; ++die) {
+        uint32_t range_offset;
+        uint32_t file_index;
+        uint64_t cursor;
+        bool found_range = false;
+        uint64_t block_start = UINT64_MAX;
+        uint64_t block_end = 0u;
+        if (info->data[die] != 25u) continue;
+        if (info->data[die + 17u] != local_abbreviation ||
+            read_u32(info->data, die + 18u) != local_origin) continue;
+        range_offset = read_u32(info->data, die + 1u);
+        file_index = read_u32(info->data, die + 5u);
+        if (file_index == 0u || !line_table_file_matches(
+                line, file_index, "tests/debug_info_inline_integer.cpp") ||
+            range_offset > ranges->size) {
+            continue;
+        }
+        cursor = range_offset;
+        while (cursor <= ranges->size &&
+               address_size * 2u <= ranges->size - cursor) {
+            const ObjReloc* start_relocation =
+                find_debug_section_relocation(ranges, cursor);
+            const ObjReloc* end_relocation =
+                find_debug_section_relocation(ranges,
+                                               cursor + address_size);
+            if (!start_relocation && !end_relocation) break;
+            assert(start_relocation && end_relocation);
+            assert(start_relocation->symbol_name &&
+                   end_relocation->symbol_name &&
+                   strcmp(start_relocation->symbol_name,
+                          function_symbol) == 0 &&
+                   strcmp(end_relocation->symbol_name,
+                          function_symbol) == 0);
+            assert(start_relocation->type ==
+                       (architecture == ARCH_X64 ? RELOC_ABS64
+                                                 : RELOC_ABS32U) &&
+                   end_relocation->type ==
+                       (architecture == ARCH_X64 ? RELOC_ABS64
+                                                 : RELOC_ABS32U));
+            assert(start_relocation->addend < end_relocation->addend);
+            assert((uint64_t)start_relocation->addend >= call_start &&
+                   (uint64_t)end_relocation->addend <= call_end);
+            if (!found_range ||
+                (uint64_t)start_relocation->addend < block_start) {
+                block_start = (uint64_t)start_relocation->addend;
+            }
+            if ((uint64_t)end_relocation->addend > block_end) {
+                block_end = (uint64_t)end_relocation->addend;
+            }
+            found_range = true;
+            cursor += address_size * 2u;
+        }
+        if (!found_range) continue;
+        *minimum_start = block_start;
+        *maximum_end = block_end;
+        return true;
+    }
+    return false;
+}
+
 static void verify_cxx_inline_nested_local_constants(
-    const char* path, uint16_t architecture) {
+    const char* path, uint16_t architecture,
+    bool expect_scoped_inline_ranges) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
     ObjSection* line;
+    ObjSection* ranges;
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint32_t positive_origin;
     uint32_t nested_origin;
     bool found_inline_call = false;
+    uint64_t inline_call_start = 0u;
+    uint64_t inline_call_end = 0u;
 
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
     line = objfile_get_section(object, ".debug_line");
-    assert(info != NULL && strings != NULL && line != NULL);
+    ranges = objfile_get_section(object, ".debug_ranges");
+    assert(info != NULL && strings != NULL && line != NULL &&
+           ranges != NULL);
     for (uint64_t die = 11u;
          die + 1u + 4u + address_size + 16u <= info->size; ++die) {
         uint32_t origin;
@@ -5990,6 +6077,10 @@ static void verify_cxx_inline_nested_local_constants(
             assert(relocation->symbol_name != NULL &&
                    strcmp(relocation->symbol_name,
                           "debug_inline_nested_const_local_entry") == 0);
+            assert(relocation->addend >= 0);
+            inline_call_start = (uint64_t)relocation->addend;
+            inline_call_end = inline_call_start + read_u32(
+                info->data, low_pc_offset + address_size);
             has_entry_relocation = true;
             break;
         }
@@ -6002,6 +6093,22 @@ static void verify_cxx_inline_nested_local_constants(
         info, strings, line, "debug_inline_nested_unsigned_constant");
     verify_inline_local_constant_instance(info, positive_origin, 60u, 17);
     verify_inline_local_constant_instance(info, nested_origin, 61u, 29);
+    if (expect_scoped_inline_ranges) {
+        uint64_t positive_start = 0u;
+        uint64_t positive_end = 0u;
+        uint64_t nested_start = 0u;
+        uint64_t nested_end = 0u;
+        assert(verify_inline_lexical_block_range(
+            info, ranges, line, architecture, positive_origin, 60u,
+            "debug_inline_nested_const_local_entry", inline_call_start,
+            inline_call_end, &positive_start, &positive_end));
+        assert(verify_inline_lexical_block_range(
+            info, ranges, line, architecture, nested_origin, 61u,
+            "debug_inline_nested_const_local_entry", inline_call_start,
+            inline_call_end, &nested_start, &nested_end));
+        assert(positive_start < nested_start &&
+               positive_end >= nested_end);
+    }
     objfile_free(object);
 }
 
@@ -6772,26 +6879,38 @@ static void verify_i686_aligned_frame_fde(const ObjSection* frame)
     assert(frame->data[instruction_offset++] == 0x08u);
     assert(frame->data[instruction_offset++] == 0x85u);
     assert(frame->data[instruction_offset++] == 2u);
-    /* After `and esp`, EBP and the return address temporarily live in EAX
-     * and EDX until the aligned stack copies complete at offset 21. */
-    assert(frame->data[instruction_offset++] == 0x4du);
+    /* ECX retains the original stack pointer as the CFA base while ESP is
+     * probed and aligned. */
+    assert(frame->data[instruction_offset++] == 0x42u);
     assert(frame->data[instruction_offset++] == 0x0cu);
-    assert(frame->data[instruction_offset++] == 0x04u);
+    assert(frame->data[instruction_offset++] == 0x01u);
     assert(frame->data[instruction_offset++] == 0x08u);
-    assert(frame->data[instruction_offset++] == 0x09u);
-    assert(frame->data[instruction_offset++] == 0x05u);
-    assert(frame->data[instruction_offset++] == 0x00u);
-    assert(frame->data[instruction_offset++] == 0x09u);
-    assert(frame->data[instruction_offset++] == 0x08u);
-    assert(frame->data[instruction_offset++] == 0x02u);
+    /* The caller's EBP and return address are copied below the CFA. */
     assert(frame->data[instruction_offset++] == 0x47u);
     assert(frame->data[instruction_offset++] == 0x85u);
-    assert(frame->data[instruction_offset++] == 0x02u);
-    assert(frame->data[instruction_offset++] == 0xc8u);
-    /* mov ebp,esp: use the stable aligned frame register thereafter. */
-    assert(frame->data[instruction_offset++] == 0x42u);
-    assert(frame->data[instruction_offset++] == 0x0du);
+    assert(frame->data[instruction_offset++] == 0x03u);
+    assert(frame->data[instruction_offset++] == 0x48u);
+    assert(frame->data[instruction_offset++] == 0x88u);
+    assert(frame->data[instruction_offset++] == 0x04u);
+    /* They move to EDX and EAX while ESP no longer identifies the CFA. */
+    /* Two 4 KiB stack probes add 18 bytes before the aligned copy. */
+    assert(frame->data[instruction_offset++] == 0x64u);
+    assert(frame->data[instruction_offset++] == 0x09u);
     assert(frame->data[instruction_offset++] == 0x05u);
+    assert(frame->data[instruction_offset++] == 0x02u);
+    assert(frame->data[instruction_offset++] == 0x43u);
+    assert(frame->data[instruction_offset++] == 0x09u);
+    assert(frame->data[instruction_offset++] == 0x08u);
+    assert(frame->data[instruction_offset++] == 0x00u);
+    /* After mov ebp,esp, unwind locations use the aligned frame slots. */
+    assert(frame->data[instruction_offset++] == 0x49u);
+    assert(frame->data[instruction_offset++] == 0x0cu);
+    assert(frame->data[instruction_offset++] == 0x05u);
+    assert(frame->data[instruction_offset++] == 0x08u);
+    assert(frame->data[instruction_offset++] == 0x85u);
+    assert(frame->data[instruction_offset++] == 0x02u);
+    assert(frame->data[instruction_offset++] == 0x88u);
+    assert(frame->data[instruction_offset++] == 0x01u);
     assert(contains_byte_pair(frame->data + instruction_offset,
                               instruction_end - instruction_offset,
                               0x0du, 0x04u));
@@ -18506,7 +18625,8 @@ int main(int argc, char** argv)
              path_index < sizeof(wide_paths) / sizeof(wide_paths[0]);
              ++path_index) {
             verify_cxx_inline_nested_local_constants(
-                wide_paths[path_index], wide_architectures[path_index]);
+                wide_paths[path_index], wide_architectures[path_index],
+                path_index < 2u);
         }
         verify_inline_integer_expression_cases(argv[2], ARCH_X86);
         verify_inline_integer_expression_cases(argv[3], ARCH_X64);

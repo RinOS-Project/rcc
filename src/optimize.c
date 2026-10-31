@@ -102,18 +102,116 @@ typedef struct InlineDebugOrigin {
     const ExprList* arguments;
 } InlineDebugOrigin;
 
+typedef struct InlineDebugScopeOrigin {
+    const Expr* expression;
+    const Decl* function;
+    const Stmt* scope;
+} InlineDebugScopeOrigin;
+
+typedef struct InlineDebugScopeStack {
+    const Stmt* scope;
+    const struct InlineDebugScopeStack* parent;
+} InlineDebugScopeStack;
+
 static const Decl* inline_debug_clone_owner;
 static const Decl* inline_debug_clone_caller;
 
 static InlineDebugOrigin* inline_debug_origins;
 static size_t inline_debug_origin_count;
 static size_t inline_debug_origin_capacity;
+static InlineDebugScopeOrigin* inline_debug_scope_origins;
+static size_t inline_debug_scope_origin_count;
+static size_t inline_debug_scope_origin_capacity;
 
 static void inline_debug_origins_clear(void) {
     rcc_free(inline_debug_origins);
     inline_debug_origins = NULL;
     inline_debug_origin_count = 0u;
     inline_debug_origin_capacity = 0u;
+    rcc_free(inline_debug_scope_origins);
+    inline_debug_scope_origins = NULL;
+    inline_debug_scope_origin_count = 0u;
+    inline_debug_scope_origin_capacity = 0u;
+}
+
+static void inline_debug_scope_origin_add(const Expr* expression,
+                                          const Decl* function,
+                                          const Stmt* scope) {
+    if (!expression || !function || !scope) return;
+    for (size_t index = 0u; index < inline_debug_scope_origin_count; ++index) {
+        const InlineDebugScopeOrigin* origin =
+            &inline_debug_scope_origins[index];
+        if (origin->expression == expression &&
+            origin->function == function && origin->scope == scope) {
+            return;
+        }
+    }
+    if (inline_debug_scope_origin_count ==
+        inline_debug_scope_origin_capacity) {
+        size_t next_capacity = inline_debug_scope_origin_capacity < 16u
+            ? 16u : inline_debug_scope_origin_capacity * 2u;
+        if (next_capacity < inline_debug_scope_origin_capacity ||
+            next_capacity > SIZE_MAX / sizeof(*inline_debug_scope_origins)) {
+            rcc_fatal("DWARF inline lexical-scope table is too large");
+        }
+        inline_debug_scope_origins = rcc_realloc(
+            inline_debug_scope_origins,
+            next_capacity * sizeof(*inline_debug_scope_origins));
+        inline_debug_scope_origin_capacity = next_capacity;
+    }
+    InlineDebugScopeOrigin* origin =
+        &inline_debug_scope_origins[inline_debug_scope_origin_count++];
+    origin->expression = expression;
+    origin->function = function;
+    origin->scope = scope;
+}
+
+static void inline_debug_scope_origins_add_chain(
+    const Expr* expression, const Decl* function,
+    const InlineDebugScopeStack* scopes) {
+    for (; scopes; scopes = scopes->parent) {
+        inline_debug_scope_origin_add(expression, function, scopes->scope);
+    }
+}
+
+static void inline_debug_scope_origins_copy_to_clone(const Expr* source,
+                                                     Expr* clone) {
+    size_t index = 0u;
+    if (!source || !clone || source == clone) return;
+    while (index < inline_debug_scope_origin_count) {
+        InlineDebugScopeOrigin origin = inline_debug_scope_origins[index++];
+        if (origin.expression == source) {
+            inline_debug_scope_origin_add(clone, origin.function,
+                                          origin.scope);
+        }
+    }
+}
+
+size_t rcc_optimize_inline_debug_scope_count(const Expr* expression) {
+    size_t count = 0u;
+    if (!expression) return 0u;
+    for (size_t index = 0u; index < inline_debug_scope_origin_count; ++index) {
+        if (inline_debug_scope_origins[index].expression == expression) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool rcc_optimize_inline_debug_scope(const Expr* expression, size_t ordinal,
+                                     const Decl** function,
+                                     const Stmt** scope) {
+    if (!expression || !function || !scope) return false;
+    for (size_t index = 0u; index < inline_debug_scope_origin_count; ++index) {
+        const InlineDebugScopeOrigin* origin =
+            &inline_debug_scope_origins[index];
+        if (origin->expression != expression) continue;
+        if (ordinal-- != 0u) continue;
+        *function = origin->function;
+        *scope = origin->scope;
+        return true;
+    }
+    return false;
 }
 
 static void inline_debug_origin_add(const Expr* expression,
@@ -163,6 +261,7 @@ static bool inline_debug_same_function(const Decl* left,
 
 static void inline_debug_origin_copy_to_clone(const Expr* source,
                                               Expr* clone) {
+    inline_debug_scope_origins_copy_to_clone(source, clone);
     if (!source || !clone || !inline_debug_clone_owner ||
         !inline_debug_clone_caller) {
         return;
@@ -1307,7 +1406,8 @@ static Expr* inline_scalar_debug_const_expression(const Decl* declaration) {
 static bool collect_inline_scalar_statement_list(
     const StmtList* item, InlineScalarOperation* operations,
     size_t* operation_count, const Expr** returned,
-    bool in_nested_block);
+    bool in_nested_block, const Decl* function,
+    const InlineDebugScopeStack* scopes);
 
 static bool inline_scalar_expression_takes_address(const Expr* expression) {
     if (!expression) return false;
@@ -1382,15 +1482,23 @@ static bool inline_scalar_expression_takes_address(const Expr* expression) {
 static bool collect_inline_scalar_statement_list(
     const StmtList* item, InlineScalarOperation* operations,
     size_t* operation_count, const Expr** returned,
-    bool in_nested_block) {
+    bool in_nested_block, const Decl* function,
+    const InlineDebugScopeStack* scopes) {
     if (!operations || !operation_count || !returned) return false;
     for (; item; item = item->next) {
         const Stmt* statement = item->stmt;
         if (!statement) return false;
         if (statement->kind == STMT_BLOCK) {
+            InlineDebugScopeStack nested_scope;
+            const InlineDebugScopeStack* child_scopes = scopes;
+            if (!statement->block_no_scope) {
+                nested_scope.scope = statement;
+                nested_scope.parent = scopes;
+                child_scopes = &nested_scope;
+            }
             if (!collect_inline_scalar_statement_list(
                     statement->block_stmts, operations, operation_count,
-                    returned, true)) {
+                    returned, true, function, child_scopes)) {
                 return false;
             }
             continue;
@@ -1442,6 +1550,10 @@ static bool collect_inline_scalar_statement_list(
                 *operation_count >= INLINE_SCALAR_BINDING_LIMIT) {
                 return false;
             }
+            if (g_opts.debug_info) {
+                inline_debug_scope_origins_add_chain(
+                    initializer, function, scopes);
+            }
             operations[*operation_count].kind =
                 INLINE_SCALAR_LOCAL_INITIALIZER;
             operations[*operation_count].declaration = declaration;
@@ -1477,6 +1589,12 @@ static bool collect_inline_scalar_statement_list(
                         declaration->type,
                         statement->expr->unary_operand->type)) {
                     return false;
+                }
+                if (g_opts.debug_info) {
+                    inline_debug_scope_origins_add_chain(
+                        statement->expr, function, scopes);
+                    inline_debug_scope_origins_add_chain(
+                        statement->expr->unary_operand, function, scopes);
                 }
                 operations[*operation_count].kind =
                     INLINE_SCALAR_LOCAL_INCREMENT;
@@ -1529,6 +1647,12 @@ static bool collect_inline_scalar_statement_list(
                 expression_has_side_effect(statement->expr->binary_rhs)) {
                 return false;
             }
+            if (g_opts.debug_info) {
+                inline_debug_scope_origins_add_chain(
+                    statement->expr, function, scopes);
+                inline_debug_scope_origins_add_chain(
+                    statement->expr->binary_rhs, function, scopes);
+            }
             operations[*operation_count].kind =
                 simple_assignment ? INLINE_SCALAR_LOCAL_ASSIGNMENT
                                   : INLINE_SCALAR_LOCAL_COMPOUND_ASSIGNMENT;
@@ -1544,11 +1668,19 @@ static bool collect_inline_scalar_statement_list(
              statement->kind == STMT_SWITCH) && *returned == NULL) {
             *returned = inline_scalar_return_tree(statement, 0u);
             if (!*returned) return false;
+            if (g_opts.debug_info) {
+                inline_debug_scope_origins_add_chain(
+                    *returned, function, scopes);
+            }
             continue;
         }
         if (statement->kind == STMT_RETURN) {
             if (*returned != NULL || !statement->return_val) return false;
             *returned = statement->return_val;
+            if (g_opts.debug_info) {
+                inline_debug_scope_origins_add_chain(
+                    statement->return_val, function, scopes);
+            }
             continue;
         }
         return false;
@@ -1558,7 +1690,8 @@ static bool collect_inline_scalar_statement_list(
 
 static bool collect_inline_scalar_body(
     const Stmt* body, InlineScalarOperation* operations,
-    size_t* operation_count, const Expr** returned) {
+    size_t* operation_count, const Expr** returned,
+    const Decl* function) {
     if (!operations || !operation_count || !returned || !body) {
         return false;
     }
@@ -1571,7 +1704,7 @@ static bool collect_inline_scalar_body(
     if (body->kind != STMT_BLOCK ||
         !collect_inline_scalar_statement_list(
             body->block_stmts, operations, operation_count, returned,
-            false)) {
+            false, function, NULL)) {
         return false;
     }
     return *returned != NULL;
@@ -3063,7 +3196,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         return false;
     }
     if (!collect_inline_scalar_body(function->func_body, operations,
-                                    &operation_count, &returned)) {
+                                    &operation_count, &returned, function)) {
         return false;
     }
     parameters = function->func_params;
@@ -3166,6 +3299,8 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             combined = expr_binary(binary_operator, previous_value, one,
                                    operation->expression->loc);
             combined->type = operation->declaration->type;
+            inline_debug_scope_origins_copy_to_clone(
+                operation->expression, combined);
             bindings[local_binding].argument = combined;
             bindings[local_binding].uses = 0u;
             continue;
@@ -3224,6 +3359,8 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             combined = expr_binary(binary_operator, previous_value, value,
                                    operation->expression->loc);
             combined->type = operation->declaration->type;
+            inline_debug_scope_origins_copy_to_clone(
+                operation->expression, combined);
             value = combined;
         }
         bindings[local_binding].argument = value;
@@ -3314,6 +3451,9 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                   optimize_inline_caller);
         if (!clone) return false;
         clone->type = expression->type;
+        if (g_opts.debug_info) {
+            inline_debug_scope_origins_copy_to_clone(returned, clone);
+        }
         inline_caller_budget_charge(optimize_inline_caller, expansion_cost);
         if (g_opts.debug_info) {
             inline_debug_origin_add(clone, optimize_inline_caller, function,

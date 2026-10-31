@@ -504,6 +504,7 @@ size_t module_begin_debug_inline_call(
     call->code_start = code_start;
     call->code_end = code_start;
     call->parent_index_plus_one = parent_index_plus_one;
+    call->lexical_scopes = NULL;
     return call_index;
 }
 
@@ -514,6 +515,56 @@ void module_end_debug_inline_call(Module* mod, size_t call_index,
         rcc_fatal("invalid DWARF inline-call range");
     }
     mod->debug_inline_calls[call_index].code_end = code_end;
+}
+
+void module_add_debug_inline_scope_range(Module* mod, const Decl* function,
+                                         const Stmt* scope,
+                                         uint32_t code_start,
+                                         uint32_t code_end) {
+    size_t active_plus_one;
+    if (!mod || !function || !scope || code_end <= code_start) return;
+    active_plus_one = mod->debug_inline_active_call_plus_one;
+    while (active_plus_one != 0u) {
+        size_t call_index = active_plus_one - 1u;
+        ModuleDebugInlineCall* call;
+        ModuleDebugInlineScope* entry;
+        if (call_index >= mod->debug_inline_call_count) break;
+        call = &mod->debug_inline_calls[call_index];
+        if (call->callee == function) {
+            for (entry = call->lexical_scopes; entry; entry = entry->next) {
+                if (entry->scope == scope) break;
+            }
+            if (!entry) {
+                entry = rcc_alloc(sizeof(*entry));
+                entry->scope = scope;
+                entry->code_ranges = NULL;
+                entry->next = call->lexical_scopes;
+                call->lexical_scopes = entry;
+            }
+            StmtDebugRange** insertion = &entry->code_ranges;
+            while (*insertion && (*insertion)->end < code_start) {
+                insertion = &(*insertion)->next;
+            }
+            if (!*insertion || (*insertion)->start > code_end) {
+                StmtDebugRange* range = rcc_alloc(sizeof(*range));
+                range->start = code_start;
+                range->end = code_end;
+                range->next = *insertion;
+                *insertion = range;
+            } else {
+                StmtDebugRange* range = *insertion;
+                if (code_start < range->start) range->start = code_start;
+                if (code_end > range->end) range->end = code_end;
+                while (range->next && range->next->start <= range->end) {
+                    StmtDebugRange* next = range->next;
+                    if (next->end > range->end) range->end = next->end;
+                    range->next = next->next;
+                    rcc_free(next);
+                }
+            }
+        }
+        active_plus_one = call->parent_index_plus_one;
+    }
 }
 
 void codegen_free(Module* mod) {
@@ -527,7 +578,20 @@ void codegen_free(Module* mod) {
         rcc_free((void*)mod->relocs_arr[index].symbol_name);
     }
     for (size_t index = 0u; index < mod->debug_inline_call_count; ++index) {
+        ModuleDebugInlineScope* scope =
+            mod->debug_inline_calls[index].lexical_scopes;
         rcc_free(mod->debug_inline_calls[index].parameter_values);
+        while (scope) {
+            ModuleDebugInlineScope* next_scope = scope->next;
+            StmtDebugRange* range = scope->code_ranges;
+            while (range) {
+                StmtDebugRange* next_range = range->next;
+                rcc_free(range);
+                range = next_range;
+            }
+            rcc_free(scope);
+            scope = next_scope;
+        }
     }
     while (mod->global_initializers) {
         GlobalInitializer* next = mod->global_initializers->next;
@@ -9693,6 +9757,25 @@ static void gen_shift_integer64_from_stack(Module* mod, Expr* lhs,
 /* i386 SysV returns 64-bit integer scalars in EDX:EAX.  Keep this separate
  * from the ordinary EAX expression path so an unsupported operation cannot
  * silently truncate its high word. */
+static void record_inline_debug_scope_ranges(Module* mod, Expr* expression,
+                                             uint32_t start, uint32_t end,
+                                             bool include_nested_scopes) {
+    size_t count;
+    if (!mod || !expression) return;
+    count = rcc_optimize_inline_debug_scope_count(expression);
+    if (count > 1u && !include_nested_scopes) return;
+    if (end <= start) return;
+    for (size_t index = 0u; index < count; ++index) {
+        const Decl* function = NULL;
+        const Stmt* scope = NULL;
+        if (rcc_optimize_inline_debug_scope(
+                expression, index, &function, &scope)) {
+            module_add_debug_inline_scope_range(
+                mod, function, scope, start, end);
+        }
+    }
+}
+
 static void gen_expr64_pair(Module* mod, Expr* expr) {
     const Decl* caller = NULL;
     const Decl* callee = NULL;
@@ -9702,6 +9785,9 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
     size_t parent_index_plus_one;
     size_t inline_call_index;
     uint32_t end;
+    uint32_t scope_start;
+    if (!expr) return;
+    scope_start = code_offset(mod);
     if (!g_opts.debug_info ||
         !rcc_optimize_inline_debug_info(expr, &caller, &callee,
                                         &call_location, &arguments)) {
@@ -9718,6 +9804,8 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
                 emit_sar_reg_imm(mod, EDX, shift);
             }
         }
+        record_inline_debug_scope_ranges(
+            mod, expr, scope_start, code_offset(mod), false);
         return;
     }
     start = code_offset(mod);
@@ -9743,6 +9831,7 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         }
     }
     end = code_offset(mod);
+    record_inline_debug_scope_ranges(mod, expr, scope_start, end, false);
     mod->debug_inline_active_call_plus_one = parent_index_plus_one;
     module_end_debug_inline_call(mod, inline_call_index, end);
 }
@@ -16004,7 +16093,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             }
             break;
 
-        case EXPR_ADD:
+        case EXPR_ADD: {
+            uint32_t operation_start;
             if (type_is_complex(expr->type)) {
                 gen_complex_binary32(mod, expr);
                 break;
@@ -16070,7 +16160,10 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                     emit_imul_reg_reg(mod, ECX, EDX);
                     emit_mov_reg_mem(mod, EAX, ESP,
                                      pointer_on_left ? 12 : 4);
+                    operation_start = code_offset(mod);
                     emit_add_reg_reg(mod, EAX, ECX);
+                    record_inline_debug_scope_ranges(
+                        mod, expr, operation_start, code_offset(mod), true);
                     emit_add_reg_imm(mod, ESP, 16);
                     break;
                 }
@@ -16092,8 +16185,12 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                     mod, EAX,
                     codegen_pointer_element_size(expr->binary_rhs->type));
             }
+            operation_start = code_offset(mod);
             emit_add_reg_reg(mod, EAX, ECX);
+            record_inline_debug_scope_ranges(
+                mod, expr, operation_start, code_offset(mod), true);
             break;
+        }
 
         case EXPR_SUB:
             if (type_is_complex(expr->type)) {
@@ -20410,7 +20507,9 @@ static void gen_expr(Module* mod, Expr* expr) {
     size_t parent_index_plus_one;
     size_t inline_call_index;
     uint32_t end;
+    uint32_t scope_start;
     if (!expr) return;
+    scope_start = code_offset(mod);
     if (expr && gen_is_integer64(expr->type)) {
         gen_expr64_pair(mod, expr);
         return;
@@ -20430,6 +20529,8 @@ static void gen_expr(Module* mod, Expr* expr) {
                 emit_sar_reg_imm(mod, EAX, shift);
             }
         }
+        record_inline_debug_scope_ranges(
+            mod, expr, scope_start, code_offset(mod), false);
         return;
     }
     start = code_offset(mod);
@@ -20454,6 +20555,7 @@ static void gen_expr(Module* mod, Expr* expr) {
         }
     }
     end = code_offset(mod);
+    record_inline_debug_scope_ranges(mod, expr, scope_start, end, false);
     mod->debug_inline_active_call_plus_one = parent_index_plus_one;
     module_end_debug_inline_call(mod, inline_call_index, end);
 }

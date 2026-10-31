@@ -16330,6 +16330,197 @@ static void debug_emit_inline_local_instances(
         function->func_body, debug_emit_inline_local_instance_decl, &context);
 }
 
+typedef struct {
+    ObjectFile* object;
+    ObjSection* info;
+    const char* const* files;
+    int file_count;
+    const Module* module;
+    const char* filename;
+    int info_section;
+    const ModuleSymbol* function_symbol;
+    const Decl* function;
+    DebugInlineLocalOrigin* local_origins;
+    const ModuleDebugInlineCall* call;
+    int architecture;
+} DebugInlineScopeEmissionContext;
+
+static const ModuleDebugInlineScope* debug_inline_scope_find(
+    const ModuleDebugInlineCall* call, const Stmt* scope) {
+    for (const ModuleDebugInlineScope* entry =
+             call ? call->lexical_scopes : NULL;
+         entry; entry = entry->next) {
+        if (entry->scope == scope) return entry;
+    }
+    return NULL;
+}
+
+static void debug_emit_inline_scope_tree_stmt(
+    DebugInlineScopeEmissionContext* context, const Stmt* statement,
+    const Stmt* current_scope, bool current_scope_emitted,
+    bool is_function_body) {
+    const StmtList* item;
+    if (!context || !statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK: {
+            const Stmt* nested_scope = current_scope;
+            bool nested_scope_emitted = current_scope_emitted;
+            bool emit_scope = false;
+            const ModuleDebugInlineScope* range = NULL;
+            Stmt scoped_statement;
+            if (!is_function_body && !statement->block_no_scope) {
+                nested_scope = statement;
+                range = debug_inline_scope_find(context->call, nested_scope);
+                nested_scope_emitted = range && range->code_ranges;
+                emit_scope = nested_scope_emitted;
+            }
+            if (emit_scope) {
+                StmtDebugRange* code_range = range->code_ranges;
+                scoped_statement = *statement;
+                scoped_statement.debug_code_ranges = code_range;
+                scoped_statement.debug_code_start = code_range->start;
+                scoped_statement.debug_code_end = code_range->end;
+                for (; code_range->next; code_range = code_range->next) {
+                    if (code_range->end > scoped_statement.debug_code_end) {
+                        scoped_statement.debug_code_end = code_range->end;
+                    }
+                }
+                debug_emit_lexical_block_die(
+                    context->object, context->info, context->files,
+                    context->file_count, context->module, context->filename,
+                    context->info_section, context->function_symbol,
+                    &scoped_statement, context->architecture);
+            }
+            for (item = statement->block_stmts; item; item = item->next) {
+                debug_emit_inline_scope_tree_stmt(
+                    context, item->stmt, nested_scope,
+                    nested_scope_emitted, false);
+            }
+            if (emit_scope) section_add_byte(context->info, 0u);
+            break;
+        }
+        case STMT_FOR: {
+            const ModuleDebugInlineScope* range =
+                debug_inline_scope_find(context->call, statement);
+            bool emit_scope = range && range->code_ranges;
+            if (emit_scope) {
+                Stmt scoped_statement = *statement;
+                StmtDebugRange* code_range = range->code_ranges;
+                scoped_statement.debug_code_ranges = code_range;
+                scoped_statement.debug_code_start = code_range->start;
+                scoped_statement.debug_code_end = code_range->end;
+                for (; code_range->next; code_range = code_range->next) {
+                    if (code_range->end > scoped_statement.debug_code_end) {
+                        scoped_statement.debug_code_end = code_range->end;
+                    }
+                }
+                debug_emit_lexical_block_die(
+                    context->object, context->info, context->files,
+                    context->file_count, context->module, context->filename,
+                    context->info_section, context->function_symbol,
+                    &scoped_statement, context->architecture);
+            }
+            debug_emit_inline_scope_tree_stmt(
+                context, statement->for_init,
+                statement,
+                emit_scope, false);
+            debug_emit_inline_scope_tree_stmt(
+                context, statement->for_body,
+                statement,
+                emit_scope, false);
+            if (emit_scope) section_add_byte(context->info, 0u);
+            break;
+        }
+        case STMT_DECL:
+            if (!current_scope || current_scope_emitted) {
+                debug_emit_inline_local_instance(
+                    context->info, context->local_origins,
+                    context->function, statement->decl);
+            }
+            break;
+        case STMT_IF:
+            debug_emit_inline_scope_tree_stmt(
+                context, statement->if_then, current_scope,
+                current_scope_emitted, false);
+            debug_emit_inline_scope_tree_stmt(
+                context, statement->if_else, current_scope,
+                current_scope_emitted, false);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            debug_emit_inline_scope_tree_stmt(
+                context, statement->while_body, current_scope,
+                current_scope_emitted, false);
+            break;
+        case STMT_SWITCH:
+            debug_emit_inline_scope_tree_stmt(
+                context, statement->switch_body, current_scope,
+                current_scope_emitted, false);
+            break;
+        case STMT_CASE:
+            debug_emit_inline_scope_tree_stmt(
+                context, statement->case_stmt, current_scope,
+                current_scope_emitted, false);
+            break;
+        case STMT_DEFAULT:
+            debug_emit_inline_scope_tree_stmt(
+                context, statement->default_stmt, current_scope,
+                current_scope_emitted, false);
+            break;
+        case STMT_LABEL:
+            debug_emit_inline_scope_tree_stmt(
+                context, statement->label_stmt, current_scope,
+                current_scope_emitted, false);
+            break;
+        case STMT_TRY:
+            debug_emit_inline_scope_tree_stmt(
+                context, statement->try_body, current_scope,
+                current_scope_emitted, false);
+            for (CxxCatch* handler = statement->try_catches;
+                 handler; handler = handler->next) {
+                if (handler->parameter &&
+                    (!current_scope || current_scope_emitted)) {
+                    debug_emit_inline_local_instance(
+                        context->info, context->local_origins,
+                        context->function, handler->parameter);
+                }
+                debug_emit_inline_scope_tree_stmt(
+                    context, handler->body, current_scope,
+                    current_scope_emitted, false);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void debug_emit_inline_scope_tree(
+    ObjectFile* object, ObjSection* info, const char* const* files,
+    int file_count,
+    const Module* module, const char* filename, int info_section,
+    const ModuleSymbol* function_symbol, const Decl* function,
+    DebugInlineLocalOrigin* local_origins,
+    const ModuleDebugInlineCall* call, int architecture) {
+    DebugInlineScopeEmissionContext context;
+    if (!object || !info || !function || !function->func_body || !call) {
+        return;
+    }
+    context.object = object;
+    context.info = info;
+    context.files = files;
+    context.file_count = file_count;
+    context.module = module;
+    context.filename = filename;
+    context.info_section = info_section;
+    context.function_symbol = function_symbol;
+    context.function = function;
+    context.local_origins = local_origins;
+    context.call = call;
+    context.architecture = architecture;
+    debug_emit_inline_scope_tree_stmt(
+        &context, function->func_body, NULL, true, true);
+}
+
 static void debug_emit_inline_call_tree(
     ObjectFile* obj, ObjSection* info, const char* const* files,
     int file_count, const char* filename, int info_section,
@@ -16391,11 +16582,19 @@ static void debug_emit_inline_call_tree(
     debug_line_u32(info, (uint32_t)call->call_location.line);
     debug_line_u32(info, (uint32_t)call->call_location.column);
 
-    debug_emit_inline_local_instances(info, local_origins, call->callee);
     debug_emit_inline_parameter_instances(
         obj, info, info_section, mod, filename,
         g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86,
         parameter_origins, call);
+    if (mod->debug_verified_backend) {
+        debug_emit_inline_local_instances(
+            info, local_origins, call->callee);
+    } else {
+        debug_emit_inline_scope_tree(
+            obj, info, files, file_count, mod, filename, info_section,
+            function, call->callee, local_origins, call,
+            g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86);
+    }
 
     for (child_index = 0u;
          child_index < mod->debug_inline_call_count; ++child_index) {
@@ -18028,20 +18227,79 @@ typedef enum DebugFramePrologueKind {
     DEBUG_FRAME_PROLOGUE_I686_ALIGNED
 } DebugFramePrologueKind;
 
+static bool debug_frame_i686_aligned_prologue_end(
+    const Module* mod, const ModuleSymbol* function, uint64_t* prologue_end) {
+    static const uint8_t prefix[] = {
+        0x55u,                         /* push ebp */
+        0x89u, 0xe1u,                 /* mov ecx,esp */
+        0x8bu, 0x04u, 0x24u,          /* mov eax,[esp] */
+        0x89u, 0x44u, 0x24u, 0xfcu,  /* mov [esp-4],eax */
+        0x8bu, 0x54u, 0x24u, 0x04u,   /* mov edx,[esp+4] */
+        0x89u, 0x54u, 0x24u, 0xf8u,  /* mov [esp-8],edx */
+        0xb8u, 0x00u, 0x00u, 0x00u, 0x00u /* mov eax,0 */
+    };
+    static const uint8_t stack_probe[] = {
+        0x81u, 0xecu, 0x00u, 0x10u, 0x00u, 0x00u, /* sub esp,4096 */
+        0x89u, 0x04u, 0x24u                     /* mov [esp],eax */
+    };
+    static const uint8_t align_prefix[] = {
+        0x89u, 0xc8u,             /* mov eax,ecx */
+        0x81u, 0xe0u              /* and eax,alignment mask */
+    };
+    static const uint8_t align_suffix[] = {
+        0x89u, 0xc4u,             /* mov esp,eax */
+        0x8bu, 0x51u, 0xfcu,      /* mov edx,[ecx-4] */
+        0x8bu, 0x41u, 0xf8u,      /* mov eax,[ecx-8] */
+        0x89u, 0x14u, 0x24u,      /* mov [esp],edx */
+        0x89u, 0x44u, 0x24u, 0x04u, /* mov [esp+4],eax */
+        0x89u, 0xe5u              /* mov ebp,esp */
+    };
+    uint64_t available;
+    uint64_t position;
+    uint32_t mask;
+    uint32_t alignment;
+
+    if (!mod || !function || function->offset > mod->code.size) return false;
+    available = mod->code.size - function->offset;
+    if (sizeof(prefix) > available ||
+        memcmp(mod->code.data + function->offset, prefix,
+               sizeof(prefix)) != 0) {
+        return false;
+    }
+    position = sizeof(prefix);
+    while (sizeof(stack_probe) <= available - position &&
+           memcmp(mod->code.data + function->offset + position,
+                  stack_probe, sizeof(stack_probe)) == 0) {
+        position += sizeof(stack_probe);
+    }
+    if (sizeof(align_prefix) + 4u + sizeof(align_suffix) >
+            available - position ||
+        memcmp(mod->code.data + function->offset + position,
+               align_prefix, sizeof(align_prefix)) != 0) {
+        return false;
+    }
+    mask = (uint32_t)mod->code.data[function->offset + position + 4u] |
+           ((uint32_t)mod->code.data[function->offset + position + 5u] << 8) |
+           ((uint32_t)mod->code.data[function->offset + position + 6u] << 16) |
+           ((uint32_t)mod->code.data[function->offset + position + 7u] << 24);
+    alignment = (~mask) + 1u;
+    if (alignment < 8u || (alignment & (alignment - 1u)) != 0u ||
+        memcmp(mod->code.data + function->offset + position +
+                   sizeof(align_prefix) + 4u,
+               align_suffix, sizeof(align_suffix)) != 0) {
+        return false;
+    }
+    position += sizeof(align_prefix) + 4u + sizeof(align_suffix);
+    if (position > debug_function_size(mod, function)) return false;
+    if (prologue_end) *prologue_end = position;
+    return true;
+}
+
 static DebugFramePrologueKind debug_frame_prologue_kind(
-    const Module* mod, const ModuleSymbol* function) {
+    const Module* mod, const ModuleSymbol* function,
+    uint64_t* prologue_after_frame_pointer) {
     static const uint8_t x86_prologue[] = {0x55u, 0x89u, 0xe5u};
     static const uint8_t x64_prologue[] = {0x55u, 0x48u, 0x89u, 0xe5u};
-    static const uint8_t i686_aligned_prefix[] = {
-        0x55u,                         /* push ebp */
-        0x8bu, 0x04u, 0x24u,          /* mov eax,[esp] */
-        0x8bu, 0x54u, 0x24u, 0x04u,   /* mov edx,[esp+4] */
-        0x81u, 0xe4u,                 /* and esp, immediate */
-        0x00u, 0x00u, 0x00u, 0x00u,   /* alignment mask */
-        0x89u, 0x04u, 0x24u,          /* mov [esp],eax */
-        0x89u, 0x54u, 0x24u, 0x04u,   /* mov [esp+4],edx */
-        0x89u, 0xe5u                  /* mov ebp,esp */
-    };
     const uint8_t* prologue = g_opts.target_arch == ARCH_X64
         ? x64_prologue : x86_prologue;
     size_t size = g_opts.target_arch == ARCH_X64
@@ -18050,23 +18308,15 @@ static DebugFramePrologueKind debug_frame_prologue_kind(
         return DEBUG_FRAME_PROLOGUE_NONE;
     }
     if (g_opts.target_arch == ARCH_X86 &&
-        sizeof(i686_aligned_prefix) <= mod->code.size - function->offset) {
-        const uint8_t* code = mod->code.data + function->offset;
-        if (memcmp(code, i686_aligned_prefix, 10u) == 0 &&
-            code[14] == i686_aligned_prefix[14] &&
-            code[15] == i686_aligned_prefix[15] &&
-            code[16] == i686_aligned_prefix[16] &&
-            code[17] == i686_aligned_prefix[17] &&
-            code[18] == i686_aligned_prefix[18] &&
-            code[19] == i686_aligned_prefix[19] &&
-            code[20] == i686_aligned_prefix[20] &&
-            code[21] == i686_aligned_prefix[21] &&
-            code[22] == i686_aligned_prefix[22]) {
-            return DEBUG_FRAME_PROLOGUE_I686_ALIGNED;
-        }
+        debug_frame_i686_aligned_prologue_end(
+            mod, function, prologue_after_frame_pointer)) {
+        return DEBUG_FRAME_PROLOGUE_I686_ALIGNED;
     }
     if (size <= mod->code.size - function->offset &&
         memcmp(mod->code.data + function->offset, prologue, size) == 0) {
+        if (prologue_after_frame_pointer) {
+            *prologue_after_frame_pointer = size;
+        }
         return DEBUG_FRAME_PROLOGUE_STANDARD;
     }
     return DEBUG_FRAME_PROLOGUE_NONE;
@@ -18114,7 +18364,7 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
     for (int index = 0; index < mod->symbol_count; ++index) {
         ModuleSymbol* symbol = &mod->symbols[index];
         if (!symbol->is_defined || symbol->section != MODULE_SYMBOL_CODE ||
-            debug_frame_prologue_kind(mod, symbol) ==
+            debug_frame_prologue_kind(mod, symbol, NULL) ==
                 DEBUG_FRAME_PROLOGUE_NONE) continue;
         functions[function_count++] = symbol;
     }
@@ -18175,15 +18425,9 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         uint64_t fde_offset = frame->size;
         uint64_t address_offset;
         uint32_t function_size = debug_function_size(mod, function);
+        uint64_t prologue_after_fp = 0u;
         DebugFramePrologueKind prologue_kind = debug_frame_prologue_kind(
-            mod, function);
-        /* The location after the complete `mov fp, sp` instruction is the
-         * first PC at which the frame register is the CFA base.  The x86
-         * instruction is two bytes (89 e5), while the x64 form is three
-         * bytes (48 89 e5). */
-        uint64_t prologue_after_fp = prologue_kind ==
-            DEBUG_FRAME_PROLOGUE_I686_ALIGNED ? 23u
-            : g_opts.target_arch == ARCH_X64 ? 4u : 3u;
+            mod, function, &prologue_after_fp);
         uint64_t after_leave = function_size >= 1u
             ? (uint64_t)function_size - 1u : 0u;
         uint64_t current_pc;
@@ -18219,29 +18463,47 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
          * words.  The CIE's return-address rule remains CFA - 1 word. */
         debug_line_uleb(frame, 2u);
         if (prologue_kind == DEBUG_FRAME_PROLOGUE_I686_ALIGNED) {
-            /* `and esp, mask` changes the stack base at PC 14, before the
-             * saved EBP and return address are copied to the aligned stack.
-             * During that window EAX and EDX hold those caller values, so
-             * describe them as register rules rather than stale stack slots. */
-            debug_frame_advance(frame, 13u);
+            uint64_t saved_ebp_register_pc = prologue_after_fp - 12u;
+            uint64_t saved_return_register_pc = prologue_after_fp - 9u;
+            /* ECX retains the pre-alignment stack pointer, so it remains a
+             * stable CFA base while ESP is probed and rounded down. */
+            debug_frame_advance(frame, 2u);
             section_add_byte(frame, 0x0cu); /* DW_CFA_def_cfa */
-            debug_line_uleb(frame, stack_register);
+            debug_line_uleb(frame, 1u);     /* ECX */
             debug_line_uleb(frame, pointer_size * 2u);
+            /* Preserve locations while the prologue copies the caller frame
+             * pointer and return address below the original stack pointer. */
+            debug_frame_advance(frame, 7u);
+            section_add_byte(frame,
+                             (uint8_t)(0x80u + frame_register));
+            debug_line_uleb(frame, 3u);
+            debug_frame_advance(frame, 8u);
+            section_add_byte(frame,
+                             (uint8_t)(0x80u + return_register));
+            debug_line_uleb(frame, 4u);
+            /* The aligned stack is independent of the original CFA.  Keep
+             * both values in registers until EBP points at the copied slots. */
+            debug_frame_advance(
+                frame, saved_ebp_register_pc - 18u);
             section_add_byte(frame, 0x09u); /* DW_CFA_register */
             debug_line_uleb(frame, frame_register);
-            debug_line_uleb(frame, 0u); /* saved EBP is in EAX */
+            debug_line_uleb(frame, 2u);     /* saved EBP is in EDX */
+            debug_frame_advance(
+                frame, saved_return_register_pc - saved_ebp_register_pc);
             section_add_byte(frame, 0x09u); /* DW_CFA_register */
             debug_line_uleb(frame, return_register);
-            debug_line_uleb(frame, 2u); /* return address is in EDX */
-            /* Both values are now in their aligned stack slots. */
-            debug_frame_advance(frame, 7u);
+            debug_line_uleb(frame, 0u);     /* return address is in EAX */
+            debug_frame_advance(
+                frame, prologue_after_fp - saved_return_register_pc);
+            section_add_byte(frame, 0x0cu); /* DW_CFA_def_cfa */
+            debug_line_uleb(frame, frame_register);
+            debug_line_uleb(frame, pointer_size * 2u);
             section_add_byte(frame,
                              (uint8_t)(0x80u + frame_register));
             debug_line_uleb(frame, 2u);
             section_add_byte(frame,
-                             (uint8_t)(0xc0u + return_register));
-            /* Establish EBP as the stable CFA base after mov ebp,esp. */
-            debug_frame_advance(frame, 2u);
+                             (uint8_t)(0x80u + return_register));
+            debug_line_uleb(frame, 1u);
         } else {
             /* mov fp, sp: subsequent locals use the stable frame register. */
             debug_frame_advance(frame, prologue_after_fp - 1u);

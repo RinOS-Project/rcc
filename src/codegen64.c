@@ -1225,6 +1225,9 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 
 static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_expr_impl(Module* mod, Expr* expr);
+static void gen64_record_inline_debug_scope_ranges(
+    Module* mod, Expr* expression, uint32_t start, uint32_t end,
+    bool include_nested_scopes);
 static void gen64_lvalue(Module* mod, Expr* expr);
 static void gen64_transfer_by_value_argument_cleanups64(
     Module* mod, ExprList* arguments);
@@ -10133,7 +10136,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             break;
 
-        case EXPR_ADD:
+        case EXPR_ADD: {
+            uint32_t operation_start;
             if (type_is_complex(expr->type)) {
                 gen64_complex_binary(mod, expr);
                 break;
@@ -10195,7 +10199,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     emit64_imul_reg_reg(mod, RCX, RDX);
                     emit64_mov_reg_mem(mod, RAX, RSP,
                                        pointer_on_left ? 24 : 8);
+                    operation_start = code_offset(mod);
                     emit64_add_reg_reg(mod, RAX, RCX);
+                    gen64_record_inline_debug_scope_ranges(
+                        mod, expr, operation_start, code_offset(mod), true);
                     emit64_add_reg_imm(mod, RSP, 32);
                     break;
                 }
@@ -10217,8 +10224,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     mod, RAX,
                     gen64_pointer_element_size(expr->binary_rhs->type));
             }
+            operation_start = code_offset(mod);
             emit64_add_reg_reg(mod, RAX, RCX);
+            gen64_record_inline_debug_scope_ranges(
+                mod, expr, operation_start, code_offset(mod), true);
             break;
+        }
 
         case EXPR_SUB:
             if (type_is_complex(expr->type)) {
@@ -12058,6 +12069,25 @@ static void gen64_normalize_bitint_value(Module* mod, const Type* type) {
     emit64_normalize_atomic_value(mod, RAX, type);
 }
 
+static void gen64_record_inline_debug_scope_ranges(
+    Module* mod, Expr* expression, uint32_t start, uint32_t end,
+    bool include_nested_scopes) {
+    size_t count;
+    if (!mod || !expression) return;
+    count = rcc_optimize_inline_debug_scope_count(expression);
+    if (count > 1u && !include_nested_scopes) return;
+    if (end <= start) return;
+    for (size_t index = 0u; index < count; ++index) {
+        const Decl* function = NULL;
+        const Stmt* scope = NULL;
+        if (rcc_optimize_inline_debug_scope(
+                expression, index, &function, &scope)) {
+            module_add_debug_inline_scope_range(
+                mod, function, scope, start, end);
+        }
+    }
+}
+
 static void gen64_expr(Module* mod, Expr* expr) {
     const Decl* caller = NULL;
     const Decl* callee = NULL;
@@ -12067,12 +12097,16 @@ static void gen64_expr(Module* mod, Expr* expr) {
     size_t parent_index_plus_one;
     size_t inline_call_index;
     uint32_t end;
+    uint32_t scope_start;
     if (!expr) return;
+    scope_start = code_offset(mod);
     if (!g_opts.debug_info ||
         !rcc_optimize_inline_debug_info(expr, &caller, &callee,
                                         &call_location, &arguments)) {
         gen64_expr_impl(mod, expr);
         gen64_normalize_bitint_value(mod, expr->type);
+        gen64_record_inline_debug_scope_ranges(
+            mod, expr, scope_start, code_offset(mod), false);
         return;
     }
     start = code_offset(mod);
@@ -12087,6 +12121,8 @@ static void gen64_expr(Module* mod, Expr* expr) {
     gen64_expr_impl(mod, expr);
     gen64_normalize_bitint_value(mod, expr->type);
     end = code_offset(mod);
+    gen64_record_inline_debug_scope_ranges(
+        mod, expr, scope_start, end, false);
     mod->debug_inline_active_call_plus_one = parent_index_plus_one;
     module_end_debug_inline_call(mod, inline_call_index, end);
 }

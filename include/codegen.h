@@ -100,6 +100,12 @@ typedef struct ModuleDebugInlineParameterValue {
     bool has_float_constant;
 } ModuleDebugInlineParameterValue;
 
+typedef struct ModuleDebugInlineScope {
+    const Stmt* scope;
+    StmtDebugRange* code_ranges;
+    struct ModuleDebugInlineScope* next;
+} ModuleDebugInlineScope;
+
 typedef struct ModuleDebugInlineCall {
     const Decl* caller;
     const Decl* callee;
@@ -110,6 +116,7 @@ typedef struct ModuleDebugInlineCall {
     uint32_t code_start;
     uint32_t code_end;
     size_t parent_index_plus_one;
+    ModuleDebugInlineScope* lexical_scopes;
 } ModuleDebugInlineCall;
 
 /* Module relocation entry (for object files) */
@@ -289,6 +296,10 @@ size_t module_begin_debug_inline_call(
     size_t parent_index_plus_one);
 void module_end_debug_inline_call(Module* mod, size_t call_index,
                                   uint32_t code_end);
+void module_add_debug_inline_scope_range(Module* mod, const Decl* function,
+                                         const Stmt* scope,
+                                         uint32_t code_start,
+                                         uint32_t code_end);
 
 /* Emit functions */
 void emit_byte(Module* mod, uint8_t b);
