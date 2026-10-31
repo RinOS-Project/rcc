@@ -267,6 +267,85 @@ static uint64_t linker_input_symbol_hash(const char* name)
     return hash;
 }
 
+typedef struct LinkerUndefinedRelocationReference {
+    const char* name;
+    bool retained_reference;
+} LinkerUndefinedRelocationReference;
+
+typedef struct LinkerUndefinedRelocationIndex {
+    LinkerUndefinedRelocationReference* slots;
+    size_t count;
+    size_t capacity;
+} LinkerUndefinedRelocationIndex;
+
+static LinkerUndefinedRelocationReference* linker_undefined_relocation_find(
+    const LinkerUndefinedRelocationIndex* index, const char* name)
+{
+    size_t bucket;
+    if (!index->capacity || !name) return NULL;
+    bucket = (size_t)linker_input_symbol_hash(name) &
+             (index->capacity - 1u);
+    while (index->slots[bucket].name != NULL) {
+        if (strcmp(index->slots[bucket].name, name) == 0)
+            return &index->slots[bucket];
+        bucket = (bucket + 1u) & (index->capacity - 1u);
+    }
+    return NULL;
+}
+
+static void linker_undefined_relocation_grow(
+    LinkerUndefinedRelocationIndex* index)
+{
+    size_t capacity = index->capacity ? index->capacity : 16u;
+    LinkerUndefinedRelocationReference* slots;
+    if (index->capacity) {
+        if (capacity > SIZE_MAX / 2u)
+            rcc_fatal("undefined relocation index is too large");
+        capacity *= 2u;
+    }
+    if (capacity > SIZE_MAX / sizeof(*slots))
+        rcc_fatal("undefined relocation index is too large");
+    slots = rcc_alloc(capacity * sizeof(*slots));
+    memset(slots, 0, capacity * sizeof(*slots));
+    for (size_t slot = 0u; slot < index->capacity; ++slot) {
+        LinkerUndefinedRelocationReference reference = index->slots[slot];
+        if (reference.name != NULL) {
+            size_t bucket =
+                (size_t)linker_input_symbol_hash(reference.name) &
+                (capacity - 1u);
+            while (slots[bucket].name != NULL)
+                bucket = (bucket + 1u) & (capacity - 1u);
+            slots[bucket] = reference;
+        }
+    }
+    rcc_free(index->slots);
+    index->slots = slots;
+    index->capacity = capacity;
+}
+
+static LinkerUndefinedRelocationReference* linker_undefined_relocation_add(
+    LinkerUndefinedRelocationIndex* index, const char* name)
+{
+    LinkerUndefinedRelocationReference* reference =
+        linker_undefined_relocation_find(index, name);
+    size_t bucket;
+    if (reference != NULL) return reference;
+    if (!name) rcc_fatal("relocation has no symbol name");
+    if (index->count == SIZE_MAX)
+        rcc_fatal("too many undefined relocation names");
+    if (!index->capacity ||
+        index->count + 1u > index->capacity - index->capacity / 4u)
+        linker_undefined_relocation_grow(index);
+    bucket = (size_t)linker_input_symbol_hash(name) &
+             (index->capacity - 1u);
+    while (index->slots[bucket].name != NULL)
+        bucket = (bucket + 1u) & (index->capacity - 1u);
+    index->slots[bucket].name = name;
+    index->slots[bucket].retained_reference = false;
+    ++index->count;
+    return &index->slots[bucket];
+}
+
 static size_t linker_input_symbol_find(const Linker* ld, const char* name)
 {
     size_t bucket;
@@ -1318,29 +1397,31 @@ bool linker_resolve_symbols(Linker* ld) {
 
     int unresolved = 0;
 
-    /* Check undefined symbols */
+    /* Build one relocation-name index per object. Undefined symbols are
+     * checked against all relocations in the object and need to distinguish
+     * discarded COMDAT references from retained references. */
     for (int obj_idx = 0; obj_idx < ld->object_count; obj_idx++) {
         ObjectFile* obj = ld->objects[obj_idx];
+        LinkerUndefinedRelocationIndex references = {0};
+
+        for (ObjSection* section = obj->sections; section;
+             section = section->next) {
+            for (ObjReloc* relocation = section->relocs; relocation;
+                 relocation = relocation->next) {
+                LinkerUndefinedRelocationReference* reference =
+                    linker_undefined_relocation_add(
+                        &references, relocation->symbol_name);
+                if (linker_section_selected(section))
+                    reference->retained_reference = true;
+            }
+        }
 
         for (ObjSymbol* sym = obj->symbols; sym; sym = sym->next) {
-            bool referenced = false;
-            bool retained_reference = false;
+            LinkerUndefinedRelocationReference* reference;
             if (sym->type != SYM_UNDEF) continue;
-
-            for (ObjSection* section = obj->sections; section;
-                 section = section->next) {
-                for (ObjReloc* relocation = section->relocs; relocation;
-                     relocation = relocation->next) {
-                    if (strcmp(relocation->symbol_name, sym->name) != 0) {
-                        continue;
-                    }
-                    referenced = true;
-                    if (linker_section_selected(section)) {
-                        retained_reference = true;
-                    }
-                }
-            }
-            if (referenced && !retained_reference) continue;
+            reference = linker_undefined_relocation_find(&references,
+                                                          sym->name);
+            if (reference != NULL && !reference->retained_reference) continue;
 
             /* Look for definition */
             GlobalSymbol* def = find_symbol(ld, sym->name);
@@ -1350,6 +1431,7 @@ bool linker_resolve_symbols(Linker* ld) {
                 unresolved++;
             }
         }
+        rcc_free(references.slots);
     }
 
     if (unresolved > 0) {
