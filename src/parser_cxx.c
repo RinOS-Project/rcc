@@ -29243,7 +29243,8 @@ static bool cxx_function_template_resolve_dependent_static_integer_members(
                   function_template, expression->call_func, arguments,
                   &member_name);
         if (owner && member_name) {
-            Decl* candidates[32] = { NULL };
+            Decl** candidates;
+            int candidate_capacity = 0;
             int candidate_count = 0;
             for (struct CxxMember* member = owner->members; member;
                  member = member->next) {
@@ -29254,13 +29255,36 @@ static bool cxx_function_template_resolve_dependent_static_integer_members(
                     strcmp(method->source_name, member_name) != 0) {
                     continue;
                 }
-                if (candidate_count >=
-                    (int)(sizeof(candidates) / sizeof(candidates[0]))) {
+                if (candidate_capacity == INT_MAX) {
+                    rcc_error(expression->loc,
+                              "too many dependent constexpr overload candidates");
                     return false;
+                }
+                ++candidate_capacity;
+            }
+            if (candidate_capacity == 0) return true;
+            if ((size_t)candidate_capacity >
+                SIZE_MAX / sizeof(*candidates)) {
+                rcc_error(expression->loc,
+                          "dependent constexpr overload set is too large");
+                return false;
+            }
+            candidates = cxx_allocate_zeroed_array(
+                sizeof(*candidates), (size_t)candidate_capacity);
+            if (!candidates) {
+                rcc_fatal("out of memory resolving dependent constexpr overloads");
+            }
+            for (struct CxxMember* member = owner->members; member;
+                 member = member->next) {
+                CxxMethod* method = member->method;
+                if (!member->is_static || member->access != ACCESS_PUBLIC ||
+                    !method || !method->is_constexpr || !method->decl ||
+                    method->member_template || !method->source_name ||
+                    strcmp(method->source_name, member_name) != 0) {
+                    continue;
                 }
                 candidates[candidate_count++] = method->decl;
             }
-            if (candidate_count == 0) return true;
             for (ExprList* argument = expression->call_args; argument;
                  argument = argument->next) {
                 if (!cxx_function_template_resolve_dependent_static_integer_members(
