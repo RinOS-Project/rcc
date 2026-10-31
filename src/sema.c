@@ -17017,8 +17017,12 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
 static void sema_resolve_cxx_constructor_initializers(
     CxxConstructorInfo* constructor, SourceLoc loc);
 
-static CxxConstructorInfo* sema_constructor_resolution_stack[64];
-static unsigned sema_constructor_resolution_depth;
+typedef struct SemaConstructorResolutionFrame {
+    CxxConstructorInfo* constructor;
+    struct SemaConstructorResolutionFrame* previous;
+} SemaConstructorResolutionFrame;
+
+static SemaConstructorResolutionFrame* sema_constructor_resolution_stack;
 
 static Decl* sema_cxx_constructor_parameter(
     CxxConstructorInfo* constructor, const char* name) {
@@ -20445,25 +20449,22 @@ static bool sema_cxx_has_viable_direct_constructor_signature(
 static void sema_resolve_cxx_constructor_initializers(
     CxxConstructorInfo* constructor, SourceLoc loc) {
     CxxClass* cls;
-    unsigned index;
+    SemaConstructorResolutionFrame* frame;
+    SemaConstructorResolutionFrame resolution_frame;
     if (!constructor || !constructor->method ||
         !constructor->method->owner || !constructor->method->owner->type) {
         return;
     }
-    for (index = 0; index < sema_constructor_resolution_depth; ++index) {
-        if (sema_constructor_resolution_stack[index] == constructor) {
+    for (frame = sema_constructor_resolution_stack; frame;
+         frame = frame->previous) {
+        if (frame->constructor == constructor) {
             rcc_error(loc, "cyclic C++ delegating constructor");
             return;
         }
     }
-    if (sema_constructor_resolution_depth >=
-        sizeof(sema_constructor_resolution_stack) /
-            sizeof(sema_constructor_resolution_stack[0])) {
-        rcc_error(loc, "C++ constructor delegation depth is unsupported");
-        return;
-    }
-    sema_constructor_resolution_stack[
-        sema_constructor_resolution_depth++] = constructor;
+    resolution_frame.constructor = constructor;
+    resolution_frame.previous = sema_constructor_resolution_stack;
+    sema_constructor_resolution_stack = &resolution_frame;
     cls = constructor->method->owner;
     for (CxxConstructorInitializer* initializer = constructor->initializers;
          initializer; initializer = initializer->next) {
@@ -20652,7 +20653,7 @@ static void sema_resolve_cxx_constructor_initializers(
             }
         }
     }
-    --sema_constructor_resolution_depth;
+    sema_constructor_resolution_stack = resolution_frame.previous;
 }
 
 /* Array new initializers are a sequence of element initializers, rather than
