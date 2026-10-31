@@ -946,6 +946,14 @@
       Windows `test-cxx` gate pass. Broader call/return ABI interactions still
       need systematic coverage; a direct thread-local class-prvalue reference
       has dedicated per-thread host coverage below.
+  - [x] Preserve the referred object's address when returning a volatile scalar
+        through an ordinary non-template `int&&` reference function. Scalar
+        return lowering now emits the lvalue address instead of loading the
+        referred value. GCC C++20 syntax checking and
+        `test-cxx-function-template-references` pass; the verified backend
+        emits both i686 and AMD64 objects with zero fallback, and both generated
+        objects pass alias-identity and mutation checks in
+        `test-verified-cxx-reference-return`.
   - [x] Reject non-template `int&` returns from prvalues and `int&&` returns
         from lvalues as hard C++ semantic errors; verify both cases, invalid
         reference initializers, and invalid ordinary calls for i686/AMD64.

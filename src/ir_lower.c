@@ -28320,9 +28320,17 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                 if (!return_instruction) return false;
                 rcc_ir_set_immediate(return_instruction, 8u);
             } else {
-                RccIrLowerValue result = lower_expression(
-                    context, statement->return_val);
-                if (!result.valid || !context->ast_return_type) return false;
+                RccIrLowerValue result =
+                    context->ast_return_type &&
+                            context->ast_return_type->is_reference
+                        ? lower_lvalue_address(
+                              context, statement->return_val)
+                        : lower_expression(context, statement->return_val);
+                if (!result.valid || !context->ast_return_type ||
+                    (context->ast_return_type->is_reference &&
+                     result.type.kind != RCC_IR_TYPE_POINTER)) {
+                    return false;
+                }
                 result = lower_cast(context, result,
                                     context->ast_return_type);
                 if (!result.valid) return false;

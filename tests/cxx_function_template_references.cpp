@@ -66,6 +66,10 @@ int&& return_rvalue_reference(int&& value) {
     return static_cast<int&&>(value);
 }
 
+volatile int&& return_volatile_rvalue_reference(volatile int&& value) {
+    return static_cast<volatile int&&>(value);
+}
+
 using UnaryFunctionReference = int(int);
 
 int triple_for_function_reference(int value) {
@@ -592,6 +596,13 @@ int main() {
             static_cast<int&&>(mutable_value));
     rvalue_result += 2;
     if (mutable_value != 12) return 7;
+    volatile int volatile_xvalue = 80;
+    volatile int&& volatile_rvalue_result =
+        return_volatile_rvalue_reference(
+            static_cast<volatile int&&>(volatile_xvalue));
+    if (&volatile_rvalue_result != &volatile_xvalue) return 22;
+    volatile_rvalue_result += 2;
+    if (volatile_xvalue != 82) return 23;
     UnaryFunctionReference& function_reference =
             forward_function_reference(triple_for_function_reference);
     if (function_reference(14) != 42) return 94;
