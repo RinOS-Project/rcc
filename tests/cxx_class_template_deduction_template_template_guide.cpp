@@ -9,6 +9,11 @@ struct GuidePair {
     Second second;
 };
 
+template <typename Value, int Count>
+struct GuideArray {
+    Value values[Count];
+};
+
 template <template <typename> class Container>
 struct TemplateTemplateGuideBox {
     Container<int> value;
@@ -29,6 +34,17 @@ template <template <typename, typename> class Container, typename First,
 TemplateTemplateMultiGuideBox(Container<First, Second>)
     -> TemplateTemplateMultiGuideBox<Container, First, Second>;
 
+template <template <typename, int> class Container, typename Value,
+          int Count>
+struct TemplateTemplateNontypeGuideBox {
+    Container<Value, Count> value;
+};
+
+template <template <typename, int> class Container, typename Value,
+          int Count>
+TemplateTemplateNontypeGuideBox(Container<Value, Count>)
+    -> TemplateTemplateNontypeGuideBox<Container, Value, Count>;
+
 template <template <typename> class... Containers>
 struct TemplateTemplatePackGuideBox {
     int marker;
@@ -43,15 +59,24 @@ TemplateTemplatePackGuideBox(int, Containers<int>...)
 int main() {
     GuideInner<int> source{17};
     GuidePair<long, int> pair{23, 41};
+    GuideArray<int, 3> array;
+    array.values[0] = 2;
+    array.values[1] = 3;
+    array.values[2] = 5;
     TemplateTemplateGuideBox value{source};
     TemplateTemplateGuideBox<GuideInner>* exact = &value;
     TemplateTemplateMultiGuideBox multi{pair};
     TemplateTemplateMultiGuideBox<GuidePair, long, int>* exact_multi = &multi;
+    TemplateTemplateNontypeGuideBox nontype{array};
+    TemplateTemplateNontypeGuideBox<GuideArray, int, 3>* exact_nontype =
+        &nontype;
     TemplateTemplatePackGuideBox pack{1, source, source};
     TemplateTemplatePackGuideBox<GuideInner, GuideInner>* exact_pack = &pack;
     return exact->value.value == 17 &&
                    exact_multi->value.first == 23 &&
                    exact_multi->value.second == 41 &&
+                   exact_nontype->value.values[0] == 2 &&
+                   exact_nontype->value.values[2] == 5 &&
                    exact_pack->first.value == 17 &&
                    exact_pack->second.value == 17
         ? 0 : 1;
