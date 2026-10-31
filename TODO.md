@@ -12334,6 +12334,14 @@ remains a separate open item.
         nonempty type and non-type packs; strict GCC C++20 and the full
         `test-cxx-function-template-overloads` gate pass on both target widths
         with runtime execution.
+  - [x] Preserve the separate ranges of an explicitly supplied type pack, an
+        intervening defaulted non-type parameter, and a later deduced non-type
+        pack. Expand folds from each pack's own range, give expanded function
+        parameters distinct bindings, and preserve the empty comma-fold void
+        identity. GCC C++20 and RCC agree on runtime results and exact Itanium
+        symbols; i686/AMD64 generation, verified-backend emission with zero
+        fallback, and no-match/no-object checks pass in the Windows overload
+        regression target.
 - [x] Keep `test-cxx-function-template-explicit-specialization` in
       `CXX_REGRESSION_TARGETS`; verify it is reached by `test-cxx` and the
       Linux production `test-ci` workflow, and that native-Windows `test-cxx`

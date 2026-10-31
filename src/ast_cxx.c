@@ -11046,13 +11046,25 @@ static void template_replace_pack_identifier(Expr* expression,
 static int template_clone_value_parameter_index(
     CxxTemplate* tmpl, const char* name, int argument_count,
     TemplateParam** result_parameter);
+static int template_function_parameter_index(
+    CxxTemplate* tmpl, const char* pack_name);
+
+static int template_pack_argument_name(
+    CxxTemplate* tmpl, const char* pack_name, int index,
+    char* output, size_t output_size) {
+    int parameter_index = template_function_parameter_index(tmpl, pack_name);
+    int written = parameter_index >= 0
+        ? snprintf(output, output_size, "__rcc_pack_arg_%d_%d",
+                   parameter_index, index)
+        : snprintf(output, output_size, "__rcc_pack_arg_%d", index);
+    return written >= 0 && (size_t)written < output_size ? written : -1;
+}
 
 static Expr* template_clone_pack_pattern(
     CxxTemplate* tmpl, Expr* pattern, const char* pack_name, int index,
     Type** args, int arg_count, const int64_t* value_args,
     const bool* value_present, TemplateParam* value_pack) {
     char name[64];
-    int written;
     Expr* copy;
     const int64_t* clone_value_args = value_args;
     const bool* clone_value_present = value_present;
@@ -11069,8 +11081,10 @@ static Expr* template_clone_pack_pattern(
     int saved_active_pack_expansion_index = 0;
     int saved_active_pack_expansion_count = 0;
     if (!pattern || !pack_name) return NULL;
-    written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
-    if (written < 0 || (size_t)written >= sizeof(name)) return NULL;
+    if (template_pack_argument_name(tmpl, pack_name, index,
+                                    name, sizeof(name)) < 0) {
+        return NULL;
+    }
     pack_parameters = template_pack_parameter_list(tmpl);
     for (DeclList* parameter = pack_parameters; parameter;
          parameter = parameter->next) {
@@ -11291,6 +11305,9 @@ Expr* cxx_template_clone_pack_expansion(
                                        value_present, NULL);
 }
 
+static int template_function_parameter_pack_index(
+    CxxTemplate* tmpl, const char* pack_name);
+
 static Expr* template_clone_pack_fold(
     CxxTemplate* tmpl, Expr* expression, Type** args, int arg_count,
     const int64_t* value_args, const bool* value_present) {
@@ -11377,6 +11394,13 @@ static Expr* template_clone_pack_fold(
     }
     pack_parameter_index = template_pending_pack_parameter_index(
         tmpl, pack_name);
+    if (pack_parameter_index < 0) {
+        /* A fold may name the function parameter (`values`) rather than its
+         * template pack (`Values`). Resolve that parameter's declared type
+         * back to its source pack so independent packs use their own range. */
+        pack_parameter_index = template_function_parameter_pack_index(
+            tmpl, pack_name);
+    }
     if (value_pack && tmpl->params) {
         int value_pack_index = (int)(value_pack - tmpl->params);
         if (value_pack_index >= 0 && value_pack_index < tmpl->param_count) {
@@ -11399,19 +11423,25 @@ static Expr* template_clone_pack_fold(
             result = expr_int(1, expression->loc);
         } else if (expression->cxx_fold_operator == EXPR_OR) {
             result = expr_int(0, expression->loc);
+        } else if (expression->cxx_fold_operator == EXPR_COMMA) {
+            result = expr_cast(type_void, expr_int(0, expression->loc),
+                               expression->loc);
         } else {
             rcc_error(expression->loc,
                       "empty C++ fold has no identity for this operator");
             return expression;
         }
-        result->type = type_int;
+        if (expression->cxx_fold_operator != EXPR_COMMA) {
+            result->type = type_int;
+        }
         return result;
     }
     if (expression->cxx_fold_left) {
         result = initializer;
         for (int index = 0; index < pack_length; ++index) {
             char name[64];
-            int written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
+            int written = template_pack_argument_name(
+                tmpl, pack_name, index, name, sizeof(name));
             Expr* item;
             int errors_before;
             if (written < 0 || (size_t)written >= sizeof(name)) {
@@ -11458,7 +11488,8 @@ static Expr* template_clone_pack_fold(
     result = initializer;
     for (int index = pack_length - 1; index >= 0; --index) {
         char name[64];
-        int written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
+        int written = template_pack_argument_name(
+            tmpl, pack_name, index, name, sizeof(name));
         Expr* item;
         int errors_before;
         if (written < 0 || (size_t)written >= sizeof(name)) {
@@ -11560,6 +11591,10 @@ static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
             }
             int pack_parameter_index =
                 template_pending_pack_parameter_index(tmpl, pack_name);
+            if (pack_parameter_index < 0) {
+                pack_parameter_index = template_function_parameter_pack_index(
+                    tmpl, pack_name);
+            }
             int pack_length = pack_parameter_index >= 0
                 ? template_pending_pack_length(tmpl, pack_parameter_index)
                 : tmpl->pending_pack_count;
@@ -11570,8 +11605,8 @@ static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
             }
             for (int index = 0; index < pack_length; ++index) {
                 char name[64];
-                int written = snprintf(name, sizeof(name),
-                                       "__rcc_pack_arg_%d", index);
+                int written = template_pack_argument_name(
+                    tmpl, pack_name, index, name, sizeof(name));
                 ExprList* copy;
                 if (written < 0 || (size_t)written >= sizeof(name)) {
                     rcc_error(list->expr->loc,
@@ -11640,6 +11675,20 @@ static int template_function_parameter_pack_index(
         if (pack_index >= 0 && pack_index < tmpl->param_count &&
             tmpl->params[pack_index].is_pack) {
             return pack_index;
+        }
+    }
+    return -1;
+}
+
+static int template_function_parameter_index(
+    CxxTemplate* tmpl, const char* pack_name) {
+    if (!tmpl || !pack_name) return -1;
+    for (DeclList* parameter = template_pack_parameter_list(tmpl);
+         parameter; parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->param_is_pack &&
+            parameter->decl->name &&
+            strcmp(parameter->decl->name, pack_name) == 0) {
+            return parameter->decl->param_index;
         }
     }
     return -1;
@@ -13892,9 +13941,9 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
                     char generated_name[64];
                     const char* parameter_name = NULL;
                     Type* parameter_type;
-                    int written = snprintf(generated_name,
-                                           sizeof(generated_name),
-                                           "__rcc_pack_arg_%d", pack_value);
+                    int written = template_pack_argument_name(
+                        tmpl, item->decl->name, pack_value,
+                        generated_name, sizeof(generated_name));
                     if (written < 0 || (size_t)written >= sizeof(generated_name)) {
                         rcc_error(item->decl->loc,
                                   "function template pack parameter name is too long");
