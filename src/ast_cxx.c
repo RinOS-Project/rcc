@@ -13151,16 +13151,24 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                         defer_expansion = true;
                         continue;
                     }
-                    if (tmpl->pending_pack_count > 32 ||
-                        destination_count >
-                            32 - tmpl->pending_pack_count) {
-                        rcc_error(expansion->loc,
-                                  "member template argument pack expansion "
-                                  "exceeds the supported argument limit");
-                        defer_expansion = true;
-                        continue;
+                    {
+                        int64_t expanded_count =
+                            (int64_t)destination_count +
+                            (int64_t)tmpl->pending_pack_count - 1;
+                        if (expanded_count < 0 || expanded_count > INT_MAX ||
+                            (uint64_t)expanded_count >
+                                (uint64_t)(SIZE_MAX /
+                                    sizeof(copy->member_template_arguments[0]))) {
+                            rcc_error(expansion->loc,
+                                      "member template argument pack "
+                                      "expansion "
+                                      "exceeds the representable argument "
+                                      "count");
+                            defer_expansion = true;
+                            continue;
+                        }
+                        destination_count = (int)expanded_count;
                     }
-                    destination_count += tmpl->pending_pack_count - 1;
                 }
                 if (expand_arguments && !defer_expansion) {
                     for (int index = 0; index < source_count; ++index) {
@@ -13210,6 +13218,14 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                     }
                 }
                 if (defer_expansion) destination_count = source_count;
+                if (destination_count > 0 &&
+                    (size_t)destination_count >
+                        SIZE_MAX / sizeof(copy->member_template_arguments[0])) {
+                    rcc_error(expression->loc,
+                              "member template argument list is too large");
+                    destination_count = source_count;
+                    defer_expansion = true;
+                }
                 copy->member_template_argument_count = destination_count;
                 copy->member_template_arguments = destination_count > 0
                     ? ast_arena_alloc(

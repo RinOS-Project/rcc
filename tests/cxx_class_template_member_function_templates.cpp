@@ -152,6 +152,16 @@ struct Box {
         return (0 + ... + Values);
     }
 
+    template<int... Values>
+    int count_expanded_member_arguments() const {
+        return this->template count_values<Values...>();
+    }
+
+    template<int... Values>
+    int count_values() const {
+        return sizeof...(Values);
+    }
+
     T echo_through_member(T other) const {
         return this->template echo<T>(other);
     }
@@ -252,6 +262,10 @@ int main() {
                    integers.count_tagged_type_size() == 0 &&
                    integers.add_constants<2, 3>() == 5 &&
                    integers.add_constants<>() == 0 &&
+                   integers.count_expanded_member_arguments<
+                       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+                       12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                       23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33>() == 33 &&
                    integers.identity(12L) == 12L &&
                    integers.add<short>(2) == 6 &&
                    integers.add_constant() == 6 &&
