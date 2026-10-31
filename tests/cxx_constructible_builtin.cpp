@@ -424,6 +424,23 @@ struct ConstrainedAssignmentOverload {
     ConstrainedAssignmentOverload& operator=(T&&) = delete;
 };
 
+template <typename T>
+concept AssignmentAtLeastIntSize = sizeof(T) >= sizeof(int);
+
+template <typename T>
+concept AssignmentDoubleSize =
+    AssignmentAtLeastIntSize<T> && sizeof(T) == sizeof(double);
+
+struct OrderedConstrainedAssignment {
+    template <typename T>
+        requires AssignmentAtLeastIntSize<T>
+    OrderedConstrainedAssignment& operator=(T&&) = delete;
+
+    template <typename T>
+        requires AssignmentDoubleSize<T>
+    OrderedConstrainedAssignment& operator=(T&&) { return *this; }
+};
+
 struct DeletedTemplateCopyAssignment {
     template <typename Marker>
     DeletedTemplateCopyAssignment& operator=(
@@ -465,6 +482,11 @@ static void check_unconstrained_forwarding_assignment(
 static void check_implicit_copy_beside_deleted_assignment_template(
     DeletedTemplateCopyAssignment& target,
     const DeletedTemplateCopyAssignment& source) {
+    target = source;
+}
+
+static void check_more_constrained_assignment_overload(
+    OrderedConstrainedAssignment& target, double source) {
     target = source;
 }
 
@@ -891,6 +913,10 @@ static_assert(__is_assignable(ConstrainedForwardingAssignment&, const double),
               "a satisfied forwarding assignment constraint accepts a const rvalue");
 static_assert(!__is_assignable(ConstrainedAssignmentOverload&, int),
               "an unsatisfied constraint leaves the deleted fallback selected");
+static_assert(__is_assignable(OrderedConstrainedAssignment&, double),
+              "the more-constrained assignment template wins over a deleted fallback");
+static_assert(!__is_assignable(OrderedConstrainedAssignment&, int),
+              "the less-constrained deleted assignment template remains selected");
 static_assert(__is_assignable(DeletedTemplateCopyAssignment&,
                               const DeletedTemplateCopyAssignment&),
               "a deleted assignment template does not suppress implicit copy assignment");
