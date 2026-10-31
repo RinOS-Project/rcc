@@ -35,8 +35,9 @@
 ## RCC continuation (2026-10-31, verified mutable inline-parameter gate)
 
 - [x] Make `test-debug-info-inline-expression` prove the mutable inline-
-  parameter location-list case runs through typed SSA on i686 and AMD64:
-  require two emitted functions and zero verified-backend fallback for both
+  parameter location-list cases run through typed SSA on i686 and AMD64:
+  cover signed and unsigned 32-bit by-value parameters updated with `+=`, and
+  require four emitted functions and zero verified-backend fallback for both
   objects before checking their DWARF locations. The focused test and full
   native-Windows `test-debug-info` gate pass.
 

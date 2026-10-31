@@ -6113,7 +6113,8 @@ static void verify_cxx_inline_nested_local_constants(
 }
 
 static void verify_cxx_inline_mutated_parameter_location(
-    const char* path, uint16_t architecture) {
+    const char* path, uint16_t architecture, const char* function_name,
+    const char* parameter_name, const char* entry_name) {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* strings;
@@ -6137,7 +6138,7 @@ static void verify_cxx_inline_mutated_parameter_location(
         name_offset = read_u32(info->data, die + 1u);
         if (name_offset < strings->size &&
             strcmp((const char*)strings->data + name_offset,
-                   "debug_inline_mutated_parameter") == 0) {
+                   function_name) == 0) {
             function_origin = (uint32_t)die;
             break;
         }
@@ -6155,8 +6156,7 @@ static void verify_cxx_inline_mutated_parameter_location(
              relocation; relocation = relocation->next) {
             if (relocation->offset != low_pc_offset) continue;
             assert(relocation->symbol_name != NULL &&
-                   strcmp(relocation->symbol_name,
-                          "debug_inline_mutated_parameter_entry") == 0);
+                   strcmp(relocation->symbol_name, entry_name) == 0);
             assert(relocation->addend >= 0);
             call_start = (uint64_t)relocation->addend;
             call_end = call_start + read_u32(
@@ -6172,7 +6172,7 @@ static void verify_cxx_inline_mutated_parameter_location(
         name_offset = read_u32(info->data, die + 1u);
         if (name_offset < strings->size &&
             strcmp((const char*)strings->data + name_offset,
-                   "mutable_parameter") == 0) {
+                   parameter_name) == 0) {
             parameter_origin = (uint32_t)die;
             break;
         }
@@ -6203,11 +6203,9 @@ static void verify_cxx_inline_mutated_parameter_location(
         }
         assert(start_relocation != NULL && end_relocation != NULL);
         assert(start_relocation->symbol_name != NULL &&
-               strcmp(start_relocation->symbol_name,
-                      "debug_inline_mutated_parameter_entry") == 0);
+               strcmp(start_relocation->symbol_name, entry_name) == 0);
         assert(end_relocation->symbol_name != NULL &&
-               strcmp(end_relocation->symbol_name,
-                      "debug_inline_mutated_parameter_entry") == 0);
+               strcmp(end_relocation->symbol_name, entry_name) == 0);
         assert(start_relocation->addend > (int64_t)call_start &&
                end_relocation->addend == (int64_t)call_end);
         cursor += address_size * 2u;
@@ -18641,8 +18639,20 @@ int main(int argc, char** argv)
     };
     if (argc == 4 &&
         strcmp(argv[1], "--verify-inline-mutated-parameter") == 0) {
-        verify_cxx_inline_mutated_parameter_location(argv[2], ARCH_X86);
-        verify_cxx_inline_mutated_parameter_location(argv[3], ARCH_X64);
+        verify_cxx_inline_mutated_parameter_location(
+            argv[2], ARCH_X86, "debug_inline_mutated_parameter",
+            "mutable_parameter", "debug_inline_mutated_parameter_entry");
+        verify_cxx_inline_mutated_parameter_location(
+            argv[3], ARCH_X64, "debug_inline_mutated_parameter",
+            "mutable_parameter", "debug_inline_mutated_parameter_entry");
+        verify_cxx_inline_mutated_parameter_location(
+            argv[2], ARCH_X86, "debug_inline_mutated_unsigned_parameter",
+            "unsigned_parameter",
+            "debug_inline_mutated_unsigned_parameter_entry");
+        verify_cxx_inline_mutated_parameter_location(
+            argv[3], ARCH_X64, "debug_inline_mutated_unsigned_parameter",
+            "unsigned_parameter",
+            "debug_inline_mutated_unsigned_parameter_entry");
         return 0;
     }
     if (argc == 10 &&
