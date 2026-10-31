@@ -28,6 +28,15 @@ template <template <typename> class Container>
 TemplateTemplateGuideBox(Container<int>) ->
     TemplateTemplateGuideBox<Container>;
 
+template <template <typename...> class Container>
+struct TemplateTemplatePackSignatureGuideBox {
+    Container<int> value;
+};
+
+template <template <typename...> class Container>
+TemplateTemplatePackSignatureGuideBox(Container<int>)
+    -> TemplateTemplatePackSignatureGuideBox<Container>;
+
 template <template <typename, typename> class Container, typename First,
           typename Second>
 struct TemplateTemplateMultiGuideBox {
@@ -74,6 +83,9 @@ int main() {
     TemplateTemplateGuideBox defaulted{default_source};
     TemplateTemplateGuideBox<GuideDefaultInner>* exact_defaulted =
         &defaulted;
+    TemplateTemplatePackSignatureGuideBox pack_signature{source};
+    TemplateTemplatePackSignatureGuideBox<GuideInner>* exact_pack_signature =
+        &pack_signature;
     TemplateTemplateMultiGuideBox multi{pair};
     TemplateTemplateMultiGuideBox<GuidePair, long, int>* exact_multi = &multi;
     TemplateTemplateNontypeGuideBox nontype{array};
@@ -83,6 +95,7 @@ int main() {
     TemplateTemplatePackGuideBox<GuideInner, GuideInner>* exact_pack = &pack;
     return exact->value.value == 17 &&
                    exact_defaulted->value.value == 19 &&
+                   exact_pack_signature->value.value == 17 &&
                    exact_multi->value.first == 23 &&
                    exact_multi->value.second == 41 &&
                    exact_nontype->value.values[0] == 2 &&

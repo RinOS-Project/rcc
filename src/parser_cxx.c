@@ -20714,11 +20714,22 @@ static bool template_template_parameter_signatures_match(
 
 static bool template_template_argument_parameter_lists_match(
     const CxxTemplate* expected, const CxxTemplate* actual) {
-    if (!expected || !actual ||
-        expected->param_count > actual->param_count) {
+    int pack_index = -1;
+    int fixed_count;
+    if (!expected || !actual) return false;
+    for (int index = 0; index < expected->param_count; ++index) {
+        if (!expected->params[index].is_pack) continue;
+        if (pack_index >= 0 || index != expected->param_count - 1) {
+            return false;
+        }
+        pack_index = index;
+    }
+    fixed_count = pack_index >= 0 ? pack_index : expected->param_count;
+    if (fixed_count > actual->param_count ||
+        (pack_index < 0 && expected->param_count > actual->param_count)) {
         return false;
     }
-    for (int index = 0; index < expected->param_count; ++index) {
+    for (int index = 0; index < fixed_count; ++index) {
         const TemplateParam* expected_parameter = &expected->params[index];
         const TemplateParam* actual_parameter = &actual->params[index];
         if (expected_parameter->kind != actual_parameter->kind ||
@@ -20737,6 +20748,26 @@ static bool template_template_argument_parameter_lists_match(
                 actual_parameter->template_signature)) {
             return false;
         }
+    }
+    if (pack_index >= 0) {
+        const TemplateParam* expected_pack = &expected->params[pack_index];
+        for (int index = fixed_count; index < actual->param_count; ++index) {
+            const TemplateParam* actual_parameter = &actual->params[index];
+            if (expected_pack->kind != actual_parameter->kind) return false;
+            if (expected_pack->kind == TPARAM_NONTYPE &&
+                (!expected_pack->type || !actual_parameter->type ||
+                 !type_is_compatible(expected_pack->type,
+                                     actual_parameter->type))) {
+                return false;
+            }
+            if (expected_pack->kind == TPARAM_TEMPLATE &&
+                !template_template_argument_parameter_lists_match(
+                    expected_pack->template_signature,
+                    actual_parameter->template_signature)) {
+                return false;
+            }
+        }
+        return true;
     }
     for (int index = expected->param_count;
          index < actual->param_count; ++index) {
