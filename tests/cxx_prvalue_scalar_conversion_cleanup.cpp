@@ -254,6 +254,11 @@ struct ExplicitCopyWideConstructorArgument {
     }
 };
 
+struct ExplicitCopyWideMemberSource {
+    ExplicitCopyWideConstructorArgument first;
+    ExplicitCopyWideConstructorArgument second;
+};
+
 struct ExplicitCopyWideConstructorArgumentReuse {
     long long from_initializer_first;
     long long from_initializer_second;
@@ -299,6 +304,11 @@ struct ExplicitMoveWideConstructorArgument {
         ++explicit_move_wide_destructor_evaluations;
         first = -1;
     }
+};
+
+struct ExplicitMoveWideMemberSource {
+    ExplicitMoveWideConstructorArgument first;
+    ExplicitMoveWideConstructorArgument second;
 };
 
 struct ExplicitMoveWideConstructorArgumentReuse {
@@ -637,6 +647,19 @@ int main() {
     explicit_copy_wide_constructor_evaluations = 0;
     explicit_copy_wide_destructor_evaluations = 0;
     {
+        ExplicitCopyWideMemberSource member_source = {
+            {2101, 2102, 2103}, {2201, 2202, 2203}};
+        int member_sum = explicit_copy_wide_parameter_sum(member_source.second);
+        if (member_sum != 6656 || member_source.first.first != 2101 ||
+            member_source.second.first != 2201 ||
+            explicit_copy_wide_constructor_evaluations != 1 ||
+            explicit_copy_wide_destructor_evaluations != 1) return 83;
+    }
+    if (explicit_copy_wide_destructor_evaluations != 3) return 84;
+
+    explicit_copy_wide_constructor_evaluations = 0;
+    explicit_copy_wide_destructor_evaluations = 0;
+    {
         int copied_prvalue_sum = explicit_copy_wide_parameter_sum(
             ExplicitCopyWideConstructorArgument(1001, 1002, 1003));
         if (copied_prvalue_sum != 3006 ||
@@ -722,6 +745,21 @@ int main() {
             explicit_move_wide_destructor_evaluations != 1) return 81;
     }
     if (explicit_move_wide_destructor_evaluations != 3) return 82;
+
+    explicit_move_wide_constructor_evaluations = 0;
+    explicit_move_wide_destructor_evaluations = 0;
+    {
+        ExplicitMoveWideMemberSource member_source = {
+            {2301, 2302, 2303}, {2401, 2402, 2403}};
+        int member_sum = explicit_move_wide_parameter_sum(
+            static_cast<ExplicitMoveWideConstructorArgument&&>(
+                member_source.second));
+        if (member_sum != 7276 || member_source.first.first != 2301 ||
+            member_source.second.first != -2 ||
+            explicit_move_wide_constructor_evaluations != 1 ||
+            explicit_move_wide_destructor_evaluations != 1) return 85;
+    }
+    if (explicit_move_wide_destructor_evaluations != 3) return 86;
 
     explicit_move_wide_constructor_evaluations = 0;
     explicit_move_wide_destructor_evaluations = 0;
