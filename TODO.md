@@ -12751,3 +12751,10 @@ remains a separate open item.
       GCC C++20とRCC AMD64 runtime、GCC/RCC i686・AMD64のItanium symbol一致、verified
       backend両target 19関数・fallback 0、不正型のno-match/no-object、およびWindows
       `test-cxx-function-template-overloads`通過を確認。
+
+# RCC continuation (2026-11-01, namespace prefix substitutions across scopes)
+- [x] 関数の所属namespaceと引数型のnamespaceが異なる場合、class/enum型の反復parameter
+      をfree functionとmember functionの双方でItanium ABIどおりにmangleする。
+      GCC/RCCの完全symbol一致（memberの`S2_`を含む）、i686/AMD64 assembly、host実行を
+      `test-cxx-adl-function-template-specialization`で確認し、変更後にWindows
+      `test-cxx-function-template-overloads`全体も通過。

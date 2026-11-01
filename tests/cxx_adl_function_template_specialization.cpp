@@ -75,6 +75,26 @@ int consume_nested_shades(NestedShade first, NestedShade second) {
 }  // namespace inner
 }  // namespace nested_adl
 
+namespace cross_namespace {
+
+int consume_foreign_types(nested_adl::inner::NestedToken token,
+                          nested_adl::inner::NestedShade shade) {
+    return token.value + static_cast<int>(shade);
+}
+
+struct ForeignSignatureConsumer {
+    int consume(nested_adl::inner::NestedToken token,
+                nested_adl::inner::NestedShade shade);
+};
+
+int ForeignSignatureConsumer::consume(
+    nested_adl::inner::NestedToken token,
+    nested_adl::inner::NestedShade shade) {
+    return token.value + static_cast<int>(shade);
+}
+
+}  // namespace cross_namespace
+
 int invoke_adl_function_template_specialization() {
     adl_function_template_specialization::Token token{5};
     return inspect(token);
@@ -113,13 +133,22 @@ int invoke_ordinary_nested_class_and_enum_functions() {
            nested_adl::inner::consume_nested_shades(shade, shade);
 }
 
+int invoke_foreign_namespace_types() {
+    nested_adl::inner::NestedToken token{2};
+    const auto shade = nested_adl::inner::NestedShade::Green;
+    cross_namespace::ForeignSignatureConsumer consumer;
+    return cross_namespace::consume_foreign_types(token, shade) +
+           consumer.consume(token, shade);
+}
+
 int main() {
     return invoke_adl_function_template_specialization() == 12 &&
                    invoke_adl_enum_function_template_specialization() == 32 &&
                    invoke_ordinary_namespaced_class_and_enum_functions() == 15 &&
                    invoke_nested_adl_function_template_specialization() == 24 &&
                    invoke_nested_adl_enum_function_template_specialization() == 34 &&
-                   invoke_ordinary_nested_class_and_enum_functions() == 15
+                   invoke_ordinary_nested_class_and_enum_functions() == 15 &&
+                   invoke_foreign_namespace_types() == 14
         ? 0
         : 1;
 }

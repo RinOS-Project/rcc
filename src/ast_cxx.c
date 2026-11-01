@@ -503,6 +503,9 @@ typedef struct CxxMangleContext {
     size_t class_type_index_base;
     size_t class_name_depth;
     CxxNamespace* namespace_scope;
+    CxxNamespace** namespace_substitutions;
+    size_t* namespace_substitution_indices;
+    size_t namespace_substitution_count;
     CxxTemplate** template_names;
     size_t* template_name_indices;
     size_t template_name_count;
@@ -520,6 +523,14 @@ static void mangle_class_name_context(char* buf, size_t* pos, CxxClass* cls,
 static size_t cxx_mangle_find_class_substitution(
     const CxxMangleContext* context, Type* type);
 static size_t cxx_mangle_next_substitution_index(CxxMangleContext* context);
+static size_t cxx_mangle_find_namespace_substitution(
+    const CxxMangleContext* context, CxxNamespace* ns);
+static void cxx_mangle_record_namespace_substitution(
+    CxxMangleContext* context, CxxNamespace* ns);
+static void cxx_mangle_seed_namespace_substitutions(
+    CxxMangleContext* context, CxxNamespace* ns);
+static bool cxx_mangle_namespace_prefix_append(
+    char* buf, size_t* pos, CxxNamespace* ns, CxxMangleContext* context);
 static void cxx_mangle_append_substitution(char* buf, size_t* pos,
                                            size_t index);
 static void mangle_template_argument_name_context(
@@ -530,8 +541,7 @@ static void cxx_mangle_record_class_type(CxxMangleContext* context,
 static void cxx_mangle_enum_name(char* buf, size_t* pos, Type* type,
                                  CxxMangleContext* context) {
     const char* namespace_name;
-    size_t namespace_count = 0u;
-    bool namespace_substitution = false;
+    CxxNamespace* enum_namespace;
     if (!type || !type->enum_tag || type->enum_tag[0] == '\0') {
         rcc_fatal("C++ anonymous enum cannot be mangled as a type");
     }
@@ -540,37 +550,29 @@ static void cxx_mangle_enum_name(char* buf, size_t* pos, Type* type,
         mangle_name(buf, pos, type->enum_tag);
         return;
     }
-    if (context && context->namespace_scope) {
-        const char* scope_name = cxx_namespace_qualified_name(
-            context->namespace_scope);
-        if (scope_name && strcmp(scope_name, namespace_name) == 0) {
-            for (CxxNamespace* current = context->namespace_scope;
-                 current && current->name; current = current->parent) {
-                ++namespace_count;
-            }
-            namespace_substitution = namespace_count > 0u;
-        }
+    enum_namespace = cxx_namespace_find(cxx_namespace_global(),
+                                        namespace_name);
+    if (enum_namespace && cxx_mangle_namespace_prefix_append(
+                              buf, pos, enum_namespace, context)) {
+        mangle_name(buf, pos, type->enum_tag);
+        cxx_mangle_type_char(buf, pos, 'E');
+        return;
     }
     cxx_mangle_type_char(buf, pos, 'N');
-    if (namespace_substitution) {
-        cxx_mangle_append_substitution(buf, pos, namespace_count - 1u);
-    } else {
-        while (*namespace_name) {
-            const char* separator = strstr(namespace_name, "::");
-            size_t component_length = separator
-                ? (size_t)(separator - namespace_name) : strlen(namespace_name);
-            char* component;
-            if (component_length == 0u) {
-                rcc_fatal(
-                    "C++ enum namespace component is invalid for mangling");
-            }
-            component = rcc_alloc(component_length + 1u);
-            memcpy(component, namespace_name, component_length);
-            component[component_length] = '\0';
-            mangle_name(buf, pos, component);
-            if (!separator) break;
-            namespace_name = separator + 2;
+    while (*namespace_name) {
+        const char* separator = strstr(namespace_name, "::");
+        size_t component_length = separator
+            ? (size_t)(separator - namespace_name) : strlen(namespace_name);
+        char* component;
+        if (component_length == 0u) {
+            rcc_fatal("C++ enum namespace component is invalid for mangling");
         }
+        component = rcc_alloc(component_length + 1u);
+        memcpy(component, namespace_name, component_length);
+        component[component_length] = '\0';
+        mangle_name(buf, pos, component);
+        if (!separator) break;
+        namespace_name = separator + 2;
     }
     mangle_name(buf, pos, type->enum_tag);
     cxx_mangle_type_char(buf, pos, 'E');
@@ -2081,6 +2083,103 @@ static void cxx_mangle_append_substitution(char* buf, size_t* pos,
     cxx_mangle_type_char(buf, pos, '_');
 }
 
+static size_t cxx_mangle_find_namespace_substitution(
+    const CxxMangleContext* context, CxxNamespace* ns) {
+    if (!context || !ns) return (size_t)-1;
+    for (size_t index = 0u; index < context->namespace_substitution_count;
+         ++index) {
+        if (context->namespace_substitutions[index] == ns) {
+            return context->namespace_substitution_indices[index];
+        }
+    }
+    return (size_t)-1;
+}
+
+static void cxx_mangle_record_namespace_substitution(
+    CxxMangleContext* context, CxxNamespace* ns) {
+    size_t count;
+    if (!context || !ns || ns->name == NULL ||
+        cxx_mangle_find_namespace_substitution(context, ns) != (size_t)-1) {
+        return;
+    }
+    count = context->namespace_substitution_count;
+    context->namespace_substitutions = ast_arena_grow(
+        context->namespace_substitutions,
+        sizeof(context->namespace_substitutions[0]) * count,
+        sizeof(context->namespace_substitutions[0]) * (count + 1u));
+    context->namespace_substitution_indices = ast_arena_grow(
+        context->namespace_substitution_indices,
+        sizeof(context->namespace_substitution_indices[0]) * count,
+        sizeof(context->namespace_substitution_indices[0]) * (count + 1u));
+    context->namespace_substitutions[count] = ns;
+    context->namespace_substitution_indices[count] =
+        cxx_mangle_next_substitution_index(context);
+    ++context->namespace_substitution_count;
+}
+
+static void cxx_mangle_seed_namespace_substitutions(
+    CxxMangleContext* context, CxxNamespace* ns) {
+    size_t count = 0u;
+    CxxNamespace** stack;
+    if (!context || !ns || context->namespace_substitution_count != 0u) {
+        return;
+    }
+    stack = cxx_collect_namespace_components(ns, false, &count);
+    if (count == 0u) return;
+    context->namespace_substitutions = ast_arena_grow(
+        context->namespace_substitutions, 0u,
+        sizeof(context->namespace_substitutions[0]) * count);
+    context->namespace_substitution_indices = ast_arena_grow(
+        context->namespace_substitution_indices, 0u,
+        sizeof(context->namespace_substitution_indices[0]) * count);
+    for (size_t index = count; index > 0u; --index) {
+        size_t slot = count - index;
+        context->namespace_substitutions[slot] = stack[index - 1u];
+        context->namespace_substitution_indices[slot] = slot;
+    }
+    context->namespace_substitution_count = count;
+}
+
+static bool cxx_mangle_namespace_prefix_append(
+    char* buf, size_t* pos, CxxNamespace* ns, CxxMangleContext* context) {
+    size_t count = 0u;
+    size_t matched_stack_index = (size_t)-1;
+    size_t matched_substitution = (size_t)-1;
+    CxxNamespace** stack = cxx_collect_namespace_components(
+        ns, false, &count);
+    if (count == 0u) return false;
+    for (CxxNamespace* current = ns; current && current->name;
+         current = current->parent) {
+        matched_substitution = cxx_mangle_find_namespace_substitution(
+            context, current);
+        if (matched_substitution != (size_t)-1) {
+            for (size_t index = 0u; index < count; ++index) {
+                if (stack[index] == current) {
+                    matched_stack_index = index;
+                    break;
+                }
+            }
+            break;
+        }
+    }
+    cxx_mangle_type_char(buf, pos, 'N');
+    if (matched_stack_index != (size_t)-1) {
+        cxx_mangle_append_substitution(buf, pos, matched_substitution);
+        for (size_t index = matched_stack_index; index > 0u; --index) {
+            CxxNamespace* component = stack[index - 1u];
+            mangle_name(buf, pos, component->name);
+            cxx_mangle_record_namespace_substitution(context, component);
+        }
+    } else {
+        for (size_t index = count; index > 0u; --index) {
+            CxxNamespace* component = stack[index - 1u];
+            mangle_name(buf, pos, component->name);
+            cxx_mangle_record_namespace_substitution(context, component);
+        }
+    }
+    return true;
+}
+
 static void cxx_mangle_record_class_type(CxxMangleContext* context,
                                          Type* type) {
     if (!context || !type ||
@@ -2428,26 +2527,9 @@ static void cxx_mangle_type_append_context(
                 }
                 if (type->cxx_class) {
                     CxxNamespace* class_namespace = type->cxx_class->ns;
-                    size_t namespace_count = 0u;
-                    CxxNamespace** namespace_stack =
-                        cxx_collect_namespace_components(
-                            class_namespace, false, &namespace_count);
-                    if (namespace_count > 0u) {
-                        cxx_mangle_type_char(buf, pos, 'N');
-                        if (context && context->namespace_scope ==
-                                          class_namespace) {
-                            /* Namespace prefixes are substitution candidates
-                             * in order, starting with S_ for the outermost. */
-                            cxx_mangle_append_substitution(
-                                buf, pos, namespace_count - 1u);
-                        } else {
-                            for (size_t index = namespace_count;
-                                 index > 0u; --index) {
-                                mangle_name(buf, pos,
-                                            namespace_stack[index - 1u]->name);
-                            }
-                        }
-                    }
+                    bool has_namespace =
+                        cxx_mangle_namespace_prefix_append(
+                            buf, pos, class_namespace, context);
                     if (context && context->class_name_depth > 0u) {
                         mangle_class_name_context(
                             buf, pos, type->cxx_class, context);
@@ -2457,32 +2539,41 @@ static void cxx_mangle_type_append_context(
                         mangle_class_name_context(
                             buf, pos, type->cxx_class, &class_context);
                     }
-                    if (namespace_count > 0u) {
+                    if (has_namespace) {
                         cxx_mangle_type_char(buf, pos, 'E');
                     }
                 } else if (type->cxx_namespace &&
                            type->cxx_namespace[0] != '\0') {
-                    const char* namespace_name = type->cxx_namespace;
-                    cxx_mangle_type_char(buf, pos, 'N');
-                    while (*namespace_name) {
-                        const char* separator = strstr(namespace_name, "::");
-                        size_t component_length = separator
-                            ? (size_t)(separator - namespace_name)
-                            : strlen(namespace_name);
-                        char* component;
-                        if (component_length == 0u) {
-                            rcc_fatal(
-                                "C++ class namespace component is invalid for mangling");
+                    CxxNamespace* class_namespace = cxx_namespace_find(
+                        cxx_namespace_global(), type->cxx_namespace);
+                    if (class_namespace &&
+                        cxx_mangle_namespace_prefix_append(
+                            buf, pos, class_namespace, context)) {
+                        mangle_name(buf, pos, type->tag);
+                        cxx_mangle_type_char(buf, pos, 'E');
+                    } else {
+                        const char* namespace_name = type->cxx_namespace;
+                        cxx_mangle_type_char(buf, pos, 'N');
+                        while (*namespace_name) {
+                            const char* separator = strstr(namespace_name, "::");
+                            size_t component_length = separator
+                                ? (size_t)(separator - namespace_name)
+                                : strlen(namespace_name);
+                            char* component;
+                            if (component_length == 0u) {
+                                rcc_fatal(
+                                    "C++ class namespace component is invalid for mangling");
+                            }
+                            component = rcc_alloc(component_length + 1u);
+                            memcpy(component, namespace_name, component_length);
+                            component[component_length] = '\0';
+                            mangle_name(buf, pos, component);
+                            if (!separator) break;
+                            namespace_name = separator + 2;
                         }
-                        component = rcc_alloc(component_length + 1u);
-                        memcpy(component, namespace_name, component_length);
-                        component[component_length] = '\0';
-                        mangle_name(buf, pos, component);
-                        if (!separator) break;
-                        namespace_name = separator + 2;
+                        mangle_name(buf, pos, type->tag);
+                        cxx_mangle_type_char(buf, pos, 'E');
                     }
-                    mangle_name(buf, pos, type->tag);
-                    cxx_mangle_type_char(buf, pos, 'E');
                 } else {
                     mangle_name(buf, pos, type->tag);
                 }
@@ -2629,14 +2720,14 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     if (mangle_context.namespace_scope == g_global_namespace) {
         mangle_context.namespace_scope = NULL;
     }
-    if (!cls) {
-        /* Namespace prefixes precede function parameter types in the
-         * substitution table. Reserve them before recording a repeated type. */
-        for (CxxNamespace* current = mangle_context.namespace_scope;
-             current && current->name; current = current->parent) {
-            ++mangle_context.class_type_index_base;
-        }
+    /* Namespace prefixes precede class and parameter type substitutions in
+     * both free and member function names. */
+    for (CxxNamespace* current = mangle_context.namespace_scope;
+         current && current->name; current = current->parent) {
+        ++mangle_context.class_type_index_base;
     }
+    cxx_mangle_seed_namespace_substitutions(
+        &mangle_context, mangle_context.namespace_scope);
 
     if (func && cls && func->func_is_cxx_method && func->type) {
         is_const_method = func->type->is_const;
@@ -3882,6 +3973,8 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     template_argument_context.class_type_index_base =
         cxx_mangle_free_template_substitution_base(mangling_namespace);
     template_argument_context.namespace_scope = mangling_namespace;
+    cxx_mangle_seed_namespace_substitutions(
+        &template_argument_context, mangling_namespace);
     encode_member_signature = tmpl->member_method &&
         (!func->name || strcmp(func->name, "operator conversion") != 0);
     if ((encode_member_signature || !tmpl->member_method) &&
@@ -4168,6 +4261,8 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
     argument_context.class_type_index_base =
         cxx_mangle_free_template_substitution_base(mangling_namespace);
     argument_context.namespace_scope = mangling_namespace;
+    cxx_mangle_seed_namespace_substitutions(
+        &argument_context, mangling_namespace);
     base = cxx_mangle_name(variable->name, ns, NULL);
     if (!base || strlen(base) + 2u >= sizeof(buf)) {
         rcc_fatal("C++ variable template name is too long");
