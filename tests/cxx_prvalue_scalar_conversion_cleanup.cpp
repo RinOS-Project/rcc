@@ -15,6 +15,7 @@ static int premature_argument_source_destructions;
 static int wide_aggregate_first_evaluations;
 static int wide_aggregate_second_evaluations;
 static int wide_aggregate_third_evaluations;
+static int wide_comma_effect_evaluations;
 static int wide_selected_factory_evaluations;
 static int wide_alternate_factory_evaluations;
 
@@ -140,6 +141,11 @@ static WideConstructorArgument
 make_alternate_wide_constructor_argument() {
     ++wide_alternate_factory_evaluations;
     return WideConstructorArgument{111, 222, 333};
+}
+
+static int record_wide_comma_effect() {
+    ++wide_comma_effect_evaluations;
+    return 0;
 }
 
 struct NestedWideConstructorArgument {
@@ -397,6 +403,17 @@ int main() {
         wide_selected_factory_evaluations != 1 ||
         wide_alternate_factory_evaluations != 1 ||
         argument_evaluations != 4) return 56;
+
+    wide_comma_effect_evaluations = 0;
+    wide_selected_factory_evaluations = 0;
+    WideConstructorArgumentReuse comma_wide_reused(
+        (record_wide_comma_effect(), make_wide_constructor_argument()));
+    if (comma_wide_reused.from_initializer_first != 11 ||
+        comma_wide_reused.from_initializer_second != 22 ||
+        comma_wide_reused.from_body_third != 33 ||
+        comma_wide_reused.from_body_sum != 66 ||
+        wide_comma_effect_evaluations != 1 ||
+        wide_selected_factory_evaluations != 1) return 57;
 
     return 0;
 }

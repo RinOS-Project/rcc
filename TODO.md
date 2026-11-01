@@ -13028,11 +13028,12 @@ remains a separate open item.
       i686/AMD64 object generation with zero fallback pass in
       `test-cxx-prvalue-scalar-conversion-cleanup`.
 - [x] Pass 24-byte trivial aggregate results from either arm of a conditional
-      expression into a constructor parameter, including AMD64 sret results.
-      Verify condition and selected factory execute once and each arm produces
-      the expected member values. GCC C++20, i686/AMD64 legacy generation and
-      AMD64 runtime, and verified i686/AMD64 objects with zero fallback pass in
-      `test-cxx-prvalue-scalar-conversion-cleanup`.
+      expression, and from the right side of a comma expression, into a
+      constructor parameter, including AMD64 sret results. Verify conditions,
+      comma side effects, and selected factories execute once and each result
+      produces the expected member values. GCC C++20, i686/AMD64 legacy
+      generation and AMD64 runtime, and verified i686/AMD64 objects with zero
+      fallback pass in `test-cxx-prvalue-scalar-conversion-cleanup`.
       Other aggregate parameter expressions and nontrivial aggregates remain in
       the open typed-SSA aggregate item.
 - [x] Preserve aliases when caching lvalue and xvalue arguments passed to C++
