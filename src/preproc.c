@@ -226,6 +226,24 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__LONG_LONG_MAX__", "9223372036854775807LL");
     pp_define(pp, "__DBL_MIN__",
               "((double)2.22507385850720138309023271733240406e-308L)");
+    /* RinOS keeps long double distinct in the type system but uses the
+     * binary64 representation and calling convention on both x86 targets.
+     * Publish the ABI properties consumed by libc++ codecs and headers. */
+    pp_define(pp, "__SIZEOF_LONG_DOUBLE__", "8");
+    pp_define(pp, "__LDBL_MANT_DIG__", "53");
+    pp_define(pp, "__LDBL_DIG__", "15");
+    pp_define(pp, "__LDBL_MIN_EXP__", "(-1021)");
+    pp_define(pp, "__LDBL_MAX_EXP__", "1024");
+    pp_define(pp, "__LDBL_MIN_10_EXP__", "(-307)");
+    pp_define(pp, "__LDBL_MAX_10_EXP__", "308");
+    pp_define(pp, "__LDBL_MIN__", "2.2250738585072014e-308L");
+    pp_define(pp, "__LDBL_MAX__", "1.7976931348623157e+308L");
+    pp_define(pp, "__LDBL_EPSILON__", "2.2204460492503131e-16L");
+    pp_define(pp, "__LDBL_DENORM_MIN__", "4.9406564584124654e-324L");
+    pp_define(pp, "__LDBL_IS_IEC_60559__", "1");
+    pp_define(pp, "__LDBL_HAS_INFINITY__", "1");
+    pp_define(pp, "__LDBL_HAS_QUIET_NAN__", "1");
+    pp_define(pp, "__LDBL_HAS_DENORM__", "1");
     pp_define(pp, "__INT8_MAX__", "127");
     pp_define(pp, "__UINT8_MAX__", "255");
     pp_define(pp, "__INT16_MAX__", "32767");
