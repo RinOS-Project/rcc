@@ -43,6 +43,20 @@ struct InitializerListRange {
         : empty(values.begin() == values.end()) {}
 };
 
+struct EmptyListDefaultChoice {
+    int selected;
+
+    EmptyListDefaultChoice() : selected(2) {}
+    EmptyListDefaultChoice(std::initializer_list<int>) : selected(1) {}
+};
+
+struct EmptyListDefaultArgumentChoice {
+    int selected;
+
+    EmptyListDefaultArgumentChoice(int input = 3) : selected(input) {}
+    EmptyListDefaultArgumentChoice(std::initializer_list<int>) : selected(1) {}
+};
+
 int choose_overload(std::initializer_list<int>) {
     return 1;
 }
@@ -57,6 +71,14 @@ int choose_element_type(std::initializer_list<int>) {
 
 int choose_element_type(std::initializer_list<long>) {
     return 4;
+}
+
+int choose_empty_list_over_scalar(std::initializer_list<int> values) {
+    return values.size() == 0 ? 1 : -1;
+}
+
+int choose_empty_list_over_scalar(int) {
+    return 2;
 }
 
 template <typename T>
@@ -149,6 +171,7 @@ static int test_empty_initializer_list_argument(void) {
 static int test_initializer_list_preference(void) {
     int function_choice = choose_overload({5, 6});
     int element_choice = choose_element_type({9, 10});
+    int empty_list_function_choice = choose_empty_list_over_scalar({});
     int template_element_size = template_list_element_size({11, 12});
     TemplatedConstructorChoice templated_choice{13, 14};
     TemplatePairChoice template_pair_choice{15, 16};
@@ -156,15 +179,20 @@ static int test_initializer_list_preference(void) {
     ExplicitInitializerListOnly direct_explicit_list_only{19, 20};
     InitializerListRange empty_range{};
     InitializerListRange nonempty_range{21};
+    EmptyListDefaultChoice empty_list_default_choice{};
+    EmptyListDefaultArgumentChoice default_argument_choice{};
     initializer_list_reset_counts();
     ConstructorChoice constructor_choice{7, 8};
     return function_choice == 1 && element_choice == 3 &&
+           empty_list_function_choice == 1 &&
            template_element_size == sizeof(int) &&
            templated_choice.element_size == sizeof(int) + 2 &&
            template_pair_choice.element_size == sizeof(int) &&
            copied_list_only.size == 2 &&
            direct_explicit_list_only.size == 2 &&
            empty_range.empty && !nonempty_range.empty &&
+           empty_list_default_choice.selected == 2 &&
+           default_argument_choice.selected == 3 &&
            constructor_choice.selected == 1 &&
            initializer_list_counts_are(1, 0);
 }

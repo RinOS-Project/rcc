@@ -22955,11 +22955,37 @@ static bool sema_cxx_has_viable_initializer_list_constructor(
     return false;
 }
 
+static bool sema_cxx_class_has_default_constructor(Type* object_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    if (!cls) return false;
+    for (CxxConstructorInfo* constructor = cls->constructors;
+         constructor; constructor = constructor->next) {
+        if (!constructor->method ||
+            !constructor->method->is_constructor ||
+            constructor->method->owner != cls ||
+            constructor->method->member_template ||
+            constructor->is_inherited) {
+            continue;
+        }
+        if (sema_cxx_constructor_arity_has_defaults(constructor, 0)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool sema_cxx_apply_initializer_list_constructor_phase(
     Type* object_type, ExprList** arguments, SourceLoc loc) {
     Expr* list_argument;
     int count;
     if (!arguments) return false;
+    /* [over.match.list] special-cases an empty list for a class with a
+     * default constructor: value-initialize through the default constructor
+     * instead of preferring an initializer_list constructor. */
+    if (!*arguments &&
+        sema_cxx_class_has_default_constructor(object_type)) {
+        return false;
+    }
     count = sema_cxx_argument_count(*arguments);
     if (count < 0 || !sema_cxx_has_viable_initializer_list_constructor(
                          object_type, *arguments, count, 0u)) {
