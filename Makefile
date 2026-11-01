@@ -3290,6 +3290,7 @@ test-cxx-initializer-list: $(RCXX_TARGET)
 	$(call CHECK_COUNT,narrowing conversion,$(TEST_OUT)/cxx-initializer-list/gcc-default-narrowing.log,2)
 	$(GREP) -F -q "would use explicit constructor" \
 		$(TEST_OUT)/cxx-initializer-list/gcc-default-narrowing.log
+	$(call CHECK_COUNT,too few arguments to function,$(TEST_OUT)/cxx-initializer-list/gcc-default-narrowing.log,1)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/default-narrowing-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
 		-std=c++20 -I$(RINOS_LIBCXX_INCLUDE) -c \
@@ -3298,6 +3299,7 @@ test-cxx-initializer-list: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x86.log)
 	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x86.log,2)
 	$(call CHECK_COUNT,copy-list-initialization selected an explicit constructor,$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x86.log,1)
+	$(call CHECK_COUNT,too few arguments to function call,$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x86.log,1)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/default-narrowing-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-initializer-list/default-narrowing-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
@@ -3307,6 +3309,7 @@ test-cxx-initializer-list: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x64.log)
 	$(call CHECK_COUNT,narrowing conversion in C++ list initialization,$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x64.log,2)
 	$(call CHECK_COUNT,copy-list-initialization selected an explicit constructor,$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x64.log,1)
+	$(call CHECK_COUNT,too few arguments to function call,$(TEST_OUT)/cxx-initializer-list/rcc-default-narrowing-x64.log,1)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-initializer-list/default-narrowing-x64.ro)
 	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
 		tests/cxx_initializer_list_overload_ambiguous.cpp, \

@@ -13071,9 +13071,10 @@ remains a separate open item.
       diagnostics, reject explicit constructors selected by copy-list
       initialization, make repeated semantic analysis of a materialized list
       idempotent, destroy nontrivial backing elements after defaulted function
-      calls and repeated captureless-lambda calls. GCC C++20, i686/AMD64
-      generation, AMD64 runtime checks for function, constructor, and lambda
-      defaults, and invalid-object absence pass in
+      calls and repeated captureless-lambda calls. Preserve the rule that
+      converting a lambda to a function pointer does not carry its defaults.
+      GCC C++20, i686/AMD64 generation, AMD64 runtime checks for function,
+      constructor, and lambda defaults, and invalid-object absence pass in
       `test-cxx-initializer-list`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
       boundaries with GCC before claiming full conformance. Ordinary candidate

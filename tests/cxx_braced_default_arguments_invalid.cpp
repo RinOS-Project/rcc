@@ -16,6 +16,9 @@ void consume_explicit_default(ExplicitDefault value = {}) {
     (void)value;
 }
 
+void (*function_pointer)(int) = [](int value = {3}) { (void)value; };
+
 int main() {
+    function_pointer();
     return 0;
 }
