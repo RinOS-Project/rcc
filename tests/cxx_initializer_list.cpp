@@ -191,12 +191,14 @@ static int test_empty_initializer_list_argument(void) {
 
 static int test_braced_initializer_list_default_arguments(void) {
     DefaultedInitializerList value;
+    auto lambda = [](int parameter = {11}) { return parameter; };
     int tracked_result;
     initializer_list_reset_counts();
     tracked_result = consume_defaulted_tracked();
     return consume_defaulted() == 2 && value.size == 2 &&
            consume_defaulted({9}) == 1 && consume_scalar_default() == 6 &&
-           tracked_result && initializer_list_counts_are(2, 2);
+           tracked_result && initializer_list_counts_are(2, 2) &&
+           lambda() == 11 && lambda({12}) == 12;
 }
 
 static int test_initializer_list_preference(void) {

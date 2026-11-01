@@ -23063,6 +23063,33 @@ static bool sema_append_cxx_default_arguments(
     return true;
 }
 
+static bool sema_append_cxx_function_type_default_arguments(
+    Expr* call, TypeParam** remaining) {
+    TypeParam* parameter;
+    ExprList** argument_tail;
+
+    if (!call || !remaining || !*remaining) return false;
+    for (parameter = *remaining; parameter; parameter = parameter->next) {
+        if (!parameter->initializer) return false;
+    }
+    argument_tail = &call->call_args;
+    while (*argument_tail) argument_tail = &(*argument_tail)->next;
+    for (parameter = *remaining; parameter; parameter = parameter->next) {
+        ExprList* argument;
+        argument = exprlist_new(parameter->initializer);
+        *argument_tail = argument;
+        argument_tail = &argument->next;
+        sema_prepare_reference_argument_cleanup(argument, parameter->type);
+        sema_prepare_cxx_by_value_class_argument(argument, parameter->type);
+        sema_prepare_derived_to_base_value_argument_cleanup(
+            argument, parameter->type);
+        sema_prepare_initializer_list_argument_cleanup(
+            argument, parameter->type);
+    }
+    *remaining = NULL;
+    return true;
+}
+
 static Decl* sema_select_cxx_overload_candidates(
     Expr* call, Decl* candidate_root, Decl* extra_candidate,
     bool diagnose_failure) {
@@ -30877,9 +30904,13 @@ static Type* sema_expr(Expr* expr) {
                     supplied_argument_count > 0) {
                     --supplied_argument_count;
                 }
-                if (!sema_append_cxx_default_arguments(
-                        expr, call_declaration, &parameter,
-                        supplied_argument_count)) {
+                bool appended_defaults = call_declaration
+                    ? sema_append_cxx_default_arguments(
+                          expr, call_declaration, &parameter,
+                          supplied_argument_count)
+                    : sema_append_cxx_function_type_default_arguments(
+                          expr, &parameter);
+                if (!appended_defaults) {
                     rcc_error(expr->loc,
                               "too few arguments to function call");
                 }
