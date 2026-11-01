@@ -599,6 +599,17 @@ int main() {
     }
     if (explicit_copy_wide_destructor_evaluations != 2) return 68;
 
+    explicit_copy_wide_constructor_evaluations = 0;
+    explicit_copy_wide_destructor_evaluations = 0;
+    {
+        int copied_prvalue_sum = explicit_copy_wide_parameter_sum(
+            ExplicitCopyWideConstructorArgument(1001, 1002, 1003));
+        if (copied_prvalue_sum != 3006 ||
+            explicit_copy_wide_constructor_evaluations != 0 ||
+            explicit_copy_wide_destructor_evaluations != 1) return 71;
+    }
+    if (explicit_copy_wide_destructor_evaluations != 1) return 72;
+
     explicit_move_wide_constructor_evaluations = 0;
     explicit_move_wide_destructor_evaluations = 0;
     {
@@ -631,6 +642,17 @@ int main() {
             explicit_move_wide_destructor_evaluations != 1) return 69;
     }
     if (explicit_move_wide_destructor_evaluations != 2) return 70;
+
+    explicit_move_wide_constructor_evaluations = 0;
+    explicit_move_wide_destructor_evaluations = 0;
+    {
+        int moved_prvalue_sum = explicit_move_wide_parameter_sum(
+            ExplicitMoveWideConstructorArgument(1101, 1102, 1103));
+        if (moved_prvalue_sum != 3306 ||
+            explicit_move_wide_constructor_evaluations != 0 ||
+            explicit_move_wide_destructor_evaluations != 1) return 73;
+    }
+    if (explicit_move_wide_destructor_evaluations != 1) return 74;
 
     return 0;
 }

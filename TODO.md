@@ -13064,6 +13064,12 @@ remains a separate open item.
       i686/AMD64 legacy output, AMD64 execution, and verified i686/AMD64 object
       generation with zero fallback pass in
       `test-cxx-prvalue-scalar-conversion-cleanup`.
+- [x] Direct-initialize ordinary function by-value parameters from same-type
+      prvalues. Verify mandatory C++17 copy elision skips both copy and move
+      constructors and runs the parameter destructor once after the call. GCC
+      C++20, i686/AMD64 legacy output, AMD64 execution, and verified i686/AMD64
+      object generation with zero fallback pass in
+      `test-cxx-prvalue-scalar-conversion-cleanup`.
 - [x] Preserve aliases when caching lvalue and xvalue arguments passed to C++
       reference constructor parameters. Capture the referent address so member
       initializers and the constructor body continue to access the caller's
