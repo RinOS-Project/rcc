@@ -6806,7 +6806,7 @@ static void verify_cxx_inline_mutated_local_location(
     size_t bitwise_start = signed_wide ? 4u : 3u;
     size_t entry_count = wide
         ? (bitwise_wide
-               ? signed_wide ? shifted_wide ? 9u : 7u
+               ? signed_wide ? shifted_wide ? 11u : 7u
                              : shifted_wide
                                    ? architecture == ARCH_X86 ? 11u : 12u
                                    : 6u
@@ -6950,10 +6950,20 @@ static void verify_cxx_inline_mutated_local_location(
                         }
                         if (bitwise_wide && entry >= bitwise_start +
                                 (signed_wide && shifted_wide ? 3u : 1u)) {
-                            expected &= UINT64_C(0x7fffffffffffffff);
+                            expected &= signed_wide
+                                ? UINT64_C(0x3fffffffffffffff)
+                                : UINT64_C(0x7fffffffffffffff);
+                        }
+                        if (shifted_wide && signed_wide && bitwise_wide &&
+                            entry >= bitwise_start + 4u) {
+                            expected <<= 1u;
+                        }
+                        if (shifted_wide && signed_wide && bitwise_wide &&
+                            entry >= bitwise_start + 5u) {
+                            expected >>= 63u;
                         }
                         if (bitwise_wide && entry >= bitwise_start +
-                                (signed_wide && shifted_wide ? 4u : 2u)) {
+                                (signed_wide && shifted_wide ? 6u : 2u)) {
                             expected |= UINT64_C(0x0100000000000001);
                         }
                         if (shifted_wide && !signed_wide &&
