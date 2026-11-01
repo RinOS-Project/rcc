@@ -259,6 +259,11 @@ struct ExplicitCopyWideMemberSource {
     ExplicitCopyWideConstructorArgument second;
 };
 
+static ExplicitCopyWideConstructorArgument explicit_copy_wide_prvalue_factory()
+    noexcept {
+    return ExplicitCopyWideConstructorArgument(2501, 2502, 2503);
+}
+
 struct ExplicitCopyWideConstructorArgumentReuse {
     long long from_initializer_first;
     long long from_initializer_second;
@@ -310,6 +315,11 @@ struct ExplicitMoveWideMemberSource {
     ExplicitMoveWideConstructorArgument first;
     ExplicitMoveWideConstructorArgument second;
 };
+
+static ExplicitMoveWideConstructorArgument explicit_move_wide_prvalue_factory()
+    noexcept {
+    return ExplicitMoveWideConstructorArgument(2601, 2602, 2603);
+}
 
 struct ExplicitMoveWideConstructorArgumentReuse {
     long long from_initializer_first;
@@ -660,6 +670,17 @@ int main() {
     explicit_copy_wide_constructor_evaluations = 0;
     explicit_copy_wide_destructor_evaluations = 0;
     {
+        int factory_sum = explicit_copy_wide_parameter_sum(
+            explicit_copy_wide_prvalue_factory());
+        if (factory_sum != 7506 ||
+            explicit_copy_wide_constructor_evaluations != 0 ||
+            explicit_copy_wide_destructor_evaluations != 1) return 87;
+    }
+    if (explicit_copy_wide_destructor_evaluations != 1) return 88;
+
+    explicit_copy_wide_constructor_evaluations = 0;
+    explicit_copy_wide_destructor_evaluations = 0;
+    {
         int copied_prvalue_sum = explicit_copy_wide_parameter_sum(
             ExplicitCopyWideConstructorArgument(1001, 1002, 1003));
         if (copied_prvalue_sum != 3006 ||
@@ -760,6 +781,17 @@ int main() {
             explicit_move_wide_destructor_evaluations != 1) return 85;
     }
     if (explicit_move_wide_destructor_evaluations != 3) return 86;
+
+    explicit_move_wide_constructor_evaluations = 0;
+    explicit_move_wide_destructor_evaluations = 0;
+    {
+        int factory_sum = explicit_move_wide_parameter_sum(
+            explicit_move_wide_prvalue_factory());
+        if (factory_sum != 7806 ||
+            explicit_move_wide_constructor_evaluations != 0 ||
+            explicit_move_wide_destructor_evaluations != 1) return 89;
+    }
+    if (explicit_move_wide_destructor_evaluations != 1) return 90;
 
     explicit_move_wide_constructor_evaluations = 0;
     explicit_move_wide_destructor_evaluations = 0;
