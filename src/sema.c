@@ -23005,6 +23005,22 @@ static int sema_cxx_braced_argument_conversion_rank(
         }
         return 3;
     }
+    /* A one-element list containing an object of the destination class uses
+     * that object as the list-initialization source. Treating the list as an
+     * aggregate initializer instead would try to initialize the first member
+     * from the whole class object and incorrectly discard otherwise viable
+     * function overloads. */
+    if ((destination->kind == TYPE_STRUCT ||
+         destination->kind == TYPE_UNION) && item_count == 1) {
+        item = argument->compound_init;
+        if (item && item->expr && item->expr->type &&
+            item->designator_kind == INIT_DESIGNATOR_NONE &&
+            cxx_same_parameter_type(
+                item->expr->type, destination, true)) {
+            return cxx_conversion_rank_detail(
+                item->expr, destination, NULL);
+        }
+    }
     if ((destination->kind == TYPE_STRUCT ||
          destination->kind == TYPE_UNION) &&
         ast_cxx_is_aggregate(destination)) {

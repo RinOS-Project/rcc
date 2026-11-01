@@ -36,6 +36,20 @@ struct OrderedInitializerAggregate {
     int third;
 };
 
+struct InitializerListPhaseFallbackValue {
+    int value;
+};
+
+struct InitializerListPhaseFallbackConstructor {
+    int selected;
+
+    InitializerListPhaseFallbackConstructor(std::initializer_list<int>)
+        : selected(1) {}
+    InitializerListPhaseFallbackConstructor(
+        InitializerListPhaseFallbackValue value)
+        : selected(value.value) {}
+};
+
 struct InitializerListOnly {
     int size;
 
@@ -85,6 +99,15 @@ int choose_element_type(std::initializer_list<int>) {
 
 int choose_element_type(std::initializer_list<long>) {
     return 4;
+}
+
+int choose_initializer_list_phase_fallback(std::initializer_list<int>) {
+    return 1;
+}
+
+int choose_initializer_list_phase_fallback(
+    InitializerListPhaseFallbackValue value) {
+    return value.value;
 }
 
 int choose_empty_list_over_scalar(std::initializer_list<int> values) {
@@ -250,6 +273,10 @@ static int test_initializer_list_preference(void) {
     InitializerListRange nonempty_range{21};
     EmptyListDefaultChoice empty_list_default_choice{};
     EmptyListDefaultArgumentChoice default_argument_choice{};
+    InitializerListPhaseFallbackConstructor constructor_fallback{
+        InitializerListPhaseFallbackValue{22}};
+    int function_fallback = choose_initializer_list_phase_fallback(
+        {InitializerListPhaseFallbackValue{23}});
     initializer_list_reset_counts();
     ConstructorChoice constructor_choice{7, 8};
     return function_choice == 1 && element_choice == 3 &&
@@ -262,6 +289,8 @@ static int test_initializer_list_preference(void) {
            empty_range.empty && !nonempty_range.empty &&
            empty_list_default_choice.selected == 2 &&
            default_argument_choice.selected == 3 &&
+           constructor_fallback.selected == 22 &&
+           function_fallback == 23 &&
            constructor_choice.selected == 1 &&
            initializer_list_counts_are(1, 0);
 }
