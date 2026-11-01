@@ -4705,12 +4705,36 @@ static bool gen64_local_initializer(Module* mod, Type* type,
 static bool gen64_complex_store_operand(Module* mod, Expr* expression,
                                         Type* component_type,
                                         int32_t destination_offset);
+static void gen64_decl_storage_address(Module* mod,
+                                       const Decl* declaration);
 static void gen64_push_call_temporary_cleanup(
     Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
 
 static bool gen64_local_initializer_with_temporary_cleanup(
     Module* mod, Type* type, Expr* initializer, int32_t displacement,
     ExprList* item) {
+    if (type && type->kind == TYPE_PTR && type->is_reference && item &&
+        item->cxx_temporary_lifetime_extended &&
+        item->cxx_temporary_static_storage &&
+        item->cxx_temporary_owner &&
+        item->cxx_temporary_owner->var_is_global) {
+        gen64_decl_storage_address(mod, item->cxx_temporary_owner);
+        emit64_store_typed(mod, RBP, displacement, RAX, type);
+        return true;
+    }
+    if (type && type->kind == TYPE_PTR && type->is_reference && item &&
+        item->cxx_temporary_lifetime_extended &&
+        item->cxx_temporary_owner && type->base) {
+        if (!gen64_local_initializer(
+                mod, type->base, initializer,
+                item->cxx_temporary_owner->var_offset)) {
+            return false;
+        }
+        emit64_lea(mod, RAX, RBP,
+                   item->cxx_temporary_owner->var_offset);
+        emit64_store_typed(mod, RBP, displacement, RAX, type);
+        return true;
+    }
     if (!type || type->kind != TYPE_PTR || !type->is_reference || !item ||
         !item->cxx_temporary_owner || !item->cxx_temporary_cleanups) {
         return gen64_local_initializer(mod, type, initializer, displacement);

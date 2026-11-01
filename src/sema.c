@@ -96,6 +96,8 @@ static Type* current_cxx_method_owner = NULL;
 static Decl* current_cxx_this_param = NULL;
 static Decl* current_cxx_function_decl = NULL;
 static bool current_cxx_immediate_invocation_context = false;
+static bool current_cxx_static_variable_initializer = false;
+static bool current_cxx_global_variable_initializer = false;
 static Decl* current_noexcept_resolution = NULL;
 static bool cxx_type_trait_nothrow_evaluation_unknown = false;
 static CxxNamespace* current_cxx_namespace = NULL;
@@ -34826,6 +34828,88 @@ static bool sema_cxx_reject_constructor_list_narrowing(
     return rejected;
 }
 
+static void sema_cxx_prepare_braced_aggregate_reference_temporary(
+    ExprList* initializer, Type* element_type) {
+    Expr* source = initializer ? initializer->expr : NULL;
+    Type* object_type;
+    bool scalar_temporary;
+    bool trivial_class_temporary;
+    if (!rcc_parser_is_cxx_mode() ||
+        (current_cxx_static_variable_initializer &&
+         !current_cxx_global_variable_initializer) ||
+        !initializer || !source ||
+        !element_type || element_type->kind != TYPE_PTR ||
+        !element_type->is_reference || !element_type->base ||
+        initializer->cxx_temporary_owner || is_lvalue(source) ||
+        is_xvalue(source)) {
+        return;
+    }
+    object_type = element_type->base;
+    scalar_temporary = type_is_integer(object_type) ||
+        object_type->kind == TYPE_ENUM || type_is_floating(object_type) ||
+        object_type->kind == TYPE_PTR || object_type->kind == TYPE_NULLPTR;
+    trivial_class_temporary =
+        (object_type->kind == TYPE_STRUCT ||
+         object_type->kind == TYPE_UNION) &&
+        !sema_cxx_type_has_destructor_cleanup(object_type, 0);
+    if (!scalar_temporary && !trivial_class_temporary) return;
+    if (!source->type || !type_is_compatible(object_type, source->type)) {
+        return;
+    }
+    initializer->cxx_temporary_owner = decl_var(
+        "__rcc_aggregate_reference_temporary", object_type, NULL,
+        source->loc);
+    initializer->cxx_temporary_lifetime_extended = true;
+}
+
+static void sema_cxx_prepare_static_aggregate_reference_temporaries_expr(
+    Decl* declaration, Expr* expression, unsigned* sequence,
+    unsigned depth) {
+    char suffix[80];
+    if (!declaration || !expression || !sequence || depth >= 64u ||
+        expression->kind != EXPR_COMPOUND) {
+        return;
+    }
+    for (ExprList* item = expression->compound_init; item;
+         item = item->next) {
+        if (item->cxx_temporary_lifetime_extended &&
+            item->cxx_temporary_owner &&
+            !item->cxx_temporary_static_storage) {
+            Decl* owner = item->cxx_temporary_owner;
+            const char* name;
+            int written = snprintf(
+                suffix, sizeof(suffix),
+                "$rcc_aggregate_reference_temporary_%u", (*sequence)++);
+            if (written < 0 || (size_t)written >= sizeof(suffix) ||
+                !(name = sema_reference_temporary_symbol(
+                      declaration, suffix))) {
+                rcc_error(expression->loc,
+                          "aggregate reference temporary symbol is too large");
+                return;
+            }
+            owner->name = name;
+            owner->link_name = name;
+            owner->storage = STORAGE_STATIC;
+            owner->var_is_global = true;
+            owner->var_offset = -1;
+            item->cxx_temporary_static_storage = true;
+        }
+        sema_cxx_prepare_static_aggregate_reference_temporaries_expr(
+            declaration, item->expr, sequence, depth + 1u);
+    }
+}
+
+static void sema_cxx_prepare_static_aggregate_reference_temporaries(
+    Decl* declaration) {
+    unsigned sequence = 0u;
+    if (!declaration || !declaration->var_is_global ||
+        declaration->var_is_thread_local || !declaration->var_init) {
+        return;
+    }
+    sema_cxx_prepare_static_aggregate_reference_temporaries_expr(
+        declaration, declaration->var_init, &sequence, 0u);
+}
+
 static bool sema_cxx_initialize_enum_direct_list(Type* type,
                                                   Expr* initializer) {
     ExprList* item;
@@ -35488,6 +35572,10 @@ static void sema_initializer(Type* type, Expr* initializer) {
                     item->expr->compound_copy_list_init = true;
                 }
                 sema_initializer(element_type, item->expr);
+                if (!initializer->compound_paren_init) {
+                    sema_cxx_prepare_braced_aggregate_reference_temporary(
+                        item, element_type);
+                }
                 if (item->designator_kind == INIT_DESIGNATOR_NONE) {
                     ++initialized;
                 }
@@ -35555,6 +35643,10 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 item->expr->compound_copy_list_init = true;
             }
             sema_initializer(field->type, item->expr);
+            if (!initializer->compound_paren_init) {
+                sema_cxx_prepare_braced_aggregate_reference_temporary(
+                    item, field->type);
+            }
             cursor = field->next;
             ++initialized;
         }
@@ -36916,7 +37008,20 @@ static void sema_decl(Decl* decl) {
             }
 
             if (decl->var_init) {
+                bool saved_static_initializer_context =
+                    current_cxx_static_variable_initializer;
+                bool saved_global_initializer_context =
+                    current_cxx_global_variable_initializer;
+                current_cxx_static_variable_initializer =
+                    is_global || decl->var_is_static_local ||
+                    decl->var_is_thread_local;
+                current_cxx_global_variable_initializer =
+                    is_global && !decl->var_is_thread_local;
                 sema_initializer(decl->type, decl->var_init);
+                current_cxx_static_variable_initializer =
+                    saved_static_initializer_context;
+                current_cxx_global_variable_initializer =
+                    saved_global_initializer_context;
                 if (decl->var_is_constinit) {
                     bool valid_constinit = false;
                     if (sema_constexpr_scalar_type(decl->type)) {
@@ -37015,6 +37120,7 @@ static void sema_decl(Decl* decl) {
                     sema_validate_static_integer_expression(decl->var_init);
                 }
             }
+            sema_cxx_prepare_static_aggregate_reference_temporaries(decl);
             if (decl->var_is_constexpr && !decl->var_init) {
                 rcc_error(decl->loc,
                           "constexpr variable requires an initializer");

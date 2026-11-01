@@ -13120,3 +13120,22 @@ remains a separate open item.
       verified C++20 objects; both targets emit three verified functions with
       zero fallback. `test-debug-info-inline-expression` and
       `test-debug-info` pass.
+
+## RCC continuation (2026-11-01, braced aggregate reference-member lifetime)
+
+- [x] Extend scalar and trivial-class prvalues bound to reference members by
+      braced aggregate initialization through the containing automatic
+      aggregate's lifetime. Materialize the temporary in a stable frame slot,
+      preserve direct/copy-list initialization and evaluate side effects once.
+      For namespace-scope aggregates, emit a unique DATA object for each
+      temporary, statically initialize constant scalar/class values, and place
+      dynamic scalar initialization before use in the global initializer
+      sequence. Compare GCC C++20 and RCC runtime results, i686/AMD64 output,
+      narrowing/reference diagnostics, and invalid-object absence in
+      `test-cxx-reference-list-initialization`; the braced-overload,
+      initializer-list, and list-narrowing suites pass as well.
+- [ ] Extend aggregate reference-member lifetime handling to temporaries with
+      nontrivial destruction, block-static/TLS storage, exceptional exits while
+      later aggregate elements initialize, destruction ordering, and verified-
+      SSA lowering. Keep those forms open until destructor counts and cleanup
+      behavior match GCC on both targets.

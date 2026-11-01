@@ -2159,6 +2159,25 @@ static bool codegen_aggregate_zero_initializer(Type* type,
 
 static bool codegen_emit_static_initializer(Module* mod, Type* type,
                                             Expr* initializer,
+                                            uint32_t offset);
+
+static bool codegen_emit_static_initializer_item(
+    Module* mod, Type* type, ExprList* item, uint32_t offset) {
+    if (item && item->cxx_temporary_static_storage &&
+        item->cxx_temporary_owner && type && type->kind == TYPE_PTR &&
+        type->is_reference) {
+        Decl* owner = item->cxx_temporary_owner;
+        Expr* object = expr_ident(owner->name, owner->loc);
+        object->ident_decl = owner;
+        object->type = owner->type;
+        return codegen_emit_static_pointer(mod, type, object, offset);
+    }
+    return codegen_emit_static_initializer(
+        mod, type, item ? item->expr : NULL, offset);
+}
+
+static bool codegen_emit_static_initializer(Module* mod, Type* type,
+                                            Expr* initializer,
                                             uint32_t offset) {
     Expr* string;
     if (!mod || !type || !initializer || offset > mod->data.size ||
@@ -2206,8 +2225,8 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
                 item_offset = (uint64_t)offset +
                               (uint64_t)cursor * (uint64_t)type->base->size;
                 if (item_offset > UINT32_MAX ||
-                    !codegen_emit_static_initializer(
-                        mod, type->base, item->expr,
+                    !codegen_emit_static_initializer_item(
+                        mod, type->base, item,
                         (uint32_t)item_offset)) {
                     return false;
                 }
@@ -2247,8 +2266,8 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
                             ? !codegen_pack_static_bitfield(
                                   mod->data.data, mod->data.size, field,
                                   item->expr, (uint32_t)field_offset)
-                            : !codegen_emit_static_initializer(
-                                  mod, element_type, item->expr,
+                            : !codegen_emit_static_initializer_item(
+                                  mod, element_type, item,
                                   (uint32_t)field_offset)) {
                         return false;
                     }
@@ -2279,8 +2298,8 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
                          ? !codegen_pack_static_bitfield(
                                mod->data.data, mod->data.size, field,
                                item->expr, (uint32_t)field_offset)
-                         : !codegen_emit_static_initializer(
-                               mod, field->type, item->expr,
+                         : !codegen_emit_static_initializer_item(
+                               mod, field->type, item,
                                (uint32_t)field_offset))) {
                     return false;
                 }
@@ -2585,6 +2604,67 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
 static void codegen_add_vtable_pointer(Module* mod,
                                        ModuleSymbolSection source_section,
                                        uint32_t offset, Type* type);
+
+static bool codegen_emit_static_aggregate_reference_temporaries_expr(
+    Module* mod, Expr* expression, unsigned depth) {
+    uint8_t zero[32] = {0};
+    if (!mod || !expression || depth >= 64u) return true;
+    while (expression->kind == EXPR_CAST && expression->cast_expr) {
+        expression = expression->cast_expr;
+    }
+    if (expression->kind != EXPR_COMPOUND) return true;
+    for (ExprList* item = expression->compound_init; item;
+         item = item->next) {
+        Decl* owner = item->cxx_temporary_owner;
+        Type* type = owner ? owner->type : NULL;
+        uint32_t size;
+        uint32_t alignment;
+        uint64_t aligned;
+        uint32_t offset;
+        if (!codegen_emit_static_aggregate_reference_temporaries_expr(
+                mod, item->expr, depth + 1u)) {
+            return false;
+        }
+        if (!item->cxx_temporary_static_storage || !owner ||
+            owner->var_offset >= 0) {
+            continue;
+        }
+        if (!type || type->size <= 0 || type->align < 0) {
+            rcc_error(item->expr ? item->expr->loc : owner->loc,
+                      "aggregate reference temporary has invalid storage type");
+            return false;
+        }
+        size = (uint32_t)type->size;
+        alignment = type->align > 0 ? (uint32_t)type->align : 1u;
+        if (alignment > mod->data_align) mod->data_align = alignment;
+        aligned = ((uint64_t)mod->data.size + alignment - 1u) &
+                  ~((uint64_t)alignment - 1u);
+        if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
+            rcc_error(owner->loc,
+                      "aggregate reference temporary exceeds data limits");
+            return false;
+        }
+        while (mod->data.size < aligned) emit_data(mod, zero, 1u);
+        offset = (uint32_t)mod->data.size;
+        while (size > sizeof(zero)) {
+            emit_data(mod, zero, sizeof(zero));
+            size -= sizeof(zero);
+        }
+        if (size) emit_data(mod, zero, size);
+        size = (uint32_t)type->size;
+        owner->var_offset = (int)offset;
+        codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset, type);
+        module_add_symbol(mod, decl_link_name(owner), offset, true,
+                          MODULE_SYMBOL_DATA, false);
+        if (!codegen_emit_static_initializer(
+                mod, type, item->expr, offset)) {
+            memset(mod->data.data + offset, 0, size);
+            owner->var_init = item->expr;
+            codegen_defer_global_initializer(mod, owner);
+        }
+    }
+    return true;
+}
 
 static bool codegen_type_has_vtable_storage(Type* type) {
     CxxClass* cls = type ? type->cxx_class : NULL;
@@ -3064,6 +3144,11 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         if (declaration->var_is_cxx_static_member_declaration) {
             module_add_symbol(mod, decl_link_name(declaration), 0u, false,
                               MODULE_SYMBOL_DATA, true);
+            continue;
+        }
+        if (declaration->var_init &&
+            !codegen_emit_static_aggregate_reference_temporaries_expr(
+                mod, declaration->var_init, 0u)) {
             continue;
         }
         size = (uint32_t)declaration->type->size;
@@ -19751,6 +19836,7 @@ static void codegen_assign_initializer_temporary_storage(
         return;
     }
     Type* owner_type = initializer->cxx_temporary_owner->type;
+    if (initializer->cxx_temporary_owner->var_is_global) return;
     int size = owner_type && owner_type->size > 0
         ? owner_type->size : stack_alignment;
     int alignment = owner_type && owner_type->align > 0
@@ -19763,8 +19849,10 @@ static void codegen_assign_initializer_temporary_storage(
     } else {
         *bytes = codegen_align_frame_bytes((int)extent, alignment);
         initializer->cxx_temporary_owner->var_offset = -*bytes;
-        initializer->cxx_temporary_next = active_call_temporary_owners;
-        active_call_temporary_owners = initializer;
+        if (!initializer->cxx_temporary_lifetime_extended) {
+            initializer->cxx_temporary_next = active_call_temporary_owners;
+            active_call_temporary_owners = initializer;
+        }
     }
     codegen_assign_cleanup_plan(initializer->cxx_temporary_cleanups,
                                 bytes, stack_alignment);
@@ -20641,6 +20729,30 @@ static void gen_cxx_exception_change_local_subobject32(
 static bool gen_local_initializer_with_temporary_cleanup32(
     Module* mod, Type* type, Expr* initializer, int32_t displacement,
     ExprList* item) {
+    if (type && type->kind == TYPE_PTR && type->is_reference && item &&
+        item->cxx_temporary_lifetime_extended &&
+        item->cxx_temporary_static_storage &&
+        item->cxx_temporary_owner &&
+        item->cxx_temporary_owner->var_is_global) {
+        gen_decl_storage_address32(mod, item->cxx_temporary_owner);
+        emit_store_typed32(mod, EBP, displacement, EAX, type);
+        return true;
+    }
+    if (type && type->kind == TYPE_PTR && type->is_reference && item &&
+        item->cxx_temporary_lifetime_extended &&
+        item->cxx_temporary_owner && type->base) {
+        if (!gen_local_initializer(
+                mod, type->base, initializer,
+                item->cxx_temporary_owner->var_offset)) {
+            return false;
+        }
+        emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EAX, EBP));
+        emit_dword(mod,
+                   (uint32_t)item->cxx_temporary_owner->var_offset);
+        emit_store_typed32(mod, EBP, displacement, EAX, type);
+        return true;
+    }
     if (!type || type->kind != TYPE_PTR || !type->is_reference || !item ||
         !item->cxx_temporary_owner || !item->cxx_temporary_cleanups) {
         return gen_local_initializer(mod, type, initializer, displacement);

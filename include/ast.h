@@ -675,6 +675,11 @@ typedef struct ExprList {
      * inactive cleanups. */
     Decl* cxx_temporary_owner;
     CxxCleanupPlan* cxx_temporary_cleanups;
+    /* A prvalue bound to a reference member by braced aggregate
+     * initialization lives as long as the containing automatic object. */
+    bool cxx_temporary_lifetime_extended;
+    /* Static-duration aggregate reference members use a named data object. */
+    bool cxx_temporary_static_storage;
     /* A temporary created for a non-trivial by-value parameter transfers
      * lifetime responsibility to the callee immediately before the call. */
     bool cxx_temporary_is_parameter_object;
