@@ -13134,8 +13134,12 @@ remains a separate open item.
       narrowing/reference diagnostics, and invalid-object absence in
       `test-cxx-reference-list-initialization`; the braced-overload,
       initializer-list, and list-narrowing suites pass as well.
-- [ ] Extend aggregate reference-member lifetime handling to temporaries with
-      nontrivial destruction, block-static/TLS storage, exceptional exits while
-      later aggregate elements initialize, destruction ordering, and verified-
-      SSA lowering. Keep those forms open until destructor counts and cleanup
-      behavior match GCC on both targets.
+- [x] Extend nontrivial-destruction cleanup for temporaries bound to automatic
+      aggregate reference members. Transfer cleanup ownership to the aggregate,
+      keep the temporary alive past its initializer full-expression, and destroy
+      them once at block exit in reverse initialization order before the
+      aggregate destructor. GCC C++20, i686/AMD64 output, AMD64 runtime, and
+      diagnostics pass `test-cxx-reference-list-initialization`.
+- [ ] Implement block-static/TLS storage, cleanup on exceptional exits while
+      later aggregate elements initialize, and verified-SSA lifetime/cleanup
+      lowering; compare cleanup counts and behavior with GCC on both targets.

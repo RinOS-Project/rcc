@@ -10,6 +10,25 @@ struct ClassReferenceMember {
     const ReferenceListObject& value;
 };
 
+struct TrackedReferenceTemporary {
+    int* destruction_order;
+    int id;
+
+    ~TrackedReferenceTemporary() {
+        *destruction_order = *destruction_order * 10 + id;
+    }
+};
+
+struct TrackedReferenceMember {
+    const TrackedReferenceTemporary& first;
+    const TrackedReferenceTemporary& second;
+    int* destruction_order;
+
+    ~TrackedReferenceMember() {
+        *destruction_order = *destruction_order * 10 + 3;
+    }
+};
+
 ScalarReferenceMember global_scalar_member{52};
 
 int global_reference_initializer_calls;
@@ -51,6 +70,18 @@ static int run_reference_list_initialization() {
     ClassReferenceMember class_member{ReferenceListObject{50}};
     int side_effect_source = 51;
     ScalarReferenceMember side_effect_member{side_effect_source++};
+    int temporary_destruction_order = 0;
+    bool temporary_survived_initialization;
+    {
+        TrackedReferenceMember tracked_member{
+            TrackedReferenceTemporary{&temporary_destruction_order, 1},
+            TrackedReferenceTemporary{&temporary_destruction_order, 2},
+            &temporary_destruction_order};
+        temporary_survived_initialization =
+            temporary_destruction_order == 0 &&
+            tracked_member.first.id == 1 &&
+            tracked_member.second.id == 2;
+    }
 
     mutable_lvalue = 18;
     return mutable_lvalue == 18 && const_lvalue == 18 &&
@@ -66,7 +97,9 @@ static int run_reference_list_initialization() {
            global_class_member.value.value == 54 &&
            global_dynamic_class_member.value.value == 55 &&
            global_reference_initializer_calls == 1 &&
-           side_effect_member.value == 51 && side_effect_source == 52;
+           side_effect_member.value == 51 && side_effect_source == 52 &&
+           temporary_survived_initialization &&
+           temporary_destruction_order == 213;
 }
 
 int main() {
