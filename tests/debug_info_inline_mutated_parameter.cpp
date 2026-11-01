@@ -91,6 +91,27 @@ debug_inline_mutated_signed_shift_wide_parameter_entry(long long input_value)
         stable_signed_shift_wide_input + 2LL);
 }
 
+static inline unsigned long long debug_inline_mutated_left_shift_wide_parameter(
+    unsigned long long left_shift_wide_parameter)
+{
+    left_shift_wide_parameter <<= 3u;
+    return left_shift_wide_parameter + 9ULL;
+}
+
+extern "C" void debug_inline_mutated_left_shift_wide_parameter_observe(
+    unsigned long long* value);
+
+extern "C" unsigned long long
+debug_inline_mutated_left_shift_wide_parameter_entry(
+    unsigned long long input_value)
+{
+    unsigned long long stable_left_shift_wide_input = input_value;
+    debug_inline_mutated_left_shift_wide_parameter_observe(
+        &stable_left_shift_wide_input);
+    return debug_inline_mutated_left_shift_wide_parameter(
+        stable_left_shift_wide_input + 2ULL);
+}
+
 static inline long long debug_inline_mutated_signed_wide_parameter(
     long long signed_wide_parameter)
 {
