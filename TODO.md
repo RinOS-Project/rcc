@@ -13200,5 +13200,12 @@ remains a separate open item.
       aggregate-before-temporary destruction. This regression also rebuilds the
       verified object symbol index after internal symbol renaming and duplicate
       removal.
-- [ ] Extend verified partial-subobject unwind to nested class members, arrays,
-      and constructor-built subobjects.
+- [x] Extend verified partial-subobject unwind through nested aggregate class
+      members. The static-local aggregate regression throws while initializing
+      the second nested member, verifies cleanup of the completed first member,
+      retries successfully, and checks reverse destruction order at exit.
+      `test-verified-cxx-static-local-aggregate` passes the GCC C++20 oracle,
+      verified i686/AMD64 objects at `-O0`/`-O2` with zero fallback, and x86/x64
+      native executions on Windows and WSL.
+- [ ] Extend verified partial-subobject unwind to array members and
+      constructor-built subobjects.

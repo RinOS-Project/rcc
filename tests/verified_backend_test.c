@@ -4066,8 +4066,8 @@ static void verify_static_local_aggregate_object(const char* path)
     assert(destructor_count() == 0);
     assert(reference_temp_destructor_count() == 2);
     assert(reference_temp_unwind_order_count() == 2);
-    assert(partial_member_destructor_count() == 2);
-    assert(partial_member_unwind_order() == 2);
+    assert(partial_member_destructor_count() == 1);
+    assert(partial_member_unwind_order() == 1);
     assert(partial_member_final_cleanup_order() == 0);
     assert(cxx_static_reference_atexit_registrations ==
            registrations_before + 6);
@@ -4075,7 +4075,7 @@ static void verify_static_local_aggregate_object(const char* path)
     assert(destructor_count() == 5);
     assert(reference_temp_destructor_count() == 4);
     assert(reference_temp_order_count() == 1);
-    assert(partial_member_destructor_count() == 4);
+    assert(partial_member_destructor_count() == 3);
     assert(partial_member_final_cleanup_order() == 2);
     assert(cxx_static_reference_atexit_finalizations ==
            finalizations_before + 6);

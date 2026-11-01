@@ -206,16 +206,13 @@ struct StaticLocalPartialMember {
 
     ~StaticLocalPartialMember() {
         if (partial_member_later_initializer_calls == 1) {
-            if (value == 111 && partial_member_destructions == 0) {
+            if (value == 107 && partial_member_destructions == 0) {
                 partial_member_unwind_order = 1;
-            } else if (value == 107 && partial_member_destructions == 1 &&
-                       partial_member_unwind_order == 1) {
-                partial_member_unwind_order = 2;
             }
         } else if (partial_member_later_initializer_calls == 2) {
-            if (value == 111 && partial_member_destructions == 2) {
+            if (value == 113 && partial_member_destructions == 1) {
                 partial_member_final_cleanup_order = 1;
-            } else if (value == 107 && partial_member_destructions == 3 &&
+            } else if (value == 107 && partial_member_destructions == 2 &&
                        partial_member_final_cleanup_order == 1) {
                 partial_member_final_cleanup_order = 2;
             }
@@ -224,9 +221,13 @@ struct StaticLocalPartialMember {
     }
 };
 
+struct StaticLocalNestedPartialMember {
+    StaticLocalPartialMember first;
+    StaticLocalPartialMember second;
+};
+
 struct StaticLocalPartialAggregate {
-    StaticLocalPartialMember member;
-    StaticLocalPartialMember second_member;
+    StaticLocalNestedPartialMember member;
     int later;
 };
 #endif
@@ -245,8 +246,10 @@ static const StaticLocalPartialAggregate&
 static_local_partial_aggregate() {
     ++partial_member_initializer_calls;
     static StaticLocalPartialAggregate value{
-        StaticLocalPartialMember{107}, StaticLocalPartialMember{111},
-        make_static_aggregate_partial_member_later()};
+        {StaticLocalPartialMember{107},
+         StaticLocalPartialMember{
+             make_static_aggregate_partial_member_later()}},
+        127};
     return value;
 }
 #endif
@@ -352,7 +355,7 @@ int main() {
     }
     if (partial_member_initializer_calls != 1 ||
         partial_member_later_initializer_calls != 1 ||
-        partial_member_destructions != 2 || partial_member_unwind_order != 2) {
+        partial_member_destructions != 1 || partial_member_unwind_order != 1) {
         return 20;
     }
     const StaticLocalPartialAggregate& first_partial =
@@ -360,12 +363,12 @@ int main() {
     const StaticLocalPartialAggregate& second_partial =
         static_local_partial_aggregate();
     if (&first_partial != &second_partial ||
-        first_partial.member.value != 107 ||
-        first_partial.second_member.value != 111 ||
-        first_partial.later != 113 ||
+        first_partial.member.first.value != 107 ||
+        first_partial.member.second.value != 113 ||
+        first_partial.later != 127 ||
         partial_member_initializer_calls != 3 ||
         partial_member_later_initializer_calls != 2 ||
-        partial_member_destructions != 2 ||
+        partial_member_destructions != 1 ||
         partial_member_final_cleanup_order != 0) {
         return 21;
     }

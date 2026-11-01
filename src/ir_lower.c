@@ -2805,7 +2805,7 @@ static bool lower_dynamic_static_reference_temporary_supported(
 }
 
 static bool lower_dynamic_static_class_member_initializer_supported(
-    const Type* type, const ExprList* aggregate_item) {
+    const Type* type, const ExprList* aggregate_item, unsigned depth) {
     const Expr* initializer = aggregate_item
         ? aggregate_item->expr : NULL;
     const TypeField* field;
@@ -2814,7 +2814,8 @@ static bool lower_dynamic_static_class_member_initializer_supported(
     size_t item_count = 0u;
     bool has_field_designators = false;
     bool has_positional_items = false;
-    if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
+    if (!type || depth >= 32u || type->kind != TYPE_STRUCT ||
+        !type->cxx_class ||
         !ast_cxx_is_aggregate((Type*)type) || type->is_volatile ||
         type->size <= 0 || type->align <= 0 ||
         type->cxx_class->base_count != 0 ||
@@ -2847,12 +2848,21 @@ static bool lower_dynamic_static_class_member_initializer_supported(
     if (has_field_designators && has_positional_items) return false;
     for (field = type->fields; field; field = field->next) {
         const Type* field_type = field->type;
+        item = lower_dynamic_aggregate_field_initializer(
+            initializer, field, field_count, has_field_designators);
         if (!field_type || field->is_bitfield || field->offset < 0 ||
             field->offset > type->size ||
             field_type->size > type->size - field->offset ||
             field_type->is_atomic || field_type->is_reference ||
-            field_type->cleanup_function || field_type->cxx_class ||
-            !(type_is_integer((Type*)field_type) ||
+            field_type->cleanup_function) {
+            return false;
+        }
+        if (field_type->cxx_class) {
+            if (!lower_dynamic_static_class_member_initializer_supported(
+                    field_type, item, depth + 1u)) {
+                return false;
+            }
+        } else if (!(type_is_integer((Type*)field_type) ||
               field_type->kind == TYPE_ENUM ||
               type_is_floating((Type*)field_type) ||
               (field_type->kind == TYPE_PTR &&
@@ -2955,7 +2965,7 @@ static bool lower_dynamic_static_aggregate_initializer_supported(
         }
         if (field_type && field_type->cxx_class) {
             if (!lower_dynamic_static_class_member_initializer_supported(
-                    field_type, item)) {
+                    field_type, item, 0u)) {
                 return false;
             }
             ++field_count;
@@ -10515,21 +10525,72 @@ static bool lower_cleanup_action_is_direct_base(
         object_offset == base_offset;
 }
 
+static bool lower_cxx_delete_subobject_cleanup_change(
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerValue object, bool register_cleanup, unsigned depth);
+
+static bool lower_change_partial_member_cleanup(
+    RccIrLowerContext* context, const Decl* cleanup_declaration,
+    const Decl* owner, const TypeField* field,
+    RccIrLowerValue object, bool register_cleanup) {
+    if (!context || !owner || !field || !field->type || !object.valid ||
+        object.type.kind != RCC_IR_TYPE_POINTER) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    for (const CxxCleanupPlan* action = cleanup_declaration
+             ? cleanup_declaration->var_cleanups : NULL;
+         action; action = action->next) {
+        if (lower_cleanup_action_is_direct_member(action, owner, field)) {
+            return lower_change_current_exception_cleanup(
+                context, action, register_cleanup);
+        }
+    }
+    return lower_cxx_delete_subobject_cleanup_change(
+        context, field->type, object, register_cleanup, 0u);
+}
+
 static bool lower_register_partial_member_cleanup(
-    RccIrLowerContext* context, const TypeField* field) {
+    RccIrLowerContext* context, const TypeField* field,
+    RccIrLowerValue object) {
     const Decl* owner = context
         ? context->partial_construction_owner : NULL;
     const Decl* cleanup_declaration = context &&
         context->partial_construction_cleanup_declaration
         ? context->partial_construction_cleanup_declaration : owner;
-    if (!owner || !field || !field->type || !field->type->cxx_class) {
+    if (!owner || !field || !field->type || !field->type->cxx_class ||
+        !field->type->cxx_nontrivial) {
         return true;
     }
-    for (const CxxCleanupPlan* action = cleanup_declaration->var_cleanups;
-         action; action = action->next) {
-        if (lower_cleanup_action_is_direct_member(action, owner, field)) {
-            return lower_change_current_exception_cleanup(
-                context, action, true);
+    return lower_change_partial_member_cleanup(
+        context, cleanup_declaration, owner, field, object, true);
+}
+
+static bool lower_unregister_partial_member_cleanups_in_object(
+    RccIrLowerContext* context, const Decl* cleanup_declaration,
+    const Decl* owner, const Type* object_type,
+    RccIrLowerValue object) {
+    RccIrLowerValue base;
+    if (!context || !cleanup_declaration || !owner || !object_type ||
+        !object.valid || object.type.kind != RCC_IR_TYPE_POINTER) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (object_type->kind != TYPE_STRUCT) return true;
+    base = object;
+    for (const TypeField* field = object_type->fields;
+         field; field = field->next) {
+        RccIrLowerValue address;
+        if (!field->type || !field->type->cxx_class ||
+            !field->type->cxx_nontrivial) {
+            continue;
+        }
+        address = lower_byte_offset_address(
+            context, base, (uint64_t)field->offset);
+        if (!address.valid ||
+            !lower_change_partial_member_cleanup(
+                context, cleanup_declaration, owner, field, address, false)) {
+            return false;
         }
     }
     return true;
@@ -10589,17 +10650,10 @@ static bool lower_unregister_partial_base_cleanups(
 
 static bool lower_unregister_partial_member_cleanups(
     RccIrLowerContext* context, const Decl* cleanup_declaration,
-    const Decl* owner) {
-    if (!context || !cleanup_declaration || !owner) return false;
-    for (const CxxCleanupPlan* action = cleanup_declaration->var_cleanups;
-         action; action = action->next) {
-        if (lower_cleanup_action_is_direct_member(action, owner, NULL) &&
-            !lower_change_current_exception_cleanup(
-                context, action, false)) {
-            return false;
-        }
-    }
-    return true;
+    const Decl* owner, RccIrLowerValue object) {
+    return lower_unregister_partial_member_cleanups_in_object(
+        context, cleanup_declaration, owner,
+        owner ? owner->type : NULL, object);
 }
 
 static bool lower_scope_cleanup_declaration_supported(
@@ -27055,6 +27109,17 @@ static bool lower_initialize_struct_field(
     } else if (field->type->kind == TYPE_STRUCT) {
         initialized = lower_initialize_struct_storage(
             context, address.value, field->type, initializer);
+        if (initialized && context->partial_construction_owner &&
+            field->type->cxx_class &&
+            !lower_unregister_partial_member_cleanups_in_object(
+                context,
+                context->partial_construction_cleanup_declaration
+                    ? context->partial_construction_cleanup_declaration
+                    : context->partial_construction_owner,
+                context->partial_construction_owner, field->type,
+                address)) {
+            return false;
+        }
     } else if (field->type->kind == TYPE_UNION) {
         initialized = lower_initialize_union_storage(
             context, address.value, field->type, initializer);
@@ -27063,7 +27128,7 @@ static bool lower_initialize_struct_field(
             context, address.value, field->type, initializer);
     }
     return initialized && lower_register_partial_member_cleanup(
-        context, field);
+        context, field, address);
 }
 
 static bool lower_initialize_cxx_scalar_subobject_constructor(
@@ -27559,7 +27624,8 @@ static bool lower_struct_initializer(
                         member_initializer->arguments,
                         initializer->compound_constructor,
                         constructor_arguments, 0u) ||
-                    !lower_register_partial_member_cleanup(context, field)) {
+                    !lower_register_partial_member_cleanup(
+                        context, field, address)) {
                     context->unsupported = true;
                     goto constructor_lowering_failure;
                 }
@@ -28961,7 +29027,7 @@ static bool lower_dynamic_static_aggregate_initializer(
     if (context->unsupported) return false;
     if (track_partial_members &&
         !lower_unregister_partial_member_cleanups(
-            context, declaration, declaration)) {
+            context, declaration, declaration, object)) {
         return false;
     }
 
@@ -29304,7 +29370,9 @@ static bool lower_declaration(RccIrLowerContext* context,
         if (!initialized ||
             (track_partial_members &&
              !lower_unregister_partial_member_cleanups(
-                 context, declaration, declaration)) ||
+                 context, declaration, declaration,
+                 lower_value(allocation->result,
+                             rcc_ir_type_pointer(0u), true))) ||
             (track_partial_members &&
              !lower_unregister_partial_base_cleanups(
                  context, declaration, declaration, declaration->type))) {
@@ -29447,7 +29515,7 @@ static bool lower_declaration(RccIrLowerContext* context,
                     if (!initializer.valid ||
                         (track_partial_members &&
                          !lower_unregister_partial_member_cleanups(
-                             context, declaration, owner)) ||
+                             context, declaration, owner, owner_storage)) ||
                         (track_partial_members &&
                          !lower_unregister_partial_base_cleanups(
                              context, declaration, owner, owner->type)) ||
