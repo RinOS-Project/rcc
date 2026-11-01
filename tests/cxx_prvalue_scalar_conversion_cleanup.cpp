@@ -269,6 +269,47 @@ struct ExplicitCopyWideConstructorArgumentReuse {
     }
 };
 
+static int explicit_move_wide_constructor_evaluations;
+static int explicit_move_wide_destructor_evaluations;
+
+struct ExplicitMoveWideConstructorArgument {
+    long long first;
+    long long second;
+    long long third;
+
+    ExplicitMoveWideConstructorArgument(
+        long long initial_first, long long initial_second,
+        long long initial_third)
+        : first(initial_first), second(initial_second), third(initial_third) {}
+
+    ExplicitMoveWideConstructorArgument(
+        ExplicitMoveWideConstructorArgument&& other)
+        : first(other.first + 70), second(other.second), third(other.third) {
+        other.first = -2;
+        ++explicit_move_wide_constructor_evaluations;
+    }
+
+    ~ExplicitMoveWideConstructorArgument() {
+        ++explicit_move_wide_destructor_evaluations;
+        first = -1;
+    }
+};
+
+struct ExplicitMoveWideConstructorArgumentReuse {
+    long long from_initializer_first;
+    long long from_initializer_second;
+    long long from_body_third;
+    long long from_body_sum;
+
+    explicit ExplicitMoveWideConstructorArgumentReuse(
+        ExplicitMoveWideConstructorArgument value)
+        : from_initializer_first(value.first),
+          from_initializer_second(value.second) {
+        from_body_third = value.third;
+        from_body_sum = value.first + value.second + value.third;
+    }
+};
+
 struct NestedWideConstructorArgumentReuse {
     long long from_initializer_first;
     long long from_initializer_second;
@@ -531,6 +572,24 @@ int main() {
             explicit_copy_wide_destructor_evaluations != 1) return 63;
     }
     if (explicit_copy_wide_destructor_evaluations != 2) return 64;
+
+    explicit_move_wide_constructor_evaluations = 0;
+    explicit_move_wide_destructor_evaluations = 0;
+    {
+        ExplicitMoveWideConstructorArgument move_source(
+            1001, 1002, 1003);
+        ExplicitMoveWideConstructorArgumentReuse moved_explicitly(
+            static_cast<ExplicitMoveWideConstructorArgument&&>(
+                move_source));
+        if (moved_explicitly.from_initializer_first != 1071 ||
+            moved_explicitly.from_initializer_second != 1002 ||
+            moved_explicitly.from_body_third != 1003 ||
+            moved_explicitly.from_body_sum != 3076 ||
+            move_source.first != -2 ||
+            explicit_move_wide_constructor_evaluations != 1 ||
+            explicit_move_wide_destructor_evaluations != 1) return 65;
+    }
+    if (explicit_move_wide_destructor_evaluations != 2) return 66;
 
     return 0;
 }

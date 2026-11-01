@@ -10580,6 +10580,8 @@ static bool lower_cleanup_constructor_call_supported(
     argument = initializer->compound_init;
     while (parameter || parameter_declaration || argument) {
         RccIrType ir_type;
+        const Type* reference_argument_type = argument && argument->expr
+            ? argument->expr->type : NULL;
         bool reference_parameter = parameter && parameter->type &&
             parameter->type->kind == TYPE_PTR &&
             parameter->type->is_reference;
@@ -10587,6 +10589,12 @@ static bool lower_cleanup_constructor_call_supported(
             lower_abi_is_aggregate(parameter->type);
         bool indirect_aggregate = parameter && parameter->type &&
             lower_abi_indirect_class_parameter(parameter->type);
+        if (reference_argument_type &&
+            reference_argument_type->kind == TYPE_PTR &&
+            reference_argument_type->is_reference &&
+            reference_argument_type->base) {
+            reference_argument_type = reference_argument_type->base;
+        }
         if (++count > (unsigned)constructor->parameter_count ||
             !parameter || !parameter->type ||
             (!indirect_aggregate && !aggregate_parameter &&
@@ -10602,9 +10610,10 @@ static bool lower_cleanup_constructor_call_supported(
             !argument || argument->designator_kind != INIT_DESIGNATOR_NONE ||
             !argument->expr ||
             (reference_parameter
-                 ? (!parameter->type->base ||
+                 ? (!parameter->type->base || !reference_argument_type ||
                     !type_is_compatible(
-                        parameter->type->base, argument->expr->type))
+                        parameter->type->base,
+                        (Type*)reference_argument_type))
                  : aggregate_parameter
                  ? (!type_is_compatible(
                         parameter->type, argument->expr->type) ||
