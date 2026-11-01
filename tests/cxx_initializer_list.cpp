@@ -25,14 +25,22 @@ struct Pair {
 struct InitializerListOnly {
     int size;
 
-    InitializerListOnly(std::initializer_list<int>) : size(2) {}
+    InitializerListOnly(std::initializer_list<int> values)
+        : size(static_cast<int>(values.size())) {}
 };
 
 struct ExplicitInitializerListOnly {
     int size;
 
-    explicit ExplicitInitializerListOnly(std::initializer_list<int>)
-        : size(2) {}
+    explicit ExplicitInitializerListOnly(std::initializer_list<int> values)
+        : size(static_cast<int>(values.size())) {}
+};
+
+struct InitializerListRange {
+    bool empty;
+
+    InitializerListRange(std::initializer_list<int> values)
+        : empty(values.begin() == values.end()) {}
 };
 
 int choose_overload(std::initializer_list<int>) {
@@ -138,6 +146,8 @@ static int test_initializer_list_preference(void) {
     TemplatePairChoice template_pair_choice{15, 16};
     InitializerListOnly copied_list_only = {17, 18};
     ExplicitInitializerListOnly direct_explicit_list_only{19, 20};
+    InitializerListRange empty_range{};
+    InitializerListRange nonempty_range{21};
     initializer_list_reset_counts();
     ConstructorChoice constructor_choice{7, 8};
     return function_choice == 1 && element_choice == 3 &&
@@ -146,6 +156,7 @@ static int test_initializer_list_preference(void) {
            template_pair_choice.element_size == sizeof(int) &&
            copied_list_only.size == 2 &&
            direct_explicit_list_only.size == 2 &&
+           empty_range.empty && !nonempty_range.empty &&
            constructor_choice.selected == 1 &&
            initializer_list_counts_are(1, 0);
 }

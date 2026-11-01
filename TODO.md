@@ -60,10 +60,12 @@
   acceptance, and explicit copy-list/function-argument rejection. GCC C++20,
   RCC i686/AMD64 assembly and `.ro` output, AMD64 runtime, matching diagnostics,
   and invalid-object absence pass in `test-cxx-initializer-list`.
-- [ ] Lower calls such as `values.size()` in a non-template constructor's
-  scalar member initializer when `values` is a `std::initializer_list`.
-  GCC accepts this case; RCC currently cannot include that constructor in its
-  safely lowerable arity set.
+- [x] Lower bounded `std::initializer_list` member calls in non-template
+  constructor scalar member initializers. Accept public, non-virtual,
+  zero-argument `noexcept` `size`, `begin`, and `end`; verify `size()` and
+  `begin() == end()` with empty/nonempty lists against GCC. RCC i686/AMD64
+  assembly and `.ro` generation, AMD64 runtime, and the initializer-list,
+  copy-list, function-template, and braced-overload suites pass.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
   boundaries with GCC before claiming complete conformance.
 

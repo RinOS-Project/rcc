@@ -9869,6 +9869,108 @@ static bool cxx_constructor_static_address(CxxConstructorInfo* constructor,
         cxx_constructor_parameter_index(constructor, operand->ident_name) < 0;
 }
 
+static bool cxx_constructor_function_has_no_parameters(Type* function_type) {
+    TypeParam* parameter = function_type && function_type->kind == TYPE_FUNC
+        ? function_type->params : NULL;
+    if (parameter && parameter->name &&
+        strcmp(parameter->name, "this") == 0) {
+        parameter = parameter->next;
+    }
+    return !parameter || (parameter->type &&
+        parameter->type->kind == TYPE_VOID && !parameter->next);
+}
+
+static Type* cxx_constructor_initializer_list_method_call_type(
+    CxxConstructorInfo* constructor, Expr* expression,
+    Type* target_type, bool* parameter_used,
+    unsigned parameter_count) {
+    Expr* callee;
+    Expr* receiver;
+    TypeParam* parameter;
+    Type* object_type;
+    CxxClass* cls;
+    CxxTemplate* owner;
+    CxxNamespace* ns;
+    CxxMethod* selected = NULL;
+    int parameter_index;
+
+    if (!constructor || !expression || expression->kind != EXPR_CALL ||
+        expression->call_is_new || expression->call_is_delete ||
+        expression->call_args || !(callee = expression->call_func) ||
+        callee->kind != EXPR_MEMBER || !callee->member_name ||
+        (strcmp(callee->member_name, "size") != 0 &&
+         strcmp(callee->member_name, "begin") != 0 &&
+         strcmp(callee->member_name, "end") != 0) ||
+        !(receiver = callee->member_base) ||
+        receiver->kind != EXPR_IDENT || !receiver->ident_name) {
+        return NULL;
+    }
+    parameter_index = cxx_constructor_parameter_index(
+        constructor, receiver->ident_name);
+    if (parameter_index < 0 || parameter_index >= (int)parameter_count) {
+        return NULL;
+    }
+    parameter = constructor->parameters;
+    for (int index = 0; parameter && index < parameter_index; ++index) {
+        parameter = parameter->next;
+    }
+    object_type = parameter
+        ? cxx_constructor_value_type(parameter->type) : NULL;
+    cls = object_type ? object_type->cxx_class : NULL;
+    owner = object_type && object_type->cxx_template
+        ? object_type->cxx_template
+        : cls && cls->template_identity_tmpl
+            ? cls->template_identity_tmpl
+        : cls ? cls->templ : NULL;
+    if (!object_type || object_type->kind != TYPE_STRUCT || !cls ||
+        !owner || !owner->name ||
+        strcmp(owner->name, "initializer_list") != 0) {
+        return NULL;
+    }
+    if (object_type->cxx_namespace &&
+        strcmp(object_type->cxx_namespace, "std") == 0) {
+        ns = NULL;
+    } else {
+        ns = owner->ns;
+        while (ns && (!ns->name || strcmp(ns->name, "std") != 0)) {
+            ns = ns->parent;
+        }
+        if (!ns && (!cls->ns || !cls->ns->name ||
+                    strcmp(cls->ns->name, "std") != 0)) {
+            return NULL;
+        }
+    }
+    for (struct CxxMember* member = cls->members;
+         member; member = member->next) {
+        CxxMethod* method = member->method;
+        Type* function_type;
+        if (!method || !method->source_name ||
+            strcmp(method->source_name, callee->member_name) != 0) {
+            continue;
+        }
+        function_type = method->decl ? method->decl->type : NULL;
+        if (!member->is_static && method->access == ACCESS_PUBLIC &&
+            !method->is_virtual && !method->is_deleted &&
+            !method->member_template && method->is_noexcept &&
+            method->decl && method->decl->func_is_cxx_method &&
+            method->decl->func_body && function_type &&
+            function_type->kind == TYPE_FUNC &&
+            cxx_constructor_function_has_no_parameters(function_type) &&
+            function_type->ret_type &&
+            cxx_constructor_scalar_type(function_type->ret_type)) {
+            if (selected) return NULL;
+            selected = method;
+        }
+    }
+    if (!selected || (target_type &&
+        !cxx_constructor_scalar_conversion_supported(
+            selected->decl->type->ret_type, target_type))) {
+        return NULL;
+    }
+    if (parameter_used) parameter_used[parameter_index] = true;
+    return selected->decl->type->ret_type;
+}
+
 static bool cxx_constructor_expression_is_lowerable(
     CxxConstructorInfo* constructor, Expr* expression, Type* target_type,
     bool* parameter_used, unsigned parameter_count) {
@@ -10009,6 +10111,10 @@ static bool cxx_constructor_expression_is_lowerable(
                    cxx_constructor_expression_is_lowerable(
                        constructor, expression->cast_expr, NULL,
                        parameter_used, parameter_count);
+        case EXPR_CALL:
+            return cxx_constructor_initializer_list_method_call_type(
+                       constructor, expression, target_type,
+                       parameter_used, parameter_count) != NULL;
         case EXPR_DEREF: {
             int index;
             TypeParam* parameter = constructor
