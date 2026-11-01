@@ -17822,8 +17822,7 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
     memset(best_ranks, 0, sizeof(*best_ranks) * rank_capacity);
     memset(best_targets, 0, sizeof(*best_targets) * rank_capacity);
     memset(best_methods, 0, sizeof(*best_methods) * rank_capacity);
-    if (!initializer_list_phase &&
-        rcc_parser_cxx_has_constructor_template &&
+    if (rcc_parser_cxx_has_constructor_template &&
         rcc_parser_cxx_has_constructor_template(object_type)) {
         bool template_ambiguous = false;
         CxxConstructorInfo* selected =
@@ -17896,6 +17895,9 @@ static CxxConstructorInfo* sema_select_cxx_new_constructor_ex(
         TypeMethod** candidate_methods;
         int rank_count = 0;
         bool viable = true;
+        if (!candidate->method || candidate->method->member_template) {
+            continue;
+        }
         if (initializer_list_phase &&
             !sema_cxx_is_initializer_list_constructor(candidate)) {
             continue;
@@ -18428,6 +18430,8 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     int* best_ranks;
     Type** best_targets;
     TypeMethod** best_methods;
+    bool initializer_list_phase = arguments && arguments->expr &&
+        arguments->expr->compound_cxx_initializer_list_argument;
     bool best_is_template = false;
     TypeMethod** template_methods = NULL;
     bool template_constraint_unsupported = false;
@@ -18442,6 +18446,10 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
     for (CxxConstructorInfo* constructor = cls->constructors; constructor;
          constructor = constructor->next) {
         if (!constructor->method || constructor->method->member_template) {
+            continue;
+        }
+        if (initializer_list_phase &&
+            !sema_cxx_is_initializer_list_constructor(constructor)) {
             continue;
         }
         if (constructor_count == INT_MAX) {
@@ -18504,6 +18512,10 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
         if (!constructor->method || constructor->method->member_template) {
             continue;
         }
+        if (initializer_list_phase &&
+            !sema_cxx_is_initializer_list_constructor(constructor)) {
+            continue;
+        }
         candidates[candidate_count].constructor = constructor;
         candidates[candidate_count].is_template = false;
         ++candidate_count;
@@ -18522,6 +18534,10 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
                 !source->method->is_constructor ||
                 sema_cxx_constructor_special_member_kind(base->type,
                                                           source) != 0) {
+                continue;
+            }
+            if (initializer_list_phase &&
+                !sema_cxx_is_initializer_list_constructor(source)) {
                 continue;
             }
             inherited = ast_arena_alloc(sizeof(*inherited));
@@ -18551,6 +18567,10 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
                       "materialized constructor-template candidate is incomplete");
             if (ambiguous) *ambiguous = true;
             return NULL;
+        }
+        if (initializer_list_phase &&
+            !sema_cxx_is_initializer_list_constructor(constructor)) {
+            continue;
         }
         candidates[candidate_count].constructor = constructor;
         candidates[candidate_count].is_template = true;
@@ -18599,8 +18619,13 @@ static CxxConstructorInfo* sema_cxx_select_type_trait_constructor_ex(
         for (int index = 0; index < argument_count; ++index) {
             if (parameter && argument) {
                 TypeMethod* conversion_method = NULL;
-                int rank = cxx_conversion_rank_detail(
-                    argument->expr, parameter->type, &conversion_method);
+                int rank = sema_cxx_is_untyped_braced_initializer(
+                               argument->expr)
+                    ? sema_cxx_braced_argument_conversion_rank(
+                          argument->expr, parameter->type, 0u)
+                    : cxx_conversion_rank_detail(
+                          argument->expr, parameter->type,
+                          &conversion_method);
                 if (rank < 0) {
                     viable = false;
                     break;
@@ -22483,20 +22508,22 @@ static Type* sema_cxx_initializer_list_element_type(Type* type) {
     if (type && type->kind == TYPE_PTR && type->is_reference) {
         type = type->base;
     }
-    if (!type || type->kind != TYPE_STRUCT || !(cls = type->cxx_class)) {
+    if (!type || type->kind != TYPE_STRUCT) {
         return NULL;
     }
+    cls = type->cxx_class;
     owner = type->cxx_template ? type->cxx_template
-        : cls->template_identity_tmpl ? cls->template_identity_tmpl
-        : cls->templ;
+        : cls && cls->template_identity_tmpl ? cls->template_identity_tmpl
+        : cls && cls->templ ? cls->templ : NULL;
     arguments = type->cxx_template_args
         ? type->cxx_template_args
-        : cls->template_identity_args ? cls->template_identity_args
-        : cls->template_args;
+        : cls && cls->template_identity_args ? cls->template_identity_args
+        : cls ? cls->template_args : NULL;
     argument_count = type->cxx_template_args
         ? type->cxx_template_arg_count
-        : cls->template_identity_args ? cls->template_identity_arg_count
-        : cls->template_arg_count;
+        : cls && cls->template_identity_args
+            ? cls->template_identity_arg_count
+        : cls ? cls->template_arg_count : 0;
     if (!owner || !arguments || argument_count != 1 || !arguments[0]) {
         return NULL;
     }
@@ -22504,7 +22531,8 @@ static Type* sema_cxx_initializer_list_element_type(Type* type) {
         return NULL;
     }
     if ((type->cxx_namespace && strcmp(type->cxx_namespace, "std") == 0) ||
-        (cls->ns && cls->ns->name && strcmp(cls->ns->name, "std") == 0)) {
+        (cls && cls->ns && cls->ns->name &&
+         strcmp(cls->ns->name, "std") == 0)) {
         return arguments[0];
     }
     for (CxxNamespace* ns = owner->ns; ns; ns = ns->parent) {
@@ -22823,7 +22851,8 @@ static bool sema_cxx_has_viable_initializer_list_constructor(
          constructor; constructor = constructor->next) {
         TypeParam* parameter;
         int rank;
-        if (!sema_cxx_is_initializer_list_constructor(constructor) ||
+        if (!constructor->method || constructor->method->member_template ||
+            !sema_cxx_is_initializer_list_constructor(constructor) ||
             constructor->parameter_count < 1 ||
             (constructor->parameter_count > 1 &&
              !sema_cxx_constructor_arity_has_defaults(constructor, 1))) {
@@ -22834,6 +22863,42 @@ static bool sema_cxx_has_viable_initializer_list_constructor(
         rank = sema_cxx_braced_argument_conversion_rank(
             &braced_argument, parameter->type, depth + 1u);
         if (rank >= 0) return true;
+    }
+    if (rcc_parser_cxx_materialize_constructor_templates &&
+        rcc_parser_cxx_has_constructor_template &&
+        rcc_parser_cxx_has_constructor_template(object_type)) {
+        Expr* list_argument = expr_initializer_list(elements,
+            elements && elements->expr ? elements->expr->loc
+                                       : (SourceLoc){"<initializer-list>", 0, 0});
+        ExprList* template_arguments;
+        TypeMethod** template_methods = NULL;
+        bool constraint_unsupported = false;
+        int template_count;
+        list_argument->compound_value_init = element_count == 0;
+        list_argument->compound_cxx_initializer_list_argument = true;
+        template_arguments = exprlist_new(list_argument);
+        template_count = rcc_parser_cxx_materialize_constructor_templates(
+            object_type, template_arguments, true, &template_methods,
+            &constraint_unsupported);
+        if (template_count < 0 || constraint_unsupported) return false;
+        for (int index = 0; index < template_count; ++index) {
+            CxxConstructorInfo* constructor =
+                sema_cxx_make_type_trait_template_constructor(
+                    cls, template_methods[index]);
+            if (!constructor ||
+                !sema_cxx_is_initializer_list_constructor(constructor) ||
+                constructor->parameter_count < 1 ||
+                (constructor->parameter_count > 1 &&
+                 !sema_cxx_constructor_arity_has_defaults(constructor, 1))) {
+                continue;
+            }
+            TypeParam* parameter = constructor->parameters;
+            if (parameter && parameter->type &&
+                sema_cxx_braced_argument_conversion_rank(
+                    list_argument, parameter->type, depth + 1u) >= 0) {
+                return true;
+            }
+        }
     }
     return false;
 }

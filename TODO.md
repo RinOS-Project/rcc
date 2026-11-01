@@ -27,9 +27,13 @@
   at the local list object's scope exit. GCC C++20, i686/AMD64 assembly and
   `.ro` generation, AMD64 runtime parity, and narrowing rejection/no-object
   checks pass in `test-cxx-initializer-list`.
-- [ ] Deduce function and constructor template parameters from braced-init-list
-  elements and compare the remaining C++20 list-initialization ranking and
-  narrowing boundaries with GCC before claiming complete conformance.
+- [x] Deduce function-template `T` from `std::initializer_list<T>` braced
+  arguments and constructor-template parameters from list elements, including
+  initializer-list and ordinary constructor templates. GCC C++20 and RCC
+  i686/AMD64 generation, `.ro` output, and AMD64 runtime parity pass in
+  `test-cxx-initializer-list`.
+- [ ] Compare remaining C++20 list-initialization ranking and narrowing
+  boundaries with GCC before claiming complete conformance.
 
 ## RCC continuation (2026-10-31, Annex G exceptional values)
 
@@ -12927,8 +12931,13 @@ remains a separate open item.
       runtime parity, and adjacent function-template/braced-overload gates pass
       in `test-cxx-initializer-list`, `test-cxx-function-templates`, and
       `test-cxx-braced-argument-overload`.
-- [ ] Deduce constructor-template parameters from braced-init-list elements;
-      compare remaining C++20 list-initialization ranking and narrowing
+- [x] Deduce constructor-template parameters from list elements for both
+      `std::initializer_list<T>` constructors and ordinary constructors with
+      elementwise template parameters. Check non-template initializer-list
+      preference when a template competes. GCC C++20, i686/AMD64 assembly and
+      `.ro` generation, and AMD64 runtime parity pass in
+      `test-cxx-initializer-list`.
+- [ ] Compare remaining C++20 list-initialization ranking and narrowing
       boundaries with GCC before claiming full conformance. Ordinary candidate
       viability and selected scalar/aggregate list handling are covered by the
       2026-11-01 continuation above.

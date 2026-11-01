@@ -44,13 +44,35 @@ int template_list_element_size(std::initializer_list<T> values) {
 }
 
 struct ConstructorChoice {
-    ConstructorChoice(std::initializer_list<int>) {
+    int selected;
+
+    ConstructorChoice(std::initializer_list<int>) : selected(1) {
         initializer_list_record_constructed(1);
     }
 
-    ConstructorChoice(int, int) {
+    ConstructorChoice(int, int) : selected(2) {
         initializer_list_record_constructed(2);
     }
+
+    template <typename T>
+    ConstructorChoice(std::initializer_list<T>) : selected(3) {
+        initializer_list_record_constructed(3);
+    }
+};
+
+struct TemplatedConstructorChoice {
+    int element_size;
+
+    template <typename T>
+    TemplatedConstructorChoice(std::initializer_list<T> values)
+        : element_size(sizeof(T) + values.size()) {}
+};
+
+struct TemplatePairChoice {
+    int element_size;
+
+    template <typename T>
+    TemplatePairChoice(T, T) : element_size(sizeof(T)) {}
 };
 
 static int consume(std::initializer_list<Tracked> values) {
@@ -99,11 +121,15 @@ static int test_initializer_list_preference(void) {
     int function_choice = choose_overload({5, 6});
     int element_choice = choose_element_type({9, 10});
     int template_element_size = template_list_element_size({11, 12});
+    TemplatedConstructorChoice templated_choice{13, 14};
+    TemplatePairChoice template_pair_choice{15, 16};
     initializer_list_reset_counts();
     ConstructorChoice constructor_choice{7, 8};
-    (void)constructor_choice;
     return function_choice == 1 && element_choice == 3 &&
            template_element_size == sizeof(int) &&
+           templated_choice.element_size == sizeof(int) + 2 &&
+           template_pair_choice.element_size == sizeof(int) &&
+           constructor_choice.selected == 1 &&
            initializer_list_counts_are(1, 0);
 }
 
