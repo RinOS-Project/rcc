@@ -655,6 +655,7 @@ endif
 .PHONY: test-complex
 .PHONY: test-complex-legacy
 .PHONY: test-long-double
+.PHONY: test-long-double-builtins
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-posix test-cxx-nested-class-template-owner-structural-value-pack-invalid
@@ -1316,6 +1317,7 @@ C17_REGRESSION_TARGETS += test-array-to-void-pointer
 C17_REGRESSION_TARGETS += test-complex
 C17_REGRESSION_TARGETS += test-complex-legacy
 C17_REGRESSION_TARGETS += test-long-double test-preprocessor-standard-macros
+C17_REGRESSION_TARGETS += test-long-double-builtins
 C17_REGRESSION_TARGETS += test-tool-relative-includes
 
 # `-g` currently emits a relocatable DWARF line table.  Keep this gate in the
@@ -19713,6 +19715,84 @@ test-long-double: $(RCC_TARGET) $(RCXX_TARGET)
 		$(TEST_OUT)/long-double/verified-math-cxx-x86.s
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double/verified-math-c-x86.exe,$(TEST_OUT)/long-double/verified-math-c-x86.s)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double/verified-math-cxx-x86.exe,$(TEST_OUT)/long-double/verified-math-cxx-x86.s)
+
+test-long-double-builtins: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/long-double-builtins)
+	$(CC) -std=c17 -Wall -Wextra -Werror -o \
+		$(TEST_OUT)/long-double-builtins/gcc-c tests/long_double_builtin_runtime.c -lm
+	$(TEST_OUT)/long-double-builtins/gcc-c
+	$(CXX) -x c++ -std=c++20 -Wall -Wextra -Werror -o \
+		$(TEST_OUT)/long-double-builtins/gcc-cxx \
+		tests/long_double_builtin_runtime.c -lm
+	$(TEST_OUT)/long-double-builtins/gcc-cxx
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double-builtins/verified-c-x86.ro \
+		tests/long_double_builtin_runtime.c \
+		>$(TEST_OUT)/long-double-builtins/verified-c-x86.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double-builtins/verified-c-x86.log,0)
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double-builtins/verified-c-x64.ro \
+		tests/long_double_builtin_runtime.c \
+		>$(TEST_OUT)/long-double-builtins/verified-c-x64.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double-builtins/verified-c-x64.log,0)
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double-builtins/verified-cxx-x86.ro \
+		tests/long_double_builtin_runtime.c \
+		>$(TEST_OUT)/long-double-builtins/verified-cxx-x86.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double-builtins/verified-cxx-x86.log,0)
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/long-double-builtins/verified-cxx-x64.ro \
+		tests/long_double_builtin_runtime.c \
+		>$(TEST_OUT)/long-double-builtins/verified-cxx-x64.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/long-double-builtins/verified-cxx-x64.log,0)
+	$(RCC_SHELL_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-o $(TEST_OUT)/long-double-builtins/legacy-c-x86.s \
+		tests/long_double_builtin_runtime.c
+	$(RCC_SHELL_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-o $(TEST_OUT)/long-double-builtins/legacy-c-x64.s \
+		tests/long_double_builtin_runtime.c
+	$(RCXX_SHELL_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-o $(TEST_OUT)/long-double-builtins/legacy-cxx-x86.s \
+		tests/long_double_builtin_runtime.c
+	$(RCXX_SHELL_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-I$(RINOS_ROOT)/public-base/libs/libc \
+		-o $(TEST_OUT)/long-double-builtins/legacy-cxx-x64.s \
+		tests/long_double_builtin_runtime.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double-builtins/legacy-c-x86$(EXE_SUFFIX),$(TEST_OUT)/long-double-builtins/legacy-c-x86.s)
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/long-double-builtins/legacy-c-x64$(EXE_SUFFIX),$(TEST_OUT)/long-double-builtins/legacy-c-x64.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double-builtins/legacy-cxx-x86$(EXE_SUFFIX),$(TEST_OUT)/long-double-builtins/legacy-cxx-x86.s)
+	$(call RUN_COMPILER_BUILTINS_X64,$(TEST_OUT)/long-double-builtins/legacy-cxx-x64$(EXE_SUFFIX),$(TEST_OUT)/long-double-builtins/legacy-cxx-x64.s)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/long-double-builtins/run-verified-entry \
+		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c -lm
+	$(TEST_OUT)/long-double-builtins/run-verified-entry --entry \
+		$(TEST_OUT)/long-double-builtins/verified-c-x64.ro
+	$(TEST_OUT)/long-double-builtins/run-verified-entry --entry \
+		$(TEST_OUT)/long-double-builtins/verified-cxx-x64.ro
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/long-double-builtins/verified-i686-asm \
+		tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/long-double-builtins/verified-i686-asm \
+		$(TEST_OUT)/long-double-builtins/verified-c-x86.ro \
+		$(TEST_OUT)/long-double-builtins/verified-c-x86.s
+	$(TEST_OUT)/long-double-builtins/verified-i686-asm \
+		$(TEST_OUT)/long-double-builtins/verified-cxx-x86.ro \
+		$(TEST_OUT)/long-double-builtins/verified-cxx-x86.s
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double-builtins/verified-c-x86$(EXE_SUFFIX),$(TEST_OUT)/long-double-builtins/verified-c-x86.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/long-double-builtins/verified-cxx-x86$(EXE_SUFFIX),$(TEST_OUT)/long-double-builtins/verified-cxx-x86.s)
 
 test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/language-boundaries)
