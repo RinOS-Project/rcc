@@ -1042,6 +1042,14 @@
       Windows `test-cxx` gate pass. Broader call/return ABI interactions still
       need systematic coverage; a direct thread-local class-prvalue reference
       has dedicated per-thread host coverage below.
+  - [x] Reject binding non-const lvalue references to bit-fields, including
+        the selected `int&` overload, while materializing value copies for
+        const lvalue references to integral and scoped-enum bit-fields. Cover
+        local and static-duration lifetime extension plus const-reference
+        function arguments. GCC C++20, RCC i686/AMD64 generation and AMD64
+        execution, invalid-object absence, and adjacent reference/overload
+        suites pass in `test-cxx-bitfields`,
+        `test-cxx-function-template-references`, and `test-cxx-overloads`.
   - [x] Preserve the referred object's address when returning a volatile scalar
         through an ordinary non-template `int&&` reference function. Scalar
         return lowering now emits the lvalue address instead of loading the

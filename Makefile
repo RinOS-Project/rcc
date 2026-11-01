@@ -21169,6 +21169,28 @@ ifeq ($(OS),Windows_NT)
 test-cxx-bitfields: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-bitfields)
 	$(call CXX_WINDOWS_MAIN,cxx-bitfields,test,cxx_bitfields.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-bitfield-reference-binding)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-bitfield-reference-binding/gcc-host$(EXE_SUFFIX) \
+		tests/cxx_bitfield_reference_binding.cpp
+	$(TEST_OUT)/cxx-bitfield-reference-binding/gcc-host$(EXE_SUFFIX)
+	$(call CXX_WINDOWS_MAIN,cxx-bitfield-reference-binding,test,cxx_bitfield_reference_binding.cpp)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_bitfield_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/gcc-invalid.log)
+	$(GREP) -F -q "cannot bind bit-field" $(TEST_OUT)/cxx-bitfield-reference-binding/gcc-invalid.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x86.ro tests/cxx_bitfield_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x86.log)
+	$(GREP) -F -q "invalid C++ reference binding" $(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x64.ro tests/cxx_bitfield_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x64.log)
+	$(GREP) -F -q "invalid C++ reference binding" $(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_bitfield_reference_overload_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/gcc-overload-invalid.log)
+	$(GREP) -F -q "cannot bind bit-field" $(TEST_OUT)/cxx-bitfield-reference-binding/gcc-overload-invalid.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x86.ro tests/cxx_bitfield_reference_overload_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x86.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'select_reference'" $(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x64.ro tests/cxx_bitfield_reference_overload_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x64.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'select_reference'" $(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/cxx-bitfields/invalid.ro tests/invalid_cxx_bitfields.cpp,$(TEST_OUT)/cxx-bitfields/invalid.log)
 	$(GREP) -F -q "C++ bit-field width" $(TEST_OUT)/cxx-bitfields/invalid.log
@@ -21186,6 +21208,28 @@ test-cxx-bitfields: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-bitfields/x86 \
 		$(TEST_OUT)/cxx-bitfields/start-x86.o $(TEST_OUT)/cxx-bitfields/x86.o
 	$(TEST_OUT)/cxx-bitfields/x86
+	$(call MKDIR_P,$(TEST_OUT)/cxx-bitfield-reference-binding)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-bitfield-reference-binding/gcc-host \
+		tests/cxx_bitfield_reference_binding.cpp
+	$(TEST_OUT)/cxx-bitfield-reference-binding/gcc-host
+	$(call CXX_POSIX_ENTRY_TEST,cxx-bitfield-reference-binding,cxx_bitfield_reference_binding.cpp)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_bitfield_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/gcc-invalid.log)
+	$(GREP) -F -q "cannot bind bit-field" $(TEST_OUT)/cxx-bitfield-reference-binding/gcc-invalid.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x86.ro tests/cxx_bitfield_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x86.log)
+	$(GREP) -F -q "invalid C++ reference binding" $(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x64.ro tests/cxx_bitfield_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x64.log)
+	$(GREP) -F -q "invalid C++ reference binding" $(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-bitfield-reference-binding/invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_bitfield_reference_overload_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/gcc-overload-invalid.log)
+	$(GREP) -F -q "cannot bind bit-field" $(TEST_OUT)/cxx-bitfield-reference-binding/gcc-overload-invalid.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x86.ro tests/cxx_bitfield_reference_overload_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x86.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'select_reference'" $(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x64.ro tests/cxx_bitfield_reference_overload_invalid.cpp,$(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x64.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'select_reference'" $(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-bitfield-reference-binding/overload-invalid-x64.ro)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/cxx-bitfields/x64.s tests/cxx_bitfields.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-bitfields/x64.o \

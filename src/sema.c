@@ -4199,6 +4199,14 @@ static bool cxx_reference_object_compatible(const Type* source,
     return type_is_compatible(&source_unqualified, &target_unqualified);
 }
 
+static bool sema_cxx_is_bitfield_expression(const Expr* expression) {
+    return expression &&
+           (expression->kind == EXPR_MEMBER ||
+            expression->kind == EXPR_PTR_MEMBER) &&
+           expression->member_field &&
+           expression->member_field->is_bitfield;
+}
+
 /* C qualification conversion may add cv at the directly pointed-to object,
  * but adding cv below an unqualified pointer-to-pointer would allow a write
  * through the outer pointer to change the type of the object seen by the
@@ -4434,6 +4442,21 @@ static Type* implicit_cast_with_explicit_conversion(
          * materializes that value for the duration of the call. */
         if (!referred) return NULL;
 reference_binding_source:
+        if (rcc_parser_is_cxx_mode() &&
+            sema_cxx_is_bitfield_expression(e)) {
+            if (!target->is_rvalue_reference && referred->is_const) {
+                Expr* bitfield = ast_arena_alloc(sizeof(*bitfield));
+                Expr* value;
+                *bitfield = *e;
+                value = expr_cast(e->type, bitfield, e->loc);
+                value->cxx_cast_kind = CXX_CAST_STATIC;
+                sema_expr(value);
+                if (!value->type) return NULL;
+                *e = *value;
+                goto reference_binding_source;
+            }
+            return NULL;
+        }
         source = e->type;
         source_object = source && source->is_reference
             ? source->base : source;
