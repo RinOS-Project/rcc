@@ -4409,7 +4409,11 @@ static Type* implicit_cast_with_explicit_conversion(
      * integer/pointer conversion paths below. */
     if (e->type->kind == TYPE_NULLPTR) {
         if (target->kind == TYPE_NULLPTR) return target;
-        if (!target->is_reference && target->kind == TYPE_BOOL) return target;
+        if (!target->is_reference && target->kind == TYPE_BOOL) {
+            /* nullptr_t has an explicit conversion to bool. Keep it out of
+             * copy-initialization, overload arguments, and assignments. */
+            return allow_explicit_conversion ? target : NULL;
+        }
         if (!target->is_reference && target->kind == TYPE_PTR &&
             target->cxx_is_member_pointer) {
             e->type = target;
@@ -35429,6 +35433,21 @@ static void sema_initializer(Type* type, Expr* initializer) {
         rcc_error(initializer->loc,
                   "scalar initializer list requires exactly one value");
         return;
+    }
+    if (rcc_parser_is_cxx_mode() && type->kind == TYPE_BOOL &&
+        initializer->compound_direct_list_init &&
+        !initializer->compound_copy_list_init) {
+        Expr* element = initializer->compound_init->expr;
+        Type* element_type = sema_expr(element);
+        if (element_type && element_type->kind == TYPE_NULLPTR) {
+            if (!implicit_cast_with_explicit_conversion(
+                    element, type, true)) {
+                rcc_error(element->loc,
+                          "incompatible types in initialization");
+            }
+            *initializer = *element;
+            return;
+        }
     }
     if (!initializer->compound_paren_init &&
         sema_cxx_reject_list_narrowing(

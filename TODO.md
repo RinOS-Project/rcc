@@ -71,6 +71,12 @@
   value/reference/rvalue-reference overload sets with GCC C++20; RCC i686 and
   AMD64 each report exactly three ambiguities and produce no object in
   `test-cxx-overload-ambiguous-diagnostics`.
+- [x] Reject implicit `nullptr_t`-to-`bool` copy-initialization, copy-list
+  initialization, and function-argument conversion while preserving direct
+  list-initialization, `static_cast<bool>`, contextual `if` conversion, and
+  null pointer initialization. GCC C++20 diagnostics, RCC i686/AMD64 output,
+  AMD64 execution, and invalid-object absence pass in
+  `test-cxx-nullptr-bool-conversion` and `test-cxx-overloads`.
 - [ ] Compare remaining C++20 list-initialization ranking and narrowing
   boundaries with GCC before claiming complete conformance.
 

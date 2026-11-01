@@ -638,6 +638,7 @@ endif
 .PHONY: test-cxx-external-static-data-members
 .PHONY: test-cxx-prvalue-scalar-conversion-cleanup
 .PHONY: test-cxx-overload-ambiguous-diagnostics
+.PHONY: test-cxx-nullptr-bool-conversion
 .PHONY: test-cxx-braced-argument-overload
 .PHONY: test-cxx-initializer-list
 .PHONY: test-cxx-copy-list-explicit
@@ -1239,6 +1240,7 @@ CXX_REGRESSION_TARGETS += test-cxx-copy-list-explicit
 CXX_REGRESSION_TARGETS += test-cxx-braced-argument-overload
 CXX_REGRESSION_TARGETS += test-cxx-initializer-list
 CXX_REGRESSION_TARGETS += test-cxx-overload-ambiguous-diagnostics
+CXX_REGRESSION_TARGETS += test-cxx-nullptr-bool-conversion
 
 # The C17 profile is an explicit aggregate of the focused frontend, ABI, and
 # native-execution tests.  Keeping these as prerequisites makes the
@@ -17297,6 +17299,8 @@ test-aggregate-nested-abi: $(RCC_TARGET)
 
 test-cxx-overloads: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-overloads)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-fsyntax-only tests/cxx_overload.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-overloads/x86.ro tests/cxx_overload.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
@@ -25081,6 +25085,49 @@ test-cxx-overload-ambiguous-diagnostics: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x64.ro tests/cxx_overload_ambiguous_diagnostics.cpp,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x64.log)
 	$(call CHECK_COUNT,ambiguous overload for,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x64.log,3)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-overload-ambiguous-diagnostics/x64.ro)
+
+test-cxx-nullptr-bool-conversion: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nullptr-bool-conversion)
+	$(CXX) -std=c++20 -pedantic-errors -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-nullptr-bool-conversion/gcc-host \
+		tests/cxx_nullptr_bool_conversions.cpp
+	$(TEST_OUT)/cxx-nullptr-bool-conversion/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-nullptr-bool-conversion/x86.s \
+		tests/cxx_nullptr_bool_conversions.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-nullptr-bool-conversion/x86.o \
+		$(TEST_OUT)/cxx-nullptr-bool-conversion/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-nullptr-bool-conversion/x64.s \
+		tests/cxx_nullptr_bool_conversions.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-nullptr-bool-conversion/x64.o \
+		$(TEST_OUT)/cxx-nullptr-bool-conversion/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-nullptr-bool-conversion/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-nullptr-bool-conversion/x64-host \
+		tests/cxx_nullptr_bool_run_test.c \
+		$(TEST_OUT)/cxx-nullptr-bool-conversion/x64.o
+	$(TEST_OUT)/cxx-nullptr-bool-conversion/x64-host
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_nullptr_bool_copy_init_invalid.cpp, \
+		$(TEST_OUT)/cxx-nullptr-bool-conversion/gcc-invalid.log)
+	$(call CHECK_COUNT,requires direct-initialization,$(TEST_OUT)/cxx-nullptr-bool-conversion/gcc-invalid.log,3)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x86.ro \
+		tests/cxx_nullptr_bool_copy_init_invalid.cpp, \
+		$(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x86.log)
+	$(call CHECK_COUNT,incompatible types in initialization,$(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x86.log,2)
+	$(call CHECK_TEXT,incompatible type for argument 1 to 'consume_nullptr_bool',$(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x86.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x64.ro \
+		tests/cxx_nullptr_bool_copy_init_invalid.cpp, \
+		$(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x64.log)
+	$(call CHECK_COUNT,incompatible types in initialization,$(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x64.log,2)
+	$(call CHECK_TEXT,incompatible type for argument 1 to 'consume_nullptr_bool',$(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x64.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nullptr-bool-conversion/invalid-x64.ro)
 
 test-cxx-conversion-reference-ranking-ambiguous: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous)

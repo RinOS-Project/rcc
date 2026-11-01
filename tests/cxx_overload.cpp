@@ -42,7 +42,7 @@ int call_pointer_truth(void* value) {
 }
 
 int call_null_truth() {
-    return null_truth(nullptr);
+    return null_truth(static_cast<bool>(nullptr));
 }
 
 int call_ordered_int_long(int first, long second) {
