@@ -1026,6 +1026,15 @@
         checks method-before-destructor ordering and exactly-once destruction,
         generates i686/AMD64 code, and executes on x64 in
         `test-cxx-function-template-references`.
+  - [x] Apply user-defined conversions when a class prvalue initializes a
+        scalar directly or through a one-element scalar brace list, and destroy
+        the prvalue once at the end of the full-expression. GCC C++20, RCC
+        i686/AMD64 legacy output and x64 execution, and verified backend object
+        generation pass in `test-cxx-prvalue-scalar-conversion-cleanup`.
+  - [ ] Evaluate side-effecting constructor arguments exactly once when
+        constructor member initializers and the constructor body both use the
+        parameters. RCC legacy codegen currently evaluates `C{side_effect()}`
+        twice; add an i686/AMD64 regression and fix both target backends.
   - [x] Support static-duration reference temporaries, including initialization
         and destructor registration for namespace and block static storage.
         The implementation covers scalar and aggregate temporaries on i686 and

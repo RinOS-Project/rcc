@@ -33726,6 +33726,23 @@ static void sema_initializer(Type* type, Expr* initializer) {
     Expr* string;
     Expr* string_literal;
     if (!type || type->cxx_dependent || !initializer) return;
+    /* A typed C++ class expression can appear inside a scalar initializer,
+     * for example `int value = Converter{argument}`.  Its compound node is
+     * the class prvalue itself, not a scalar braced-init-list.  Analyze the
+     * construction first, then apply the user-defined conversion so the
+     * conversion call and full-expression temporary cleanup remain present. */
+    if (rcc_parser_is_cxx_mode() &&
+        initializer->kind == EXPR_COMPOUND && initializer->compound_type &&
+        (initializer->compound_type->kind == TYPE_STRUCT ||
+         initializer->compound_type->kind == TYPE_UNION) &&
+        type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) {
+        sema_expr(initializer);
+        if (!implicit_cast(initializer, type)) {
+            rcc_error(initializer->loc,
+                      "incompatible types in initialization");
+        }
+        return;
+    }
     if (type_is_complex(type)) {
         ExprList* item = initializer->compound_init;
         if (initializer->kind != EXPR_COMPOUND) {

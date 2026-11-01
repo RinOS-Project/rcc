@@ -635,6 +635,7 @@ endif
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-exception-cleanup-verified test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-external-static-data-members
+.PHONY: test-cxx-prvalue-scalar-conversion-cleanup
 .PHONY: test-cxx-member-methods-invalid
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
@@ -24831,6 +24832,19 @@ test-cxx-external-static-data-members: $(RCXX_TARGET)
 	$(CXX) -c -o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-b.o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-b.s
 	$(CXX) -o $(TEST_OUT)/cxx-external-static-data-members/inline-static-odr$(EXE_SUFFIX) $(TEST_OUT)/cxx-external-static-data-members/inline-odr-a.o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-b.o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-main.o
 	$(TEST_OUT)/cxx-external-static-data-members/inline-static-odr$(EXE_SUFFIX)
+
+test-cxx-prvalue-scalar-conversion-cleanup: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/gcc-host tests/cxx_prvalue_scalar_conversion_cleanup.cpp
+	$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/gcc-host$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86.s tests/cxx_prvalue_scalar_conversion_cleanup.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.s tests/cxx_prvalue_scalar_conversion_cleanup.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86.o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86.s
+	$(CC) -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.s
+	$(CXX) -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX) $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.o
+	$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp
 
 .PHONY: test-cxx-conversion-member-pointer-owner-ranking
 test-cxx-conversion-member-pointer-owner-ranking: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
