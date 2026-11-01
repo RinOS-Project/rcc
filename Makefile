@@ -25700,7 +25700,7 @@ test-cxx-external-static-data-members: $(RCXX_TARGET)
 	$(CXX) -o $(TEST_OUT)/cxx-external-static-data-members/inline-static-odr$(EXE_SUFFIX) $(TEST_OUT)/cxx-external-static-data-members/inline-odr-a.o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-b.o $(TEST_OUT)/cxx-external-static-data-members/inline-odr-main.o
 	$(TEST_OUT)/cxx-external-static-data-members/inline-static-odr$(EXE_SUFFIX)
 
-test-cxx-prvalue-scalar-conversion-cleanup: $(RCXX_TARGET)
+test-cxx-prvalue-scalar-conversion-cleanup: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/gcc-host tests/cxx_prvalue_scalar_conversion_cleanup.cpp
 	$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/gcc-host$(EXE_SUFFIX)
@@ -25708,7 +25708,7 @@ test-cxx-prvalue-scalar-conversion-cleanup: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.s tests/cxx_prvalue_scalar_conversion_cleanup.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86.o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86.s
 	$(CC) -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.s
-	$(CXX) -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX) $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.o
+	$(CXX) -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX) $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x64.o $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/rcc-host$(EXE_SUFFIX)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.ro tests/cxx_prvalue_scalar_conversion_cleanup.cpp > $(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.log
 	powershell -NoProfile -File "$(CURDIR)/scripts/rcc_expect_count.ps1" "0" "Verified backend fallback:" "$(TEST_OUT)/cxx-prvalue-scalar-conversion-cleanup/x86-verified.log"

@@ -7959,12 +7959,17 @@ static bool gen64_cxx_constructor_argument_can_cache(
         ? argument->expr->type : NULL;
     bool reference_parameter = parameter && parameter->type &&
         parameter->type->is_reference && parameter->type->base;
+    bool parameter_object_temporary =
+        codegen_cxx_constructor_argument_is_parameter_object(
+            argument, parameter ? parameter->type : NULL);
     return argument && argument->cxx_constructor_argument_offset < 0 &&
-        !argument->cxx_temporary_owner && argument->expr &&
+        (!argument->cxx_temporary_owner || parameter_object_temporary) &&
+        argument->expr &&
         (reference_parameter
              ? (gen64_expr_is_lvalue(argument->expr) ||
                 gen64_expr_is_xvalue(argument->expr))
-             : codegen_cxx_constructor_argument_cacheable_type(type));
+             : (parameter_object_temporary ||
+                codegen_cxx_constructor_argument_cacheable_type(type)));
 }
 
 static ExprList* gen64_cxx_capture_constructor_arguments(
@@ -7991,6 +7996,9 @@ static ExprList* gen64_cxx_capture_constructor_arguments(
         Expr* value = argument->expr;
         bool reference_parameter = parameter && parameter->type &&
             parameter->type->is_reference && parameter->type->base;
+        bool parameter_object_temporary =
+            codegen_cxx_constructor_argument_is_parameter_object(
+                argument, parameter ? parameter->type : NULL);
         if (gen64_cxx_constructor_argument_can_cache(
                 argument, parameter)) {
             Decl* temporary_decl;
@@ -8013,6 +8021,24 @@ static ExprList* gen64_cxx_capture_constructor_arguments(
                 value = expr_unary(
                     EXPR_DEREF, temporary_value, value->loc);
                 value->type = parameter->type->base;
+            } else if (parameter_object_temporary) {
+                Type* pointer_type = type_ptr(parameter->type);
+                gen64_expr(mod, value);
+                emit64_store_typed(
+                    mod, RBP, argument->cxx_constructor_argument_offset,
+                    RAX, pointer_type);
+                temporary_decl = decl_var(
+                    "__rcc_constructor_argument", pointer_type, NULL,
+                    value->loc);
+                temporary_decl->var_offset =
+                    argument->cxx_constructor_argument_offset;
+                temporary_value = expr_ident(
+                    temporary_decl->name, value->loc);
+                temporary_value->ident_decl = temporary_decl;
+                temporary_value->type = pointer_type;
+                value = expr_unary(
+                    EXPR_DEREF, temporary_value, value->loc);
+                value->type = parameter->type;
             } else if (value->type->kind == TYPE_STRUCT ||
                 value->type->kind == TYPE_UNION) {
                 if (value->kind == EXPR_VA_ARG ||
@@ -8030,7 +8056,7 @@ static ExprList* gen64_cxx_capture_constructor_arguments(
                     argument->cxx_constructor_argument_offset, RAX,
                     value->type);
             }
-            if (!reference_parameter) {
+            if (!reference_parameter && !parameter_object_temporary) {
                 temporary_decl = decl_var("__rcc_constructor_argument",
                                           value->type, NULL, value->loc);
                 temporary_decl->var_offset =

@@ -13034,8 +13034,14 @@ remains a separate open item.
       produces the expected member values. GCC C++20, i686/AMD64 legacy
       generation and AMD64 runtime, and verified i686/AMD64 objects with zero
       fallback pass in `test-cxx-prvalue-scalar-conversion-cleanup`.
-      Other aggregate parameter expressions and nontrivial aggregates remain in
-      the open typed-SSA aggregate item.
+      Other aggregate parameter expression shapes and nontrivial aggregate
+      copies remain in the open typed-SSA aggregate item.
+- [x] Forward a nontrivial class prvalue directly as a by-value constructor
+      parameter object. Reuse its address in member initializers and the
+      constructor body, evaluate its factory once, and run its destructor once.
+      GCC C++20, i686/AMD64 legacy generation, AMD64 host execution, and
+      verified i686/AMD64 object generation with zero fallback pass in
+      `test-cxx-prvalue-scalar-conversion-cleanup`.
 - [x] Preserve aliases when caching lvalue and xvalue arguments passed to C++
       reference constructor parameters. Capture the referent address so member
       initializers and the constructor body continue to access the caller's

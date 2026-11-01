@@ -22908,15 +22908,21 @@ static bool lower_cxx_constructor_initializer_expression_supported(
             if (type_is_scalar(expression->ident_decl->type)) {
                 return !expression->ident_decl->type->is_atomic;
             }
-            return (expression->ident_decl->type->kind == TYPE_STRUCT ||
-                    expression->ident_decl->type->kind == TYPE_UNION) &&
-                !expression->ident_decl->type->is_volatile &&
-                !expression->ident_decl->type->is_atomic &&
-                !expression->ident_decl->type->cxx_nontrivial &&
+            if ((expression->ident_decl->type->kind != TYPE_STRUCT &&
+                 expression->ident_decl->type->kind != TYPE_UNION) ||
+                expression->ident_decl->type->is_volatile ||
+                expression->ident_decl->type->is_atomic ||
+                !lower_storage_type_supported_ignoring_volatile_internal(
+                    expression->ident_decl->type, 0u)) {
+                return false;
+            }
+            if (lower_abi_indirect_class_parameter(
+                    expression->ident_decl->type)) {
+                return true;
+            }
+            return !expression->ident_decl->type->cxx_nontrivial &&
                 !expression->ident_decl->type->cleanup_function &&
-                !expression->ident_decl->type->cleanup_field &&
-                lower_storage_type_supported_ignoring_volatile_internal(
-                    expression->ident_decl->type, 0u);
+                !expression->ident_decl->type->cleanup_field;
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER: {
             const Type* object_type = expression->member_base
@@ -26979,7 +26985,7 @@ static bool lower_cxx_emit_constructor_call(
     argument = initializer->compound_init;
     while (parameter && argument) {
         if (lower_abi_indirect_class_parameter(parameter->type)) {
-            RccIrLowerValue value = lower_lvalue_address(
+            RccIrLowerValue value = lower_expression(
                 context, argument->expr);
             if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER ||
                 index >= operand_count) {

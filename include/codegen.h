@@ -414,6 +414,8 @@ int codegen_assign_cxx_constructor_storage(Decl* declaration,
                                           int initial_bytes,
                                           int stack_alignment);
 bool codegen_cxx_constructor_argument_cacheable_type(Type* type);
+bool codegen_cxx_constructor_argument_is_parameter_object(
+    const ExprList* argument, const Type* parameter_type);
 int codegen_assign_global_initializer_storage(
     GlobalInitializer* initializers, int stack_alignment);
 ExprList* codegen_call_temporary_owners(void);

@@ -127,6 +127,25 @@ struct WideConstructorArgument {
     long long third;
 };
 
+static int nontrivial_wide_factory_evaluations;
+static int nontrivial_wide_destructor_evaluations;
+
+struct NontrivialWideConstructorArgument {
+    long long first;
+    long long second;
+    long long third;
+
+    ~NontrivialWideConstructorArgument() {
+        ++nontrivial_wide_destructor_evaluations;
+    }
+};
+
+static NontrivialWideConstructorArgument
+make_nontrivial_wide_constructor_argument() {
+    ++nontrivial_wide_factory_evaluations;
+    return NontrivialWideConstructorArgument{701, 702, 703};
+}
+
 static long long sum_wide_constructor_argument(
     WideConstructorArgument value) {
     return value.first + value.second + value.third;
@@ -187,6 +206,21 @@ struct WideConstructorArgumentReuse {
     long long from_body_sum;
 
     explicit WideConstructorArgumentReuse(WideConstructorArgument value)
+        : from_initializer_first(value.first),
+          from_initializer_second(value.second) {
+        from_body_third = value.third;
+        from_body_sum = value.first + value.second + value.third;
+    }
+};
+
+struct NontrivialWideConstructorArgumentReuse {
+    long long from_initializer_first;
+    long long from_initializer_second;
+    long long from_body_third;
+    long long from_body_sum;
+
+    explicit NontrivialWideConstructorArgumentReuse(
+        NontrivialWideConstructorArgument value)
         : from_initializer_first(value.first),
           from_initializer_second(value.second) {
         from_body_third = value.third;
@@ -414,6 +448,17 @@ int main() {
         comma_wide_reused.from_body_sum != 66 ||
         wide_comma_effect_evaluations != 1 ||
         wide_selected_factory_evaluations != 1) return 57;
+
+    nontrivial_wide_factory_evaluations = 0;
+    nontrivial_wide_destructor_evaluations = 0;
+    NontrivialWideConstructorArgumentReuse nontrivial_wide_reused(
+        make_nontrivial_wide_constructor_argument());
+    if (nontrivial_wide_reused.from_initializer_first != 701 ||
+        nontrivial_wide_reused.from_initializer_second != 702 ||
+        nontrivial_wide_reused.from_body_third != 703 ||
+        nontrivial_wide_reused.from_body_sum != 2106) return 58;
+    if (nontrivial_wide_factory_evaluations != 1) return 59;
+    if (nontrivial_wide_destructor_evaluations != 1) return 60;
 
     return 0;
 }
